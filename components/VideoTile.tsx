@@ -29,6 +29,7 @@ export function VideoTile({
   badge,
   muted = false,
   allowUnmute = true,
+  viewerAudioControls = false,
   volume,
   onVolumeChange,
   fill = false,
@@ -40,6 +41,7 @@ export function VideoTile({
   badge?: string;
   muted?: boolean;
   allowUnmute?: boolean;
+  viewerAudioControls?: boolean;
   volume?: number;
   onVolumeChange?: (volume: number) => void;
   // When true (the lone tile in the room), grow to fill the available
@@ -72,9 +74,9 @@ export function VideoTile({
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    video.muted = isMuted;
+    video.muted = viewerAudioControls || isMuted;
     video.volume = Math.min(1, Math.max(0, volume ?? internalVolume));
-  }, [internalVolume, isMuted, volume]);
+  }, [internalVolume, isMuted, viewerAudioControls, volume]);
 
   useEffect(() => {
     function onFullscreenChange() {
@@ -146,6 +148,7 @@ export function VideoTile({
         ref={videoRef}
         autoPlay
         playsInline
+        muted={viewerAudioControls || isMuted}
         onLoadedData={() => setIsVideoLoading(false)}
         className="h-full w-full object-contain bg-black"
       />
@@ -163,7 +166,7 @@ export function VideoTile({
         )}
       </div>
       <div className="absolute right-2 top-2 flex flex-wrap items-center justify-end gap-2">
-        {allowUnmute && (
+        {allowUnmute && !viewerAudioControls && (
           <VolumeSlider
             value={volume ?? internalVolume}
             label={`Volume da transmissão de ${label}`}
@@ -172,7 +175,7 @@ export function VideoTile({
             className="rounded-full bg-black/60 px-2 py-1 text-white"
           />
         )}
-        {allowUnmute && (
+        {allowUnmute && !viewerAudioControls && (
           <button
             type="button"
             onClick={() => setIsMuted((m) => !m)}

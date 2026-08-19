@@ -10,13 +10,13 @@ import { VideoTile, StoppedPeerTile, ResumingPeerTile } from "@/components/Video
 import { RemoteAudio } from "@/components/RemoteAudio";
 import { ParticipantRow } from "@/components/ParticipantRow";
 import { ChatPanel } from "@/components/ChatPanel";
+import { ViewerVolumeControl } from "@/components/ViewerVolumeControl";
 
 export function AdminRoomViewer({ handle }: { handle: string }) {
   const router = useRouter();
   const token = useAdminToken();
   const [mutedPeerIds, setMutedPeerIds] = useState<Set<string>>(new Set());
   const [peerVolumes, setPeerVolumes] = useState<Record<string, number>>({});
-  const [transmissionVolumes, setTransmissionVolumes] = useState<Record<string, number>>({});
 
   const {
     status,
@@ -49,10 +49,6 @@ export function AdminRoomViewer({ handle }: { handle: string }) {
 
   function setPeerVolume(peerId: string, volume: number) {
     setPeerVolumes((prev) => ({ ...prev, [peerId]: volume }));
-  }
-
-  function setTransmissionVolume(peerId: string, volume: number) {
-    setTransmissionVolumes((prev) => ({ ...prev, [peerId]: volume }));
   }
 
   if (!token) {
@@ -96,12 +92,22 @@ export function AdminRoomViewer({ handle }: { handle: string }) {
             Modo moderação — invisível para os participantes
           </span>
         </div>
-        <Link
-          href="/admin"
-          className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
-        >
-          Parar de visualizar
-        </Link>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {screenEntries.map(([peerId, stream]) => (
+            <ViewerVolumeControl
+              key={`${peerId}:${stream.id}`}
+              stream={stream}
+              label={peers.find((peer) => peer.id === peerId)?.name ?? "Alguém"}
+              showLabel={screenEntries.length > 1}
+            />
+          ))}
+          <Link
+            href="/admin"
+            className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+          >
+            Parar de visualizar
+          </Link>
+        </div>
       </header>
 
       {status === "closed" && (
@@ -153,8 +159,7 @@ export function AdminRoomViewer({ handle }: { handle: string }) {
                     label={peerName}
                     badge="ao vivo"
                     muted
-                    volume={transmissionVolumes[peerId] ?? 1}
-                    onVolumeChange={(volume) => setTransmissionVolume(peerId, volume)}
+                    viewerAudioControls
                     fill={isSingleTile}
                     onStopWatching={() => stopWatchingScreenPeer(peerId)}
                   />

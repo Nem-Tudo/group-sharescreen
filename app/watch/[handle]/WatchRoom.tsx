@@ -30,6 +30,7 @@ import { VideoTile, StoppedPeerTile, ResumingPeerTile } from "@/components/Video
 import { RemoteAudio } from "@/components/RemoteAudio";
 import { ParticipantRow } from "@/components/ParticipantRow";
 import { ChatPanel } from "@/components/ChatPanel";
+import { ViewerVolumeControl } from "@/components/ViewerVolumeControl";
 import { WebRtcDiagnosticsPanel } from "@/components/WebRtcDiagnosticsPanel";
 import {
   MicIcon,
@@ -112,7 +113,6 @@ export function WatchRoom({ handle }: { handle: string }) {
   const [micsMuted, setMicsMuted] = useState(false);
   const [mutedPeerIds, setMutedPeerIds] = useState<Set<string>>(new Set());
   const [peerVolumes, setPeerVolumes] = useState<Record<string, number>>({});
-  const [transmissionVolumes, setTransmissionVolumes] = useState<Record<string, number>>({});
   const [renaming, setRenaming] = useState(false);
   const [renameInput, setRenameInput] = useState("");
   const [qualityOpen, setQualityOpen] = useState(false);
@@ -180,10 +180,6 @@ export function WatchRoom({ handle }: { handle: string }) {
 
   function setPeerVolume(peerId: string, volume: number) {
     setPeerVolumes((prev) => ({ ...prev, [peerId]: volume }));
-  }
-
-  function setTransmissionVolume(peerId: string, volume: number) {
-    setTransmissionVolumes((prev) => ({ ...prev, [peerId]: volume }));
   }
 
   async function handleCopyLink() {
@@ -526,6 +522,10 @@ export function WatchRoom({ handle }: { handle: string }) {
   // for each, never one tile with the other crammed into a corner.
   const remoteScreenEntries = Object.entries(remoteStreams);
   const remoteCameraEntries = Object.entries(remoteCameraStreams);
+  const remotePlaybackEntries = [
+    ...remoteScreenEntries.map(([peerId, stream]) => ({ key: `screen-${peerId}`, peerId, stream })),
+    ...remoteCameraEntries.map(([peerId, stream]) => ({ key: `camera-${peerId}`, peerId, stream })),
+  ];
   const focusedPeerVisible = !focusedPeerId || focusedPeerId === "self";
   const focusedScreenEntries = focusedPeerId
     ? focusedPeerId === "self"
@@ -683,6 +683,15 @@ export function WatchRoom({ handle }: { handle: string }) {
               <HeadphonesIcon className="h-5 w-5" />
             )}
           </button>
+
+          {remotePlaybackEntries.map(({ key, peerId, stream }) => (
+            <ViewerVolumeControl
+              key={`${key}:${stream.id}`}
+              stream={stream}
+              label={state.peers.find((peer) => peer.id === peerId)?.name ?? "Alguém"}
+              showLabel={remotePlaybackEntries.length > 1}
+            />
+          ))}
 
           <button
             type="button"
@@ -1165,8 +1174,7 @@ export function WatchRoom({ handle }: { handle: string }) {
                       label={peerName}
                       badge="ao vivo · tela"
                       muted
-                      volume={transmissionVolumes[peerId] ?? 1}
-                      onVolumeChange={(volume) => setTransmissionVolume(peerId, volume)}
+                      viewerAudioControls
                       fill={isSingleTile}
                       onStopWatching={() => stopWatchingPeer(peerId)}
                       onDoubleClick={() => setFocusedPeerId(peerId)}
@@ -1182,8 +1190,7 @@ export function WatchRoom({ handle }: { handle: string }) {
                       label={peerName}
                       badge="ao vivo · câmera"
                       muted
-                      volume={transmissionVolumes[peerId] ?? 1}
-                      onVolumeChange={(volume) => setTransmissionVolume(peerId, volume)}
+                      viewerAudioControls
                       fill={isSingleTile}
                       onDoubleClick={() => setFocusedPeerId(peerId)}
                     />
