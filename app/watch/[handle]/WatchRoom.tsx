@@ -15,7 +15,17 @@ import {
 } from "@/lib/useRoomMedia";
 import { useIsolatedWindowAudioSupport } from "@/lib/screenAudioCapture";
 import { trackEvent } from "@/lib/analytics";
-import { toRoomHandle, isPrivateRoomHandle } from "@/lib/roomsApi";
+import {
+  authenticatePrivateRoom,
+  clearStoredRoomAccess,
+  createPrivateRoom,
+  fetchRoomAccessInfo,
+  isPrivateRoomHandle,
+  RoomsApiError,
+  storeRoomAccessGrant,
+  toRoomHandle,
+  useStoredRoomAccessToken,
+} from "@/lib/roomsApi";
 import { VideoTile, StoppedPeerTile, ResumingPeerTile } from "@/components/VideoTile";
 import { RemoteAudio } from "@/components/RemoteAudio";
 import { ParticipantRow } from "@/components/ParticipantRow";
@@ -50,6 +60,7 @@ export function WatchRoom({ handle }: { handle: string }) {
   const validHandle = HANDLE_RE.test(handle);
   const screenShareMode = useScreenShareMode();
   const isolatedWindowAudioSupported = useIsolatedWindowAudioSupport();
+  const privateRoom = isPrivateRoomHandle(handle);
 
   const {
     isSharing,
@@ -94,6 +105,9 @@ export function WatchRoom({ handle }: { handle: string }) {
   const [switchInput, setSwitchInput] = useState("");
   const [switchError, setSwitchError] = useState<string | null>(null);
   const [switchIsPrivate, setSwitchIsPrivate] = useState(false);
+  const [switchPassword, setSwitchPassword] = useState("");
+  const [showSwitchPassword, setShowSwitchPassword] = useState(false);
+  const [switchingRoom, setSwitchingRoom] = useState(false);
   const [nameInput, setNameInput] = useState("");
   const [micsMuted, setMicsMuted] = useState(false);
   const [mutedPeerIds, setMutedPeerIds] = useState<Set<string>>(new Set());
@@ -104,7 +118,28 @@ export function WatchRoom({ handle }: { handle: string }) {
   const [qualityOpen, setQualityOpen] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [focusedPeerId, setFocusedPeerId] = useState<string | null>(null);
+  const roomAccessToken = useStoredRoomAccessToken(handle);
+  const [roomInfoResult, setRoomInfoResult] = useState<{ handle: string; exists: boolean } | null>(null);
+  const [roomPassword, setRoomPassword] = useState("");
+  const [roomPasswordError, setRoomPasswordError] = useState<string | null>(null);
+  const [verifyingPassword, setVerifyingPassword] = useState(false);
+  const [changingEntryName, setChangingEntryName] = useState(false);
   const previousNameRef = useRef(state.name);
+  const roomExists = roomInfoResult?.handle === handle ? roomInfoResult.exists : null;
+
+  useEffect(() => {
+    if (!privateRoom || roomAccessToken || !state.name) return;
+    const controller = new AbortController();
+    fetchRoomAccessInfo(handle, controller.signal)
+      .then((info) =>
+        setRoomInfoResult({
+          handle,
+          exists: info.exists && info.private && info.requiresPassword,
+        })
+      )
+      .catch(() => {});
+    return () => controller.abort();
+  }, [handle, privateRoom, roomAccessToken, state.name]);
 
   // Same hydration-flash guard as page.tsx: useAccountToken()/
   // useHasStoredName() briefly report empty/false on the very first client
@@ -121,8 +156,12 @@ export function WatchRoom({ handle }: { handle: string }) {
       setRenaming(false);
       setRenameInput("");
     }
+    if (changingEntryName && state.name !== previousNameRef.current) {
+      setChangingEntryName(false);
+      setNameInput("");
+    }
     previousNameRef.current = state.name;
-  }, [state.name, renaming]);
+  }, [state.name, renaming, changingEntryName]);
 
   function toggleMicsMuted() {
     const next = !micsMuted;
@@ -175,18 +214,50 @@ export function WatchRoom({ handle }: { handle: string }) {
       state.status !== "banned");
 
   useEffect(() => {
-    if (!validHandle || !state.name) return;
-    signalingClient.joinRoom(handle);
+    if (!validHandle || !state.name || (privateRoom && !roomAccessToken)) return;
+    signalingClient.joinRoom(handle, roomAccessToken ?? undefined);
     return () => {
       signalingClient.leaveRoom();
     };
-  }, [validHandle, state.name, handle]);
+  }, [validHandle, state.name, handle, privateRoom, roomAccessToken]);
+
+  useEffect(() => {
+    if (!privateRoom || !state.roomJoinError) return;
+    clearStoredRoomAccess(handle);
+  }, [handle, privateRoom, state.roomJoinError]);
 
   function handleNameSubmit(e: FormEvent) {
     e.preventDefault();
     const trimmed = nameInput.trim();
-    if (!trimmed) return;
+    if (!trimmed || trimmed === state.name) return;
     signalingClient.register(trimmed);
+  }
+
+  async function handleRoomPasswordSubmit(e: FormEvent) {
+    e.preventDefault();
+    const password = roomPassword.trim();
+    if (!password) return;
+    setVerifyingPassword(true);
+    setRoomPasswordError(null);
+    try {
+      const grant = await authenticatePrivateRoom(handle, password);
+      storeRoomAccessGrant(handle, grant);
+      setRoomPassword("");
+    } catch (error) {
+      if (error instanceof RoomsApiError && error.code === "incorrect-password") {
+        setRoomPasswordError("Senha incorreta. Tente novamente.");
+      } else if (error instanceof RoomsApiError && error.code === "too-many-attempts") {
+        setRoomPasswordError("Muitas tentativas. Aguarde um minuto e tente novamente.");
+      } else if (error instanceof RoomsApiError && error.code === "room-must-be-recreated") {
+        setRoomPasswordError("Esta sala privada precisa ser recriada com uma senha.");
+      } else if (error instanceof RoomsApiError && error.code === "room-not-found") {
+        setRoomPasswordError("Esta sala privada não existe mais.");
+      } else {
+        setRoomPasswordError("Não foi possível verificar a senha. Tente novamente.");
+      }
+    } finally {
+      setVerifyingPassword(false);
+    }
   }
 
   function handleRenameSubmit(e: FormEvent) {
@@ -197,7 +268,7 @@ export function WatchRoom({ handle }: { handle: string }) {
     signalingClient.register(trimmed);
   }
 
-  function handleSwitchSubmit(e: FormEvent) {
+  async function handleSwitchSubmit(e: FormEvent) {
     e.preventDefault();
     const trimmed = switchInput.trim();
     const fullHandle = toRoomHandle(trimmed, switchIsPrivate);
@@ -205,11 +276,50 @@ export function WatchRoom({ handle }: { handle: string }) {
       setSwitchError("Use de 1 a 32 letras, números, - e _.");
       return;
     }
-    setSwitching(false);
-    setSwitchInput("");
+    const nextHandle = fullHandle;
+    if (!switchIsPrivate) {
+      setSwitching(false);
+      setSwitchInput("");
+      setSwitchError(null);
+      trackEvent("room_switch");
+      router.push(`/watch/${nextHandle}`);
+      return;
+    }
+    const password = switchPassword.trim();
+    if (password.length < 4) {
+      setSwitchError("A senha deve ter pelo menos 4 caracteres.");
+      return;
+    }
+    if (password.length > 128) {
+      setSwitchError("A senha deve ter no máximo 128 caracteres.");
+      return;
+    }
+    setSwitchingRoom(true);
     setSwitchError(null);
-    trackEvent("room_switch");
-    router.push(`/watch/${fullHandle}`);
+    try {
+      let grant;
+      try {
+        grant = await createPrivateRoom(nextHandle, password);
+      } catch (error) {
+        if (!(error instanceof RoomsApiError) || error.code !== "room-exists") throw error;
+        grant = await authenticatePrivateRoom(nextHandle, password);
+      }
+      storeRoomAccessGrant(nextHandle, grant);
+      setSwitching(false);
+      setSwitchInput("");
+      setSwitchPassword("");
+      setShowSwitchPassword(false);
+      trackEvent("room_switch");
+      router.push(`/watch/${nextHandle}`);
+    } catch (error) {
+      if (error instanceof RoomsApiError && error.code === "incorrect-password") {
+        setSwitchError("Senha incorreta para a sala existente.");
+      } else {
+        setSwitchError("Não foi possível abrir a sala privada.");
+      }
+    } finally {
+      setSwitchingRoom(false);
+    }
   }
 
   if (!validHandle) {
@@ -279,15 +389,17 @@ export function WatchRoom({ handle }: { handle: string }) {
     );
   }
 
-  if (!state.name) {
+  if (!state.name || changingEntryName) {
     return (
       <div className="flex flex-1 items-center justify-center px-4 py-16">
         <main className="w-full max-w-md rounded-2xl border border-black/10 bg-white p-8 shadow-sm dark:border-white/10 dark:bg-zinc-950">
           <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-            Entrar na sala {handle}
+            {changingEntryName ? "Alterar nome" : `Entrar na sala ${handle}`}
           </h1>
           <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-            Escolha um nome para entrar nesta sala.
+            {changingEntryName
+              ? "Escolha o nome que será mostrado aos participantes."
+              : "Escolha um nome para entrar nesta sala."}
           </p>
           <form onSubmit={handleNameSubmit} className="mt-8 flex flex-col gap-3">
             <label htmlFor="name" className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
@@ -308,10 +420,97 @@ export function WatchRoom({ handle }: { handle: string }) {
               disabled={!nameInput.trim()}
               className="mt-2 rounded-lg bg-zinc-950 px-4 py-2.5 font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
             >
-              Entrar na sala
+              Confirmar nome
             </button>
           </form>
         </main>
+      </div>
+    );
+  }
+
+  if (privateRoom && !roomAccessToken) {
+    return (
+      <div className="flex flex-1 items-center justify-center px-4 py-16">
+        <main className="w-full max-w-md rounded-2xl border border-black/10 bg-white p-8 shadow-sm dark:border-white/10 dark:bg-zinc-950">
+          <p className="text-xs font-semibold uppercase tracking-wide text-red-600 dark:text-red-400">
+            Sala privada
+          </p>
+          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
+            Esta sala é protegida por senha
+          </h1>
+          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+            Digite a senha definida pelo criador para entrar como {state.name}.
+          </p>
+
+          {roomExists === false ? (
+            <p className="mt-6 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">
+              Esta sala privada não existe mais.
+            </p>
+          ) : (
+            <form onSubmit={handleRoomPasswordSubmit} className="mt-8 flex flex-col gap-3">
+              <label htmlFor="private-room-password" className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                Senha
+              </label>
+              <input
+                id="private-room-password"
+                type="password"
+                autoFocus
+                autoComplete="current-password"
+                value={roomPassword}
+                onChange={(event) => setRoomPassword(event.target.value)}
+                minLength={4}
+                maxLength={128}
+                className="rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+              />
+              {(roomPasswordError || state.roomJoinError) && (
+                <p className="text-sm text-red-500">
+                  {roomPasswordError ??
+                    (state.roomJoinError === "room-not-found"
+                      ? "Esta sala privada não existe mais."
+                      : state.roomJoinError === "room-must-be-recreated"
+                        ? "Esta sala privada precisa ser recriada com uma senha."
+                        : "Sua autorização expirou. Digite a senha novamente.")}
+                </p>
+              )}
+              <button
+                type="submit"
+                disabled={!roomPassword.trim() || verifyingPassword}
+                className="mt-2 rounded-lg bg-zinc-950 px-4 py-2.5 font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+              >
+                {verifyingPassword ? "Verificando..." : "Entrar na sala"}
+              </button>
+            </form>
+          )}
+
+          {state.account ? (
+            <Link
+              href="/"
+              className="mt-4 inline-block text-sm font-medium text-zinc-500 underline underline-offset-2 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
+            >
+              ← Voltar ao início
+            </Link>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setNameInput(state.name ?? "");
+                setChangingEntryName(true);
+                setRoomPasswordError(null);
+              }}
+              className="mt-4 text-sm font-medium text-zinc-500 underline underline-offset-2 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
+            >
+              ← Alterar nome
+            </button>
+          )}
+        </main>
+      </div>
+    );
+  }
+
+  if (privateRoom && state.room !== handle) {
+    return (
+      <div className="flex flex-1 items-center justify-center px-4 py-16 text-sm text-zinc-500 dark:text-zinc-400">
+        Entrando na sala privada...
       </div>
     );
   }
@@ -596,18 +795,54 @@ export function WatchRoom({ handle }: { handle: string }) {
               <input
                 type="checkbox"
                 checked={switchIsPrivate}
-                onChange={(e) => setSwitchIsPrivate(e.target.checked)}
+                onChange={(e) => {
+                  setSwitchIsPrivate(e.target.checked);
+                  setSwitchError(null);
+                  if (!e.target.checked) {
+                    setSwitchPassword("");
+                    setShowSwitchPassword(false);
+                  }
+                }}
                 className="h-3.5 w-3.5 rounded border-zinc-300 dark:border-zinc-700"
               />
               Sala privada
             </label>
+            {switchIsPrivate && (
+              <div className="mt-2 flex flex-col gap-2">
+                <label htmlFor="switch-room-password" className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                  Senha da sala
+                </label>
+                <input
+                  id="switch-room-password"
+                  type={showSwitchPassword ? "text" : "password"}
+                  value={switchPassword}
+                  onChange={(event) => setSwitchPassword(event.target.value)}
+                  minLength={4}
+                  maxLength={128}
+                  autoComplete="new-password"
+                  className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                />
+                <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+                  <input
+                    type="checkbox"
+                    checked={showSwitchPassword}
+                    onChange={(event) => setShowSwitchPassword(event.target.checked)}
+                  />
+                  Mostrar senha
+                </label>
+              </div>
+            )}
             {switchError && <p className="mt-1 text-xs text-red-500">{switchError}</p>}
             <button
               type="submit"
-              disabled={!switchInput.trim()}
+              disabled={
+                !switchInput.trim() ||
+                switchingRoom ||
+                (switchIsPrivate && !switchPassword.trim())
+              }
               className="mt-2 w-full rounded-md bg-zinc-950 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
             >
-              Ir para a sala
+              {switchingRoom ? "Verificando..." : "Ir para a sala"}
             </button>
             <Link
               href="/rooms"

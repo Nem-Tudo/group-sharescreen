@@ -44,6 +44,7 @@ export type SignalingState = {
   nameError: string | null;
   account: RegisteredAccount | null;
   room: string | null;
+  roomJoinError: "access-denied" | "room-not-found" | "room-must-be-recreated" | null;
   peers: PeerInfo[];
   chatMessages: ChatMessage[];
   // Site-wide banner, independent of room — null when none is active. Set
@@ -76,6 +77,7 @@ const initialState: SignalingState = {
   nameError: null,
   account: null,
   room: null,
+  roomJoinError: null,
   peers: [],
   chatMessages: [],
   announcement: null,
@@ -142,6 +144,7 @@ class SignalingClient {
   // the original register() call did.
   private desiredToken: string | null = null;
   private desiredRoom: string | null = null;
+  private desiredRoomAccessToken: string | null = null;
 
   state: SignalingState = initialState;
 
@@ -281,7 +284,15 @@ class SignalingClient {
         if (!account) setStoredName(msg.name as string);
         setClientId(msg.id as string);
         trackEvent("name_registered");
-        if (this.desiredRoom) this.rawSend({ type: "join", room: this.desiredRoom });
+        if (this.desiredRoom) {
+          this.rawSend({
+            type: "join",
+            room: this.desiredRoom,
+            ...(this.desiredRoomAccessToken
+              ? { accessToken: this.desiredRoomAccessToken }
+              : {}),
+          });
+        }
         break;
       }
       case "register-error":
@@ -307,6 +318,7 @@ class SignalingClient {
         const history = Array.isArray(msg.messages) ? (msg.messages as ChatMessage[]) : [];
         this.setState({
           room: msg.room as string,
+          roomJoinError: null,
           selfId: msg.selfId as string,
           peers: msg.peers as PeerInfo[],
           chatMessages:
@@ -314,6 +326,17 @@ class SignalingClient {
         });
         trackEvent("room_joined");
         this.roomJoinedListeners.forEach((l) => l());
+        break;
+      }
+      case "join-error": {
+        const code = msg.code;
+        const roomJoinError =
+          code === "room-not-found" ||
+          code === "room-must-be-recreated" ||
+          code === "access-denied"
+            ? code
+            : "access-denied";
+        this.setState({ room: null, peers: [], chatMessages: [], roomJoinError });
         break;
       }
       case "peer-joined": {
@@ -430,13 +453,18 @@ class SignalingClient {
     this.setState({ ...initialState });
   }
 
-  joinRoom(room: string) {
+  joinRoom(room: string, accessToken?: string) {
     this.desiredRoom = room;
-    if (this.state.name) this.rawSend({ type: "join", room });
+    this.desiredRoomAccessToken = accessToken ?? null;
+    this.setState({ roomJoinError: null });
+    if (this.state.name) {
+      this.rawSend({ type: "join", room, ...(accessToken ? { accessToken } : {}) });
+    }
   }
 
   leaveRoom() {
     this.desiredRoom = null;
+    this.desiredRoomAccessToken = null;
     this.rawSend({ type: "leave" });
     this.setState({ room: null, peers: [], chatMessages: [] });
   }

@@ -6,7 +6,13 @@ import Link from "next/link";
 import { signalingClient } from "@/lib/signalingClient";
 import { useSignaling, useHasStoredName } from "@/lib/useSignaling";
 import { trackEvent } from "@/lib/analytics";
-import { toRoomHandle, fetchPeopleOnline } from "@/lib/roomsApi";
+import {
+  createPrivateRoom,
+  fetchPeopleOnline,
+  RoomsApiError,
+  storeRoomAccessGrant,
+  toRoomHandle,
+} from "@/lib/roomsApi";
 import { useAuth } from "@/lib/AuthContext";
 
 // Mirrors server/signaling.ts's HANDLE_RE — must match exactly, or a name
@@ -39,9 +45,11 @@ export default function Home() {
   const [roomInput, setRoomInput] = useState("");
   const [roomError, setRoomError] = useState<string | null>(null);
   const [roomIsPrivate, setRoomIsPrivate] = useState(false);
-
   const [mode, setMode] = useState<IdentityMode>("landing");
   const [nameInput, setNameInput] = useState("");
+  const [roomPassword, setRoomPassword] = useState("");
+  const [showRoomPassword, setShowRoomPassword] = useState(false);
+  const [creatingRoom, setCreatingRoom] = useState(false);
   const [changingName, setChangingName] = useState(false);
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -180,7 +188,7 @@ export default function Home() {
     resetIdentityForm();
   }
 
-  function handleRoomSubmit(e: FormEvent) {
+  async function handleRoomSubmit(e: FormEvent) {
     e.preventDefault();
     const trimmed = roomInput.trim();
     const fullHandle = toRoomHandle(trimmed, roomIsPrivate);
@@ -188,8 +196,39 @@ export default function Home() {
       setRoomError("Use de 1 a 32 letras, números, - e _.");
       return;
     }
+    const handle = fullHandle;
+    if (!roomIsPrivate) {
+      setRoomError(null);
+      router.push(`/watch/${handle}`);
+      return;
+    }
+
+    const password = roomPassword.trim();
+    if (password.length < 4) {
+      setRoomError("A senha deve ter pelo menos 4 caracteres.");
+      return;
+    }
+    if (password.length > 128) {
+      setRoomError("A senha deve ter no máximo 128 caracteres.");
+      return;
+    }
+    setCreatingRoom(true);
     setRoomError(null);
-    router.push(`/watch/${fullHandle}`);
+    try {
+      const grant = await createPrivateRoom(handle, password);
+      storeRoomAccessGrant(handle, grant);
+      setRoomPassword("");
+      setShowRoomPassword(false);
+      router.push(`/watch/${handle}`);
+    } catch (error) {
+      if (error instanceof RoomsApiError && error.code === "room-exists") {
+        setRoomError("Essa sala privada já existe. Abra o link dela para entrar.");
+      } else {
+        setRoomError("Não foi possível criar a sala privada. Tente novamente.");
+      }
+    } finally {
+      setCreatingRoom(false);
+    }
   }
 
   return (
@@ -453,14 +492,54 @@ export default function Home() {
               <input
                 type="checkbox"
                 checked={roomIsPrivate}
-                onChange={(e) => setRoomIsPrivate(e.target.checked)}
+                onChange={(e) => {
+                  setRoomIsPrivate(e.target.checked);
+                  setRoomError(null);
+                  if (!e.target.checked) {
+                    setRoomPassword("");
+                    setShowRoomPassword(false);
+                  }
+                }}
                 className="h-4 w-4 rounded border-zinc-300 dark:border-zinc-700"
               />
               Sala privada (não aparece na lista de salas públicas)
             </label>
+            {roomIsPrivate && (
+              <div className="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
+                <label htmlFor="room-password" className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                  Senha da sala
+                </label>
+                <input
+                  id="room-password"
+                  type={showRoomPassword ? "text" : "password"}
+                  value={roomPassword}
+                  onChange={(e) => setRoomPassword(e.target.value)}
+                  minLength={4}
+                  maxLength={128}
+                  autoComplete="new-password"
+                  className="rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                />
+                <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+                  <input
+                    type="checkbox"
+                    checked={showRoomPassword}
+                    onChange={(e) => setShowRoomPassword(e.target.checked)}
+                  />
+                  Mostrar senha
+                </label>
+              </div>
+            )}
             {roomError && <p className="text-sm text-red-500">{roomError}</p>}
-            <button type="submit" disabled={!roomInput.trim()} className={`mt-2 ${primaryButtonClass}`}>
-              Entrar na sala
+            <button
+              type="submit"
+              disabled={
+                !roomInput.trim() ||
+                creatingRoom ||
+                (roomIsPrivate && !roomPassword.trim())
+              }
+              className={`mt-2 ${primaryButtonClass}`}
+            >
+              {creatingRoom ? "Criando..." : roomIsPrivate ? "Criar sala privada" : "Entrar na sala"}
             </button>
           </form>
         )}

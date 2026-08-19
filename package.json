@@ -3,22 +3,35 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "dev:web": "next dev",
+    "dev:signaling": "tsx watch server/index.ts",
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "test:room-access": "node --experimental-strip-types --test server/roomAccess.test.ts",
+    "start:web": "next start",
+    "start:signaling": "tsx server/index.ts",
+    "start": "concurrently -n web,signaling -c blue,magenta \"npm:start:web\" \"npm:start:signaling\"",
     "lint": "eslint"
   },
   "dependencies": {
+    "@fastify/cors": "^11.3.0",
+    "@fastify/websocket": "^11.3.0",
     "@sapphi-red/web-noise-suppressor": "^0.4.0",
+    "concurrently": "^10.0.5",
+    "fastify": "^5.12.0",
+    "http-proxy": "^1.18.1",
     "next": "16.3.1",
     "react": "19.2.8",
     "@tailwindcss/postcss": "^4",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "tsx": "^4.23.12"
   },
   "devDependencies": {
+    "@types/http-proxy": "^1.17.17",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/ws": "^8.18.1",
     "eslint": "^9",
     "eslint-config-next": "16.3.1",
     "tailwindcss": "^4",

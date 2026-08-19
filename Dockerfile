@@ -43,11 +43,15 @@ COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/next.config.ts ./next.config.ts
 COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/server ./server
 
 USER sharescreen
 
-EXPOSE 3000
+# 3000 = Next.js (web), 4000 = Fastify (sinalização WebRTC)
+EXPOSE 3000 4000
 ENV PORT=3000
+ENV SIGNALING_PORT=4000
+ENV SIGNALING_HOST=0.0.0.0
 
 # UMAMI_URL is read at request time by app/api/umami/[...path]/route.ts (not
 # baked in at build time) — it must be supplied when running the container,
