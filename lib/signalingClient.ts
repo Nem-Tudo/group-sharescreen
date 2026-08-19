@@ -3,6 +3,7 @@
 import { trackEvent } from "./analytics";
 import type { Announcement } from "./announcement";
 import { getAccountToken } from "./accountApi";
+import { getSignalingWebSocketUrl } from "./signalingEndpoints";
 
 // `role: "moderator"` marks a moderator silently watching for moderation
 // (see server/signaling.ts's "admin-join") — present in the peer list so
@@ -62,7 +63,6 @@ export type SignalingState = {
 type Listener = () => void;
 type SignalListener = (from: string, data: Record<string, unknown>) => void;
 
-const WS_URL = process.env.NEXT_PUBLIC_SIGNALING_URL || "ws://localhost:4000/ws";
 const NAME_STORAGE_KEY = "sharescreen:name";
 const CLIENT_ID_STORAGE_KEY = "sharescreen:clientId";
 // Mirrors server/signaling.ts's SUPERSEDED_CLOSE_CODE.
@@ -190,7 +190,7 @@ class SignalingClient {
       return;
     }
     this.setState({ status: "connecting" });
-    const ws = new WebSocket(WS_URL);
+    const ws = new WebSocket(getSignalingWebSocketUrl());
     this.ws = ws;
 
     ws.onopen = () => {

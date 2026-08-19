@@ -5,6 +5,9 @@
   "scripts": {
     "dev:web": "next dev",
     "dev:signaling": "tsx watch server/index.ts",
+    "dev:gateway": "tsx watch server/gateway.ts",
+    "dev:local": "concurrently -k -n web,signaling,gateway -c blue,magenta,green \"npm:dev:web\" \"npm:dev:signaling\" \"npm:dev:gateway\"",
+    "dev:public": "concurrently -k -n web,signaling,gateway,cloudflare -c blue,magenta,green,yellow \"npm:dev:web\" \"npm:dev:signaling\" \"npm:dev:gateway\" \"node scripts/cloudflare-tunnel.mjs\"",
     "dev": "next dev",
     "build": "next build",
     "test:room-access": "node --experimental-strip-types --test server/roomAccess.test.ts",

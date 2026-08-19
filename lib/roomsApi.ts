@@ -1,16 +1,13 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import { getSignalingHttpBase } from "./signalingEndpoints";
 
-const WS_URL = process.env.NEXT_PUBLIC_SIGNALING_URL || "ws://localhost:4000/ws";
+export { getSignalingHttpBase } from "./signalingEndpoints";
 
 // The signaling server also serves plain HTTP endpoints (health, room
 // directory) on the same host — derive that base from the WS URL instead of
 // needing a second env var for what's really the same server.
-export function getSignalingHttpBase(): string {
-  return WS_URL.replace(/^ws/, "http").replace(/\/ws\/?$/, "");
-}
-
 export const PRIVATE_ROOM_PREFIX = "priv-";
 
 export function toRoomHandle(rawHandle: string, isPrivate: boolean): string {

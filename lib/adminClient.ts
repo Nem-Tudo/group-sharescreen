@@ -1,8 +1,7 @@
 "use client";
 
 import type { ChatMessage } from "./signalingClient";
-
-const WS_URL = process.env.NEXT_PUBLIC_SIGNALING_URL || "ws://localhost:4000/ws";
+import { getSignalingWebSocketUrl } from "./signalingEndpoints";
 
 export type AdminPeerInfo = { id: string; name: string; sharing: boolean; mic: boolean };
 
@@ -72,7 +71,7 @@ class AdminSignalingClient {
       error: null,
     });
 
-    const ws = new WebSocket(WS_URL);
+    const ws = new WebSocket(getSignalingWebSocketUrl());
     this.ws = ws;
 
     ws.onopen = () => {
