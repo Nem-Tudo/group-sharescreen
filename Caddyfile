@@ -1,0 +1,20 @@
+# Certificado via DNS-01 challenge (Cloudflare) em vez de HTTP-01 — não
+# depende da porta 80 estar acessível publicamente e permite wildcard se
+# um dia precisar. Requer a imagem compilada em Dockerfile.caddy.
+
+# Web (Next.js)
+{$DOMAIN_WEB} {
+    tls {
+        dns cloudflare {$CLOUDFLARE_API_TOKEN}
+    }
+    reverse_proxy app:3000
+}
+
+# Sinalização WebRTC (Fastify) — WS upgrade é tratado automaticamente pelo
+# reverse_proxy do Caddy, sem config extra.
+{$DOMAIN_WS} {
+    tls {
+        dns cloudflare {$CLOUDFLARE_API_TOKEN}
+    }
+    reverse_proxy app:4000
+}

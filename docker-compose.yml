@@ -1,0 +1,47 @@
+services:
+  app:
+    build:
+      context: .
+      args:
+        # NEXT_PUBLIC_* são embutidas no bundle client em build time — se
+        # mudar depois de já ter buildado, precisa `docker compose build`
+        # de novo (subir sozinho não basta).
+        NEXT_PUBLIC_SIGNALING_URL: ${NEXT_PUBLIC_SIGNALING_URL}
+        NEXT_PUBLIC_TURN_URLS: ${NEXT_PUBLIC_TURN_URLS}
+        NEXT_PUBLIC_TURN_USERNAME: ${NEXT_PUBLIC_TURN_USERNAME}
+        NEXT_PUBLIC_TURN_CREDENTIAL: ${NEXT_PUBLIC_TURN_CREDENTIAL}
+        NEXT_PUBLIC_UMAMI_WEBSITE_ID: ${NEXT_PUBLIC_UMAMI_WEBSITE_ID}
+    environment:
+      UMAMI_URL: ${UMAMI_URL}
+      METRICS_TOKEN: ${METRICS_TOKEN}
+      ADMIN_USER: ${ADMIN_USER}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+    # Sem `ports:` de propósito — só o proxy expõe algo ao host, 3000/4000
+    # ficam só na rede interna do compose.
+    expose:
+      - "3000"
+      - "4000"
+    restart: unless-stopped
+
+  proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile.caddy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN_WEB: ${DOMAIN_WEB}
+      DOMAIN_WS: ${DOMAIN_WS}
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

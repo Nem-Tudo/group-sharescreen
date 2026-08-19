@@ -1,0 +1,11 @@
+# Caddy oficial não inclui provedores de DNS challenge — precisa compilar
+# com o plugin via xcaddy. Só recompila quando este arquivo muda; não
+# depende do restante do projeto.
+FROM caddy:2-builder-alpine AS builder
+
+RUN xcaddy build \
+    --with github.com/caddy-dns/cloudflare
+
+FROM caddy:2-alpine
+
+COPY --from=builder /usr/bin/caddy /usr/bin/caddy
