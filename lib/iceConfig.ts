@@ -14,3 +14,10 @@ export const ICE_CONFIG: RTCConfiguration = {
       : []),
   ],
 };
+
+// Safe to expose in the development-only diagnostics UI: endpoints are
+// useful when debugging ICE, while TURN credentials and SDP are not.
+export const ICE_SERVER_DIAGNOSTICS = {
+  stun: [STUN_URL],
+  turn: TURN_URLS,
+};

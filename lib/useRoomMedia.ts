@@ -4,7 +4,18 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { signalingClient } from "./signalingClient";
 import { trackEvent } from "./analytics";
 import { ICE_CONFIG } from "./iceConfig";
+import {
+  attachPeerConnectionDiagnostics,
+  recordWebRtcError,
+  recordWebRtcEvent,
+  refreshPeerConnectionDiagnostics,
+} from "./webrtcDiagnostics";
 import { captureNoiseSuppressedMic, setGraphSuppressionEnabled, type MicNoiseGraph } from "./rnnoise";
+import {
+  browserDisplayCaptureProvider,
+  type ShareAudioMode,
+  type ShareAudioStatus,
+} from "./screenAudioCapture";
 
 type Channel = "screen" | "camera" | "mic";
 type ShareSource = "display" | "camera";
@@ -148,7 +159,8 @@ function useBroadcastChannel(
   // Only meaningful for the screen channel — mic never passes this. When it
   // changes while a share is already active, the live track and every
   // current sender get updated in place instead of requiring a restart.
-  videoQuality?: QualityPreset
+  videoQuality?: QualityPreset,
+  onStopped?: () => void
 ) {
   const eventPrefix = channel === "mic" ? "mic" : `${channel}_share`;
   const [active, setActive] = useState(false);
@@ -308,6 +320,7 @@ function useBroadcastChannel(
         const sender = pc.addTrack(track, stream);
         if (track.kind === "video") applySenderBitrate(sender, videoQualityRef.current?.maxBitrateKbps);
       });
+      attachPeerConnectionDiagnostics(pc, channel, "send", peerId, stream);
       pc.onicecandidate = (e) => {
         if (e.candidate) {
           signalingClient.sendSignal(peerId, {
@@ -347,6 +360,8 @@ function useBroadcastChannel(
           if (sendPCs.current.get(peerId) !== pc) return;
           await pc.setLocalDescription(offer);
           if (sendPCs.current.get(peerId) !== pc) return;
+          refreshPeerConnectionDiagnostics(pc, channel, "send", peerId, { offerSent: true });
+          recordWebRtcEvent(channel, "send", peerId, "offer enviada", { offerSent: true });
           signalingClient.sendSignal(peerId, {
             channel,
             role: "broadcaster",
@@ -354,13 +369,14 @@ function useBroadcastChannel(
             sdp: pc.localDescription,
           });
         })
-        .catch(() => {
+        .catch((error) => {
           // Offer creation/negotiation can fail outright (not just go
           // "failed" after connecting) — e.g. a dropped signaling message.
           // Without a retry here the peer's "sharing" indicator stays on
           // forever with no video ever arriving, since nothing else re-runs
           // openSendPC until the peer list itself changes.
           if (sendPCs.current.get(peerId) !== pc) return;
+          recordWebRtcError(channel, "send", peerId, "criação/envio da offer", error);
           closeSendPC(peerId);
           scheduleSendRetry(peerId);
         });
@@ -401,6 +417,7 @@ function useBroadcastChannel(
     localStreamRef.current = null;
     setLocalStream(null);
     setSource(undefined);
+    onStopped?.();
     for (const [peerId, pc] of sendPCs.current) {
       signalingClient.sendSignal(peerId, { channel, role: "broadcaster", kind: "stop" });
       pc.close();
@@ -414,7 +431,7 @@ function useBroadcastChannel(
     if (channel === "screen") signalingClient.setSharing(false);
     else signalingClient.setMic(false);
     trackEvent(`${eventPrefix}_stop`);
-  }, [channel, eventPrefix]);
+  }, [channel, eventPrefix, onStopped]);
 
   const start = useCallback(async (requestedSource?: ShareSource) => {
     if (activeRef.current) return;
@@ -457,7 +474,14 @@ function useBroadcastChannel(
       const pc = new RTCPeerConnection(ICE_CONFIG);
       recvPCs.current.set(peerId, pc);
       pc.ontrack = (e) => {
-        setRemoteStreams((prev) => ({ ...prev, [peerId]: e.streams[0] }));
+        const stream = e.streams[0] ?? new MediaStream([e.track]);
+        setRemoteStreams((prev) => ({ ...prev, [peerId]: stream }));
+        recordWebRtcEvent(channel, "receive", peerId, `track recebida: ${e.track.kind}`, {
+          remoteStreamReceived: true,
+        });
+        refreshPeerConnectionDiagnostics(pc, channel, "receive", peerId, {
+          remoteStreamReceived: true,
+        });
         clearResuming(peerId);
       };
       pc.onicecandidate = (e) => {
@@ -488,6 +512,7 @@ function useBroadcastChannel(
           }, 4000);
         }
       };
+      attachPeerConnectionDiagnostics(pc, channel, "receive", peerId);
       return pc;
     },
     [channel, closeRecvPC, clearResuming]
@@ -505,6 +530,7 @@ function useBroadcastChannel(
       if (data.channel !== channel) return;
       if (data.role === "broadcaster") {
         if (data.kind === "offer" && data.sdp) {
+          recordWebRtcEvent(channel, "receive", from, "offer recebida", { offerReceived: true });
           // A fresh offer always comes from a brand-new RTCPeerConnection on
           // the sender's side (this app never renegotiates an existing one
           // in place, including on the failure-triggered retry above) — if
@@ -518,6 +544,9 @@ function useBroadcastChannel(
           thisPc
             .setRemoteDescription(data.sdp)
             .then(async () => {
+              refreshPeerConnectionDiagnostics(thisPc, channel, "receive", from, {
+                offerReceived: true,
+              });
               if (recvPCs.current.get(from) !== thisPc) return null;
               const queued = pendingRecvCandidates.current.get(from);
               if (queued) {
@@ -534,6 +563,11 @@ function useBroadcastChannel(
             })
             .then(() => {
               if (recvPCs.current.get(from) !== thisPc) return;
+              recordWebRtcEvent(channel, "receive", from, "answer enviada", { answerSent: true });
+              refreshPeerConnectionDiagnostics(thisPc, channel, "receive", from, {
+                offerReceived: true,
+                answerSent: true,
+              });
               signalingClient.sendSignal(from, {
                 channel,
                 role: "viewer",
@@ -541,7 +575,8 @@ function useBroadcastChannel(
                 sdp: thisPc.localDescription,
               });
             })
-            .catch(() => {
+            .catch((error) => {
+              recordWebRtcError(channel, "receive", from, "processamento da offer/answer", error);
               if (recvPCs.current.get(from) === thisPc) closeRecvPC(from);
             });
         } else if (data.kind === "ice" && data.candidate) {
@@ -571,8 +606,13 @@ function useBroadcastChannel(
           if (activeRef.current) openSendPC(from);
         } else if (data.kind === "answer" && data.sdp) {
           const pc = sendPCs.current.get(from);
+          recordWebRtcEvent(channel, "send", from, "answer recebida", { answerReceived: true });
           pc?.setRemoteDescription(data.sdp)
             .then(async () => {
+              refreshPeerConnectionDiagnostics(pc, channel, "send", from, {
+                offerSent: true,
+                answerReceived: true,
+              });
               const queued = pendingSendCandidates.current.get(from);
               if (queued) {
                 pendingSendCandidates.current.delete(from);
@@ -581,7 +621,9 @@ function useBroadcastChannel(
                 }
               }
             })
-            .catch(() => {});
+            .catch((error) =>
+              recordWebRtcError(channel, "send", from, "setRemoteDescription(answer)", error)
+            );
         } else if (data.kind === "ice" && data.candidate) {
           const pc = sendPCs.current.get(from);
           if (pc && pc.remoteDescription) {
@@ -725,10 +767,13 @@ export function useRoomMedia(room: string) {
   // fills up (see throttledResolution/throttledBitrateKbps). Turning it off
   // makes the three dials above absolute again, exactly as picked.
   const [smartQualityEnabled, setSmartQualityEnabledState] = useState(true);
+  const [shareAudioMode, setShareAudioModeState] = useState<ShareAudioMode>("window");
+  const [shareAudioStatus, setShareAudioStatus] = useState<ShareAudioStatus | null>(null);
   const shareResolutionRef = useRef(shareResolution);
   const shareFpsRef = useRef(shareFps);
   const shareBitrateRef = useRef(shareBitrate);
   const smartQualityEnabledRef = useRef(smartQualityEnabled);
+  const shareAudioModeRef = useRef(shareAudioMode);
 
   const setShareResolution = useCallback((value: ShareResolution) => {
     shareResolutionRef.current = value;
@@ -750,6 +795,12 @@ export function useRoomMedia(room: string) {
     setSmartQualityEnabledState(value);
     trackEvent(value ? "smart_quality_on" : "smart_quality_off");
   }, []);
+  const setShareAudioMode = useCallback((value: ShareAudioMode) => {
+    shareAudioModeRef.current = value;
+    setShareAudioModeState(value);
+    trackEvent(`screen_share_audio_${value}`);
+  }, []);
+  const clearShareAudioStatus = useCallback(() => setShareAudioStatus(null), []);
 
   // Other peers in the room (mesh upload targets) — drives the automatic
   // resolution/bitrate throttle below, and needs to be reactive so it kicks
@@ -783,7 +834,8 @@ export function useRoomMedia(room: string) {
   const screen = useBroadcastChannel(
     "screen",
     room,
-    (source) => {
+    async (source) => {
+      setShareAudioStatus(null);
       const effectiveResolution = smartQualityEnabledRef.current
         ? throttledResolution(shareResolutionRef.current, peerCountRef.current)
         : shareResolutionRef.current;
@@ -801,12 +853,18 @@ export function useRoomMedia(room: string) {
       // No fallback to the camera here — on browsers without getDisplayMedia
       // (most mobile ones) this throws synchronously, which start() below
       // turns into a visible error instead of silently switching sources.
-      return navigator.mediaDevices.getDisplayMedia({ video: videoConstraints, audio: true });
+      const result = await browserDisplayCaptureProvider.capture(
+        videoConstraints,
+        shareAudioModeRef.current
+      );
+      setShareAudioStatus(result.audioStatus);
+      return result.stream;
     },
     () => hasDisplayCapture() || hasCameraCapture(),
     "Seu navegador não suporta compartilhamento de tela nem câmera.",
     "Não foi possível iniciar o compartilhamento. Verifique as permissões do navegador.",
-    screenQualityPreset
+    screenQualityPreset,
+    clearShareAudioStatus
   );
 
   const camera = useBroadcastChannel(
@@ -902,6 +960,9 @@ export function useRoomMedia(room: string) {
     setShareBitrate,
     smartQualityEnabled,
     setSmartQualityEnabled,
+    shareAudioMode,
+    setShareAudioMode,
+    shareAudioStatus,
 
     isMicOn: mic.active,
     toggleMic,

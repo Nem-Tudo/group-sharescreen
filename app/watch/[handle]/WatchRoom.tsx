@@ -13,12 +13,14 @@ import {
   SHARE_FPS_OPTIONS,
   SHARE_BITRATE_OPTIONS,
 } from "@/lib/useRoomMedia";
+import { useIsolatedWindowAudioSupport } from "@/lib/screenAudioCapture";
 import { trackEvent } from "@/lib/analytics";
 import { toRoomHandle, isPrivateRoomHandle } from "@/lib/roomsApi";
 import { VideoTile, StoppedPeerTile, ResumingPeerTile } from "@/components/VideoTile";
 import { RemoteAudio } from "@/components/RemoteAudio";
 import { ParticipantRow } from "@/components/ParticipantRow";
 import { ChatPanel } from "@/components/ChatPanel";
+import { WebRtcDiagnosticsPanel } from "@/components/WebRtcDiagnosticsPanel";
 import {
   MicIcon,
   MicOffIcon,
@@ -34,6 +36,11 @@ import {
 // this lets through but the server rejects lands the user in a dead room
 // (join fails server-side, but the client's already navigated to it).
 const HANDLE_RE = /^[a-zA-Z0-9_-]{1,32}$/;
+const SHARE_AUDIO_MODE_LABELS = {
+  window: "Áudio isolado da janela",
+  system: "Todo o áudio do computador",
+  none: "Sem áudio",
+} as const;
 
 export function WatchRoom({ handle }: { handle: string }) {
   const router = useRouter();
@@ -42,6 +49,7 @@ export function WatchRoom({ handle }: { handle: string }) {
   const { loading: resolvingAccount } = useAuth();
   const validHandle = HANDLE_RE.test(handle);
   const screenShareMode = useScreenShareMode();
+  const isolatedWindowAudioSupported = useIsolatedWindowAudioSupport();
 
   const {
     isSharing,
@@ -69,6 +77,9 @@ export function WatchRoom({ handle }: { handle: string }) {
     setShareBitrate,
     smartQualityEnabled,
     setSmartQualityEnabled,
+    shareAudioMode,
+    setShareAudioMode,
+    shareAudioStatus,
     isMicOn,
     toggleMic,
     micError,
@@ -703,10 +714,134 @@ export function WatchRoom({ handle }: { handle: string }) {
                   ))}
                 </select>
               </div>
+
+              <fieldset className="border-t border-zinc-200 pt-3 dark:border-zinc-800">
+                <legend className="mb-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                  Áudio do compartilhamento
+                </legend>
+                <div className="flex flex-col gap-2 text-xs text-zinc-700 dark:text-zinc-300">
+                  <label className="flex items-start gap-2">
+                    <input
+                      type="radio"
+                      name="share-audio-mode"
+                      value="window"
+                      checked={shareAudioMode === "window"}
+                      disabled={Boolean(localStream)}
+                      onChange={() => setShareAudioMode("window")}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      <span className="font-medium">Somente esta janela (recomendado)</span>
+                      <br />
+                      Evita transmitir outros aplicativos quando o navegador oferecer suporte.
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-2">
+                    <input
+                      type="radio"
+                      name="share-audio-mode"
+                      value="system"
+                      checked={shareAudioMode === "system"}
+                      disabled={Boolean(localStream)}
+                      onChange={() => setShareAudioMode("system")}
+                      className="mt-0.5"
+                    />
+                    <span>Todo o áudio do computador</span>
+                  </label>
+                  <label className="flex items-start gap-2">
+                    <input
+                      type="radio"
+                      name="share-audio-mode"
+                      value="none"
+                      checked={shareAudioMode === "none"}
+                      disabled={Boolean(localStream)}
+                      onChange={() => setShareAudioMode("none")}
+                      className="mt-0.5"
+                    />
+                    <span>Sem áudio</span>
+                  </label>
+                </div>
+                {!isolatedWindowAudioSupported && (
+                  <p className="mt-2 rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                    Áudio isolado indisponível neste navegador. Nesse modo, o compartilhamento será somente com vídeo.
+                  </p>
+                )}
+                {localStream && (
+                  <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+                    Pare o compartilhamento de tela para trocar o modo de áudio.
+                  </p>
+                )}
+              </fieldset>
             </div>
           </div>
         )}
       </header>
+
+      {localStream && shareSource === "display" && shareAudioStatus && (
+        <div
+          className={`px-4 py-2 text-sm ${
+            shareAudioStatus.kind === "unavailable"
+              ? "bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+              : "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+          }`}
+        >
+          <p>
+            {shareAudioStatus.message}{" "}
+            {shareAudioStatus.displaySurface !== "unknown" && (
+              <span className="opacity-75">
+                Fonte: {shareAudioStatus.displaySurface === "window" ? "janela" : shareAudioStatus.displaySurface === "browser" ? "aba" : "tela inteira"}.
+              </span>
+            )}
+          </p>
+
+          <details className="mt-1 text-xs">
+            <summary className="cursor-pointer select-none font-medium opacity-80 hover:opacity-100">
+              Diagnóstico da captura
+            </summary>
+            <div className="mt-2 max-w-xl rounded-md border border-current/20 bg-white/40 p-2 dark:bg-black/20">
+              <p>
+                <span className="font-semibold">Modo solicitado:</span>{" "}
+                {SHARE_AUDIO_MODE_LABELS[shareAudioStatus.requestedMode]}
+              </p>
+              <p className="mt-2 font-semibold">Resultado observado:</p>
+              <dl className="mt-1 grid grid-cols-[max-content_1fr] gap-x-2 gap-y-1 break-all">
+                {shareAudioStatus.displaySurface !== "unknown" && (
+                  <><dt>Superfície de vídeo:</dt><dd>{shareAudioStatus.displaySurface}</dd></>
+                )}
+                {shareAudioStatus.videoTrackEnabled !== null && (
+                  <><dt>Vídeo:</dt><dd>{shareAudioStatus.videoTrackEnabled && shareAudioStatus.videoTrackReadyState === "live" ? "ativo" : "inativo"}</dd></>
+                )}
+                <dt>Faixa de áudio recebida:</dt>
+                <dd>{shareAudioStatus.audioRemovedForSafety ? "removida por segurança" : shareAudioStatus.audioTrackEnabled !== null ? "sim" : "não"}</dd>
+                {shareAudioStatus.audioTrackEnabled !== null && !shareAudioStatus.audioRemovedForSafety && (
+                  <><dt>Áudio:</dt><dd>{shareAudioStatus.audioTrackEnabled && shareAudioStatus.audioTrackReadyState === "live" ? "ativo" : "inativo"}</dd></>
+                )}
+                {shareAudioStatus.videoTrackLabel && (
+                  <><dt>Rótulo do vídeo:</dt><dd>{shareAudioStatus.videoTrackLabel}</dd></>
+                )}
+                {shareAudioStatus.audioTrackLabel && (
+                  <><dt>Rótulo do áudio:</dt><dd>{shareAudioStatus.audioTrackLabel}</dd></>
+                )}
+                {shareAudioStatus.audioTrackEnabled !== null && (
+                  <><dt>Áudio habilitado:</dt><dd>{shareAudioStatus.audioTrackEnabled ? "sim" : "não"}</dd></>
+                )}
+                {shareAudioStatus.audioTrackMuted !== null && (
+                  <><dt>Áudio silenciado:</dt><dd>{shareAudioStatus.audioTrackMuted ? "sim" : "não"}</dd></>
+                )}
+                {typeof shareAudioStatus.audioTrackSettings?.sampleRate === "number" && (
+                  <><dt>Sample rate:</dt><dd>{shareAudioStatus.audioTrackSettings.sampleRate} Hz</dd></>
+                )}
+                {typeof shareAudioStatus.audioTrackSettings?.channelCount === "number" && (
+                  <><dt>Canais:</dt><dd>{shareAudioStatus.audioTrackSettings.channelCount}</dd></>
+                )}
+                {shareAudioStatus.audioTrackSettings?.deviceId && (
+                  <><dt>Device ID:</dt><dd>{shareAudioStatus.audioTrackSettings.deviceId}</dd></>
+                )}
+              </dl>
+            </div>
+          </details>
+        </div>
+      )}
 
       {shareError && (
         <p className="bg-red-50 px-4 py-2 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">
@@ -875,6 +1010,8 @@ export function WatchRoom({ handle }: { handle: string }) {
             onSendGif={(url) => signalingClient.sendGif(url)}
             blockedMessage={state.chatBlockedMessage}
           />
+
+          <WebRtcDiagnosticsPanel selfId={state.selfId} peers={state.peers} />
         </aside>
       </div>
     </div>
