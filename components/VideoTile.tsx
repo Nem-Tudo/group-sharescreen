@@ -63,10 +63,14 @@ export function VideoTile({
   // blank black tile, and reset it whenever the stream is swapped out.
   const [isVideoLoading, setIsVideoLoading] = useState(true);
   const pipSupported = useSyncExternalStore(noopSubscribe, getPipSupported, getPipSupportedServer);
+  const prevStreamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
-    setIsVideoLoading(true);
-    if (videoRef.current) videoRef.current.srcObject = stream;
+    if (videoRef.current && prevStreamRef.current !== stream) {
+      prevStreamRef.current = stream;
+      setIsVideoLoading(true);
+      videoRef.current.srcObject = stream;
+    }
   }, [stream]);
 
   useEffect(() => {

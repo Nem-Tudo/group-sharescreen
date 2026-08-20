@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { signalingClient } from "@/lib/signalingClient";
@@ -56,8 +56,11 @@ export default function Home() {
   // before correcting to the real localStorage-backed value — without this
   // gate that one frame renders `restoring` as false for a logged-in
   // account, flashing the "choose name" popups before flipping back.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
 
   const registered = Boolean(state.name);
   const isAccount = Boolean(state.account);

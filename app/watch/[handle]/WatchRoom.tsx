@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signalingClient } from "@/lib/signalingClient";
@@ -70,7 +70,6 @@ export function WatchRoom({ handle }: { handle: string }) {
     resumeWatchingPeer,
     shareError,
     shareSource,
-    isCameraSharing,
     startCameraShare,
     stopCameraShare,
     localCameraStream,
@@ -117,8 +116,11 @@ export function WatchRoom({ handle }: { handle: string }) {
   // useHasStoredName() briefly report empty/false on the very first client
   // paint before correcting to the real localStorage-backed value, which
   // would otherwise flash the "choose a name" form for a logged-in account.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
 
   // Closes the rename popover once the name actually changes — covers both
   // success (server confirmed the new name) and a plain reconnect, without
