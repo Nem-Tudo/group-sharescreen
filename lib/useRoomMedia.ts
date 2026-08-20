@@ -131,6 +131,26 @@ export const SHARE_BITRATE_OPTIONS: { value: ShareBitrate; label: string }[] = [
   { value: "high", label: "Bitrate alto (~4 Mbps)" },
 ];
 
+export type ShareAudioMode = "tab" | "system" | "muted";
+
+export const SHARE_AUDIO_MODE_OPTIONS: { value: ShareAudioMode; label: string; description: string }[] = [
+  {
+    value: "tab",
+    label: "Aba / Janela (Sem eco)",
+    description: "Transmite o som apenas da aba ou janela selecionada, evitando eco das vozes de quem estiver falando na sala.",
+  },
+  {
+    value: "system",
+    label: "Áudio do sistema inteiro",
+    description: "Transmite todo o áudio do computador. Pode capturar as vozes dos participantes da sala se não estiver usando fone.",
+  },
+  {
+    value: "muted",
+    label: "Sem áudio",
+    description: "Transmite apenas o vídeo da tela sem capturar nenhum som.",
+  },
+];
+
 // Updated sender helper: also controls resolution scale-down and degradation mode.
 // For screen sharing, "maintain-resolution" keeps text and UI crisp by preferring
 // frame-rate drops over blurry pixels when the encoder is under pressure.
@@ -869,6 +889,7 @@ export function useRoomMedia(room: string) {
   const [shareResolution, setShareResolutionState] = useState<ShareResolution>("1080p");
   const [shareFps, setShareFpsState] = useState<ShareFps>(30);
   const [shareBitrate, setShareBitrateState] = useState<ShareBitrate>("medium");
+  const [shareAudioMode, setShareAudioModeState] = useState<ShareAudioMode>("tab");
   // On by default: automatically steps resolution/bitrate down as the room
   // fills up (see throttledResolution/throttledBitrateKbps). Turning it off
   // makes the three dials above absolute again, exactly as picked.
@@ -876,6 +897,7 @@ export function useRoomMedia(room: string) {
   const shareResolutionRef = useRef(shareResolution);
   const shareFpsRef = useRef(shareFps);
   const shareBitrateRef = useRef(shareBitrate);
+  const shareAudioModeRef = useRef(shareAudioMode);
   const smartQualityEnabledRef = useRef(smartQualityEnabled);
 
   const setShareResolution = useCallback((value: ShareResolution) => {
@@ -892,6 +914,11 @@ export function useRoomMedia(room: string) {
     shareBitrateRef.current = value;
     setShareBitrateState(value);
     trackEvent(`screen_share_bitrate_${value}`);
+  }, []);
+  const setShareAudioMode = useCallback((value: ShareAudioMode) => {
+    shareAudioModeRef.current = value;
+    setShareAudioModeState(value);
+    trackEvent(`screen_share_audio_${value}`);
   }, []);
   const setSmartQualityEnabled = useCallback((value: boolean) => {
     smartQualityEnabledRef.current = value;
@@ -946,10 +973,38 @@ export function useRoomMedia(room: string) {
           video: { ...videoConstraints, facingMode: "user" },
         });
       }
+
+      const audioMode = shareAudioModeRef.current;
+      let audioConstraints: boolean | MediaTrackConstraints = false;
+      const extraDisplayMediaOptions: Record<string, unknown> = {};
+
+      if (audioMode === "tab") {
+        audioConstraints = {
+          echoCancellation: true,
+          noiseSuppression: false,
+          autoGainControl: false,
+        };
+        // Excludes the active call tab and nudges browser to share tab/isolated audio rather than system loopback
+        extraDisplayMediaOptions.selfBrowserSurface = "exclude";
+        extraDisplayMediaOptions.systemAudio = "exclude";
+        extraDisplayMediaOptions.surfaceSwitching = "include";
+      } else if (audioMode === "system") {
+        audioConstraints = {
+          echoCancellation: true,
+        };
+        extraDisplayMediaOptions.systemAudio = "include";
+      } else {
+        audioConstraints = false;
+      }
+
       // No fallback to the camera here — on browsers without getDisplayMedia
       // (most mobile ones) this throws synchronously, which start() below
       // turns into a visible error instead of silently switching sources.
-      return navigator.mediaDevices.getDisplayMedia({ video: videoConstraints, audio: true });
+      return navigator.mediaDevices.getDisplayMedia({
+        video: videoConstraints,
+        audio: audioConstraints,
+        ...extraDisplayMediaOptions,
+      });
     },
     () => hasDisplayCapture() || hasCameraCapture(),
     "Seu navegador não suporta compartilhamento de tela nem câmera.",
@@ -1064,6 +1119,8 @@ export function useRoomMedia(room: string) {
     setShareFps,
     shareBitrate,
     setShareBitrate,
+    shareAudioMode,
+    setShareAudioMode,
     smartQualityEnabled,
     setSmartQualityEnabled,
 

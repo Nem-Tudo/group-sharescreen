@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signalingClient } from "@/lib/signalingClient";
@@ -12,6 +12,7 @@ import {
   SHARE_RESOLUTION_OPTIONS,
   SHARE_FPS_OPTIONS,
   SHARE_BITRATE_OPTIONS,
+  SHARE_AUDIO_MODE_OPTIONS,
 } from "@/lib/useRoomMedia";
 import { trackEvent } from "@/lib/analytics";
 import { toRoomHandle, isPrivateRoomHandle } from "@/lib/roomsApi";
@@ -70,7 +71,6 @@ export function WatchRoom({ handle }: { handle: string }) {
     resumeWatchingPeer,
     shareError,
     shareSource,
-    isCameraSharing,
     startCameraShare,
     stopCameraShare,
     localCameraStream,
@@ -82,6 +82,8 @@ export function WatchRoom({ handle }: { handle: string }) {
     setShareFps,
     shareBitrate,
     setShareBitrate,
+    shareAudioMode,
+    setShareAudioMode,
     smartQualityEnabled,
     setSmartQualityEnabled,
     isMicOn,
@@ -117,8 +119,11 @@ export function WatchRoom({ handle }: { handle: string }) {
   // useHasStoredName() briefly report empty/false on the very first client
   // paint before correcting to the real localStorage-backed value, which
   // would otherwise flash the "choose a name" form for a logged-in account.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
 
   // Closes the rename popover once the name actually changes — covers both
   // success (server confirmed the new name) and a plain reconnect, without
@@ -818,6 +823,198 @@ export function WatchRoom({ handle }: { handle: string }) {
             </button>
           )}
         </div>
+
+        {renaming && (
+          <form
+            onSubmit={handleRenameSubmit}
+            className="absolute inset-x-4 top-full z-20 mt-2 rounded-lg border border-zinc-200 bg-white p-3 shadow-lg dark:border-zinc-800 dark:bg-zinc-950 sm:inset-x-auto sm:right-4 sm:w-72"
+          >
+            <label className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
+              Novo nome
+            </label>
+            <input
+              autoFocus
+              value={renameInput}
+              onChange={(e) => setRenameInput(e.target.value)}
+              maxLength={24}
+              placeholder="Ex: Maria"
+              className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+            />
+            {state.nameError && <p className="mt-1 text-xs text-red-500">{state.nameError}</p>}
+            <button
+              type="submit"
+              disabled={!renameInput.trim() || renameInput.trim() === state.name}
+              className="mt-2 w-full rounded-md bg-zinc-950 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+            >
+              Salvar nome
+            </button>
+          </form>
+        )}
+
+        {switching && (
+          <form
+            onSubmit={handleSwitchSubmit}
+            className="absolute inset-x-4 top-full z-20 mt-2 rounded-lg border border-zinc-200 bg-white p-3 shadow-lg dark:border-zinc-800 dark:bg-zinc-950 sm:inset-x-auto sm:right-4 sm:w-72"
+          >
+            <label className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
+              Nova sala
+            </label>
+            <input
+              autoFocus
+              value={switchInput}
+              onChange={(e) => setSwitchInput(e.target.value)}
+              placeholder="Ex: reuniao-time"
+              className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+            />
+            <label className="mt-2 flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+              <input
+                type="checkbox"
+                checked={switchIsPrivate}
+                onChange={(e) => setSwitchIsPrivate(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-zinc-300 dark:border-zinc-700"
+              />
+              Sala privada
+            </label>
+            {switchError && <p className="mt-1 text-xs text-red-500">{switchError}</p>}
+            <button
+              type="submit"
+              disabled={!switchInput.trim()}
+              className="mt-2 w-full rounded-md bg-zinc-950 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+            >
+              Ir para a sala
+            </button>
+            <Link
+              href="/rooms"
+              className="mt-2 block text-center text-xs font-medium text-zinc-500 underline underline-offset-2 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
+            >
+              Ver salas públicas ativas
+            </Link>
+          </form>
+        )}
+
+        {qualityOpen && (
+          <div className="absolute inset-x-4 top-full z-20 mt-2 rounded-lg border border-zinc-200 bg-white p-3 shadow-lg dark:border-zinc-800 dark:bg-zinc-950 sm:inset-x-auto sm:right-4 sm:w-72">
+            <div className="mb-2 flex items-start justify-between gap-2">
+              <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                Qualidade da transmissão — reduza se a sala estiver travando
+              </p>
+              <button
+                type="button"
+                onClick={() => setQualityOpen(false)}
+                aria-label="Fechar"
+                title="Fechar"
+                className="shrink-0 text-lg leading-none text-zinc-400 transition hover:text-zinc-700 dark:hover:text-zinc-200"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              <label className="flex items-start gap-2 rounded-md border border-zinc-200 bg-zinc-50 p-2 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
+                <input
+                  type="checkbox"
+                  checked={smartQualityEnabled}
+                  onChange={(e) => setSmartQualityEnabled(e.target.checked)}
+                  className="mt-0.5 h-3.5 w-3.5 rounded border-zinc-300 dark:border-zinc-700"
+                />
+                <span>
+                  <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                    Ativar controle inteligente de qualidade
+                  </span>
+                  <br />
+                  Reduz resolução e bitrate automaticamente quando a sala tem muita gente. As opções abaixo viram o teto — a qualidade real pode ficar menor.
+                </span>
+              </label>
+
+              <div>
+                <label
+                  htmlFor="share-resolution"
+                  className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400"
+                >
+                  Resolução
+                </label>
+                <select
+                  id="share-resolution"
+                  value={shareResolution}
+                  onChange={(e) => setShareResolution(e.target.value as typeof shareResolution)}
+                  className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                >
+                  {SHARE_RESOLUTION_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="share-fps"
+                  className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400"
+                >
+                  Taxa de quadros
+                </label>
+                <select
+                  id="share-fps"
+                  value={shareFps}
+                  onChange={(e) => setShareFps(Number(e.target.value) as typeof shareFps)}
+                  className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                >
+                  {SHARE_FPS_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="share-bitrate"
+                  className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400"
+                >
+                  Bitrate
+                </label>
+                <select
+                  id="share-bitrate"
+                  value={shareBitrate}
+                  onChange={(e) => setShareBitrate(e.target.value as typeof shareBitrate)}
+                  className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                >
+                  {SHARE_BITRATE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="share-audio-mode"
+                  className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400"
+                >
+                  Áudio da transmissão
+                </label>
+                <select
+                  id="share-audio-mode"
+                  value={shareAudioMode}
+                  onChange={(e) => setShareAudioMode(e.target.value as typeof shareAudioMode)}
+                  className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                >
+                  {SHARE_AUDIO_MODE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400 leading-tight">
+                  {SHARE_AUDIO_MODE_OPTIONS.find((opt) => opt.value === shareAudioMode)?.description}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
       </header>
 
       {shareError && (
