@@ -27,6 +27,7 @@ import type { OAuthResult } from "@/lib/oauthApi";
 import { GlobeIcon } from "@/components/icons";
 import { DownloadAppButton } from "@/components/DownloadAppButton";
 import { MdLock, MdOutlineMap } from "react-icons/md";
+import { Tooltip } from "@/components/Tooltip";
 
 // Mirrors server/signaling.ts's HANDLE_RE — must match exactly, or a name
 // this lets through but the server rejects lands the user in a dead room
@@ -53,8 +54,8 @@ const labelClass = "text-sm font-medium text-zinc-700 dark:text-zinc-300";
 // what the rest of the form asks for.
 function roomTabClass(selected: boolean): string {
   return `flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition ${selected
-      ? "border-zinc-950 bg-zinc-950 text-white dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-950"
-      : "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+    ? "border-zinc-950 bg-zinc-950 text-white dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-950"
+    : "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
     }`;
 }
 
@@ -382,15 +383,17 @@ export default function Home() {
             Ver salas públicas
           </Link>
           {/* The same rooms, arranged by where their owners put them on the
-              globe instead of by headcount — see app/mapa. Only ever public
+              globe instead of by headcount — see app/worldmap. Only ever public
               ones, same as the list beside it. */}
-          <Link
-            href="/worldmap"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 px-3.5 py-2 text-sm font-medium text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900"
-          >
-            <MdOutlineMap className="h-4 w-4" />
-            Ver mapa de salas
-          </Link>
+          <Tooltip content="Encontre salas no seu país, cidade ou bairro!">
+            <Link
+              href="/worldmap"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 px-3.5 py-2 text-sm font-medium text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900"
+            >
+              <MdOutlineMap className="h-4 w-4" />
+              Ver mapa de salas
+            </Link>
+          </Tooltip>
         </div>
 
         {restoring ? (
@@ -723,25 +726,25 @@ export default function Home() {
           </form>
         )}
       </main>
-        <p className="mt-2 text-center text-xs text-zinc-400 dark:text-zinc-600">
-          Desenvolvido por{" "}
-          <span className="font-medium text-zinc-500 dark:text-zinc-400">@NemTudo</span> (
-          <a
-            href="https://discord.gg/nemtudo"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline underline-offset-2 text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
-          >
-            discord.gg/nemtudo
-          </a>
-          ) ·{" "}
-          <Link
-            href="/termos"
-            className="underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-300"
-          >
-            Termos de uso
-          </Link>
-        </p>
+      <p className="mt-2 text-center text-xs text-zinc-400 dark:text-zinc-600">
+        Desenvolvido por{" "}
+        <span className="font-medium text-zinc-500 dark:text-zinc-400">@NemTudo</span> (
+        <a
+          href="https://discord.gg/nemtudo"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline underline-offset-2 text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
+        >
+          discord.gg/nemtudo
+        </a>
+        ) ·{" "}
+        <Link
+          href="/termos"
+          className="underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-300"
+        >
+          Termos de uso
+        </Link>
+      </p>
     </div>
   );
 }

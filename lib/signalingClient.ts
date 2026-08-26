@@ -84,7 +84,7 @@ export type RoomAdmin = {
   name: string;
 };
 
-// Where the room's owner/admins pinned it on the world map (see the /mapa
+// Where the room's owner/admins pinned it on the world map (see the /worldmap
 // page and ManageRoomModal's "Definir local do mundo"). Null for a room
 // nobody has placed.
 export type RoomLocation = {
@@ -252,6 +252,11 @@ export type SignalingState = {
   // places it. Kept here rather than fetched, so the "Definir local do
   // mundo" view opens on the pin that's already there.
   roomLocation: RoomLocation | null;
+  // The room's blurb and category (see lib/roomCategories) — "" and null when
+  // unset. Set by the owner/admins from the room header, and shown wherever a
+  // room is listed.
+  roomDescription: string;
+  roomCategory: string | null;
   // The last action this room refused us (see the server's
   // "room-permission-denied"). Carried alongside a counter because the
   // *event* is what matters — being refused the mic twice in a row is two
@@ -314,6 +319,8 @@ const initialState: SignalingState = {
   roomAdmins: [],
   roomPermissions: { ...DEFAULT_ROOM_PERMISSIONS },
   roomLocation: null,
+  roomDescription: "",
+  roomCategory: null,
   permissionDenied: null,
   permissionDeniedSeq: 0,
   typingPeerIds: [],
@@ -694,6 +701,8 @@ class SignalingClient {
           roomAdmins: parseRoomAdmins(msg.admins),
           roomPermissions: parseRoomPermissions(msg.permissions),
           roomLocation: parseRoomLocation(msg.location),
+          roomDescription: typeof msg.description === "string" ? msg.description : "",
+          roomCategory: typeof msg.category === "string" ? msg.category : null,
           // A refusal from the room we just left says nothing about this one.
           permissionDenied: null,
         });
@@ -790,6 +799,8 @@ class SignalingClient {
           roomAdmins: parseRoomAdmins(msg.admins),
           roomPermissions: parseRoomPermissions(msg.permissions),
           roomLocation: parseRoomLocation(msg.location),
+          roomDescription: typeof msg.description === "string" ? msg.description : "",
+          roomCategory: typeof msg.category === "string" ? msg.category : null,
         });
         break;
       // An action this room doesn't allow us. The server already refused it;
@@ -1072,6 +1083,8 @@ class SignalingClient {
       roomAdmins: [],
       roomPermissions: { ...DEFAULT_ROOM_PERMISSIONS },
       roomLocation: null,
+      roomDescription: "",
+      roomCategory: null,
       permissionDenied: null,
     });
   }
@@ -1104,6 +1117,14 @@ class SignalingClient {
   // with null. Owner/admin only, enforced server-side.
   setRoomLocation(location: RoomLocation | null) {
     this.rawSend({ type: "room-location-set", location });
+  }
+
+  // The room's blurb and category. Each field is sent only when it's the one
+  // being changed — the server leaves an absent field alone, so the
+  // description input saving as you type can't wipe the category and vice
+  // versa. Owner/admin only, enforced server-side.
+  setRoomInfo(info: { description?: string; category?: string | null }) {
+    this.rawSend({ type: "room-info-set", ...info });
   }
 
   // Dismisses the "this room doesn't allow that" notice — a one-shot warning,

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { fetchPublicRooms, type PublicRoom } from "@/lib/roomsApi";
 import { Tooltip } from "@/components/Tooltip";
+import { roomCategory } from "@/lib/roomCategories";
 
 const POLL_INTERVAL_MS = 8000;
 
@@ -98,19 +99,37 @@ export function RoomsPageClient() {
           )}
 
           <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {filtered.map((room) => (
+            {filtered.map((room) => {
+              const category = roomCategory(room.category);
+              return (
               <li
                 key={room.handle}
                 className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950"
               >
                 <div className="min-w-0">
-                  {/* The name is truncated to keep the card one line wide —
-                      the tooltip is what makes a long one readable at all. */}
-                  <Tooltip content={room.handle}>
-                    <p className="truncate font-semibold text-zinc-900 dark:text-zinc-100">
-                      {room.handle}
+                  <div className="flex min-w-0 items-center gap-2">
+                    {/* The name is truncated to keep the card one line wide —
+                        the tooltip is what makes a long one readable at all. */}
+                    <Tooltip content={room.handle}>
+                      <p className="truncate font-semibold text-zinc-900 dark:text-zinc-100">
+                        {room.handle}
+                      </p>
+                    </Tooltip>
+                    {category && (
+                      <span
+                        className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${category.className}`}
+                      >
+                        {category.label}
+                      </span>
+                    )}
+                  </div>
+                  {/* Only when there is one — an empty line here would push
+                      every other card's layout around for nothing. */}
+                  {room.description && (
+                    <p className="mt-1 line-clamp-2 text-xs text-zinc-600 dark:text-zinc-300">
+                      {room.description}
                     </p>
-                  </Tooltip>
+                  )}
                   <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
                     {room.peopleCount} {room.peopleCount === 1 ? "pessoa" : "pessoas"} · ativa{" "}
                     {formatActiveFor(room.createdAt)}
@@ -123,7 +142,8 @@ export function RoomsPageClient() {
                   Entrar
                 </Link>
               </li>
-            ))}
+              );
+            })}
           </ul>
         </div>
       </div>

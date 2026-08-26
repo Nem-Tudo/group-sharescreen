@@ -12,6 +12,11 @@ export type WorldMapMarker = {
   label: string;
   // Small muted text after the label, e.g. "3 pessoas".
   badge?: string;
+  // A short tag shown on the pin ahead of the label, and again in the popup —
+  // a room's category, today. Kept to a word or two: the pin grows to fit it.
+  tag?: string;
+  // Longer text, popup only — there is no room for it on the pin itself.
+  description?: string;
   // Clicking the pin goes here. Omitted for a pin that isn't a link.
   href?: string;
 };

@@ -99,10 +99,14 @@ export type PublicRoom = {
   peopleCount: number;
   createdAt: number;
   // Where the room's owner/admins pinned it on the world map (see
-  // components/WorldMap and the /mapa page) — null, or absent entirely from
+  // components/WorldMap and the /worldmap page) — null, or absent entirely from
   // a server that predates the field, for a room nobody has placed. Only the
   // map reads it; the plain /rooms list ignores it.
   location?: { lat: number; lng: number } | null;
+  // The room's blurb and category (see lib/roomCategories) — shown by both
+  // the list and the map. Absent entirely from a server that predates them.
+  description?: string;
+  category?: string | null;
 };
 
 export async function fetchPublicRooms(signal?: AbortSignal): Promise<PublicRoom[]> {

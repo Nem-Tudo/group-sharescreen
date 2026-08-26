@@ -55,6 +55,7 @@ import { RemoteAudio } from "@/components/RemoteAudio";
 import { ParticipantRow } from "@/components/ParticipantRow";
 import { ChatPanel } from "@/components/ChatPanel";
 import { OpenInAppBanner } from "@/components/OpenInAppBanner";
+import { RoomInfoControls } from "@/components/RoomInfoControls";
 import { isDesktopApp } from "@/lib/desktop";
 import { PartnerCard } from "@/components/PartnerCard";
 import { SupportersTooltipContent } from "@/components/SupportersTooltip";
@@ -2007,7 +2008,11 @@ export function WatchRoom({ handle }: { handle: string }) {
             control group against the right edge whether it shares the line
             with the title or has been pushed onto its own. */}
         <div className="flex flex-wrap items-center gap-x-2 gap-y-2.5">
-          <div className="flex min-w-0 items-center gap-2">
+          {/* flex-1 rather than content-width: the description input inside
+              RoomInfoControls grows into whatever this group has spare (it
+              caps itself), which it can only do if this group claims the room
+              between the title and the controls in the first place. */}
+          <div className="flex min-w-0 flex-1 items-center gap-2">
             <Link href={"/"} className="shrink-0 text-lg font-semibold text-zinc-950 dark:text-zinc-50">
               <MdHome />
             </Link>
@@ -2033,9 +2038,16 @@ export function WatchRoom({ handle }: { handle: string }) {
             >
               {isPrivateRoomHandle(handle) ? "Sala privada" : "Sala pública"}
             </span>
-            <span className="shrink-0 rounded-full bg-zinc-200 px-2.5 py-1 text-xs font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
-              {peerCount} {peerCount === 1 ? "pessoa" : "pessoas"}
-            </span>
+            {/* Right of the public/private badge, where the headcount chip
+                used to be — the participant list already carries that number
+                (and the mobile tab bar repeats it), so this is the more
+                useful thing to spend the space on. Editable for the owner and
+                admins, read-only text for everyone else. */}
+            <RoomInfoControls
+              description={state.roomDescription}
+              category={state.roomCategory}
+              canEdit={isRoomManager}
+            />
           </div>
 
           <div className="ml-auto flex flex-wrap items-center justify-end gap-2">

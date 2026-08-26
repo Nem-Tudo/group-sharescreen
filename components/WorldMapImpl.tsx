@@ -75,12 +75,17 @@ function escapeHtml(value: string): string {
 function roomIcon(marker: WorldMapMarker): L.DivIcon {
   const label = escapeHtml(marker.label);
   const badge = marker.badge ? `<span style="opacity:.75">${escapeHtml(marker.badge)}</span>` : "";
+  // A darker inset pill rather than another colour: the pin already carries
+  // the room's own colour, and a second bright one would compete with it.
+  const tag = marker.tag
+    ? `<span style="border-radius:9999px;background:rgba(0,0,0,.25);padding:1px 6px;font-size:10px">${escapeHtml(marker.tag)}</span>`
+    : "";
   return L.divIcon({
     className: "",
     html: `
       <div style="transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;pointer-events:auto">
         <div style="display:flex;align-items:center;gap:6px;white-space:nowrap;border-radius:9999px;background:#059669;color:#fff;padding:4px 10px;font-size:12px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,.35)">
-          <span>${label}</span>${badge}
+          ${tag}<span>${label}</span>${badge}
         </div>
         <div style="width:2px;height:10px;background:#059669"></div>
         <div style="width:8px;height:8px;border-radius:9999px;background:#059669;box-shadow:0 0 0 3px rgba(5,150,105,.28)"></div>
@@ -100,10 +105,20 @@ function popupHtml(marker: WorldMapMarker): string {
   const badge = marker.badge
     ? `<div style="font-size:12px;opacity:.7;margin-top:2px">${escapeHtml(marker.badge)}</div>`
     : "";
+  const tag = marker.tag
+    ? `<div style="font-size:11px;font-weight:600;opacity:.8;margin-bottom:2px">${escapeHtml(marker.tag)}</div>`
+    : "";
+  // The one thing here with real length — capped by the server at 120
+  // characters, so it can be shown whole rather than clamped.
+  const description = marker.description
+    ? `<div style="font-size:12px;margin-top:6px;line-height:1.35">${escapeHtml(marker.description)}</div>`
+    : "";
   return `
-    <div style="min-width:140px">
+    <div style="min-width:160px;max-width:220px">
+      ${tag}
       <div style="font-weight:600;font-size:14px;word-break:break-all">${label}</div>
       ${badge}
+      ${description}
       <a href="${escapeHtml(marker.href ?? "#")}" style="display:block;margin-top:8px;border-radius:8px;background:#09090b;color:#fff;padding:6px 10px;text-align:center;font-size:13px;font-weight:500;text-decoration:none">Entrar na sala</a>
     </div>`;
 }

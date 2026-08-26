@@ -5,6 +5,7 @@ import Link from "next/link";
 import { fetchPublicRooms, type PublicRoom } from "@/lib/roomsApi";
 import { WorldMap, type WorldMapMarker } from "@/components/WorldMap";
 import { GlobeIcon } from "@/components/icons";
+import { roomCategory } from "@/lib/roomCategories";
 
 // Same cadence as the plain /rooms list — a room appearing or emptying out is
 // worth seeing without a reload, and neither page is expensive to serve.
@@ -55,6 +56,8 @@ export function RoomsMapClient() {
           // Rides along on the pin itself and again in its popup, so it has
           // to stay short enough not to stretch a pin across a country.
           badge: `· ${room.peopleCount} ${room.peopleCount === 1 ? "pessoa" : "pessoas"}`,
+          tag: roomCategory(room.category)?.label,
+          description: room.description,
           href: `/watch/${room.handle}`,
         })),
     [rooms]
@@ -75,9 +78,7 @@ export function RoomsMapClient() {
               ? "Carregando..."
               : placedCount === 0
                 ? "Nenhuma sala pública definiu seu local no mundo ainda."
-                : `${placedCount} de ${totalCount} ${
-                    totalCount === 1 ? "sala pública" : "salas públicas"
-                  } no mapa. Clique em um alfinete para entrar.`}
+                : `Encontre salas no seu país, cidade ou bairro`}
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
