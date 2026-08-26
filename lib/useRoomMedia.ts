@@ -31,7 +31,7 @@ import { useMeshCapacity, useMeshTopology, type PeerCapacity } from "./useMeshTo
 import { RelayManager, RELAY_ENABLED, type RelayChild } from "./relayLink";
 import { applyVideoCodecPreferences } from "./videoCodecPreferences";
 import { setPreferredAudioSink } from "./audioContext";
-import { startExcludedSystemAudio } from "./desktopSystemAudio";
+import { startExcludedSystemAudio, prewarmExcludedSystemAudio } from "./desktopSystemAudio";
 
 type Channel = "screen" | "camera" | "mic";
 type ShareSource = "display" | "camera";
@@ -857,6 +857,15 @@ function useBroadcastChannel(
       // signaling rate limit and leave some viewers' connections stuck.
       openSendPCsStaggered(signalingClient.state.peers.map((peer) => peer.id));
     } catch (err) {
+      // A failure the capture already worked out the reason for carries the
+      // message that fits it — `failureMessage` is a per-channel fallback for
+      // everything else, and "verifique as permissões" is the wrong thing to
+      // say when permissions were never involved.
+      if (err instanceof ShareStartError) {
+        setError(err.message);
+        trackEvent(`${eventPrefix}_error`);
+        return;
+      }
       // Clicking "share" and then Cancel on the browser's own picker throws
       // the same NotAllowedError a real OS/browser permission denial does —
       // there is no reliable way to tell them apart from here. Treating it
@@ -864,8 +873,7 @@ function useBroadcastChannel(
       // case, and surfacing "verifique as permissões" every time someone
       // just changes their mind was the actual complaint. AbortError covers
       // the same gesture on browsers that use that name instead.
-      const cancelled =
-        err instanceof DOMException && (err.name === "NotAllowedError" || err.name === "AbortError");
+      const cancelled = isCancelLikeError(err);
       if (cancelled) {
         trackEvent(`${eventPrefix}_cancelled`);
       } else {
@@ -1304,6 +1312,38 @@ function useBroadcastChannel(
   };
 }
 
+// A start failure this code already worked out the reason for. Anything else
+// falls back to the channel's generic message — see start()'s catch.
+class ShareStartError extends Error {}
+
+// "The user dismissed the picker" and "this call no longer has a user gesture
+// behind it" arrive as the same DOMException name, which is why the caller
+// has to bring its own evidence (see activationLost in the display capture).
+function isCancelLikeError(err: unknown): boolean {
+  return (
+    err instanceof DOMException && (err.name === "NotAllowedError" || err.name === "AbortError")
+  );
+}
+
+// The shapes a refusal for a missing/expired user gesture arrives in.
+// NotAllowedError is what Chromium actually raises (and is indistinguishable
+// by name from a dismissed picker, hence the activation check alongside it);
+// InvalidStateError is what the spec calls for, so it is matched too rather
+// than being left to surface as a wrong generic message on some future build.
+function isActivationRefusal(err: unknown): boolean {
+  return (
+    isCancelLikeError(err) || (err instanceof DOMException && err.name === "InvalidStateError")
+  );
+}
+
+// Whether this call still counts as "in response to a click". Absent in
+// browsers without the User Activation API — reported as still-active there,
+// so a missing API never invents a failure that isn't there.
+function hasUserActivation(): boolean {
+  const activation = typeof navigator !== "undefined" ? navigator.userActivation : undefined;
+  return activation ? activation.isActive : true;
+}
+
 function hasDisplayCapture() {
   return typeof navigator !== "undefined" && Boolean(navigator.mediaDevices?.getDisplayMedia);
 }
@@ -1500,6 +1540,14 @@ export function useRoomMedia(room: string) {
       // Linux, Windows 10), and the line below then asks for system audio
       // the way it always did.
       const excluded = await startExcludedSystemAudio();
+      // Everything above ran between the click and this call, and
+      // getDisplayMedia needs that click's transient activation to still be
+      // valid. When it isn't, Chromium rejects with NotAllowedError — the
+      // same name it uses for "the user dismissed the picker", which start()
+      // below deliberately swallows. Checking here is what tells the two
+      // apart, so a share that failed for this reason says so instead of
+      // looking like nothing happened at all.
+      const activationLost = !hasUserActivation();
       const capture = navigator.mediaDevices
         .getDisplayMedia({
           video: videoConstraints,
@@ -1527,6 +1575,11 @@ export function useRoomMedia(room: string) {
               video: videoConstraints,
               audio: false,
             });
+          }
+          if (activationLost && isActivationRefusal(err)) {
+            throw new ShareStartError(
+              "A preparação do áudio do sistema demorou demais. Clique em compartilhar de novo."
+            );
           }
           throw err;
         });
@@ -1743,6 +1796,17 @@ export function useRoomMedia(room: string) {
     if (getStoredMicOn()) mic.start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room]);
+
+  // Fetches the system-audio worklet up front, in the desktop app on a
+  // machine that can use it, so that the first screen share of a session
+  // doesn't spend the click's user-activation budget on a network round trip
+  // and then get refused by getDisplayMedia. See
+  // prewarmExcludedSystemAudio's doc comment — that failure looked exactly
+  // like "clicking share does nothing", and only ever on the first try.
+  // Fire-and-forget and a no-op everywhere else.
+  useEffect(() => {
+    prewarmExcludedSystemAudio();
+  }, []);
 
   const toggleNoiseSuppression = useCallback(() => {
     const next = !noiseSuppressionOnRef.current;

@@ -73,6 +73,32 @@ export function canExcludeSelfFromSystemAudio(): boolean {
 }
 
 /**
+ * Fetches the worklet module ahead of time, so that starting a share does not
+ * have to. Safe and cheap to call more than once, and safe before any user
+ * gesture: loading a module does not require a running context, only a
+ * created one.
+ *
+ * This matters more than it looks. Everything startExcludedSystemAudio awaits
+ * happens *between* the user's click and getDisplayMedia, and getDisplayMedia
+ * needs that click's transient activation to still be valid — Chromium gives
+ * it about five seconds. A cold worklet fetch is a real network round trip to
+ * the site (the desktop app loads the app over HTTPS like any page), and on
+ * the very first share of a session it was enough, on top of everything else,
+ * to spend that budget: getDisplayMedia then rejected with NotAllowedError,
+ * which start() in useRoomMedia treats as "the user cancelled the picker" and
+ * so shows nothing at all. A share that silently does nothing, only ever the
+ * first time, is exactly what that looked like from outside.
+ */
+export function prewarmExcludedSystemAudio(): void {
+  if (!getDesktopBridge()?.systemAudio) return;
+  const ctx = getSharedAudioContext();
+  if (!ctx) return;
+  // Failure is fine and deliberately unobserved — startExcludedSystemAudio
+  // retries (loadWorklet clears its own memo on error) and falls back.
+  void loadWorklet(ctx).catch(() => {});
+}
+
+/**
  * Starts the excluded capture and returns it as a track, or null if it could
  * not be started — in which case the caller should request system audio the
  * ordinary way and accept the echo.
@@ -81,25 +107,43 @@ export function canExcludeSelfFromSystemAudio(): boolean {
  * the shell knows not to attach its own loopback track to the same request
  * (see the display-media handler in electron/main.ts), and there is no way
  * to take that track back off a stream once it has been granted.
+ *
+ * Every await here is spent out of the click's transient activation, which
+ * getDisplayMedia still needs afterwards — see prewarmExcludedSystemAudio for
+ * what that cost when it went wrong. Hence the order below: the one question
+ * that can rule the whole thing out is asked first, and nothing else is
+ * touched until it comes back yes.
  */
 export async function startExcludedSystemAudio(): Promise<DesktopSystemAudio | null> {
   const bridge = getDesktopBridge()?.systemAudio;
   if (!bridge) return null;
 
-  // The graph has to be able to run before the helper is worth starting: a
-  // suspended context processes nothing, so the capture would fill a buffer
-  // nobody drains. Awaited, unlike most callers of this, because there is a
-  // real decision to make from the answer.
+  // Asked before anything else, and specifically before the AudioContext and
+  // the worklet: this is also where "Compartilhar som da tela" being switched
+  // off is answered (see startSystemAudioCapture in electron/systemAudio.ts),
+  // and a share with system audio turned off has no business paying for an
+  // audio graph it will never use. That was the whole of the bug — the
+  // no-audio path did every expensive thing here and *then* found out, by
+  // which point the click's activation could already be gone.
+  if (!(await bridge.start())) return null;
+
+  // From here on the helper is running, so every early return has to stop it.
+  const abandon = () => {
+    bridge.stop();
+    return null;
+  };
+
+  // The graph has to be able to run for the capture to be worth anything: a
+  // suspended context processes nothing, so the helper would fill a buffer
+  // nobody drains.
   const ctx = getSharedAudioContext();
-  if (!ctx || !(await ensureSharedAudioContextRunning())) return null;
+  if (!ctx || !(await ensureSharedAudioContextRunning())) return abandon();
 
   try {
     await loadWorklet(ctx);
   } catch {
-    return null;
+    return abandon();
   }
-
-  if (!(await bridge.start())) return null;
 
   let node: AudioWorkletNode;
   try {
@@ -109,8 +153,7 @@ export async function startExcludedSystemAudio(): Promise<DesktopSystemAudio | n
       outputChannelCount: [2],
     });
   } catch {
-    bridge.stop();
-    return null;
+    return abandon();
   }
 
   const destination = ctx.createMediaStreamDestination();
