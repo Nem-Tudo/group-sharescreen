@@ -48,6 +48,65 @@ export type PeerInfo = {
 
 export type SignalingStatus = "idle" | "connecting" | "open" | "closed" | "superseded" | "banned";
 
+// The room-level switches an owner/admin can turn off from "Gerenciar sala"
+// (see server/roomStore.ts's RoomPermissions — this must stay in step with
+// it). Turning one off doesn't remove the action from the room; it narrows
+// it down to the owner and the admins they promoted.
+export type RoomPermissionKey =
+  | "mic"
+  | "screen"
+  | "camera"
+  | "videoSource"
+  | "chat"
+  | "gif";
+
+export type RoomPermissions = Record<RoomPermissionKey, boolean>;
+
+// Everything is allowed until a server says otherwise — the same default the
+// server creates a room with, and what this client assumes for a room whose
+// settings it hasn't heard yet (an older server that never sends them).
+export const DEFAULT_ROOM_PERMISSIONS: RoomPermissions = {
+  mic: true,
+  screen: true,
+  camera: true,
+  videoSource: true,
+  chat: true,
+  gif: true,
+};
+
+// Someone the owner promoted to help run the room. `id` is a stable
+// per-account/per-guest id (the same thing PeerInfo.userId carries), and
+// `name` is their display name as of the promotion — used only to name an
+// admin who isn't currently in the room; when they are, the live peer list's
+// name is the better one.
+export type RoomAdmin = {
+  id: string;
+  name: string;
+};
+
+// Both are read defensively rather than cast: a server that predates room
+// settings sends neither, and the honest reading of "nothing was said" is
+// the wide-open default, not a locked-down room nobody can talk in.
+function parseRoomPermissions(raw: unknown): RoomPermissions {
+  const source = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const out = { ...DEFAULT_ROOM_PERMISSIONS };
+  for (const key of Object.keys(DEFAULT_ROOM_PERMISSIONS) as RoomPermissionKey[]) {
+    if (typeof source[key] === "boolean") out[key] = source[key] as boolean;
+  }
+  return out;
+}
+
+function parseRoomAdmins(raw: unknown): RoomAdmin[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(
+      (entry): entry is RoomAdmin =>
+        Boolean(entry) && typeof entry === "object" && typeof (entry as RoomAdmin).id === "string"
+    )
+    .map((entry) => ({ id: entry.id, name: typeof entry.name === "string" ? entry.name : "" }));
+}
+
+
 export type ChatMessage = {
   id: string;
   from: string;
@@ -162,6 +221,22 @@ export type SignalingState = {
   // a null reason here is the norm, not an anomaly.
   bannedReason: string | null;
   joinError: string | null;
+  // Who runs this room and what it currently allows — pushed on join
+  // (inside "room-state") and again on every change ("room-settings"), so
+  // these are never stale for anyone who was already here. `roomOwnerId` and
+  // each `roomAdmins` entry's id are stable user ids, comparable against
+  // PeerInfo.userId / `selfUserId` above — never against a connection id.
+  roomOwnerId: string | null;
+  roomAdmins: RoomAdmin[];
+  roomPermissions: RoomPermissions;
+  // The last action this room refused us (see the server's
+  // "room-permission-denied"). Carried alongside a counter because the
+  // *event* is what matters — being refused the mic twice in a row is two
+  // things to react to, and a bare object would look unchanged the second
+  // time. WatchRoom watches the counter to actually stop whatever was
+  // started locally before the server had its say.
+  permissionDenied: { permission: RoomPermissionKey; message: string } | null;
+  permissionDeniedSeq: number;
   // Ids (PeerInfo.id) of peers currently shown as "typing..." in the chat
   // (see ChatPanel.tsx) — purely a live relay (server/signaling.ts's
   // "peer-typing"), nothing persisted or replayed on join. Each entry is
@@ -212,6 +287,11 @@ const initialState: SignalingState = {
   supportersSeq: 0,
   desktopUpdateSeq: 0,
   chatBlockedMessage: null,
+  roomOwnerId: null,
+  roomAdmins: [],
+  roomPermissions: { ...DEFAULT_ROOM_PERMISSIONS },
+  permissionDenied: null,
+  permissionDeniedSeq: 0,
   typingPeerIds: [],
 };
 
@@ -586,6 +666,11 @@ class SignalingClient {
           chatMessages:
             history.length > MAX_CHAT_MESSAGES ? history.slice(-MAX_CHAT_MESSAGES) : history,
           videoSources: Array.isArray(msg.videoSources) ? (msg.videoSources as VideoSource[]) : [],
+          roomOwnerId: typeof msg.ownerId === "string" ? msg.ownerId : null,
+          roomAdmins: parseRoomAdmins(msg.admins),
+          roomPermissions: parseRoomPermissions(msg.permissions),
+          // A refusal from the room we just left says nothing about this one.
+          permissionDenied: null,
         });
         trackEvent("room_joined");
         this.roomJoinedListeners.forEach((l) => l());
@@ -671,6 +756,35 @@ class SignalingClient {
           ),
         });
         break;
+      // Who runs the room / what it allows changed — broadcast to everyone
+      // in it, not just whoever made the change, since every client's
+      // controls are drawn from this.
+      case "room-settings":
+        this.setState({
+          roomOwnerId: typeof msg.ownerId === "string" ? msg.ownerId : this.state.roomOwnerId,
+          roomAdmins: parseRoomAdmins(msg.admins),
+          roomPermissions: parseRoomPermissions(msg.permissions),
+        });
+        break;
+      // An action this room doesn't allow us. The server already refused it;
+      // this exists so the client can undo whatever it optimistically started
+      // on its own (a mic that's already capturing, a share already picked)
+      // instead of leaving it running with the room told otherwise.
+      case "room-permission-denied": {
+        const permission = msg.permission as RoomPermissionKey;
+        if (!(permission in DEFAULT_ROOM_PERMISSIONS)) break;
+        this.setState({
+          permissionDenied: {
+            permission,
+            message:
+              typeof msg.message === "string"
+                ? msg.message
+                : "A administração desativou isso para os participantes.",
+          },
+          permissionDeniedSeq: this.state.permissionDeniedSeq + 1,
+        });
+        break;
+      }
       // Room video sources (see lib/videoSource.ts). Three separate messages
       // rather than re-sending the whole list each time: "state" fires on
       // every play/pause/seek anyone performs, and that is not a reason to
@@ -920,7 +1034,50 @@ class SignalingClient {
     this.desiredRoom = null;
     this.rawSend({ type: "leave" });
     this.clearAllTyping();
-    this.setState({ room: null, peers: [], chatMessages: [], videoSources: [], joinError: null });
+    this.setState({
+      room: null,
+      peers: [],
+      chatMessages: [],
+      videoSources: [],
+      joinError: null,
+      // The room's rules leave with the room — carrying them into the next
+      // one would gate the wrong controls until its "room-state" lands.
+      roomOwnerId: null,
+      roomAdmins: [],
+      roomPermissions: { ...DEFAULT_ROOM_PERMISSIONS },
+      permissionDenied: null,
+    });
+  }
+
+  // Room management, from the "Gerenciar sala" panel (see WatchRoom). All
+  // three are owner/admin-only, and all three are enforced server-side —
+  // nothing here is trusted, and the answer comes back as a "room-settings"
+  // broadcast rather than a local edit, so every client agrees on the room's
+  // rules at the same moment.
+  //
+  // One switch at a time: the server merges what it's given over what's
+  // already set, so sending the whole map would let two managers toggling
+  // different switches at once clobber each other.
+  setRoomPermission(key: RoomPermissionKey, allowed: boolean) {
+    this.rawSend({ type: "room-permissions-set", permissions: { [key]: allowed } });
+  }
+
+  // `userId` is the stable id (PeerInfo.userId), not a connection id — the
+  // person stays an admin across their reconnects, which is the whole point.
+  // Only the room's owner may call these; an admin sending one is ignored.
+  addRoomAdmin(userId: string) {
+    this.rawSend({ type: "room-admin-add", userId });
+  }
+
+  removeRoomAdmin(userId: string) {
+    this.rawSend({ type: "room-admin-remove", userId });
+  }
+
+  // Dismisses the "this room doesn't allow that" notice — a one-shot warning,
+  // same as chatBlockedMessage.
+  clearPermissionDenied() {
+    if (!this.state.permissionDenied) return;
+    this.setState({ permissionDenied: null });
   }
 
   // Adds a video source to the room. The URL is parsed server-side (the

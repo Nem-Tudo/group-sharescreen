@@ -6,6 +6,7 @@ import { NtPopupProvider } from "ntpopups";
 import "ntpopups/dist/styles.css";
 import { PartnerRewardModal } from "@/components/PartnerRewardModal";
 import { AddVideoSourceModal } from "@/components/AddVideoSourceModal";
+import { ManageRoomModal } from "@/components/ManageRoomModal";
 
 // Popup types this app registers with the library, opened by name through
 // `useNtPopups().openPopup(...)`. The cast is because the library types
@@ -15,6 +16,7 @@ import { AddVideoSourceModal } from "@/components/AddVideoSourceModal";
 const customPopups: Record<string, ComponentType> = {
   partner_reward: PartnerRewardModal as ComponentType,
   add_video_source: AddVideoSourceModal as ComponentType,
+  manage_room: ManageRoomModal as ComponentType,
 };
 
 // Matches the rest of the app, which themes purely off the OS preference

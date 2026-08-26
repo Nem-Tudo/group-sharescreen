@@ -11,7 +11,7 @@ import {
 } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { signalingClient } from "@/lib/signalingClient";
+import { signalingClient, type RoomPermissionKey } from "@/lib/signalingClient";
 import { useSignaling, useHasStoredName } from "@/lib/useSignaling";
 import { useAuth } from "@/lib/AuthContext";
 import {
@@ -388,6 +388,8 @@ function ShareControls({
   cameraSharing,
   screenSupported,
   cameraSupported,
+  screenBlockedReason,
+  cameraBlockedReason,
   onToggleScreen,
   onToggleCamera,
   open,
@@ -402,6 +404,13 @@ function ShareControls({
   // reason in its tooltip instead.
   screenSupported: boolean;
   cameraSupported: boolean;
+  // Set when the *room* — not the browser — is what's in the way: its owner
+  // turned this channel off for ordinary members (see WatchRoom's
+  // roomPermissions). Only ever blocks *starting*: whoever is already
+  // transmitting when a switch flips keeps the button that stops them, which
+  // is also what the auto-stop effect in WatchRoom uses.
+  screenBlockedReason?: string | null;
+  cameraBlockedReason?: string | null;
   onToggleScreen: () => void;
   onToggleCamera: () => void;
   open: boolean;
@@ -428,16 +437,22 @@ function ShareControls({
   const live = "bg-red-600 hover:bg-red-700";
   const idle = "bg-emerald-600 hover:bg-emerald-700";
 
+  const screenBlocked = !screenSharing && Boolean(screenBlockedReason);
+  const cameraBlocked = !cameraSharing && Boolean(cameraBlockedReason);
   const screenLabel = screenSharing
     ? "Parar de compartilhar a tela"
-    : screenSupported
-      ? "Compartilhar tela"
-      : "Seu navegador não permite compartilhar a tela";
+    : screenBlockedReason
+      ? screenBlockedReason
+      : screenSupported
+        ? "Compartilhar tela"
+        : "Seu navegador não permite compartilhar a tela";
   const cameraLabel = cameraSharing
     ? "Parar câmera"
-    : cameraSupported
-      ? "Compartilhar câmera"
-      : "Seu navegador não permite usar a câmera";
+    : cameraBlockedReason
+      ? cameraBlockedReason
+      : cameraSupported
+        ? "Compartilhar câmera"
+        : "Seu navegador não permite usar a câmera";
 
   return (
     <div className="flex items-stretch overflow-hidden rounded-lg">
@@ -467,7 +482,7 @@ function ShareControls({
         <button
           type="button"
           onClick={onToggleScreen}
-          disabled={!screenSupported}
+          disabled={!screenSupported || screenBlocked}
           aria-pressed={screenSharing}
           aria-label={screenLabel}
           className={`${segment} ${screenSharing ? live : idle}`}
@@ -479,7 +494,7 @@ function ShareControls({
         <button
           type="button"
           onClick={onToggleCamera}
-          disabled={!cameraSupported}
+          disabled={!cameraSupported || cameraBlocked}
           aria-pressed={cameraSharing}
           aria-label={cameraLabel}
           className={`${segment} border-l border-black/15 ${cameraSharing ? live : idle}`}
@@ -928,6 +943,71 @@ export function WatchRoom({ handle }: { handle: string }) {
     remoteCameraStreams,
     state.videoSources,
   ]);
+
+  // Who runs this room, and therefore which of its controls this viewer gets.
+  // Both ids compared here are *stable* ones (see PeerInfo.userId) — a
+  // connection id would lose the crown on every reconnect.
+  const isRoomOwner = Boolean(state.selfUserId && state.roomOwnerId === state.selfUserId);
+  const isRoomAdmin = Boolean(
+    state.selfUserId && state.roomAdmins.some((a) => a.id === state.selfUserId)
+  );
+  // The owner and the admins they promoted are never subject to the room's
+  // own permission switches — turning one off is how they say "from here on,
+  // only us" (mirrors the server's canUseRoomPermission, which is what
+  // actually enforces it; this copy only decides what to render).
+  const isRoomManager = isRoomOwner || isRoomAdmin;
+  function canUseRoomPermission(key: RoomPermissionKey): boolean {
+    return state.roomPermissions[key] || isRoomManager;
+  }
+  // Populated only for the ones this viewer is actually blocked on, so a
+  // control can use `?? undefined` and get its ordinary label back.
+  function roomBlockReason(key: RoomPermissionKey, what: string): string | null {
+    return canUseRoomPermission(key) ? null : `Você não tem permissão para utilizar ${what} nesta sala.`;
+  }
+  const micBlockedReason = roomBlockReason("mic", "o microfone");
+  const screenBlockedReason = roomBlockReason("screen", "o compartilhamento de tela");
+  const cameraBlockedReason = roomBlockReason("camera", "a câmera");
+  const videoSourceBlockedReason = roomBlockReason("videoSource", "adicionar fontes de vídeo");
+  const chatBlockedReason = roomBlockReason("chat", "o chat");
+  const gifBlockedReason = roomBlockReason("gif", "o envio de GIFs");
+
+  // A permission can be turned off while someone is already using it — and
+  // the mic in particular auto-starts from a stored preference the moment a
+  // room is joined (see useRoomMedia), which can well be a room that doesn't
+  // allow it. The server refuses either way; these are what actually stop the
+  // local capture instead of leaving it running with the room told otherwise.
+  //
+  // Going through toggleMic (rather than some quieter stop) also clears the
+  // stored "mic starts on" preference, which is what stops this from
+  // repeating the whole start-then-refuse round trip on every join into a
+  // room that doesn't allow it. The cost is that the preference is genuinely
+  // forgotten, not just suspended for this room — turning the mic back on
+  // anywhere sets it again.
+  useEffect(() => {
+    if (isMicOn && !canUseRoomPermission("mic")) toggleMic();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMicOn, isRoomManager, state.roomPermissions.mic]);
+
+  useEffect(() => {
+    if (localStream && !canUseRoomPermission("screen")) stopShare();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localStream, isRoomManager, state.roomPermissions.screen]);
+
+  useEffect(() => {
+    if (localCameraStream && !canUseRoomPermission("camera")) stopCameraShare();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localCameraStream, isRoomManager, state.roomPermissions.camera]);
+
+  // The refusal banner is a one-shot notice, not a state — clear it on its
+  // own after a few seconds so it doesn't sit there for the rest of the call.
+  // Keyed on the counter rather than the object, so being refused twice in a
+  // row restarts the timer instead of the second one inheriting the first's.
+  useEffect(() => {
+    if (!state.permissionDenied) return;
+    const id = setTimeout(() => signalingClient.clearPermissionDenied(), 6000);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.permissionDeniedSeq]);
 
   function handleNameSubmit(e: FormEvent) {
     e.preventDefault();
@@ -1630,12 +1710,22 @@ export function WatchRoom({ handle }: { handle: string }) {
             <ChevronDownIcon className="h-3.5 w-3.5" />
           </button>
         </Popover>
-        <Tooltip content={isMicOn ? "Desativar microfone" : "Ativar microfone"}>
+        <Tooltip
+          content={
+            isMicOn
+              ? "Desativar microfone"
+              : (micBlockedReason ?? "Ativar microfone")
+          }
+          wrapperClassName="flex"
+        >
           <button
             type="button"
             onClick={toggleMic}
+            // Only turning it *on* is blocked — see ShareControls'
+            // screenBlockedReason for the same reasoning.
+            disabled={!isMicOn && Boolean(micBlockedReason)}
             aria-label={isMicOn ? "Desativar microfone" : "Ativar microfone"}
-            className={`rounded-r-lg p-2 text-white transition ${isMicOn ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700"
+            className={`rounded-r-lg p-2 text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${isMicOn ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700"
               }`}
           >
             {isMicOn ? <MicIcon className="h-5 w-5" /> : <MicOffIcon className="h-5 w-5" />}
@@ -1708,6 +1798,8 @@ export function WatchRoom({ handle }: { handle: string }) {
           cameraSharing={Boolean(localCameraStream)}
           screenSupported={screenShareMode === "display"}
           cameraSupported={screenShareMode !== "unsupported"}
+          screenBlockedReason={screenBlockedReason}
+          cameraBlockedReason={cameraBlockedReason}
           onToggleScreen={() => (localStream ? stopShare() : startShare("display"))}
           onToggleCamera={() => (localCameraStream ? stopCameraShare() : startCameraShare())}
           open={shareQualityOpen}
@@ -1754,6 +1846,8 @@ export function WatchRoom({ handle }: { handle: string }) {
           isSelf
           isGuest={!state.account}
           userId={account?.id}
+          isOwner={isRoomOwner}
+          isAdmin={isRoomAdmin}
           verified={state.account?.flags?.includes("VERIFIED")}
           micOn={isMicOn}
           sharing={isSharing}
@@ -1770,6 +1864,8 @@ export function WatchRoom({ handle }: { handle: string }) {
               name={p.name}
               isGuest={p.isGuest}
               userId={p.userId}
+              isOwner={Boolean(p.userId) && p.userId === state.roomOwnerId}
+              isAdmin={state.roomAdmins.some((a) => a.id === p.userId)}
               verified={p.flags?.includes("VERIFIED")}
               micOn={p.mic}
               sharing={p.sharing}
@@ -1793,19 +1889,48 @@ export function WatchRoom({ handle }: { handle: string }) {
   // however it always looked there); fills its own column's full height
   // from lg up instead, where it has the whole right side to itself.
   const chatSection = (
-    <ChatPanel
-      messages={state.chatMessages}
-      selfId={state.selfId}
-      selfName={state.name}
-      onSend={(text) => signalingClient.sendChatMessage(text)}
-      onSendGif={state.account ? (url) => signalingClient.sendGif(url) : undefined}
-      onTypingChange={(typing) => signalingClient.setTyping(typing)}
-      typingNames={visiblePeers
-        .filter((p) => state.typingPeerIds.includes(p.id))
-        .map((p) => p.name)}
-      blockedMessage={state.chatBlockedMessage}
-      heightClassName={isWideLayout ? "flex-1 min-h-0" : "h-[55vh]"}
-    />
+    <>
+      {/* Only for whoever actually runs the room. Sits directly above the
+          chat rather than in the header's "Mais opções" panel because that
+          panel is everyone's, and this is the one control on this page that
+          isn't. Admins get it too — the permission switches are theirs as
+          well (see the server's isRoomManager); the popup itself is what
+          hides "Gerenciar administradores" from anyone but the owner. */}
+      {isRoomManager && (
+        <button
+          type="button"
+          onClick={() =>
+            openPopup("manage_room", {
+              // No `data`: the popup reads the room's live state itself, so
+              // it keeps up with people joining and other admins' changes
+              // while it's open — see components/ManageRoomModal.
+              data: {},
+            })
+          }
+          className="mb-2 flex items-center justify-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+        >
+          <BsGearFill className="h-3.5 w-3.5 shrink-0" />
+          Gerenciar sala
+        </button>
+      )}
+      <ChatPanel
+        messages={state.chatMessages}
+        selfId={state.selfId}
+        selfName={state.name}
+        onSend={(text) => signalingClient.sendChatMessage(text)}
+        onSendGif={
+          state.account && !gifBlockedReason ? (url) => signalingClient.sendGif(url) : undefined
+        }
+        onTypingChange={(typing) => signalingClient.setTyping(typing)}
+        typingNames={visiblePeers
+          .filter((p) => state.typingPeerIds.includes(p.id))
+          .map((p) => p.name)}
+        blockedMessage={state.chatBlockedMessage}
+        sendDisabledReason={chatBlockedReason}
+        gifDisabledReason={gifBlockedReason}
+        heightClassName={isWideLayout ? "flex-1 min-h-0" : "h-[55vh]"}
+      />
+    </>
   );
 
   return (
@@ -1869,12 +1994,16 @@ export function WatchRoom({ handle }: { handle: string }) {
                 ntpopups popup rather than the little inline box this used to
                 be — picking a platform and who gets to control it needs more
                 room than a popover corner has. */}
-            <Tooltip content="Adicionar fonte de vídeo">
+            <Tooltip
+              content={videoSourceBlockedReason ?? "Adicionar fonte de vídeo"}
+              wrapperClassName="flex"
+            >
               <button
                 type="button"
                 onClick={openAddVideoSourcePopup}
+                disabled={Boolean(videoSourceBlockedReason)}
                 aria-label="Adicionar fonte de vídeo"
-                className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700"
+                className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <MdOutlineOndemandVideo className="h-5 w-5 shrink-0" />
                 <span className="hidden lg:inline"><BetaMark /></span>
@@ -2054,6 +2183,24 @@ export function WatchRoom({ handle }: { handle: string }) {
         </div>
       )}
 
+      {/* The room refused something this client had already started locally
+          (see the server's "room-permission-denied"). Amber rather than red:
+          nothing broke — the room simply doesn't allow it. Clears itself
+          after a few seconds; the × is for whoever wants it gone sooner. */}
+      {state.permissionDenied && (
+        <div className="flex items-center justify-between gap-3 bg-amber-50 px-4 py-2 text-sm text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">
+          <p>{state.permissionDenied.message}</p>
+          <button
+            type="button"
+            onClick={() => signalingClient.clearPermissionDenied()}
+            aria-label="Fechar aviso"
+            className="shrink-0 text-lg leading-none opacity-70 transition hover:opacity-100"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {shareError && (
         <p className="bg-red-50 px-4 py-2 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">
           {shareError}
@@ -2115,7 +2262,12 @@ export function WatchRoom({ handle }: { handle: string }) {
                 </p>
               )}
               <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
-                {screenShareMode === "display" && (
+                {/* Each is hidden outright rather than disabled here (unlike
+                    the header's copies, which stay put so the row doesn't
+                    reflow): this pane exists to offer what can be done right
+                    now, and a wall of dead buttons is not that. The note
+                    below says why, once, for whatever ends up missing. */}
+                {screenShareMode === "display" && !screenBlockedReason && (
                   <button
                     type="button"
                     onClick={() => startShare("display")}
@@ -2126,7 +2278,7 @@ export function WatchRoom({ handle }: { handle: string }) {
                   </button>
                 )}
 
-                {screenShareMode !== "unsupported" && (
+                {screenShareMode !== "unsupported" && !cameraBlockedReason && (
                   <button
                     type="button"
                     onClick={() => startCameraShare()}
@@ -2138,6 +2290,11 @@ export function WatchRoom({ handle }: { handle: string }) {
                 )}
 
                 <div className="basis-full flex justify-center">
+                  {videoSourceBlockedReason ? (
+                    <p className="text-sm text-zinc-500 dark:text-zinc-500">
+                      O dono da sala limitou o que os participantes podem transmitir aqui.
+                    </p>
+                  ) : (
                   <button
                     type="button"
                     onClick={openAddVideoSourcePopup}
@@ -2147,6 +2304,7 @@ export function WatchRoom({ handle }: { handle: string }) {
                     Adicionar fonte de vídeo
                     <BetaMark />
                   </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -2371,8 +2529,9 @@ export function WatchRoom({ handle }: { handle: string }) {
 
         {/* From lg up, chat gets this dedicated full-height column instead
             of sharing a pane with participants — see isWideLayout. Nothing
-            else in here, so chatSection's flex-1 (see its heightClassName)
-            has the whole column to fill. */}
+            else in here but the owner/admin "Gerenciar sala" button, so
+            chatSection's flex-1 (see its heightClassName) still has
+            practically the whole column to fill. */}
         {isWideLayout && (
           <aside
             className="relative flex h-full shrink-0 flex-col overflow-hidden"

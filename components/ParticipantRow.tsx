@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSpeaking } from "@/lib/useSpeaking";
 import { MicIcon, MicOffIcon, ScreenIcon, CameraIcon } from "./icons";
 import { MdOutlineOndemandVideo } from "react-icons/md";
+import { FaCrown } from "react-icons/fa";
 import { VolumeSlider } from "./VolumeSlider";
 import { DisplayUserName } from "./DisplayUserName";
 import { Tooltip } from "./Tooltip";
@@ -26,6 +27,8 @@ export function ParticipantRow({
   onVolumeChange,
   connectionLost = false,
   verified = false,
+  isOwner = false,
+  isAdmin = false,
 }: {
   name: string;
   isSelf?: boolean;
@@ -56,6 +59,14 @@ export function ParticipantRow({
   // still expect one — see useRoomMedia's recvConnectionStates.
   connectionLost?: boolean;
   verified?: boolean;
+  // Owns this room (see server/roomStore.ts's RoomRecord.ownerId) — gets a
+  // gold crown right after the name. Exactly one person in a room has this
+  // at a time; ownership moves on when they leave.
+  isOwner?: boolean;
+  // Promoted by the owner to help run the room (RoomRecord.admins) — the
+  // same crown, in a muted color, so the two read as the same kind of thing
+  // without looking like two owners.
+  isAdmin?: boolean;
 }) {
   const speaking = useSpeaking(micOn ? micStream : null);
   // Whether the screen/camera split is actually known for this peer — see
@@ -94,6 +105,21 @@ export function ParticipantRow({
           </Link>
         ) : (
           nameElement
+        )}
+        {isOwner ? (
+          <Tooltip content={`${name} é o dono da sala`}>
+            <span className="flex shrink-0 items-center self-center">
+              <FaCrown className="h-3.5 w-3.5 text-amber-500" />
+            </span>
+          </Tooltip>
+        ) : (
+          isAdmin && (
+            <Tooltip content={`${name} é administrador da sala`}>
+              <span className="flex shrink-0 items-center self-center">
+                <FaCrown className="h-3 w-3 text-zinc-400 dark:text-zinc-500" />
+              </span>
+            </Tooltip>
+          )
         )}
         {isSelf && <span className="shrink-0 text-xs font-normal text-zinc-500">(você)</span>}
       </span>

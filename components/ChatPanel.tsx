@@ -86,6 +86,8 @@ export function ChatPanel({
   onTypingChange,
   typingNames,
   blockedMessage,
+  sendDisabledReason,
+  gifDisabledReason,
   heightClassName = "h-72",
 }: {
   messages: ChatMessage[];
@@ -111,6 +113,16 @@ export function ChatPanel({
   // word (see signalingClient's chatBlockedMessage) — shown once, right
   // above the input, and cleared by the client on the next send attempt.
   blockedMessage?: string | null;
+  // Why this viewer can't send right now, when it isn't about the message
+  // itself — today, a room whose owner turned the chat off for ordinary
+  // members (see WatchRoom). The composer stays visible but inert, with this
+  // shown in its place: hiding it entirely (the way omitting onSend does for
+  // the read-only admin view) would just look like the chat broke.
+  sendDisabledReason?: string | null;
+  // Same, for the GIF button alone — a room can allow talking while
+  // disallowing GIFs. Only used as the button's tooltip; the button itself
+  // is already disabled by `onSendGif` being omitted.
+  gifDisabledReason?: string | null;
   // Lets a caller give this a taller box than the default fixed 18rem — e.g.
   // WatchRoom.tsx's mobile tab view, where chat is the sole content of its
   // pane instead of one of several things stacked in a shared sidebar.
@@ -174,7 +186,7 @@ export function ChatPanel({
   }
 
   function sendInput() {
-    if (!input.trim() || !onSend) return;
+    if (!input.trim() || !onSend || sendDisabledReason) return;
     onSend(input);
     setInput("");
     stopTypingIfNeeded();
@@ -300,7 +312,11 @@ export function ChatPanel({
             onClose={() => setPickerOpen(false)}
             placement="top-start"
             content={<GifPicker onSelect={handleGifSelect} />}
-            tooltip={onSendGif ? "Adicionar GIF" : "Utilize uma conta para enviar GIFs"}
+            tooltip={
+              onSendGif
+                ? "Adicionar GIF"
+                : (gifDisabledReason ?? "Utilize uma conta para enviar GIFs")
+            }
           >
             <span className="inline-flex shrink-0">
               <button
@@ -325,12 +341,13 @@ export function ChatPanel({
             onInput={handleInput}
             maxLength={500}
             rows={1}
-            placeholder="Digite uma mensagem..."
-            className="min-w-0 flex-1 resize-none rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+            disabled={Boolean(sendDisabledReason)}
+            placeholder={sendDisabledReason ?? "Digite uma mensagem..."}
+            className="min-w-0 flex-1 resize-none rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-950 outline-none focus:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
           />
           <button
             type="submit"
-            disabled={!input.trim()}
+            disabled={!input.trim() || Boolean(sendDisabledReason)}
             className="shrink-0 rounded-md bg-zinc-950 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
           >
             Enviar
