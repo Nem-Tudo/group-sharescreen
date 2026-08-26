@@ -20,6 +20,7 @@ import { useSignaling } from "@/lib/useSignaling";
 import { DisplayUserName } from "./DisplayUserName";
 import { WorldMap } from "./WorldMap";
 import { MicIcon, ScreenIcon, CameraIcon } from "./icons";
+import Link from "next/link";
 
 // The room-level switches, in the order they're shown. Each label is phrased
 // as what it *permits*, so it reads true when the toggle is on — and the note
@@ -296,8 +297,7 @@ export function ManageRoomModal({
           <p className="text-xs text-zinc-500 dark:text-zinc-400">
             {canEditLocation ? (
               <>
-                Clique em qualquer lugar do mapa para fincar o alfinete, ou pesquise por uma cidade.
-                A sala aparece nesse ponto no <span className="font-medium">mapa de salas</span>.
+                Defina um lugar para que a sala fique visível no <Link style={{color: "#25baff"}} href={"/worldmap"} target="_blank">mapa de salas</Link>. Pessoas que moram perto podem começar aparecer.
               </>
             ) : (
               <>
