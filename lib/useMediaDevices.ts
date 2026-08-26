@@ -19,15 +19,17 @@ export function setElementSinkId(el: HTMLMediaElement, sinkId: string): Promise<
   return sinkable.setSinkId ? sinkable.setSinkId(sinkId) : Promise.resolve();
 }
 
-// Lists the mic (audioinput) and speaker (audiooutput) devices available to
-// the browser, refreshing on the standard `devicechange` event (a device
-// plugged/unplugged, or a permission grant that just revealed device
-// labels). Device labels are blank until the user has granted mic
-// permission at least once — falls back to "Microfone N" / "Saída N" so the
-// picker still has something to show before that.
+// Lists the mic (audioinput), speaker (audiooutput) and camera (videoinput)
+// devices available to the browser, refreshing on the standard
+// `devicechange` event (a device plugged/unplugged, or a permission grant
+// that just revealed device labels). Device labels are blank until the user
+// has granted the matching permission at least once — falls back to
+// "Microfone N" / "Saída N" / "Câmera N" so the picker still has something
+// to show before that.
 export function useMediaDevices() {
   const [mics, setMics] = useState<MediaDeviceOption[]>([]);
   const [speakers, setSpeakers] = useState<MediaDeviceOption[]>([]);
+  const [cameras, setCameras] = useState<MediaDeviceOption[]>([]);
   const [canSelectSpeaker] = useState(
     () =>
       typeof window !== "undefined" &&
@@ -45,15 +47,19 @@ export function useMediaDevices() {
         if (cancelled) return;
         const nextMics: MediaDeviceOption[] = [];
         const nextSpeakers: MediaDeviceOption[] = [];
+        const nextCameras: MediaDeviceOption[] = [];
         for (const d of devices) {
           if (d.kind === "audioinput") {
             nextMics.push({ deviceId: d.deviceId, label: d.label || `Microfone ${nextMics.length + 1}` });
           } else if (d.kind === "audiooutput") {
             nextSpeakers.push({ deviceId: d.deviceId, label: d.label || `Saída ${nextSpeakers.length + 1}` });
+          } else if (d.kind === "videoinput") {
+            nextCameras.push({ deviceId: d.deviceId, label: d.label || `Câmera ${nextCameras.length + 1}` });
           }
         }
         setMics(nextMics);
         setSpeakers(nextSpeakers);
+        setCameras(nextCameras);
       } catch {
         // ignored - enumeration can fail (unsupported browser, blocked permissions)
       }
@@ -67,5 +73,5 @@ export function useMediaDevices() {
     };
   }, []);
 
-  return { mics, speakers, canSelectSpeaker };
+  return { mics, speakers, cameras, canSelectSpeaker };
 }

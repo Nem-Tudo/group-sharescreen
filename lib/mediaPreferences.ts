@@ -13,6 +13,7 @@ const OPEN_IN_APP_KEY = "sharescreen:openRoomsInApp";
 const OPEN_IN_APP_DISMISSED_KEY = "sharescreen:openInAppDismissed";
 const MIC_DEVICE_ID_KEY = "sharescreen:micDeviceId";
 const SPEAKER_DEVICE_ID_KEY = "sharescreen:speakerDeviceId";
+const CAMERA_DEVICE_ID_KEY = "sharescreen:cameraDeviceId";
 
 function getStoredBoolean(key: string, fallback: boolean): boolean {
   if (typeof window === "undefined") return fallback;
@@ -202,4 +203,16 @@ export function getStoredSpeakerDeviceId(): string | null {
 }
 export function setStoredSpeakerDeviceId(value: string | null) {
   setStoredString(SPEAKER_DEVICE_ID_KEY, value);
+}
+
+// Which camera the camera share (and, on phones, the camera fallback for
+// "compartilhar tela") captures from — null means "let the browser pick",
+// which is the front-facing one. Persisted like the mic/speaker choices:
+// someone who broadcasts from a capture card or a second webcam shouldn't
+// have to re-pick it every session.
+export function getStoredCameraDeviceId(): string | null {
+  return getStoredString(CAMERA_DEVICE_ID_KEY);
+}
+export function setStoredCameraDeviceId(value: string | null) {
+  setStoredString(CAMERA_DEVICE_ID_KEY, value);
 }

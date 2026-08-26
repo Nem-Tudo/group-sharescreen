@@ -36,7 +36,7 @@ import { useBackgroundKeepAlive } from "@/lib/useBackgroundKeepAlive";
 import { getSoundEffectsEnabled, setSoundEffectsEnabled } from "@/lib/soundEffects";
 import { qualityNegotiator } from "@/lib/qualityNegotiation";
 import { TURN_CONFIGURED } from "@/lib/iceConfig";
-import { useMediaDevices } from "@/lib/useMediaDevices";
+import { useMediaDevices, type MediaDeviceOption } from "@/lib/useMediaDevices";
 import {
   getStoredMicsMuted,
   setStoredMicsMuted,
@@ -147,8 +147,9 @@ function MenuToggleRow({
   );
 }
 
-// One row in the mic/speaker device-picker popovers (see the split buttons
-// next to the mic and mics-muted controls below).
+// One row in the mic/speaker/camera device-picker popovers (see the split
+// buttons next to the mic and mics-muted controls, and the camera segment of
+// ShareControls, below).
 function DeviceMenuOption({
   label,
   selected,
@@ -398,6 +399,11 @@ function ShareControls({
   cameraBlockedReason,
   onToggleScreen,
   onToggleCamera,
+  cameraDevices,
+  cameraDeviceId,
+  setCameraDevice,
+  cameraMenuOpen,
+  setCameraMenuOpen,
   open,
   setOpen,
   quality,
@@ -419,6 +425,15 @@ function ShareControls({
   cameraBlockedReason?: string | null;
   onToggleScreen: () => void;
   onToggleCamera: () => void;
+  // The camera-source picker hanging off the camera segment: a machine with
+  // a webcam *and* a capture card (or a phone with two lenses) would
+  // otherwise be stuck with whichever one the browser happens to open
+  // first, with no way to change it from inside the room.
+  cameraDevices: MediaDeviceOption[];
+  cameraDeviceId: string | null;
+  setCameraDevice: (deviceId: string | null) => void;
+  cameraMenuOpen: boolean;
+  setCameraMenuOpen: Dispatch<SetStateAction<boolean>>;
   open: boolean;
   setOpen: Dispatch<SetStateAction<boolean>>;
   quality: Pick<
@@ -508,6 +523,51 @@ function ShareControls({
           <CameraIcon className="h-5 w-5" />
         </button>
       </Tooltip>
+      {/* Only where there is actually a choice to make: on the one-webcam
+          laptop that most people are on, a chevron whose menu offers a
+          single entry is pure clutter. Enumeration fills in after the first
+          camera permission, so this can appear mid-session — which is also
+          when it starts being useful. */}
+      {cameraSupported && cameraDevices.length > 1 && (
+        <Popover
+          open={cameraMenuOpen}
+          onClose={() => setCameraMenuOpen(false)}
+          placement="bottom-end"
+          tooltip="Escolher câmera"
+          content={
+            <div className="w-64 max-w-[calc(100vw-1rem)] rounded-lg border border-zinc-300 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+              <DeviceMenuOption
+                label="Padrão do sistema"
+                selected={cameraDeviceId === null}
+                onClick={() => {
+                  setCameraDevice(null);
+                  setCameraMenuOpen(false);
+                }}
+              />
+              {cameraDevices.map((d) => (
+                <DeviceMenuOption
+                  key={d.deviceId}
+                  label={d.label}
+                  selected={cameraDeviceId === d.deviceId}
+                  onClick={() => {
+                    setCameraDevice(d.deviceId);
+                    setCameraMenuOpen(false);
+                  }}
+                />
+              ))}
+            </div>
+          }
+        >
+          <button
+            type="button"
+            onClick={() => setCameraMenuOpen((o) => !o)}
+            aria-label="Escolher câmera"
+            className={`flex items-center border-l border-black/15 px-1 text-white transition ${cameraSharing ? live : idle}`}
+          >
+            <ChevronDownIcon className="h-3.5 w-3.5" />
+          </button>
+        </Popover>
+      )}
     </div>
   );
 }
@@ -618,6 +678,8 @@ export function WatchRoom({ handle }: { handle: string }) {
     localCameraStream,
     remoteCameraStreams,
     cameraShareError,
+    cameraDeviceId,
+    setCameraDevice,
     stoppedCameraPeers,
     resumingCameraPeers,
     stopWatchingCameraPeer,
@@ -687,7 +749,13 @@ export function WatchRoom({ handle }: { handle: string }) {
   const [linkCopied, setLinkCopied] = useState(false);
   const [micDeviceMenuOpen, setMicDeviceMenuOpen] = useState(false);
   const [speakerDeviceMenuOpen, setSpeakerDeviceMenuOpen] = useState(false);
-  const { mics: micDevices, speakers: speakerDevices, canSelectSpeaker } = useMediaDevices();
+  const [cameraDeviceMenuOpen, setCameraDeviceMenuOpen] = useState(false);
+  const {
+    mics: micDevices,
+    speakers: speakerDevices,
+    cameras: cameraDevices,
+    canSelectSpeaker,
+  } = useMediaDevices();
   // One gear now serves both toggles (see ShareControls), so there is one
   // panel to open instead of the two that the two separate share buttons
   // each carried their own copy of.
@@ -1818,6 +1886,11 @@ export function WatchRoom({ handle }: { handle: string }) {
           cameraBlockedReason={cameraBlockedReason}
           onToggleScreen={() => (localStream ? stopShare() : startShare("display"))}
           onToggleCamera={() => (localCameraStream ? stopCameraShare() : startCameraShare())}
+          cameraDevices={cameraDevices}
+          cameraDeviceId={cameraDeviceId}
+          setCameraDevice={setCameraDevice}
+          cameraMenuOpen={cameraDeviceMenuOpen}
+          setCameraMenuOpen={setCameraDeviceMenuOpen}
           open={shareQualityOpen}
           setOpen={setShareQualityOpen}
           quality={qualityControlsProps}

@@ -10,12 +10,14 @@ import {
   getStoredForceRelayIce,
   getStoredMicOn,
   getStoredNoiseSuppressionOn,
+  getStoredCameraDeviceId,
   getStoredMicDeviceId,
   getStoredSpeakerDeviceId,
   setStoredAutoJoin,
   setStoredForceRelayIce,
   setStoredMicOn,
   setStoredNoiseSuppressionOn,
+  setStoredCameraDeviceId,
   setStoredMicDeviceId,
   setStoredSpeakerDeviceId,
 } from "./mediaPreferences";
@@ -1351,6 +1353,43 @@ function hasCameraCapture() {
   return typeof navigator !== "undefined" && Boolean(navigator.mediaDevices?.getUserMedia);
 }
 
+// Which physical camera to open. `exact` rather than `ideal` on purpose: an
+// ignored deviceId would leave someone broadcasting a camera other than the
+// one their picker shows as selected, and on a phone it would also defeat
+// picking the rear lens. Nothing chosen means "let the browser decide",
+// which is the front-facing one.
+function cameraSourceConstraints(deviceId: string | null): MediaTrackConstraints {
+  return deviceId ? { deviceId: { exact: deviceId } } : { facingMode: "user" };
+}
+
+// A picked camera can simply be gone by the time it is opened — unplugged,
+// or a deviceId stored in a previous session on a machine that no longer
+// has it. Browsers report that as OverconstrainedError/NotFoundError, which
+// start()'s catch would turn into "verifique as permissões do navegador" —
+// a message about something that was never the problem. Retrying on the
+// default camera keeps the transmission working; the choice itself is kept,
+// so the next start tries it again once the device is back.
+function isMissingDeviceError(err: unknown): boolean {
+  const name = (err as { name?: string } | null | undefined)?.name;
+  return name === "OverconstrainedError" || name === "NotFoundError";
+}
+
+async function captureCamera(
+  video: MediaTrackConstraints,
+  deviceId: string | null
+): Promise<MediaStream> {
+  try {
+    return await navigator.mediaDevices.getUserMedia({
+      video: { ...video, ...cameraSourceConstraints(deviceId) },
+    });
+  } catch (err) {
+    if (!deviceId || !isMissingDeviceError(err)) throw err;
+    return navigator.mediaDevices.getUserMedia({
+      video: { ...video, ...cameraSourceConstraints(null) },
+    });
+  }
+}
+
 // Most mobile browsers (all of iOS Safari, most of Android Chrome) don't
 // support getDisplayMedia at all, so screen capture from a website simply
 // isn't possible there. Falling back to the device camera lets mobile users
@@ -1494,6 +1533,17 @@ export function useRoomMedia(room: string) {
     };
   }, [shareResolution, shareFps, shareBitrate, smartQualityEnabled, shareProfile]);
 
+  // The camera the two camera-capturing paths below open: the camera
+  // channel, and the screen channel's mobile fallback (a phone has no
+  // getDisplayMedia, so "compartilhar tela" captures the camera there).
+  // Same "ref mirrors state, for the capture closure" pattern as the mic's
+  // device below — useBroadcastChannel calls capture once per start, so a
+  // captured `const` would go stale the moment someone switches camera.
+  const cameraDeviceIdRef = useRef<string | null>(getStoredCameraDeviceId());
+  const [cameraDeviceId, setCameraDeviceIdState] = useState<string | null>(() =>
+    getStoredCameraDeviceId()
+  );
+
   const screen = useBroadcastChannel(
     "screen",
     room,
@@ -1510,9 +1560,7 @@ export function useRoomMedia(room: string) {
         frameRate: { ideal: shareFpsRef.current },
       };
       if (source === "camera") {
-        return navigator.mediaDevices.getUserMedia({
-          video: { ...videoConstraints, facingMode: "user" },
-        });
+        return captureCamera(videoConstraints, cameraDeviceIdRef.current);
       }
       // No fallback to the camera here — on browsers without getDisplayMedia
       // (most mobile ones) this throws synchronously, which start() below
@@ -1622,14 +1670,14 @@ export function useRoomMedia(room: string) {
       // ceiling on the one or two people actually watching fullscreen while
       // saving nothing for the many watching in a grid.
       const dims = RESOLUTION_DIMENSIONS[shareResolutionRef.current];
-      return navigator.mediaDevices.getUserMedia({
-        video: {
+      return captureCamera(
+        {
           width: { ideal: dims.width },
           height: { ideal: dims.height },
           frameRate: { ideal: shareFpsRef.current },
-          facingMode: "user",
         },
-      });
+        cameraDeviceIdRef.current
+      );
     },
     () => hasCameraCapture(),
     "Seu navegador não suporta câmera.",
@@ -1637,6 +1685,29 @@ export function useRoomMedia(room: string) {
     forceRelayIce,
     autoJoin,
     screenQualityPreset
+  );
+
+  // Switches which camera is captured. A live camera share is restarted
+  // (stop, then start) so the new device actually goes out — the same brief
+  // drop the mic picker accepts below, which beats silently continuing to
+  // broadcast the old one. The screen channel is restarted too, but only
+  // when it is itself running off the camera (the mobile fallback);
+  // switching cameras must not interrupt an actual screen share.
+  const setCameraDevice = useCallback(
+    (deviceId: string | null) => {
+      cameraDeviceIdRef.current = deviceId;
+      setCameraDeviceIdState(deviceId);
+      setStoredCameraDeviceId(deviceId);
+      if (camera.active) {
+        camera.stop();
+        camera.start();
+      }
+      if (screen.active && screen.source === "camera") {
+        screen.stop();
+        screen.start("camera");
+      }
+    },
+    [camera, screen]
   );
 
   useEffect(() => {
@@ -1831,6 +1902,8 @@ export function useRoomMedia(room: string) {
     localCameraStream: camera.localStream,
     remoteCameraStreams: camera.remoteStreams,
     cameraShareError: camera.error,
+    cameraDeviceId,
+    setCameraDevice,
     stoppedPeers: screen.stoppedPeers,
     resumingPeers: screen.resumingPeers,
     stopWatchingPeer: screen.stopWatchingPeer,
