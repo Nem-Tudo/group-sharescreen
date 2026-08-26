@@ -26,7 +26,7 @@ import { AccountConnections } from "@/components/AccountConnections";
 import type { OAuthResult } from "@/lib/oauthApi";
 import { GlobeIcon } from "@/components/icons";
 import { DownloadAppButton } from "@/components/DownloadAppButton";
-import { MdLock } from "react-icons/md";
+import { MdLock, MdOutlineMap } from "react-icons/md";
 
 // Mirrors server/signaling.ts's HANDLE_RE — must match exactly, or a name
 // this lets through but the server rejects lands the user in a dead room
@@ -380,6 +380,16 @@ export default function Home() {
           >
             <GlobeIcon className="h-4 w-4" />
             Ver salas públicas
+          </Link>
+          {/* The same rooms, arranged by where their owners put them on the
+              globe instead of by headcount — see app/mapa. Only ever public
+              ones, same as the list beside it. */}
+          <Link
+            href="/worldmap"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 px-3.5 py-2 text-sm font-medium text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900"
+          >
+            <MdOutlineMap className="h-4 w-4" />
+            Ver mapa de salas
           </Link>
         </div>
 

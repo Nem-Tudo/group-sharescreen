@@ -86,7 +86,12 @@ import {
 } from "@/components/icons";
 import { Tooltip, Popover } from "@/components/Tooltip";
 import { useMediaQuery, SM_BREAKPOINT_QUERY, LG_BREAKPOINT_QUERY } from "@/lib/useMediaQuery";
-import { MdHome, MdOutlineOndemandVideo, MdOutlineDesktopWindows } from "react-icons/md";
+import {
+  MdHome,
+  MdOutlineOndemandVideo,
+  MdOutlineDesktopWindows,
+  MdOutlineMap,
+} from "react-icons/md";
 import { BsGearFill, BsCoin } from "react-icons/bs";
 import { BetaMark } from "@/components/BetaMark";
 import { UpdateAppButton } from "@/components/UpdateAppButton";
@@ -964,6 +969,16 @@ export function WatchRoom({ handle }: { handle: string }) {
   function roomBlockReason(key: RoomPermissionKey, what: string): string | null {
     return canUseRoomPermission(key) ? null : `Você não tem permissão para utilizar ${what} nesta sala.`;
   }
+  // Only public rooms are on the map at all (see the server's
+  // "room-location-set" and its /rooms listing, which filters private rooms
+  // out), so placing a private one is refused rather than quietly kept as
+  // state nobody can see.
+  const privateRoomCannotBeMapped = isPrivateRoomHandle(handle);
+  const roomLocationTooltip = privateRoomCannotBeMapped
+    ? "Apenas salas públicas podem definir uma localização"
+    : isRoomManager
+      ? "Escolha onde esta sala fica no mapa do mundo"
+      : "Veja onde esta sala fica no mapa do mundo";
   const micBlockedReason = roomBlockReason("mic", "o microfone");
   const screenBlockedReason = roomBlockReason("screen", "o compartilhamento de tela");
   const cameraBlockedReason = roomBlockReason("camera", "a câmera");
@@ -1829,6 +1844,29 @@ export function WatchRoom({ handle }: { handle: string }) {
     });
   }
 
+  // Both open components/ManageRoomModal — it just starts on a different
+  // screen. No other `data`: the popup reads the room's live state itself, so
+  // it keeps up with people joining and other admins' changes while it's
+  // open. The map one is wider, since a world map in a 20rem column is a
+  // postage stamp.
+  function openManageRoomPopup() {
+    openPopup("manage_room", { data: {} });
+  }
+
+  function openRoomLocationPopup() {
+    // The map view is the one place that needs a real box rather than the
+    // narrow column the other views use, and the width has to be set *here*:
+    // the popup sizes its own frame, and a width class on the child would be
+    // measured against the viewport instead, overflowing the frame by
+    // whatever padding sits between them.
+    openPopup("manage_room", {
+      width: "min(64rem, calc(100vw - 3rem))",
+      maxWidth: "min(64rem, calc(100vw - 3rem))",
+      maxHeight: "92dvh",
+      data: { initialView: "location", canEdit: isRoomManager },
+    });
+  }
+
   const participantsSection = (
     <>
       {connectingAudioPeers && (
@@ -1890,28 +1928,48 @@ export function WatchRoom({ handle }: { handle: string }) {
   // from lg up instead, where it has the whole right side to itself.
   const chatSection = (
     <>
-      {/* Only for whoever actually runs the room. Sits directly above the
-          chat rather than in the header's "Mais opções" panel because that
-          panel is everyone's, and this is the one control on this page that
-          isn't. Admins get it too — the permission switches are theirs as
-          well (see the server's isRoomManager); the popup itself is what
-          hides "Gerenciar administradores" from anyone but the owner. */}
-      {isRoomManager && (
-        <button
-          type="button"
-          onClick={() =>
-            openPopup("manage_room", {
-              // No `data`: the popup reads the room's live state itself, so
-              // it keeps up with people joining and other admins' changes
-              // while it's open — see components/ManageRoomModal.
-              data: {},
-            })
-          }
-          className="mb-2 flex items-center justify-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
-        >
-          <BsGearFill className="h-3.5 w-3.5 shrink-0" />
-          Gerenciar sala
-        </button>
+      {/* Sits directly above the chat rather than in the header's "Mais
+          opções" panel because that panel is everyone's, and the gear here
+          isn't: it's for whoever actually runs the room. Admins get it too —
+          placing the room and the permission switches are alike theirs (see
+          the server's isRoomManager); the popup is what hides "Gerenciar
+          administradores" from anyone but the owner.
+
+          The map button is the exception: everyone sees it once the room has
+          been placed, because "where is this room" is something to look at,
+          not something to run. It just opens read-only for them (see
+          ManageRoomModal's canEdit). */}
+      {(isRoomManager || state.roomLocation) && (
+        <div className="mb-2 flex items-center gap-2">
+          <Tooltip content={roomLocationTooltip} wrapperClassName="flex flex-1">
+            <button
+              type="button"
+              onClick={openRoomLocationPopup}
+              // A private room can never be on the map (the map lists public
+              // rooms only, and the server refuses the write) — so this is
+              // dead for a manager of one, with the tooltip explaining why
+              // rather than the button silently doing nothing.
+              disabled={isRoomManager && privateRoomCannotBeMapped}
+              className={`flex w-full items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${state.roomLocation
+                ? "border-sky-500 text-sky-600 hover:bg-sky-50 dark:border-sky-700 dark:text-sky-400 dark:hover:bg-sky-950/40"
+                : "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                }`}
+            >
+              <MdOutlineMap className="h-4 w-4 shrink-0" />
+              {state.roomLocation || !isRoomManager ? "Local no mapa" : "Definir local no mapa"}
+            </button>
+          </Tooltip>
+          {isRoomManager && (
+            <button
+              type="button"
+              onClick={openManageRoomPopup}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+            >
+              <BsGearFill className="h-3.5 w-3.5 shrink-0" />
+              Gerenciar sala
+            </button>
+          )}
+        </div>
       )}
       <ChatPanel
         messages={state.chatMessages}

@@ -10,9 +10,15 @@ import {
   MdOutlineChat,
   MdGif,
 } from "react-icons/md";
-import { signalingClient, type RoomPermissionKey, type PeerInfo } from "@/lib/signalingClient";
+import {
+  signalingClient,
+  type RoomPermissionKey,
+  type PeerInfo,
+  type RoomLocation,
+} from "@/lib/signalingClient";
 import { useSignaling } from "@/lib/useSignaling";
 import { DisplayUserName } from "./DisplayUserName";
+import { WorldMap } from "./WorldMap";
 import { MicIcon, ScreenIcon, CameraIcon } from "./icons";
 
 // The room-level switches, in the order they're shown. Each label is phrased
@@ -36,7 +42,14 @@ const PERMISSION_ROWS: {
   { key: "gif", label: "Permitir que todos enviem GIFS", icon: MdGif },
 ];
 
-type View = "menu" | "admins" | "permissions";
+type View = "menu" | "admins" | "permissions" | "location";
+
+// Rounded for display only — the full precision is what gets sent. Six
+// decimals is roughly a tenth of a metre, far past anything a click on a
+// world map means, so anything longer is just noise in a readout.
+function formatCoordinate(value: number): string {
+  return value.toFixed(4);
+}
 
 // The popup behind the "Gerenciar sala" button above the chat (see
 // WatchRoom.tsx) — an ntpopups popup type, registered as "manage_room" in
@@ -47,9 +60,36 @@ type View = "menu" | "admins" | "permissions";
 // it's open — someone joins, another admin flips a switch — so it reads
 // straight from the signaling store rather than a snapshot captured when it
 // was opened.
-export function ManageRoomModal({ closePopup }: { closePopup: (hasAction?: boolean) => void }) {
+export type ManageRoomPopupData = {
+  // Which screen to open on. WatchRoom's "Local no mapa" button opens this
+  // same popup straight on "location" (see openRoomLocationPopup there),
+  // which is why that one has no entry in the menu below — the button *is*
+  // the entry.
+  initialView?: View;
+  // False for the read-only "where is this room" view every participant can
+  // open — the map, the pin and the search box, minus the ability to move it.
+  // The owner/admin check itself lives in WatchRoom (it decides which button
+  // to render); this only says which of the two was pressed, and the server
+  // refuses a move from anyone else regardless.
+  canEdit?: boolean;
+};
+
+export function ManageRoomModal({
+  closePopup,
+  data,
+}: {
+  closePopup: (hasAction?: boolean) => void;
+  data?: ManageRoomPopupData;
+}) {
   const state = useSignaling();
-  const [view, setView] = useState<View>("menu");
+  const [view, setView] = useState<View>(data?.initialView ?? "menu");
+  // Where the pin currently sits in the "Definir local do mundo" view —
+  // local until "Salvar local", so a stray click on the map doesn't move the
+  // room out from under everyone mid-drag. Seeded once, from wherever the
+  // room already is, rather than synced continuously: it *is* the unsaved
+  // edit, and the popup is opened straight onto this view (see
+  // WatchRoom's openRoomLocationPopup) so there is no later moment to seed it.
+  const [pick, setPick] = useState<RoomLocation | null>(state.roomLocation);
 
   const isOwner = Boolean(state.selfUserId && state.roomOwnerId === state.selfUserId);
   // Admins may flip the permission switches but not hand out admin — see
@@ -66,18 +106,43 @@ export function ManageRoomModal({ closePopup }: { closePopup: (hasAction?: boole
       p.role !== "moderator" && Boolean(p.userId) && p.userId !== state.roomOwnerId
   );
 
+  const saved = state.roomLocation;
+  const pinMoved = pick?.lat !== saved?.lat || pick?.lng !== saved?.lng;
+  // Read-only unless the opener said otherwise *and* this viewer really is a
+  // manager — the flag says which button was pressed, the check says whether
+  // they were entitled to press it.
+  const isManager = isOwner || state.roomAdmins.some((a) => a.id === state.selfUserId);
+  const canEditLocation = (data?.canEdit ?? true) && isManager;
+
   const title =
     view === "admins"
       ? "Gerenciar administradores"
       : view === "permissions"
         ? "Gerenciar permissões"
-        : "Gerenciar sala";
+        : view === "location"
+          ? canEditLocation
+            ? "Definir local do mundo"
+            : "Local da sala no mundo"
+          : "Gerenciar sala";
+
 
   return (
-    <div className="flex max-h-[80vh] w-80 max-w-[calc(100vw-1rem)] flex-col gap-4 overflow-y-auto bg-white p-4 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">
+    <div
+      className={`flex max-h-[92vh] max-w-full flex-col gap-4 overflow-y-auto bg-white p-4 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50 ${
+        // The map view fills whatever box the popup was opened with — its
+        // width is set on the popup itself (see WatchRoom's
+        // openRoomLocationPopup), because a fixed width here would be sized
+        // against the *viewport* while the popup is sized against its own
+        // container, and the two disagree by exactly enough to overflow. The
+        // other views have no such caller, so they still set their own.
+        view === "location" ? "w-full" : "w-80"
+      }`}
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1.5">
-          {view !== "menu" && (
+          {/* No back arrow when this popup was opened straight onto a view —
+              there is no menu behind it to go back to. */}
+          {view !== "menu" && data?.initialView === undefined && (
             <button
               type="button"
               onClick={() => setView("menu")}
@@ -226,6 +291,87 @@ export function ManageRoomModal({ closePopup }: { closePopup: (hasAction?: boole
         </div>
       )}
 
+      {view === "location" && (
+        <div className="flex flex-col gap-3">
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            {canEditLocation ? (
+              <>
+                Clique em qualquer lugar do mapa para fincar o alfinete, ou pesquise por uma cidade.
+                A sala aparece nesse ponto no <span className="font-medium">mapa de salas</span>.
+              </>
+            ) : (
+              <>
+                Onde o dono da sala colocou ela no{" "}
+                <span className="font-medium">mapa de salas</span>. Só o dono e os administradores
+                podem mudar.
+              </>
+            )}
+          </p>
+
+          {/* Sized against the viewport rather than a fixed height: this is
+              the whole point of the view, and the popup is as tall as the
+              window allows. The floor keeps it usable on a phone, where a
+              percentage of a short screen is not much map. */}
+          <div className="h-[min(60vh,32rem)] min-h-64 overflow-hidden rounded-lg border border-zinc-300 dark:border-zinc-700">
+            <WorldMap
+              className="h-full w-full"
+              searchable
+              pick={pick}
+              // Omitted entirely for a viewer — without it the map ignores
+              // clicks, which is what makes this read-only rather than
+              // "editable but rejected by the server".
+              onPick={canEditLocation ? (lat, lng) => setPick({ lat, lng }) : undefined}
+              // Opens on the existing pin when there is one, so neither
+              // "move it slightly" nor "where is this?" starts by hunting the
+              // globe for it.
+              center={pick ? [pick.lat, pick.lng] : undefined}
+              zoom={pick ? 6 : undefined}
+            />
+          </div>
+
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            {pick ? (
+              <>
+                {canEditLocation ? "Alfinete em" : "Sala em"}{" "}
+                <span className="font-mono text-zinc-700 dark:text-zinc-300">
+                  {formatCoordinate(pick.lat)}, {formatCoordinate(pick.lng)}
+                </span>
+                {canEditLocation && !pinMoved && " (local salvo)"}
+              </>
+            ) : (
+              "Esta sala ainda não tem um local no mundo."
+            )}
+          </p>
+
+          {canEditLocation && (
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={!pick || !pinMoved}
+                onClick={() => signalingClient.setRoomLocation(pick)}
+                className="flex-1 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {saved ? "Salvar novo local" : "Salvar local"}
+              </button>
+              {/* Only offered once there is something to take off the map —
+                  clearing a room that was never placed does nothing. */}
+              {saved && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    signalingClient.setRoomLocation(null);
+                    setPick(null);
+                  }}
+                  className="rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-600 transition hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
+                >
+                  Remover do mapa
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {view === "permissions" && (
         <div className="flex flex-col gap-2">
           <p className="text-xs text-zinc-500 dark:text-zinc-400">
@@ -239,9 +385,15 @@ export function ManageRoomModal({ closePopup }: { closePopup: (hasAction?: boole
                 <li key={key}>
                   <button
                     type="button"
+                    // Belt and braces: this view is only reachable from the
+                    // manager-gated menu, and the server refuses the write
+                    // anyway — but this component is now openable by ordinary
+                    // participants (read-only "Local no mapa"), so nothing
+                    // here should assume otherwise.
+                    disabled={!isManager}
                     onClick={() => signalingClient.setRoomPermission(key, !allowed)}
                     aria-pressed={allowed}
-                    className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-sm transition hover:bg-zinc-100 dark:hover:bg-zinc-900"
+                    className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-sm transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60 dark:hover:bg-zinc-900"
                   >
                     <span className="flex min-w-0 items-center gap-2">
                       <Icon

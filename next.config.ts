@@ -13,6 +13,11 @@ const nextConfig: NextConfig = {
         destination: "https://stats.nemtudo.me/public-dashboards/9be4846ec8774ff5888baa7d33862ccc",
         permanent: true,
       },
+      {
+        source: "/github",
+        destination: "https://github.com/Nem-Tudo/group-sharescreen",
+        permanent: true,
+      },
     ];
   },
 };

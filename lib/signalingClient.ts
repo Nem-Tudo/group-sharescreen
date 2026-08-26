@@ -84,6 +84,14 @@ export type RoomAdmin = {
   name: string;
 };
 
+// Where the room's owner/admins pinned it on the world map (see the /mapa
+// page and ManageRoomModal's "Definir local do mundo"). Null for a room
+// nobody has placed.
+export type RoomLocation = {
+  lat: number;
+  lng: number;
+};
+
 // Both are read defensively rather than cast: a server that predates room
 // settings sends neither, and the honest reading of "nothing was said" is
 // the wide-open default, not a locked-down room nobody can talk in.
@@ -94,6 +102,17 @@ function parseRoomPermissions(raw: unknown): RoomPermissions {
     if (typeof source[key] === "boolean") out[key] = source[key] as boolean;
   }
   return out;
+}
+
+// Mirrors the server's normalizeRoomLocation — anything that isn't a real
+// point comes back as "not placed" rather than a marker in the void.
+export function parseRoomLocation(raw: unknown): RoomLocation | null {
+  if (!raw || typeof raw !== "object") return null;
+  const { lat, lng } = raw as { lat?: unknown; lng?: unknown };
+  if (typeof lat !== "number" || typeof lng !== "number") return null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  return { lat, lng };
 }
 
 function parseRoomAdmins(raw: unknown): RoomAdmin[] {
@@ -229,6 +248,10 @@ export type SignalingState = {
   roomOwnerId: string | null;
   roomAdmins: RoomAdmin[];
   roomPermissions: RoomPermissions;
+  // Where this room sits on the public room map — null until an owner/admin
+  // places it. Kept here rather than fetched, so the "Definir local do
+  // mundo" view opens on the pin that's already there.
+  roomLocation: RoomLocation | null;
   // The last action this room refused us (see the server's
   // "room-permission-denied"). Carried alongside a counter because the
   // *event* is what matters — being refused the mic twice in a row is two
@@ -290,6 +313,7 @@ const initialState: SignalingState = {
   roomOwnerId: null,
   roomAdmins: [],
   roomPermissions: { ...DEFAULT_ROOM_PERMISSIONS },
+  roomLocation: null,
   permissionDenied: null,
   permissionDeniedSeq: 0,
   typingPeerIds: [],
@@ -669,6 +693,7 @@ class SignalingClient {
           roomOwnerId: typeof msg.ownerId === "string" ? msg.ownerId : null,
           roomAdmins: parseRoomAdmins(msg.admins),
           roomPermissions: parseRoomPermissions(msg.permissions),
+          roomLocation: parseRoomLocation(msg.location),
           // A refusal from the room we just left says nothing about this one.
           permissionDenied: null,
         });
@@ -764,6 +789,7 @@ class SignalingClient {
           roomOwnerId: typeof msg.ownerId === "string" ? msg.ownerId : this.state.roomOwnerId,
           roomAdmins: parseRoomAdmins(msg.admins),
           roomPermissions: parseRoomPermissions(msg.permissions),
+          roomLocation: parseRoomLocation(msg.location),
         });
         break;
       // An action this room doesn't allow us. The server already refused it;
@@ -1045,6 +1071,7 @@ class SignalingClient {
       roomOwnerId: null,
       roomAdmins: [],
       roomPermissions: { ...DEFAULT_ROOM_PERMISSIONS },
+      roomLocation: null,
       permissionDenied: null,
     });
   }
@@ -1071,6 +1098,12 @@ class SignalingClient {
 
   removeRoomAdmin(userId: string) {
     this.rawSend({ type: "room-admin-remove", userId });
+  }
+
+  // Pins the room somewhere on the world map, or takes it off it entirely
+  // with null. Owner/admin only, enforced server-side.
+  setRoomLocation(location: RoomLocation | null) {
+    this.rawSend({ type: "room-location-set", location });
   }
 
   // Dismisses the "this room doesn't allow that" notice — a one-shot warning,

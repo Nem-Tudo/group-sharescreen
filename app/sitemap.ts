@@ -17,6 +17,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 0.6,
     },
     {
+      url: `${SITE_URL}/worldmap`,
+      lastModified: new Date(),
+      changeFrequency: "hourly",
+      priority: 0.6,
+    },
+    {
       url: `${SITE_URL}/termos`,
       lastModified: new Date(),
       changeFrequency: "monthly",
