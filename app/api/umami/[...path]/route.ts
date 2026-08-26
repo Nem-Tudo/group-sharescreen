@@ -2,15 +2,17 @@ import { NextResponse, type NextRequest } from "next/server";
 
 const UMAMI_URL = process.env.UMAMI_URL;
 
-// Proxies every request under /api/umami/* to the real Umami server so the
-// tracker script and its collect requests are same-origin with the app
-// (avoids ad blockers and third-party-cookie restrictions targeting
-// analytics domains). The tracker computes its collect endpoint relative to
-// its own script src, so serving it from here also routes /api/umami/api/send
-// through this same handler automatically.
+// Only allow proxying these specific paths to prevent abuse.
+const ALLOWED_PATHS = new Set(["script.js", "api/send"]);
+
 async function proxy(request: NextRequest, path: string[]) {
   if (!UMAMI_URL) {
     return NextResponse.json({ error: "Umami proxy not configured" }, { status: 404 });
+  }
+
+  const joinedPath = path.join("/");
+  if (!ALLOWED_PATHS.has(joinedPath)) {
+    return NextResponse.json({ error: "Path not allowed" }, { status: 403 });
   }
 
   const base = UMAMI_URL.endsWith("/") ? UMAMI_URL : `${UMAMI_URL}/`;

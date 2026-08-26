@@ -303,6 +303,7 @@ function useBroadcastChannel(
   const sendPCs = useRef<Map<string, RTCPeerConnection>>(new Map());
   const recvPCs = useRef<Map<string, RTCPeerConnection>>(new Map());
   const activeRef = useRef(false);
+  const endedCleanupRef = useRef<(() => void) | null>(null);
   const pendingSendCandidates = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const pendingRecvCandidates = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   // Peers who (as viewers of OUR stream) asked us to stop sending — mirrors
@@ -783,6 +784,8 @@ function useBroadcastChannel(
   const stop = useCallback(() => {
     if (!activeRef.current) return;
     activeRef.current = false;
+    endedCleanupRef.current?.();
+    endedCleanupRef.current = null;
     setActive(false);
     localStreamRef.current?.getTracks().forEach((t) => t.stop());
     localStreamRef.current = null;
@@ -851,7 +854,35 @@ function useBroadcastChannel(
       if (channel === "mic") signalingClient.setMic(true);
       else signalingClient.setSharing({ [channel]: true });
       trackEvent(`${eventPrefix}_start`);
-      stream.getTracks().forEach((track) => track.addEventListener("ended", () => stop()));
+      // When a tab goes backgrounded, browsers may fire "ended" on screen
+      // capture tracks even though the user didn't stop sharing. Delay the
+      // stop() call while the tab is hidden so a quick tab switch doesn't
+      // tear down the session.
+      let endedTimer: ReturnType<typeof setTimeout> | null = null;
+      const onTrackEnded = () => {
+        if (!activeRef.current) return;
+        if (document.hidden) {
+          if (endedTimer !== null) return;
+          endedTimer = setTimeout(() => {
+            endedTimer = null;
+            if (document.hidden && activeRef.current) stop();
+          }, 5000);
+        } else {
+          stop();
+        }
+      };
+      const onVisibilityChange = () => {
+        if (!document.hidden && endedTimer !== null) {
+          clearTimeout(endedTimer);
+          endedTimer = null;
+        }
+      };
+      document.addEventListener("visibilitychange", onVisibilityChange);
+      endedCleanupRef.current = () => {
+        document.removeEventListener("visibilitychange", onVisibilityChange);
+        if (endedTimer !== null) clearTimeout(endedTimer);
+      };
+      stream.getTracks().forEach((track) => track.addEventListener("ended", onTrackEnded));
       // Staggered (see STAGGER_MS's doc comment) — starting a share into an
       // already-large room is exactly the burst that used to overwhelm the
       // signaling rate limit and leave some viewers' connections stuck.

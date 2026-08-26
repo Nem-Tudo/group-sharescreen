@@ -19,6 +19,7 @@ import {
 } from "@/components/icons";
 import { VolumeSlider } from "@/components/VolumeSlider";
 import { Tooltip } from "@/components/Tooltip";
+import { VideoFiltersPanel, useVideoFilters, getFilterStyle } from "@/components/VideoFilters";
 import { MAX_GAIN } from "@/lib/audioGain";
 import { useGainedAudio } from "@/lib/useGainedAudio";
 
@@ -53,6 +54,7 @@ export function VideoTile({
   onToggleMic,
   micsMuted,
   onToggleMicsMuted,
+  isTabHidden = false,
   className = "",
 }: {
   stream: MediaStream;
@@ -106,6 +108,7 @@ export function VideoTile({
   onToggleMic?: () => void;
   micsMuted?: boolean;
   onToggleMicsMuted?: () => void;
+  isTabHidden?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -118,6 +121,7 @@ export function VideoTile({
   // whole screen instead of a permanent button bar across it.
   const [fullscreenControlsVisible, setFullscreenControlsVisible] = useState(false);
   const [isPiP, setIsPiP] = useState(false);
+  const { filters: videoFilters, setFilters: setVideoFilters } = useVideoFilters(stream.id || "local");
   // Video keeps showing the last frame's black backdrop until the stream
   // actually has data flowing — surface that gap as a spinner instead of a
   // blank black tile, and reset it whenever the stream is swapped out.
@@ -321,11 +325,18 @@ export function VideoTile({
         playsInline
         onLoadedData={() => setIsVideoLoading(false)}
         onClick={handleVideoTap}
+        style={getFilterStyle(videoFilters)}
         className="h-full w-full object-contain bg-black"
       />
       {isVideoLoading && (
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="h-10 w-10 animate-spin rounded-full border-4 border-white/20 border-t-white/80" />
+        </div>
+      )}
+      {isTabHidden && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/95">
+          <p className="text-sm font-medium text-zinc-300">Transmissão pausada</p>
+          <p className="mt-1 text-xs text-zinc-500">Tela desfocada</p>
         </div>
       )}
       <div
@@ -447,6 +458,11 @@ export function VideoTile({
             </button>
           </Tooltip>
         )}
+        <VideoFiltersPanel
+          tileId={stream.id || "local"}
+          filters={videoFilters}
+          onFiltersChange={setVideoFilters}
+        />
         <Tooltip content={isFullscreen ? "Sair da tela cheia" : "Tela cheia"}>
           <button
             type="button"

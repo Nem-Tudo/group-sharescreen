@@ -61,6 +61,7 @@ import { SupportersTooltipContent } from "@/components/SupportersTooltip";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { CreateAccountForm } from "@/components/CreateAccountForm";
 import { VideoSourceTile } from "@/components/VideoSourceTile";
+import { usePageVisibility } from "@/lib/usePageVisibility";
 import useNtPopups from "ntpopups";
 import {
   MicIcon,
@@ -571,6 +572,7 @@ export function WatchRoom({ handle }: { handle: string }) {
   // while actually in a room — see the hook's own doc comment for why (and
   // its limits, especially on iOS).
   useBackgroundKeepAlive(Boolean(state.room));
+  const isTabVisible = usePageVisibility();
   const hasStoredName = useHasStoredName();
   const { loading: resolvingAccount, account } = useAuth();
   const { openPopup } = useNtPopups();
@@ -1409,13 +1411,13 @@ export function WatchRoom({ handle }: { handle: string }) {
       <button
         type="button"
         onClick={handleCopyLink}
-        className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-left text-sm font-medium transition sm:hidden ${linkCopied
-          ? "border-emerald-600 text-emerald-600 dark:border-emerald-500 dark:text-emerald-500"
-          : "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+        className={`flex items-center gap-1.5 rounded-xl px-4 py-2 text-left text-sm font-semibold transition sm:hidden ${linkCopied
+          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+          : "bg-zinc-200 text-zinc-700 hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
           }`}
       >
         {linkCopied ? <CheckIcon className="h-4 w-4" /> : <LinkIcon className="h-4 w-4" />}
-        {linkCopied ? "Link copiado!" : "Compartilhar sala"}
+        {linkCopied ? "Link copiado!" : "Convidar"}
       </button>
 
       <a
@@ -1828,12 +1830,6 @@ export function WatchRoom({ handle }: { handle: string }) {
             <Link href={"/"} className="shrink-0 text-lg font-semibold text-zinc-950 dark:text-zinc-50">
               <MdHome />
             </Link>
-            {/* For a private room the code is split out of the handle and
-                shown on its own: it's the room's whole secret now (see
-                roomsApi's toPrivateRoomHandle), so it's the thing someone
-                reads out loud to let a friend in, and picking it out of
-                "priv-familia-123456" by eye is needless work. The tooltip
-                still carries the raw handle for anyone who wants it. */}
             <Tooltip content={handle} placement="bottom">
               <h1 className="truncate text-base font-semibold text-zinc-950 dark:text-zinc-50 sm:text-lg">
                 {privateRoomParts ? privateRoomParts.name : handle}
@@ -1841,7 +1837,7 @@ export function WatchRoom({ handle }: { handle: string }) {
             </Tooltip>
             {privateRoomParts && (
               <span className="shrink-0 rounded-full bg-zinc-200 px-2.5 py-1 font-mono text-xs font-medium tracking-wider text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
-                {privateRoomParts.code}
+                {privateRoomParts.legacy ? privateRoomParts.code : privateRoomParts.code}
               </span>
             )}
             <span
@@ -1874,7 +1870,7 @@ export function WatchRoom({ handle }: { handle: string }) {
                 type="button"
                 onClick={openAddVideoSourcePopup}
                 aria-label="Adicionar fonte de vídeo"
-                className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700"
+                className="flex items-center gap-1.5 rounded-xl border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
               >
                 <MdOutlineOndemandVideo className="h-5 w-5 shrink-0" />
                 <span className="hidden lg:inline"><BetaMark /></span>
@@ -1888,13 +1884,13 @@ export function WatchRoom({ handle }: { handle: string }) {
                 <button
                   type="button"
                   onClick={handleCopyLink}
-                  className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition ${linkCopied
-                    ? "border-emerald-600 text-emerald-600 dark:border-emerald-500 dark:text-emerald-500"
-                    : "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                  className={`flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-semibold transition ${linkCopied
+                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                    : "bg-zinc-200 text-zinc-700 hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
                     }`}
                 >
                   {linkCopied ? <CheckIcon className="h-4 w-4" /> : <LinkIcon className="h-4 w-4" />}
-                  {linkCopied ? "Copiado!" : "Compartilhar sala"}
+                  {linkCopied ? "Copiado!" : "Convidar"}
                 </button>
               </Tooltip>
               <Popover
@@ -2077,29 +2073,29 @@ export function WatchRoom({ handle }: { handle: string }) {
 
         <main className="min-h-0 flex-1 overflow-y-auto">
           {nothingToShow ? (
-            <div className="flex h-full min-h-75 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-300 text-center dark:border-zinc-800">
-              <p className="text-zinc-600 dark:text-zinc-400">
-                Ninguém está transmitindo ainda.
-              </p>
-              {/* The empty pane is the one place with room for the labelled
-                  version of the header's icon toggles, and the one moment
-                  when starting a share is the only thing anyone can do here.
-                  Pointing at the header instead ("clique no ícone lá em
-                  cima") asked the person to go find a control while standing
-                  on the space where it fits. Only ever shown while nobody —
-                  including us — is transmitting, so these are always "start",
-                  never "stop": see nothingToShow. */}
+            <div className="flex h-full min-h-75 flex-col items-center justify-center gap-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-8 text-center dark:border-zinc-800 dark:bg-zinc-950">
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-zinc-200 dark:bg-zinc-800">
+                <ScreenIcon className="h-8 w-8 text-zinc-500 dark:text-zinc-400" />
+              </div>
+              <div>
+                <p className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+                  Ninguém está transmitindo ainda
+                </p>
+                <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+                  Comece compartilhando sua tela ou câmera
+                </p>
+              </div>
               {screenShareMode === "unsupported" && (
                 <p className="text-sm text-zinc-500 dark:text-zinc-500">
                   Seu navegador não permite compartilhar tela nem câmera.
                 </p>
               )}
-              <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+              <div className="flex flex-wrap items-center justify-center gap-3">
                 {screenShareMode === "display" && (
                   <button
                     type="button"
                     onClick={() => startShare("display")}
-                    className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                    className="flex items-center gap-2 rounded-xl bg-zinc-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
                   >
                     <ScreenIcon className="h-5 w-5" />
                     Compartilhar tela
@@ -2110,24 +2106,22 @@ export function WatchRoom({ handle }: { handle: string }) {
                   <button
                     type="button"
                     onClick={() => startCameraShare()}
-                    className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                    className="flex items-center gap-2 rounded-xl border border-zinc-300 px-5 py-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
                   >
                     <CameraIcon className="h-5 w-5" />
                     Compartilhar câmera
                   </button>
                 )}
 
-                <div className="basis-full flex justify-center">
-                  <button
-                    type="button"
-                    onClick={openAddVideoSourcePopup}
-                    className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
-                  >
-                    <MdOutlineOndemandVideo className="h-5 w-5 shrink-0" />
-                    Adicionar fonte de vídeo
-                    <BetaMark />
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={openAddVideoSourcePopup}
+                  className="flex items-center gap-2 rounded-xl border border-zinc-300 px-5 py-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                >
+                  <MdOutlineOndemandVideo className="h-5 w-5 shrink-0" />
+                  Adicionar vídeo
+                  <BetaMark />
+                </button>
               </div>
             </div>
           ) : (
@@ -2166,6 +2160,7 @@ export function WatchRoom({ handle }: { handle: string }) {
                     onToggleMic={toggleMic}
                     micsMuted={micsMuted}
                     onToggleMicsMuted={toggleMicsMuted}
+                    isTabHidden={!isTabVisible}
                   />
                 )}
                 {hyperfocusVisible && localCameraStream && (
@@ -2186,6 +2181,7 @@ export function WatchRoom({ handle }: { handle: string }) {
                     onToggleMic={toggleMic}
                     micsMuted={micsMuted}
                     onToggleMicsMuted={toggleMicsMuted}
+                    isTabHidden={!isTabVisible}
                   />
                 )}
                 {visibleVideoSources.map((videoSource) => {
@@ -2237,6 +2233,7 @@ export function WatchRoom({ handle }: { handle: string }) {
                       isSpotlighted={spotlightId === tileId}
                       onHyperfocus={() => toggleHyperfocus(tileId)}
                       isHyperfocused={activeHyperfocusId === tileId}
+                      isTabHidden={!isTabVisible}
                     />
                   );
                 })}
