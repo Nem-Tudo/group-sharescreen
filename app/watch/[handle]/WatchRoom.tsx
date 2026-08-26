@@ -77,7 +77,7 @@ import {
   SpeakerIcon,
   SpeakerMuteIcon,
   MoreIcon,
-  HeartIcon,
+  VerifiedBadgeIcon,
   ChevronUpIcon,
   ChevronDownIcon,
   EyeIcon,
@@ -2178,7 +2178,15 @@ export function WatchRoom({ handle }: { handle: string }) {
                 onClick={() => trackEvent("support_project_clicked")}
                 className="flex items-center gap-1.5 rounded-lg border border-pink-300 px-2 py-2 text-sm font-medium text-pink-600 transition hover:bg-pink-50 dark:border-pink-800 dark:text-pink-400 dark:hover:bg-pink-950/40 sm:px-3"
               >
-                <HeartIcon className="h-5 w-5 shrink-0" />
+                {/* The verified badge rather than a heart: the badge is what
+                    supporting actually gets you now (see
+                    SupportersTooltipContent), so the button shows the thing
+                    instead of a generic affection icon. */}
+                {/* Blue rather than the button's pink: this is the same
+                    badge that appears next to a verified name (see
+                    DisplayUserName, which uses the same colour), and it only
+                    reads as that badge if it keeps its own. */}
+                <VerifiedBadgeIcon className="h-5 w-5 shrink-0 text-blue-500" />
                 <span className="hidden sm:inline">Apoiar projeto</span>
               </a>
             </Tooltip>

@@ -1,3 +1,5 @@
+import { Tooltip } from "./Tooltip";
+
 type IconProps = { className?: string };
 
 export function MicIcon({ className }: IconProps) {
@@ -568,23 +570,25 @@ export function HyperfocusIcon({ className }: IconProps) {
 
 export function VerifiedBadgeIcon({ className }: IconProps) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      stroke="none"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="M12 2l2.4 1.2 2.6-.6 1.3 2.3 2.3 1.3-.6 2.6L21 11l-1.2 2.4.6 2.6-2.3 1.3-1.3 2.3-2.6-.6L12 20l-2.4-1.2-2.6.6-1.3-2.3-2.3-1.3.6-2.6L3 11l1.2-2.4-.6-2.6 2.3-1.3 1.3-2.3 2.6.6L12 2z" />
-      <path
-        d="M8.5 12.2l2.3 2.3 4.7-4.9"
-        fill="none"
-        stroke="white"
-        strokeWidth={2}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+    <Tooltip content="Verificado">
+      <svg
+        viewBox="0 0 24 24"
+        fill="currentColor"
+        stroke="none"
+        className={className}
+        aria-hidden="true"
+      >
+        <path d="M12 2l2.4 1.2 2.6-.6 1.3 2.3 2.3 1.3-.6 2.6L21 11l-1.2 2.4.6 2.6-2.3 1.3-1.3 2.3-2.6-.6L12 20l-2.4-1.2-2.6.6-1.3-2.3-2.3-1.3.6-2.6L3 11l1.2-2.4-.6-2.6 2.3-1.3 1.3-2.3 2.6.6L12 2z" />
+        <path
+          d="M8.5 12.2l2.3 2.3 4.7-4.9"
+          fill="none"
+          stroke="white"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </Tooltip>
   );
 }
 
