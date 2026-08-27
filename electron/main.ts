@@ -257,7 +257,7 @@ async function pickSource(parent: BrowserWindow | null): Promise<PickResult> {
       // Electron's loopback capture is a Windows capability; on macOS and
       // Linux there is no system audio to offer at all (see the handler
       // below), so the row is not drawn rather than drawn and inert.
-      supported: process.platform === "win32",
+      supported: process.platform === "win32" || process.platform === "linux",
       // Leaving individual applications out needs the native helper. Without
       // it the only honest choice is all of the sound or none of it.
       perApp: isSystemAudioExclusionSupported(),
@@ -442,9 +442,9 @@ function installDisplayMediaHandler() {
           // helper properly.
           audio:
             request.audioRequested &&
-            process.platform === "win32" &&
-            !isSystemAudioCapturing() &&
-            getSystemAudioSettings().enabled
+              (process.platform === "win32" || process.platform === "linux") &&
+              !isSystemAudioCapturing() &&
+              getSystemAudioSettings().enabled
               ? "loopback"
               : undefined,
         });

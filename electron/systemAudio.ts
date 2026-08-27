@@ -47,6 +47,11 @@ import type { WebContents } from "electron";
 import { getSystemAudioSettings, type SystemAudioSettings } from "./audioSettings";
 import { IPC, SYSTEM_AUDIO_FORMAT } from "./channels";
 
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
+
+const execAsync = promisify(exec);
+
 // Whether this Windows can do process loopback is decided by *asking it*,
 // not by comparing build numbers.
 //
@@ -138,10 +143,9 @@ function helperPath(): string {
  * app treats that exactly like an absent bridge.
  */
 export function isSystemAudioExclusionSupported(): boolean {
+  if (process.platform === "linux") return true;
   if (process.platform !== "win32") return false;
   if (knownUnsupported) return false;
-  // A build made on a machine without the C++ toolchain simply has no
-  // binary — see electron/native/build.mjs, which warns and carries on.
   return existsSync(helperPath());
 }
 
@@ -185,12 +189,57 @@ export function listOpenApps(): Promise<AudioApp[]> {
   return runListing("--list-windows");
 }
 
+async function listLinuxAudioStreams(): Promise<AudioApp[]> {
+  try {
+    const { stdout } = await execAsync("pactl -f json list sink-inputs");
+    const inputs = JSON.parse(stdout);
+    if (!Array.isArray(inputs)) return [];
+
+    const byKey = new Map<string, AudioApp>();
+
+    for (const input of inputs) {
+      const props = input.properties || {};
+      const nodeId = props["pipewire.node.id"] ? Number(props["pipewire.node.id"]) : input.index;
+      const binary = props["application.process.binary"] || props["application.name"] || `App ${input.index}`;
+      const name = props["application.name"] || props["media.name"] || binary;
+      const exePath = props["application.process.binary"] || binary;
+      const key = binary.toLowerCase();
+
+      // Ignora o próprio GoLive e processos internos
+      if (key.includes("golive") || key.includes("electron") || key.includes("speech-dispatcher")) {
+        continue;
+      }
+
+      const existing = byKey.get(key);
+      if (existing) {
+        if (!existing.pids.includes(nodeId)) existing.pids.push(nodeId);
+        continue;
+      }
+
+      byKey.set(key, {
+        key,
+        name,
+        path: exePath,
+        pids: [nodeId],
+        self: false,
+      });
+    }
+
+    return [...byKey.values()];
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Resolves empty rather than rejecting. Every caller — the picker's panel and
  * the capture's own scan — has a reasonable answer for "nothing", and neither
  * has one for an exception.
  */
 function runListing(mode: string): Promise<AudioApp[]> {
+  if (process.platform === "linux") {
+    return listLinuxAudioStreams();
+  }
   if (!isSystemAudioExclusionSupported()) return Promise.resolve([]);
   return new Promise((resolve) => {
     execFile(
@@ -324,7 +373,7 @@ export async function startSystemAudioCapture(webContents: WebContents): Promise
 
   const active: Capture = {
     target: webContents,
-    detachTarget: () => {},
+    detachTarget: () => { },
     mode: needsPerApp ? "include" : "exclude",
     muted: [...muted],
     sources: new Map(),
@@ -391,12 +440,31 @@ function addSource(
 ) {
   let child: ChildProcessWithoutNullStreams;
   try {
-    child = spawn(helperPath(), args, {
-      // No console flash. The helper is a console subsystem binary because
-      // it writes PCM to stdout, and without this Windows gives it a window.
-      windowsHide: true,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+    if (process.platform === "linux") {
+      const sampleRate = String(SYSTEM_AUDIO_FORMAT.sampleRate || 48000);
+      const channels = String(SYSTEM_AUDIO_FORMAT.channels || 2);
+      const target = pid === 0 ? "@DEFAULT_MONITOR@" : String(pid);
+
+      const pwArgs = [
+        "--raw",
+        "--format", "s16",
+        "--rate", sampleRate,
+        "--channels", channels,
+        "--target", target,
+        "-"
+      ];
+
+      child = spawn("pw-record", pwArgs, {
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+
+      setTimeout(() => onReady?.(true), 100);
+    } else {
+      child = spawn(helperPath(), args, {
+        windowsHide: true,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+    }
   } catch {
     onReady?.(false);
     return;
@@ -509,7 +577,7 @@ async function rescanSources(active: Capture) {
 // "silent" and "stalled" look identical from here and are treated the same.
 function drain(active: Capture) {
   if (capture !== active || active.stopping) return;
-  for (;;) {
+  for (; ;) {
     const now = Date.now();
     const contributors: CaptureSource[] = [];
     for (const source of active.sources.values()) {
