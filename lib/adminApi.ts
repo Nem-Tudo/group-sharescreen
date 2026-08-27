@@ -26,11 +26,11 @@ export type { Supporter };
 
 const TOKEN_STORAGE_KEY = "sharescreen:adminToken";
 
-// sessionStorage (not localStorage) on purpose — a moderator token
+// localStorage (not localStorage) on purpose — a moderator token
 // shouldn't silently outlive the browser tab/session the same way a
 // regular viewer's display name does.
 //
-// Cached in a module-level variable (rather than re-reading sessionStorage
+// Cached in a module-level variable (rather than re-reading localStorage
 // on every call) specifically so useAdminToken below has a stable snapshot
 // to hand useSyncExternalStore, and so login/logout notify subscribers
 // instead of components having to poll or re-render themselves in an effect.
@@ -41,7 +41,7 @@ const listeners = new Set<() => void>();
 function readStoredToken(): string | null {
   if (typeof window === "undefined") return null;
   try {
-    return window.sessionStorage.getItem(TOKEN_STORAGE_KEY);
+    return window.localStorage.getItem(TOKEN_STORAGE_KEY);
   } catch {
     return null;
   }
@@ -60,10 +60,10 @@ function setAdminToken(token: string | null) {
   initialized = true;
   if (typeof window !== "undefined") {
     try {
-      if (token) window.sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
-      else window.sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+      if (token) window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
+      else window.localStorage.removeItem(TOKEN_STORAGE_KEY);
     } catch {
-      // ignored - sessionStorage may be unavailable (private mode, quota, etc.)
+      // ignored - localStorage may be unavailable (private mode, quota, etc.)
     }
   }
   listeners.forEach((l) => l());
@@ -88,7 +88,7 @@ export function useAdminToken(): string | null {
 // account (see accountApi.ts / server/accountStore.ts) whose flags include
 // "ADMIN", so logging in here goes through the exact same /auth/login the
 // rest of the app uses. The admin token is still kept in its own
-// sessionStorage slot (not accountApi's localStorage one) so a moderator
+// localStorage slot (not accountApi's localStorage one) so a moderator
 // session doesn't silently outlive the tab the way a regular viewer's does.
 export async function adminLogin(user: string, password: string): Promise<void> {
   const res = await fetch(`${getSignalingHttpBase()}/auth/login`, {
