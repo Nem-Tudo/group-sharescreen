@@ -272,10 +272,69 @@ function buildTwitchPlayer(
   };
 }
 
+function kickPlayerSrc(
+  channel: string,
+  options: { autoplay: boolean; muted: boolean }
+): string {
+  const params = new URLSearchParams();
+  if (options.autoplay) params.set("autoplay", "true");
+  if (options.muted) params.set("muted", "true");
+  const query = params.toString();
+  return `https://player.kick.com/${encodeURIComponent(channel)}${query ? `?${query}` : ""}`;
+}
+
+// Kick has no JS player API — only an iframe (player.kick.com/<channel>)
+// with autoplay/muted query params. Stubbed to EmbeddedPlayer the same way
+// as Twitch's channel embed: no seek, no duration, treated as permanently
+// live. Mute is the one control we can actually apply, by swapping the
+// iframe src; volume level is left to Kick's own chrome.
+function buildKickPlayer(
+  mount: HTMLElement,
+  channel: string,
+  options: { autoplay: boolean; muted: boolean },
+  onReady: () => void
+): EmbeddedPlayer {
+  const iframe = document.createElement("iframe");
+  iframe.src = kickPlayerSrc(channel, options);
+  iframe.title = `Kick: ${channel}`;
+  iframe.allow = "autoplay; fullscreen; picture-in-picture; encrypted-media";
+  iframe.setAttribute("allowfullscreen", "true");
+  iframe.setAttribute("scrolling", "no");
+  iframe.setAttribute("frameborder", "0");
+  iframe.className = "h-full w-full border-0";
+  iframe.addEventListener("load", onReady, { once: true });
+  mount.appendChild(iframe);
+
+  let muted = options.muted;
+  function applyMuted(next: boolean) {
+    if (next === muted) return;
+    muted = next;
+    iframe.src = kickPlayerSrc(channel, { autoplay: true, muted });
+  }
+
+  return {
+    playVideo: () => {},
+    pauseVideo: () => {},
+    seekTo: () => {},
+    getCurrentTime: () => 0,
+    getDuration: () => 0,
+    getPlayerState: () => PLAYER_STATE.PLAYING,
+    getPlaybackRate: () => 1,
+    setPlaybackRate: () => {},
+    setVolume: (volume) => applyMuted(volume === 0),
+    mute: () => applyMuted(true),
+    unMute: () => applyMuted(false),
+    isMuted: () => muted,
+    destroy: () => {
+      iframe.remove();
+    },
+  };
+}
+
 // One room video source, rendered as a tile that behaves like a transmission
 // tile (see VideoTile): same label bar, same focus/hyperfocus buttons, same
 // place in the grid. What it is *not* is a MediaStream — it embeds the
-// platform's own player (YouTube or Twitch), which is why it can't simply be
+// platform's own player (YouTube, Twitch or Kick), which is why it can't simply be
 // VideoTile with a different source.
 //
 // Playback is shared: whatever whoever's driving does to their player (play,
@@ -486,7 +545,22 @@ export function VideoSourceTile({
       }, REMOTE_APPLY_QUIET_MS);
     }
 
-    if (sourceRef.current.kind === "twitch") {
+    if (sourceRef.current.kind === "kick") {
+      markApplyingRemote();
+      playerRef.current = buildKickPlayer(
+        mount,
+        sourceRef.current.videoId,
+        {
+          autoplay: sourceRef.current.playing,
+          muted: mutedRef.current || volumeRef.current === 0,
+        },
+        () => {
+          if (cancelled) return;
+          applyPlayerVolume(playerRef.current, volumeRef.current, mutedRef.current);
+          setReady(true);
+        }
+      );
+    } else if (sourceRef.current.kind === "twitch") {
       loadTwitchApi()
         .then(() => {
           if (cancelled || !mountRef.current) return;
@@ -791,8 +865,12 @@ export function VideoSourceTile({
           <BetaMark/>
           <span className="truncate text-sm font-medium text-white">{label}</span>
           <span
-            className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase text-white ${
-              source.kind === "twitch" ? "bg-[#9146FF]/90" : "bg-red-500/90"
+            className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
+              source.kind === "kick"
+                ? "bg-[#53FC18] text-black"
+                : source.kind === "twitch"
+                  ? "bg-[#9146FF]/90 text-white"
+                  : "bg-red-500/90 text-white"
             }`}
           >
             {source.kind}
@@ -816,7 +894,7 @@ export function VideoSourceTile({
               menu da própria plataforma, e a única forma honesta de oferecer
               isso é entregar o menu dela. Só aparece pra quem não controla o
               vídeo — quem adicionou já tem os controles desde o início. */}
-          {!canControl && (
+          {!canControl && source.kind !== "kick" && (
             <Tooltip
               content={
                 showNativeControls
@@ -938,9 +1016,11 @@ export function VideoSourceTile({
         {loadError && (
           <div className="absolute inset-0 flex items-center justify-center px-4 text-center">
             <p className="text-sm text-zinc-300">
-              {source.kind === "twitch"
-                ? "Não foi possível carregar esse canal da Twitch."
-                : "Não foi possível carregar esse vídeo do YouTube."}
+              {source.kind === "kick"
+                ? "Não foi possível carregar esse canal da Kick."
+                : source.kind === "twitch"
+                  ? "Não foi possível carregar esse canal da Twitch."
+                  : "Não foi possível carregar esse vídeo do YouTube."}
             </p>
           </div>
         )}

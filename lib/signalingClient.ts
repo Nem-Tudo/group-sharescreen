@@ -1,7 +1,7 @@
 "use client";
 
 import { trackEvent } from "./analytics";
-import type { VideoSource } from "./videoSource";
+import type { VideoSource, VideoSourceKind } from "./videoSource";
 import type { Announcement } from "./announcement";
 import type { Partner } from "./partner";
 import type { Supporter } from "./supporter";
@@ -1135,10 +1135,10 @@ class SignalingClient {
   }
 
   // Adds a video source to the room. The URL is parsed server-side (the
-  // client's own parseYouTubeVideoId/parseTwitchChannel only exist to reject
+  // client's own parse* helpers only exist to reject
   // an obviously bad paste before it travels), and the server answers with a
   // broadcast that reaches this client like any other.
-  addVideoSource(kind: "youtube" | "twitch", url: string, controlMode: "owner" | "anyone") {
+  addVideoSource(kind: VideoSourceKind, url: string, controlMode: "owner" | "anyone") {
     this.rawSend({ type: "video-source-add", kind, url, controlMode });
   }
 

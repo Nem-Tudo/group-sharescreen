@@ -62,6 +62,7 @@ import { SupportersTooltipContent } from "@/components/SupportersTooltip";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { CreateAccountForm } from "@/components/CreateAccountForm";
 import { VideoSourceTile } from "@/components/VideoSourceTile";
+import type { VideoSourceKind } from "@/lib/videoSource";
 import useNtPopups from "ntpopups";
 import {
   MicIcon,
@@ -1481,7 +1482,7 @@ export function WatchRoom({ handle }: { handle: string }) {
   // itself now (see components/AddVideoSourceModal.tsx), which only calls
   // this once it's satisfied. Opened from two places (the header button and
   // the empty pane's centred one), both passing this same callback.
-  function handleAddVideoSource(kind: "youtube" | "twitch", url: string, controlMode: "owner" | "anyone") {
+  function handleAddVideoSource(kind: VideoSourceKind, url: string, controlMode: "owner" | "anyone") {
     signalingClient.addVideoSource(kind, url, controlMode);
     trackEvent("video_source_added", { kind });
   }
