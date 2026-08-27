@@ -6,6 +6,9 @@ import { trackEvent } from "@/lib/analytics";
 import { useSignaling } from "@/lib/useSignaling";
 import { signalingClient } from "@/lib/signalingClient";
 import { ArrowLeftIcon, ChartIcon, ChevronUpIcon } from "@/components/icons";
+import { useMediaQuery, LG_BREAKPOINT_QUERY } from "@/lib/useMediaQuery";
+import { getStoredAdCollapsed, setStoredAdCollapsed } from "@/lib/mediaPreferences";
+import { Tooltip } from "@/components/Tooltip";
 import { BsCoin } from "react-icons/bs";
 import { PartnerAdCustomizer, type AdForm } from "@/components/PartnerAdCustomizer";
 import useNtPopups from "ntpopups";
@@ -223,16 +226,36 @@ export function PartnerCard() {
   // server-side. Re-resolves whichever identity is here, account or guest
   // (see AuthContext's refresh).
   const { refresh: refreshIdentity } = useAuth();
-  // Below lg, this starts collapsed to just a slim title bar — full-size,
-  // it was eating a big enough chunk of a phone's height (image, multi-line
-  // description, two buttons) to fight the room's own video/chat for space.
-  // Tapping the bar expands it back to the full card. Ignored (always
-  // expanded) from lg: on, same as the participants/chat drawer in
-  // WatchRoom.tsx — see its collapsed/expanded reasoning for why this
-  // pattern beats just shrinking things responsively: a phone screen is
-  // short enough that even a "compact" card still costs real space by
-  // default, so it should cost none until asked for.
-  const [collapsed, setCollapsed] = useState(true);
+  // Collapsing this card down to a slim bar is now something anyone can do at
+  // any width, not just on a phone — the pill above the card is the room's
+  // "hide the ad" button, and someone on a 27" screen who wants the
+  // participant list to have the whole column should get the same say as
+  // someone on a phone. What stays width-dependent is only the *default*:
+  // below lg the card starts collapsed (image, multi-line description and
+  // two buttons eat a big enough chunk of a phone's height to fight the
+  // room's own video and chat for space), from lg up it starts open.
+  //
+  // null means "hasn't picked" — that's what lets the breakpoint default
+  // above apply until somebody actually clicks, and it's read from
+  // localStorage after mount rather than in the initializer so the server
+  // render and the first client paint agree.
+  const isWideLayout = useMediaQuery(LG_BREAKPOINT_QUERY);
+  const [collapsedChoice, setCollapsedChoice] = useState<boolean | null>(null);
+  useEffect(() => {
+    // Deferred by a tick rather than read in the initializer or set straight
+    // from the effect body: localStorage does not exist during the server
+    // render, and a synchronous setState here is a cascading render.
+    const id = setTimeout(() => setCollapsedChoice(getStoredAdCollapsed()), 0);
+    return () => clearTimeout(id);
+  }, []);
+  const collapsed = collapsedChoice ?? !isWideLayout;
+
+  function toggleCollapsed() {
+    const next = !collapsed;
+    setCollapsedChoice(next);
+    setStoredAdCollapsed(next);
+    trackEvent(next ? "partner_card_collapsed" : "partner_card_expanded");
+  }
 
   // Every path that puts a *served* ad on screen goes through here, so each
   // one is one impression. See the impression effect below, which keys off
@@ -587,24 +610,35 @@ export function PartnerCard() {
         hoveredRef.current = false;
       }}
     >
-      <button
-        type="button"
-        onClick={() => setCollapsed((c) => !c)}
-        aria-expanded={!collapsed}
-        className="mb-1.5 flex w-full items-center justify-between gap-2 rounded-lg bg-zinc-100 px-3 py-1.5 text-left text-xs font-medium text-zinc-600 transition hover:bg-zinc-200 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 lg:hidden"
-      >
-        <span className="flex min-w-0 items-center gap-1.5">
-          <span className="shrink-0 rounded-full bg-black/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide dark:bg-white/10">
-            Patrocinado
-          </span>
-          <span className="truncate">{displayData.title}</span>
-        </span>
-        <ChevronUpIcon
-          className={`h-3.5 w-3.5 shrink-0 transition-transform ${collapsed ? "rotate-180" : ""}`}
-        />
-      </button>
+      {/* Open, this is just a chevron on a bar: the card right below it says
+          everything a label here would, so spending a line on "Patrocinado —
+          Square Cloud" twice over is waste. Collapsed, it's the only thing
+          left of the ad, so it takes the label back — a bare chevron with
+          nothing under it gives no reason to ever press it again. */}
+      <Tooltip content={collapsed ? "Mostrar anúncio" : "Ocultar anúncio"}>
+        <button
+          type="button"
+          onClick={toggleCollapsed}
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? "Mostrar anúncio" : "Ocultar anúncio"}
+          className={`mb-1.5 flex w-full items-center gap-2 rounded-lg bg-zinc-100 px-3 py-1.5 text-left text-xs font-medium text-zinc-600 transition hover:bg-zinc-200 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 ${collapsed ? "justify-between" : "justify-center"
+            }`}
+        >
+          {collapsed && (
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span className="shrink-0 rounded-full bg-black/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide dark:bg-white/10">
+                Patrocinado
+              </span>
+              <span className="truncate">{displayData.title}</span>
+            </span>
+          )}
+          <ChevronUpIcon
+            className={`h-3.5 w-3.5 shrink-0 transition-transform ${collapsed ? "rotate-180" : ""}`}
+          />
+        </button>
+      </Tooltip>
 
-      <div ref={contentRef} className={`${collapsed ? "hidden" : "block"} lg:block`}>
+      <div ref={contentRef} className={collapsed ? "hidden" : "block"}>
       {showingExample && (
         <div className="mb-2">
           <div className="mb-1.5 flex items-center justify-between gap-2">

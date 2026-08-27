@@ -48,6 +48,8 @@ import {
   setStoredGuestAccountBannerDismissed,
   getStoredOpenRoomsInApp,
   setStoredOpenRoomsInApp,
+  getStoredChatHidden,
+  setStoredChatHidden,
   setStoredOpenInAppDismissed,
 } from "@/lib/mediaPreferences";
 import { VideoTile, StoppedPeerTile, ResumingPeerTile } from "@/components/VideoTile";
@@ -81,6 +83,8 @@ import {
   VerifiedBadgeIcon,
   ChevronUpIcon,
   ChevronDownIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   EyeIcon,
   EyeOffIcon,
   ScreenIcon,
@@ -794,6 +798,23 @@ export function WatchRoom({ handle }: { handle: string }) {
   // chat one on the right — see participantsSection/chatSection below.
   // Below lg, they share one pane via the tab switcher right below instead.
   const isWideLayout = useMediaQuery(LG_BREAKPOINT_QUERY);
+  // "Ocultar chat" — see the tab on the chat column's edge further down.
+  // Wide layout only: below lg the chat is already a drawer that starts
+  // collapsed (see drawerExpanded), so there is nothing extra to fold away.
+  // Restored from localStorage in the same deferred pass as the other
+  // client-only preferences below (see `mounted`), never in the initializer:
+  // localStorage does not exist during the server render.
+  const [chatHidden, setChatHidden] = useState(false);
+
+  function toggleChatHidden() {
+    setChatHidden((prev) => {
+      const next = !prev;
+      setStoredChatHidden(next);
+      trackEvent(next ? "chat_hidden" : "chat_shown");
+      return next;
+    });
+  }
+
   // Below lg, the participants list and chat share one pane and take turns
   // via this tab switcher instead of being stacked in one long scroll — see
   // the aside below. Unused (both always shown) from lg up.
@@ -830,6 +851,7 @@ export function WatchRoom({ handle }: { handle: string }) {
       // exist during the server render, and this is already the one deferred
       // point where client-only facts become safe to look at.
       setOpenRoomsInApp(getStoredOpenRoomsInApp());
+      setChatHidden(getStoredChatHidden());
     }, 0);
     return () => clearTimeout(id);
   }, []);
@@ -1877,7 +1899,7 @@ export function WatchRoom({ handle }: { handle: string }) {
         </Tooltip>
       </div>
 
-      <div className="flex items-center border-l border-zinc-300 pl-2 dark:border-zinc-700">
+      <div className="flex items-center border-l border-white/15 pl-2">
         <ShareControls
           screenSharing={Boolean(localStream)}
           cameraSharing={Boolean(localCameraStream)}
@@ -1944,6 +1966,55 @@ export function WatchRoom({ handle }: { handle: string }) {
 
   const participantsSection = (
     <>
+      {/* Not in the header's "Mais opções" panel because that panel is
+          everyone's, and the gear here isn't: it's for whoever actually runs
+          the room. Admins get it too — placing the room and the permission
+          switches are alike theirs (see the server's isRoomManager); the
+          popup is what hides "Gerenciar administradores" from anyone but the
+          owner.
+
+          Above the participant list rather than above the chat, where it used
+          to sit: the chat is foldable now (see chatHidden), and running the
+          room can't be something you lose by closing the chat. The list is
+          the other half of the same subject anyway — who is here, and what
+          they're allowed to do.
+
+          The map button is the exception: everyone sees it once the room has
+          been placed, because "where is this room" is something to look at,
+          not something to run. It just opens read-only for them (see
+          ManageRoomModal's canEdit). */}
+      {(isRoomManager || state.roomLocation) && (
+        <div className="mb-2 flex items-center gap-2">
+          <Tooltip content={roomLocationTooltip} wrapperClassName="flex flex-1">
+            <button
+              type="button"
+              onClick={openRoomLocationPopup}
+              // A private room can never be on the map (the map lists public
+              // rooms only, and the server refuses the write) — so this is
+              // dead for a manager of one, with the tooltip explaining why
+              // rather than the button silently doing nothing.
+              disabled={isRoomManager && privateRoomCannotBeMapped}
+              className={`flex w-full items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${state.roomLocation
+                ? "border-sky-500 text-sky-600 hover:bg-sky-50 dark:border-sky-700 dark:text-sky-400 dark:hover:bg-sky-950/40"
+                : "border-sky-500 text-sky-600 hover:bg-sky-50 dark:border-sky-700 dark:text-sky-400 dark:hover:bg-sky-950/40"
+                }`}
+            >
+              <MdOutlineMap className="h-4 w-4 shrink-0" />
+              {state.roomLocation || !isRoomManager ? "Local no mapa" : "Definir local no mapa"}
+            </button>
+          </Tooltip>
+          {isRoomManager && (
+            <button
+              type="button"
+              onClick={openManageRoomPopup}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+            >
+              <BsGearFill className="h-3.5 w-3.5 shrink-0" />
+              Gerenciar sala
+            </button>
+          )}
+        </div>
+      )}
       {connectingAudioPeers && (
         <p className="mb-1 flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-500">
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
@@ -2000,70 +2071,27 @@ export function WatchRoom({ handle }: { handle: string }) {
 
   // Same reasoning again. Capped height in the shared mobile pane (matches
   // however it always looked there); fills its own column's full height
-  // from lg up instead, where it has the whole right side to itself.
+  // from lg up instead, where it has the whole right side to itself — which
+  // is now also a column that can be folded away entirely (see chatHidden),
+  // so nothing but the chat itself may live in here.
   const chatSection = (
-    <>
-      {/* Sits directly above the chat rather than in the header's "Mais
-          opções" panel because that panel is everyone's, and the gear here
-          isn't: it's for whoever actually runs the room. Admins get it too —
-          placing the room and the permission switches are alike theirs (see
-          the server's isRoomManager); the popup is what hides "Gerenciar
-          administradores" from anyone but the owner.
-
-          The map button is the exception: everyone sees it once the room has
-          been placed, because "where is this room" is something to look at,
-          not something to run. It just opens read-only for them (see
-          ManageRoomModal's canEdit). */}
-      {(isRoomManager || state.roomLocation) && (
-        <div className="mb-2 flex items-center gap-2">
-          <Tooltip content={roomLocationTooltip} wrapperClassName="flex flex-1">
-            <button
-              type="button"
-              onClick={openRoomLocationPopup}
-              // A private room can never be on the map (the map lists public
-              // rooms only, and the server refuses the write) — so this is
-              // dead for a manager of one, with the tooltip explaining why
-              // rather than the button silently doing nothing.
-              disabled={isRoomManager && privateRoomCannotBeMapped}
-              className={`flex w-full items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${state.roomLocation
-                ? "border-sky-500 text-sky-600 hover:bg-sky-50 dark:border-sky-700 dark:text-sky-400 dark:hover:bg-sky-950/40"
-                : "border-sky-500 text-sky-600 hover:bg-sky-50 dark:border-sky-700 dark:text-sky-400 dark:hover:bg-sky-950/40"
-                }`}
-            >
-              <MdOutlineMap className="h-4 w-4 shrink-0" />
-              {state.roomLocation || !isRoomManager ? "Local no mapa" : "Definir local no mapa"}
-            </button>
-          </Tooltip>
-          {isRoomManager && (
-            <button
-              type="button"
-              onClick={openManageRoomPopup}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
-            >
-              <BsGearFill className="h-3.5 w-3.5 shrink-0" />
-              Gerenciar sala
-            </button>
-          )}
-        </div>
-      )}
-      <ChatPanel
-        messages={state.chatMessages}
-        selfId={state.selfId}
-        selfName={state.name}
-        onSend={(text) => signalingClient.sendChatMessage(text)}
-        onSendGif={
-          state.account && !gifBlockedReason ? (url) => signalingClient.sendGif(url) : undefined
-        }
-        onTypingChange={(typing) => signalingClient.setTyping(typing)}
-        typingNames={visiblePeers
-          .filter((p) => state.typingPeerIds.includes(p.id))
-          .map((p) => p.name)}
-        blockedMessage={state.chatBlockedMessage}
-        sendDisabledReason={chatBlockedReason}
-        gifDisabledReason={gifBlockedReason}
-        heightClassName={isWideLayout ? "flex-1 min-h-0" : "h-[55vh]"}
-      />
-    </>
+    <ChatPanel
+      messages={state.chatMessages}
+      selfId={state.selfId}
+      selfName={state.name}
+      onSend={(text) => signalingClient.sendChatMessage(text)}
+      onSendGif={
+        state.account && !gifBlockedReason ? (url) => signalingClient.sendGif(url) : undefined
+      }
+      onTypingChange={(typing) => signalingClient.setTyping(typing)}
+      typingNames={visiblePeers
+        .filter((p) => state.typingPeerIds.includes(p.id))
+        .map((p) => p.name)}
+      blockedMessage={state.chatBlockedMessage}
+      sendDisabledReason={chatBlockedReason}
+      gifDisabledReason={gifBlockedReason}
+      heightClassName={isWideLayout ? "flex-1 min-h-0" : "h-[55vh]"}
+    />
   );
 
   return (
@@ -2073,14 +2101,17 @@ export function WatchRoom({ handle }: { handle: string }) {
           nothing for anyone who has already answered. */}
       <OpenInAppBanner handle={handle} />
       <header className="border-b border-black/10 px-3 py-2.5 dark:border-white/10 sm:px-4 sm:py-3">
-        {/* One row for everything, wrapping instead of splitting: the room's
-            identity on the left, and every control on the right — the
-            mid-call ones (mic/mute/share/camera), the room link and the room
-            switcher, the points readout, "Apoiar projeto" and "Mais opções".
-            These used to be two fixed rows, which cost a full row of vertical
-            space on a wide screen that had room to spare. `ml-auto` keeps the
-            control group against the right edge whether it shares the line
-            with the title or has been pushed onto its own. */}
+        {/* One row, wrapping instead of splitting, and now split by *subject*
+            rather than by size: everything about the room itself sits on the
+            left (its name, its code, its badge, its link, the switcher),
+            everything about the person watching sits on the right ("Apoiar
+            projeto", the name/points readout, "Mais opções"). The mid-call
+            controls — mic, mute, share, camera, video source — used to be up
+            here too; they are the one group that belongs to the transmission
+            rather than to the room, so they moved down onto the video itself
+            (see the floating dock below). `ml-auto` keeps the right-hand
+            group against the right edge whether it shares the line with the
+            title or has been pushed onto its own. */}
         <div className="flex flex-wrap items-center gap-x-2 gap-y-2.5">
           {/* flex-1 rather than content-width: the description input inside
               RoomInfoControls grows into whatever this group has spare (it
@@ -2112,51 +2143,9 @@ export function WatchRoom({ handle }: { handle: string }) {
             >
               {isPrivateRoomHandle(handle) ? "Sala privada" : "Sala pública"}
             </span>
-            {/* Right of the public/private badge, where the headcount chip
-                used to be — the participant list already carries that number
-                (and the mobile tab bar repeats it), so this is the more
-                useful thing to spend the space on. Editable for the owner and
-                admins, read-only text for everyone else. */}
-            <RoomInfoControls
-              description={state.roomDescription}
-              category={state.roomCategory}
-              canEdit={isRoomManager}
-            />
-          </div>
-
-          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-            {/* The mid-call controls (mic, mute-mics, screen, camera) — kept
-                out here rather than in "Mais opções" because they're used
-                while talking, not once at setup. */}
-            <div className="flex flex-wrap items-center justify-end gap-2">{mainControls}</div>
-
-            {/* Adding a YouTube/Twitch video/live to the room. Sits with the
-                transmission controls because that's what it produces: one
-                more tile everyone in the room sees, with the same focus and
-                hyperfocus buttons — the difference is that nobody is
-                uploading it. Opens components/AddVideoSourceModal as an
-                ntpopups popup rather than the little inline box this used to
-                be — picking a platform and who gets to control it needs more
-                room than a popover corner has. */}
-            <Tooltip
-              content={videoSourceBlockedReason ?? "Adicionar fonte de vídeo"}
-              wrapperClassName="flex"
-            >
-              <button
-                type="button"
-                onClick={openAddVideoSourcePopup}
-                disabled={Boolean(videoSourceBlockedReason)}
-                aria-label="Adicionar fonte de vídeo"
-                className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <MdOutlineOndemandVideo className="h-5 w-5 shrink-0" />
-                <span className="hidden lg:inline"><BetaMark /></span>
-              </button>
-            </Tooltip>
-
             {/* Still desktop-only: on a phone these two live inside "Mais
                 opções" (see above), the only place with room for them. */}
-            <div className="hidden items-center justify-end gap-2 sm:flex">
+            <div className="hidden shrink-0 items-center gap-2 sm:flex">
               <Tooltip content={linkCopied ? "Link copiado!" : "Copiar o link desta sala"}>
                 <button
                   type="button"
@@ -2199,6 +2188,40 @@ export function WatchRoom({ handle }: { handle: string }) {
                 </button>
               </Popover>
             </div>
+
+            {/* Right of the public/private badge, where the headcount chip
+                used to be — the participant list already carries that number
+                (and the mobile tab bar repeats it), so this is the more
+                useful thing to spend the space on. Editable for the owner and
+                admins, read-only text for everyone else. */}
+            <RoomInfoControls
+              description={state.roomDescription}
+              category={state.roomCategory}
+              canEdit={isRoomManager}
+            />
+          </div>
+
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+            <Tooltip content={<SupportersTooltipContent />} placement="bottom" interactive>
+              <a
+                href="https://livepix.gg/nemtudo"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => trackEvent("support_project_clicked")}
+                className="flex items-center gap-1.5 rounded-lg border border-pink-300 px-2 py-2 text-sm font-medium text-pink-600 transition hover:bg-pink-50 dark:border-pink-800 dark:text-pink-400 dark:hover:bg-pink-950/40 sm:px-3"
+              >
+                {/* The verified badge rather than a heart: the badge is what
+                    supporting actually gets you now (see
+                    SupportersTooltipContent), so the button shows the thing
+                    instead of a generic affection icon. */}
+                {/* Blue rather than the button's pink: this is the same
+                    badge that appears next to a verified name (see
+                    DisplayUserName, which uses the same colour), and it only
+                    reads as that badge if it keeps its own. */}
+                <VerifiedBadgeIcon className="h-5 w-5 shrink-0 text-blue-500" />
+                <span className="hidden sm:inline">Apoiar projeto</span>
+              </a>
+            </Tooltip>
 
             {/* Name + points. Both kinds of identity have a total worth
                 showing now that guests earn them too (see AuthContext's
@@ -2244,27 +2267,6 @@ export function WatchRoom({ handle }: { handle: string }) {
                 </Tooltip>
               )
             )}
-            <Tooltip content={<SupportersTooltipContent />} placement="bottom" interactive>
-              <a
-                href="https://livepix.gg/nemtudo"
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => trackEvent("support_project_clicked")}
-                className="flex items-center gap-1.5 rounded-lg border border-pink-300 px-2 py-2 text-sm font-medium text-pink-600 transition hover:bg-pink-50 dark:border-pink-800 dark:text-pink-400 dark:hover:bg-pink-950/40 sm:px-3"
-              >
-                {/* The verified badge rather than a heart: the badge is what
-                    supporting actually gets you now (see
-                    SupportersTooltipContent), so the button shows the thing
-                    instead of a generic affection icon. */}
-                {/* Blue rather than the button's pink: this is the same
-                    badge that appears next to a verified name (see
-                    DisplayUserName, which uses the same colour), and it only
-                    reads as that badge if it keeps its own. */}
-                <VerifiedBadgeIcon className="h-5 w-5 shrink-0 text-blue-500" />
-                <span className="hidden sm:inline">Apoiar projeto</span>
-              </a>
-            </Tooltip>
-
             <Popover
               open={isDesktopLayout && menuOpen}
               onClose={closeMenu}
@@ -2382,7 +2384,7 @@ export function WatchRoom({ handle }: { handle: string }) {
         );
       })}
 
-      <div className="flex min-h-0 flex-1 flex-col gap-6 p-4 lg:flex-row">
+      <div className="relative flex min-h-0 flex-1 flex-col gap-6 p-4 lg:flex-row">
         {/* From lg up, participants get this dedicated full-height column
             instead of sharing a pane with chat — see isWideLayout. The ad
             card lives here (below the list) rather than in the chat column,
@@ -2394,300 +2396,343 @@ export function WatchRoom({ handle }: { handle: string }) {
           </aside>
         )}
 
-        <main className="min-h-0 flex-1 overflow-y-auto">
-          {nothingToShow ? (
-            <div className="flex h-full min-h-75 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-300 text-center dark:border-zinc-800">
-              <p className="text-zinc-600 dark:text-zinc-400">
-                Ninguém está transmitindo ainda.
-              </p>
-              {/* The empty pane is the one place with room for the labelled
-                  version of the header's icon toggles, and the one moment
-                  when starting a share is the only thing anyone can do here.
-                  Pointing at the header instead ("clique no ícone lá em
-                  cima") asked the person to go find a control while standing
-                  on the space where it fits. Only ever shown while nobody —
-                  including us — is transmitting, so these are always "start",
-                  never "stop": see nothingToShow. */}
-              {screenShareMode === "unsupported" && (
-                <p className="text-sm text-zinc-500 dark:text-zinc-500">
-                  Seu navegador não permite compartilhar tela nem câmera.
+        {/* Wraps <main> only so the control dock below can be positioned
+            against the video area rather than against the page: the dock is
+            the transmission's own bar, so it belongs to the same box the
+            tiles live in, not to whatever the columns beside it are doing. */}
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <main className="min-h-0 flex-1 overflow-y-auto">
+            {nothingToShow ? (
+              <div className="flex h-full min-h-75 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-300 pb-16 text-center dark:border-zinc-800">
+                <p className="text-zinc-600 dark:text-zinc-400">
+                  Ninguém está transmitindo ainda.
                 </p>
-              )}
-              <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
-                {/* Each is hidden outright rather than disabled here (unlike
-                    the header's copies, which stay put so the row doesn't
-                    reflow): this pane exists to offer what can be done right
-                    now, and a wall of dead buttons is not that. The note
-                    below says why, once, for whatever ends up missing. */}
-                {screenShareMode === "display" && !screenBlockedReason && (
-                  <button
-                    type="button"
-                    onClick={() => startShare("display")}
-                    className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
-                  >
-                    <ScreenIcon className="h-5 w-5" />
-                    Compartilhar tela
-                  </button>
+                {/* The empty pane is the one place with room for the labelled
+                    version of the header's icon toggles, and the one moment
+                    when starting a share is the only thing anyone can do here.
+                    Pointing at the header instead ("clique no ícone lá em
+                    cima") asked the person to go find a control while standing
+                    on the space where it fits. Only ever shown while nobody —
+                    including us — is transmitting, so these are always "start",
+                    never "stop": see nothingToShow. */}
+                {screenShareMode === "unsupported" && (
+                  <p className="text-sm text-zinc-500 dark:text-zinc-500">
+                    Seu navegador não permite compartilhar tela nem câmera.
+                  </p>
                 )}
-
-                {screenShareMode !== "unsupported" && !cameraBlockedReason && (
-                  <button
-                    type="button"
-                    onClick={() => startCameraShare()}
-                    className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
-                  >
-                    <CameraIcon className="h-5 w-5" />
-                    Compartilhar câmera
-                  </button>
-                )}
-
-                <div className="basis-full flex justify-center">
-                  {videoSourceBlockedReason ? (
-                    <p className="text-sm text-zinc-500 dark:text-zinc-500">
-                      O dono da sala limitou o que os participantes podem transmitir aqui.
-                    </p>
-                  ) : (
-                  <button
-                    type="button"
-                    onClick={openAddVideoSourcePopup}
-                    className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
-                  >
-                    <MdOutlineOndemandVideo className="h-5 w-5 shrink-0" />
-                    Adicionar fonte de vídeo
-                    <BetaMark />
-                  </button>
+                <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+                  {/* Each is hidden outright rather than disabled here (unlike
+                      the header's copies, which stay put so the row doesn't
+                      reflow): this pane exists to offer what can be done right
+                      now, and a wall of dead buttons is not that. The note
+                      below says why, once, for whatever ends up missing. */}
+                  {screenShareMode === "display" && !screenBlockedReason && (
+                    <button
+                      type="button"
+                      onClick={() => startShare("display")}
+                      className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                    >
+                      <ScreenIcon className="h-5 w-5" />
+                      Compartilhar tela
+                    </button>
                   )}
+
+                  {screenShareMode !== "unsupported" && !cameraBlockedReason && (
+                    <button
+                      type="button"
+                      onClick={() => startCameraShare()}
+                      className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                    >
+                      <CameraIcon className="h-5 w-5" />
+                      Compartilhar câmera
+                    </button>
+                  )}
+
+                  <div className="basis-full flex justify-center">
+                    {videoSourceBlockedReason ? (
+                      <p className="text-sm text-zinc-500 dark:text-zinc-500">
+                        O dono da sala limitou o que os participantes podem transmitir aqui.
+                      </p>
+                    ) : (
+                    <button
+                      type="button"
+                      onClick={openAddVideoSourcePopup}
+                      className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                    >
+                      <MdOutlineOndemandVideo className="h-5 w-5 shrink-0" />
+                      Adicionar fonte de vídeo
+                      <BetaMark />
+                    </button>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          ) : (
-            <>
-              {!activeHyperfocusId && spotlightId && hasMultipleShares && (
+            ) : (
+              <>
+                {!activeHyperfocusId && spotlightId && hasMultipleShares && (
+                  <button
+                    type="button"
+                    onClick={() => setSpotlightId(null)}
+                    className="mb-3 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                  >
+                    Remover destaque
+                  </button>
+                )}
+                {/* The grid gets bottom padding the single tile doesn't: the
+                    control dock floats over this area, and over a wall of
+                    tiles it would cover the bottom row's own controls. The
+                    lone filling tile keeps its full height instead — the dock
+                    sits over its bottom edge exactly like the tile's own
+                    overlay, which is where the reference design puts it. */}
+                <div
+                  className={
+                    isSingleTile
+                      ? "h-full"
+                      : `grid ${mobileGridCols} auto-rows-fr gap-2 pb-16 sm:grid-cols-2 sm:gap-5 2xl:grid-cols-3`
+                  }
+                >
+                  {hyperfocusVisible && isSharing && localStream && (
+                    <VideoTile
+                      stream={localStream}
+                      label="Você"
+                      accessibleLabel="Você"
+                      badge={shareSource === "camera" ? "câmera" : "transmitindo"}
+                      muted
+                      allowUnmute={false}
+                      fill={isSingleTile || spotlightId === "self"}
+                      className={spotlightId === "self" && !isSingleTile ? "sm:col-span-2 sm:row-span-2" : ""}
+                      onFocus={() => toggleSpotlight("self")}
+                      isSpotlighted={spotlightId === "self"}
+                      onHyperfocus={() => toggleHyperfocus("self")}
+                      isHyperfocused={activeHyperfocusId === "self"}
+                      isMicOn={isMicOn}
+                      onToggleMic={toggleMic}
+                      micsMuted={micsMuted}
+                      onToggleMicsMuted={toggleMicsMuted}
+                    />
+                  )}
+                  {hyperfocusVisible && localCameraStream && (
+                    <VideoTile
+                      stream={localCameraStream}
+                      label="Você"
+                      accessibleLabel="Você"
+                      badge="câmera"
+                      muted
+                      allowUnmute={false}
+                      fill={isSingleTile || spotlightId === "self"}
+                      className={spotlightId === "self" && !isSingleTile ? "sm:col-span-2 sm:row-span-2" : ""}
+                      onFocus={() => toggleSpotlight("self")}
+                      isSpotlighted={spotlightId === "self"}
+                      onHyperfocus={() => toggleHyperfocus("self")}
+                      isHyperfocused={activeHyperfocusId === "self"}
+                      isMicOn={isMicOn}
+                      onToggleMic={toggleMic}
+                      micsMuted={micsMuted}
+                      onToggleMicsMuted={toggleMicsMuted}
+                    />
+                  )}
+                  {visibleVideoSources.map((videoSource) => {
+                    const tileId = videoSourceTileId(videoSource.id);
+                    // Keyed on the YouTube id (or playlist id), not the source
+                    // id: a source id is minted fresh every time someone adds
+                    // the video, so keying on it would mean the dial never
+                    // actually persists. A playlist is one source even as the
+                    // current video changes, so the playlist id is the stable
+                    // key when present. The prefix keeps it out of the way of
+                    // the peer ids sharing this same store.
+                    const volumeKey = videoSourceVolumeKey(videoSource);
+                    return (
+                      <VideoSourceTile
+                        key={tileId}
+                        source={videoSource}
+                        volume={transmissionVolumes[volumeKey] ?? 1}
+                        onVolumeChange={(volume) => setTransmissionVolume(volumeKey, volume)}
+                        // Whoever added it drives — or, if they set it to
+                        // "anyone" when adding it, everyone does. Either way
+                        // this is enforced again server-side (see
+                        // "video-source-state" in signaling.ts), not just here.
+                        canControl={
+                          state.selfUserId !== null &&
+                          (videoSource.controlMode === "anyone" ||
+                            videoSource.addedById === state.selfUserId)
+                        }
+                        // Ownership itself, unlike canControl, never widens
+                        // with controlMode — ending the video for the room
+                        // stays with whoever added it regardless of who's
+                        // allowed to drive it.
+                        isOwner={
+                          state.selfUserId !== null && videoSource.addedById === state.selfUserId
+                        }
+                        label={`${videoSource.addedByName} adicionou`}
+                        fill={isSingleTile || spotlightId === tileId}
+                        className={spotlightId === tileId && !isSingleTile ? "sm:col-span-2 sm:row-span-2" : ""}
+                        onStateChange={(playing, positionSeconds, playbackRate, playlistIndex) =>
+                          signalingClient.setVideoSourceState(
+                            videoSource.id,
+                            playing,
+                            positionSeconds,
+                            playbackRate,
+                            playlistIndex
+                          )
+                        }
+                        onRemove={() => signalingClient.removeVideoSource(videoSource.id)}
+                        onLeave={() =>
+                          setLeftVideoSourceIds((prev) => new Set(prev).add(videoSource.id))
+                        }
+                        onFocus={() => toggleSpotlight(tileId)}
+                        isSpotlighted={spotlightId === tileId}
+                        onHyperfocus={() => toggleHyperfocus(tileId)}
+                        isHyperfocused={activeHyperfocusId === tileId}
+                      />
+                    );
+                  })}
+                  {leftVideoSources.map((videoSource) => (
+                    <StoppedPeerTile
+                      key={`left-${videoSource.id}`}
+                      label={`vídeo de ${videoSource.addedByName}`}
+                      fill={isSingleTile}
+                      onResume={() =>
+                        setLeftVideoSourceIds((prev) => {
+                          const next = new Set(prev);
+                          next.delete(videoSource.id);
+                          return next;
+                        })
+                      }
+                    />
+                  ))}
+                  {visibleScreenEntries.map(([peerId, stream]) => {
+                    const peer = state.peers.find((p) => p.id === peerId);
+                    const volumeKey = peer?.userId ?? peerId;
+                    return (
+                      <VideoTile
+                        key={`screen-${peerId}`}
+                        stream={stream}
+                        label={
+                          <DisplayUserName
+                            name={peer?.name ?? "Alguém"}
+                            isGuest={peer?.isGuest}
+                            verified={peer?.flags?.includes("VERIFIED")}
+                          />
+                        }
+                        accessibleLabel={peer?.name ?? "Alguém"}
+                        badge="ao vivo · tela"
+                        muted
+                        volume={transmissionVolumes[volumeKey] ?? 1}
+                        onVolumeChange={(volume) => setTransmissionVolume(volumeKey, volume)}
+                        fill={isSingleTile || spotlightId === peerId}
+                        className={spotlightId === peerId && !isSingleTile ? "sm:col-span-2 sm:row-span-2" : ""}
+                        onRenderedSizeChange={(w, h) => qualityNegotiator.report("screen", peerId, w, h)}
+                        onStopWatching={() => stopWatchingPeer(peerId)}
+                        onFocus={() => toggleSpotlight(peerId)}
+                        isSpotlighted={spotlightId === peerId}
+                        onHyperfocus={() => toggleHyperfocus(peerId)}
+                        isHyperfocused={activeHyperfocusId === peerId}
+                        isMicOn={isMicOn}
+                        onToggleMic={toggleMic}
+                        micsMuted={micsMuted}
+                        onToggleMicsMuted={toggleMicsMuted}
+                      />
+                    );
+                  })}
+                  {visibleCameraEntries.map(([peerId, stream]) => {
+                    const peer = state.peers.find((p) => p.id === peerId);
+                    const volumeKey = peer?.userId ?? peerId;
+                    return (
+                      <VideoTile
+                        key={`camera-${peerId}`}
+                        stream={stream}
+                        label={
+                          <DisplayUserName
+                            name={peer?.name ?? "Alguém"}
+                            isGuest={peer?.isGuest}
+                            verified={peer?.flags?.includes("VERIFIED")}
+                          />
+                        }
+                        accessibleLabel={peer?.name ?? "Alguém"}
+                        badge="ao vivo · câmera"
+                        muted
+                        volume={transmissionVolumes[volumeKey] ?? 1}
+                        onVolumeChange={(volume) => setTransmissionVolume(volumeKey, volume)}
+                        fill={isSingleTile || spotlightId === peerId}
+                        className={spotlightId === peerId && !isSingleTile ? "sm:col-span-2 sm:row-span-2" : ""}
+                        onRenderedSizeChange={(w, h) => qualityNegotiator.report("camera", peerId, w, h)}
+                        onStopWatching={() => stopWatchingCameraPeer(peerId)}
+                        onFocus={() => toggleSpotlight(peerId)}
+                        isSpotlighted={spotlightId === peerId}
+                        onHyperfocus={() => toggleHyperfocus(peerId)}
+                        isHyperfocused={activeHyperfocusId === peerId}
+                        isMicOn={isMicOn}
+                        onToggleMic={toggleMic}
+                        micsMuted={micsMuted}
+                        onToggleMicsMuted={toggleMicsMuted}
+                      />
+                    );
+                  })}
+                  {visibleStoppedEntries.map((peer) => (
+                    <StoppedPeerTile
+                      key={`stopped-${peer.id}`}
+                      label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} />}
+                      fill={isSingleTile}
+                      onResume={() => resumeWatchingPeer(peer.id)}
+                    />
+                  ))}
+                  {visibleResumingEntries.map((peer) => (
+                    <ResumingPeerTile key={`resuming-${peer.id}`} fill={isSingleTile} />
+                  ))}
+                  {visibleStoppedCameraEntries.map((peer) => (
+                    <StoppedPeerTile
+                      key={`stopped-camera-${peer.id}`}
+                      label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} />}
+                      fill={isSingleTile}
+                      onResume={() => resumeWatchingCameraPeer(peer.id)}
+                    />
+                  ))}
+                  {visibleResumingCameraEntries.map((peer) => (
+                    <ResumingPeerTile key={`resuming-camera-${peer.id}`} fill={isSingleTile} />
+                  ))}
+                </div>
+              </>
+            )}
+          </main>
+
+          {/* The room's controls, over the video instead of up in the header.
+              These are what someone reaches for *while* watching — mic,
+              headphones, screen, camera, one more video source — so they sit
+              where the watching happens, in reach of the pointer that is
+              already on the tile, the way VideoTile's own cluster does. It
+              floats rather than taking a row of its own: a real row would
+              cost the transmission that height on every screen, and the one
+              thing this page is for is the picture. */}
+          <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center px-3">
+            <div className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-2 rounded-2xl border border-white/10 bg-zinc-900/85 p-2 shadow-2xl backdrop-blur-md">
+              <div className="flex flex-wrap items-center justify-center gap-2">{mainControls}</div>
+
+              <Tooltip
+                content={videoSourceBlockedReason ?? "Adicionar fonte de vídeo"}
+                wrapperClassName="flex"
+              >
                 <button
                   type="button"
-                  onClick={() => setSpotlightId(null)}
-                  className="mb-3 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                  onClick={openAddVideoSourcePopup}
+                  disabled={Boolean(videoSourceBlockedReason)}
+                  aria-label="Adicionar fonte de vídeo"
+                  className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Remover destaque
+                  <MdOutlineOndemandVideo className="h-5 w-5 shrink-0" />
+                  <span className="hidden lg:inline"><BetaMark /></span>
                 </button>
-              )}
-              <div
-                className={
-                  isSingleTile
-                    ? "h-full"
-                    : `grid ${mobileGridCols} auto-rows-fr gap-2 sm:grid-cols-2 sm:gap-5 2xl:grid-cols-3`
-                }
-              >
-                {hyperfocusVisible && isSharing && localStream && (
-                  <VideoTile
-                    stream={localStream}
-                    label="Você"
-                    accessibleLabel="Você"
-                    badge={shareSource === "camera" ? "câmera" : "transmitindo"}
-                    muted
-                    allowUnmute={false}
-                    fill={isSingleTile || spotlightId === "self"}
-                    className={spotlightId === "self" && !isSingleTile ? "sm:col-span-2 sm:row-span-2" : ""}
-                    onFocus={() => toggleSpotlight("self")}
-                    isSpotlighted={spotlightId === "self"}
-                    onHyperfocus={() => toggleHyperfocus("self")}
-                    isHyperfocused={activeHyperfocusId === "self"}
-                    isMicOn={isMicOn}
-                    onToggleMic={toggleMic}
-                    micsMuted={micsMuted}
-                    onToggleMicsMuted={toggleMicsMuted}
-                  />
-                )}
-                {hyperfocusVisible && localCameraStream && (
-                  <VideoTile
-                    stream={localCameraStream}
-                    label="Você"
-                    accessibleLabel="Você"
-                    badge="câmera"
-                    muted
-                    allowUnmute={false}
-                    fill={isSingleTile || spotlightId === "self"}
-                    className={spotlightId === "self" && !isSingleTile ? "sm:col-span-2 sm:row-span-2" : ""}
-                    onFocus={() => toggleSpotlight("self")}
-                    isSpotlighted={spotlightId === "self"}
-                    onHyperfocus={() => toggleHyperfocus("self")}
-                    isHyperfocused={activeHyperfocusId === "self"}
-                    isMicOn={isMicOn}
-                    onToggleMic={toggleMic}
-                    micsMuted={micsMuted}
-                    onToggleMicsMuted={toggleMicsMuted}
-                  />
-                )}
-                {visibleVideoSources.map((videoSource) => {
-                  const tileId = videoSourceTileId(videoSource.id);
-                  // Keyed on the YouTube id (or playlist id), not the source
-                  // id: a source id is minted fresh every time someone adds
-                  // the video, so keying on it would mean the dial never
-                  // actually persists. A playlist is one source even as the
-                  // current video changes, so the playlist id is the stable
-                  // key when present. The prefix keeps it out of the way of
-                  // the peer ids sharing this same store.
-                  const volumeKey = videoSourceVolumeKey(videoSource);
-                  return (
-                    <VideoSourceTile
-                      key={tileId}
-                      source={videoSource}
-                      volume={transmissionVolumes[volumeKey] ?? 1}
-                      onVolumeChange={(volume) => setTransmissionVolume(volumeKey, volume)}
-                      // Whoever added it drives — or, if they set it to
-                      // "anyone" when adding it, everyone does. Either way
-                      // this is enforced again server-side (see
-                      // "video-source-state" in signaling.ts), not just here.
-                      canControl={
-                        state.selfUserId !== null &&
-                        (videoSource.controlMode === "anyone" ||
-                          videoSource.addedById === state.selfUserId)
-                      }
-                      // Ownership itself, unlike canControl, never widens
-                      // with controlMode — ending the video for the room
-                      // stays with whoever added it regardless of who's
-                      // allowed to drive it.
-                      isOwner={
-                        state.selfUserId !== null && videoSource.addedById === state.selfUserId
-                      }
-                      label={`${videoSource.addedByName} adicionou`}
-                      fill={isSingleTile || spotlightId === tileId}
-                      className={spotlightId === tileId && !isSingleTile ? "sm:col-span-2 sm:row-span-2" : ""}
-                      onStateChange={(playing, positionSeconds, playbackRate, playlistIndex) =>
-                        signalingClient.setVideoSourceState(
-                          videoSource.id,
-                          playing,
-                          positionSeconds,
-                          playbackRate,
-                          playlistIndex
-                        )
-                      }
-                      onRemove={() => signalingClient.removeVideoSource(videoSource.id)}
-                      onLeave={() =>
-                        setLeftVideoSourceIds((prev) => new Set(prev).add(videoSource.id))
-                      }
-                      onFocus={() => toggleSpotlight(tileId)}
-                      isSpotlighted={spotlightId === tileId}
-                      onHyperfocus={() => toggleHyperfocus(tileId)}
-                      isHyperfocused={activeHyperfocusId === tileId}
-                    />
-                  );
-                })}
-                {leftVideoSources.map((videoSource) => (
-                  <StoppedPeerTile
-                    key={`left-${videoSource.id}`}
-                    label={`vídeo de ${videoSource.addedByName}`}
-                    fill={isSingleTile}
-                    onResume={() =>
-                      setLeftVideoSourceIds((prev) => {
-                        const next = new Set(prev);
-                        next.delete(videoSource.id);
-                        return next;
-                      })
-                    }
-                  />
-                ))}
-                {visibleScreenEntries.map(([peerId, stream]) => {
-                  const peer = state.peers.find((p) => p.id === peerId);
-                  const volumeKey = peer?.userId ?? peerId;
-                  return (
-                    <VideoTile
-                      key={`screen-${peerId}`}
-                      stream={stream}
-                      label={
-                        <DisplayUserName
-                          name={peer?.name ?? "Alguém"}
-                          isGuest={peer?.isGuest}
-                          verified={peer?.flags?.includes("VERIFIED")}
-                        />
-                      }
-                      accessibleLabel={peer?.name ?? "Alguém"}
-                      badge="ao vivo · tela"
-                      muted
-                      volume={transmissionVolumes[volumeKey] ?? 1}
-                      onVolumeChange={(volume) => setTransmissionVolume(volumeKey, volume)}
-                      fill={isSingleTile || spotlightId === peerId}
-                      className={spotlightId === peerId && !isSingleTile ? "sm:col-span-2 sm:row-span-2" : ""}
-                      onRenderedSizeChange={(w, h) => qualityNegotiator.report("screen", peerId, w, h)}
-                      onStopWatching={() => stopWatchingPeer(peerId)}
-                      onFocus={() => toggleSpotlight(peerId)}
-                      isSpotlighted={spotlightId === peerId}
-                      onHyperfocus={() => toggleHyperfocus(peerId)}
-                      isHyperfocused={activeHyperfocusId === peerId}
-                      isMicOn={isMicOn}
-                      onToggleMic={toggleMic}
-                      micsMuted={micsMuted}
-                      onToggleMicsMuted={toggleMicsMuted}
-                    />
-                  );
-                })}
-                {visibleCameraEntries.map(([peerId, stream]) => {
-                  const peer = state.peers.find((p) => p.id === peerId);
-                  const volumeKey = peer?.userId ?? peerId;
-                  return (
-                    <VideoTile
-                      key={`camera-${peerId}`}
-                      stream={stream}
-                      label={
-                        <DisplayUserName
-                          name={peer?.name ?? "Alguém"}
-                          isGuest={peer?.isGuest}
-                          verified={peer?.flags?.includes("VERIFIED")}
-                        />
-                      }
-                      accessibleLabel={peer?.name ?? "Alguém"}
-                      badge="ao vivo · câmera"
-                      muted
-                      volume={transmissionVolumes[volumeKey] ?? 1}
-                      onVolumeChange={(volume) => setTransmissionVolume(volumeKey, volume)}
-                      fill={isSingleTile || spotlightId === peerId}
-                      className={spotlightId === peerId && !isSingleTile ? "sm:col-span-2 sm:row-span-2" : ""}
-                      onRenderedSizeChange={(w, h) => qualityNegotiator.report("camera", peerId, w, h)}
-                      onStopWatching={() => stopWatchingCameraPeer(peerId)}
-                      onFocus={() => toggleSpotlight(peerId)}
-                      isSpotlighted={spotlightId === peerId}
-                      onHyperfocus={() => toggleHyperfocus(peerId)}
-                      isHyperfocused={activeHyperfocusId === peerId}
-                      isMicOn={isMicOn}
-                      onToggleMic={toggleMic}
-                      micsMuted={micsMuted}
-                      onToggleMicsMuted={toggleMicsMuted}
-                    />
-                  );
-                })}
-                {visibleStoppedEntries.map((peer) => (
-                  <StoppedPeerTile
-                    key={`stopped-${peer.id}`}
-                    label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} />}
-                    fill={isSingleTile}
-                    onResume={() => resumeWatchingPeer(peer.id)}
-                  />
-                ))}
-                {visibleResumingEntries.map((peer) => (
-                  <ResumingPeerTile key={`resuming-${peer.id}`} fill={isSingleTile} />
-                ))}
-                {visibleStoppedCameraEntries.map((peer) => (
-                  <StoppedPeerTile
-                    key={`stopped-camera-${peer.id}`}
-                    label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} />}
-                    fill={isSingleTile}
-                    onResume={() => resumeWatchingCameraPeer(peer.id)}
-                  />
-                ))}
-                {visibleResumingCameraEntries.map((peer) => (
-                  <ResumingPeerTile key={`resuming-camera-${peer.id}`} fill={isSingleTile} />
-                ))}
-              </div>
-            </>
-          )}
-        </main>
+              </Tooltip>
+            </div>
+          </div>
+        </div>
 
-        {/* From lg up, chat gets this dedicated full-height column instead
-            of sharing a pane with participants — see isWideLayout. Nothing
-            else in here but the owner/admin "Gerenciar sala" button, so
-            chatSection's flex-1 (see its heightClassName) still has
-            practically the whole column to fill. */}
-        {isWideLayout && (
+        {/* From lg up, chat gets this dedicated full-height column instead of
+            sharing a pane with participants — see isWideLayout — and the
+            column is the chat and nothing else, so chatSection's flex-1 (see
+            its heightClassName) fills all of it. Gone entirely when folded
+            away (chatHidden): unmounted rather than hidden, so the video
+            beside it actually gets the width back. */}
+        {isWideLayout && !chatHidden && (
           <aside
             className="relative flex h-full shrink-0 flex-col overflow-hidden"
             style={{ width: `${chatWidth}px` }}
@@ -2702,6 +2747,41 @@ export function WatchRoom({ handle }: { handle: string }) {
 
             {chatSection}
           </aside>
+        )}
+
+        {/* Hide/show the chat, as a tab on the seam rather than another
+            button in the header: what it does is spatial ("give that column
+            back to the video"), so it points at the column it moves. With
+            chat open it rides the gap between the two, chevron pointing the
+            way the column will go; folded away it parks flush against the
+            edge of the window, which is the only thing left to pull it back
+            out by. Wide layout only — below lg the chat is a drawer that is
+            already closed by default (see drawerExpanded). */}
+        {isWideLayout && (
+          <div
+            className="absolute top-1/2 z-30 -translate-y-1/2"
+            // Positioned in px because the chat column is: its width is a
+            // dragged, persisted number (see chatWidth), so no class can
+            // know where its edge currently is.
+            style={{ right: chatHidden ? 0 : chatWidth + 20 }}
+          >
+            <Tooltip content={chatHidden ? "Mostrar chat" : "Ocultar chat"} placement="left">
+              <button
+                type="button"
+                onClick={toggleChatHidden}
+                aria-label={chatHidden ? "Mostrar chat" : "Ocultar chat"}
+                aria-pressed={chatHidden}
+                className={`flex h-16 w-5 items-center justify-center border border-zinc-200 bg-white text-zinc-500 shadow-sm transition hover:bg-zinc-100 hover:text-zinc-900 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 ${chatHidden ? "rounded-l-lg border-r-0" : "rounded-lg"
+                  }`}
+              >
+                {chatHidden ? (
+                  <ChevronLeftIcon className="h-4 w-4" />
+                ) : (
+                  <ChevronRightIcon className="h-4 w-4" />
+                )}
+              </button>
+            </Tooltip>
+          </div>
         )}
 
         {/* Below lg only (see isWideLayout) — participants and chat share

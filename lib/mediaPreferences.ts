@@ -14,6 +14,10 @@ const OPEN_IN_APP_DISMISSED_KEY = "sharescreen:openInAppDismissed";
 const MIC_DEVICE_ID_KEY = "sharescreen:micDeviceId";
 const SPEAKER_DEVICE_ID_KEY = "sharescreen:speakerDeviceId";
 const CAMERA_DEVICE_ID_KEY = "sharescreen:cameraDeviceId";
+// The two "give me my screen back" toggles in a room — the chat column's
+// edge tab and the ad card's collapse pill (see WatchRoom/PartnerCard).
+const CHAT_HIDDEN_KEY = "sharescreen:chatHidden";
+const AD_COLLAPSED_KEY = "sharescreen:adCollapsed";
 
 function getStoredBoolean(key: string, fallback: boolean): boolean {
   if (typeof window === "undefined") return fallback;
@@ -167,6 +171,33 @@ export function getStoredAutoJoin(): boolean {
 }
 export function setStoredAutoJoin(value: boolean) {
   setStoredBoolean(AUTO_JOIN_KEY, value);
+}
+
+// Whether the chat column is folded away. Off by default — chat is half of
+// what a room is — but remembered per browser, since someone who watches with
+// the chat closed wants it closed in the next room too, not just this one.
+export function getStoredChatHidden(): boolean {
+  return getStoredBoolean(CHAT_HIDDEN_KEY, false);
+}
+export function setStoredChatHidden(value: boolean) {
+  setStoredBoolean(CHAT_HIDDEN_KEY, value);
+}
+
+// Same idea for the partner ad card (see components/PartnerCard). Tri-state
+// rather than a plain boolean: null means "never said", which is what lets
+// the card keep its breakpoint-dependent default (open on a wide screen,
+// collapsed on a phone) until somebody actually picks a side.
+export function getStoredAdCollapsed(): boolean | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(AD_COLLAPSED_KEY);
+    return raw === null ? null : raw === "true";
+  } catch {
+    return null;
+  }
+}
+export function setStoredAdCollapsed(value: boolean) {
+  setStoredBoolean(AD_COLLAPSED_KEY, value);
 }
 
 function getStoredString(key: string): string | null {
