@@ -2,18 +2,30 @@
 
 import { useState, type FormEvent } from "react";
 import { FaYoutube, FaTwitch } from "react-icons/fa";
-import { parseYouTubeVideoId, parseTwitchChannel } from "@/lib/videoSource";
+import { SiKick } from "react-icons/si";
+import type { IconType } from "react-icons";
+import {
+  isLiveChannelSource,
+  parseVideoSourceInput,
+  type VideoSourceKind,
+} from "@/lib/videoSource";
 import { BetaMark } from "./BetaMark";
 
 export type AddVideoSourcePopupData = {
-  onSubmit: (kind: "youtube" | "twitch", url: string, controlMode: "owner" | "anyone") => void;
+  onSubmit: (kind: VideoSourceKind, url: string, controlMode: "owner" | "anyone") => void;
+};
+
+const INVALID_LINK_MESSAGE: Record<VideoSourceKind, string> = {
+  youtube: "Cole um link de vídeo ou live do YouTube.",
+  twitch: "Cole um link ou o nome de um canal da Twitch.",
+  kick: "Cole um link ou o nome de um canal da Kick.",
 };
 
 const PLATFORMS: {
-  id: "youtube" | "twitch";
+  id: VideoSourceKind;
   label: string;
   placeholder: string;
-  icon: typeof FaYoutube;
+  icon: IconType;
   activeClassName: string;
 }[] = [
   {
@@ -30,6 +42,14 @@ const PLATFORMS: {
     icon: FaTwitch,
     activeClassName: "border-[#9146FF] bg-[#9146FF]/10 text-[#9146FF]",
   },
+  {
+    id: "kick",
+    label: "Kick",
+    placeholder: "https://kick.com/canal",
+    icon: SiKick,
+    activeClassName:
+      "border-[#53FC18] bg-[#53FC18]/15 text-lime-700 dark:text-[#53FC18]",
+  },
 ];
 
 // The popup behind the header/empty-pane "Adicionar fonte de vídeo" buttons
@@ -38,7 +58,7 @@ const PLATFORMS: {
 // Platform first, on purpose: the link field is disabled until one is
 // picked, both because the placeholder/validation depend on which platform
 // it is and because there is nothing sensible to paste before that choice —
-// a link alone doesn't say whether it's a YouTube or Twitch address.
+// a link alone doesn't say whether it's a YouTube, Twitch or Kick address.
 export function AddVideoSourceModal({
   closePopup,
   data: { onSubmit },
@@ -46,15 +66,18 @@ export function AddVideoSourceModal({
   closePopup: (hasAction?: boolean) => void;
   data: AddVideoSourcePopupData;
 }) {
-  const [kind, setKind] = useState<"youtube" | "twitch" | null>(null);
+  const [kind, setKind] = useState<VideoSourceKind | null>(null);
   // Defaults to "owner" — whoever adds a source keeping the wheel unless
   // they deliberately open it up is the same rule the room has always had,
-  // just made visible instead of implicit.
+  // just made visible instead of implicit. Twitch/Kick force "anyone"
+  // because their live embeds always show native chrome (see
+  // isLiveChannelSource).
   const [controlMode, setControlMode] = useState<"owner" | "anyone">("owner");
   const [link, setLink] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const platform = PLATFORMS.find((p) => p.id === kind) ?? null;
+  const liveChannel = kind !== null && isLiveChannelSource(kind);
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -63,16 +86,11 @@ export function AddVideoSourceModal({
     if (!raw) return;
     // Only to catch an obvious paste mistake without a round trip — the
     // server parses it again, and its answer is what everyone embeds.
-    const valid = kind === "youtube" ? parseYouTubeVideoId(raw) : parseTwitchChannel(raw);
-    if (!valid) {
-      setError(
-        kind === "youtube"
-          ? "Cole um link de vídeo ou live do YouTube."
-          : "Cole um link ou o nome de um canal da Twitch."
-      );
+    if (!parseVideoSourceInput(kind, raw)) {
+      setError(INVALID_LINK_MESSAGE[kind]);
       return;
     }
-    onSubmit(kind, raw, controlMode);
+    onSubmit(kind, raw, liveChannel ? "anyone" : controlMode);
     closePopup(true);
   }
 
@@ -97,7 +115,7 @@ export function AddVideoSourceModal({
 
       <div className="flex flex-col gap-1.5">
         <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Plataforma</p>
-        <div className="flex gap-2">
+        <div className="grid grid-cols-3 gap-2">
           {PLATFORMS.map((p) => {
             const Icon = p.icon;
             const selected = kind === p.id;
@@ -108,9 +126,10 @@ export function AddVideoSourceModal({
                 onClick={() => {
                   setKind(p.id);
                   setError(null);
+                  if (isLiveChannelSource(p.id)) setControlMode("anyone");
                 }}
                 aria-pressed={selected}
-                className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition ${
+                className={`flex flex-1 items-center justify-center gap-1 rounded-lg border px-1.5 py-2 text-xs font-medium transition ${
                   selected
                     ? p.activeClassName
                     : "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
@@ -130,8 +149,8 @@ export function AddVideoSourceModal({
           <input
             type="radio"
             name="video-source-control-mode"
-            checked={controlMode === "owner"}
-            disabled={kind === "twitch"}
+            checked={controlMode === "owner" && !liveChannel}
+            disabled={liveChannel}
             onChange={() => setControlMode("owner")}
           />
           Só eu posso controlar
@@ -140,7 +159,7 @@ export function AddVideoSourceModal({
           <input
             type="radio"
             name="video-source-control-mode"
-            checked={controlMode === "anyone" || kind === "twitch"} //twitch dont allow hidden the controls
+            checked={controlMode === "anyone" || liveChannel}
             onChange={() => setControlMode("anyone")}
           />
           Qualquer um pode controlar

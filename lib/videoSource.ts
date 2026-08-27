@@ -3,11 +3,14 @@
 // on all of it. Nothing here streams: every participant embeds the same
 // video themselves, and only this record travels, which is what makes the
 // room watch the same frame at the same time.
+export type VideoSourceKind = "youtube" | "twitch" | "kick";
+
 export type VideoSource = {
   id: string;
-  kind: "youtube" | "twitch";
-  // The YouTube video id for a "youtube" source, or the channel login for a
-  // "twitch" one — see parseYouTubeVideoId/parseTwitchChannel below.
+  kind: VideoSourceKind;
+  // YouTube video id, or the channel login for Twitch/Kick — see the parse*
+  // helpers below. Never the pasted URL; the server re-parses and its answer
+  // is what everyone embeds.
   videoId: string;
   addedById: string;
   addedByName: string;
@@ -98,4 +101,41 @@ export function parseTwitchChannel(raw: string): string | null {
   if (segments.length !== 1) return null;
   const channel = segments[0];
   return TWITCH_CHANNEL_RE.test(channel) ? channel : null;
+}
+
+// Kick slugs: 3-25 letters/digits/underscore. Slightly wider than Twitch's
+// (Kick allows a leading digit), and used the same way: a bare name typed
+// with no URL, or a kick.com/<channel> / player.kick.com/<channel> link.
+// Extra path segments (VODs, clips, /videos/…) are rejected — the embed is
+// a live channel iframe with no timeline, same constraint as Twitch.
+const KICK_CHANNEL_RE = /^[A-Za-z0-9_]{3,25}$/;
+
+export function parseKickChannel(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (KICK_CHANNEL_RE.test(trimmed)) return trimmed;
+  let url: URL;
+  try {
+    url = new URL(trimmed.includes("://") ? trimmed : `https://${trimmed}`);
+  } catch {
+    return null;
+  }
+  const host = url.hostname.replace(/^www\./, "").replace(/^m\./, "").toLowerCase();
+  if (host !== "kick.com" && host !== "player.kick.com") return null;
+  const segments = url.pathname.split("/").filter(Boolean);
+  if (segments.length !== 1) return null;
+  const channel = segments[0];
+  return KICK_CHANNEL_RE.test(channel) ? channel : null;
+}
+
+// Twitch and Kick channel embeds have no seek/duration API, so "only I can
+// control" is a lie — the platform's own chrome is always there. The modal
+// and the server both force controlMode to "anyone" for these.
+export function isLiveChannelSource(kind: VideoSourceKind): boolean {
+  return kind === "twitch" || kind === "kick";
+}
+
+export function parseVideoSourceInput(kind: VideoSourceKind, raw: string): string | null {
+  if (kind === "youtube") return parseYouTubeVideoId(raw);
+  if (kind === "twitch") return parseTwitchChannel(raw);
+  return parseKickChannel(raw);
 }
