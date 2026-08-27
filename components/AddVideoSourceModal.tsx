@@ -66,7 +66,7 @@ export function AddVideoSourceModal({
   closePopup: (hasAction?: boolean) => void;
   data: AddVideoSourcePopupData;
 }) {
-  const [kind, setKind] = useState<VideoSourceKind | null>(null);
+  const [kind, setKind] = useState<VideoSourceKind | null>("youtube");
   // Defaults to "owner" — whoever adds a source keeping the wheel unless
   // they deliberately open it up is the same rule the room has always had,
   // just made visible instead of implicit. Twitch/Kick force "anyone"
@@ -101,7 +101,7 @@ export function AddVideoSourceModal({
     >
       <div className="flex items-start justify-between gap-2">
         <p className="text-sm font-semibold">
-          <BetaMark /> Adicionar fonte de vídeo ou live
+          <BetaMark /> Adicionar vídeo, playlist ou live
         </p>
         <button
           type="button"
