@@ -308,6 +308,10 @@ class AdminSignalingClient {
                   positionSeconds: Number(msg.positionSeconds) || 0,
                   playbackRate: Number(msg.playbackRate) || 1,
                   updatedAt: Number(msg.updatedAt) || Date.now(),
+                  playlistIndex:
+                    typeof msg.playlistIndex === "number" && Number.isFinite(msg.playlistIndex)
+                      ? Math.max(0, Math.floor(msg.playlistIndex))
+                      : v.playlistIndex,
                 }
               : v
           ),

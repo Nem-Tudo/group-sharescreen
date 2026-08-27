@@ -10,8 +10,22 @@ export type VideoSource = {
   kind: VideoSourceKind;
   // YouTube video id, or the channel login for Twitch/Kick — see the parse*
   // helpers below. Never the pasted URL; the server re-parses and its answer
-  // is what everyone embeds.
+  // is what everyone embeds. For a playlist-only YouTube URL (no `v=`), this
+  // is the playlist id itself — the embed keys off `playlistId` below rather
+  // than treating this as an 11-character video.
   videoId: string;
+  // YouTube playlist id when the pasted URL carried a `list=` (watch?v=&list=,
+  // /playlist?list=, youtu.be/?list=). The embed loads this as listType=playlist
+  // so the room watches the queue, not just the opening video. Absent for a
+  // single video and for Twitch/Kick. Optional because a server that predates
+  // this field simply never sends it, and those sources play as they always have.
+  playlistId?: string;
+  // Which item in that playlist is playing, 0-based — same meaning as
+  // YT.Player.getPlaylistIndex. Playback state, not identity: it moves as the
+  // queue advances, via video-source-state, the same way positionSeconds does.
+  // Absent when there is no playlist, or from a server/client that doesn't
+  // know about it.
+  playlistIndex?: number;
   addedById: string;
   addedByName: string;
   // "owner" (only addedById may steer it) or "anyone" (the whole room may) —
@@ -43,6 +57,37 @@ export function videoSourcePosition(source: VideoSource, now = Date.now()): numb
 }
 
 const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
+// User-created (PL), channel uploads (UU), favorites (FL), albums (OLAK5uy_),
+// and Mix/radio (RD). Watch Later (WL) and Liked (LL) are per-account and
+// cannot be embedded, so they're refused rather than accepted only to fail
+// in every iframe.
+const YOUTUBE_PLAYLIST_ID_RE = /^(PL|UU|FL|OLAK5uy_|RD)[A-Za-z0-9_-]{10,128}$/;
+
+export function isYouTubeVideoId(id: string): boolean {
+  return YOUTUBE_VIDEO_ID_RE.test(id);
+}
+
+function isYouTubeHost(host: string): boolean {
+  return (
+    host === "youtu.be" ||
+    host === "youtube.com" ||
+    host === "m.youtube.com" ||
+    host === "music.youtube.com" ||
+    host === "youtube-nocookie.com"
+  );
+}
+
+function parseYouTubeUrl(raw: string): URL | null {
+  const trimmed = raw.trim();
+  let url: URL;
+  try {
+    url = new URL(trimmed.includes("://") ? trimmed : `https://${trimmed}`);
+  } catch {
+    return null;
+  }
+  const host = url.hostname.replace(/^www\./, "").toLowerCase();
+  return isYouTubeHost(host) ? url : null;
+}
 
 // Client-side twin of the server's parseYouTubeVideoId — used only to tell
 // someone their link is wrong before sending it, never as the gate: the
@@ -51,31 +96,53 @@ const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 export function parseYouTubeVideoId(raw: string): string | null {
   const trimmed = raw.trim();
   if (YOUTUBE_VIDEO_ID_RE.test(trimmed)) return trimmed;
-  let url: URL;
-  try {
-    url = new URL(trimmed.includes("://") ? trimmed : `https://${trimmed}`);
-  } catch {
-    return null;
-  }
+  const url = parseYouTubeUrl(trimmed);
+  if (!url) return null;
   const host = url.hostname.replace(/^www\./, "").toLowerCase();
   let id: string | null = null;
   if (host === "youtu.be") {
     id = url.pathname.split("/")[1] ?? null;
-  } else if (
-    host === "youtube.com" ||
-    host === "m.youtube.com" ||
-    host === "music.youtube.com" ||
-    host === "youtube-nocookie.com"
-  ) {
-    if (url.pathname === "/watch") id = url.searchParams.get("v");
-    else {
-      const [, section, value] = url.pathname.split("/");
-      if (section === "embed" || section === "live" || section === "shorts" || section === "v") {
-        id = value ?? null;
-      }
+  } else if (url.pathname === "/watch") {
+    id = url.searchParams.get("v");
+  } else {
+    const [, section, value] = url.pathname.split("/");
+    if (section === "embed" || section === "live" || section === "shorts" || section === "v") {
+      id = value ?? null;
     }
   }
   return id && YOUTUBE_VIDEO_ID_RE.test(id) ? id : null;
+}
+
+// Same twin-of-the-server caveat as parseYouTubeVideoId. A watch URL with both
+// `v=` and `list=` yields the list id here and the video id from
+// parseYouTubeVideoId — see parseYouTubeSource, which is what the add-source
+// modal actually calls.
+export function parseYouTubePlaylistId(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (YOUTUBE_PLAYLIST_ID_RE.test(trimmed)) return trimmed;
+  const url = parseYouTubeUrl(trimmed);
+  if (!url) return null;
+  const list = url.searchParams.get("list");
+  return list && YOUTUBE_PLAYLIST_ID_RE.test(list) ? list : null;
+}
+
+export type YouTubeSourceRef = {
+  videoId: string | null;
+  playlistId: string | null;
+};
+
+export function parseYouTubeSource(raw: string): YouTubeSourceRef | null {
+  const videoId = parseYouTubeVideoId(raw);
+  const playlistId = parseYouTubePlaylistId(raw);
+  if (!videoId && !playlistId) return null;
+  return { videoId, playlistId };
+}
+
+// Per-tile volume dials persist across re-adds of the same video (see
+// WatchRoom's transmissionVolumes). A playlist is one source even as the
+// current video changes, so the playlist id is the stable key when present.
+export function videoSourceVolumeKey(source: Pick<VideoSource, "videoId" | "playlistId">): string {
+  return `video:${source.playlistId || source.videoId}`;
 }
 
 const TWITCH_CHANNEL_RE = /^[A-Za-z][A-Za-z0-9_]{3,24}$/;
@@ -135,7 +202,10 @@ export function isLiveChannelSource(kind: VideoSourceKind): boolean {
 }
 
 export function parseVideoSourceInput(kind: VideoSourceKind, raw: string): string | null {
-  if (kind === "youtube") return parseYouTubeVideoId(raw);
+  if (kind === "youtube") {
+    const parsed = parseYouTubeSource(raw);
+    return parsed ? parsed.videoId || parsed.playlistId : null;
+  }
   if (kind === "twitch") return parseTwitchChannel(raw);
   return parseKickChannel(raw);
 }
