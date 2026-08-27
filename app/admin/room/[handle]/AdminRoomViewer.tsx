@@ -14,6 +14,7 @@ import {
 } from "@/lib/mediaPreferences";
 import { VideoTile, StoppedPeerTile, ResumingPeerTile } from "@/components/VideoTile";
 import { VideoSourceTile } from "@/components/VideoSourceTile";
+import { videoSourceVolumeKey } from "@/lib/videoSource";
 import { adminSignalingClient } from "@/lib/adminClient";
 import { RemoteAudio } from "@/components/RemoteAudio";
 import { ParticipantRow } from "@/components/ParticipantRow";
@@ -302,11 +303,11 @@ export function AdminRoomViewer({ handle }: { handle: string }) {
                     defaults to signalingClient's, which on the moderation
                     page belongs to a socket that never joined this room. */}
                 {visibleVideoSources.map((videoSource) => {
-                  // Keyed on the platform id, not the source id, for the same
-                  // reason WatchRoom does it — a source id is minted fresh
-                  // every time someone adds the video, so a dial keyed on it
-                  // would never actually persist.
-                  const volumeKey = `video:${videoSource.videoId}`;
+                  // Keyed on the platform id (or playlist id), not the source
+                  // id, for the same reason WatchRoom does it — a source id is
+                  // minted fresh every time someone adds the video, so a dial
+                  // keyed on it would never actually persist.
+                  const volumeKey = videoSourceVolumeKey(videoSource);
                   return (
                     <VideoSourceTile
                       key={`video-source-${videoSource.id}`}

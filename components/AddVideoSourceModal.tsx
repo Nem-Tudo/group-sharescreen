@@ -16,7 +16,7 @@ export type AddVideoSourcePopupData = {
 };
 
 const INVALID_LINK_MESSAGE: Record<VideoSourceKind, string> = {
-  youtube: "Cole um link de vídeo ou live do YouTube.",
+  youtube: "Cole um link de vídeo, live ou playlist do YouTube.",
   twitch: "Cole um link ou o nome de um canal da Twitch.",
   kick: "Cole um link ou o nome de um canal da Kick.",
 };
@@ -31,7 +31,7 @@ const PLATFORMS: {
   {
     id: "youtube",
     label: "YouTube",
-    placeholder: "https://youtube.com/watch?v=...",
+    placeholder: "https://youtube.com/watch?v=... ou playlist",
     icon: FaYoutube,
     activeClassName: "border-red-600 bg-red-600/10 text-red-600 dark:text-red-500",
   },

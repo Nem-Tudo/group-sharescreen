@@ -62,7 +62,7 @@ import { SupportersTooltipContent } from "@/components/SupportersTooltip";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { CreateAccountForm } from "@/components/CreateAccountForm";
 import { VideoSourceTile } from "@/components/VideoSourceTile";
-import type { VideoSourceKind } from "@/lib/videoSource";
+import { videoSourceVolumeKey, type VideoSourceKind } from "@/lib/videoSource";
 import useNtPopups from "ntpopups";
 import {
   MicIcon,
@@ -2520,12 +2520,14 @@ export function WatchRoom({ handle }: { handle: string }) {
                 )}
                 {visibleVideoSources.map((videoSource) => {
                   const tileId = videoSourceTileId(videoSource.id);
-                  // Keyed on the YouTube id, not the source id: a source id
-                  // is minted fresh every time someone adds the video, so
-                  // keying on it would mean the dial never actually persists.
-                  // The prefix keeps it out of the way of the peer ids
-                  // sharing this same store.
-                  const volumeKey = `video:${videoSource.videoId}`;
+                  // Keyed on the YouTube id (or playlist id), not the source
+                  // id: a source id is minted fresh every time someone adds
+                  // the video, so keying on it would mean the dial never
+                  // actually persists. A playlist is one source even as the
+                  // current video changes, so the playlist id is the stable
+                  // key when present. The prefix keeps it out of the way of
+                  // the peer ids sharing this same store.
+                  const volumeKey = videoSourceVolumeKey(videoSource);
                   return (
                     <VideoSourceTile
                       key={tileId}
@@ -2551,12 +2553,13 @@ export function WatchRoom({ handle }: { handle: string }) {
                       label={`${videoSource.addedByName} adicionou`}
                       fill={isSingleTile || spotlightId === tileId}
                       className={spotlightId === tileId && !isSingleTile ? "sm:col-span-2 sm:row-span-2" : ""}
-                      onStateChange={(playing, positionSeconds, playbackRate) =>
+                      onStateChange={(playing, positionSeconds, playbackRate, playlistIndex) =>
                         signalingClient.setVideoSourceState(
                           videoSource.id,
                           playing,
                           positionSeconds,
-                          playbackRate
+                          playbackRate,
+                          playlistIndex
                         )
                       }
                       onRemove={() => signalingClient.removeVideoSource(videoSource.id)}

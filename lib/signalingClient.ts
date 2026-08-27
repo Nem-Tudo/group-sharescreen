@@ -846,6 +846,15 @@ class SignalingClient {
                   // source already had rather than resetting to 1x.
                   playbackRate: Number(msg.playbackRate) || v.playbackRate || 1,
                   updatedAt: Number(msg.updatedAt) || Date.now(),
+                  // Same merge-if-present as playbackRate: an older server
+                  // never sends this, and a non-playlist source has none.
+                  // Floor rather than Number() || existing — index 0 is a
+                  // real position (the first item) and must not fall through
+                  // to "absent".
+                  playlistIndex:
+                    typeof msg.playlistIndex === "number" && Number.isFinite(msg.playlistIndex)
+                      ? Math.max(0, Math.floor(msg.playlistIndex))
+                      : v.playlistIndex,
                 }
               : v
           ),
@@ -1152,9 +1161,17 @@ class SignalingClient {
     id: string,
     playing: boolean,
     positionSeconds: number,
-    playbackRate: number
+    playbackRate: number,
+    playlistIndex?: number
   ) {
-    this.rawSend({ type: "video-source-state", id, playing, positionSeconds, playbackRate });
+    this.rawSend({
+      type: "video-source-state",
+      id,
+      playing,
+      positionSeconds,
+      playbackRate,
+      ...(typeof playlistIndex === "number" ? { playlistIndex } : {}),
+    });
   }
 
   // Per-channel, and merged with whatever the other channel last reported:

@@ -5,7 +5,7 @@ import { FocusIcon, HyperfocusIcon, FullscreenIcon, FullscreenExitIcon, EyeOffIc
 import { Tooltip } from "@/components/Tooltip";
 import { VolumeSlider } from "@/components/VolumeSlider";
 import { MdClose, MdSettings } from "react-icons/md";
-import { videoSourcePosition, type VideoSource } from "@/lib/videoSource";
+import { isYouTubeVideoId, videoSourcePosition, type VideoSource } from "@/lib/videoSource";
 import { signalingClient } from "@/lib/signalingClient";
 import { BetaMark } from "./BetaMark";
 
@@ -72,6 +72,12 @@ type EmbeddedPlayer = {
   getPlayerState: () => number;
   getPlaybackRate: () => number;
   setPlaybackRate: (rate: number) => void;
+  // Playlist queue — YouTube's player exposes these; Twitch/Kick stubs omit
+  // them. getPlaylistIndex returns -1 when no playlist is loaded (or not
+  // yet), which callers treat as "nothing to sync".
+  getPlaylistIndex?: () => number;
+  playVideoAt?: (index: number) => void;
+  getPlaylist?: () => string[];
   // 0-100, unlike everything else here — YouTube's scale, not ours.
   // Optional/called with ?. like getPlaybackRate above: the API object is
   // whatever YouTube's script hands back, not something we can typecheck.
@@ -157,6 +163,19 @@ function applyPlayerVolume(player: EmbeddedPlayer | null, volume: number, muted:
 // the room" effect).
 function isLiveBroadcast(player: EmbeddedPlayer): boolean {
   return (player.getDuration?.() ?? 0) <= 0;
+}
+
+// Returns true when the queue actually moved, so the caller can treat it
+// like a seek (settle window, skip chasing the old video's timestamp).
+// -1 from getPlaylistIndex means the playlist hasn't loaded yet — jumping
+// then would just fail, and the next tick retries once it has.
+function applyPlaylistIndex(player: EmbeddedPlayer, source: VideoSource): boolean {
+  if (!source.playlistId || typeof source.playlistIndex !== "number") return false;
+  if (!player.getPlaylistIndex || !player.playVideoAt) return false;
+  const currentIndex = player.getPlaylistIndex();
+  if (currentIndex < 0 || currentIndex === source.playlistIndex) return false;
+  player.playVideoAt(source.playlistIndex);
+  return true;
 }
 
 // The default clock for the `serverNow` prop below. Module-level and
@@ -376,7 +395,12 @@ export function VideoSourceTile({
   // onRemove below) stays this narrow even when a "anyone" source has opened
   // up play/pause/seek to everybody.
   isOwner: boolean;
-  onStateChange: (playing: boolean, positionSeconds: number, playbackRate: number) => void;
+  onStateChange: (
+    playing: boolean,
+    positionSeconds: number,
+    playbackRate: number,
+    playlistIndex?: number
+  ) => void;
   // Ends the video for the whole room — only offered to whoever added it
   // (isOwner), regardless of controlMode.
   onRemove: () => void;
@@ -491,7 +515,13 @@ export function VideoSourceTile({
     // hiccups, and reporting the position mid-buffer is the position they
     // are about to resume from anyway.
     const playing = state === PLAYER_STATE.PLAYING || state === PLAYER_STATE.BUFFERING;
-    onStateChangeRef.current(playing, player.getCurrentTime(), player.getPlaybackRate?.() ?? 1);
+    const playlistIndex = player.getPlaylistIndex?.();
+    onStateChangeRef.current(
+      playing,
+      player.getCurrentTime(),
+      player.getPlaybackRate?.() ?? 1,
+      typeof playlistIndex === "number" && playlistIndex >= 0 ? playlistIndex : undefined
+    );
   }, []);
 
   const lastPushAtRef = useRef(0);
@@ -534,8 +564,29 @@ export function VideoSourceTile({
   // the video each time anyone pressed pause.
   useEffect(() => {
     let cancelled = false;
+    let startAtTimer: ReturnType<typeof setTimeout> | null = null;
     const mount = mountRef.current;
     if (!mount) return;
+
+    function startAtNamedPlaylistVideo(player: EmbeddedPlayer): boolean {
+      const current = sourceRef.current;
+      if (
+        !current.playlistId ||
+        !isYouTubeVideoId(current.videoId) ||
+        typeof current.playlistIndex === "number"
+      ) {
+        return true;
+      }
+      const queue = player.getPlaylist?.() ?? [];
+      if (queue.length === 0) return false;
+      const index = queue.indexOf(current.videoId);
+      if (index >= 0 && player.getPlaylistIndex?.() !== index) {
+        player.playVideoAt?.(index);
+        if (!current.playing) player.pauseVideo();
+        lastSeekAtRef.current = Date.now();
+      }
+      return true;
+    }
 
     function markApplyingRemote() {
       applyingRemoteRef.current = true;
@@ -608,6 +659,14 @@ export function VideoSourceTile({
         .then((YT) => {
           if (cancelled || !mountRef.current) return;
           markApplyingRemote();
+          const sourceNow = sourceRef.current;
+          const playlistId = sourceNow.playlistId;
+          // A playlist-only URL stores the playlist id in videoId (see
+          // parseYouTubeSource) — that's not an 11-character video, and
+          // handing it to YT.Player as videoId would just error. listType +
+          // list below is what actually loads the queue; videoId is only
+          // the starting item when the paste also had a `v=`.
+          const videoId = isYouTubeVideoId(sourceNow.videoId) ? sourceNow.videoId : undefined;
           playerRef.current = new YT.Player(mountRef.current, {
             // Without these the API stamps its default 640x390 onto the
             // iframe it swaps in for the mount node — and since that node's
@@ -618,17 +677,31 @@ export function VideoSourceTile({
             // reason belt goes with braces.
             width: "100%",
             height: "100%",
-            videoId: sourceRef.current.videoId,
+            ...(videoId ? { videoId } : {}),
             playerVars: {
-              autoplay: sourceRef.current.playing ? 1 : 0,
+              autoplay: sourceNow.playing ? 1 : 0,
               // Only the owner sees YouTube's controls; for everyone else they
               // would be buttons that appear to work and then get undone by
               // the next sync.
               controls: canControlRef.current || nativeControlsRef.current ? 1 : 0,
               disablekb: canControlRef.current || nativeControlsRef.current ? 0 : 1,
               // Where the room already is — someone joining an hour into a
-              // video starts an hour in, not at the beginning.
-              start: Math.floor(videoSourcePosition(sourceRef.current, serverNowRef.current())),
+              // video starts an hour in, not at the beginning. For a playlist
+              // this is the timestamp of the *current* item (see index below),
+              // not of the video the source was originally added with.
+              start: Math.floor(videoSourcePosition(sourceNow, serverNowRef.current())),
+              // listType=playlist is what makes the embed a queue rather than
+              // a single video: without it, a watch URL's `list=` was being
+              // thrown away and the room only ever saw the opening video.
+              ...(playlistId
+                ? {
+                    listType: "playlist",
+                    list: playlistId,
+                    ...(typeof sourceNow.playlistIndex === "number"
+                      ? { index: sourceNow.playlistIndex }
+                      : {}),
+                  }
+                : {}),
               rel: 0,
               modestbranding: 1,
               playsinline: 1,
@@ -636,7 +709,21 @@ export function VideoSourceTile({
             events: {
               onReady: () => {
                 if (cancelled) return;
-                applyPlayerVolume(playerRef.current, volumeRef.current, mutedRef.current);
+                const player = playerRef.current;
+                applyPlayerVolume(player, volumeRef.current, mutedRef.current);
+                // A watch URL with both `v=` and `list=` names a starting
+                // video, but the IFrame API's listType=playlist often ignores
+                // the constructor videoId and begins at item 0. Jump to the
+                // named video once the queue is actually populated — skipped
+                // when the room already has a playlistIndex (a late joiner,
+                // or a rebuild) because that is the live position, not the
+                // video the source was originally added with. getPlaylist is
+                // frequently still empty at onReady, so one short retry.
+                if (player && !startAtNamedPlaylistVideo(player)) {
+                  startAtTimer = setTimeout(() => {
+                    if (!cancelled && playerRef.current) startAtNamedPlaylistVideo(playerRef.current);
+                  }, 400);
+                }
                 setReady(true);
               },
               onError: () => {
@@ -674,6 +761,7 @@ export function VideoSourceTile({
 
     return () => {
       cancelled = true;
+      if (startAtTimer) clearTimeout(startAtTimer);
       if (applyingTimerRef.current) clearTimeout(applyingTimerRef.current);
       playerRef.current?.destroy();
       playerRef.current = null;
@@ -687,7 +775,12 @@ export function VideoSourceTile({
     // current position (see `start` above), the same thing that happens when
     // someone joins mid-video — Twitch's channel embed has no such position
     // to restore, it just rejoins the live edge.
-  }, [source.kind, source.videoId, canControl, showNativeControls, mountId, schedulePush]);
+    //
+    // Identity is the playlist when there is one, not the opening video:
+    // advancing the queue updates playlistIndex (and, on some servers,
+    // videoId) as playback state, and rebuilding the iframe on every next
+    // track would reload the player instead of calling playVideoAt.
+  }, [source.kind, source.playlistId ?? source.videoId, canControl, showNativeControls, mountId, schedulePush]);
 
   // Later changes to the dial. The initial value is applied from onReady
   // instead (see applyPlayerVolume there) — this effect can't do that job on
@@ -727,10 +820,19 @@ export function VideoSourceTile({
     // See isLiveBroadcast — a live source has no position to line up on, so
     // only play/pause below applies to it.
     if (!isLiveBroadcast(player)) {
-      const target = videoSourcePosition(source, serverNowRef.current());
-      if (Math.abs(player.getCurrentTime() - target) > DRIFT_TOLERANCE_SECONDS) {
-        player.seekTo(target, true);
+      // Queue before timestamp: seeking on the previous video to the next
+      // video's position is how a "next" would land in the wrong place.
+      // playVideoAt is async, so skip the seek this tick — getCurrentTime is
+      // still the old item's, and SEEK_SETTLE_MS lets the drift effect land
+      // the timestamp once the new one is actually loaded.
+      if (applyPlaylistIndex(player, source)) {
         lastSeekAtRef.current = Date.now();
+      } else {
+        const target = videoSourcePosition(source, serverNowRef.current());
+        if (Math.abs(player.getCurrentTime() - target) > DRIFT_TOLERANCE_SECONDS) {
+          player.seekTo(target, true);
+          lastSeekAtRef.current = Date.now();
+        }
       }
       // Speed before play: starting at the old rate and correcting a moment
       // later is both audible and a fresh source of drift. Also clears any
@@ -765,6 +867,11 @@ export function VideoSourceTile({
       // corrected for a live source; the rest chases a position that a live
       // stream can't be seeked to, which is what used to buffer it forever.
       const live = isLiveBroadcast(player);
+
+      if (!live && applyPlaylistIndex(player, current)) {
+        lastSeekAtRef.current = Date.now();
+        return;
+      }
 
       if (!current.playing) {
         // The room is paused. Anyone whose player kept going (their own
