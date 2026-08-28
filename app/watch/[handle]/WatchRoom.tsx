@@ -2050,6 +2050,7 @@ export function WatchRoom({ handle }: { handle: string }) {
         messages={state.chatMessages}
         selfId={state.selfId}
         selfName={state.name}
+        peers={visiblePeers}
         onSend={(text) => signalingClient.sendChatMessage(text)}
         onSendGif={
           state.account && !gifBlockedReason ? (url) => signalingClient.sendGif(url) : undefined
