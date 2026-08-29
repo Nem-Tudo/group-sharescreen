@@ -110,75 +110,10 @@ export function adminLogout() {
   setAdminToken(null);
 }
 
-export type AdminRoomPeer = {
-  id: string;
-  name: string | null;
-  sharing: boolean;
-  // Which of the two channels `sharing` is made of. null means the peer's
-  // client never reported the breakdown (an outdated client), which is not
-  // the same as false — see PeerInfo.screen in lib/signalingClient.ts.
-  // Undefined only from a server that predates the fields.
-  screen?: boolean | null;
-  camera?: boolean | null;
-  // How many room video sources this person added (see lib/videoSource.ts).
-  // A third, separate kind of "transmitting": nothing of theirs is being
-  // streamed, but a video is on everyone's screen and only they can steer
-  // it. Undefined from a server that predates the field.
-  videoSources?: number;
-  mic: boolean;
-  ip: string;
-  isGuest: boolean;
-  // The three below are what the moderation panel's search actually matches
-  // a person on (see ModerationPanel's peerMatches). All optional: a server
-  // that predates them simply sends nothing, and search just falls back to
-  // the fields above instead of breaking.
-  //
-  // Account id — the same id /user/[id] is keyed on, so a profile URL
-  // pasted into the search box finds that person's room.
-  accountId?: string | null;
-  // Account username, which is *not* necessarily the display name in
-  // `name` (see the server's AccountDoc: username vs displayName).
-  username?: string | null;
-  // Stable across a guest's reconnects, unlike `id` — the only durable
-  // handle a non-account visitor has.
-  guestId?: string | null;
-  // Hash of this person's browser/device traits (see lib/fingerprint.ts).
-  // Survives a new guest identity, a fresh account and an IP change, which
-  // is what makes it worth banning on. null when the client didn't send one.
-  fingerprint?: string | null;
-};
-
-export type AdminRoom = {
-  handle: string;
-  isPrivate: boolean;
-  createdAt: number;
-  peopleCount: number;
-  peers: AdminRoomPeer[];
-  // Stable id (account or guest) of the room's current owner. Optional for
-  // the same old-server reason as the peer fields above.
-  ownerId?: string | null;
-  // Private room access code, when the room has one.
-  code?: string | null;
-  // Total room video sources, across everyone — the sum of the peers'
-  // `videoSources` above.
-  videoSourceCount?: number;
-};
-
-export async function fetchAdminRooms(signal?: AbortSignal): Promise<AdminRoom[]> {
-  const token = getAdminToken();
-  if (!token) throw new Error("unauthorized");
-  const res = await fetch(`${getSignalingHttpBase()}/admin/rooms`, {
-    headers: { Authorization: `Bearer ${token}` },
-    signal,
-  });
-  if (res.status === 401) {
-    setAdminToken(null);
-    throw new Error("unauthorized");
-  }
-  if (!res.ok) throw new Error(`Falha ao carregar salas (status ${res.status})`);
-  const data = (await res.json()) as { rooms: AdminRoom[] };
-  return data.rooms;
-}
+// The live room list (fetchAdminRooms, AdminRoom, AdminRoomPeer) used to sit
+// here. It moved out with the panels that called it — see ../sharescreen-admin,
+// which keeps its own trimmed copy of this module. Nothing on this page reads
+// who is in a room right now; everything left below configures the service.
 
 export type AnnouncementStats = {
   views: number;

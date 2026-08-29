@@ -4,40 +4,22 @@ import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { adminLogin, adminLogout, useAdminToken } from "@/lib/adminApi";
 import { DashboardPanel } from "./DashboardPanel";
-import { ModerationPanel } from "./ModerationPanel";
-import { readAdminViewState, patchAdminViewState } from "./adminViewState";
 
-type Tab = "dashboard" | "moderation";
-
-const TABS: { value: Tab; label: string }[] = [
-  { value: "dashboard", label: "Dashboard" },
-  { value: "moderation", label: "Moderação" },
-];
-
-function isTab(value: string | undefined): value is Tab {
-  return TABS.some((t) => t.value === value);
-}
-
+// Site administration: statistics, announcements, partners, supporters, the
+// desktop update nudge, anti-spam, banned words and bans.
+//
+// Live moderation — the room list, the invisible moderation viewer and the
+// camera wall — is deliberately not here any more. It lives in its own app
+// (../sharescreen-admin), against this same API, because it is a different
+// job done by a different person at a different time: this page is about the
+// service's configuration, that one is about who is on it right now. There is
+// no tab bar left because there is only one thing on this page again.
 export default function AdminPage() {
   const token = useAdminToken();
   const [user, setUser] = useState("");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loggingIn, setLoggingIn] = useState(false);
-  // Restored from the stored view state (see adminViewState.ts) so coming
-  // back from a room in moderation mode lands on the tab it was opened from,
-  // not back on the dashboard. Safe as a lazy initializer despite running on
-  // the client only: while there's no token — which is the whole of the
-  // server render and the hydration pass — the tab bar isn't rendered at all.
-  const [tab, setTab] = useState<Tab>(() => {
-    const stored = readAdminViewState().tab;
-    return isTab(stored) ? stored : "dashboard";
-  });
-
-  function selectTab(next: Tab) {
-    setTab(next);
-    patchAdminViewState({ tab: next });
-  }
 
   async function handleLogin(e: FormEvent) {
     e.preventDefault();
@@ -62,7 +44,7 @@ export default function AdminPage() {
       <div className="flex flex-1 items-center justify-center bg-zinc-50 px-4 py-16 dark:bg-black">
         <main className="w-full max-w-md rounded-2xl border border-black/10 bg-white p-8 shadow-sm dark:border-white/10 dark:bg-zinc-950">
           <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-            Moderação
+            Administração
           </h1>
           <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
             Acesso restrito. Entre com as credenciais de administrador.
@@ -130,25 +112,8 @@ export default function AdminPage() {
           </div>
         </div>
 
-        <div className="mt-6 flex gap-1 border-b border-zinc-200 dark:border-zinc-800">
-          {TABS.map((t) => (
-            <button
-              key={t.value}
-              type="button"
-              onClick={() => selectTab(t.value)}
-              className={`-mb-px rounded-t-lg border-b-2 px-4 py-2 text-sm font-medium transition ${
-                tab === t.value
-                  ? "border-zinc-950 text-zinc-950 dark:border-zinc-50 dark:text-zinc-50"
-                  : "border-transparent text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-
         <div className="mt-6">
-          {tab === "dashboard" ? <DashboardPanel /> : <ModerationPanel />}
+          <DashboardPanel />
         </div>
       </div>
     </div>
