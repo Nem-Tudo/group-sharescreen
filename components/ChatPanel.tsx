@@ -83,6 +83,12 @@ function linkifyText(text: string, mentionRegex: RegExp | null) {
 // than that timeout.
 const TYPING_IDLE_MS = 3000;
 
+// How close together two messages from the same person have to be for the
+// second to be drawn as a continuation — no repeated name, no repeated clock,
+// just the next line. Anything longer than this and the gap in the
+// conversation is itself worth showing.
+const GROUP_WINDOW_MS = 5 * 60 * 1000;
+
 function formatTypingLabel(names: string[]): string {
   if (names.length === 1) return `${names[0]} está digitando...`;
   if (names.length === 2) return `${names[0]} e ${names[1]} estão digitando...`;
@@ -187,9 +193,24 @@ export function ChatPanel({
   // messages, so a room's preloaded history opens scrolled to the bottom
   // (like a real chat) instead of at the top where it first renders.
   const initializedRef = useRef(false);
+  // Whether the newest message is on screen, and how much of the log had
+  // arrived the last time it was. Both are only knowable from a scroll
+  // position, so they're fed by the scroll handler below — an external event
+  // — rather than measured from the effect that reacts to new messages,
+  // which would be a setState in an effect body (see React's "you might not
+  // need an effect").
+  const [atBottom, setAtBottom] = useState(true);
+  const [readCount, setReadCount] = useState(0);
+  // Everything that landed while the reader was scrolled up reading older
+  // messages. Derived, not counted: it's exactly the log past the point they
+  // last saw the bottom of. Reading back through a busy room used to be
+  // silent — the log grew below the fold with nothing saying so, and the only
+  // way down was to drag the scrollbar the whole way.
+  const pendingBelow = atBottom ? 0 : Math.max(0, messages.length - readCount);
 
   // Keeps the newest message in view as they arrive, without fighting the
-  // user if they've scrolled up to read older ones.
+  // user if they've scrolled up to read older ones. Scrolling here fires the
+  // handler below, which is what puts `atBottom` back in step.
   useLayoutEffect(() => {
     const el = listRef.current;
     if (!el) return;
@@ -205,6 +226,24 @@ export function ChatPanel({
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
     if (nearBottom) el.scrollTop = el.scrollHeight;
   }, [messages]);
+
+  function handleListScroll() {
+    const el = listRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    setAtBottom(nearBottom);
+    // Only ever moves forward while the bottom is in view, so scrolling away
+    // leaves the mark where the reader actually left off.
+    if (nearBottom) setReadCount(messages.length);
+  }
+
+  function jumpToLatest() {
+    const el = listRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    setAtBottom(true);
+    setReadCount(messages.length);
+  }
 
   // All known member names in the room (peers + self + authors in history)
   // used to construct mention tokenizers and match valid mentions accurately.
@@ -433,59 +472,100 @@ export function ChatPanel({
 
   return (
     <div
-      className={`${marginClassName} flex ${heightClassName} flex-col overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800`}
+      className={`${marginClassName} flex ${heightClassName} flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950`}
       style={{ minHeight: "245px" }}
     >
-      <h2 className="border-b border-zinc-200 px-3 py-2 text-sm font-semibold text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">
-        Chat
-      </h2>
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
+        <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Chat</h2>
+        {messages.length > 0 && (
+          <span className="text-xs tabular-nums text-zinc-400 dark:text-zinc-600">
+            {messages.length}
+          </span>
+        )}
+      </div>
 
-      <div ref={listRef} className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-3 py-2">
-        {messages.length === 0 ? (
-          <p className="my-auto text-center text-sm text-zinc-500 dark:text-zinc-500">
-            Nenhuma mensagem ainda.
-          </p>
-        ) : (
-          messages.map((m) => {
-            const isSelf = m.from === selfId;
-            const isMention =
-              !isSelf &&
-              Boolean(selfName) &&
-              m.kind !== "gif" &&
-              isUserMentionedInMessage(m.text, selfName, allKnownNames);
-            return (
-              <div
-                key={m.id}
-                className={`-mx-1.5 rounded-md px-1.5 py-1 text-sm ${
-                  isMention ? "bg-yellow-200 dark:bg-blue-500/25" : ""
-                }`}
-              >
-                <div className="flex items-baseline gap-1.5">
-                  <DisplayUserName
-                    name={m.name}
-                    isGuest={m.isGuest}
-                    verified={m.flags?.includes("VERIFIED")}
-                    className={`font-medium ${
-                      isSelf
-                        ? "text-zinc-900 dark:text-zinc-100"
-                        : "text-zinc-700 dark:text-zinc-300"
-                    }`}
-                  />
-                  <span className="text-xs text-zinc-400 dark:text-zinc-600">
-                    {formatTime(m.ts)}
-                  </span>
+      {/* `relative` so the "jump to the newest" pill below can hang over the
+          bottom of the log without taking a row of it. */}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <div
+          ref={listRef}
+          onScroll={handleListScroll}
+          className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-2"
+        >
+          {messages.length === 0 ? (
+            <p className="my-auto text-center text-sm text-zinc-500 dark:text-zinc-500">
+              Nenhuma mensagem ainda.
+            </p>
+          ) : (
+            messages.map((m, i) => {
+              const isSelf = m.from === selfId;
+              const isMention =
+                !isSelf &&
+                Boolean(selfName) &&
+                m.kind !== "gif" &&
+                isUserMentionedInMessage(m.text, selfName, allKnownNames);
+              // Someone typing three lines in a row is one person saying one
+              // thing — repeating their name and the same clock time above
+              // each line spent three quarters of a narrow column restating
+              // what the line before already said. A continuation just
+              // indents under the name that's already there; the gap above a
+              // new speaker is what separates them now.
+              const previous = messages[i - 1];
+              const grouped =
+                Boolean(previous) &&
+                previous.from === m.from &&
+                previous.name === m.name &&
+                m.ts - previous.ts < GROUP_WINDOW_MS;
+              return (
+                <div
+                  key={m.id}
+                  className={`-mx-1.5 rounded-md px-1.5 text-sm ${grouped ? "pb-0.5" : "mt-2.5 pb-0.5 first:mt-0"
+                    } ${isMention ? "bg-yellow-200 py-1 dark:bg-blue-500/25" : ""}`}
+                >
+                  {!grouped && (
+                    <div className="flex items-baseline gap-1.5">
+                      <DisplayUserName
+                        name={m.name}
+                        isGuest={m.isGuest}
+                        verified={m.flags?.includes("VERIFIED")}
+                        className={`min-w-0 font-medium ${isSelf
+                          ? "text-emerald-700 dark:text-emerald-400"
+                          : "text-zinc-700 dark:text-zinc-300"
+                          }`}
+                      />
+                      <span className="shrink-0 text-xs text-zinc-400 tabular-nums dark:text-zinc-600">
+                        {formatTime(m.ts)}
+                      </span>
+                    </div>
+                  )}
+                  {m.kind === "gif" && m.url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={m.url} alt="GIF" className="mt-1 max-h-40 max-w-full rounded-md" />
+                  ) : (
+                    <p className="break-words text-zinc-800 dark:text-zinc-200">
+                      {linkifyText(m.text, mentionRegex)}
+                    </p>
+                  )}
                 </div>
-                {m.kind === "gif" && m.url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={m.url} alt="GIF" className="mt-1 max-h-40 max-w-full rounded-md" />
-                ) : (
-                  <p className="break-words text-zinc-800 dark:text-zinc-200">
-                    {linkifyText(m.text, mentionRegex)}
-                  </p>
-                )}
-              </div>
-            );
-          })
+              );
+            })
+          )}
+        </div>
+
+        {/* Only while the newest message is actually off screen. Says how
+            many arrived while you were reading back, so "nothing happened"
+            and "eleven messages happened" don't look the same. */}
+        {!atBottom && messages.length > 0 && (
+          <button
+            type="button"
+            onClick={jumpToLatest}
+            className="absolute bottom-2 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-zinc-950 px-3 py-1.5 text-xs font-medium text-white shadow-lg transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+          >
+            {pendingBelow > 0
+              ? `${pendingBelow} nova${pendingBelow > 1 ? "s" : ""} mensage${pendingBelow > 1 ? "ns" : "m"}`
+              : "Ir para o final"}
+            <span aria-hidden>↓</span>
+          </button>
         )}
       </div>
 
@@ -504,7 +584,10 @@ export function ChatPanel({
       {onSend && (
         <form
           onSubmit={handleSubmit}
-          className="relative flex gap-2 border-t border-zinc-200 p-2 dark:border-zinc-800"
+          // items-end, so the GIF and send buttons stay on the last line as
+          // the box grows with a long message (see handleInput) instead of
+          // floating in the middle of it.
+          className="relative flex shrink-0 items-end gap-2 border-t border-zinc-200 p-2 dark:border-zinc-800"
         >
           {/* Autocomplete mention popup */}
           {mentionMenuOpen && filteredCandidates.length > 0 && (
@@ -569,7 +652,7 @@ export function ChatPanel({
                 disabled={!onSendGif}
                 onClick={() => setPickerOpen((open) => !open)}
                 aria-label="Adicionar GIF"
-                className={`inline-flex shrink-0 items-center justify-center rounded-md border px-2.5 py-1.5 text-xs font-semibold transition ${
+                className={`inline-flex h-8 shrink-0 items-center justify-center rounded-lg border px-2.5 text-xs font-semibold transition ${
                   onSendGif
                     ? "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
                     : "cursor-not-allowed border-zinc-200 text-zinc-400 dark:border-zinc-800 dark:text-zinc-600"
@@ -591,12 +674,12 @@ export function ChatPanel({
             rows={1}
             disabled={Boolean(sendDisabledReason)}
             placeholder={sendDisabledReason ?? "Digite uma mensagem..."}
-            className="min-w-0 flex-1 resize-none rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-950 outline-none focus:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+            className="min-h-8 min-w-0 flex-1 resize-none rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-sm leading-5 text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-white/10"
           />
           <button
             type="submit"
             disabled={!input.trim() || Boolean(sendDisabledReason)}
-            className="shrink-0 rounded-md bg-zinc-950 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+            className="h-8 shrink-0 rounded-lg bg-zinc-950 px-3 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
           >
             Enviar
           </button>

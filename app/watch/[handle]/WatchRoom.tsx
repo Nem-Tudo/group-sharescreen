@@ -653,6 +653,15 @@ function videoSourceTileId(sourceId: string): string {
 // WatchRoom's mobilePanel.
 type MobilePanel = "participants" | "chat";
 
+// The chat column's width, in px, from lg up (see chatWidth below). The
+// default is also what a double-click on the drag handle restores — a width
+// dragged to something unusable is otherwise a fiddly thing to undo by hand.
+// The maximum is a ceiling, not the real limit: the drag also refuses to take
+// more than half the room, which on most screens bites first.
+const DEFAULT_CHAT_WIDTH = 320;
+const MIN_CHAT_WIDTH = 260;
+const MAX_CHAT_WIDTH = 720;
+
 // The bottom bar below lg. Its controls are thumb-sized (44px is the
 // smallest target a finger hits reliably) rather than the header's compact
 // desktop ones, and they keep the colour language those already use: emerald
@@ -915,16 +924,22 @@ export function WatchRoom({ handle }: { handle: string }) {
 
 
   const [chatWidth, setChatWidth] = useState(() => {
-    if (typeof window === "undefined") return 288;
+    if (typeof window === "undefined") return DEFAULT_CHAT_WIDTH;
 
     const saved = localStorage.getItem("chat-panel-width");
-    const width = saved ? Number(saved) : 288;
+    const width = saved ? Number(saved) : DEFAULT_CHAT_WIDTH;
 
     return Number.isFinite(width)
-      ? Math.min(Math.max(width, 240), 1000)
-      : 288;
+      ? Math.min(Math.max(width, MIN_CHAT_WIDTH), MAX_CHAT_WIDTH)
+      : DEFAULT_CHAT_WIDTH;
   });
   const isResizingChatRef = useRef(false);
+  // The chat column itself. Measured while dragging so its edge follows the
+  // pointer exactly: the old arithmetic derived that edge from
+  // `window.innerWidth` minus a hard-coded padding, so the column jumped by
+  // however far that guess was off the moment a drag started, and drifted
+  // again whenever the layout's padding changed.
+  const chatAsideRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     localStorage.setItem("chat-panel-width", String(chatWidth));
@@ -933,13 +948,17 @@ export function WatchRoom({ handle }: { handle: string }) {
   useEffect(() => {
     function handleMouseMove(e: MouseEvent) {
       if (!isResizingChatRef.current) return;
+      const aside = chatAsideRef.current;
+      if (!aside) return;
 
-      // O lado direito do layout permanece parado.
-      // O mouse controla diretamente a posição da borda esquerda.
-      const rightEdge = window.innerWidth - 16; // padding direito do container
-      const newWidth = rightEdge - e.clientX;
+      // The column's right edge stays put; the pointer is its left edge.
+      const newWidth = aside.getBoundingClientRect().right - e.clientX;
+      // Never past half the room — the other half is what the video needs,
+      // and a chat dragged over it is not a state anyone means to be in.
+      const roomWidth = aside.parentElement?.clientWidth ?? window.innerWidth;
+      const max = Math.max(MIN_CHAT_WIDTH, Math.min(MAX_CHAT_WIDTH, roomWidth * 0.5));
 
-      setChatWidth(Math.min(Math.max(newWidth, 240), 1000));
+      setChatWidth(Math.min(Math.max(newWidth, MIN_CHAT_WIDTH), max));
     }
 
     function handleMouseUp() {
@@ -1542,6 +1561,34 @@ export function WatchRoom({ handle }: { handle: string }) {
   // scrolling through a wall of tiles even though 2-up comfortably fits
   // more of them in view at once.
   const mobileGridCols = tileCount <= 2 ? "grid-cols-1" : "grid-cols-2";
+  // From lg up the video pane is a fixed box rather than a page that grows,
+  // so the grid is shaped to fill it instead of being left to a static
+  // column count that runs off the bottom: roughly square, at most four
+  // across, and with the spotlighted tile's 2x2 span counted as the four
+  // slots it actually takes up (without that, spotlighting in a two-tile
+  // room asked for a second row that the template never made).
+  //
+  // Rows have a floor, so a room with a dozen transmissions still shows
+  // readable tiles and scrolls for the rest — past a point, scrolling beats
+  // shrinking. Applied as an inline style rather than classes because the
+  // count is a number, not one of a handful of breakpoints, and only from lg
+  // up (isWideLayout): below that the responsive classes on the grid still
+  // decide, and this is `undefined`.
+  const spotlightSpanning = !activeHyperfocusId && spotlightId !== null && !isSingleTile;
+  const tileGridSlots = tileCount + (spotlightSpanning ? 3 : 0);
+  const tileGridCols =
+    tileGridSlots <= 1 ? 1 : tileGridSlots <= 4 ? 2 : tileGridSlots <= 9 ? 3 : 4;
+  const tileGridRows = Math.max(
+    spotlightSpanning ? 2 : 1,
+    Math.ceil(tileGridSlots / tileGridCols)
+  );
+  const tileGridStyle =
+    isWideLayout && !isSingleTile
+      ? {
+        gridTemplateColumns: `repeat(${tileGridCols}, minmax(0, 1fr))`,
+        gridTemplateRows: `repeat(${tileGridRows}, minmax(11rem, 1fr))`,
+      }
+      : undefined;
 
   // The actual add — link parsing/validation lives in AddVideoSourceModal
   // itself now (see components/AddVideoSourceModal.tsx), which only calls
@@ -1808,11 +1855,14 @@ export function WatchRoom({ handle }: { handle: string }) {
 
       <div className="my-2 border-t border-zinc-200 dark:border-zinc-800" />
 
-      <div className="sm:hidden">
+      {/* At every width now, not just on a phone: it used to have its own
+          button in the desktop header, where a once-a-session action was
+          taking permanent space from the controls used all call long. */}
+      <div>
         <button
           type="button"
           onClick={() => setSwitching((s) => !s)}
-          className="rounded-lg px-2 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900"
+          className="w-full rounded-lg px-2 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900"
         >
           Trocar de sala
         </button>
@@ -1961,7 +2011,13 @@ export function WatchRoom({ handle }: { handle: string }) {
         </Tooltip>
       </div>
 
-      <div className="flex items-center border-l border-zinc-300 pl-2 dark:border-zinc-700">
+      {/* A rule between "what everyone hears" and "what everyone sees" —
+          a standalone separator rather than a border on the group, so the
+          spacing matches the one before the add-video button in the header
+          dock that holds all of this. */}
+      <span className="mx-0.5 h-6 w-px shrink-0 self-center bg-zinc-300 dark:bg-zinc-700" />
+
+      <div className="flex items-center">
         <ShareControls
           screenSharing={Boolean(localStream)}
           cameraSharing={Boolean(localCameraStream)}
@@ -2026,61 +2082,90 @@ export function WatchRoom({ handle }: { handle: string }) {
     });
   }
 
+  // Split from the list below so the desktop column can pin this as a card
+  // header with the list scrolling under it — a list of twenty people used
+  // to scroll its own heading away, leaving a column of names with nothing
+  // saying what they were. The phone sheet keeps both in the same scrolling
+  // box: there is no height up there to spend on a second fixed bar.
+  //
+  // "Conectando..." rides in here as a chip rather than a line of its own,
+  // for the same reason: it is a note about this list, and a line above the
+  // heading pushed everything down every time somebody's audio came up.
+  const participantsHeader = (
+    <div className="flex items-center justify-between gap-2">
+      <div className="flex min-w-0 items-center gap-2">
+        <h2 className="truncate text-sm font-semibold text-zinc-700 dark:text-zinc-300">
+          Participantes
+        </h2>
+        {connectingAudioPeers && (
+          <Tooltip content="Conectando o áudio de quem está com o microfone ligado">
+            <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-500">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+              Conectando
+            </span>
+          </Tooltip>
+        )}
+      </div>
+      <span className="shrink-0 rounded-full bg-zinc-200 px-2 py-0.5 text-xs font-semibold tabular-nums text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+        {peerCount}
+      </span>
+    </div>
+  );
+
+  const participantsList = (
+    <ul className="flex flex-col gap-1.5">
+      <ParticipantRow
+        name={state.name}
+        isSelf
+        isGuest={!state.account}
+        userId={account?.id}
+        isOwner={isRoomOwner}
+        isAdmin={isRoomAdmin}
+        isApp={mounted && isDesktopApp()}
+        verified={state.account?.flags?.includes("VERIFIED")}
+        micOn={isMicOn}
+        sharing={isSharing}
+        screen={Boolean(localStream)}
+        camera={Boolean(localCameraStream)}
+        sharingVideo={peerSharesVideo(state.selfUserId)}
+        micStream={localMicStream}
+      />
+      {visiblePeers.map((p) => {
+        const volumeKey = p.userId ?? p.id;
+        return (
+          <ParticipantRow
+            key={p.id}
+            name={p.name}
+            isGuest={p.isGuest}
+            userId={p.userId}
+            isOwner={Boolean(p.userId) && p.userId === state.roomOwnerId}
+            isAdmin={state.roomAdmins.some((a) => a.id === p.userId)}
+            isApp={p.app}
+            verified={p.flags?.includes("VERIFIED")}
+            micOn={p.mic}
+            sharing={p.sharing}
+            screen={p.screen}
+            camera={p.camera}
+            sharingVideo={peerSharesVideo(p.userId)}
+            micStream={remoteMicStreams[p.id]}
+            muted={micsMuted || mutedPeerIds.has(p.id)}
+            onToggleMute={() => togglePeerMute(p.id)}
+            volume={peerVolumes[volumeKey] ?? 1}
+            onVolumeChange={(volume) => setPeerVolume(volumeKey, volume)}
+            connectionLost={micConnectionStates[p.id] === "disconnected"}
+          />
+        );
+      })}
+    </ul>
+  );
+
+  // Heading and list together, for the phone sheet — the desktop column
+  // splits them across a fixed header and a scrolling body instead (see the
+  // participants aside below).
   const participantsSection = (
     <>
-      {connectingAudioPeers && (
-        <p className="mb-1 flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-500">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
-          Conectando...
-        </p>
-      )}
-      <h2 className="mb-2 text-sm font-semibold text-zinc-700 dark:text-zinc-300">
-        Participantes ({peerCount})
-      </h2>
-      <ul className="flex flex-col gap-1.5">
-        <ParticipantRow
-          name={state.name}
-          isSelf
-          isGuest={!state.account}
-          userId={account?.id}
-          isOwner={isRoomOwner}
-          isAdmin={isRoomAdmin}
-          isApp={mounted && isDesktopApp()}
-          verified={state.account?.flags?.includes("VERIFIED")}
-          micOn={isMicOn}
-          sharing={isSharing}
-          screen={Boolean(localStream)}
-          camera={Boolean(localCameraStream)}
-          sharingVideo={peerSharesVideo(state.selfUserId)}
-          micStream={localMicStream}
-        />
-        {visiblePeers.map((p) => {
-          const volumeKey = p.userId ?? p.id;
-          return (
-            <ParticipantRow
-              key={p.id}
-              name={p.name}
-              isGuest={p.isGuest}
-              userId={p.userId}
-              isOwner={Boolean(p.userId) && p.userId === state.roomOwnerId}
-              isAdmin={state.roomAdmins.some((a) => a.id === p.userId)}
-              isApp={p.app}
-              verified={p.flags?.includes("VERIFIED")}
-              micOn={p.mic}
-              sharing={p.sharing}
-              screen={p.screen}
-              camera={p.camera}
-              sharingVideo={peerSharesVideo(p.userId)}
-              micStream={remoteMicStreams[p.id]}
-              muted={micsMuted || mutedPeerIds.has(p.id)}
-              onToggleMute={() => togglePeerMute(p.id)}
-              volume={peerVolumes[volumeKey] ?? 1}
-              onVolumeChange={(volume) => setPeerVolume(volumeKey, volume)}
-              connectionLost={micConnectionStates[p.id] === "disconnected"}
-            />
-          );
-        })}
-      </ul>
+      <div className="mb-2">{participantsHeader}</div>
+      {participantsList}
     </>
   );
 
@@ -2157,12 +2242,13 @@ export function WatchRoom({ handle }: { handle: string }) {
         sendDisabledReason={chatBlockedReason}
         gifDisabledReason={gifBlockedReason}
         // Fills whatever box it is given, in both layouts: its own column
-        // from lg up, the sheet the bottom bar raises below that. The margins
-        // go with it — they separate it from what shares its column on
-        // desktop, and there is nothing to separate it from inside a sheet
-        // that is already only chat.
+        // from lg up, the sheet the bottom bar raises below that. No margins
+        // of its own in either: on desktop it now starts flush with the top
+        // of the participants card beside it (the manage-room row above
+        // carries the only gap there is), and inside a sheet that is already
+        // only chat there is nothing to separate it from.
         heightClassName="flex-1 min-h-0"
-        marginClassName={isWideLayout ? "mt-4 mb-4" : ""}
+        marginClassName=""
       />
   );
 
@@ -2185,73 +2271,93 @@ export function WatchRoom({ handle }: { handle: string }) {
           of the room's controls. Renders nothing inside the app itself, and
           nothing for anyone who has already answered. */}
       <OpenInAppBanner handle={handle} />
-      <header className="border-b border-black/10 px-3 py-2.5 dark:border-white/10 sm:px-4 sm:py-3">
-        {/* One row for everything, wrapping instead of splitting: the room's
-            identity on the left, and every control on the right — the
-            mid-call ones (mic/mute/share/camera), the room link and the room
-            switcher, the points readout, "Apoiar projeto" and "Mais opções".
-            These used to be two fixed rows, which cost a full row of vertical
-            space on a wide screen that had room to spare. `ml-auto` keeps the
-            control group against the right edge whether it shares the line
-            with the title or has been pushed onto its own. */}
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-2.5">
-          {/* flex-1 rather than content-width: the description input inside
-              RoomInfoControls grows into whatever this group has spare (it
-              caps itself), which it can only do if this group claims the room
-              between the title and the controls in the first place.
+      {/* One bar, three zones from lg up: where you are on the left, what
+          you do in the call in the middle, who you are (and everything about
+          the page) on the right.
 
-              The lg min-width is what makes the row above actually wrap.
-              Without it this group (which shrinks to nothing) gave up all of
-              its space to the control group before the browser ever
-              considered breaking the line — and since the badge, the category
-              chip and the room code inside it are shrink-0, they carried on
-              past the group's edge and ran underneath the buttons. With a
-              floor, the two groups stop fitting on one line while the left one
-              still has room for its chips, so the controls drop to their own
-              line instead.
+          A grid, rather than the wrapping flex row this used to be. That row
+          laid every control out from the right edge inwards, so the mid-call
+          buttons — the ones actually used while talking — ended up wherever
+          the room's name and description happened to leave them, and moved
+          again every time either changed. Three zones put them in the middle
+          of the screen and keep them there whatever the room is called; the
+          side zones truncate instead of pushing anything onto a second line,
+          so the header stays exactly one row tall at every width.
 
-              Below lg there is nothing to hold a floor for and every reason
-              not to: the description and the mid-call controls are elsewhere
-              (see the header's isWideLayout branches), and a floor there
-              would push the four remaining buttons onto a second row on a
-              phone rather than let the room name truncate. */}
-          <div className="flex min-w-0 flex-1 items-center gap-2 lg:min-w-[20rem]">
-            <Link href={"/"} className="shrink-0 text-lg font-semibold text-zinc-950 dark:text-zinc-50">
-              <MdHome />
-            </Link>
-            {/* For a private room the code is split out of the handle and
-                shown on its own: it's the room's whole secret now (see
-                roomsApi's toPrivateRoomHandle), so it's the thing someone
-                reads out loud to let a friend in, and picking it out of
-                "priv-familia-123456" by eye is needless work. The tooltip
-                still carries the raw handle for anyone who wants it. */}
-            <Tooltip content={handle} placement="bottom">
-              <h1 className="truncate text-base font-semibold text-zinc-950 dark:text-zinc-50 sm:text-lg">
-                {privateRoomParts ? privateRoomParts.name : handle}
-              </h1>
+          Below lg the same children stay the wrapping flex row they were:
+          the mid-call controls are the bottom bar down there, not in here,
+          so there is no middle zone to centre anything around. */}
+      <header className="shrink-0 border-b border-black/10 bg-white px-3 py-2 dark:border-white/10 dark:bg-zinc-950 sm:px-4">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-2.5 lg:grid lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] lg:flex-nowrap lg:gap-3">
+          {/* Where you are. min-w-0 the whole way down, so a long room name
+              truncates instead of shoving the middle zone off-centre — and
+              the description input inside RoomInfoControls grows into
+              whatever this zone has spare (it caps itself), which it can only
+              do if the zone claims that room in the first place. */}
+          <div className="flex min-w-0 flex-1 items-center gap-2 lg:flex-none">
+            <Tooltip content="Voltar ao início" placement="bottom">
+              <Link
+                href="/"
+                aria-label="Início"
+                className="flex shrink-0 items-center justify-center rounded-lg p-1.5 text-lg text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
+              >
+                <MdHome />
+              </Link>
             </Tooltip>
-            {privateRoomParts && (
-              <span className="shrink-0 rounded-full bg-zinc-200 px-2.5 py-1 font-mono text-xs font-medium tracking-wider text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
-                {privateRoomParts.code}
-              </span>
-            )}
-            <span
-              className={`hidden shrink-0 rounded-full px-2.5 py-1 text-xs font-medium text-white sm:inline-block ${isPrivateRoomHandle(handle) ? "bg-red-600" : "bg-emerald-600"
-                }`}
-            >
-              {isPrivateRoomHandle(handle) ? "Sala privada" : "Sala pública"}
-            </span>
-            {/* Right of the public/private badge, where the headcount chip
-                used to be — the participant list already carries that number
-                (and the bottom bar repeats it), so this is the more useful
-                thing to spend the space on. Editable for the owner and
+
+            <span className="hidden h-6 w-px shrink-0 bg-zinc-200 lg:block dark:bg-zinc-800" />
+
+            {/* The room's own identity — name, access code, public/private —
+                held together in one group, so the description beside it is
+                the only thing that gives space up as the window narrows. */}
+            <div className="flex min-w-0 items-center gap-2">
+              {/* For a private room the code is split out of the handle and
+                  shown on its own: it's the room's whole secret now (see
+                  roomsApi's toPrivateRoomHandle), so it's the thing someone
+                  reads out loud to let a friend in, and picking it out of
+                  "priv-familia-123456" by eye is needless work. The tooltip
+                  still carries the raw handle for anyone who wants it. */}
+              <Tooltip content={handle} placement="bottom">
+                <h1 className="truncate text-base font-semibold text-zinc-950 dark:text-zinc-50 sm:text-lg">
+                  {privateRoomParts ? privateRoomParts.name : handle}
+                </h1>
+              </Tooltip>
+              {privateRoomParts && (
+                <span className="shrink-0 rounded-full bg-zinc-200 px-2.5 py-1 font-mono text-xs font-medium tracking-wider text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                  {privateRoomParts.code}
+                </span>
+              )}
+              {/* A dot at every width, the word only where there's room for
+                  it. Public-or-private is the single most load-bearing fact
+                  about a room, so the badge shrinks rather than disappearing
+                  — the tooltip carries the word at the widths that can't. */}
+              <Tooltip
+                content={isPrivateRoomHandle(handle) ? "Sala privada" : "Sala pública"}
+                placement="bottom"
+              >
+                <span
+                  className={`flex shrink-0 items-center gap-1.5 rounded-full text-xs font-medium text-white xl:px-2.5 xl:py-1 ${isPrivateRoomHandle(handle) ? "xl:bg-red-600" : "xl:bg-emerald-600"
+                    }`}
+                >
+                  <span
+                    className={`h-2 w-2 shrink-0 rounded-full xl:hidden ${isPrivateRoomHandle(handle) ? "bg-red-600" : "bg-emerald-600"
+                      }`}
+                  />
+                  <span className="hidden xl:inline">
+                    {isPrivateRoomHandle(handle) ? "Sala privada" : "Sala pública"}
+                  </span>
+                </span>
+              </Tooltip>
+            </div>
+
+            {/* The room's category and blurb. Editable for the owner and
                 admins, read-only text for everyone else.
 
                 From lg up only: below that, an editable text field in the
                 header was the single widest thing competing for a phone's
                 one row, and it is room *metadata* — worth reading once,
                 changed about as often. It moves into "Mais opções" (see
-                roomInfoItem), which is where the rest of the once-per-visit
+                menuItems), which is where the rest of the once-per-visit
                 controls already are. */}
             {isWideLayout && (
               <RoomInfoControls
@@ -2262,94 +2368,76 @@ export function WatchRoom({ handle }: { handle: string }) {
             )}
           </div>
 
-          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-            {/* The mid-call controls (mic, mute-mics, screen, camera) and the
-                add-video button — kept out of "Mais opções" because they're
-                used while talking, not once at setup.
+          {/* What you do in the call: mic, what you hear, screen, camera and
+              the room's video sources — the controls used *while* talking,
+              which is why they are the one group given the middle of the
+              screen and a surface of their own, instead of being the tail end
+              of a row of page-level buttons.
 
-                From lg up only. Below that they are the bottom bar (see
-                mobileDock): a phone's header is the furthest point from the
-                thumb holding it, and these four were also what turned that
-                header into three wrapped rows of buttons on a 360px screen.
-                Rendered in one place at a time rather than hidden with a
-                `lg:` class, so there is only ever one mic button, one device
-                popover and one open/closed state for them. */}
-            {isWideLayout && (
-              <>
-                <div className="flex flex-wrap items-center justify-end gap-2">{mainControls}</div>
+              From lg up only. Below that they are the bottom bar (see
+              mobileDock): a phone's header is the furthest point from the
+              thumb holding it, and these were also what turned that header
+              into three wrapped rows of buttons on a 360px screen. Rendered
+              in one place at a time rather than hidden with a `lg:` class, so
+              there is only ever one mic button, one device popover and one
+              open/closed state for them. */}
+          {isWideLayout && (
+            <div className="flex items-center justify-center gap-1.5 justify-self-center rounded-xl border border-zinc-200 bg-zinc-100 p-1 dark:border-zinc-800 dark:bg-zinc-900">
+              {mainControls}
 
-                {/* Adding a YouTube/Twitch video/live to the room. Sits with
-                    the transmission controls because that's what it produces:
-                    one more tile everyone in the room sees, with the same
-                    focus and hyperfocus buttons — the difference is that
-                    nobody is uploading it. Opens
-                    components/AddVideoSourceModal as an ntpopups popup rather
-                    than the little inline box this used to be — picking a
-                    platform and who gets to control it needs more room than a
-                    popover corner has. */}
-                <Tooltip
-                  content={videoSourceBlockedReason ?? "Adicionar fonte de vídeo"}
-                  wrapperClassName="flex"
-                >
-                  <button
-                    type="button"
-                    onClick={openAddVideoSourcePopup}
-                    disabled={Boolean(videoSourceBlockedReason)}
-                    aria-label="Adicionar fonte de vídeo"
-                    className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <MdOutlineOndemandVideo className="h-5 w-5 shrink-0" />
-                    <span className="hidden lg:inline"><BetaMark /></span>
-                  </button>
-                </Tooltip>
-              </>
-            )}
+              <span className="mx-0.5 h-6 w-px shrink-0 bg-zinc-300 dark:bg-zinc-700" />
 
-            {/* Still desktop-only: on a phone these two live inside "Mais
-                opções" (see above), the only place with room for them. */}
-            <div className="hidden items-center justify-end gap-2 sm:flex">
-              <Tooltip content={linkCopied ? "Link copiado!" : "Copiar o link desta sala"}>
-                <button
-                  type="button"
-                  onClick={handleCopyLink}
-                  className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition ${linkCopied
-                    ? "border-emerald-600 text-emerald-600 dark:border-emerald-500 dark:text-emerald-500"
-                    : "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
-                    }`}
-                >
-                  {linkCopied ? <CheckIcon className="h-4 w-4" /> : <LinkIcon className="h-4 w-4" />}
-                  {linkCopied ? "Copiado!" : "Compartilhar sala"}
-                </button>
-              </Tooltip>
-              <Popover
-                open={switching}
-                onClose={() => setSwitching(false)}
-                placement="bottom-end"
-                content={
-                  <div className="w-72 max-w-[calc(100vw-1rem)]">
-                    <SwitchRoomFields
-                      switchInput={switchInput}
-                      setSwitchInput={setSwitchInput}
-                      switchIsPrivate={switchIsPrivate}
-                      setSwitchIsPrivate={setSwitchIsPrivate}
-                      switchError={switchError}
-                      onSubmit={handleSwitchSubmit}
-                    />
-                  </div>
-                }
+              {/* Adding a YouTube/Twitch video/live to the room. Sits with
+                  the transmission controls because that's what it produces:
+                  one more tile everyone in the room sees, with the same focus
+                  and hyperfocus buttons — the difference is that nobody is
+                  uploading it. Opens components/AddVideoSourceModal as an
+                  ntpopups popup rather than the little inline box this used
+                  to be — picking a platform and who gets to control it needs
+                  more room than a popover corner has. */}
+              <Tooltip
+                content={videoSourceBlockedReason ?? "Adicionar fonte de vídeo"}
+                wrapperClassName="flex"
               >
                 <button
                   type="button"
-                  onClick={() => setSwitching((s) => !s)}
-                  className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${switching
-                    ? "border-zinc-400 bg-zinc-100 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
-                    : "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
-                    }`}
+                  onClick={openAddVideoSourcePopup}
+                  disabled={Boolean(videoSourceBlockedReason)}
+                  aria-label="Adicionar fonte de vídeo"
+                  className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Trocar de sala
+                  <MdOutlineOndemandVideo className="h-5 w-5 shrink-0" />
+                  <span className="hidden 2xl:inline"><BetaMark /></span>
                 </button>
-              </Popover>
+              </Tooltip>
             </div>
+          )}
+
+          {/* Who you are, and everything that is about the page rather than
+              about the call. Labels drop out before anything else does, so a
+              narrow desktop loses words and never buttons. */}
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5 lg:ml-0 lg:flex-nowrap">
+            {/* Still desktop-only: on a phone this lives inside "Mais opções"
+                (see menuItems), the only place with room for it. "Trocar de
+                sala" moved in there at every width — it is a once-a-session
+                action, and next to the mid-call controls it was a wide button
+                spending header space on something nobody clicks twice. */}
+            <Tooltip content={linkCopied ? "Link copiado!" : "Copiar o link desta sala"}>
+              <button
+                type="button"
+                onClick={handleCopyLink}
+                aria-label="Compartilhar sala"
+                className={`hidden shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-2 text-sm font-medium transition sm:flex ${linkCopied
+                  ? "border-emerald-600 text-emerald-600 dark:border-emerald-500 dark:text-emerald-500"
+                  : "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                  }`}
+              >
+                {linkCopied ? <CheckIcon className="h-4 w-4" /> : <LinkIcon className="h-4 w-4" />}
+                <span className="hidden 2xl:inline">
+                  {linkCopied ? "Copiado!" : "Compartilhar sala"}
+                </span>
+              </button>
+            </Tooltip>
 
             {/* Name + points. Both kinds of identity have a total worth
                 showing now that guests earn them too (see AuthContext's
@@ -2366,10 +2454,12 @@ export function WatchRoom({ handle }: { handle: string }) {
                   target="_blank"
                   className="flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs font-medium text-zinc-500 transition hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-700 dark:hover:bg-zinc-900"
                 >
-                  <span className="hidden max-w-[8rem] truncate text-zinc-700 dark:text-zinc-300 sm:inline">
+                  {/* Back at xl rather than lg: between the two, the middle
+                      zone's controls are what the space is owed to. */}
+                  <span className="hidden max-w-[8rem] truncate text-zinc-700 sm:inline lg:hidden xl:inline dark:text-zinc-300">
                     {state.name}
                   </span>
-                  <span className="hidden h-3 w-px bg-zinc-300 dark:bg-zinc-700 sm:inline-block" />
+                  <span className="hidden h-3 w-px bg-zinc-300 sm:inline-block lg:hidden xl:inline-block dark:bg-zinc-700" />
                   <span className="flex items-center gap-1 tabular-nums">
                     <BsCoin className="h-3.5 w-3.5 shrink-0" />
                     {points}
@@ -2383,10 +2473,10 @@ export function WatchRoom({ handle }: { handle: string }) {
                   placement="bottom"
                 >
                   <div className="flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs font-medium text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
-                    <span className="hidden max-w-[8rem] truncate text-zinc-700 dark:text-zinc-300 sm:inline">
+                    <span className="hidden max-w-[8rem] truncate text-zinc-700 sm:inline lg:hidden xl:inline dark:text-zinc-300">
                       {state.name}
                     </span>
-                    <span className="hidden h-3 w-px bg-zinc-300 dark:bg-zinc-700 sm:inline-block" />
+                    <span className="hidden h-3 w-px bg-zinc-300 sm:inline-block lg:hidden xl:inline-block dark:bg-zinc-700" />
                     <span className="flex items-center gap-1 tabular-nums">
                       <BsCoin className="h-3.5 w-3.5 shrink-0" />
                       {points}
@@ -2401,7 +2491,7 @@ export function WatchRoom({ handle }: { handle: string }) {
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={() => trackEvent("support_project_clicked")}
-                className="flex items-center gap-1.5 rounded-lg border border-pink-300 px-2 py-2 text-sm font-medium text-pink-600 transition hover:bg-pink-50 dark:border-pink-800 dark:text-pink-400 dark:hover:bg-pink-950/40 sm:px-3"
+                className="flex shrink-0 items-center gap-1.5 rounded-lg border border-pink-300 px-2 py-2 text-sm font-medium text-pink-600 transition hover:bg-pink-50 dark:border-pink-800 dark:text-pink-400 dark:hover:bg-pink-950/40 2xl:px-3"
               >
                 {/* The verified badge rather than a heart: the badge is what
                     supporting actually gets you now (see
@@ -2412,7 +2502,7 @@ export function WatchRoom({ handle }: { handle: string }) {
                     DisplayUserName, which uses the same colour), and it only
                     reads as that badge if it keeps its own. */}
                 <VerifiedBadgeIcon className="h-5 w-5 shrink-0 text-blue-500" />
-                <span className="hidden sm:inline">Apoiar projeto</span>
+                <span className="hidden sm:inline lg:hidden 2xl:inline">Apoiar projeto</span>
               </a>
             </Tooltip>
 
@@ -2431,7 +2521,7 @@ export function WatchRoom({ handle }: { handle: string }) {
                 type="button"
                 onClick={() => (menuOpen ? closeMenu() : setMenuOpen(true))}
                 aria-label="Mais opções"
-                className={`rounded-lg border p-2 transition ${menuOpen
+                className={`shrink-0 rounded-lg border p-2 transition ${menuOpen
                   ? "border-zinc-400 bg-zinc-100 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
                   : "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
                   }`}
@@ -2445,8 +2535,8 @@ export function WatchRoom({ handle }: { handle: string }) {
                 the menu is where you go to change something about the room,
                 while this is about who you are. Sits after the menu so it's
                 the last thing in the row (and the closest to the thumb on a
-                phone). Label hidden below sm like "Apoiar projeto" beside
-                it, so the row still fits. Keyed off the same `account` as
+                phone). Label hidden wherever the row is tight, like "Apoiar
+                projeto" beside it. Keyed off the same `account` as
                 the profile chip above, not `state.account`, so logging in
                 swaps one for the other in the same render instead of
                 showing both while the signaling re-registration lands. */}
@@ -2463,10 +2553,10 @@ export function WatchRoom({ handle }: { handle: string }) {
                     // click away for the other case.
                     setAccountModal("create");
                   }}
-                  className="flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-950 bg-zinc-950 px-2 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200 sm:px-3"
+                  className="flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-950 bg-zinc-950 px-2 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 sm:px-3 lg:px-2 xl:px-3 dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
                 >
                   <MdLogin className="h-5 w-5 shrink-0" />
-                  <span className="hidden sm:inline">Entrar</span>
+                  <span className="hidden sm:inline lg:hidden xl:inline">Entrar</span>
                 </button>
               </Tooltip>
             )}
@@ -2571,301 +2661,334 @@ export function WatchRoom({ handle }: { handle: string }) {
         );
       })}
 
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row lg:gap-6 lg:p-4">
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row lg:gap-3 lg:p-3">
         {/* From lg up, participants get this dedicated full-height column
-            instead of sharing a pane with chat — see isWideLayout. The ad
-            card lives here (below the list) rather than in the chat column,
-            so chat gets the full column to itself. */}
+            instead of sharing a pane with chat — see isWideLayout. A card of
+            its own rather than loose text on the page background: the room is
+            three panes side by side up here, and each needs an edge for the
+            video in the middle to read as the thing you came for. Narrower
+            than it was, too, and growing again only where there is width to
+            spare — the names in it are one line each.
+
+            The ad card lives here (below the list) rather than in the chat
+            column, so chat gets the full column to itself. */}
         {isWideLayout && (
-          <aside className="flex h-full w-64 shrink-0 flex-col">
-            <div className="min-h-0 flex-1 overflow-y-auto">{participantsSection}</div>
+          <aside className="flex h-full w-64 shrink-0 flex-col gap-3 2xl:w-72">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+              <div className="shrink-0 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
+                {participantsHeader}
+              </div>
+              {/* Barely any padding of its own: the rows carry theirs, and
+                  every pixel spent here comes off a name that has to fit
+                  beside up to five status icons. */}
+              <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-2">{participantsList}</div>
+            </div>
             <PartnerCard />
           </aside>
         )}
 
-        <main className="min-h-0 flex-1 overflow-y-auto p-2 lg:p-0">
+        <main className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-2 lg:p-0">
           {nothingToShow ? (
-            <div className="flex h-full min-h-75 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-300 text-center dark:border-zinc-800">
-              <p className="text-zinc-600 dark:text-zinc-400">
-                Ninguém está transmitindo ainda.
-              </p>
-              {/* The empty pane is the one place with room for the labelled
-                  version of the header's icon toggles, and the one moment
-                  when starting a share is the only thing anyone can do here.
-                  Pointing at the header instead ("clique no ícone lá em
-                  cima") asked the person to go find a control while standing
-                  on the space where it fits. Only ever shown while nobody —
-                  including us — is transmitting, so these are always "start",
-                  never "stop": see nothingToShow. */}
-              {screenShareMode === "unsupported" && (
-                <p className="text-sm text-zinc-500 dark:text-zinc-500">
-                  Seu navegador não permite compartilhar tela nem câmera.
+            // Wrapped the same way the tile grid is: `main` doesn't scroll,
+            // so the one thing in it that has a minimum height of its own
+            // needs a box that can.
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <div className="flex h-full min-h-75 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-300 bg-white/50 px-4 text-center dark:border-zinc-800 dark:bg-zinc-950/40">
+                <p className="text-zinc-600 dark:text-zinc-400">
+                  Ninguém está transmitindo ainda.
                 </p>
-              )}
-              <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
-                {/* Each is hidden outright rather than disabled here (unlike
-                    the header's copies, which stay put so the row doesn't
-                    reflow): this pane exists to offer what can be done right
-                    now, and a wall of dead buttons is not that. The note
-                    below says why, once, for whatever ends up missing. */}
-                {screenShareMode === "display" && !screenBlockedReason && (
-                  <button
-                    type="button"
-                    onClick={() => startShare("display")}
-                    className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
-                  >
-                    <ScreenIcon className="h-5 w-5" />
-                    Compartilhar tela
-                  </button>
+                {/* The empty pane is the one place with room for the labelled
+                    version of the header's icon toggles, and the one moment
+                    when starting a share is the only thing anyone can do here.
+                    Pointing at the header instead ("clique no ícone lá em
+                    cima") asked the person to go find a control while standing
+                    on the space where it fits. Only ever shown while nobody —
+                    including us — is transmitting, so these are always "start",
+                    never "stop": see nothingToShow. */}
+                {screenShareMode === "unsupported" && (
+                  <p className="text-sm text-zinc-500 dark:text-zinc-500">
+                    Seu navegador não permite compartilhar tela nem câmera.
+                  </p>
                 )}
-
-                {screenShareMode !== "unsupported" && !cameraBlockedReason && (
-                  <button
-                    type="button"
-                    onClick={() => startCameraShare()}
-                    className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
-                  >
-                    <CameraIcon className="h-5 w-5" />
-                    Compartilhar câmera
-                  </button>
-                )}
-
-                <div className="basis-full flex justify-center">
-                  {videoSourceBlockedReason ? (
-                    <p className="text-sm text-zinc-500 dark:text-zinc-500">
-                      O dono da sala limitou o que os participantes podem transmitir aqui.
-                    </p>
-                  ) : (
-                  <button
-                    type="button"
-                    onClick={openAddVideoSourcePopup}
-                    className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
-                  >
-                    <MdOutlineOndemandVideo className="h-5 w-5 shrink-0" />
-                    Adicionar fonte de vídeo
-                    <BetaMark />
-                  </button>
+                <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+                  {/* Each is hidden outright rather than disabled here (unlike
+                      the header's copies, which stay put so the row doesn't
+                      reflow): this pane exists to offer what can be done right
+                      now, and a wall of dead buttons is not that. The note
+                      below says why, once, for whatever ends up missing. */}
+                  {screenShareMode === "display" && !screenBlockedReason && (
+                    <button
+                      type="button"
+                      onClick={() => startShare("display")}
+                      className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                    >
+                      <ScreenIcon className="h-5 w-5" />
+                      Compartilhar tela
+                    </button>
                   )}
+
+                  {screenShareMode !== "unsupported" && !cameraBlockedReason && (
+                    <button
+                      type="button"
+                      onClick={() => startCameraShare()}
+                      className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                    >
+                      <CameraIcon className="h-5 w-5" />
+                      Compartilhar câmera
+                    </button>
+                  )}
+
+                  <div className="basis-full flex justify-center">
+                    {videoSourceBlockedReason ? (
+                      <p className="text-sm text-zinc-500 dark:text-zinc-500">
+                        O dono da sala limitou o que os participantes podem transmitir aqui.
+                      </p>
+                    ) : (
+                    <button
+                      type="button"
+                      onClick={openAddVideoSourcePopup}
+                      className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                    >
+                      <MdOutlineOndemandVideo className="h-5 w-5 shrink-0" />
+                      Adicionar fonte de vídeo
+                      <BetaMark />
+                    </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
           ) : (
             <>
+              {/* Centred and slim rather than a full-size button in the top
+                  left: it is a way *out* of a state you can see you're in,
+                  not one of the pane's own controls, and at its old size it
+                  took a strip of the video's height to say so. */}
               {!activeHyperfocusId && spotlightId && hasMultipleShares && (
-                <button
-                  type="button"
-                  onClick={() => setSpotlightId(null)}
-                  className="mb-3 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
-                >
-                  Remover destaque
-                </button>
+                <div className="flex shrink-0 justify-center">
+                  <button
+                    type="button"
+                    onClick={() => setSpotlightId(null)}
+                    className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-medium text-zinc-700 shadow-sm transition hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                  >
+                    Remover destaque
+                  </button>
+                </div>
               )}
-              <div
-                className={
-                  isSingleTile
-                    ? "h-full"
-                    : `grid ${mobileGridCols} auto-rows-fr gap-2 sm:grid-cols-2 sm:gap-5 2xl:grid-cols-3`
-                }
-              >
-                {hyperfocusVisible && isSharing && localStream && (
-                  <VideoTile
-                    stream={localStream}
-                    label="Você"
-                    accessibleLabel="Você"
-                    badge={shareSource === "camera" ? "câmera" : "transmitindo"}
-                    muted
-                    allowUnmute={false}
-                    fill={isSingleTile || spotlightId === "self"}
-                    className={spotlightId === "self" && !isSingleTile ? "sm:col-span-2 sm:row-span-2" : ""}
-                    onFocus={() => toggleSpotlight("self")}
-                    isSpotlighted={spotlightId === "self"}
-                    onHyperfocus={() => toggleHyperfocus("self")}
-                    isHyperfocused={activeHyperfocusId === "self"}
-                    isMicOn={isMicOn}
-                    onToggleMic={toggleMic}
-                    micsMuted={micsMuted}
-                    onToggleMicsMuted={toggleMicsMuted}
-                  />
-                )}
-                {hyperfocusVisible && localCameraStream && (
-                  <VideoTile
-                    stream={localCameraStream}
-                    label="Você"
-                    accessibleLabel="Você"
-                    badge="câmera"
-                    muted
-                    allowUnmute={false}
-                    fill={isSingleTile || spotlightId === "self"}
-                    className={spotlightId === "self" && !isSingleTile ? "sm:col-span-2 sm:row-span-2" : ""}
-                    onFocus={() => toggleSpotlight("self")}
-                    isSpotlighted={spotlightId === "self"}
-                    onHyperfocus={() => toggleHyperfocus("self")}
-                    isHyperfocused={activeHyperfocusId === "self"}
-                    isMicOn={isMicOn}
-                    onToggleMic={toggleMic}
-                    micsMuted={micsMuted}
-                    onToggleMicsMuted={toggleMicsMuted}
-                  />
-                )}
-                {visibleVideoSources.map((videoSource) => {
-                  const tileId = videoSourceTileId(videoSource.id);
-                  // Keyed on the YouTube id (or playlist id), not the source
-                  // id: a source id is minted fresh every time someone adds
-                  // the video, so keying on it would mean the dial never
-                  // actually persists. A playlist is one source even as the
-                  // current video changes, so the playlist id is the stable
-                  // key when present. The prefix keeps it out of the way of
-                  // the peer ids sharing this same store.
-                  const volumeKey = videoSourceVolumeKey(videoSource);
-                  return (
-                    <VideoSourceTile
-                      key={tileId}
-                      source={videoSource}
-                      volume={transmissionVolumes[volumeKey] ?? 1}
-                      onVolumeChange={(volume) => setTransmissionVolume(volumeKey, volume)}
-                      // Whoever added it drives — or, if they set it to
-                      // "anyone" when adding it, everyone does. Either way
-                      // this is enforced again server-side (see
-                      // "video-source-state" in signaling.ts), not just here.
-                      canControl={
-                        state.selfUserId !== null &&
-                        (videoSource.controlMode === "anyone" ||
-                          videoSource.addedById === state.selfUserId)
-                      }
-                      // Ownership itself, unlike canControl, never widens
-                      // with controlMode — ending the video for the room
-                      // stays with whoever added it regardless of who's
-                      // allowed to drive it.
-                      isOwner={
-                        state.selfUserId !== null && videoSource.addedById === state.selfUserId
-                      }
-                      label={`${videoSource.addedByName} adicionou`}
-                      fill={isSingleTile || spotlightId === tileId}
-                      className={spotlightId === tileId && !isSingleTile ? "sm:col-span-2 sm:row-span-2" : ""}
-                      onStateChange={(playing, positionSeconds, playbackRate, playlistIndex) =>
-                        signalingClient.setVideoSourceState(
-                          videoSource.id,
-                          playing,
-                          positionSeconds,
-                          playbackRate,
-                          playlistIndex
-                        )
-                      }
-                      onRemove={() => signalingClient.removeVideoSource(videoSource.id)}
-                      onLeave={() =>
-                        setLeftVideoSourceIds((prev) => new Set(prev).add(videoSource.id))
-                      }
-                      onFocus={() => toggleSpotlight(tileId)}
-                      isSpotlighted={spotlightId === tileId}
-                      onHyperfocus={() => toggleHyperfocus(tileId)}
-                      isHyperfocused={activeHyperfocusId === tileId}
-                    />
-                  );
-                })}
-                {leftVideoSources.map((videoSource) => (
-                  <StoppedPeerTile
-                    key={`left-${videoSource.id}`}
-                    label={`vídeo de ${videoSource.addedByName}`}
-                    fill={isSingleTile}
-                    onResume={() =>
-                      setLeftVideoSourceIds((prev) => {
-                        const next = new Set(prev);
-                        next.delete(videoSource.id);
-                        return next;
-                      })
-                    }
-                  />
-                ))}
-                {visibleScreenEntries.map(([peerId, stream]) => {
-                  const peer = state.peers.find((p) => p.id === peerId);
-                  const volumeKey = peer?.userId ?? peerId;
-                  return (
+              {/* The tiles scroll inside this box, never the page: from lg up
+                  `main` is a fixed-height pane, and the grid below asks for
+                  rows with a floor — so a handful of tiles divide the pane
+                  between them and fill it, and only a wall of them ever
+                  produces a scrollbar (see tileGridStyle). */}
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <div
+                  className={
+                    isSingleTile
+                      ? "h-full"
+                      : `grid ${mobileGridCols} auto-rows-fr gap-2 sm:grid-cols-2 sm:gap-3 lg:min-h-full 2xl:grid-cols-3`
+                  }
+                  style={tileGridStyle}
+                >
+                  {hyperfocusVisible && isSharing && localStream && (
                     <VideoTile
-                      key={`screen-${peerId}`}
-                      stream={stream}
-                      label={
-                        <DisplayUserName
-                          name={peer?.name ?? "Alguém"}
-                          isGuest={peer?.isGuest}
-                          verified={peer?.flags?.includes("VERIFIED")}
-                        />
-                      }
-                      accessibleLabel={peer?.name ?? "Alguém"}
-                      badge="ao vivo · tela"
+                      stream={localStream}
+                      label="Você"
+                      accessibleLabel="Você"
+                      badge={shareSource === "camera" ? "câmera" : "transmitindo"}
                       muted
-                      volume={transmissionVolumes[volumeKey] ?? 1}
-                      onVolumeChange={(volume) => setTransmissionVolume(volumeKey, volume)}
-                      fill={isSingleTile || spotlightId === peerId}
-                      className={spotlightId === peerId && !isSingleTile ? "sm:col-span-2 sm:row-span-2" : ""}
-                      onRenderedSizeChange={(w, h) => qualityNegotiator.report("screen", peerId, w, h)}
-                      onStopWatching={() => stopWatchingPeer(peerId)}
-                      onFocus={() => toggleSpotlight(peerId)}
-                      isSpotlighted={spotlightId === peerId}
-                      onHyperfocus={() => toggleHyperfocus(peerId)}
-                      isHyperfocused={activeHyperfocusId === peerId}
+                      allowUnmute={false}
+                      fill={isSingleTile || spotlightId === "self"}
+                      className={spotlightId === "self" && !isSingleTile ? "sm:col-span-2 sm:row-span-2" : ""}
+                      onFocus={() => toggleSpotlight("self")}
+                      isSpotlighted={spotlightId === "self"}
+                      onHyperfocus={() => toggleHyperfocus("self")}
+                      isHyperfocused={activeHyperfocusId === "self"}
                       isMicOn={isMicOn}
                       onToggleMic={toggleMic}
                       micsMuted={micsMuted}
                       onToggleMicsMuted={toggleMicsMuted}
                     />
-                  );
-                })}
-                {visibleCameraEntries.map(([peerId, stream]) => {
-                  const peer = state.peers.find((p) => p.id === peerId);
-                  const volumeKey = peer?.userId ?? peerId;
-                  return (
+                  )}
+                  {hyperfocusVisible && localCameraStream && (
                     <VideoTile
-                      key={`camera-${peerId}`}
-                      stream={stream}
-                      label={
-                        <DisplayUserName
-                          name={peer?.name ?? "Alguém"}
-                          isGuest={peer?.isGuest}
-                          verified={peer?.flags?.includes("VERIFIED")}
-                        />
-                      }
-                      accessibleLabel={peer?.name ?? "Alguém"}
-                      badge="ao vivo · câmera"
+                      stream={localCameraStream}
+                      label="Você"
+                      accessibleLabel="Você"
+                      badge="câmera"
                       muted
-                      volume={transmissionVolumes[volumeKey] ?? 1}
-                      onVolumeChange={(volume) => setTransmissionVolume(volumeKey, volume)}
-                      fill={isSingleTile || spotlightId === peerId}
-                      className={spotlightId === peerId && !isSingleTile ? "sm:col-span-2 sm:row-span-2" : ""}
-                      onRenderedSizeChange={(w, h) => qualityNegotiator.report("camera", peerId, w, h)}
-                      onStopWatching={() => stopWatchingCameraPeer(peerId)}
-                      onFocus={() => toggleSpotlight(peerId)}
-                      isSpotlighted={spotlightId === peerId}
-                      onHyperfocus={() => toggleHyperfocus(peerId)}
-                      isHyperfocused={activeHyperfocusId === peerId}
+                      allowUnmute={false}
+                      fill={isSingleTile || spotlightId === "self"}
+                      className={spotlightId === "self" && !isSingleTile ? "sm:col-span-2 sm:row-span-2" : ""}
+                      onFocus={() => toggleSpotlight("self")}
+                      isSpotlighted={spotlightId === "self"}
+                      onHyperfocus={() => toggleHyperfocus("self")}
+                      isHyperfocused={activeHyperfocusId === "self"}
                       isMicOn={isMicOn}
                       onToggleMic={toggleMic}
                       micsMuted={micsMuted}
                       onToggleMicsMuted={toggleMicsMuted}
                     />
-                  );
-                })}
-                {visibleStoppedEntries.map((peer) => (
-                  <StoppedPeerTile
-                    key={`stopped-${peer.id}`}
-                    label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} />}
-                    fill={isSingleTile}
-                    onResume={() => resumeWatchingPeer(peer.id)}
-                  />
-                ))}
-                {visibleResumingEntries.map((peer) => (
-                  <ResumingPeerTile key={`resuming-${peer.id}`} fill={isSingleTile} />
-                ))}
-                {visibleStoppedCameraEntries.map((peer) => (
-                  <StoppedPeerTile
-                    key={`stopped-camera-${peer.id}`}
-                    label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} />}
-                    fill={isSingleTile}
-                    onResume={() => resumeWatchingCameraPeer(peer.id)}
-                  />
-                ))}
-                {visibleResumingCameraEntries.map((peer) => (
-                  <ResumingPeerTile key={`resuming-camera-${peer.id}`} fill={isSingleTile} />
-                ))}
+                  )}
+                  {visibleVideoSources.map((videoSource) => {
+                    const tileId = videoSourceTileId(videoSource.id);
+                    // Keyed on the YouTube id (or playlist id), not the source
+                    // id: a source id is minted fresh every time someone adds
+                    // the video, so keying on it would mean the dial never
+                    // actually persists. A playlist is one source even as the
+                    // current video changes, so the playlist id is the stable
+                    // key when present. The prefix keeps it out of the way of
+                    // the peer ids sharing this same store.
+                    const volumeKey = videoSourceVolumeKey(videoSource);
+                    return (
+                      <VideoSourceTile
+                        key={tileId}
+                        source={videoSource}
+                        volume={transmissionVolumes[volumeKey] ?? 1}
+                        onVolumeChange={(volume) => setTransmissionVolume(volumeKey, volume)}
+                        // Whoever added it drives — or, if they set it to
+                        // "anyone" when adding it, everyone does. Either way
+                        // this is enforced again server-side (see
+                        // "video-source-state" in signaling.ts), not just here.
+                        canControl={
+                          state.selfUserId !== null &&
+                          (videoSource.controlMode === "anyone" ||
+                            videoSource.addedById === state.selfUserId)
+                        }
+                        // Ownership itself, unlike canControl, never widens
+                        // with controlMode — ending the video for the room
+                        // stays with whoever added it regardless of who's
+                        // allowed to drive it.
+                        isOwner={
+                          state.selfUserId !== null && videoSource.addedById === state.selfUserId
+                        }
+                        label={`${videoSource.addedByName} adicionou`}
+                        fill={isSingleTile || spotlightId === tileId}
+                        className={spotlightId === tileId && !isSingleTile ? "sm:col-span-2 sm:row-span-2" : ""}
+                        onStateChange={(playing, positionSeconds, playbackRate, playlistIndex) =>
+                          signalingClient.setVideoSourceState(
+                            videoSource.id,
+                            playing,
+                            positionSeconds,
+                            playbackRate,
+                            playlistIndex
+                          )
+                        }
+                        onRemove={() => signalingClient.removeVideoSource(videoSource.id)}
+                        onLeave={() =>
+                          setLeftVideoSourceIds((prev) => new Set(prev).add(videoSource.id))
+                        }
+                        onFocus={() => toggleSpotlight(tileId)}
+                        isSpotlighted={spotlightId === tileId}
+                        onHyperfocus={() => toggleHyperfocus(tileId)}
+                        isHyperfocused={activeHyperfocusId === tileId}
+                      />
+                    );
+                  })}
+                  {leftVideoSources.map((videoSource) => (
+                    <StoppedPeerTile
+                      key={`left-${videoSource.id}`}
+                      label={`vídeo de ${videoSource.addedByName}`}
+                      fill={isSingleTile}
+                      onResume={() =>
+                        setLeftVideoSourceIds((prev) => {
+                          const next = new Set(prev);
+                          next.delete(videoSource.id);
+                          return next;
+                        })
+                      }
+                    />
+                  ))}
+                  {visibleScreenEntries.map(([peerId, stream]) => {
+                    const peer = state.peers.find((p) => p.id === peerId);
+                    const volumeKey = peer?.userId ?? peerId;
+                    return (
+                      <VideoTile
+                        key={`screen-${peerId}`}
+                        stream={stream}
+                        label={
+                          <DisplayUserName
+                            name={peer?.name ?? "Alguém"}
+                            isGuest={peer?.isGuest}
+                            verified={peer?.flags?.includes("VERIFIED")}
+                          />
+                        }
+                        accessibleLabel={peer?.name ?? "Alguém"}
+                        badge="ao vivo · tela"
+                        muted
+                        volume={transmissionVolumes[volumeKey] ?? 1}
+                        onVolumeChange={(volume) => setTransmissionVolume(volumeKey, volume)}
+                        fill={isSingleTile || spotlightId === peerId}
+                        className={spotlightId === peerId && !isSingleTile ? "sm:col-span-2 sm:row-span-2" : ""}
+                        onRenderedSizeChange={(w, h) => qualityNegotiator.report("screen", peerId, w, h)}
+                        onStopWatching={() => stopWatchingPeer(peerId)}
+                        onFocus={() => toggleSpotlight(peerId)}
+                        isSpotlighted={spotlightId === peerId}
+                        onHyperfocus={() => toggleHyperfocus(peerId)}
+                        isHyperfocused={activeHyperfocusId === peerId}
+                        isMicOn={isMicOn}
+                        onToggleMic={toggleMic}
+                        micsMuted={micsMuted}
+                        onToggleMicsMuted={toggleMicsMuted}
+                      />
+                    );
+                  })}
+                  {visibleCameraEntries.map(([peerId, stream]) => {
+                    const peer = state.peers.find((p) => p.id === peerId);
+                    const volumeKey = peer?.userId ?? peerId;
+                    return (
+                      <VideoTile
+                        key={`camera-${peerId}`}
+                        stream={stream}
+                        label={
+                          <DisplayUserName
+                            name={peer?.name ?? "Alguém"}
+                            isGuest={peer?.isGuest}
+                            verified={peer?.flags?.includes("VERIFIED")}
+                          />
+                        }
+                        accessibleLabel={peer?.name ?? "Alguém"}
+                        badge="ao vivo · câmera"
+                        muted
+                        volume={transmissionVolumes[volumeKey] ?? 1}
+                        onVolumeChange={(volume) => setTransmissionVolume(volumeKey, volume)}
+                        fill={isSingleTile || spotlightId === peerId}
+                        className={spotlightId === peerId && !isSingleTile ? "sm:col-span-2 sm:row-span-2" : ""}
+                        onRenderedSizeChange={(w, h) => qualityNegotiator.report("camera", peerId, w, h)}
+                        onStopWatching={() => stopWatchingCameraPeer(peerId)}
+                        onFocus={() => toggleSpotlight(peerId)}
+                        isSpotlighted={spotlightId === peerId}
+                        onHyperfocus={() => toggleHyperfocus(peerId)}
+                        isHyperfocused={activeHyperfocusId === peerId}
+                        isMicOn={isMicOn}
+                        onToggleMic={toggleMic}
+                        micsMuted={micsMuted}
+                        onToggleMicsMuted={toggleMicsMuted}
+                      />
+                    );
+                  })}
+                  {visibleStoppedEntries.map((peer) => (
+                    <StoppedPeerTile
+                      key={`stopped-${peer.id}`}
+                      label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} />}
+                      fill={isSingleTile}
+                      onResume={() => resumeWatchingPeer(peer.id)}
+                    />
+                  ))}
+                  {visibleResumingEntries.map((peer) => (
+                    <ResumingPeerTile key={`resuming-${peer.id}`} fill={isSingleTile} />
+                  ))}
+                  {visibleStoppedCameraEntries.map((peer) => (
+                    <StoppedPeerTile
+                      key={`stopped-camera-${peer.id}`}
+                      label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} />}
+                      fill={isSingleTile}
+                      onResume={() => resumeWatchingCameraPeer(peer.id)}
+                    />
+                  ))}
+                  {visibleResumingCameraEntries.map((peer) => (
+                    <ResumingPeerTile key={`resuming-camera-${peer.id}`} fill={isSingleTile} />
+                  ))}
+                </div>
               </div>
             </>
           )}
@@ -2878,15 +3001,24 @@ export function WatchRoom({ handle }: { handle: string }) {
             practically the whole column to fill. */}
         {isWideLayout && (
           <aside
-            className="relative flex h-full shrink-0 flex-col overflow-hidden"
+            ref={chatAsideRef}
+            className="relative flex h-full shrink-0 flex-col"
             style={{ width: `${chatWidth}px` }}
           >
+            {/* The grab handle sits in the gap *between* the video and the
+                chat rather than on the chat's own edge, so reaching for it is
+                never a click that lands on a message — and it shows a grip
+                on hover instead of a bare hairline, which was easy to miss
+                entirely. Double-click restores the default width. */}
             <div
               onMouseDown={startChatResize}
-              className="group absolute inset-y-0 left-0 z-30 w-2 cursor-ew-resize"
-              title="Arraste para redimensionar o chat"
+              onDoubleClick={() => setChatWidth(DEFAULT_CHAT_WIDTH)}
+              role="separator"
+              aria-orientation="vertical"
+              className="group absolute inset-y-0 -left-3 z-30 flex w-3 cursor-ew-resize items-center justify-center"
+              title="Arraste para redimensionar o chat (clique duas vezes para restaurar)"
             >
-              <div className="absolute inset-y-0 left-0 w-1 bg-zinc-300 opacity-0 transition-opacity group-hover:opacity-100 dark:bg-zinc-700" />
+              <div className="h-12 w-1 rounded-full bg-zinc-300 opacity-0 transition-opacity group-hover:opacity-100 dark:bg-zinc-600" />
             </div>
 
             {chatSection}
