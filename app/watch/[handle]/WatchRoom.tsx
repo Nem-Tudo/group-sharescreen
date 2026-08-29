@@ -62,6 +62,7 @@ import { PartnerCard } from "@/components/PartnerCard";
 import { SupportersTooltipContent } from "@/components/SupportersTooltip";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { CreateAccountForm } from "@/components/CreateAccountForm";
+import { LoginForm } from "@/components/LoginForm";
 import { VideoSourceTile } from "@/components/VideoSourceTile";
 import { videoSourceVolumeKey, type VideoSourceKind } from "@/lib/videoSource";
 import useNtPopups from "ntpopups";
@@ -94,6 +95,7 @@ import {
   MdOutlineOndemandVideo,
   MdOutlineDesktopWindows,
   MdOutlineMap,
+  MdLogin,
 } from "react-icons/md";
 import { BsGearFill, BsCoin } from "react-icons/bs";
 import { BetaMark } from "@/components/BetaMark";
@@ -729,9 +731,14 @@ export function WatchRoom({ handle }: { handle: string }) {
   const [guestBannerDismissed, setGuestBannerDismissed] = useState(() =>
     getStoredGuestAccountBannerDismissed()
   );
-  // Opened from the guest banner below — reuses the same CreateAccountForm
-  // as the pre-join gate, just in a modal since this fires mid-session.
-  const [showCreateAccountModal, setShowCreateAccountModal] = useState(false);
+  // The mid-session identity modal: null when closed, otherwise which half
+  // of it is showing. Reuses the same forms as the pre-join gate and the
+  // home page, just in a modal since this fires with a room already
+  // running. Opened as "create" from the guest banner below (which is
+  // specifically an offer to keep your name) and as "login" from the header
+  // button (someone who already has an account); either side switches to
+  // the other, so neither entry point is a dead end.
+  const [accountModal, setAccountModal] = useState<"login" | "create" | null>(null);
   // "Sempre abrir salas no aplicativo" — the same preference the
   // OpenInAppBanner sets, surfaced here so it can be turned back off. Read
   // through the mounted gate below rather than a lazy initializer, because
@@ -2098,8 +2105,20 @@ export function WatchRoom({ handle }: { handle: string }) {
           {/* flex-1 rather than content-width: the description input inside
               RoomInfoControls grows into whatever this group has spare (it
               caps itself), which it can only do if this group claims the room
-              between the title and the controls in the first place. */}
-          <div className="flex min-w-0 flex-1 items-center gap-2">
+              between the title and the controls in the first place.
+
+              The min-width is what makes the row above actually wrap. Without
+              it this group (min-w-0, so it shrinks to nothing) gave up all of
+              its space to the control group before the browser ever
+              considered breaking the line — and since the badge, the category
+              chip and the room code inside it are shrink-0, they carried on
+              past the group's edge and ran underneath the buttons. With a
+              floor, the two groups stop fitting on one line while the left one
+              still has room for its chips, so the controls drop to their own
+              line instead. Two floors because the public/private badge is
+              hidden below sm, which is exactly the width where every pixel is
+              worth arguing about. */}
+          <div className="flex min-w-[13rem] flex-1 items-center gap-2 sm:min-w-[20rem]">
             <Link href={"/"} className="shrink-0 text-lg font-semibold text-zinc-950 dark:text-zinc-50">
               <MdHome />
             </Link>
@@ -2302,6 +2321,37 @@ export function WatchRoom({ handle }: { handle: string }) {
               </button>
             </Popover>
 
+            {/* Guests only — an account already has the profile chip above,
+                and this is the one control that isn't buried in the menu:
+                the menu is where you go to change something about the room,
+                while this is about who you are. Sits after the menu so it's
+                the last thing in the row (and the closest to the thumb on a
+                phone). Label hidden below sm like "Apoiar projeto" beside
+                it, so the row still fits. Keyed off the same `account` as
+                the profile chip above, not `state.account`, so logging in
+                swaps one for the other in the same render instead of
+                showing both while the signaling re-registration lands. */}
+            {!account && (
+              <Tooltip content="Entrar ou criar uma conta" placement="bottom">
+                <button
+                  type="button"
+                  onClick={() => {
+                    trackEvent("account_button_clicked");
+                    // Signup rather than login: whoever is reading a header
+                    // that still says "Entrar" is far more often someone
+                    // without an account than someone who has one and is
+                    // logged out. "Já tenho uma conta" inside the form is one
+                    // click away for the other case.
+                    setAccountModal("create");
+                  }}
+                  className="flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-950 bg-zinc-950 px-2 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200 sm:px-3"
+                >
+                  <MdLogin className="h-5 w-5 shrink-0" />
+                  <span className="hidden sm:inline">Entrar</span>
+                </button>
+              </Tooltip>
+            )}
+
             <UpdateAppButton />
 
             {!isDesktopLayout && menuOpen && (
@@ -2325,7 +2375,7 @@ export function WatchRoom({ handle }: { handle: string }) {
             Você está usando um nome de convidado. Se quiser, você pode{" "}
             <button
               type="button"
-              onClick={() => setShowCreateAccountModal(true)}
+              onClick={() => setAccountModal("create")}
               className="font-semibold underline underline-offset-2 hover:text-blue-900 dark:hover:text-blue-200"
             >
               Criar uma conta
@@ -2782,23 +2832,32 @@ export function WatchRoom({ handle }: { handle: string }) {
         )}
       </div>
 
-      {showCreateAccountModal && (
+      {accountModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          onClick={() => setShowCreateAccountModal(false)}
+          onClick={() => setAccountModal(null)}
         >
           <div
-            className="w-full max-w-md rounded-2xl border border-black/10 bg-white p-8 shadow-xl dark:border-white/10 dark:bg-zinc-950"
+            className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-black/10 bg-white p-8 shadow-xl dark:border-white/10 dark:bg-zinc-950"
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="text-xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-              Criar conta
+              {accountModal === "login" ? "Entrar na conta" : "Criar conta"}
             </h2>
-            <CreateAccountForm
-              initialDisplayName={state.name ?? ""}
-              onCancel={() => setShowCreateAccountModal(false)}
-              onSuccess={() => setShowCreateAccountModal(false)}
-            />
+            {accountModal === "login" ? (
+              <LoginForm
+                onCancel={() => setAccountModal(null)}
+                onSuccess={() => setAccountModal(null)}
+                onSwitchToCreate={() => setAccountModal("create")}
+              />
+            ) : (
+              <CreateAccountForm
+                initialDisplayName={state.name ?? ""}
+                onCancel={() => setAccountModal(null)}
+                onSuccess={() => setAccountModal(null)}
+                onSwitchToLogin={() => setAccountModal("login")}
+              />
+            )}
           </div>
         </div>
       )}

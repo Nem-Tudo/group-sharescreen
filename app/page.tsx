@@ -20,6 +20,7 @@ import {
 } from "@/lib/roomsApi";
 import { useAuth } from "@/lib/AuthContext";
 import { CreateAccountForm } from "@/components/CreateAccountForm";
+import { LoginForm } from "@/components/LoginForm";
 import { OAuthButtons } from "@/components/OAuthButtons";
 import { CompleteOAuthSignupForm } from "@/components/CompleteOAuthSignupForm";
 import { AccountConnections } from "@/components/AccountConnections";
@@ -76,7 +77,7 @@ type RoomMode = "public" | "private-create" | "private-join";
 export default function Home() {
   const state = useSignaling();
   const router = useRouter();
-  const { loading: resolvingAccount, login, logout } = useAuth();
+  const { loading: resolvingAccount, logout } = useAuth();
 
   const [peopleOnline, setPeopleOnline] = useState<number | null>(null);
   const [roomInput, setRoomInput] = useState("");
@@ -96,9 +97,6 @@ export default function Home() {
   const [mode, setMode] = useState<IdentityMode>("landing");
   const [nameInput, setNameInput] = useState("");
   const [changingName, setChangingName] = useState(false);
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [formError, setFormError] = useState<string | null>(null);
   // A social login that turned out to be a signup. It takes over the whole
   // identity area below (see the branch before `mode`), because the username
   // step replaces whichever form the buttons were sitting under — rendering
@@ -106,7 +104,6 @@ export default function Home() {
   const [oauthTicket, setOAuthTicket] = useState<
     Extract<OAuthResult, { kind: "ticket" }> | null
   >(null);
-  const [submitting, setSubmitting] = useState(false);
 
   const hasStoredName = useHasStoredName();
 
@@ -183,15 +180,11 @@ export default function Home() {
 
   function resetIdentityForm() {
     setMode("landing");
-    setFormError(null);
-    setUsername("");
-    setPassword("");
     setOAuthTicket(null);
   }
 
   function openCreateMode() {
     setMode("create");
-    setFormError(null);
   }
 
   function handleGuestSubmit(e: FormEvent) {
@@ -207,22 +200,6 @@ export default function Home() {
     if (!trimmed || trimmed === state.name) return;
     trackEvent("name_change");
     signalingClient.register(trimmed);
-  }
-
-  async function handleLoginSubmit(e: FormEvent) {
-    e.preventDefault();
-    setFormError(null);
-    if (!username.trim() || !password) return;
-    setSubmitting(true);
-    try {
-      await login(username.trim(), password);
-      trackEvent("account_login");
-      resetIdentityForm();
-    } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Usuário ou senha inválidos.");
-    } finally {
-      setSubmitting(false);
-    }
   }
 
   function handleLogout() {
@@ -417,62 +394,18 @@ export default function Home() {
             initialDisplayName={state.name ?? ""}
             onSuccess={resetIdentityForm}
             onCancel={resetIdentityForm}
-            onSwitchToLogin={() => {
-              setMode("login");
-              setFormError(null);
-            }}
+            onSwitchToLogin={() => setMode("login")}
           />
         ) : mode === "login" ? (
-          <div className="mt-8 flex flex-col gap-3">
-            <form onSubmit={handleLoginSubmit} className="flex flex-col gap-3">
-              <label htmlFor="loginUsername" className={labelClass}>
-                Usuário
-              </label>
-              <input
-                id="loginUsername"
-                autoFocus
-                autoComplete="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className={inputClass}
-              />
-              <label htmlFor="loginPassword" className={labelClass}>
-                Senha
-              </label>
-              <input
-                id="loginPassword"
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className={inputClass}
-              />
-              {formError && <p className="text-sm text-red-500">{formError}</p>}
-              <div className="mt-2 flex gap-2">
-                <button
-                  type="submit"
-                  disabled={submitting || !username.trim() || !password}
-                  className={`flex-1 ${primaryButtonClass}`}
-                >
-                  {submitting ? "Entrando..." : "Entrar"}
-                </button>
-                <button type="button" onClick={resetIdentityForm} className={secondaryButtonClass}>
-                  Voltar
-                </button>
-              </div>
-              <button
-                type="button"
-                onClick={openCreateMode}
-                className={linkButtonClass}
-              >
-                Criar uma conta
-              </button>
-            </form>
-            {/* Outside the <form> above, since the username step this can
-              lead to is a form of its own. Renders nothing when no provider
-              is configured. */}
-            <OAuthButtons onSuccess={resetIdentityForm} onTicket={setOAuthTicket} />
-          </div>
+          <LoginForm
+            onSuccess={resetIdentityForm}
+            onCancel={resetIdentityForm}
+            onSwitchToCreate={openCreateMode}
+            // Handled above rather than inside the form, so the username
+            // step takes over the whole identity area (same as a ticket
+            // coming from the landing buttons).
+            onTicket={setOAuthTicket}
+          />
         ) : !registered ? (
           <>
             {mode === "landing" && (
@@ -504,10 +437,7 @@ export default function Home() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    setMode("login");
-                    setFormError(null);
-                  }}
+                  onClick={() => setMode("login")}
                   className={`${linkButtonClass} self-center`}
                 >
                   Já tenho uma conta
