@@ -31,12 +31,12 @@ export function RecentRooms() {
         <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
           Salas recentes
         </span>
-        <span className="text-xs text-zinc-500 dark:text-zinc-400 sm:hidden">
+        {/* <span className="text-xs text-zinc-500 dark:text-zinc-400 sm:hidden">
           última em que você entrou
         </span>
         <span className="hidden text-xs text-zinc-500 dark:text-zinc-400 sm:inline">
           {MAX_RECENT_ROOMS} últimas em que você entrou
-        </span>
+        </span> */}
       </div>
       <ul className="flex flex-col gap-2 pt-1.5 pl-1.5">
         {rooms.map((room, index) => {

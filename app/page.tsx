@@ -23,12 +23,13 @@ import { CreateAccountForm } from "@/components/CreateAccountForm";
 import { LoginForm } from "@/components/LoginForm";
 import { OAuthButtons } from "@/components/OAuthButtons";
 import { CompleteOAuthSignupForm } from "@/components/CompleteOAuthSignupForm";
-import { AccountConnections } from "@/components/AccountConnections";
 import type { OAuthResult } from "@/lib/oauthApi";
 import { GlobeIcon } from "@/components/icons";
 import { DownloadAppButton } from "@/components/DownloadAppButton";
 import { RecentRooms } from "@/components/RecentRooms";
 import { MdLock, MdOutlineMap } from "react-icons/md";
+import { SocialLinks } from "@/components/SocialLinks";
+import { SiteHeader } from "@/components/SiteHeader";
 import { Tooltip } from "@/components/Tooltip";
 
 // Mirrors server/signaling.ts's HANDLE_RE — must match exactly, or a name
@@ -77,7 +78,7 @@ type RoomMode = "public" | "private-create" | "private-join";
 export default function Home() {
   const state = useSignaling();
   const router = useRouter();
-  const { loading: resolvingAccount, logout } = useAuth();
+  const { loading: resolvingAccount } = useAuth();
 
   const [peopleOnline, setPeopleOnline] = useState<number | null>(null);
   const [roomInput, setRoomInput] = useState("");
@@ -96,7 +97,6 @@ export default function Home() {
 
   const [mode, setMode] = useState<IdentityMode>("landing");
   const [nameInput, setNameInput] = useState("");
-  const [changingName, setChangingName] = useState(false);
   // A social login that turned out to be a signup. It takes over the whole
   // identity area below (see the branch before `mode`), because the username
   // step replaces whichever form the buttons were sitting under — rendering
@@ -139,21 +139,8 @@ export default function Home() {
     : null;
 
   const registered = Boolean(state.name);
-  const isAccount = Boolean(state.account);
   const restoring =
     !mounted || (!registered && (resolvingAccount || (hasStoredName && !state.nameError)));
-  const previousNameRef = useRef(state.name);
-
-  // Closes the rename form once the name actually changes (success or a
-  // plain reconnect landing on the same name), without guessing at timing.
-  useEffect(() => {
-    if (changingName && state.name !== previousNameRef.current) {
-      setChangingName(false);
-      setNameInput("");
-    }
-    previousNameRef.current = state.name;
-  }, [state.name, changingName]);
-
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
@@ -192,19 +179,6 @@ export default function Home() {
     const trimmed = nameInput.trim();
     if (!trimmed) return;
     signalingClient.register(trimmed);
-  }
-
-  function handleRenameSubmit(e: FormEvent) {
-    e.preventDefault();
-    const trimmed = nameInput.trim();
-    if (!trimmed || trimmed === state.name) return;
-    trackEvent("name_change");
-    signalingClient.register(trimmed);
-  }
-
-  function handleLogout() {
-    logout();
-    resetIdentityForm();
   }
 
   useEffect(() => {
@@ -323,378 +297,272 @@ export default function Home() {
   }
 
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-3 bg-zinc-50 px-4 py-16 dark:bg-black">
-      {peopleOnline !== null && (<div className="inline-flex gap-2">
-        <span className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3.5 py-1.5 text-xs font-medium text-zinc-600 shadow-sm dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
-          <span className="h-2 w-2 rounded-full bg-emerald-500" />
-          {peopleOnline} {peopleOnline === 1 ? "pessoa" : "pessoas"} em salas agora
-        </span>
-        <DownloadAppButton source="home" />
-      </div>
-      )}
-      {false && <>
+    <>
+      <SiteHeader />
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 bg-zinc-50 px-4 py-16 dark:bg-black">
+        {peopleOnline !== null && (<div className="inline-flex gap-2">
+          <span className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3.5 py-1.5 text-xs font-medium text-zinc-600 shadow-sm dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
+            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+            {peopleOnline} {peopleOnline === 1 ? "pessoa" : "pessoas"} em salas agora
+          </span>
+          <DownloadAppButton source="home" />
+        </div>
+        )}
+        {false && <>
 
-        <h2 style={{ color: "#ff2828", maxWidth: "500px", fontSize: "1.3rem" }}>Site fora do ar momentâneamente!!</h2>
-        <h2 style={{ color: "#ff6767", maxWidth: "500px" }}>A API foi reiniciar pra atualizar e não consegue mais ligar por ter mais de 2000 pessoas tentando reconectar.</h2>
-        <h2 style={{ color: "#ff6767", maxWidth: "500px" }}>Eu tô programando um sistema de balanceamento de carga. Aguentaí que já volta</h2>
-        <h2 style={{ color: "#ff6767", maxWidth: "500px" }}>Deve voltar em uns 10 minutos</h2>
-        <h2 style={{ color: "#67c7ff", maxWidth: "500px" }}>Para atualizações/sugestões/etc entre no meu Discord: <Link style={{ color: "#00ff00" }} href={"https://go.nemtudo.me/golive-nemtudodiscord"} target="_blank">discord.gg/nemtudo</Link></h2>
-        <h2 style={{ color: "#67c7ff", maxWidth: "500px" }}>Me segue no Twitter tbm, sempre posto update e projeto por lá <Link style={{ color: "#00ff00" }} href={"https://go.nemtudo.me/golive-nemtudo-twitter"} target="_blank">x.com/NemTudo_</Link></h2>
-      </>
-      }
-      <main className="w-full max-w-md rounded-2xl border border-black/10 bg-white p-8 shadow-sm dark:border-white/10 dark:bg-zinc-950">
-        <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-          GoLive
-        </h1>
-        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-          Compartilhe sua tela com quem estiver na mesma sala, sem cadastro.
-        </p>
-        {/* Wrapped so the two sit side by side and wrap together on a
+          <h2 style={{ color: "#ff2828", maxWidth: "500px", fontSize: "1.3rem" }}>Site fora do ar momentâneamente!!</h2>
+          <h2 style={{ color: "#ff6767", maxWidth: "500px" }}>A API foi reiniciar pra atualizar e não consegue mais ligar por ter mais de 2000 pessoas tentando reconectar.</h2>
+          <h2 style={{ color: "#ff6767", maxWidth: "500px" }}>Eu tô programando um sistema de balanceamento de carga. Aguentaí que já volta</h2>
+          <h2 style={{ color: "#ff6767", maxWidth: "500px" }}>Deve voltar em uns 10 minutos</h2>
+          <h2 style={{ color: "#67c7ff", maxWidth: "500px" }}>Para atualizações/sugestões/etc entre no meu Discord: <Link style={{ color: "#00ff00" }} href={"https://go.nemtudo.me/golive-nemtudodiscord"} target="_blank">discord.gg/nemtudo</Link></h2>
+          <h2 style={{ color: "#67c7ff", maxWidth: "500px" }}>Me segue no Twitter tbm, sempre posto update e projeto por lá <Link style={{ color: "#00ff00" }} href={"https://go.nemtudo.me/golive-nemtudo-twitter"} target="_blank">x.com/NemTudo_</Link></h2>
+        </>
+        }
+        <main className="w-full max-w-md rounded-2xl border border-black/10 bg-white p-8 shadow-sm dark:border-white/10 dark:bg-zinc-950">
+          <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
+            GoLive
+          </h1>
+          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+            Compartilhe sua tela com quem estiver na mesma sala, sem cadastro.
+          </p>
+          {/* Wrapped so the two sit side by side and wrap together on a
             narrow screen — the download button renders nothing at all in
             the app itself or on mobile, and the row collapses cleanly. */}
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <Link
-            href="/rooms"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 px-3.5 py-2 text-sm font-medium text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900"
-          >
-            <GlobeIcon className="h-4 w-4" />
-            Ver salas públicas
-          </Link>
-          {/* The same rooms, arranged by where their owners put them on the
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Link
+              href="/rooms"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-sky-300 px-3.5 py-2 text-sm font-medium text-sky-700 transition hover:border-sky-400 hover:bg-sky-100 dark:border-sky-700 dark:text-sky-300 dark:hover:border-sky-600 dark:hover:bg-sky-900"
+            >
+              <GlobeIcon className="h-4 w-4" />
+              Ver salas públicas
+            </Link>
+            {/* The same rooms, arranged by where their owners put them on the
               globe instead of by headcount — see app/worldmap. Only ever public
               ones, same as the list beside it. */}
-          <Tooltip content="Encontre salas no seu país, cidade ou bairro!">
-            <Link
-              href="/worldmap"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 px-3.5 py-2 text-sm font-medium text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900"
-            >
-              <MdOutlineMap className="h-4 w-4" />
-              Ver mapa de salas
-            </Link>
-          </Tooltip>
-        </div>
-
-        {restoring ? (
-          <p className="mt-8 text-sm text-zinc-500 dark:text-zinc-400">Reconectando...</p>
-        ) : oauthTicket ? (
-          <div className="mt-8">
-            <CompleteOAuthSignupForm
-              ticket={oauthTicket.ticket}
-              provider={oauthTicket.provider}
-              suggestedUsername={oauthTicket.suggestedUsername}
-              suggestedDisplayName={oauthTicket.suggestedDisplayName}
-              onSuccess={resetIdentityForm}
-              // Back to whichever form the user came from, not out of the
-              // identity area entirely.
-              onCancel={() => setOAuthTicket(null)}
-            />
+            <Tooltip content="Encontre salas no seu país, cidade ou bairro!">
+              <Link
+                href="/worldmap"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-sky-300 px-3.5 py-2 text-sm font-medium text-sky-700 transition hover:border-sky-400 hover:bg-sky-100 dark:border-sky-700 dark:text-sky-300 dark:hover:border-sky-600 dark:hover:bg-sky-900"
+              >
+                <MdOutlineMap className="h-4 w-4" />
+                Ver mapa de salas
+              </Link>
+            </Tooltip>
           </div>
-        ) : mode === "create" ? (
-          <CreateAccountForm
-            initialDisplayName={state.name ?? ""}
-            onSuccess={resetIdentityForm}
-            onCancel={resetIdentityForm}
-            onSwitchToLogin={() => setMode("login")}
-          />
-        ) : mode === "login" ? (
-          <LoginForm
-            onSuccess={resetIdentityForm}
-            onCancel={resetIdentityForm}
-            onSwitchToCreate={openCreateMode}
-            // Handled above rather than inside the form, so the username
-            // step takes over the whole identity area (same as a ticket
-            // coming from the landing buttons).
-            onTicket={setOAuthTicket}
-          />
-        ) : !registered ? (
-          <>
-            {mode === "landing" && (
-              <form onSubmit={handleGuestSubmit} className="mt-8 flex flex-col gap-3">
-                <label htmlFor="name" className={labelClass}>
-                  Seu nome
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    id="name"
-                    autoFocus
-                    value={nameInput}
-                    onChange={(e) => setNameInput(e.target.value)}
-                    maxLength={24}
-                    placeholder="Ex: Maria"
-                    className={`min-w-0 flex-1 ${inputClass}`}
-                  />
-                  <button
-                    type="submit"
-                    disabled={!nameInput.trim()}
-                    className={`shrink-0 ${primaryButtonClass}`}
-                  >
-                    Continuar
+          {restoring ? (
+            <p className="mt-8 text-sm text-sky-500 dark:text-zinc-400">Reconectando...</p>
+          ) : oauthTicket ? (
+            <div className="mt-8">
+              <CompleteOAuthSignupForm
+                ticket={oauthTicket.ticket}
+                provider={oauthTicket.provider}
+                suggestedUsername={oauthTicket.suggestedUsername}
+                suggestedDisplayName={oauthTicket.suggestedDisplayName}
+                onSuccess={resetIdentityForm}
+                // Back to whichever form the user came from, not out of the
+                // identity area entirely.
+                onCancel={() => setOAuthTicket(null)}
+              />
+            </div>
+          ) : mode === "create" ? (
+            <CreateAccountForm
+              initialDisplayName={state.name ?? ""}
+              onSuccess={resetIdentityForm}
+              onCancel={resetIdentityForm}
+              onSwitchToLogin={() => setMode("login")}
+            />
+          ) : mode === "login" ? (
+            <LoginForm
+              onSuccess={resetIdentityForm}
+              onCancel={resetIdentityForm}
+              onSwitchToCreate={openCreateMode}
+              // Handled above rather than inside the form, so the username
+              // step takes over the whole identity area (same as a ticket
+              // coming from the landing buttons).
+              onTicket={setOAuthTicket}
+            />
+          ) : !registered ? (
+            <>
+              {mode === "landing" && (
+                <form onSubmit={handleGuestSubmit} className="mt-8 flex flex-col gap-3">
+                  <label htmlFor="name" className={labelClass}>
+                    Seu nome
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      id="name"
+                      autoFocus
+                      value={nameInput}
+                      onChange={(e) => setNameInput(e.target.value)}
+                      maxLength={24}
+                      placeholder="Ex: Maria"
+                      className={`min-w-0 flex-1 ${inputClass}`}
+                    />
+                    <button
+                      type="submit"
+                      disabled={!nameInput.trim()}
+                      className={`shrink-0 ${primaryButtonClass}`}
+                    >
+                      Continuar
+                    </button>
+                  </div>
+                  {state.nameError && <p className="text-sm text-red-500">{state.nameError}</p>}
+                  <button type="button" onClick={openCreateMode} className={secondaryButtonClass}>
+                    Criar uma conta
                   </button>
-                </div>
-                {state.nameError && <p className="text-sm text-red-500">{state.nameError}</p>}
-                <button type="button" onClick={openCreateMode} className={secondaryButtonClass}>
-                  Criar uma conta
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMode("login")}
-                  className={`${linkButtonClass} self-center`}
-                >
-                  Já tenho uma conta
-                </button>
-              </form>
-            )}
-            {/* The highest-value spot for these: someone landing here with
+                  <button
+                    type="button"
+                    onClick={() => setMode("login")}
+                    className={`${linkButtonClass} self-center`}
+                  >
+                    Já tenho uma conta
+                  </button>
+                </form>
+              )}
+              {/* The highest-value spot for these: someone landing here with
                 no account gets in with one click, skipping both the guest
                 name and the signup form. */}
-            {mode === "landing" && (
-              <div className="mt-3">
-                <OAuthButtons onSuccess={resetIdentityForm} onTicket={setOAuthTicket} />
-              </div>
-            )}
-          </>
-        ) : changingName ? (
-          <form onSubmit={handleRenameSubmit} className="mt-8 flex flex-col gap-3">
-            <label htmlFor="name" className={labelClass}>
-              Novo nome
-            </label>
-            <input
-              id="name"
-              autoFocus
-              value={nameInput}
-              onChange={(e) => setNameInput(e.target.value)}
-              maxLength={24}
-              placeholder="Ex: Maria"
-              className={inputClass}
-            />
-            {state.nameError && <p className="text-sm text-red-500">{state.nameError}</p>}
-            <div className="mt-2 flex gap-2">
-              <button
-                type="submit"
-                disabled={!nameInput.trim() || nameInput.trim() === state.name}
-                className={`flex-1 ${primaryButtonClass}`}
-              >
-                Salvar nome
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setChangingName(false);
-                  setNameInput("");
-                }}
-                className={secondaryButtonClass}
-              >
-                Cancelar
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setChangingName(false);
-                setNameInput("");
-                openCreateMode();
-              }}
-              className={linkButtonClass}
-            >
-              Ou crie uma conta
-            </button>
-          </form>
-        ) : (
-          <form onSubmit={handleRoomSubmit} className="mt-8 flex flex-col gap-3">
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">
-              {isAccount ? "Conectado como" : "Usando nome"}{" "}
-              <span className="font-semibold text-zinc-900 dark:text-zinc-100">{state.name}</span>{" "}
-              {isAccount ? (
-                <button
-                  type="button"
-                  onClick={handleLogout}
-                  className="font-medium underline underline-offset-2 hover:text-zinc-700 dark:hover:text-zinc-300"
-                >
-                  Sair
-                </button>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNameInput(state.name ?? "");
-                      setChangingName(true);
-                    }}
-                    className="font-medium underline underline-offset-2 hover:text-zinc-700 dark:hover:text-zinc-300"
-                  >
-                    Trocar
-                  </button>{"・"}
-                  <button
-                    type="button"
-                    onClick={openCreateMode}
-                    className="font-medium text-blue-600 underline underline-offset-2 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
-                  >
-                    Criar conta
-                  </button>
-                </>
+              {mode === "landing" && (
+                <div className="mt-3">
+                  <OAuthButtons onSuccess={resetIdentityForm} onTicket={setOAuthTicket} />
+                </div>
               )}
-            </p>
-            {/* Only for a real account — a guest has nothing to link a
-                provider to. Renders nothing when no provider is configured,
-                and stays collapsed until asked for, so the room form below
-                remains the page's main action. */}
-            {isAccount && <AccountConnections />}
-            {/* Last rooms this browser was in. Hidden when empty so a first
+            </>
+          ) : (
+            <form onSubmit={handleRoomSubmit} className="mt-8 flex flex-col gap-3">
+              {/* Last rooms this browser was in. Hidden when empty so a first
                 visit doesn't grow the form for nothing — see RecentRooms. */}
-            <RecentRooms />
-            {/* Public/private as two visible options rather than a
+              <RecentRooms />
+              {/* Public/private as two visible options rather than a
                 checkbox under the name field: the choice changes what the
                 form even asks for, so it belongs above the fields it
                 governs instead of below them. */}
-            <span className={labelClass}>Que tipo de sala?</span>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => switchRoomMode("public")}
-                aria-pressed={roomMode === "public"}
-                className={roomTabClass(roomMode === "public")}
-              >
-                <GlobeIcon className="h-4 w-4 shrink-0" />
-                Pública
-              </button>
-              {/* Lands on "Entrar em sala" — someone who was handed a link
-                  or a code is the common arrival here, and creating is the
-                  one click away that a first-timer is already looking for. */}
-              <button
-                type="button"
-                onClick={() => switchRoomMode("private-join")}
-                aria-pressed={roomMode !== "public"}
-                className={roomTabClass(roomMode !== "public")}
-              >
-                <MdLock className="h-4 w-4 shrink-0" />
-                Privada
-              </button>
-            </div>
-
-            {/* Only private rooms split into create/join — a public room
-                needs no such distinction, since its name alone is enough to
-                both find it and make it. */}
-            {roomMode !== "public" && (
+              <span className={labelClass}>Que tipo de sala?</span>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => switchRoomMode("private-join")}
-                  aria-pressed={roomMode === "private-join"}
-                  className={roomTabClass(roomMode === "private-join")}
+                  onClick={() => switchRoomMode("public")}
+                  aria-pressed={roomMode === "public"}
+                  className={roomTabClass(roomMode === "public")}
                 >
-                  Entrar em sala
+                  <GlobeIcon className="h-4 w-4 shrink-0" />
+                  Pública
                 </button>
+                {/* Lands on "Entrar em sala" — someone who was handed a link
+                  or a code is the common arrival here, and creating is the
+                  one click away that a first-timer is already looking for. */}
                 <button
                   type="button"
-                  onClick={() => switchRoomMode("private-create")}
-                  aria-pressed={roomMode === "private-create"}
-                  className={roomTabClass(roomMode === "private-create")}
+                  onClick={() => switchRoomMode("private-join")}
+                  aria-pressed={roomMode !== "public"}
+                  className={roomTabClass(roomMode !== "public")}
                 >
-                  Criar sala
+                  <MdLock className="h-4 w-4 shrink-0" />
+                  Privada
                 </button>
               </div>
-            )}
 
-            <label htmlFor="room" className={labelClass}>
-              Nome da sala
-            </label>
-            {/* One field, always. For "Entrar em sala" the code is just the
+              {/* Only private rooms split into create/join — a public room
+                needs no such distinction, since its name alone is enough to
+                both find it and make it. */}
+              {roomMode !== "public" && (
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => switchRoomMode("private-join")}
+                    aria-pressed={roomMode === "private-join"}
+                    className={roomTabClass(roomMode === "private-join")}
+                  >
+                    Entrar em sala
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => switchRoomMode("private-create")}
+                    aria-pressed={roomMode === "private-create"}
+                    className={roomTabClass(roomMode === "private-create")}
+                  >
+                    Criar sala
+                  </button>
+                </div>
+              )}
+
+              <label htmlFor="room" className={labelClass}>
+                Nome da sala
+              </label>
+              {/* One field, always. For "Entrar em sala" the code is just the
                 tail of what's typed here ("familia-123456") — the same
                 string someone reads off a link, rather than a second box to
                 split it into. */}
-            <input
-              id="room"
-              autoFocus
-              value={roomInput}
-              onChange={(e) => setRoomInput(e.target.value)}
-              maxLength={roomMode === "private-create" ? MAX_PRIVATE_ROOM_NAME_LENGTH : 32}
-              placeholder={
-                roomMode === "private-join" ? "Ex: familia-123456" : "Ex: reuniao-time"
-              }
-              className={inputClass}
-            />
+              <input
+                id="room"
+                autoFocus
+                value={roomInput}
+                onChange={(e) => setRoomInput(e.target.value)}
+                maxLength={roomMode === "private-create" ? MAX_PRIVATE_ROOM_NAME_LENGTH : 32}
+                placeholder={
+                  roomMode === "private-join" ? "Ex: familia-123456" : "Ex: reuniao-time"
+                }
+                className={inputClass}
+              />
 
-            {/* One line explaining what this mode is about to do, where the
+              {/* One line explaining what this mode is about to do, where the
                 old form had a parenthetical about the public list. */}
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              {roomMode === "public" ? (
-                <>Aparece na lista de salas públicas.</>
-              ) : roomMode === "private-create" ? (
-                <>
-                  Geramos um código de {ROOM_CODE_LENGTH} dígitos e ele vira parte do link. Quem
-                  tiver o link entra; a sala não aparece na lista pública.
-                </>
-              ) : ENFORCE_NEW_ROOM_CODE_SYSTEM ? (
-                <>Cole o nome com o código no fim, como no link que te mandaram.</>
-              ) : (
-                // While the code scheme isn't enforced, a room from before
-                // it exists has no code to type — so this can't read as if
-                // one were mandatory.
-                <>Cole o nome da sala, com o código no fim se ela tiver um.</>
-              )}
-            </p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                {roomMode === "public" ? (
+                  <>Aparece na lista de salas públicas.</>
+                ) : roomMode === "private-create" ? (
+                  <>
+                    Geramos um código de {ROOM_CODE_LENGTH} dígitos e ele vira parte do link. Quem
+                    tiver o link entra; a sala não aparece na lista pública.
+                  </>
+                ) : ENFORCE_NEW_ROOM_CODE_SYSTEM ? (
+                  <>Cole o nome com o código no fim, como no link que te mandaram.</>
+                ) : (
+                  // While the code scheme isn't enforced, a room from before
+                  // it exists has no code to type — so this can't read as if
+                  // one were mandatory.
+                  <>Cole o nome da sala, com o código no fim se ela tiver um.</>
+                )}
+              </p>
 
-            {roomError && <p className="text-sm text-red-500">{roomError}</p>}
-            <button
-              type="submit"
-              disabled={!roomInput.trim() || checkingRoom}
-              className={`mt-2 ${primaryButtonClass}`}
-            >
-              {roomMode === "private-create"
-                ? "Criar sala privada"
-                : roomMode === "private-join"
-                  ? checkingRoom
-                    ? "Verificando..."
-                    : "Entrar na sala"
-                  : // Public: entering and creating are the same click, so
-                  // the label is the only thing that tells someone which
-                  // of the two they're about to do. "Criar sala" is the
-                  // resting state and only a confirmed hit flips it —
-                  // typing a name nobody has used is the common case, and
-                  // promising "Entrar" before the lookup lands would walk
-                  // that back a moment later on most names.
-                  publicRoomExists === true
-                    ? "Entrar na sala"
-                    : "Criar sala"}
-            </button>
-          </form>
-        )}
-      </main>
-      <p className="mt-2 text-center text-xs text-zinc-400 dark:text-zinc-600">
-        Desenvolvido por{" "}
-        <span className="font-medium text-zinc-500 dark:text-zinc-400">@NemTudo</span> (
-        <a
-          href="https://discord.gg/nemtudo"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline underline-offset-2 text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
-        >
-          discord.gg/nemtudo
-        </a>
-        ) ·{" "}
-        {/* The two things the site offers besides the room form itself, and
-            the only place someone browsing can discover either. */}
-        <Link
-          href="/app"
-          className="underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-300"
-        >
-          App para PC
-        </Link>{" "}
-        ·{" "}
-        <Link
-          href="/discord-bot"
-          className="underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-300"
-        >
-          Bot para Discord
-        </Link>{" "}
-        ·{" "}
-        <Link
-          href="/termos"
-          className="underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-300"
-        >
-          Termos de uso
-        </Link>
-      </p>
-    </div>
+              {roomError && <p className="text-sm text-red-500">{roomError}</p>}
+              <button
+                type="submit"
+                disabled={!roomInput.trim() || checkingRoom}
+                className={`mt-2 ${primaryButtonClass}`}
+              >
+                {roomMode === "private-create"
+                  ? "Criar sala privada"
+                  : roomMode === "private-join"
+                    ? checkingRoom
+                      ? "Verificando..."
+                      : "Entrar na sala"
+                    : // Public: entering and creating are the same click, so
+                    // the label is the only thing that tells someone which
+                    // of the two they're about to do. "Criar sala" is the
+                    // resting state and only a confirmed hit flips it —
+                    // typing a name nobody has used is the common case, and
+                    // promising "Entrar" before the lookup lands would walk
+                    // that back a moment later on most names.
+                    publicRoomExists === true
+                      ? "Entrar na sala"
+                      : "Criar sala"}
+              </button>
+            </form>
+          )}
+        </main>
+        {/* No heading on this one: the home page is a form someone came here to
+          fill in, and three handles under it explain themselves. */}
+        <SocialLinks title={null} className="mt-6" />
+        <p className="mt-4 text-center text-xs text-zinc-400 dark:text-zinc-600">
+          <Link
+            href="/termos"
+            className="underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-300"
+          >
+            Termos de uso
+          </Link>
+        </p>
+      </div>
+    </>
   );
 }

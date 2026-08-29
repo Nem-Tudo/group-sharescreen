@@ -10,6 +10,8 @@ import {
   MdSecurity,
   MdTune,
 } from "react-icons/md";
+import { SocialLinks } from "@/components/SocialLinks";
+import { SiteHeader } from "@/components/SiteHeader";
 import { DownloadPanel } from "./DownloadPanel";
 import {
   FeatureArt,
@@ -262,26 +264,13 @@ export default async function AppPage() {
   const version = await fetchLatestVersion();
 
   return (
-    <div className="flex-1 bg-zinc-50 dark:bg-black">
+    <>
+      <SiteHeader />
+      <div className="flex-1 bg-zinc-50 dark:bg-black">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-
-      <header className={`${sectionClass} flex items-center justify-between gap-4 py-6`}>
-        <Link
-          href="/"
-          className="text-sm font-medium text-zinc-500 underline underline-offset-2 hover:text-zinc-900 dark:hover:text-zinc-100"
-        >
-          ← GoLive
-        </Link>
-        <Link
-          href="/discord-bot"
-          className="text-sm font-medium text-zinc-500 underline underline-offset-2 hover:text-zinc-900 dark:hover:text-zinc-100"
-        >
-          Bot para Discord
-        </Link>
-      </header>
 
       {/* Hero. The glow is a plain radial gradient rather than an image — it
           costs nothing, scales to any width and holds up in both themes. */}
@@ -577,25 +566,8 @@ export default async function AppPage() {
       <footer
         className={`${sectionClass} pb-16 text-center text-xs text-zinc-400 dark:text-zinc-600`}
       >
+        <SocialLinks className="mb-8" />
         <p>
-          Desenvolvido por{" "}
-          <span className="font-medium text-zinc-500 dark:text-zinc-400">@NemTudo</span> (
-          <a
-            href="https://discord.gg/nemtudo"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-400 underline underline-offset-2 hover:text-blue-600 dark:hover:text-blue-300"
-          >
-            discord.gg/nemtudo
-          </a>
-          ) ·{" "}
-          <Link
-            href="/discord-bot"
-            className="underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-300"
-          >
-            Bot para Discord
-          </Link>{" "}
-          ·{" "}
           <Link
             href="/termos"
             className="underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-300"
@@ -604,6 +576,7 @@ export default async function AppPage() {
           </Link>
         </p>
       </footer>
-    </div>
+      </div>
+    </>
   );
 }

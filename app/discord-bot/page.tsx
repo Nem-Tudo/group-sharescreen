@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { FaDiscord, FaGithub } from "react-icons/fa";
+import { SocialLinks } from "@/components/SocialLinks";
+import { SiteHeader } from "@/components/SiteHeader";
 import {
   MdBolt,
   MdCheck,
@@ -206,24 +208,13 @@ const ghostButtonClass =
 
 export default function DiscordBotPage() {
   return (
-    <div className="flex-1 bg-zinc-50 dark:bg-black">
+    <>
+      <SiteHeader />
+      <div className="flex-1 bg-zinc-50 dark:bg-black">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-
-      <header className={`${sectionClass} flex items-center justify-between gap-4 py-6`}>
-        <Link
-          href="/"
-          className="text-sm font-medium text-zinc-500 underline underline-offset-2 hover:text-zinc-900 dark:hover:text-zinc-100"
-        >
-          ← GoLive
-        </Link>
-        <a href={BOT_INVITE} className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#5865F2] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#4752c4]">
-          <FaDiscord className="h-4 w-4" />
-          Adicionar ao Discord
-        </a>
-      </header>
 
       {/* Hero. The glow is a plain radial gradient rather than an image, so it
           costs nothing, scales to any width and reads the same in both
@@ -496,25 +487,8 @@ export default function DiscordBotPage() {
       <footer
         className={`${sectionClass} pb-16 text-center text-xs text-zinc-400 dark:text-zinc-600`}
       >
+        <SocialLinks className="mb-8" />
         <p>
-          Desenvolvido por{" "}
-          <span className="font-medium text-zinc-500 dark:text-zinc-400">@NemTudo</span> (
-          <a
-            href="https://discord.gg/nemtudo"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-400 underline underline-offset-2 hover:text-blue-600 dark:hover:text-blue-300"
-          >
-            discord.gg/nemtudo
-          </a>
-          ) ·{" "}
-          <Link
-            href="/app"
-            className="underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-300"
-          >
-            App para PC
-          </Link>{" "}
-          ·{" "}
           <Link
             href="/termos"
             className="underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-300"
@@ -523,6 +497,7 @@ export default function DiscordBotPage() {
           </Link>
         </p>
       </footer>
-    </div>
+      </div>
+    </>
   );
 }
