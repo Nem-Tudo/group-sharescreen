@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { FaApple, FaLinux, FaWindows } from "react-icons/fa";
 import { isDesktopApp } from "@/lib/desktop";
 import { detectDownloadPlatform, type DownloadPlatform } from "@/lib/downloadTargets";
@@ -51,20 +52,20 @@ export function DownloadAppButton({
   const { text, Icon } = LABEL[platform];
 
   return (
-    // A plain anchor, not next/link: /download is a route handler that
-    // answers with a redirect to a file, so there is no page for the client
-    // router to prefetch or transition to. `download` is deliberately absent
-    // — the attribute is ignored cross-origin anyway, and the Content-
-    // Disposition GitHub sends is what actually makes it save.
+    // Lands on /app, not on /download: the file itself is one click further
+    // in, and this way someone who has never heard of the desktop build gets
+    // told what it is before a 100 MB installer starts downloading. /app
+    // keeps the same platform detection, so the button they find there is
+    // the one this label promised.
     <Tooltip content="Remova o eco, obtenha melhor desempenho e mais.">
-      <a
-        href="/download"
+      <Link
+        href="/app"
         onClick={() => trackDownloadClick(source, platform)}
         className={`inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 px-3.5 py-2 text-sm font-medium text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900 ${className}`}
       >
         <Icon className="h-4 w-4 shrink-0" />
         {text}
-      </a>
+      </Link>
     </Tooltip>
   );
 }

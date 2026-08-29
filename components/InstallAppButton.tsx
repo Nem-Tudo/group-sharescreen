@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { trackEvent, trackDownloadClick } from "@/lib/analytics";
 import { DownloadIcon, ShareIcon } from "@/components/icons";
 import { Tooltip } from "@/components/Tooltip";
@@ -56,6 +58,7 @@ const LABEL: Record<DownloadPlatform, string> = {
 // Once installed (running standalone), already inside the desktop app, or
 // dismissed, it stays gone — this is a one-time nudge, not a recurring nag.
 export function InstallAppButton() {
+  const pathname = usePathname();
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [showIosHint, setShowIosHint] = useState(false);
   // Non-null on desktop, and it is what switches this whole control from
@@ -142,6 +145,11 @@ export function InstallAppButton() {
   }
 
   if (!visible) return null;
+  // On /app the desktop branch's button would point at the page it is
+  // floating over, and the page below already makes the same offer with room
+  // to explain it. The PWA branch stays: "adicionar à tela de início" is a
+  // different thing from the download, and /app only mentions it in passing.
+  if (downloadPlatform && pathname === "/app") return null;
 
   return (
     <div className="fixed inset-x-4 bottom-4 z-40 mx-auto flex max-w-sm items-center gap-3 rounded-xl border border-black/10 bg-white p-3 shadow-lg dark:border-white/10 dark:bg-zinc-900 sm:inset-x-auto sm:right-4">
@@ -167,12 +175,14 @@ export function InstallAppButton() {
         )}
       </div>
       {downloadPlatform ? (
-        // A plain anchor, not next/link: /download is a route handler that
-        // answers with a redirect to a file, so there is no page to prefetch
-        // or transition to. Dismissed on click — the offer has been taken,
-        // and leaving it floating over the page afterwards is just clutter.
-        <a
-          href="/download"
+        // Lands on /app rather than starting the download: this prompt
+        // interrupts someone who did not ask for it, so the honest next step
+        // is a page explaining what the app is, not an installer appearing
+        // in their downloads folder. Dismissed on click all the same — the
+        // offer has been taken, and leaving it floating over the page
+        // afterwards is just clutter.
+        <Link
+          href="/app"
           onClick={() => {
             trackDownloadClick("install-prompt", downloadPlatform);
             dismiss();
@@ -181,7 +191,7 @@ export function InstallAppButton() {
           className="shrink-0 rounded-lg bg-zinc-950 px-3 py-1.5 text-xs font-semibold text-white transition hover:opacity-90 dark:bg-zinc-50 dark:text-zinc-950"
         >
           Baixar
-        </a>
+        </Link>
       ) : (
         !showIosHint && (
           <button

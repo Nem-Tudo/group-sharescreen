@@ -18,6 +18,11 @@ export function trackEvent(name: string, data?: Record<string, unknown>) {
 // `download_app_clicked` event carries this to tell them apart in Umami
 // rather than being one undifferentiated count.
 //
+// Only "app-page" starts an actual file transfer: the other three now land on
+// /app, where the download is one further click. That makes the pair a funnel
+// (three sources in, "app-page" out) rather than three equivalent counts, and
+// a drop between them is a fact about /app, not about the button upstream.
+//
 // A union rather than a loose string, and required at every call site, so a
 // fifth surface added later cannot quietly land untracked or invent a
 // spelling that splits the metric in two.
