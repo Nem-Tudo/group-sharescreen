@@ -843,9 +843,23 @@ export function PartnerCard() {
                 },
               });
             }}
+            // Glows in the main CTA's own color (same trick, same reason as
+            // PartnerRewardModal's --partner-cta-glow-color): this button is
+            // an outline sitting under that solid one, and sharing its color
+            // is what makes the two read as one offer.
+            style={{
+              ["--partner-reward-glow-color" as string]:
+                displayData.buttonBackgroundColor ?? "#18181b",
+            }}
+            // The glow (see globals.css) runs only while there are still
+            // points on the table. Once this browser has collected them the
+            // button is a plain "assistir de novo" — animating it then would
+            // be advertising a reward it can no longer pay.
             className={`mt-2 flex w-full items-center cursor-pointer ${
               rewardDurationLabel ? "justify-between" : "justify-center"
-            } gap-2 rounded-lg border border-current px-3 py-1.5 text-xs font-semibold opacity-90 transition hover:opacity-100`}
+            } gap-2 rounded-lg border border-current px-3 py-1.5 text-xs font-semibold opacity-90 transition hover:opacity-100 ${
+              rewardClaimedLocally ? "" : "partner-reward-glow"
+            }`}
           >
             {/* Rewatching is always allowed — only the reward itself is
                 one-time (see PartnerRewardModal, which knows not to let a

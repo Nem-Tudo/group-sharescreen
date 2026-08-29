@@ -154,3 +154,101 @@ html .ntpopups-main {
     box-shadow: 0 0 14px 3px color-mix(in srgb, var(--partner-cta-glow-color, #ffffff) 45%, transparent);
   }
 }
+
+/* The "Resgatar <moedas> N" button on the partner card (see
+   components/PartnerCard.tsx): a halo that swells and fades while a streak
+   of light crosses the button, every few seconds, so the one thing on that
+   card worth points announces itself.
+   Both are painted from --partner-reward-glow-color, set inline from the
+   ad's *main* CTA color — this button is an outline next to that solid one,
+   and borrowing its color is what makes the pair read as one offer instead
+   of two unrelated buttons. The sweep mixes that color toward currentColor
+   so it still shows up when an advertiser picks a CTA color close to their
+   own card background; the halo, which lands on the card rather than on the
+   button, uses the color as chosen.
+   Deliberately gentler and slower than .partner-cta-glow above: that one
+   fires once, when a reward video ends, and pulses hard because there is
+   exactly one thing left to do. This one runs the whole time the reward is
+   unclaimed, in a sidebar someone may leave open for hours. */
+@keyframes partner-reward-glow-halo {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--partner-reward-glow-color, currentColor) 40%, transparent);
+  }
+  /* Peaks as the streak below crosses the middle of the button, so the two
+     read as one glint rather than two effects sharing an element. */
+  18% {
+    box-shadow: 0 0 14px 3px color-mix(in srgb, var(--partner-reward-glow-color, currentColor) 40%, transparent);
+  }
+  45%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--partner-reward-glow-color, currentColor) 40%, transparent);
+  }
+}
+
+@keyframes partner-reward-glow-sweep {
+  0% {
+    transform: translateX(-120%);
+  }
+  /* The sweep is over a third of the way in; the rest of the cycle is the
+     button sitting still. That pause is what makes it a glint rather than
+     a strobe next to someone's video call. */
+  35%,
+  100% {
+    transform: translateX(120%);
+  }
+}
+
+.partner-reward-glow {
+  /* The CTA color pulled most of the way toward the button's own text
+     color. Left as a token rather than a registered property on purpose:
+     currentColor only resolves where it is finally used, which is what lets
+     one declaration cover both the light-ad and dark-ad cases. */
+  --partner-reward-sheen-color: color-mix(
+    in srgb,
+    var(--partner-reward-glow-color, currentColor) 70%,
+    currentColor
+  );
+  position: relative;
+  overflow: hidden;
+  animation: partner-reward-glow-halo 3.6s ease-in-out infinite;
+}
+
+.partner-reward-glow::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  /* The button is the click target; this is decoration lying on top of it. */
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(
+    100deg,
+    transparent 25%,
+    color-mix(in srgb, var(--partner-reward-sheen-color) 22%, transparent) 45%,
+    color-mix(in srgb, var(--partner-reward-sheen-color) 55%, transparent) 50%,
+    color-mix(in srgb, var(--partner-reward-sheen-color) 22%, transparent) 55%,
+    transparent 75%
+  );
+  transform: translateX(-120%);
+  animation: partner-reward-glow-sweep 3.6s ease-in-out infinite;
+}
+
+/* Same bargain .partner-cta-glow makes: keep the highlight, drop the
+   motion — a button that pulses and flashes every few seconds is exactly
+   what this setting is asking us to stop. */
+@media (prefers-reduced-motion: reduce) {
+  .partner-reward-glow {
+    animation: none;
+    box-shadow: 0 0 10px 1px color-mix(in srgb, var(--partner-reward-glow-color, currentColor) 30%, transparent);
+  }
+
+  .partner-reward-glow::after {
+    animation: none;
+    transform: none;
+    background: linear-gradient(
+      100deg,
+      transparent 30%,
+      color-mix(in srgb, var(--partner-reward-sheen-color) 16%, transparent) 50%,
+      transparent 70%
+    );
+  }
+}
