@@ -102,6 +102,7 @@ export function ChatPanel({
   sendDisabledReason,
   gifDisabledReason,
   heightClassName = "h-72",
+  marginClassName = "mt-4 mb-4",
 }: {
   messages: ChatMessage[];
   selfId: string | null;
@@ -142,6 +143,11 @@ export function ChatPanel({
   // WatchRoom.tsx's mobile tab view, where chat is the sole content of its
   // pane instead of one of several things stacked in a shared sidebar.
   heightClassName?: string;
+  // The gap this keeps from whatever shares its column. Overridable because
+  // it isn't always sharing one: WatchRoom's phone layout gives the chat a
+  // sheet of its own, where a margin is just a strip of background between
+  // the sheet's edge and its only content.
+  marginClassName?: string;
 }) {
   const [input, setInput] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -427,7 +433,7 @@ export function ChatPanel({
 
   return (
     <div
-      className={`mt-4 mb-4 flex ${heightClassName} flex-col overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800`}
+      className={`${marginClassName} flex ${heightClassName} flex-col overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800`}
       style={{ minHeight: "245px" }}
     >
       <h2 className="border-b border-zinc-200 px-3 py-2 text-sm font-semibold text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">

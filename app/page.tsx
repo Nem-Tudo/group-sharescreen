@@ -672,6 +672,22 @@ export default function Home() {
           discord.gg/nemtudo
         </a>
         ) ·{" "}
+        {/* The two things the site offers besides the room form itself, and
+            the only place someone browsing can discover either. */}
+        <Link
+          href="/app"
+          className="underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-300"
+        >
+          App para PC
+        </Link>{" "}
+        ·{" "}
+        <Link
+          href="/discord-bot"
+          className="underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-300"
+        >
+          Bot para Discord
+        </Link>{" "}
+        ·{" "}
         <Link
           href="/termos"
           className="underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-300"

@@ -1,6 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  images: {
+    // The Discord screenshots on /discord-bot live on the project's own CDN.
+    // next/image refuses any remote host that is not declared here, so this
+    // is what lets that page use it instead of a plain <img>.
+    remotePatterns: [{ protocol: "https", hostname: "cdn.nemtudo.me" }],
+  },
   async redirects() {
     return [
       {

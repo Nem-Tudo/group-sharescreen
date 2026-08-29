@@ -128,6 +128,13 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  // Makes the on-screen keyboard shrink the layout viewport (and with it
+  // every dvh unit) instead of sliding the page up behind it. The room is a
+  // fixed-height app shell on a phone — see WatchRoom and globals.css's
+  // [data-room-shell] rule — so with the default the keyboard would cover
+  // the chat composer that opened it and there would be nowhere to scroll
+  // to; with this the whole shell simply becomes as tall as what is left.
+  interactiveWidget: "resizes-content",
   // Matches manifest.ts's background_color/theme_color — themeColor moved
   // out of `metadata` and into this separate export (metadata.themeColor is
   // deprecated).

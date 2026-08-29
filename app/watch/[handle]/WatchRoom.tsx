@@ -81,7 +81,6 @@ import {
   SpeakerMuteIcon,
   MoreIcon,
   VerifiedBadgeIcon,
-  ChevronUpIcon,
   ChevronDownIcon,
   EyeIcon,
   EyeOffIcon,
@@ -96,6 +95,8 @@ import {
   MdOutlineDesktopWindows,
   MdOutlineMap,
   MdLogin,
+  MdOutlineChat,
+  MdOutlinePeople,
 } from "react-icons/md";
 import { BsGearFill, BsCoin } from "react-icons/bs";
 import { BetaMark } from "@/components/BetaMark";
@@ -648,6 +649,34 @@ function videoSourceTileId(sourceId: string): string {
   return VIDEO_SOURCE_TILE_PREFIX + sourceId;
 }
 
+// Which of the two sheets the bottom bar has open below lg — see
+// WatchRoom's mobilePanel.
+type MobilePanel = "participants" | "chat";
+
+// The bottom bar below lg. Its controls are thumb-sized (44px is the
+// smallest target a finger hits reliably) rather than the header's compact
+// desktop ones, and they keep the colour language those already use: emerald
+// for "on, or ready to start", red for "off" — and for a transmission that
+// is live, where the next tap stops it.
+//
+// Each control fills a DOCK_SLOT rather than being flex-1 itself, because
+// every one of them is wrapped by its tooltip: a disabled button fires no
+// pointer events, and the disabled state is exactly when the tooltip has
+// something to say (see Tooltip's wrapperClassName).
+const DOCK_SLOT = "flex min-w-0 flex-1";
+const DOCK_BUTTON =
+  "flex h-11 w-full min-w-10 items-center justify-center rounded-xl text-white transition disabled:cursor-not-allowed disabled:opacity-50";
+const DOCK_ON = "bg-emerald-600 active:bg-emerald-700";
+const DOCK_OFF = "bg-red-600 active:bg-red-700";
+// Same red as DOCK_OFF, named apart because it means the opposite thing: not
+// "this is switched off" but "this is on the air".
+const DOCK_LIVE = "bg-red-600 active:bg-red-700";
+const DOCK_TAB =
+  "flex h-11 min-w-12 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl px-2 transition";
+const DOCK_TAB_ACTIVE = "bg-zinc-950 text-white dark:bg-zinc-50 dark:text-zinc-950";
+const DOCK_TAB_IDLE =
+  "text-zinc-600 active:bg-zinc-100 dark:text-zinc-400 dark:active:bg-zinc-900";
+
 export function WatchRoom({ handle }: { handle: string }) {
   const router = useRouter();
   const state = useSignaling();
@@ -802,28 +831,47 @@ export function WatchRoom({ handle }: { handle: string }) {
   // chat one on the right — see participantsSection/chatSection below.
   // Below lg, they share one pane via the tab switcher right below instead.
   const isWideLayout = useMediaQuery(LG_BREAKPOINT_QUERY);
-  // Below lg, the participants list and chat share one pane and take turns
-  // via this tab switcher instead of being stacked in one long scroll — see
-  // the aside below. Unused (both always shown) from lg up.
-  const [mobileTab, setMobileTab] = useState<"participants" | "chat">("participants");
-  // Below lg, this pane starts collapsed to just its tab bar (+ the ad card)
-  // so the video area gets nearly the whole screen — tapping a tab expands
-  // it back up over the video instead of it defaulting open and burying the
-  // transmissions the way the plain always-expanded tabs did. Unused (the
-  // pane is just always expanded) from lg up.
-  const [drawerExpanded, setDrawerExpanded] = useState(false);
+  // Below lg the room is an app shell rather than a page: the header, the
+  // video, and the bar at the bottom of the screen divide the viewport
+  // between them and nothing scrolls except the inside of a pane. This is
+  // which sheet that bottom bar currently has open over the video — null
+  // meaning neither, so the video has the whole area to itself. Unused from
+  // lg up, where the list and the chat each have a permanent column.
+  const [mobilePanel, setMobilePanel] = useState<MobilePanel | null>(null);
 
-  // Tapping the tab that's already open collapses the drawer back down;
-  // tapping the other one switches to it (opening the drawer if it wasn't
-  // already).
-  function selectMobileTab(tab: "participants" | "chat") {
-    if (mobileTab === tab && drawerExpanded) {
-      setDrawerExpanded(false);
-    } else {
-      setMobileTab(tab);
-      setDrawerExpanded(true);
-    }
+  // The bottom bar's two panel buttons are toggles: tapping the sheet that's
+  // already up puts it away again, which is the gesture people try first and
+  // the only way back to a full-screen video.
+  function toggleMobilePanel(panel: MobilePanel) {
+    setMobilePanel((current) => (current === panel ? null : panel));
   }
+
+  // Below lg the chat spends most of its time behind a closed sheet, so its
+  // button in the bottom bar carries a count — without one, a room talking
+  // behind that sheet is completely silent. "Read" means it was on screen
+  // when it arrived; the log the server hands over the moment we join counts
+  // as read too, or walking into any busy room would open on a badge nobody
+  // has any intention of scrolling back through.
+  //
+  // Adjusted during render rather than from an effect (see React's "you
+  // might not need an effect"): this is state derived from a prop-like value
+  // changing, and an effect would render the stale count first and only then
+  // correct it.
+  const chatMessageCount = state.chatMessages.length;
+  const chatOnScreen = isWideLayout || mobilePanel === "chat";
+  const [seenChatCount, setSeenChatCount] = useState<number | null>(null);
+  let nextSeenChatCount = seenChatCount;
+  if (chatMessageCount === 0) {
+    // Nothing has arrived yet (or the log was wiped) — leave the mark unset
+    // so the first batch to land is what gets treated as history.
+    nextSeenChatCount = null;
+  } else if (seenChatCount === null || chatOnScreen) {
+    nextSeenChatCount = chatMessageCount;
+  } else if (seenChatCount > chatMessageCount) {
+    nextSeenChatCount = chatMessageCount;
+  }
+  if (nextSeenChatCount !== seenChatCount) setSeenChatCount(nextSeenChatCount);
+  const unreadChatCount = Math.max(0, chatMessageCount - (nextSeenChatCount ?? chatMessageCount));
   const previousNameRef = useRef(state.name);
 
   // Same hydration-flash guard as page.tsx: useAccountToken()/
@@ -1585,6 +1633,25 @@ export function WatchRoom({ handle }: { handle: string }) {
         {isPrivateRoomHandle(handle) ? "Sala privada" : "Sala pública"}
       </span>
 
+      {/* The room's category and blurb, which sit in the header from lg up
+          (see RoomInfoControls there). Skipped entirely for a viewer of a
+          room that has neither and who couldn't set one anyway — the
+          component renders nothing in that case, and a heading over nothing
+          is worse than no heading. */}
+      {!isWideLayout && (isRoomManager || state.roomDescription || state.roomCategory) && (
+        <div className="mb-1">
+          <p className="mb-1.5 px-1 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+            Sobre a sala
+          </p>
+          <RoomInfoControls
+            description={state.roomDescription}
+            category={state.roomCategory}
+            canEdit={isRoomManager}
+          />
+          <div className="my-2 border-t border-zinc-200 dark:border-zinc-800" />
+        </div>
+      )}
+
       {/* Also reachable from the main row on desktop (see the
           quick-access group below) — kept here too since mobile
           has no room for it outside this menu. */}
@@ -2020,19 +2087,23 @@ export function WatchRoom({ handle }: { handle: string }) {
   // Same reasoning again. Capped height in the shared mobile pane (matches
   // however it always looked there); fills its own column's full height
   // from lg up instead, where it has the whole right side to itself.
-  const chatSection = (
+  // Sits directly above the chat from lg up rather than in the header's
+  // "Mais opções" panel because that panel is everyone's, and the gear here
+  // isn't: it's for whoever actually runs the room. Admins get it too —
+  // placing the room and the permission switches are alike theirs (see the
+  // server's isRoomManager); the popup is what hides "Gerenciar
+  // administradores" from anyone but the owner.
+  //
+  // The map button is the exception: everyone sees it once the room has been
+  // placed, because "where is this room" is something to look at, not
+  // something to run. It just opens read-only for them (see ManageRoomModal's
+  // canEdit).
+  //
+  // Below lg it moves to the top of the participants sheet instead: it is
+  // about the room and the people in it, and above a phone-sized chat it was
+  // two buttons of setup sitting on top of the conversation.
+  const roomManageRow = (
     <>
-      {/* Sits directly above the chat rather than in the header's "Mais
-          opções" panel because that panel is everyone's, and the gear here
-          isn't: it's for whoever actually runs the room. Admins get it too —
-          placing the room and the permission switches are alike theirs (see
-          the server's isRoomManager); the popup is what hides "Gerenciar
-          administradores" from anyone but the owner.
-
-          The map button is the exception: everyone sees it once the room has
-          been placed, because "where is this room" is something to look at,
-          not something to run. It just opens read-only for them (see
-          ManageRoomModal's canEdit). */}
       {(isRoomManager || state.roomLocation) && (
         <div className="mb-2 flex items-center gap-2">
           <Tooltip content={roomLocationTooltip} wrapperClassName="flex flex-1">
@@ -2065,7 +2136,11 @@ export function WatchRoom({ handle }: { handle: string }) {
           )}
         </div>
       )}
-      <ChatPanel
+    </>
+  );
+
+  const chatPanel = (
+    <ChatPanel
         messages={state.chatMessages}
         selfId={state.selfId}
         selfName={state.name}
@@ -2081,13 +2156,31 @@ export function WatchRoom({ handle }: { handle: string }) {
         blockedMessage={state.chatBlockedMessage}
         sendDisabledReason={chatBlockedReason}
         gifDisabledReason={gifBlockedReason}
-        heightClassName={isWideLayout ? "flex-1 min-h-0" : "h-[55vh]"}
+        // Fills whatever box it is given, in both layouts: its own column
+        // from lg up, the sheet the bottom bar raises below that. The margins
+        // go with it — they separate it from what shares its column on
+        // desktop, and there is nothing to separate it from inside a sheet
+        // that is already only chat.
+        heightClassName="flex-1 min-h-0"
+        marginClassName={isWideLayout ? "mt-4 mb-4" : ""}
       />
+  );
+
+  const chatSection = (
+    <>
+      {roomManageRow}
+      {chatPanel}
     </>
   );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-zinc-50 dark:bg-black">
+    <div
+      // Marks this page as an app shell for globals.css, which is what pins
+      // it to the viewport actually on screen below lg — see the
+      // `[data-room-shell]` rule there.
+      data-room-shell
+      className="flex min-h-0 flex-1 flex-col bg-zinc-50 dark:bg-black"
+    >
       {/* Above the header so it reads as a property of the page rather than
           of the room's controls. Renders nothing inside the app itself, and
           nothing for anyone who has already answered. */}
@@ -2107,18 +2200,22 @@ export function WatchRoom({ handle }: { handle: string }) {
               caps itself), which it can only do if this group claims the room
               between the title and the controls in the first place.
 
-              The min-width is what makes the row above actually wrap. Without
-              it this group (min-w-0, so it shrinks to nothing) gave up all of
+              The lg min-width is what makes the row above actually wrap.
+              Without it this group (which shrinks to nothing) gave up all of
               its space to the control group before the browser ever
               considered breaking the line — and since the badge, the category
               chip and the room code inside it are shrink-0, they carried on
               past the group's edge and ran underneath the buttons. With a
               floor, the two groups stop fitting on one line while the left one
               still has room for its chips, so the controls drop to their own
-              line instead. Two floors because the public/private badge is
-              hidden below sm, which is exactly the width where every pixel is
-              worth arguing about. */}
-          <div className="flex min-w-[13rem] flex-1 items-center gap-2 sm:min-w-[20rem]">
+              line instead.
+
+              Below lg there is nothing to hold a floor for and every reason
+              not to: the description and the mid-call controls are elsewhere
+              (see the header's isWideLayout branches), and a floor there
+              would push the four remaining buttons onto a second row on a
+              phone rather than let the room name truncate. */}
+          <div className="flex min-w-0 flex-1 items-center gap-2 lg:min-w-[20rem]">
             <Link href={"/"} className="shrink-0 text-lg font-semibold text-zinc-950 dark:text-zinc-50">
               <MdHome />
             </Link>
@@ -2146,45 +2243,67 @@ export function WatchRoom({ handle }: { handle: string }) {
             </span>
             {/* Right of the public/private badge, where the headcount chip
                 used to be — the participant list already carries that number
-                (and the mobile tab bar repeats it), so this is the more
-                useful thing to spend the space on. Editable for the owner and
-                admins, read-only text for everyone else. */}
-            <RoomInfoControls
-              description={state.roomDescription}
-              category={state.roomCategory}
-              canEdit={isRoomManager}
-            />
+                (and the bottom bar repeats it), so this is the more useful
+                thing to spend the space on. Editable for the owner and
+                admins, read-only text for everyone else.
+
+                From lg up only: below that, an editable text field in the
+                header was the single widest thing competing for a phone's
+                one row, and it is room *metadata* — worth reading once,
+                changed about as often. It moves into "Mais opções" (see
+                roomInfoItem), which is where the rest of the once-per-visit
+                controls already are. */}
+            {isWideLayout && (
+              <RoomInfoControls
+                description={state.roomDescription}
+                category={state.roomCategory}
+                canEdit={isRoomManager}
+              />
+            )}
           </div>
 
           <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-            {/* The mid-call controls (mic, mute-mics, screen, camera) — kept
-                out here rather than in "Mais opções" because they're used
-                while talking, not once at setup. */}
-            <div className="flex flex-wrap items-center justify-end gap-2">{mainControls}</div>
+            {/* The mid-call controls (mic, mute-mics, screen, camera) and the
+                add-video button — kept out of "Mais opções" because they're
+                used while talking, not once at setup.
 
-            {/* Adding a YouTube/Twitch video/live to the room. Sits with the
-                transmission controls because that's what it produces: one
-                more tile everyone in the room sees, with the same focus and
-                hyperfocus buttons — the difference is that nobody is
-                uploading it. Opens components/AddVideoSourceModal as an
-                ntpopups popup rather than the little inline box this used to
-                be — picking a platform and who gets to control it needs more
-                room than a popover corner has. */}
-            <Tooltip
-              content={videoSourceBlockedReason ?? "Adicionar fonte de vídeo"}
-              wrapperClassName="flex"
-            >
-              <button
-                type="button"
-                onClick={openAddVideoSourcePopup}
-                disabled={Boolean(videoSourceBlockedReason)}
-                aria-label="Adicionar fonte de vídeo"
-                className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <MdOutlineOndemandVideo className="h-5 w-5 shrink-0" />
-                <span className="hidden lg:inline"><BetaMark /></span>
-              </button>
-            </Tooltip>
+                From lg up only. Below that they are the bottom bar (see
+                mobileDock): a phone's header is the furthest point from the
+                thumb holding it, and these four were also what turned that
+                header into three wrapped rows of buttons on a 360px screen.
+                Rendered in one place at a time rather than hidden with a
+                `lg:` class, so there is only ever one mic button, one device
+                popover and one open/closed state for them. */}
+            {isWideLayout && (
+              <>
+                <div className="flex flex-wrap items-center justify-end gap-2">{mainControls}</div>
+
+                {/* Adding a YouTube/Twitch video/live to the room. Sits with
+                    the transmission controls because that's what it produces:
+                    one more tile everyone in the room sees, with the same
+                    focus and hyperfocus buttons — the difference is that
+                    nobody is uploading it. Opens
+                    components/AddVideoSourceModal as an ntpopups popup rather
+                    than the little inline box this used to be — picking a
+                    platform and who gets to control it needs more room than a
+                    popover corner has. */}
+                <Tooltip
+                  content={videoSourceBlockedReason ?? "Adicionar fonte de vídeo"}
+                  wrapperClassName="flex"
+                >
+                  <button
+                    type="button"
+                    onClick={openAddVideoSourcePopup}
+                    disabled={Boolean(videoSourceBlockedReason)}
+                    aria-label="Adicionar fonte de vídeo"
+                    className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <MdOutlineOndemandVideo className="h-5 w-5 shrink-0" />
+                    <span className="hidden lg:inline"><BetaMark /></span>
+                  </button>
+                </Tooltip>
+              </>
+            )}
 
             {/* Still desktop-only: on a phone these two live inside "Mais
                 opções" (see above), the only place with room for them. */}
@@ -2370,7 +2489,12 @@ export function WatchRoom({ handle }: { handle: string }) {
       </header>
 
       {!state.account && !guestBannerDismissed && (
-        <div className="flex items-center justify-between gap-3 bg-blue-50 px-4 py-2 text-sm text-blue-800 dark:bg-blue-950/40 dark:text-blue-300">
+        <div className="flex shrink-0 items-center justify-between gap-3 bg-blue-50 px-3 py-1.5 text-xs text-blue-800 lg:px-4 lg:py-2 lg:text-sm dark:bg-blue-950/40 dark:text-blue-300">
+          {/* The reasoning trails off below lg. The room there is a fixed
+              box the video has to share with everything else, and three
+              wrapped lines of optional advice at the top of it cost more
+              than they explain — the offer itself, and the button beside the
+              three dots, still say what this is. */}
           <p>
             Você está usando um nome de convidado. Se quiser, você pode{" "}
             <button
@@ -2380,7 +2504,9 @@ export function WatchRoom({ handle }: { handle: string }) {
             >
               Criar uma conta
             </button>{" "}
-            pra reservar seu nome e manter suas configurações. Mas só se quiser, é opcional :)
+            <span className="hidden lg:inline">
+              pra reservar seu nome e manter suas configurações. Mas só se quiser, é opcional :)
+            </span>
           </p>
           <Tooltip content="Fechar aviso">
             <button
@@ -2445,7 +2571,7 @@ export function WatchRoom({ handle }: { handle: string }) {
         );
       })}
 
-      <div className="flex min-h-0 flex-1 flex-col gap-6 p-4 lg:flex-row">
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row lg:gap-6 lg:p-4">
         {/* From lg up, participants get this dedicated full-height column
             instead of sharing a pane with chat — see isWideLayout. The ad
             card lives here (below the list) rather than in the chat column,
@@ -2457,7 +2583,7 @@ export function WatchRoom({ handle }: { handle: string }) {
           </aside>
         )}
 
-        <main className="min-h-0 flex-1 overflow-y-auto">
+        <main className="min-h-0 flex-1 overflow-y-auto p-2 lg:p-0">
           {nothingToShow ? (
             <div className="flex h-full min-h-75 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-300 text-center dark:border-zinc-800">
               <p className="text-zinc-600 dark:text-zinc-400">
@@ -2767,68 +2893,208 @@ export function WatchRoom({ handle }: { handle: string }) {
           </aside>
         )}
 
-        {/* Below lg only (see isWideLayout) — participants and chat share
-            this one pane and take turns via tabs instead of each getting
-            their own column. Starts collapsed to just its tab bar (+ the ad
-            card) — no max-height needed, it just sizes to that little
-            content, so <main> (flex-1) claims almost the entire screen for
-            video. Tapping a tab expands it (see drawerExpanded/
-            selectMobileTab) and only *then* does it grow to max-h-[60vh],
-            rising up over the video from the bottom rather than sitting
-            permanently on top of it. */}
+        {/* Below lg the room stops being a page and becomes an app shell:
+            the header, the video and the bar below split the viewport between
+            them, and the only things that scroll are the insides of those
+            three. Chat and the participant list come up as a sheet over the
+            bottom of the video — not instead of it, since half the point of
+            the room is talking about what is on screen. What used to be here
+            was a pane that grew downwards as it filled: it pushed the page
+            taller than the viewport, so the whole room slid up and down under
+            the thumb, and the only hint that a chat existed at all was a grey
+            tab strip floating under the video. */}
         {!isWideLayout && (
-          <aside
-            className={`flex w-full shrink-0 flex-col overflow-y-auto ${drawerExpanded ? "max-h-[60vh]" : ""}`}
-          >
+          <>
+            {/* Out here rather than inside a sheet: it is the ad that pays
+                for the room, and below lg it collapses itself to a single
+                slim line (see PartnerCard) — small enough to leave on screen,
+                one tap from the whole card. Above the sheet rather than below
+                it, so the sheet always comes up off the bar that opened it. */}
+            <PartnerCard />
+
+            {mobilePanel && (
+              <section
+                // Mounted only while open, which is also what keeps the chat
+                // opening on the newest message: ChatPanel jumps to the
+                // bottom of the log on mount (see its initializedRef), and a
+                // panel kept alive behind `display: none` cannot scroll
+                // itself, so it would come back holding whatever position it
+                // had when it was put away.
+                className="flex h-[55dvh] min-h-72 shrink-0 flex-col border-t border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950"
+              >
+                {/* The usual sheet grab bar, and a second way out: a sheet
+                    whose only exit is the control that opened it is the kind
+                    of thing people get stuck inside. */}
+                <button
+                  type="button"
+                  onClick={() => setMobilePanel(null)}
+                  aria-label="Fechar"
+                  className="flex w-full shrink-0 justify-center py-2"
+                >
+                  <span className="h-1 w-10 rounded-full bg-zinc-300 dark:bg-zinc-700" />
+                </button>
+
+                {mobilePanel === "participants" ? (
+                  <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+                    {roomManageRow}
+                    {participantsSection}
+                  </div>
+                ) : (
+                  <div className="flex min-h-0 flex-1 flex-col px-3 pb-3">{chatPanel}</div>
+                )}
+              </section>
+            )}
+
             {(state.status === "connecting" || state.status === "closed") && (
-              <p className="mb-1 flex items-center gap-1.5 text-xs font-medium text-amber-600 dark:text-amber-500">
+              <p className="flex shrink-0 items-center justify-center gap-1.5 border-t border-amber-200 bg-amber-50 py-1 text-xs font-medium text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-500">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
                 Conectando...
               </p>
             )}
 
-            <div className="mb-2 flex gap-1">
-              <button
-                type="button"
-                onClick={() => selectMobileTab("participants")}
-                className={`flex flex-1 items-center justify-center gap-1 rounded-lg px-3 py-1.5 text-sm font-medium transition ${mobileTab === "participants" && drawerExpanded
-                  ? "bg-zinc-950 text-white dark:bg-zinc-50 dark:text-zinc-950"
-                  : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                  }`}
-              >
-                Participantes ({peerCount})
-                {mobileTab === "participants" && (
-                  <ChevronUpIcon
-                    className={`h-3.5 w-3.5 shrink-0 transition-transform ${drawerExpanded ? "" : "rotate-180"}`}
-                  />
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => selectMobileTab("chat")}
-                className={`flex flex-1 items-center justify-center gap-1 rounded-lg px-3 py-1.5 text-sm font-medium transition ${mobileTab === "chat" && drawerExpanded
-                  ? "bg-zinc-950 text-white dark:bg-zinc-50 dark:text-zinc-950"
-                  : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                  }`}
-              >
-                Chat
-                {mobileTab === "chat" && (
-                  <ChevronUpIcon
-                    className={`h-3.5 w-3.5 shrink-0 transition-transform ${drawerExpanded ? "" : "rotate-180"}`}
-                  />
-                )}
-              </button>
-            </div>
+            {/* The bar itself: what you do *in* the room on the left (the
+                controls that were wrapping into three rows up in the header,
+                as far from the thumb as a phone can put them), what you open
+                *over* it on the right. One row, thumb-sized targets, never
+                scrolls, never moves. */}
+            <nav className="flex shrink-0 items-center gap-1 border-t border-zinc-200 bg-white px-2 py-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] dark:border-zinc-800 dark:bg-zinc-950">
+              <div className="flex min-w-0 flex-1 items-center gap-1">
+                <Tooltip
+                  content={isMicOn ? "Desativar microfone" : (micBlockedReason ?? "Ativar microfone")}
+                  wrapperClassName={DOCK_SLOT}
+                >
+                  <button
+                    type="button"
+                    onClick={toggleMic}
+                    // Only turning it *on* is blocked — same rule as the
+                    // desktop control, see ShareControls.
+                    disabled={!isMicOn && Boolean(micBlockedReason)}
+                    aria-pressed={isMicOn}
+                    aria-label={isMicOn ? "Desativar microfone" : "Ativar microfone"}
+                    className={`${DOCK_BUTTON} ${isMicOn ? DOCK_ON : DOCK_OFF}`}
+                  >
+                    {isMicOn ? <MicIcon className="h-5 w-5" /> : <MicOffIcon className="h-5 w-5" />}
+                  </button>
+                </Tooltip>
 
-            <div className={drawerExpanded ? "block" : "hidden"}>
-              <div className={mobileTab === "participants" ? "block" : "hidden"}>
-                {participantsSection}
+                <Tooltip
+                  content={micsMuted ? "Reativar microfones" : "Silenciar microfones"}
+                  wrapperClassName={DOCK_SLOT}
+                >
+                  <button
+                    type="button"
+                    onClick={toggleMicsMuted}
+                    aria-pressed={!micsMuted}
+                    aria-label={micsMuted ? "Reativar microfones" : "Silenciar microfones"}
+                    className={`${DOCK_BUTTON} ${micsMuted ? DOCK_OFF : DOCK_ON}`}
+                  >
+                    {micsMuted ? (
+                      <HeadphonesOffIcon className="h-5 w-5" />
+                    ) : (
+                      <HeadphonesIcon className="h-5 w-5" />
+                    )}
+                  </button>
+                </Tooltip>
+
+                {/* Screen capture doesn't exist in a phone browser at all
+                    (see useScreenShareMode), and a bar this narrow has no
+                    room for a button whose only job is to explain why it
+                    can't work. The desktop header keeps its disabled copy,
+                    where there is space for the tooltip. */}
+                {screenShareMode === "display" && (
+                  <Tooltip
+                    content={
+                      localStream
+                        ? "Parar de compartilhar a tela"
+                        : (screenBlockedReason ?? "Compartilhar tela")
+                    }
+                    wrapperClassName={DOCK_SLOT}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => (localStream ? stopShare() : startShare("display"))}
+                      disabled={!localStream && Boolean(screenBlockedReason)}
+                      aria-pressed={Boolean(localStream)}
+                      aria-label={localStream ? "Parar de compartilhar a tela" : "Compartilhar tela"}
+                      className={`${DOCK_BUTTON} ${localStream ? DOCK_LIVE : DOCK_ON}`}
+                    >
+                      <ScreenIcon className="h-5 w-5" />
+                    </button>
+                  </Tooltip>
+                )}
+
+                {screenShareMode !== "unsupported" && (
+                  <Tooltip
+                    content={
+                      localCameraStream
+                        ? "Parar câmera"
+                        : (cameraBlockedReason ?? "Compartilhar câmera")
+                    }
+                    wrapperClassName={DOCK_SLOT}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => (localCameraStream ? stopCameraShare() : startCameraShare())}
+                      disabled={!localCameraStream && Boolean(cameraBlockedReason)}
+                      aria-pressed={Boolean(localCameraStream)}
+                      aria-label={localCameraStream ? "Parar câmera" : "Compartilhar câmera"}
+                      className={`${DOCK_BUTTON} ${localCameraStream ? DOCK_LIVE : DOCK_ON}`}
+                    >
+                      <CameraIcon className="h-5 w-5" />
+                    </button>
+                  </Tooltip>
+                )}
+
+                <Tooltip
+                  content={videoSourceBlockedReason ?? "Adicionar fonte de vídeo"}
+                  wrapperClassName={DOCK_SLOT}
+                >
+                  <button
+                    type="button"
+                    onClick={openAddVideoSourcePopup}
+                    disabled={Boolean(videoSourceBlockedReason)}
+                    aria-label="Adicionar fonte de vídeo"
+                    className={`${DOCK_BUTTON} ${DOCK_ON}`}
+                  >
+                    <MdOutlineOndemandVideo className="h-5 w-5" />
+                  </button>
+                </Tooltip>
               </div>
-              <div className={mobileTab === "chat" ? "block" : "hidden"}>{chatSection}</div>
-            </div>
 
-            <PartnerCard />
-          </aside>
+              <span className="mx-0.5 h-8 w-px shrink-0 bg-zinc-200 dark:bg-zinc-800" />
+
+              {/* Labelled, unlike the controls beside them: an icon says
+                  enough about a microphone, and said nothing about "there is
+                  a chat in here" — which is the actual complaint about the
+                  tab strip these replace. */}
+              <button
+                type="button"
+                onClick={() => toggleMobilePanel("chat")}
+                aria-pressed={mobilePanel === "chat"}
+                className={`${DOCK_TAB} ${mobilePanel === "chat" ? DOCK_TAB_ACTIVE : DOCK_TAB_IDLE}`}
+              >
+                <span className="relative">
+                  <MdOutlineChat className="h-5 w-5" />
+                  {unreadChatCount > 0 && (
+                    <span className="absolute -right-2 -top-1.5 min-w-4 rounded-full bg-red-600 px-1 text-center text-[10px] font-bold leading-4 text-white">
+                      {unreadChatCount > 9 ? "9+" : unreadChatCount}
+                    </span>
+                  )}
+                </span>
+                <span className="text-[10px] font-medium leading-none">Chat</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => toggleMobilePanel("participants")}
+                aria-pressed={mobilePanel === "participants"}
+                className={`${DOCK_TAB} ${mobilePanel === "participants" ? DOCK_TAB_ACTIVE : DOCK_TAB_IDLE}`}
+              >
+                <MdOutlinePeople className="h-5 w-5" />
+                <span className="text-[10px] font-medium leading-none">Pessoas ({peerCount})</span>
+              </button>
+            </nav>
+          </>
         )}
       </div>
 

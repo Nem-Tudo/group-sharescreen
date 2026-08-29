@@ -252,3 +252,74 @@ html .ntpopups-main {
     );
   }
 }
+
+/* The room (app/watch) is an app shell, not a document: below lg its header,
+   video area and bottom bar divide the viewport between them and every
+   scroll happens inside one of those. Two things break that on a phone:
+
+   - `h-full` on <html> (see app/layout.tsx) resolves against the *large*
+     viewport — the one measured with the URL bar hidden — so the page ends
+     up a toolbar taller than what is actually on screen, and the whole room
+     slides up and down as you touch it. 100dvh is the height on screen right
+     now.
+   - a keyboard, a rounded corner or an over-tall pane would still hand the
+     document a scrollbar of its own on top of the pane that should have had
+     it; the room has nothing to scroll to, so it never wants one.
+
+   Scoped with :has to the room itself, so ordinary pages (the home page, the
+   room list) keep scrolling the way documents should. */
+@media (max-width: 63.999rem) {
+  html:has([data-room-shell]),
+  body:has([data-room-shell]) {
+    height: 100dvh;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+}
+
+/* The two bits of motion on /app (see app/app/FeatureArt.tsx): a small
+   equalizer that says "someone is talking / sound is going out", and the
+   dot on the "ao vivo" badge. Both live here rather than inline because
+   each bar needs the same keyframes at a different delay, which a utility
+   class cannot express.
+
+   Deliberately slow and small: this is a landing page someone reads, not a
+   loading screen, and the art is decoration next to the text that carries
+   the point. */
+@keyframes golive-eq {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+.golive-eq-bar {
+  transform-origin: bottom;
+  animation: golive-eq 1.1s ease-in-out infinite;
+}
+
+@keyframes golive-live-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.golive-live-dot {
+  animation: golive-live-dot 1.6s ease-in-out infinite;
+}
+
+/* Both are ambient — nothing is being communicated by the movement itself
+   that the shapes do not already say standing still. */
+@media (prefers-reduced-motion: reduce) {
+  .golive-eq-bar,
+  .golive-live-dot {
+    animation: none;
+  }
+}
