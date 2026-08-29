@@ -31,6 +31,7 @@ import {
   splitPrivateRoomHandle,
   MAX_PRIVATE_ROOM_NAME_LENGTH,
 } from "@/lib/roomsApi";
+import { rememberRecentRoom } from "@/lib/recentRooms";
 import { useRoomSoundEffects } from "@/lib/useRoomSoundEffects";
 import { useBackgroundKeepAlive } from "@/lib/useBackgroundKeepAlive";
 import { getSoundEffectsEnabled, setSoundEffectsEnabled } from "@/lib/soundEffects";
@@ -991,6 +992,15 @@ export function WatchRoom({ handle }: { handle: string }) {
       signalingClient.leaveRoom();
     };
   }, [validHandle, state.name, handle]);
+
+  // Remember the room only after join actually lands — navigating to
+  // /watch/... isn't enough, since a failed join would then pin a dead
+  // link on the home page. localStorage, not session, so it survives the
+  // leave that takes them back there.
+  useEffect(() => {
+    if (state.room !== handle) return;
+    rememberRecentRoom(handle);
+  }, [state.room, handle]);
 
   // Clears the hyperfocus state once its target is gone (see
   // activeHyperfocusId further down, which already makes the *render* behave

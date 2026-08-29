@@ -26,6 +26,7 @@ import { AccountConnections } from "@/components/AccountConnections";
 import type { OAuthResult } from "@/lib/oauthApi";
 import { GlobeIcon } from "@/components/icons";
 import { DownloadAppButton } from "@/components/DownloadAppButton";
+import { RecentRooms } from "@/components/RecentRooms";
 import { MdLock, MdOutlineMap } from "react-icons/md";
 import { Tooltip } from "@/components/Tooltip";
 
@@ -608,6 +609,9 @@ export default function Home() {
                 and stays collapsed until asked for, so the room form below
                 remains the page's main action. */}
             {isAccount && <AccountConnections />}
+            {/* Last rooms this browser was in. Hidden when empty so a first
+                visit doesn't grow the form for nothing — see RecentRooms. */}
+            <RecentRooms />
             {/* Public/private as two visible options rather than a
                 checkbox under the name field: the choice changes what the
                 form even asks for, so it belongs above the fields it
