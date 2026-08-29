@@ -3,52 +3,64 @@
 import {
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ChangeEvent,
   type FormEvent,
   type KeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
 } from "react";
 import type { ChatMessage } from "@/lib/signalingClient";
 import type { GifResult } from "@/app/api/giphy/search/route";
 import { GifPicker } from "@/components/GifPicker";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { Popover } from "@/components/Tooltip";
+import {
+  buildMentionsRegex,
+  tokenizeMentions,
+  isUserMentionedInMessage,
+  getMentionTriggerInfo,
+  filterMentionCandidates,
+  applyMentionInsertion,
+} from "@/lib/chatMentions";
+
+export type ChatPeer = {
+  id: string;
+  name: string;
+  isGuest?: boolean;
+  flags?: string[];
+  role?: string;
+};
 
 function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
 const URL_PATTERN = /(https?:\/\/[^\s]+|www\.[^\s]+)/g;
-// "@Name" mentions — letters/numbers/underscore covers every display name
-// this app accepts, \p{L}/\p{N} (Unicode-aware) so an accented name like
-// "@José" still highlights correctly.
-const MENTION_PATTERN = /@[\p{L}\p{N}_]+/gu;
 
-// Splits a plain-text (non-URL) segment on "@mentions" and colors just that
-// token blue — visible to every reader, not only the person being
-// mentioned, so a mention reads as a mention for the whole room.
-function highlightMentions(text: string, keyPrefix: string) {
-  const parts = text.split(MENTION_PATTERN);
-  const mentions = text.match(MENTION_PATTERN) ?? [];
-  const out: (string | React.ReactNode)[] = [];
-  parts.forEach((part, i) => {
-    if (part) out.push(part);
-    if (i < mentions.length) {
-      out.push(
-        <span key={`${keyPrefix}-${i}`} className="font-medium text-blue-600 dark:text-blue-400">
-          {mentions[i]}
-        </span>
-      );
-    }
-  });
-  return out;
-}
-
-function linkifyText(text: string) {
+// Splits a plain-text segment on valid room member mentions and colors each
+// mention token blue. Tokens that do not match an existing participant name
+// remain normal plain text.
+function linkifyText(text: string, mentionRegex: RegExp | null) {
   const parts = text.split(URL_PATTERN);
   return parts.map((part, i) => {
-    if (!part.match(URL_PATTERN)) return highlightMentions(part, `mention-${i}`);
+    if (!part.match(URL_PATTERN)) {
+      const tokens = tokenizeMentions(part, mentionRegex);
+      return tokens.map((token, j) => {
+        if (token.type === "mention") {
+          return (
+            <span
+              key={`mention-${i}-${j}`}
+              className="font-medium text-blue-600 dark:text-blue-400"
+            >
+              {token.value}
+            </span>
+          );
+        }
+        return token.value;
+      });
+    }
     const href = part.startsWith("www.") ? `https://${part}` : part;
     return (
       <a
@@ -81,6 +93,7 @@ export function ChatPanel({
   messages,
   selfId,
   selfName,
+  peers = [],
   onSend,
   onSendGif,
   onTypingChange,
@@ -92,10 +105,12 @@ export function ChatPanel({
 }: {
   messages: ChatMessage[];
   selfId: string | null;
-  // Used to detect "@YourName" mentions for the yellow highlight below —
+  // Used to detect "@YourName" mentions for the yellow/blue highlight —
   // omitted for the admin moderation view, which has no identity of its own
   // in the room it's watching.
   selfName?: string | null;
+  // Participants in the room used for autocomplete and mention resolution.
+  peers?: ChatPeer[];
   // Omitted for a read-only viewer (the admin moderation view) — hides the
   // input form instead of sending into a room the viewer isn't a member of.
   onSend?: (text: string) => void;
@@ -130,8 +145,18 @@ export function ChatPanel({
 }) {
   const [input, setInput] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
+
+  // Mention autocomplete popup state
+  const [mentionQuery, setMentionQuery] = useState("");
+  const [mentionStartIndex, setMentionStartIndex] = useState<number | null>(null);
+  const [mentionMenuOpen, setMentionMenuOpen] = useState(false);
+  const [mentionIndex, setMentionIndex] = useState(0);
+
+  const mentionMenuRef = useRef<HTMLDivElement>(null);
+  const activeItemRef = useRef<HTMLButtonElement | null>(null);
   const isTypingRef = useRef(false);
   const typingIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Held in a ref so the unmount cleanup below always calls the latest
   // handler rather than whichever one was in scope when the effect first ran.
   const onTypingChangeRef = useRef(onTypingChange);
@@ -149,6 +174,7 @@ export function ChatPanel({
       if (isTypingRef.current) onTypingChangeRef.current?.(false);
     };
   }, []);
+
   const listRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // Tracks whether we've already jumped to bottom for the current batch of
@@ -174,6 +200,120 @@ export function ChatPanel({
     if (nearBottom) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
+  // All known member names in the room (peers + self + authors in history)
+  // used to construct mention tokenizers and match valid mentions accurately.
+  const allKnownNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const p of peers) {
+      if (p.name?.trim()) names.add(p.name.trim());
+    }
+    if (selfName?.trim()) names.add(selfName.trim());
+    for (const m of messages) {
+      if (m.name?.trim()) names.add(m.name.trim());
+    }
+    return Array.from(names);
+  }, [peers, selfName, messages]);
+
+  const mentionRegex = useMemo(() => buildMentionsRegex(allKnownNames), [allKnownNames]);
+
+  // Deduplicated candidate list of participants currently in the room for
+  // the autocomplete popup.
+  const roomParticipants = useMemo(() => {
+    const map = new Map<string, ChatPeer>();
+    for (const p of peers) {
+      if (p.name?.trim()) {
+        const key = p.name.trim().toLowerCase();
+        if (!map.has(key)) {
+          map.set(key, {
+            id: p.id,
+            name: p.name.trim(),
+            isGuest: p.isGuest,
+            flags: p.flags,
+          });
+        }
+      }
+    }
+    if (selfName?.trim()) {
+      const key = selfName.trim().toLowerCase();
+      if (!map.has(key)) {
+        map.set(key, { id: selfId ?? "self", name: selfName.trim() });
+      }
+    }
+    return Array.from(map.values());
+  }, [peers, selfName, selfId]);
+
+  // Filtered and ranked autocomplete candidates based on user input after "@"
+  const filteredCandidates = useMemo(() => {
+    if (!mentionMenuOpen || mentionStartIndex === null) return [];
+    return filterMentionCandidates(roomParticipants, mentionQuery);
+  }, [mentionMenuOpen, mentionStartIndex, roomParticipants, mentionQuery]);
+
+  const selectedIndex =
+    filteredCandidates.length > 0
+      ? Math.min(mentionIndex, filteredCandidates.length - 1)
+      : 0;
+
+  // Automatically scrolls the active selected candidate into view inside the
+  // minimalist scrollable container during keyboard navigation.
+  useEffect(() => {
+    if (activeItemRef.current) {
+      activeItemRef.current.scrollIntoView({ block: "nearest" });
+    }
+  }, [selectedIndex]);
+
+  // Dismisses autocomplete popup if user clicks anywhere outside of it
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (
+        mentionMenuRef.current &&
+        !mentionMenuRef.current.contains(e.target as Node) &&
+        textareaRef.current &&
+        !textareaRef.current.contains(e.target as Node)
+      ) {
+        setMentionMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  function updateMentionTrigger(text: string, cursorPos: number) {
+    const trigger = getMentionTriggerInfo(text, cursorPos);
+    if (trigger.isTriggered) {
+      setMentionStartIndex(trigger.startIndex);
+      setMentionQuery(trigger.query);
+      setMentionIndex(0);
+      setMentionMenuOpen(true);
+    } else {
+      setMentionMenuOpen(false);
+      setMentionStartIndex(null);
+      setMentionQuery("");
+      setMentionIndex(0);
+    }
+  }
+
+  function handleSelectMention(selectedName: string) {
+    if (mentionStartIndex === null || !textareaRef.current) return;
+    const cursorPos = textareaRef.current.selectionStart ?? input.length;
+    const { newText, newCursorPos } = applyMentionInsertion(
+      input,
+      cursorPos,
+      mentionStartIndex,
+      selectedName
+    );
+    setInput(newText);
+    setMentionMenuOpen(false);
+    setMentionStartIndex(null);
+    setMentionQuery("");
+
+    requestAnimationFrame(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+        textareaRef.current.setSelectionRange(newCursorPos, newCursorPos);
+      }
+    });
+  }
+
   function stopTypingIfNeeded() {
     if (typingIdleTimerRef.current) {
       clearTimeout(typingIdleTimerRef.current);
@@ -189,6 +329,9 @@ export function ChatPanel({
     if (!input.trim() || !onSend || sendDisabledReason) return;
     onSend(input);
     setInput("");
+    setMentionMenuOpen(false);
+    setMentionStartIndex(null);
+    setMentionQuery("");
     stopTypingIfNeeded();
     // Collapses the box back to one line — without this it'd stay grown to
     // whatever height the sent message had reached.
@@ -200,9 +343,33 @@ export function ChatPanel({
     sendInput();
   }
 
-  // Enter sends (matching the old single-line input's behavior); Shift+Enter
-  // inserts a newline, same convention as every other chat app.
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (mentionMenuOpen && filteredCandidates.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setMentionIndex((prev) => (prev + 1) % filteredCandidates.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setMentionIndex((prev) => (prev - 1 + filteredCandidates.length) % filteredCandidates.length);
+        return;
+      }
+      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+        e.preventDefault();
+        const selected = filteredCandidates[selectedIndex];
+        if (selected) {
+          handleSelectMention(selected.name);
+        }
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMentionMenuOpen(false);
+        return;
+      }
+    }
+
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       sendInput();
@@ -223,6 +390,10 @@ export function ChatPanel({
   function handleChange(e: ChangeEvent<HTMLTextAreaElement>) {
     const value = e.target.value;
     setInput(value);
+
+    const cursorPos = e.target.selectionStart ?? value.length;
+    updateMentionTrigger(value, cursorPos);
+
     if (!onTypingChange) return;
     if (typingIdleTimerRef.current) clearTimeout(typingIdleTimerRef.current);
     if (!value.trim()) {
@@ -234,6 +405,19 @@ export function ChatPanel({
       onTypingChange(true);
     }
     typingIdleTimerRef.current = setTimeout(stopTypingIfNeeded, TYPING_IDLE_MS);
+  }
+
+  function handleKeyUp(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"].includes(e.key) && mentionMenuOpen) {
+      return;
+    }
+    const cursorPos = e.currentTarget.selectionStart ?? e.currentTarget.value.length;
+    updateMentionTrigger(e.currentTarget.value, cursorPos);
+  }
+
+  function handleClick(e: ReactMouseEvent<HTMLTextAreaElement>) {
+    const cursorPos = e.currentTarget.selectionStart ?? e.currentTarget.value.length;
+    updateMentionTrigger(e.currentTarget.value, cursorPos);
   }
 
   function handleGifSelect(gif: GifResult) {
@@ -259,30 +443,39 @@ export function ChatPanel({
           messages.map((m) => {
             const isSelf = m.from === selfId;
             const isMention =
-              !!selfName &&
+              !isSelf &&
+              Boolean(selfName) &&
               m.kind !== "gif" &&
-              m.text.toLowerCase().includes(`@${selfName}`.toLowerCase());
+              isUserMentionedInMessage(m.text, selfName, allKnownNames);
             return (
               <div
                 key={m.id}
-                className={`-mx-1.5 rounded-md px-1.5 py-1 text-sm ${isMention ? "bg-yellow-200 dark:bg-blue-500/25" : ""
-                  }`}
+                className={`-mx-1.5 rounded-md px-1.5 py-1 text-sm ${
+                  isMention ? "bg-yellow-200 dark:bg-blue-500/25" : ""
+                }`}
               >
                 <div className="flex items-baseline gap-1.5">
                   <DisplayUserName
                     name={m.name}
                     isGuest={m.isGuest}
                     verified={m.flags?.includes("VERIFIED")}
-                    className={`font-medium ${isSelf ? "text-zinc-900 dark:text-zinc-100" : "text-zinc-700 dark:text-zinc-300"
-                      }`}
+                    className={`font-medium ${
+                      isSelf
+                        ? "text-zinc-900 dark:text-zinc-100"
+                        : "text-zinc-700 dark:text-zinc-300"
+                    }`}
                   />
-                  <span className="text-xs text-zinc-400 dark:text-zinc-600">{formatTime(m.ts)}</span>
+                  <span className="text-xs text-zinc-400 dark:text-zinc-600">
+                    {formatTime(m.ts)}
+                  </span>
                 </div>
                 {m.kind === "gif" && m.url ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={m.url} alt="GIF" className="mt-1 max-h-40 max-w-full rounded-md" />
                 ) : (
-                  <p className="break-words text-zinc-800 dark:text-zinc-200">{linkifyText(m.text)}</p>
+                  <p className="break-words text-zinc-800 dark:text-zinc-200">
+                    {linkifyText(m.text, mentionRegex)}
+                  </p>
                 )}
               </div>
             );
@@ -305,8 +498,54 @@ export function ChatPanel({
       {onSend && (
         <form
           onSubmit={handleSubmit}
-          className="flex gap-2 border-t border-zinc-200 p-2 dark:border-zinc-800"
+          className="relative flex gap-2 border-t border-zinc-200 p-2 dark:border-zinc-800"
         >
+          {/* Autocomplete mention popup */}
+          {mentionMenuOpen && filteredCandidates.length > 0 && (
+            <div
+              ref={mentionMenuRef}
+              role="listbox"
+              aria-label="Membros para mencionar"
+              className="absolute bottom-full left-2 mb-1.5 flex w-60 max-w-[calc(100vw-2rem)] max-h-48 flex-col overflow-y-auto rounded-lg border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-800 dark:bg-zinc-900 z-30 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+            >
+              <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                Membros na sala
+              </div>
+              {filteredCandidates.map((peer, idx) => {
+                const isSelected = idx === selectedIndex;
+                return (
+                  <button
+                    key={peer.id || peer.name}
+                    ref={isSelected ? activeItemRef : null}
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      handleSelectMention(peer.name);
+                    }}
+                    onMouseEnter={() => setMentionIndex(idx)}
+                    className={`flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition cursor-pointer ${
+                      isSelected
+                        ? "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-50 font-medium"
+                        : "text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800/50"
+                    }`}
+                  >
+                    <DisplayUserName
+                      name={peer.name}
+                      isGuest={peer.isGuest}
+                      verified={peer.flags?.includes("VERIFIED")}
+                      className="truncate"
+                    />
+                    <span className="shrink-0 text-[10px] text-zinc-400 dark:text-zinc-500 font-mono">
+                      Tab ↵
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           <Popover
             open={pickerOpen}
             onClose={() => setPickerOpen(false)}
@@ -324,10 +563,11 @@ export function ChatPanel({
                 disabled={!onSendGif}
                 onClick={() => setPickerOpen((open) => !open)}
                 aria-label="Adicionar GIF"
-                className={`inline-flex shrink-0 items-center justify-center rounded-md border px-2.5 py-1.5 text-xs font-semibold transition ${onSendGif
+                className={`inline-flex shrink-0 items-center justify-center rounded-md border px-2.5 py-1.5 text-xs font-semibold transition ${
+                  onSendGif
                     ? "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
                     : "cursor-not-allowed border-zinc-200 text-zinc-400 dark:border-zinc-800 dark:text-zinc-600"
-                  }`}
+                }`}
               >
                 GIF
               </button>
@@ -338,6 +578,8 @@ export function ChatPanel({
             value={input}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
+            onKeyUp={handleKeyUp}
+            onClick={handleClick}
             onInput={handleInput}
             maxLength={500}
             rows={1}
