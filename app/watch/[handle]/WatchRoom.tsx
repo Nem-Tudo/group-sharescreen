@@ -1961,6 +1961,7 @@ export function WatchRoom({ handle }: { handle: string }) {
           userId={account?.id}
           isOwner={isRoomOwner}
           isAdmin={isRoomAdmin}
+          isApp={mounted && isDesktopApp()}
           verified={state.account?.flags?.includes("VERIFIED")}
           micOn={isMicOn}
           sharing={isSharing}
@@ -1979,6 +1980,7 @@ export function WatchRoom({ handle }: { handle: string }) {
               userId={p.userId}
               isOwner={Boolean(p.userId) && p.userId === state.roomOwnerId}
               isAdmin={state.roomAdmins.some((a) => a.id === p.userId)}
+              isApp={p.app}
               verified={p.flags?.includes("VERIFIED")}
               micOn={p.mic}
               sharing={p.sharing}

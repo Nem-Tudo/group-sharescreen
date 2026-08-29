@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSpeaking } from "@/lib/useSpeaking";
 import { MicIcon, MicOffIcon, ScreenIcon, CameraIcon } from "./icons";
-import { MdOutlineOndemandVideo } from "react-icons/md";
+import { MdOutlineDesktopWindows, MdOutlineOndemandVideo } from "react-icons/md";
 import { FaCrown } from "react-icons/fa";
 import { VolumeSlider } from "./VolumeSlider";
 import { DisplayUserName } from "./DisplayUserName";
@@ -29,6 +29,7 @@ export function ParticipantRow({
   verified = false,
   isOwner = false,
   isAdmin = false,
+  isApp = false,
 }: {
   name: string;
   isSelf?: boolean;
@@ -67,6 +68,12 @@ export function ParticipantRow({
   // same crown, in a muted color, so the two read as the same kind of thing
   // without looking like two owners.
   isAdmin?: boolean;
+  // Connected through the GoLive desktop app instead of a browser (see
+  // PeerInfo.app in lib/signalingClient.ts) — gets the same app icon the
+  // download/"abrir no aplicativo" surfaces use, so the two read as the same
+  // thing. False for anyone on the web, and for a peer sent by a server that
+  // predates the field.
+  isApp?: boolean;
 }) {
   const speaking = useSpeaking(micOn ? micStream : null);
   // Whether the screen/camera split is actually known for this peer — see
@@ -120,6 +127,13 @@ export function ParticipantRow({
               </span>
             </Tooltip>
           )
+        )}
+        {isApp && (
+          <Tooltip content={`${name} está usando o aplicativo do GoLive`}>
+            <span className="flex shrink-0 items-center self-center">
+              <MdOutlineDesktopWindows className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
+            </span>
+          </Tooltip>
         )}
         {isSelf && <span className="shrink-0 text-xs font-normal text-zinc-500">(você)</span>}
       </span>

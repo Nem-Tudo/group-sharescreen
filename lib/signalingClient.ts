@@ -44,6 +44,11 @@ export type PeerInfo = {
   // doesn't include this yet; DisplayUserName treats both the same (no
   // badge). Only ever meaningful for a real account, never a guest name.
   flags?: string[];
+  // On the GoLive desktop app rather than a browser (see
+  // server/signaling.ts's peerSummary) — ParticipantRow shows a small app
+  // icon for these. Undefined for a peer sent by an older server version
+  // that doesn't include it yet, treated the same as `false`.
+  app?: boolean;
 };
 
 export type SignalingStatus = "idle" | "connecting" | "open" | "closed" | "superseded" | "banned";
