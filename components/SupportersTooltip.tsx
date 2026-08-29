@@ -82,7 +82,7 @@ export function SupportersTooltipContent() {
     <div className="max-h-60 w-56 overflow-y-auto">
       <SupportPerk />
       <p className="mb-1.5 px-0.5 text-[0.65rem] font-semibold tracking-wide text-zinc-400 uppercase">
-        Apoiadores
+        Rank dos apoiadores (R$20+)
       </p>
       <ul className="flex flex-col gap-1">
         {supporters.map((s, i) => (
