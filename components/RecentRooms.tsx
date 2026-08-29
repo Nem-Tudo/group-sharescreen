@@ -31,7 +31,10 @@ export function RecentRooms() {
         <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
           Salas recentes
         </span>
-        <span className="text-xs text-zinc-500 dark:text-zinc-400">
+        <span className="text-xs text-zinc-500 dark:text-zinc-400 sm:hidden">
+          última em que você entrou
+        </span>
+        <span className="hidden text-xs text-zinc-500 dark:text-zinc-400 sm:inline">
           {MAX_RECENT_ROOMS} últimas em que você entrou
         </span>
       </div>
@@ -40,7 +43,10 @@ export function RecentRooms() {
           const { name, isPrivate, code } = recentRoomPresentation(room.handle);
           const visibility = isPrivate ? "privada" : "pública";
           return (
-            <li key={room.handle} className="relative">
+            <li
+              key={room.handle}
+              className={index > 0 ? "relative hidden sm:block" : "relative"}
+            >
               <Link
                 href={`/watch/${room.handle}`}
                 onClick={() =>
