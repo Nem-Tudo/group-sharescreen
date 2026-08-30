@@ -60,6 +60,7 @@ export function DownloadAppButton({
     <Tooltip content="Remova o eco, obtenha melhor desempenho e mais.">
       <Link
         href="/app"
+        target="_blank"
         onClick={() => trackDownloadClick(source, platform)}
         className={`inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 px-3.5 py-2 text-sm font-medium text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900 ${className}`}
       >

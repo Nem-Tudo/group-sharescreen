@@ -183,6 +183,7 @@ export function InstallAppButton() {
         // afterwards is just clutter.
         <Link
           href="/app"
+          target="_blank"
           onClick={() => {
             trackDownloadClick("install-prompt", downloadPlatform);
             dismiss();
