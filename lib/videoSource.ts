@@ -145,6 +145,20 @@ export function videoSourceVolumeKey(source: Pick<VideoSource, "videoId" | "play
   return `video:${source.playlistId || source.videoId}`;
 }
 
+// Where a video *nobody has touched yet* gets its starting volume from: the
+// last dial this viewer set on any video the same person added. Someone who
+// posts videos mastered twice as loud as everything else gets turned down
+// once, not once per link — and the person who posts quiet ones stays
+// audible. Lives in the same store as the key above, with a prefix of its own
+// so the two can't collide (a source key is keyed on the video, this one on
+// whoever brought it).
+//
+// Keyed on the adder's stable user id — the same identity a source records in
+// addedById — so it survives their reconnects, and this viewer's reloads.
+export function videoSourceAdderVolumeKey(addedById: string): string {
+  return `video-by:${addedById}`;
+}
+
 const TWITCH_CHANNEL_RE = /^[A-Za-z][A-Za-z0-9_]{3,24}$/;
 
 // Client-side twin of the server's parseTwitchChannel (see server/signaling.ts)

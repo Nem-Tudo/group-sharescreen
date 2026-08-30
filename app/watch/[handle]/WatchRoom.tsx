@@ -71,7 +71,11 @@ import { CreateAccountForm } from "@/components/CreateAccountForm";
 import { RoomAccountCard } from "@/components/RoomAccountCard";
 import { LoginForm } from "@/components/LoginForm";
 import { VideoSourceTile } from "@/components/VideoSourceTile";
-import { videoSourceVolumeKey, type VideoSourceKind } from "@/lib/videoSource";
+import {
+  videoSourceVolumeKey,
+  videoSourceAdderVolumeKey,
+  type VideoSourceKind,
+} from "@/lib/videoSource";
 import useNtPopups from "ntpopups";
 import {
   MicIcon,
@@ -1135,6 +1139,17 @@ export function WatchRoom({ handle }: { handle: string }) {
     setStoredTransmissionVolume(volumeKey, volume);
   }
 
+  // A video source's dial writes two entries: the video's own, and one for
+  // whoever added it (see videoSourceAdderVolumeKey). The second is only ever
+  // read as a *default* — the next video that person adds opens at whatever
+  // this viewer last chose for one of theirs, instead of starting at full
+  // volume every time and being turned down again.
+  function setVideoSourceVolume(volumeKey: string, adderKey: string, volume: number) {
+    setTransmissionVolumes((prev) => ({ ...prev, [volumeKey]: volume, [adderKey]: volume }));
+    setStoredTransmissionVolume(volumeKey, volume);
+    setStoredTransmissionVolume(adderKey, volume);
+  }
+
   function closeMenu() {
     setMenuOpen(false);
     setRenaming(false);
@@ -1825,13 +1840,17 @@ export function WatchRoom({ handle }: { handle: string }) {
     // changes, so the playlist id is the stable key when present. Its own
     // prefix keeps it out of the way of the peer ids sharing that store.
     const volumeKey = videoSourceVolumeKey(videoSource);
+    // Falls back to whatever this viewer last set on another video from the
+    // same person before falling back to full volume — the video's own saved
+    // dial still wins whenever there is one.
+    const adderVolumeKey = videoSourceAdderVolumeKey(videoSource.addedById);
     tiles.push({
       id,
       render: (fill) => (
         <VideoSourceTile
           source={videoSource}
-          volume={transmissionVolumes[volumeKey] ?? 1}
-          onVolumeChange={(volume) => setTransmissionVolume(volumeKey, volume)}
+          volume={transmissionVolumes[volumeKey] ?? transmissionVolumes[adderVolumeKey] ?? 1}
+          onVolumeChange={(volume) => setVideoSourceVolume(volumeKey, adderVolumeKey, volume)}
           // Whoever added it drives — or, if they set it to "anyone" when
           // adding it, everyone does. Either way this is enforced again
           // server-side (see "video-source-state" in signaling.ts), not just
