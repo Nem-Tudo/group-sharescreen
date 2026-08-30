@@ -65,28 +65,53 @@ function escapeHtml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
+// How long a room's name may be on a pin before it is cut. A pin is a label
+// floating over a map, not a list row: past this it stops being a marker and
+// starts being a banner across a country. The full name is in the popup, and
+// in the native tooltip on hover.
+const MAX_PIN_LABEL = 14;
+
+// Below this zoom a pin is a dot with a headcount and nothing else. Zoomed out
+// far enough to see a continent, a dozen labelled pills over south-east Brazil
+// overlap into an unreadable stack — and at that distance the question being
+// asked is "where are the rooms", not "what are they called". Zooming in is
+// what asks the second question, and is what brings the names back.
+const COMPACT_LABEL_ZOOM = 5;
+
 // A room pin: a rounded label with the room's name and headcount, on a stem.
 // A divIcon rather than Leaflet's default marker image, so there are no image
 // assets to bundle and the pin can be styled with the same Tailwind palette
 // as the rest of the app (inline, since Leaflet inserts this outside React
 // and Tailwind's scanner never sees a class name built at runtime).
-function roomIcon(marker: WorldMapMarker): L.DivIcon {
-  const label = escapeHtml(marker.label);
-  const badge = marker.badge ? `<span style="opacity:.75">${escapeHtml(marker.badge)}</span>` : "";
-  // A darker inset pill rather than another colour: the pin already carries
-  // the room's own colour, and a second bright one would compete with it.
-  const tag = marker.tag
-    ? `<span style="border-radius:9999px;background:rgba(0,0,0,.25);padding:1px 6px;font-size:10px">${escapeHtml(marker.tag)}</span>`
-    : "";
+function roomIcon(marker: WorldMapMarker, compact: boolean): L.DivIcon {
+  const count =
+    typeof marker.peopleCount === "number"
+      ? `<span style="opacity:.8;font-variant-numeric:tabular-nums">${marker.peopleCount}</span>`
+      : "";
+  const pill = compact
+    ? // Just the number. The name is still one hover (the native tooltip) or
+      // one click (the popup) away, which is the right price for it out here.
+      `<div style="display:flex;align-items:center;justify-content:center;min-width:16px;white-space:nowrap;border-radius:9999px;background:#059669;color:#fff;padding:1px 5px;font-size:10px;font-weight:700;box-shadow:0 1px 4px rgba(0,0,0,.35)">${count || "·"}</div>`
+    : (() => {
+        const raw = marker.label;
+        const label = escapeHtml(
+          raw.length > MAX_PIN_LABEL ? `${raw.slice(0, MAX_PIN_LABEL - 1)}…` : raw
+        );
+        // A darker inset pill rather than another colour: the pin already
+        // carries the room's own colour, and a second bright one would
+        // compete with it.
+        const tag = marker.tag
+          ? `<span style="border-radius:9999px;background:rgba(0,0,0,.25);padding:0 5px;font-size:9px">${escapeHtml(marker.tag)}</span>`
+          : "";
+        return `<div style="display:flex;align-items:center;gap:4px;white-space:nowrap;border-radius:9999px;background:#059669;color:#fff;padding:2px 7px;font-size:11px;font-weight:600;box-shadow:0 1px 5px rgba(0,0,0,.35)">${tag}<span>${label}</span>${count}</div>`;
+      })();
   return L.divIcon({
     className: "",
     html: `
       <div style="transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;pointer-events:auto">
-        <div style="display:flex;align-items:center;gap:6px;white-space:nowrap;border-radius:9999px;background:#059669;color:#fff;padding:4px 10px;font-size:12px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,.35)">
-          ${tag}<span>${label}</span>${badge}
-        </div>
-        <div style="width:2px;height:10px;background:#059669"></div>
-        <div style="width:8px;height:8px;border-radius:9999px;background:#059669;box-shadow:0 0 0 3px rgba(5,150,105,.28)"></div>
+        ${pill}
+        <div style="width:2px;height:${compact ? 4 : 6}px;background:#059669"></div>
+        <div style="width:6px;height:6px;border-radius:9999px;background:#059669;box-shadow:0 0 0 2px rgba(5,150,105,.28)"></div>
       </div>`,
     // The whole thing is positioned by the CSS transform above, so Leaflet's
     // own anchor maths has nothing left to do — hence a zero-size icon.
@@ -100,9 +125,14 @@ function roomIcon(marker: WorldMapMarker): L.DivIcon {
 // navigation into the room (which is a full page's worth of new code anyway).
 function popupHtml(marker: WorldMapMarker): string {
   const label = escapeHtml(marker.label);
-  const badge = marker.badge
-    ? `<div style="font-size:12px;opacity:.7;margin-top:2px">${escapeHtml(marker.badge)}</div>`
-    : "";
+  // Spelled out here, unlike on the pin: this is the one place with room for
+  // a sentence.
+  const badge =
+    typeof marker.peopleCount === "number"
+      ? `<div style="font-size:12px;opacity:.7;margin-top:2px">${marker.peopleCount} ${
+          marker.peopleCount === 1 ? "pessoa" : "pessoas"
+        }</div>`
+      : "";
   const tag = marker.tag
     ? `<div style="font-size:11px;font-weight:600;opacity:.8;margin-bottom:2px">${escapeHtml(marker.tag)}</div>`
     : "";
@@ -157,7 +187,10 @@ export default function WorldMapImpl({
   pick = null,
   onPick,
   center,
-  zoom,
+  // The *initial* zoom, renamed on the way in: the live one lives in state
+  // below, and two things called `zoom` in one component is how a prop that
+  // must not drive the map ends up driving it.
+  zoom: zoomProp,
   searchable = false,
   className = "",
 }: WorldMapProps) {
@@ -182,6 +215,10 @@ export default function WorldMapImpl({
   // inside a dark page is the one place a mismatch is unmissable.
   const prefersDark = useResolvedTheme() === "dark";
 
+  // What the map is currently at, mirrored into React so the marker effect can
+  // depend on it. Only ever read to decide how much a pin says (see
+  // COMPACT_LABEL_ZOOM); the map's own view is never driven from it.
+  const [zoom, setZoom] = useState(() => zoomProp ?? 2);
   const [query, setQuery] = useState("");
   // Tagged with the query it answers, so a list left over from two keystrokes
   // ago is never shown under a different word. The alternative — clearing it
@@ -204,7 +241,7 @@ export default function WorldMapImpl({
     if (!containerRef.current || mapRef.current) return;
     const map = L.map(containerRef.current, {
       center: center ?? [15, 0],
-      zoom: zoom ?? 2,
+      zoom: zoomProp ?? 2,
       minZoom: MIN_ZOOM,
       maxZoom: MAX_ZOOM,
       // Stops the horizontal infinite repeat, so panning east forever doesn't
@@ -217,6 +254,11 @@ export default function WorldMapImpl({
     });
     mapRef.current = map;
     markerLayerRef.current = L.layerGroup().addTo(map);
+    // Redraws the pins in their compact form and back — see COMPACT_LABEL_ZOOM.
+    // `zoomend` rather than `zoom`: the mid-animation values would rebuild
+    // every marker on every frame of a pinch.
+    setZoom(map.getZoom());
+    map.on("zoomend", () => setZoom(map.getZoom()));
     map.on("click", (e: L.LeafletMouseEvent) => {
       onPickRef.current?.(e.latlng.lat, e.latlng.lng);
     });
@@ -260,7 +302,7 @@ export default function WorldMapImpl({
     layer.clearLayers();
     for (const marker of markers) {
       const pin = L.marker([marker.lat, marker.lng], {
-        icon: roomIcon(marker),
+        icon: roomIcon(marker, zoom < COMPACT_LABEL_ZOOM),
         // Above the tile layer's own panes, so a pin is never buried by a
         // neighbouring one's label.
         riseOnHover: true,
@@ -276,7 +318,7 @@ export default function WorldMapImpl({
       }
       pin.addTo(layer);
     }
-  }, [markers]);
+  }, [markers, zoom]);
 
   // The single "you are placing this here" pin.
   useEffect(() => {

@@ -64,9 +64,7 @@ export function usePublicRoomMarkers(options?: {
           lat: room.location.lat,
           lng: room.location.lng,
           label: room.handle,
-          // Rides along on the pin itself and again in its popup, so it has
-          // to stay short enough not to stretch a pin across a country.
-          badge: `· ${room.peopleCount} ${room.peopleCount === 1 ? "pessoa" : "pessoas"}`,
+          peopleCount: room.peopleCount,
           tag: roomCategory(room.category)?.label,
           description: room.description,
           href: `/watch/${room.handle}`,

@@ -10,8 +10,12 @@ export type WorldMapMarker = {
   lng: number;
   // Shown on the pin itself — a room's name, today.
   label: string;
-  // Small muted text after the label, e.g. "3 pessoas".
-  badge?: string;
+  // How many people are in the room. Rendered two different ways from one
+  // number, which is why it is a number here rather than pre-worded text: the
+  // pin shows the bare digit (a pin is a few dozen pixels wide, and "pessoas"
+  // repeated across forty of them is what turns a map into a wall of words),
+  // and the popup — which has room for a sentence — spells it out.
+  peopleCount?: number;
   // A short tag shown on the pin ahead of the label, and again in the popup —
   // a room's category, today. Kept to a word or two: the pin grows to fit it.
   tag?: string;
