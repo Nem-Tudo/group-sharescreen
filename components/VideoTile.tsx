@@ -323,11 +323,21 @@ export function VideoTile({
         fill ? "h-full" : "aspect-video"
         } ${className}`}
     >
+      {/* Every one of these means "there is a picture now", and any single one
+          of them is enough. `loadeddata` alone used to be the only way out of
+          the spinner, which made it a permanent state whenever that one event
+          was missed — a stream whose audio track arrives before its video
+          track, an element that had not started playing yet, a stream swapped
+          during a commit. The tile then span forever over a connection that was
+          working perfectly and delivering frames. */}
       <video
         ref={videoRef}
         autoPlay
         playsInline
         onLoadedData={() => setIsVideoLoading(false)}
+        onLoadedMetadata={() => setIsVideoLoading(false)}
+        onCanPlay={() => setIsVideoLoading(false)}
+        onPlaying={() => setIsVideoLoading(false)}
         onClick={handleVideoTap}
         className="h-full w-full object-contain bg-black"
       />

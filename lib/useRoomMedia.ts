@@ -241,6 +241,13 @@ const PEER_PRUNE_GRACE_MS = 5000;
 // time on a slow link.
 const CONNECT_TIMEOUT_MS = 15_000;
 
+// Backoff for retrying a sendPC that failed or never connected — see
+// scheduleSendRetry. The first retry is as prompt as it always was, so an
+// ordinary blip still recovers in a couple of seconds; repeated failures for
+// the same peer back off toward the ceiling instead of hammering forever.
+const RETRY_BASE_DELAY_MS = 2000;
+const RETRY_MAX_DELAY_MS = 30_000;
+
 // Shared connection-management for a single media channel (screen share or
 // mic), broadcast from this client to every peer in the room. Each channel
 // gets its own set of peer connections and its own signaling namespace so
@@ -265,9 +272,25 @@ function useBroadcastChannel(
   // Only meaningful for the screen channel — mic never passes this. When it
   // changes while a share is already active, the live track and every
   // current sender get updated in place instead of requiring a restart.
-  videoQuality?: QualityPreset
+  videoQuality?: QualityPreset,
+  // Runs synchronously at the end of stop(), for teardown this hook cannot
+  // know about — the mic's RNNoise graph, which owns a raw capture and a
+  // worklet that outlive the track this hook stops (see rnnoise.ts).
+  //
+  // Synchronous, rather than the caller watching `active` go false, because
+  // switching input device is stop() immediately followed by start(): an
+  // effect-driven teardown races the new capture being assigned and can
+  // release the graph that just replaced the one it meant to release.
+  onStopped?: () => void
 ) {
   const eventPrefix = channel === "mic" ? "mic" : `${channel}_share`;
+  // Held in a ref so a caller passing an inline arrow does not change stop()'s
+  // identity — stop() is a dependency of the unmount effect below, and an
+  // unstable one would make that effect's cleanup fire on every render.
+  const onStoppedRef = useRef(onStopped);
+  useEffect(() => {
+    onStoppedRef.current = onStopped;
+  }, [onStopped]);
   const [active, setActive] = useState(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
@@ -337,7 +360,7 @@ function useBroadcastChannel(
   // telemetry now comes from the single shared mediaStats pump instead of one
   // timer and one getStats() pass per peer, which in a 30-person room was 29
   // uncoordinated polls competing with the encoding those same 29 peers need.
-  const qualityRegistry = useRef(new PeerQualityRegistry());
+  const qualityRegistry = useRef(new PeerQualityRegistry(`channel:${channel}`));
   // Tier each viewer has asked us for, from the size they render us at (see
   // qualityNegotiation). Kept outside the controllers because a request can
   // arrive before that peer's sendPC exists, and must survive a reconnect.
@@ -375,6 +398,13 @@ function useBroadcastChannel(
   // doc comment. Cleared in closeSendPC (covers the retry/failure paths) and
   // in stop() (covers a deliberate stop before one ever fires).
   const connectTimeouts = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // Consecutive failed attempts per peer, driving scheduleSendRetry's backoff.
+  // Reset the moment a connection actually comes up, so a peer that has one bad
+  // minute and then recovers is not punished with a 30s delay on its next blip.
+  const sendRetryAttempts = useRef<Map<string, number>>(new Map());
+  // Pending retry timers, so a deliberate stop() cannot leave one to fire into
+  // a share that has already ended.
+  const sendRetryTimers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
 
 
   const clearStopped = useCallback((peerId: string) => {
@@ -571,11 +601,27 @@ function useBroadcastChannel(
     // brief packet loss, TURN hiccup) without the peer actually leaving the
     // room. Nothing else would ever re-offer, so without this retry the
     // tile just stays dead forever.
-    setTimeout(() => {
+    //
+    // Backed off rather than a flat 2s, because the case this loop actually
+    // spends most of its life in is not a blip: it is a peer there is no path
+    // to at all (UDP blocked with no TCP/TLS TURN to fall back on, symmetric
+    // NAT). At a flat 2s that peer cost a fresh RTCPeerConnection, a full ICE
+    // gather and a signalling burst every ~17s forever — and every one of
+    // those addTrack calls forces a keyframe out of the encoder that is
+    // shared with everyone else in the room, so one unreachable participant
+    // was quietly degrading the picture for all the reachable ones. The delay
+    // grows to RETRY_MAX_DELAY_MS and stays there: still recovering on its
+    // own if the network comes back, just not at everyone else's expense.
+    const attempt = sendRetryAttempts.current.get(peerId) ?? 0;
+    sendRetryAttempts.current.set(peerId, attempt + 1);
+    const delay = Math.min(RETRY_BASE_DELAY_MS * 2 ** attempt, RETRY_MAX_DELAY_MS);
+    const timer = setTimeout(() => {
+      sendRetryTimers.current.delete(timer);
       if (activeRef.current && signalingClient.state.peers.some((p) => p.id === peerId)) {
         openSendPCRef.current(peerId);
       }
-    }, 2000);
+    }, delay);
+    sendRetryTimers.current.add(timer);
   }, []);
 
   const openSendPC = useCallback(
@@ -642,6 +688,9 @@ function useBroadcastChannel(
           const connectTimeout = connectTimeouts.current.get(peerId);
           if (connectTimeout) clearTimeout(connectTimeout);
           connectTimeouts.current.delete(peerId);
+          // This peer is demonstrably reachable, so the next failure is a
+          // fresh blip and deserves the fast first retry again.
+          sendRetryAttempts.current.delete(peerId);
         }
       };
       // Backstop for a silently-dropped offer/ICE candidate (see
@@ -789,6 +838,27 @@ function useBroadcastChannel(
     }
   }, [videoQuality, tierForPeer]);
 
+  // The captured height is read once, when a sendPC opens, and is what every
+  // scaleResolutionDownBy in this channel is computed from (see
+  // videoQuality.scaleFactorFor). It is not a constant for the life of a share:
+  // the person can switch which window they are sharing, resize it, or drag it
+  // to a monitor of a different resolution, and getDisplayMedia follows the
+  // surface. When it moved, every sender kept dividing by the old number — so
+  // viewers were served visibly too small or too large for the tier they had
+  // asked for, with nothing to correct it short of restarting the share.
+  //
+  // Cheap enough to just re-read: getSettings() is a synchronous property read,
+  // and setCaptureHeight is a no-op when the value has not changed.
+  useEffect(() => {
+    if (!active) return;
+    const sync = () => {
+      const height = localStreamRef.current?.getVideoTracks()[0]?.getSettings().height;
+      if (height) qualityRegistry.current.setCaptureHeight(height);
+    };
+    const timer = setInterval(sync, 3000);
+    return () => clearInterval(timer);
+  }, [active]);
+
   const stop = useCallback(() => {
     if (!activeRef.current) return;
     activeRef.current = false;
@@ -806,6 +876,9 @@ function useBroadcastChannel(
     pendingStaggeredPeers.current.clear();
     for (const timeout of connectTimeouts.current.values()) clearTimeout(timeout);
     connectTimeouts.current.clear();
+    for (const timer of sendRetryTimers.current) clearTimeout(timer);
+    sendRetryTimers.current.clear();
+    sendRetryAttempts.current.clear();
     for (const [peerId, pc] of sendPCs.current) {
       signalingClient.sendSignal(peerId, { channel, role: "broadcaster", kind: "stop" });
       pc.close();
@@ -824,6 +897,7 @@ function useBroadcastChannel(
     // for everyone else while the audio kept flowing.
     if (channel === "mic") signalingClient.setMic(false);
     else signalingClient.setSharing({ [channel]: false });
+    onStoppedRef.current?.();
     trackEvent(`${eventPrefix}_stop`);
   }, [channel, eventPrefix]);
 
@@ -848,7 +922,16 @@ function useBroadcastChannel(
       // "detail" is reported to interact badly with VP9 specifically (see
       // analise/codec-diagnostico.html, which measures this on real content).
       // Camera is always motion.
-      const hint = channel === "screen" && degradationModeRef.current === "text" ? "text" : "motion";
+      // The "screen" channel is not always a screen: on a phone, which has no
+      // getDisplayMedia, "compartilhar tela" captures the camera instead (see
+      // getScreenShareMode). Hinting "text" at a webcam tells the encoder to
+      // protect sharpness and throw frames away, which is exactly backwards for
+      // a moving picture — so the source, not the channel name, decides.
+      const capturingCamera = channel === "camera" || requestedSource === "camera";
+      const hint =
+        !capturingCamera && channel === "screen" && degradationModeRef.current === "text"
+          ? "text"
+          : "motion";
       stream.getVideoTracks().forEach((track) => {
         track.contentHint = hint;
       });
@@ -979,6 +1062,10 @@ function useBroadcastChannel(
         closeSendPC(from);
         closeRecvPCFully(from);
         viewerPausedPeers.current.delete(from);
+        // Not cleared in closeSendPC: that runs on the failure path itself,
+        // immediately before scheduling the next retry, and resetting it there
+        // would flatten the backoff back to a constant interval.
+        sendRetryAttempts.current.delete(from);
         return;
       }
       if (data.channel !== channel) return;
@@ -1116,14 +1203,38 @@ function useBroadcastChannel(
           closeSendPC(from);
         } else if (data.kind === "resume") {
           viewerPausedPeers.current.delete(from);
-          if (activeRef.current) openSendPC(from);
+          // Closed first, deliberately. openSendPC is a no-op when a pc for
+          // this peer already exists, and one can perfectly well still be
+          // sitting there: the "stop" that should have torn it down is sent
+          // over the signalling socket, which drops messages outright while it
+          // is reconnecting (see signalingClient.rawSend). When that happened
+          // the resume did nothing at all and the viewer sat on "Retomando..."
+          // forever, with nothing anywhere to ever try again.
+          if (activeRef.current) {
+            closeSendPC(from);
+            openSendPC(from);
+          }
         } else if (data.kind === "reconnect-request") {
           // This viewer's recvPC died on their end, even though ours may
           // still report "connected" — ICE state is computed independently
           // on each side, so ours has no reason to have noticed anything is
           // wrong on its own. Force a fresh sendPC regardless of what ours
           // currently thinks, unless they deliberately paused us.
-          if (viewerPausedPeers.current.has(from) || !activeRef.current) return;
+          if (viewerPausedPeers.current.has(from)) return;
+          // We may not be the broadcaster at all: if we are relaying someone
+          // else's stream to this viewer, the dead connection is the relay
+          // child, and we are the only party who can rebuild it. Without this
+          // the request fell straight through the `!activeRef.current` guard
+          // below — a relay is not sharing anything of its own — so a relayed
+          // viewer whose link dropped had no recovery path in the system at
+          // all, and simply kept a frozen tile until the topology happened to
+          // be replanned.
+          const relayForPeer = relays.current.findByChild(from);
+          if (relayForPeer) {
+            relayForPeer.reopenChild(from);
+            return;
+          }
+          if (!activeRef.current) return;
           closeSendPC(from);
           openSendPC(from);
         } else if (data.kind === "answer" && data.sdp) {
@@ -1189,6 +1300,7 @@ function useBroadcastChannel(
       if (stoppedPeersRef.current.has(peerId)) clearStopped(peerId);
       if (resumingPeersRef.current.has(peerId)) clearResuming(peerId);
       viewerPausedPeers.current.delete(peerId);
+      sendRetryAttempts.current.delete(peerId);
     }
 
     const unsubscribeRoomJoined = signalingClient.onRoomJoined(() => {
@@ -1540,6 +1652,20 @@ export function useRoomMedia(room: string) {
     };
   }, [shareResolution, shareFps, shareBitrate, smartQualityEnabled, shareProfile]);
 
+  // The camera runs the screen's resolution/fps/bitrate dials — those are what
+  // the picker offers — but never its content profile. A camera is motion, and
+  // saying otherwise is not a small mismatch: "text" hands the sender
+  // degradationPreference "maintain-resolution" and puts VP9 ahead of H264 (see
+  // peerQualityController and videoCodecPreferences), i.e. protect sharpness,
+  // drop frames, and do it in software. The capture's own contentHint has
+  // always been "motion" here, so the encoder was being told two opposite
+  // things at once, and the one that won turned a webcam into a slideshow the
+  // moment anything got tight.
+  const cameraQualityPreset = useMemo<QualityPreset>(
+    () => ({ ...screenQualityPreset, degradation: "motion" }),
+    [screenQualityPreset]
+  );
+
   // The camera the two camera-capturing paths below open: the camera
   // channel, and the screen channel's mobile fallback (a phone has no
   // getDisplayMedia, so "compartilhar tela" captures the camera there).
@@ -1691,7 +1817,7 @@ export function useRoomMedia(room: string) {
     "Não foi possível iniciar a câmera. Verifique as permissões do navegador.",
     forceRelayIce,
     autoJoin,
-    screenQualityPreset
+    cameraQualityPreset
   );
 
   // Switches which camera is captured. A live camera share is restarted
@@ -1744,13 +1870,36 @@ export function useRoomMedia(room: string) {
   // Keeps the encode-budget estimator honest: it needs to know how much work
   // we are actually asking the encoder to do before it can tell whether a CPU
   // limitation means "this device is weak" or "we simply asked for too much".
+  //
+  // Depends on the two stable getters, never on the `screen`/`camera` objects
+  // themselves: those are fresh object literals on every render, so listing one
+  // tore this interval down and rebuilt it faster than its own 4s period ever
+  // elapsed in an active room (chat, speaking indicators, tile resizes). It
+  // therefore never fired, `loadRef` stayed at 0, and the `currentLoadMpxs > 0`
+  // guard in EncodeBudget.observe meant the encode budget could never be
+  // revised *down* under CPU pressure — only up, 12% at a time, whenever
+  // pressure was low. The planner ended up believing in a machine far stronger
+  // than the real one and stopped degrading when it should have.
+  const getScreenTiers = screen.getRequestedTiers;
+  const getCameraTiers = camera.getRequestedTiers;
+  const screenActive = screen.active;
+  const cameraActive = camera.active;
   useEffect(() => {
     if (!sharingAnything) return;
     const timer = setInterval(() => {
-      reportLoad([...screen.getRequestedTiers().values()]);
+      // Both channels, but only the ones actually running: the encoder is one
+      // shared resource, and a camera share alongside a screen share is real
+      // work the budget has to know about. The getters answer for every peer in
+      // the room rather than for live senders, so counting an idle channel
+      // would invent a second encode per person out of nothing.
+      const tiers = [
+        ...(screenActive ? getScreenTiers().values() : []),
+        ...(cameraActive ? getCameraTiers().values() : []),
+      ];
+      reportLoad(tiers);
     }, 4000);
     return () => clearInterval(timer);
-  }, [sharingAnything, reportLoad, screen]);
+  }, [sharingAnything, reportLoad, getScreenTiers, getCameraTiers, screenActive, cameraActive]);
 
   const topology = useMeshTopology(
     sharingAnything,
@@ -1789,6 +1938,13 @@ export function useRoomMedia(room: string) {
   // used both to reroute the live audio graph on toggle and to tell the UI
   // whether suppression is really in effect right now.
   const micGraphRef = useRef<MicNoiseGraph | null>(null);
+  // Lets the capture closure below reach mic.stop(), which is declared after
+  // it. Needed because the raw capture can die on its own (device unplugged,
+  // permission revoked, another app seizing it) while the RNNoise graph goes
+  // right on emitting digital silence into a perfectly healthy set of peer
+  // connections — the mic has to actually be turned off for the UI, and the
+  // rest of the room, to reflect that.
+  const micStopRef = useRef<() => void>(() => {});
   const [noiseSuppressionAvailable, setNoiseSuppressionAvailable] = useState(true);
 
   // Same "ref mirrors state, for the capture closure" pattern as
@@ -1799,14 +1955,31 @@ export function useRoomMedia(room: string) {
   const [micDeviceId, setMicDeviceIdState] = useState<string | null>(() => getStoredMicDeviceId());
   const [speakerDeviceId, setSpeakerDeviceIdState] = useState<string | null>(() => getStoredSpeakerDeviceId());
 
+  // Idempotent: rnnoise's own teardown is guarded, so calling this from both
+  // the stop path and unmount costs nothing.
+  const releaseMicGraph = useCallback(() => {
+    micGraphRef.current?.stop();
+    micGraphRef.current = null;
+  }, []);
+
   const mic = useBroadcastChannel(
     "mic",
     room,
     async () => {
+      // Belt and braces for a start that follows a stop too closely to have
+      // released the previous graph yet (the device picker does exactly this):
+      // opening a second capture of the same input device while the first is
+      // still held is how Windows in particular hands back a silent track.
+      releaseMicGraph();
       const { stream, graph } = await captureNoiseSuppressedMic(
         noiseSuppressionOnRef.current,
         () => {
           micGraphRef.current = null;
+          // Reached only when the graph tore itself down rather than being
+          // stopped by us — i.e. the raw capture ended underneath it. Turning
+          // the channel off is what stops us broadcasting silence and what
+          // makes the button reflect reality.
+          micStopRef.current();
         },
         micDeviceIdRef.current
       );
@@ -1818,8 +1991,30 @@ export function useRoomMedia(room: string) {
     "Seu navegador não suporta microfone.",
     "Não foi possível ativar o microfone. Verifique a permissão do navegador.",
     forceRelayIce,
-    true // autoJoin: mic always auto-connects, this setting is screen/camera only
+    true, // autoJoin: mic always auto-connects, this setting is screen/camera only
+    undefined, // videoQuality: audio has none
+    // The RNNoise graph outlives the track it feeds, because stopping a track
+    // is not the same as the track ending: stop() calls
+    // MediaStreamTrack.stop(), which by spec never raises "ended", so the
+    // graph's own teardown could never have been hung off that. Releasing it
+    // here is what actually frees the raw microphone (browser indicator off,
+    // device available to the next getUserMedia) and destroys the RNNoise
+    // worklet, instead of leaking one running on the shared context per start.
+    releaseMicGraph
   );
+
+  const micStop = mic.stop;
+  useEffect(() => {
+    micStopRef.current = micStop;
+  }, [micStop]);
+
+  // Leaving the page mid-call is the same release, for the same reasons — and
+  // covers a graph built by a capture whose start never completed.
+  useEffect(() => {
+    return () => {
+      releaseMicGraph();
+    };
+  }, [releaseMicGraph]);
 
   const toggleMic = useCallback(() => {
     const next = !mic.active;

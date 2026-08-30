@@ -86,6 +86,11 @@ export class PeerQualityController {
 
   constructor(
     readonly peerId: string,
+    // How this sender is addressed in the shared stats pump. Not the peer id:
+    // the pump is one process-wide map and there is a registry per channel, so
+    // a peer receiving both a screen and a camera share would otherwise be a
+    // single key written by two owners — see PeerQualityRegistry's namespace.
+    private statsKey: string,
     private sender: RTCRtpSender,
     private tier: QualityTier,
     private captureHeight: number,
@@ -102,7 +107,7 @@ export class PeerQualityController {
   setTier(tier: QualityTier) {
     if (this.tier === tier) return;
     this.tier = tier;
-    mediaStats.setTier(this.peerId, tier);
+    mediaStats.setTier(this.statsKey, tier);
     this.apply();
   }
 
@@ -235,11 +240,33 @@ export class PeerQualityRegistry {
   // Overwritten by setBitrateCeiling as soon as a share's preset is known.
   private bitrateCeilingKbps = 4000;
   private degradation: DegradationMode = "text";
+  private keyPrefix: string;
+
+  /**
+   * `namespace` separates this registry's senders from every other one's in
+   * the process-wide stats pump. There is a registry per media channel (and
+   * one more per relay), all of them keyed by the same peer ids, so without it
+   * a peer watching someone's screen *and* camera collapsed into one shared
+   * entry: the camera's registration overwrote the screen's, so the screen
+   * sender was never polled at all; every sample the camera produced was fanned
+   * out to the screen's controller too, which then moved the screen's bitrate on
+   * the camera's loss and RTT; and closing either channel's connection
+   * unregistered the other one's sender along with it.
+   */
+  constructor(namespace: string) {
+    this.keyPrefix = `${namespace}\u0000`;
+  }
+
+  private statsKey(peerId: string): string {
+    return this.keyPrefix + peerId;
+  }
 
   start() {
     if (this.unsubscribeSender) return;
     this.unsubscribeSender = mediaStats.onSender((sample) => {
-      this.controllers.get(sample.peerId)?.onSample(sample);
+      // Every registry sees every sample, so each has to recognise its own.
+      if (!sample.peerId.startsWith(this.keyPrefix)) return;
+      this.controllers.get(sample.peerId.slice(this.keyPrefix.length))?.onSample(sample);
     });
   }
 
@@ -251,8 +278,10 @@ export class PeerQualityRegistry {
     captureHeight: number
   ): PeerQualityController {
     this.remove(peerId);
+    const key = this.statsKey(peerId);
     const controller = new PeerQualityController(
       peerId,
+      key,
       sender,
       tier,
       captureHeight,
@@ -260,7 +289,7 @@ export class PeerQualityRegistry {
       this.degradation
     );
     this.controllers.set(peerId, controller);
-    mediaStats.register(peerId, pc, sender, tier);
+    mediaStats.register(key, pc, sender, tier);
     controller.apply();
     this.start();
     return controller;
@@ -273,7 +302,7 @@ export class PeerQualityRegistry {
   remove(peerId: string) {
     this.controllers.get(peerId)?.dispose();
     this.controllers.delete(peerId);
-    mediaStats.unregister(peerId);
+    mediaStats.unregister(this.statsKey(peerId));
   }
 
   setDegradation(mode: DegradationMode) {

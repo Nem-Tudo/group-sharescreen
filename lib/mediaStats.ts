@@ -18,6 +18,11 @@ import {
 } from "./videoQuality";
 
 export interface SenderSample {
+  /**
+   * The key this sender was registered under — see PeerQualityRegistry, which
+   * namespaces it per channel/relay rather than using the bare peer id, since
+   * this pump is one map shared by every registry in the process.
+   */
   peerId: string;
   /** Loss fraction reported by the *remote* end (0..1). */
   fractionLost: number;

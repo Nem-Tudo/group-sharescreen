@@ -58,9 +58,16 @@ export interface RelayOfferMeta {
 const SOURCE_STALL_MS = 1500;
 const STALL_CHECK_MS = 500;
 
+// Distinguishes one relay's senders from another's — and from the broadcast
+// channels' — inside the process-wide stats pump (see PeerQualityRegistry's
+// constructor). A counter rather than the origin id because a class field
+// initializer cannot see a parameter property, and a relay for the same origin
+// can legitimately be rebuilt while the old one is still winding down.
+let relaySeq = 0;
+
 export class RelayLink {
   private children = new Map<string, { pc: RTCPeerConnection; tier: QualityTier }>();
-  private quality = new PeerQualityRegistry();
+  private quality = new PeerQualityRegistry(`relay:${(relaySeq += 1)}`);
   private stallTimer: ReturnType<typeof setInterval> | null = null;
   private lastFrames = 0;
   private lastFrameAt = 0;
@@ -130,6 +137,12 @@ export class RelayLink {
         const transceivers = pc.getTransceivers();
         const transceiver = transceivers.find((t) => t.sender === sender);
         if (transceiver) applyVideoCodecPreferences(transceiver, this.degradation);
+        // A *remote* track's getSettings() is usually empty until frames have
+        // actually arrived, so this legitimately starts out unknown. The
+        // fallback deliberately keeps the sender at scale 1 rather than
+        // guessing; the stall watcher below corrects it as soon as the real
+        // dimensions exist, which is what makes a relayed viewer receive the
+        // tier they were assigned instead of always the full-size re-encode.
         const height = track.getSettings().height ?? tierSpec(tier).height;
         this.quality.add(peerId, pc, sender, tier, height);
       }
@@ -182,6 +195,27 @@ export class RelayLink {
     return this.children.has(peerId);
   }
 
+  /**
+   * Rebuilds one child's connection from scratch, keeping its assigned tier.
+   *
+   * Called when that child tells us its side of the link is dead (see
+   * useRoomMedia's "reconnect-request"). A relay is the only party able to act
+   * on that: the original broadcaster does not have a connection to this
+   * viewer, and our own pc can sit at "connected" indefinitely while theirs is
+   * gone, because ICE state is computed independently on each side.
+   */
+  reopenChild(peerId: string) {
+    const existing = this.children.get(peerId);
+    if (!existing) return;
+    const { tier } = existing;
+    // Straight to close, without closeChild's "stop" signal: telling the child
+    // to give up is the opposite of what it just asked us for.
+    existing.pc.close();
+    this.children.delete(peerId);
+    this.quality.remove(peerId);
+    this.openChild(peerId, tier);
+  }
+
   private closeChild(peerId: string) {
     const entry = this.children.get(peerId);
     if (!entry) return;
@@ -210,6 +244,13 @@ export class RelayLink {
 
   private async checkStall() {
     if (this.children.size === 0) return;
+    // The incoming track's real dimensions are only knowable once frames have
+    // been decoded, which is after openChild has already had to pick a
+    // captureHeight — so this is where the guess gets replaced with the truth,
+    // and where a source that changes size mid-share (the origin switching
+    // window or monitor) is picked up.
+    const sourceHeight = this.stream.getVideoTracks()[0]?.getSettings().height;
+    if (sourceHeight) this.quality.setCaptureHeight(sourceHeight);
     let frames = 0;
     try {
       const report = await this.sourcePc.getStats();

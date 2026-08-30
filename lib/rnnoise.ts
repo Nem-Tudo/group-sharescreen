@@ -38,6 +38,15 @@ export type MicNoiseGraph = {
   source: MediaStreamAudioSourceNode;
   rnnoiseNode: RnnoiseWorkletNode;
   destination: MediaStreamAudioDestinationNode;
+  // Tears the graph down explicitly. This has to exist because the
+  // "ended"-driven teardown below cannot be relied on: per spec,
+  // MediaStreamTrack.stop() does *not* fire "ended" (that event is only for a
+  // source ending on its own), and stop() is exactly what the caller does
+  // when the mic is switched off. Without an explicit call the raw capture
+  // stayed open — browser mic indicator still lit, the device still held
+  // against the next getUserMedia — and the RNNoise worklet kept running WASM
+  // on the shared context, one leaked processor per mic start.
+  stop: () => void;
 };
 
 export type MicCaptureResult = {
@@ -111,29 +120,46 @@ export async function captureNoiseSuppressedMic(
       source.connect(destination);
     }
 
-    // The destination's track is what's actually sent over WebRTC (see
-    // useRoomMedia) — tying teardown to *its* "ended" event means cleanup
-    // runs no matter what stops it (manual toggle-off, unmount, or the raw
-    // track ending on its own), instead of every caller having to remember
-    // to separately release the raw stream and AudioContext.
-    const outputTrack = destination.stream.getAudioTracks()[0];
-    outputTrack.addEventListener(
-      "ended",
-      () => {
-        rawStream.getTracks().forEach((t) => t.stop());
-        source.disconnect();
-        rnnoiseNode.disconnect();
-        rnnoiseNode.destroy();
-        // The context is shared with playback, the speaking analysers and
-        // the sound effects now — closing it here would take the whole
-        // page's audio down with the mic. Disconnecting this graph's own
-        // nodes is the entire cleanup this owns.
-        onGraphEnded?.();
-      },
-      { once: true }
-    );
+    // One teardown, reachable two ways. `stop()` below is the reliable path
+    // (the caller switching the mic off); the "ended" listener stays as the
+    // backstop for the raw capture dying on its own — a device unplugged, a
+    // permission revoked, another app seizing it — which is the one case
+    // stop() is never called for.
+    let disposed = false;
+    const teardown = () => {
+      if (disposed) return;
+      disposed = true;
+      rawStream.getTracks().forEach((t) => t.stop());
+      destination.stream.getTracks().forEach((t) => t.stop());
+      source.disconnect();
+      rnnoiseNode.disconnect();
+      rnnoiseNode.destroy();
+      // The context is shared with playback, the speaking analysers and
+      // the sound effects now — closing it here would take the whole
+      // page's audio down with the mic. Disconnecting this graph's own
+      // nodes is the entire cleanup this owns.
+      onGraphEnded?.();
+    };
 
-    return { stream: destination.stream, graph: { rawStream, audioCtx, source, rnnoiseNode, destination } };
+    // The destination's track is what's actually sent over WebRTC (see
+    // useRoomMedia). Note this fires only when the track ends *on its own*:
+    // an explicit stop() does not raise it, which is why teardown is also
+    // exposed directly on the graph.
+    const outputTrack = destination.stream.getAudioTracks()[0];
+    outputTrack.addEventListener("ended", teardown, { once: true });
+    // The raw capture ending is the failure this could not previously see at
+    // all: the destination node happily keeps emitting digital silence, which
+    // is then encoded and sent to the whole room while the UI still shows the
+    // mic on and every peer connection reports "connected". Nobody hears a
+    // word and nothing anywhere says why.
+    for (const track of rawStream.getAudioTracks()) {
+      track.addEventListener("ended", teardown, { once: true });
+    }
+
+    return {
+      stream: destination.stream,
+      graph: { rawStream, audioCtx, source, rnnoiseNode, destination, stop: teardown },
+    };
   } catch {
     return { stream: rawStream, graph: null };
   }
