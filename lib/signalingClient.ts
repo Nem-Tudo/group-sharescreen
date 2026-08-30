@@ -79,6 +79,12 @@ export type PeerInfo = {
   // the channel this names.
   files?: SharedFile[];
   mic: boolean;
+  // Whether they have silenced everyone else's mic for themselves
+  // ("silenciar microfones"). Their own listening setting — nothing about
+  // what they transmit — shown in the participant list because talking to
+  // somebody who cannot hear you is the one thing that list can save you
+  // from. Undefined from a server that predates it, read as false.
+  micsMuted?: boolean;
   role?: "moderator";
   // Stable per-account/per-guest identity (see server/signaling.ts's
   // stableUserId) — unlike `id`, which is reissued on every reconnect, this
@@ -884,6 +890,13 @@ class SignalingClient {
           ),
         });
         break;
+      case "peer-mics-muted":
+        this.setState({
+          peers: this.state.peers.map((p) =>
+            p.id === msg.id ? { ...p, micsMuted: Boolean(msg.micsMuted) } : p
+          ),
+        });
+        break;
       case "peer-mic":
         this.setState({
           peers: this.state.peers.map((p) =>
@@ -1439,6 +1452,12 @@ class SignalingClient {
 
   setMic(mic: boolean) {
     this.rawSend({ type: "mic", mic });
+  }
+
+  // "Silenciar microfones". Announced rather than kept to ourselves so the
+  // room's participant list can show it — see PeerInfo.micsMuted.
+  setMicsMuted(muted: boolean) {
+    this.rawSend({ type: "mics-muted", muted });
   }
 
   // Called by ChatPanel.tsx's own idle timer, not on every keystroke — see

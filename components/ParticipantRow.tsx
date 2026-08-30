@@ -3,7 +3,13 @@
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { useSpeaking } from "@/lib/useSpeaking";
-import { MicIcon, MicOffIcon, ScreenIcon, CameraIcon } from "./icons";
+import {
+  MicIcon,
+  MicOffIcon,
+  ScreenIcon,
+  CameraIcon,
+  HeadphonesOffIcon,
+} from "./icons";
 import { MdOutlineDesktopWindows, MdOutlineOndemandVideo } from "react-icons/md";
 import { FaCrown } from "react-icons/fa";
 import { VolumeSlider } from "./VolumeSlider";
@@ -17,6 +23,7 @@ export function ParticipantRow({
   isGuest = false,
   userId,
   micOn,
+  micsMuted = false,
   sharing,
   screen,
   camera,
@@ -42,6 +49,9 @@ export function ParticipantRow({
   // by an older server version that doesn't include it yet, same as isGuest.
   userId?: string;
   micOn: boolean;
+  // They silenced everyone else's mic for themselves ("silenciar microfones").
+  // Nothing about what they transmit — see PeerInfo.micsMuted.
+  micsMuted?: boolean;
   sharing: boolean;
   // Which of the two channels `sharing` is made of (see PeerInfo.screen in
   // lib/signalingClient.ts). null/undefined means the peer's client never
@@ -177,6 +187,18 @@ export function ParticipantRow({
           <MicIcon className="h-4 w-4 text-sky-500" />
         ) : (
           <MicOffIcon className="h-4 w-4 text-zinc-400 dark:text-zinc-600" />
+        )}
+        {/* Beside the mic and not instead of it: the two say different things
+            — whether they are talking, and whether they can hear — and
+            somebody with the mic on who silenced everyone is exactly the case
+            worth being able to see at a glance. Red rather than the muted grey
+            the mic-off icon uses, because this one is the surprising state. */}
+        {micsMuted && (
+          <Tooltip content={`${name} silenciou os microfones e não está ouvindo ninguém`}>
+            <span className="flex shrink-0 items-center">
+              <HeadphonesOffIcon className="h-4 w-4 text-zinc-500" />
+            </span>
+          </Tooltip>
         )}
         {knowsChannels ? (
           <>

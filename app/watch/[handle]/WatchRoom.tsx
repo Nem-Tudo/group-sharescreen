@@ -924,6 +924,14 @@ export function WatchRoom({ handle }: { handle: string }) {
   // row differently on the server would hydrate into a mismatch.
   const [openRoomsInApp, setOpenRoomsInApp] = useState(false);
   const [micsMuted, setMicsMuted] = useState(() => getStoredMicsMuted());
+  // Read by the join announcement below, which is registered once and must see
+  // the current value rather than the one that existed at mount. Written in an
+  // effect rather than during render — a join can only land after the commit
+  // anyway, so there is no window where this is stale.
+  const micsMutedRef = useRef(micsMuted);
+  useEffect(() => {
+    micsMutedRef.current = micsMuted;
+  }, [micsMuted]);
   const [soundEffectsOn, setSoundEffectsOn] = useState(() => getSoundEffectsEnabled());
   const [doubleClickFocus, setDoubleClickFocus] = useState(() => getStoredDoubleClickFocus());
   const [mutedPeerIds, setMutedPeerIds] = useState<Set<string>>(new Set());
@@ -1143,6 +1151,7 @@ export function WatchRoom({ handle }: { handle: string }) {
     const next = !micsMuted;
     setMicsMuted(next);
     setStoredMicsMuted(next);
+    signalingClient.setMicsMuted(next);
     trackEvent(next ? "mics_muted" : "mics_unmuted");
   }
 
@@ -1216,6 +1225,19 @@ export function WatchRoom({ handle }: { handle: string }) {
     (!state.name &&
       (resolvingAccount || (hasStoredName && !state.nameError)) &&
       state.status !== "banned");
+
+  // Announced on every join, and on the rejoin after a reconnect: the server
+  // resets this for the new socket, and unlike the mic it is restored from
+  // storage rather than switched on by hand — so without this nobody would
+  // ever be told about a setting that came back on its own.
+  useEffect(() => {
+    const unsubscribe = signalingClient.onRoomJoined(() => {
+      signalingClient.setMicsMuted(micsMutedRef.current);
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     if (!validHandle || !state.name) return;
@@ -3127,6 +3149,7 @@ export function WatchRoom({ handle }: { handle: string }) {
         isSelf
         isGuest={!state.account}
         userId={account?.id}
+        micsMuted={micsMuted}
         isOwner={isRoomOwner}
         isAdmin={isRoomAdmin}
         isApp={mounted && isDesktopApp()}
@@ -3146,6 +3169,7 @@ export function WatchRoom({ handle }: { handle: string }) {
             name={p.name}
             isGuest={p.isGuest}
             userId={p.userId}
+            micsMuted={p.micsMuted}
             // Only where there is something to offer: for anyone else the
             // browser's own context menu is more use than an empty one. Which
             // of the two shells it gets is the screen's call — see
