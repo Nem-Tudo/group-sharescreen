@@ -97,6 +97,19 @@ export async function roomExists(handle: string, signal?: AbortSignal): Promise<
 export type PublicRoom = {
   handle: string;
   peopleCount: number;
+  // How many people have the mic open, how many are transmitting a screen,
+  // how many have a camera on, and how many videos the room has queued up
+  // (see the server's /rooms). Screen and camera are two separate channels
+  // there and stay two separate numbers here — a room being presented to and
+  // a room of faces are not the same room to walk into.
+  //
+  // Optional because a server that predates them sends none of the four —
+  // the room list reads them through roomActivity, which treats a missing
+  // field as 0 rather than showing "undefined" on every card.
+  micCount?: number;
+  screenCount?: number;
+  cameraCount?: number;
+  videoSourceCount?: number;
   createdAt: number;
   // Where the room's owner/admins pinned it on the world map (see
   // components/WorldMap and the /worldmap page) — null, or absent entirely from
@@ -108,6 +121,15 @@ export type PublicRoom = {
   description?: string;
   category?: string | null;
 };
+
+// The four counters above, as a plain number — one place to decide what a
+// server that never sent the field means, instead of a `?? 0` at every use.
+export function roomActivity(
+  room: PublicRoom,
+  metric: "micCount" | "screenCount" | "cameraCount" | "videoSourceCount"
+): number {
+  return room[metric] ?? 0;
+}
 
 export async function fetchPublicRooms(signal?: AbortSignal): Promise<PublicRoom[]> {
   const res = await fetch(`${getSignalingHttpBase()}/rooms`, { signal });

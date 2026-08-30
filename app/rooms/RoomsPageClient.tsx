@@ -1,13 +1,47 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { fetchPublicRooms, type PublicRoom } from "@/lib/roomsApi";
+import { fetchPublicRooms, roomActivity, type PublicRoom } from "@/lib/roomsApi";
 import { Tooltip } from "@/components/Tooltip";
 import { ThemeMenuButton } from "@/components/ThemeToggle";
+import { CameraIcon, MicIcon, ScreenIcon, VideoSourceIcon } from "@/components/icons";
 import { roomCategory } from "@/lib/roomCategories";
 
 const POLL_INTERVAL_MS = 8000;
+
+// How the list is ordered. The default is microphones rather than head count
+// on purpose: a room where people are actually talking is the one worth
+// walking into, and a big idle room full of parked tabs is not — head count
+// alone can't tell those apart, so it's the tiebreaker instead of the key.
+const SORT_OPTIONS = [
+  { value: "mic", label: "Maior número de microfones ativos" },
+  { value: "people", label: "Mais gente conectada" },
+  // Screens only — a room full of cameras is a different room, and the
+  // server counts the two channels apart for exactly that reason.
+  { value: "screen", label: "Mais transmissão de tela" },
+] as const;
+
+type SortValue = (typeof SORT_OPTIONS)[number]["value"];
+
+const DEFAULT_SORT: SortValue = "mic";
+
+function sortRooms(rooms: PublicRoom[], sort: SortValue): PublicRoom[] {
+  // Every ordering falls back to people, then to the older room first — the
+  // same last resort the server's own /rooms ordering uses, so a list of
+  // rooms sitting at zero doesn't reshuffle itself on every poll.
+  const primary = (room: PublicRoom): number => {
+    if (sort === "mic") return roomActivity(room, "micCount");
+    if (sort === "screen") return roomActivity(room, "screenCount");
+    return room.peopleCount;
+  };
+  return [...rooms].sort(
+    (a, b) =>
+      primary(b) - primary(a) ||
+      b.peopleCount - a.peopleCount ||
+      a.createdAt - b.createdAt
+  );
+}
 
 function formatActiveFor(createdAt: number): string {
   const seconds = Math.max(0, Math.floor((Date.now() - createdAt) / 1000));
@@ -20,10 +54,40 @@ function formatActiveFor(createdAt: number): string {
   return `há ${days} ${days === 1 ? "dia" : "dias"}`;
 }
 
+// One counter on a room's card. Dimmed at zero rather than hidden: the three
+// always sit in the same order in the same place, so cards stay comparable at
+// a glance instead of each having a layout of its own.
+function RoomStat({
+  icon,
+  value,
+  label,
+}: {
+  icon: ReactNode;
+  value: number;
+  label: string;
+}) {
+  return (
+    <Tooltip content={label}>
+      <span
+        className={`flex items-center gap-1 tabular-nums ${
+          value > 0
+            ? "text-zinc-700 dark:text-zinc-200"
+            : "text-zinc-400 dark:text-zinc-600"
+        }`}
+      >
+        {icon}
+        {value}
+        <span className="sr-only">{label}</span>
+      </span>
+    </Tooltip>
+  );
+}
+
 export function RoomsPageClient() {
   const [rooms, setRooms] = useState<PublicRoom[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<SortValue>(DEFAULT_SORT);
 
   useEffect(() => {
     let cancelled = false;
@@ -49,8 +113,14 @@ export function RoomsPageClient() {
     };
   }, []);
 
-  const filtered = (rooms ?? []).filter((r) =>
-    r.handle.toLowerCase().includes(search.trim().toLowerCase())
+  // Sorted before filtering so the order is a property of the list itself and
+  // not of whatever happens to be typed in the search box.
+  const filtered = useMemo(
+    () =>
+      sortRooms(rooms ?? [], sort).filter((r) =>
+        r.handle.toLowerCase().includes(search.trim().toLowerCase())
+      ),
+    [rooms, sort, search]
   );
 
   return (
@@ -80,12 +150,28 @@ export function RoomsPageClient() {
           </div>
         </div>
 
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Pesquisar sala por nome..."
-          className="mt-6 w-full rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-        />
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Pesquisar sala por nome..."
+            className="w-full min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+          />
+          <label className="flex shrink-0 items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
+            <span className="shrink-0">Ordenar por</span>
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value as SortValue)}
+              className="w-full min-w-0 rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-950 outline-none focus:border-zinc-500 sm:w-auto dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+            >
+              {SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
 
         <div className="mt-6">
           {error && (
@@ -142,6 +228,32 @@ export function RoomsPageClient() {
                     {room.peopleCount} {room.peopleCount === 1 ? "pessoa" : "pessoas"} · ativa{" "}
                     {formatActiveFor(room.createdAt)}
                   </p>
+                  {/* Microfones, telas, câmeras e vídeos. Screens and cameras
+                      sit side by side rather than rolled into one "sharing"
+                      number: they say different things about what is going on
+                      in there, and the sort menu orders on the screen half. */}
+                  <div className="mt-1.5 flex items-center gap-2.5 text-xs">
+                    <RoomStat
+                      icon={<MicIcon className="h-3.5 w-3.5" />}
+                      value={roomActivity(room, "micCount")}
+                      label="Microfones ativos"
+                    />
+                    <RoomStat
+                      icon={<ScreenIcon className="h-3.5 w-3.5" />}
+                      value={roomActivity(room, "screenCount")}
+                      label="Telas transmitidas"
+                    />
+                    <RoomStat
+                      icon={<CameraIcon className="h-3.5 w-3.5" />}
+                      value={roomActivity(room, "cameraCount")}
+                      label="Câmeras ligadas"
+                    />
+                    <RoomStat
+                      icon={<VideoSourceIcon className="h-3.5 w-3.5" />}
+                      value={roomActivity(room, "videoSourceCount")}
+                      label="Fontes de vídeo"
+                    />
+                  </div>
                 </div>
                 <Link
                   href={`/watch/${room.handle}`}

@@ -66,6 +66,14 @@ type SignalData = {
     | "relay-assign"
     | "reconnect-request";
   sdp?: RTCSessionDescriptionInit;
+  // Set on an offer that renegotiates an *existing* connection with fresh ICE
+  // credentials rather than opening a new session (see openSendPC's
+  // restartSendIce). The receiving side must answer it on the pc it already
+  // has: an ICE restart keeps the DTLS association, so replacing the
+  // connection on one side only would leave the two ends unable to agree.
+  // Absent from every offer an older client sends, which is exactly right —
+  // those are all full sessions and get the rebuild they have always got.
+  iceRestart?: boolean;
   candidate?: RTCIceCandidateInit;
   tier?: QualityTier;
   uploadKbps?: number;
@@ -248,6 +256,24 @@ const CONNECT_TIMEOUT_MS = 15_000;
 const RETRY_BASE_DELAY_MS = 2000;
 const RETRY_MAX_DELAY_MS = 30_000;
 
+// How long a broadcaster waits for an ICE restart to actually take before
+// giving up on it and rebuilding the connection outright (see restartSendIce).
+// Deliberately shorter than CONNECT_TIMEOUT_MS: that budget has to cover the
+// staggered opening burst of a whole room, whereas a restart is one already
+// established peer re-gathering candidates.
+const ICE_RESTART_TIMEOUT_MS = 6000;
+
+// How long a viewer keeps a dead recvPC around after asking the broadcaster to
+// fix it, before concluding no restart is coming and forcing a clean rebuild.
+//
+// Must stay comfortably above ICE_RESTART_TIMEOUT_MS. The two are a pair: the
+// broadcaster is the side that decides between restarting and rebuilding, and
+// it can only restart if our pc is still here to accept the offer — but it has
+// to be given long enough to make that decision and act on it first. Falling
+// back sooner than they do would guarantee we tear ours down mid-restart,
+// which is the one outcome neither side can recover from cheaply.
+const RECV_RECOVERY_TIMEOUT_MS = 9000;
+
 // Shared connection-management for a single media channel (screen share or
 // mic), broadcast from this client to every peer in the room. Each channel
 // gets its own set of peer connections and its own signaling namespace so
@@ -405,6 +431,17 @@ function useBroadcastChannel(
   // Pending retry timers, so a deliberate stop() cannot leave one to fire into
   // a share that has already ended.
   const sendRetryTimers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  // Per-peer "I asked for a reconnect and am holding this pc open for the
+  // answer" timers — see recoverRecvPC.
+  const recvRecoveryTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // Per-peer handle onto the ICE restart of their live sendPC (see
+  // openSendPC's restartSendIce, which owns the connection this closes over).
+  // Exposed here so the "reconnect-request" handler can reach it too: that is
+  // the asymmetric failure — their end is dead, ours still reports
+  // "connected" — and renegotiating the candidate pair is the whole fix for
+  // it. Returns false when a restart is not available or was already spent on
+  // this failure, and the caller rebuilds instead.
+  const sendIceRestarters = useRef<Map<string, () => boolean>>(new Map());
 
 
   const clearStopped = useCallback((peerId: string) => {
@@ -483,6 +520,7 @@ function useBroadcastChannel(
     // should resume at the size that viewer actually renders us at, not snap
     // back to full quality and have to re-learn it.
     qualityRegistry.current.remove(peerId);
+    sendIceRestarters.current.delete(peerId);
     pendingSendCandidates.current.delete(peerId);
     const connectTimeout = connectTimeouts.current.get(peerId);
     if (connectTimeout) clearTimeout(connectTimeout);
@@ -498,6 +536,9 @@ function useBroadcastChannel(
         recvPCs.current.delete(peerId);
       }
       pendingRecvCandidates.current.delete(peerId);
+      const recovery = recvRecoveryTimers.current.get(peerId);
+      if (recovery) clearTimeout(recovery);
+      recvRecoveryTimers.current.delete(peerId);
       // The tile is filed under the origin, not the sender, so a relayed
       // stream must be removed by origin or it would linger forever.
       const origin = recvOrigins.current.get(peerId) ?? peerId;
@@ -662,14 +703,108 @@ function useBroadcastChannel(
           });
         }
       };
+      // Arms the "this never came up" backstop. Used both for the initial
+      // offer (see CONNECT_TIMEOUT_MS's doc comment — a silently-dropped offer
+      // never makes connectionState reach "failed" at all, so nothing else
+      // would ever retry it) and after an ICE restart, which can equally well
+      // go nowhere and must not be waited on forever.
+      const armConnectTimeout = (ms: number) => {
+        const previous = connectTimeouts.current.get(peerId);
+        if (previous) clearTimeout(previous);
+        connectTimeouts.current.set(
+          peerId,
+          setTimeout(() => {
+            connectTimeouts.current.delete(peerId);
+            if (sendPCs.current.get(peerId) === pc && pc.connectionState !== "connected") {
+              closeSendPC(peerId);
+              scheduleSendRetry(peerId);
+            }
+          }, ms)
+        );
+      };
+
+      // Renegotiates this same connection with fresh ICE credentials instead
+      // of throwing it away and building another.
+      //
+      // Worth the extra code because a rebuild is far from free. It discards
+      // this viewer's PeerQualityController along with the congestion ratio it
+      // spent minutes learning about their link (see peerQualityController's
+      // header), and every replacement addTrack forces a keyframe out of an
+      // encoder shared with the whole room — so recovering one viewer visibly
+      // costs all the others. An ICE restart keeps the sender, the encoder,
+      // the learned state and the DTLS association; only the candidate pair is
+      // renegotiated, which is exactly what changed when someone's wifi handed
+      // over to cellular or their NAT binding moved.
+      //
+      // Returns false when this pc is in no state to be restarted, in which
+      // case the caller falls back to the rebuild.
+      const restartSendIce = () => {
+        // An ICE restart is a fresh offer/answer, so it needs the signalling
+        // state to be idle. "closed" is terminal and restarts nothing.
+        if (pc.connectionState === "closed" || pc.signalingState !== "stable") return false;
+        // restartIce() is the modern spelling; the createOffer option is what
+        // older implementations actually honour. Doing both is harmless and
+        // leaves the intent explicit in the SDP that goes out.
+        try {
+          pc.restartIce?.();
+        } catch {
+          return false;
+        }
+        pc.createOffer({ iceRestart: true })
+          .then(async (offer) => {
+            if (sendPCs.current.get(peerId) !== pc) return;
+            await pc.setLocalDescription(offer);
+            if (sendPCs.current.get(peerId) !== pc) return;
+            signalingClient.sendSignal(peerId, {
+              channel,
+              role: "broadcaster",
+              kind: "offer",
+              sdp: pc.localDescription,
+              // Without this the viewer cannot tell an ICE restart from a
+              // brand-new session, and its offer handler would answer by
+              // tearing its own pc down and building another. That is not
+              // merely wasteful: the two sides have to keep or replace their
+              // connections together, or the surviving side is left holding a
+              // DTLS association the other end has already forgotten.
+              iceRestart: true,
+            });
+            armConnectTimeout(ICE_RESTART_TIMEOUT_MS);
+          })
+          .catch(() => {
+            if (sendPCs.current.get(peerId) !== pc) return;
+            closeSendPC(peerId);
+            scheduleSendRetry(peerId);
+          });
+        return true;
+      };
+
+      // One restart per failure episode, reset once the link is healthy again
+      // (below). So a connection that drops twice in a session gets the cheap
+      // recovery both times, while a single drop the restart cannot fix still
+      // falls through to a rebuild instead of restarting in a loop.
+      let iceRestartTried = false;
+      sendIceRestarters.current.set(peerId, () => {
+        if (iceRestartTried) return false;
+        iceRestartTried = true;
+        return restartSendIce();
+      });
+      const recover = () => {
+        if (sendPCs.current.get(peerId) !== pc) return;
+        if (!iceRestartTried) {
+          iceRestartTried = true;
+          if (restartSendIce()) return;
+        }
+        closeSendPC(peerId);
+        scheduleSendRetry(peerId);
+      };
+
       pc.onconnectionstatechange = () => {
         // Ignore events from a pc that's already been superseded (e.g. a
         // retry already replaced it) — otherwise this stale callback could
         // tear down the new connection instead of the dead one.
         if (sendPCs.current.get(peerId) !== pc) return;
         if (pc.connectionState === "failed") {
-          closeSendPC(peerId);
-          scheduleSendRetry(peerId);
+          recover();
         } else if (pc.connectionState === "disconnected") {
           // Some browsers (notably mobile Safari) can sit in "disconnected"
           // for a long time instead of ever declaring "failed", even though
@@ -678,8 +813,7 @@ function useBroadcastChannel(
           // recover on its own from a brief blip first.
           setTimeout(() => {
             if (sendPCs.current.get(peerId) === pc && pc.connectionState === "disconnected") {
-              closeSendPC(peerId);
-              scheduleSendRetry(peerId);
+              recover();
             }
           }, 4000);
         } else if (pc.connectionState === "closed") {
@@ -691,21 +825,10 @@ function useBroadcastChannel(
           // This peer is demonstrably reachable, so the next failure is a
           // fresh blip and deserves the fast first retry again.
           sendRetryAttempts.current.delete(peerId);
+          iceRestartTried = false;
         }
       };
-      // Backstop for a silently-dropped offer/ICE candidate (see
-      // CONNECT_TIMEOUT_MS's doc comment) — connectionState never reaches
-      // "failed" on its own for that case, so nothing above would ever
-      // retry it without this.
-      connectTimeouts.current.set(
-        peerId,
-        setTimeout(() => {
-          if (sendPCs.current.get(peerId) === pc && pc.connectionState !== "connected") {
-            closeSendPC(peerId);
-            scheduleSendRetry(peerId);
-          }
-        }, CONNECT_TIMEOUT_MS)
-      );
+      armConnectTimeout(CONNECT_TIMEOUT_MS);
       pc.createOffer()
         .then(async (offer) => {
           if (sendPCs.current.get(peerId) !== pc) return;
@@ -1030,24 +1153,57 @@ function useBroadcastChannel(
           });
         }
       };
+      // Asks the broadcaster to repair this link, and — crucially — keeps our
+      // connection alive while they do.
+      //
+      // Closing it immediately, which is what this used to do, quietly ruled
+      // out the cheap repair entirely: an ICE restart renegotiates the pc both
+      // sides already have, so if ours is gone by the time their offer lands
+      // there is nothing left to restart and they are forced into a full
+      // rebuild. Holding it open for RECV_RECOVERY_TIMEOUT_MS gives them the
+      // chance to take that path, and costs nothing when they do not — a
+      // rebuild arrives as an ordinary offer, and the handler below replaces
+      // this pc for that case exactly as it always has.
+      const recoverRecvPC = () => {
+        if (recvPCs.current.get(peerId) !== pc) return;
+        if (recvRecoveryTimers.current.has(peerId)) return;
+        // See requestReconnect's doc comment: ICE state is computed
+        // independently on each side, so the broadcaster may still believe
+        // this link is perfectly healthy and would otherwise never act.
+        requestReconnect(peerId);
+        const timer = setTimeout(() => {
+          recvRecoveryTimers.current.delete(peerId);
+          if (recvPCs.current.get(peerId) !== pc) return;
+          if (pc.connectionState === "connected") return;
+          // No restart came, or it did not take. Start over from scratch.
+          closeRecvPC(peerId);
+          requestReconnect(peerId);
+        }, RECV_RECOVERY_TIMEOUT_MS);
+        recvRecoveryTimers.current.set(peerId, timer);
+      };
+
       pc.onconnectionstatechange = () => {
         if (recvPCs.current.get(peerId) !== pc) return;
         setRecvConnectionStates((prev) => ({ ...prev, [originId]: pc.connectionState }));
-        if (pc.connectionState === "failed" || pc.connectionState === "closed") {
+        if (pc.connectionState === "closed") {
           closeRecvPC(peerId);
-          // Actively ask for a fresh sendPC instead of waiting on the
-          // broadcaster's own pc to independently reach the same
-          // conclusion — see requestReconnect's doc comment.
           requestReconnect(peerId);
+        } else if (pc.connectionState === "failed") {
+          recoverRecvPC();
         } else if (pc.connectionState === "disconnected") {
           // Don't tear down a viewer's tile over a brief blip — give it a
           // few seconds to recover on its own first.
           setTimeout(() => {
             if (recvPCs.current.get(peerId) === pc && pc.connectionState === "disconnected") {
-              closeRecvPC(peerId);
-              requestReconnect(peerId);
+              recoverRecvPC();
             }
           }, 4000);
+        } else if (pc.connectionState === "connected") {
+          // Recovered, by whichever route. Drop the fallback so it cannot
+          // later tear down a connection that is working again.
+          const recovery = recvRecoveryTimers.current.get(peerId);
+          if (recovery) clearTimeout(recovery);
+          recvRecoveryTimers.current.delete(peerId);
         }
       };
       return pc;
@@ -1088,16 +1244,34 @@ function useBroadcastChannel(
             stopWatchingPeer(from);
             return;
           }
-          // A fresh offer always comes from a brand-new RTCPeerConnection on
-          // the sender's side (this app never renegotiates an existing one
-          // in place, including on the failure-triggered retry above) — if
-          // we still have a pc for this peer, it belongs to a superseded
-          // session. Reusing it here would feed unrelated SDP into it
-          // instead of cleanly replacing the connection, which can leave
-          // two live tracks feeding the same rendered stream (duplicated,
-          // echoing audio) rather than one.
-          if (recvPCs.current.has(from)) closeRecvPC(from);
-          const thisPc = openRecvPC(from, data.originId ?? from);
+          // There are two kinds of offer, and telling them apart is the whole
+          // job here.
+          //
+          // An offer with no `iceRestart` flag is a brand-new session from a
+          // brand-new RTCPeerConnection on the sender's side. If we still have
+          // a pc for this peer it belongs to a superseded one, and reusing it
+          // would feed unrelated SDP into it instead of cleanly replacing the
+          // connection — which can leave two live tracks feeding the same
+          // rendered stream (duplicated, echoing audio) rather than one. So
+          // that case still closes and rebuilds, exactly as before.
+          //
+          // An offer that *is* flagged is the same session asking to
+          // renegotiate its candidate pair (see openSendPC's restartSendIce).
+          // Answering it on the pc we already have is the entire point: the
+          // stream, the decoder and the tile all survive, where a rebuild
+          // blanks the tile and costs the sender a keyframe out of an encoder
+          // the rest of the room is sharing. It only works while our side is
+          // genuinely still there and idle enough to take an offer, so
+          // anything else falls back to the rebuild.
+          const existingPc = recvPCs.current.get(from);
+          const restartInPlace =
+            data.iceRestart === true &&
+            existingPc !== undefined &&
+            existingPc.connectionState !== "closed" &&
+            existingPc.signalingState === "stable";
+          if (existingPc && !restartInPlace) closeRecvPC(from);
+          const thisPc =
+            restartInPlace && existingPc ? existingPc : openRecvPC(from, data.originId ?? from);
           thisPc
             .setRemoteDescription(data.sdp)
             .then(async () => {
@@ -1235,6 +1409,10 @@ function useBroadcastChannel(
             return;
           }
           if (!activeRef.current) return;
+          // Renegotiate in place if we still can. Their pc is being held open
+          // for exactly this (see recoverRecvPC), so the cheap repair is on
+          // the table right up until their own fallback fires.
+          if (sendIceRestarters.current.get(from)?.() === true) return;
           closeSendPC(from);
           openSendPC(from);
         } else if (data.kind === "answer" && data.sdp) {
@@ -1400,8 +1578,16 @@ function useBroadcastChannel(
   useEffect(() => {
     const pcs = recvPCs.current;
     const pausedPeers = viewerPausedPeers.current;
+    const recoveryTimers = recvRecoveryTimers.current;
     return () => {
       stop();
+      // Closing the pcs directly rather than through closeRecvPC means these
+      // are not cleared along the way. They are harmless if they do fire (each
+      // checks that its pc is still the current one, which it will not be), but
+      // there is no reason to leave a room-change trailing timers that go on to
+      // ask a room we have left for a reconnect.
+      for (const timer of recoveryTimers.values()) clearTimeout(timer);
+      recoveryTimers.clear();
       for (const pc of pcs.values()) pc.close();
       pcs.clear();
       setRemoteStreams({});

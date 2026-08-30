@@ -65,8 +65,17 @@ const STALL_CHECK_MS = 500;
 // can legitimately be rebuilt while the old one is still winding down.
 let relaySeq = 0;
 
+type RelayChildState = {
+  pc: RTCPeerConnection;
+  tier: QualityTier;
+  // Renegotiates this child's candidate pair without rebuilding the
+  // connection. See openChild — it closes over the pc, and returns false when
+  // a restart is unavailable or has already been spent on this failure.
+  restartIce: () => boolean;
+};
+
 export class RelayLink {
-  private children = new Map<string, { pc: RTCPeerConnection; tier: QualityTier }>();
+  private children = new Map<string, RelayChildState>();
   private quality = new PeerQualityRegistry(`relay:${(relaySeq += 1)}`);
   private stallTimer: ReturnType<typeof setInterval> | null = null;
   private lastFrames = 0;
@@ -122,7 +131,44 @@ export class RelayLink {
 
   private openChild(peerId: string, tier: QualityTier) {
     const pc = new RTCPeerConnection(iceConfigFor(this.forceRelayIce));
-    this.children.set(peerId, { pc, tier });
+
+    // Mirrors the root broadcaster's own recovery (see useRoomMedia's
+    // restartSendIce). It matters more here, not less: a relay's children are
+    // the deepest viewers in the room, a rebuild costs them a full decode gap
+    // plus a fresh re-encode out of a machine that is already spending itself
+    // on everyone else's behalf, and this connection's quality controller has
+    // learned their link the same way the root's has.
+    let iceRestartTried = false;
+    const restartIce = () => {
+      if (iceRestartTried) return false;
+      if (pc.connectionState === "closed" || pc.signalingState !== "stable") return false;
+      iceRestartTried = true;
+      try {
+        pc.restartIce?.();
+      } catch {
+        return false;
+      }
+      pc.createOffer({ iceRestart: true })
+        .then(async (offer) => {
+          if (this.children.get(peerId)?.pc !== pc) return;
+          await pc.setLocalDescription(offer);
+          if (this.children.get(peerId)?.pc !== pc) return;
+          signalingClient.sendSignal(peerId, {
+            channel: "screen",
+            role: "broadcaster",
+            kind: "offer",
+            sdp: pc.localDescription,
+            originId: this.originId,
+            // Tells the child to answer on the pc it already has rather than
+            // replacing it — see useRoomMedia's offer handler.
+            iceRestart: true,
+          });
+        })
+        .catch(() => this.closeChild(peerId));
+      return true;
+    };
+
+    this.children.set(peerId, { pc, tier, restartIce });
 
     for (const track of this.stream.getTracks()) {
       const sender = pc.addTrack(track, this.stream);
@@ -160,8 +206,17 @@ export class RelayLink {
     };
     pc.onconnectionstatechange = () => {
       if (this.children.get(peerId)?.pc !== pc) return;
-      if (pc.connectionState === "failed" || pc.connectionState === "closed") {
+      if (pc.connectionState === "failed") {
+        // Try the cheap repair before giving up on them. Dropping the child
+        // outright also sends them a "stop", which clears their tile and takes
+        // away the reconnect-request they would otherwise have used to ask for
+        // a repair themselves — so this really is the only chance.
+        if (restartIce()) return;
         this.closeChild(peerId);
+      } else if (pc.connectionState === "closed") {
+        this.closeChild(peerId);
+      } else if (pc.connectionState === "connected") {
+        iceRestartTried = false;
       }
     };
 
@@ -207,6 +262,10 @@ export class RelayLink {
   reopenChild(peerId: string) {
     const existing = this.children.get(peerId);
     if (!existing) return;
+    // They told us their side is dead while ours may still read as connected,
+    // which is the asymmetry an ICE restart exists for. Only if that is
+    // unavailable do we pay for a whole new connection.
+    if (existing.restartIce()) return;
     const { tier } = existing;
     // Straight to close, without closeChild's "stop" signal: telling the child
     // to give up is the opposite of what it just asked us for.
