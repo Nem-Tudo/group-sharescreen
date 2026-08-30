@@ -52,6 +52,12 @@ const OWNER_HEARTBEAT_MS = 15_000;
 // pressing the button would; reporting those back would bounce around the
 // room forever.
 const REMOTE_APPLY_QUIET_MS = 500;
+// How long this client's own action is allowed to be ahead of the record
+// without being corrected back to it — the round trip of a push landing on the
+// server and coming home. Deliberately short: it is the window in which this
+// player is right and the record is stale, and every millisecond past that is
+// a window in which somebody else's pause goes unheard.
+const SELF_ECHO_MS = 1500;
 // Scrubbing produces a state change per frame of the drag. Pushes are
 // coalesced: the first goes out immediately (so a plain pause is instant for
 // everyone), the rest collapse into one trailing send carrying the final
@@ -139,8 +145,18 @@ export function MusicBar({
     const player = playerRef.current;
     const current = musicRef.current;
     if (!player || !canControlRef.current) return;
-    lastPushAtRef.current = Date.now();
     const state = player.getPlayerState();
+    // A track ending inside a playlist is the queue advancing, not the music
+    // stopping — and the next item is a moment away. Reporting `playing:
+    // false` here is a lie the whole room then acts on: everybody pauses, and
+    // the track that was about to start starts paused.
+    //
+    // Skipped entirely rather than reported as playing: the PLAYING that
+    // follows a second later carries the truth, including the new index, and
+    // an extrapolated position running a second past the end of a finished
+    // track is nothing anyone can hear.
+    if (state === PLAYER_STATE.ENDED && current.playlistId) return;
+    lastPushAtRef.current = Date.now();
     const index = player.getPlaylistIndex?.();
     signalingClient.setMusicState(
       current.id,
@@ -285,9 +301,32 @@ export function MusicBar({
       const state = player.getPlayerState();
       const playerPlaying = state === PLAYER_STATE.PLAYING || state === PLAYER_STATE.BUFFERING;
 
+      // Two different "leave me alone" windows, because two different things
+      // are being protected from.
+      //
+      // `driving` is the long one, and only the drift seek uses it: whoever is
+      // steering is where the record comes from, and seeking their player to
+      // the record they just wrote fights every scrub they make.
+      //
+      // `justActed` is short, and it is what the queue and play/pause
+      // corrections use. Those must not be skipped for a whole heartbeat —
+      // another manager pausing has to be followed within a second, not
+      // fifteen — but they do have to survive the round trip of this client's
+      // own action coming back. A playlist advancing on its own is exactly
+      // that: for a tick the player is on item N+1 while the record still says
+      // N, and without this window the queue correction drags it back to N
+      // while the play/pause correction pauses it. Which, together with the
+      // ENDED report pushNow no longer sends, is the whole of "every track
+      // after the first starts paused".
+      const driving =
+        canControlRef.current && Date.now() - lastPushAtRef.current < OWNER_HEARTBEAT_MS;
+      const justActed =
+        canControlRef.current && Date.now() - lastPushAtRef.current < SELF_ECHO_MS;
+
       // The queue first: chasing a timestamp that belongs to a different
       // track is worse than not chasing at all.
       if (
+        !justActed &&
         current.playlistId &&
         typeof current.playlistIndex === "number" &&
         player.getPlaylistIndex &&
@@ -302,16 +341,12 @@ export function MusicBar({
         }
       }
 
-      if (current.playing !== playerPlaying) {
+      if (!justActed && current.playing !== playerPlaying) {
         markApplyingRemote();
         if (current.playing) player.playVideo();
         else player.pauseVideo();
       }
 
-      // Whoever is driving is the reference, not a follower of it: seeking
-      // their own player to the record they just wrote would fight every
-      // scrub they make.
-      const driving = canControlRef.current && Date.now() - lastPushAtRef.current < OWNER_HEARTBEAT_MS;
       if (driving || !current.playing || Date.now() < seekSettledAtRef.current) return;
 
       const target = musicPosition(current, serverNowRef.current());
