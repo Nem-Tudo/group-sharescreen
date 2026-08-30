@@ -18,10 +18,16 @@ import { readZipEntries, readZipEntryBlob, ZipError } from "./zipReader";
 // or skipping is a local act whose effect everyone sees for the same reason
 // they see a paused video on a shared screen.
 //
-// A module-level singleton rather than React state: the playback has to
-// outlive any component (the capture function in useRoomMedia reaches for it,
-// and so does the transport UI), and there is exactly one local playback at a
-// time because there is exactly one screen channel to carry it.
+// Module-level instances rather than React state: a playback has to outlive
+// any component (the capture function in useRoomMedia reaches for it, and so
+// does the transport UI in whichever tile is currently rendering it).
+//
+// There is one instance per *slot*. Slots are a fixed list rather than a
+// growable one because each is a broadcast channel of its own and channels are
+// wired up with hooks, which cannot be called in a loop of varying length (see
+// useRoomMedia). Three of them: every extra file is another canvas capture and
+// another video encode on this one machine, so the ceiling is set by what a
+// laptop can actually do at once rather than by what the UI could list.
 
 export type LocalMediaItem = {
   id: string;
@@ -36,6 +42,37 @@ export type LocalMediaItem = {
 };
 
 type Listener = () => void;
+
+// Which of the two add-source flows this queue came from (see
+// LocalMediaPicker). Presentation only — a local file is played and broadcast
+// exactly the same way either way — but it is what the transport bar reads to
+// call itself the room's music rather than a transmission, and keeping the two
+// entry points distinguishable is the point of offering them separately.
+export type LocalMediaMode = "video" | "music";
+
+// Who may drive a file once it is playing. "anyone" is everybody in the room;
+// what "owner" narrows it to depends on what the file *is*, and the two answers
+// are the ones the rest of the app already uses:
+//
+//   - a file put on as a video is something a participant brought, so "owner"
+//     is that person alone — the same meaning a room video source's has;
+//   - a file put on as music is the room's soundtrack, so "owner" is the room's
+//     management, exactly like a YouTube one (see the server's RoomMusicSource).
+//     Whoever is playing it always controls it — it is their machine — and the
+//     room's owner and admins may too, so an admin can skip a track they did
+//     not choose.
+//
+// Nobody else's buttons can touch this machine's playback directly, so all of
+// this works by relaying the action back to whoever is playing it (see
+// useRoomMedia's file-control signal), which then does what it would have done
+// if they had pressed it themselves. The room sees the result the same way it
+// sees everything else about the file: as live video and audio.
+export type LocalMediaControlMode = "owner" | "anyone";
+
+// One broadcast channel each (see useRoomMedia), so a person can have several
+// files going at once the way they can have a screen and a camera at once.
+export const LOCAL_MEDIA_SLOTS = ["file1", "file2", "file3"] as const;
+export type LocalMediaSlot = (typeof LOCAL_MEDIA_SLOTS)[number];
 
 const VIDEO_EXTENSIONS = ["mp4", "webm", "ogv", "ogm", "mov", "m4v", "mkv"];
 const AUDIO_EXTENSIONS = ["mp3", "m4a", "aac", "ogg", "oga", "opus", "wav", "flac", "weba"];
@@ -85,6 +122,15 @@ class LocalMediaSource {
   private position = 0;
   private duration = 0;
   private failed: string | null = null;
+  private mode: LocalMediaMode = "video";
+  private controlMode: LocalMediaControlMode = "owner";
+  // Bumped whenever something a *viewer* would need to know changes — what is
+  // playing, whether it is playing, where it is. useRoomMedia listens and
+  // announces it to the room (see setSharing's `files`), which is what lets
+  // someone else's transport show a real position for a file on this machine.
+  private onAnnounce: (() => void) | null = null;
+
+  constructor(readonly slot: LocalMediaSlot) {}
 
   // The broadcast plumbing. All of it exists to solve one problem: the
   // obvious approach — HTMLMediaElement.captureStream() — produces tracks
@@ -122,7 +168,18 @@ class LocalMediaSource {
     position: number;
     duration: number;
     failed: string | null;
-  } = { queue: [], index: 0, playing: false, position: 0, duration: 0, failed: null };
+    mode: LocalMediaMode;
+    controlMode: LocalMediaControlMode;
+  } = {
+    queue: [],
+    index: 0,
+    playing: false,
+    position: 0,
+    duration: 0,
+    failed: null,
+    mode: "video",
+    controlMode: "owner",
+  };
 
   getSnapshot = () => this.snapshot;
 
@@ -134,8 +191,33 @@ class LocalMediaSource {
       position: this.position,
       duration: this.duration,
       failed: this.failed,
+      mode: this.mode,
+      controlMode: this.controlMode,
     };
     for (const listener of this.listeners) listener();
+  }
+
+  // A change the room has to hear about, as opposed to one only this tab's UI
+  // cares about (a timeupdate tick). Deliberately only the discrete events —
+  // play, pause, seek, track change, duration — because a playing file's
+  // position is a function of time and everyone else extrapolates it from the
+  // last one of these, exactly like a room video source does.
+  private announce() {
+    this.refresh();
+    this.onAnnounce?.();
+  }
+
+  setAnnounceListener(listener: (() => void) | null) {
+    this.onAnnounce = listener;
+  }
+
+  setControlMode(mode: LocalMediaControlMode) {
+    this.controlMode = mode;
+    this.announce();
+  }
+
+  get currentControlMode(): LocalMediaControlMode {
+    return this.controlMode;
   }
 
   get current(): LocalMediaItem | null {
@@ -144,6 +226,16 @@ class LocalMediaSource {
 
   get hasQueue(): boolean {
     return this.queue.length > 0;
+  }
+
+  // What is playing, for the caption the room is told about (see
+  // signalingClient.setSharing's fileName). Just the filename: the folders
+  // above it are this person's disk layout, not something a tile in someone
+  // else's room should be showing.
+  get currentName(): string | null {
+    const item = this.current;
+    if (!item) return null;
+    return item.name.split("/").pop() ?? item.name;
   }
 
   // Never appended to the document: an element that was never inserted still
@@ -157,11 +249,15 @@ class LocalMediaSource {
     el.crossOrigin = "anonymous";
     el.addEventListener("play", () => {
       this.playing = true;
-      this.refresh();
+      this.announce();
     });
     el.addEventListener("pause", () => {
       this.playing = false;
-      this.refresh();
+      this.announce();
+    });
+    el.addEventListener("seeked", () => {
+      this.position = el.currentTime || 0;
+      this.announce();
     });
     el.addEventListener("timeupdate", () => {
       this.position = el.currentTime || 0;
@@ -169,7 +265,7 @@ class LocalMediaSource {
     });
     el.addEventListener("durationchange", () => {
       this.duration = Number.isFinite(el.duration) ? el.duration : 0;
-      this.refresh();
+      this.announce();
     });
     el.addEventListener("loadedmetadata", () => this.resizeCanvas());
     el.addEventListener("ended", () => {
@@ -254,20 +350,31 @@ class LocalMediaSource {
       throw new Error("Este navegador não permite transmitir arquivos locais.");
     }
 
+    // Music carries no picture at all. Skipping the canvas is not a cosmetic
+    // choice: it drops a redraw timer and a whole video encode per slot, for a
+    // rectangle whose only viewer-facing job would be to sit invisibly behind
+    // a strip (see LocalMusicBar, which plays the audio and draws none of it).
+    const wantsVideo = this.mode !== "music";
+
     // Video: a canvas redrawn on a timer rather than requestAnimationFrame.
     // rAF stops entirely in a background tab, which would freeze the room's
     // picture the moment the person sharing switches windows; a throttled
     // timer degrades to about a frame a second instead, which is worse than
     // full rate and far better than a still image.
-    const canvas = document.createElement("canvas");
-    canvas.width = FALLBACK_WIDTH;
-    canvas.height = FALLBACK_HEIGHT;
-    this.canvas = canvas;
-    this.resizeCanvas();
-    this.draw();
-    if (this.drawTimer) clearInterval(this.drawTimer);
-    this.drawTimer = setInterval(() => this.draw(), Math.max(1000 / Math.max(fps, 1), 16));
-    const stream = canvas.captureStream(fps);
+    let stream: MediaStream;
+    if (wantsVideo) {
+      const canvas = document.createElement("canvas");
+      canvas.width = FALLBACK_WIDTH;
+      canvas.height = FALLBACK_HEIGHT;
+      this.canvas = canvas;
+      this.resizeCanvas();
+      this.draw();
+      if (this.drawTimer) clearInterval(this.drawTimer);
+      this.drawTimer = setInterval(() => this.draw(), Math.max(1000 / Math.max(fps, 1), 16));
+      stream = canvas.captureStream(fps);
+    } else {
+      stream = new MediaStream();
+    }
 
     // Audio: the element feeds two places at once — the room, through a
     // stream destination, and this person's own speakers, through a gain node
@@ -310,9 +417,15 @@ class LocalMediaSource {
   // Replaces the queue wholesale. Everything the previous one held — object
   // URLs, and for a zip the extracted blobs those URLs are the only reference
   // to — is released here.
-  setQueue(items: LocalMediaItem[]) {
+  setQueue(
+    items: LocalMediaItem[],
+    mode: LocalMediaMode = "video",
+    controlMode: LocalMediaControlMode = "owner"
+  ) {
     for (const item of this.queue) URL.revokeObjectURL(item.url);
     this.queue = items;
+    this.mode = mode;
+    this.controlMode = controlMode;
     this.index = 0;
     this.failed = null;
     this.position = 0;
@@ -334,7 +447,7 @@ class LocalMediaSource {
     this.duration = 0;
     el.src = this.queue[index].url;
     el.load();
-    this.refresh();
+    this.announce();
     try {
       await el.play();
     } catch {
@@ -381,6 +494,33 @@ class LocalMediaSource {
     else if (this.element) this.element.volume = clamped;
   }
 
+  // Applies a request that came from someone else in the room. The check lives
+  // here, on the machine that would act on it, rather than only in the UI that
+  // offers the buttons — see LocalMediaControlMode for what each mode admits.
+  applyRemote(request: LocalMediaAction, fromRoomManager: boolean) {
+    const allowed =
+      this.controlMode === "anyone" || (this.mode === "music" && fromRoomManager);
+    if (!allowed) return;
+    switch (request.action) {
+      case "toggle":
+        this.togglePlay();
+        break;
+      case "next":
+        this.next();
+        break;
+      case "previous":
+        this.previous();
+        break;
+      case "seek":
+        this.seekTo(request.seconds);
+        this.announce();
+        break;
+      case "playAt":
+        void this.playAt(request.index);
+        break;
+    }
+  }
+
   // Called when the share stops. The queue is kept — starting the same files
   // again should not mean picking them again — but playback stops and the
   // whole broadcast graph is torn down, since its tracks went with the share.
@@ -419,7 +559,49 @@ class LocalMediaSource {
   }
 }
 
-export const localMediaSource = new LocalMediaSource();
+// One per slot, built once. Which one a picker fills is decided by
+// nextFreeLocalMediaSlot below.
+export const localMediaSources: Record<LocalMediaSlot, LocalMediaSource> = {
+  file1: new LocalMediaSource("file1"),
+  file2: new LocalMediaSource("file2"),
+  file3: new LocalMediaSource("file3"),
+};
+
+// The first slot with nothing in it, or null when all three are busy. Adding a
+// file fills a free slot rather than replacing whatever was playing — the same
+// thing adding a second YouTube source does, and the reason there is more than
+// one slot at all.
+export function nextFreeLocalMediaSlot(
+  isBusy: (slot: LocalMediaSlot) => boolean
+): LocalMediaSlot | null {
+  return LOCAL_MEDIA_SLOTS.find((slot) => !isBusy(slot)) ?? null;
+}
+
+// Where a file being played on somebody *else's* machine should be right now,
+// extrapolated from the last state they announced (see PeerInfo.files). Same
+// arithmetic, and the same reasoning, as a room video source's: a playing
+// file's position is a function of time, so nobody has to stream positions for
+// a viewer's scrubber to track one. A negative elapsed time (this viewer's
+// clock behind the server's stamp) reads as "no time has passed" rather than
+// as a rewind.
+export function localFilePosition(
+  file: { playing: boolean; positionSeconds: number; updatedAt: number },
+  now = Date.now()
+): number {
+  if (!file.playing) return file.positionSeconds;
+  return file.positionSeconds + Math.max(0, (now - file.updatedAt) / 1000);
+}
+
+// What a viewer's transport asks the person playing a file to do. Relayed to
+// them through the ordinary signalling path (see useRoomMedia), and only
+// honoured when that file's controlMode says "anyone" — checked on the machine
+// that would act on it, which is the only place the answer is authoritative.
+export type LocalMediaAction =
+  | { action: "toggle" }
+  | { action: "next" }
+  | { action: "previous" }
+  | { action: "seek"; seconds: number }
+  | { action: "playAt"; index: number };
 
 // The path inside the chosen folder when there is one, so a queue built from
 // two different albums is still readable.

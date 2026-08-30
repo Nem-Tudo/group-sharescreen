@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { FocusIcon, HyperfocusIcon, FullscreenIcon, FullscreenExitIcon, EyeOffIcon } from "@/components/icons";
 import { Tooltip } from "@/components/Tooltip";
 import { VolumeSlider } from "@/components/VolumeSlider";
-import { MdClose, MdSettings } from "react-icons/md";
+import { MdClose, MdSettings, MdLock, MdLockOpen } from "react-icons/md";
 import { isYouTubeVideoId, videoSourcePosition, type VideoSource } from "@/lib/videoSource";
 import {
   loadYouTubeApi,
@@ -289,6 +289,7 @@ export function VideoSourceTile({
   source,
   canControl,
   isOwner,
+  canRestrictControl = false,
   onStateChange,
   onRemove,
   onLeave,
@@ -317,6 +318,10 @@ export function VideoSourceTile({
   // onRemove below) stays this narrow even when a "anyone" source has opened
   // up play/pause/seek to everybody.
   isOwner: boolean;
+  // Whether this viewer may claim "só eu posso controlar" at all — an account
+  // can, a guest cannot (see the server's allowedControlMode). Only ever
+  // consulted for the owner's own toggle below.
+  canRestrictControl?: boolean;
   onStateChange: (
     playing: boolean,
     positionSeconds: number,
@@ -878,8 +883,25 @@ export function VideoSourceTile({
 
   return (
     <div
+      // The aspect ratio belongs on the tile, not on the video inside it.
+      //
+      // It used to sit on the video rectangle below while this box had only a
+      // width, which meant the tile's height was "whatever the header plus a
+      // 16:9 video adds up to" — and a grid item stretches to its row
+      // (`align-self: stretch`, which overrides `aspect-ratio` since the height
+      // is still auto). The box grew, the header stayed `shrink-0` and the
+      // video stayed locked to 16:9, so the difference came out as bare
+      // `bg-zinc-950` hanging below the picture. From the outside that reads
+      // two ways at once: a background stretched downwards, and — since the
+      // dead strip sits between one row of tiles and the next — a gap far
+      // bigger than the grid's own.
+      //
+      // With the ratio here the tile has an intrinsic 16:9 height like every
+      // VideoTile beside it (so auto-sized rows agree on a height), and when a
+      // row does stretch it, the video below grows with it instead of leaving
+      // a hole.
       className={`flex flex-col overflow-hidden rounded-xl bg-zinc-950 ${
-        fill ? "h-full w-full" : "w-full"
+        fill ? "h-full w-full" : "aspect-video w-full"
       } ${className}`}
     >
       {/* A real bar above the video, not an overlay. The site's own chrome
@@ -942,6 +964,45 @@ export function VideoSourceTile({
                 }`}
               >
                 <MdSettings className="h-3.5 w-3.5 shrink-0" />
+              </button>
+            </Tooltip>
+          )}
+          {/* Who may drive it, changed on the spot. Only whoever added it sees
+              this, and the alternative it replaces is removing the video and
+              adding it again — which costs everyone their place in it, and
+              restarts a playlist, to change one setting.
+
+              A guest can only ever open it up (see canRestrictControl): a
+              source pinned to an identity that can vanish with the browser's
+              site data is one nobody can steer afterwards. */}
+          {isOwner && source.kind !== "twitch" && source.kind !== "kick" && (
+            <Tooltip
+              content={
+                source.controlMode === "anyone"
+                  ? canRestrictControl
+                    ? "Todos podem controlar. Clique para deixar só você"
+                    : "Todos podem controlar. Só quem tem conta pode guardar o controle"
+                  : "Só você controla. Clique para liberar para todos"
+              }
+            >
+              <button
+                type="button"
+                onClick={() =>
+                  signalingClient.setVideoSourceControlMode(
+                    source.id,
+                    source.controlMode === "anyone" ? "owner" : "anyone"
+                  )
+                }
+                disabled={source.controlMode === "anyone" && !canRestrictControl}
+                aria-label="Quem pode controlar esse vídeo"
+                aria-pressed={source.controlMode !== "anyone"}
+                className={`rounded-full p-1.5 text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent`}
+              >
+                {source.controlMode === "anyone" ? (
+                  <MdLockOpen className="h-4 w-4" />
+                ) : (
+                  <MdLock className="h-4 w-4" />
+                )}
               </button>
             </Tooltip>
           )}
@@ -1027,7 +1088,10 @@ export function VideoSourceTile({
           for a viewer who isn't driving, a fully transparent shield. */}
       <div
         ref={containerRef}
-        className={`relative bg-black ${fill ? "min-h-0 flex-1" : "aspect-video w-full"}`}
+        // Fills whatever is left after the header, in both modes — see the
+        // root's comment. The embed letterboxes itself inside it, exactly as a
+        // VideoTile's `object-contain` video does.
+        className="relative min-h-0 w-full flex-1 bg-black"
       >
         {/* The API replaces this node with its iframe, so the sizing has to
             come from the parent (see the width/height above too). */}

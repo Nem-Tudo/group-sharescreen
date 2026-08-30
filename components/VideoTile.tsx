@@ -32,6 +32,12 @@ function getPipSupportedServer() {
   return false;
 }
 
+// How long a single click on the picture waits to see whether it is really
+// the first half of a double click (which is "focar" — see onDoubleClick).
+// Roughly the platform double-click threshold; longer would make play/pause
+// feel laggy, shorter would let a slow double click pause the video first.
+const DOUBLE_CLICK_WINDOW_MS = 250;
+
 export function VideoTile({
   stream,
   label,
@@ -54,6 +60,9 @@ export function VideoTile({
   onToggleMic,
   micsMuted,
   onToggleMicsMuted,
+  transport,
+  onTogglePlay,
+  badgeClassName = "bg-red-500/90",
   className = "",
 }: {
   stream: MediaStream;
@@ -114,6 +123,21 @@ export function VideoTile({
   onToggleMic?: () => void;
   micsMuted?: boolean;
   onToggleMicsMuted?: () => void;
+  // A strip of controls belonging to whatever is *inside* this tile, drawn
+  // just above the name bar — today, the transport for a local file being
+  // played into the room (see LocalMediaControls). Unlike the button cluster
+  // in the corner, it stays visible without a hover: it is the only way to
+  // drive what is playing, and a control you have to go looking for is not
+  // one people find. Dropped in `compact`, where there is no room for it.
+  transport?: ReactNode;
+  // Click in the middle of the picture to pause/resume, the way every video
+  // player works. Only passed where there is something a click could pause —
+  // a local file this viewer may drive (see LocalMediaControls) — never for a
+  // live transmission, which has no pause to offer.
+  onTogglePlay?: () => void;
+  // The badge's colour. Red by default, which reads as "live" — a video
+  // source is not live in that sense and says so in its own colour.
+  badgeClassName?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -290,12 +314,54 @@ export function VideoTile({
     setIsMuted(nextVolume === 0);
   }
 
+  // A single click on the picture is play/pause, and a *double* click is
+  // "focar" (see onDoubleClick on the container). A double click fires its
+  // first click too, so acting immediately would pause and resume on every
+  // attempt to focus something. The single-click action therefore waits out
+  // the double-click window, and the second click cancels it — but only while
+  // there is a double click to wait for, which is exactly what the room's
+  // "duplo clique para deixar em foco" setting decides by passing
+  // `onDoubleClick` or not.
+  const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (clickTimerRef.current) clearTimeout(clickTimerRef.current);
+    };
+  }, []);
+
   // Tapping the video itself — not one of the buttons layered over it,
   // which are siblings rather than descendants of <video> so their clicks
   // never reach this handler — toggles the controls while fullscreen. Outside
   // fullscreen the existing hover/touch-always-on behavior is untouched.
   function handleVideoTap() {
-    if (isFullscreen) setFullscreenControlsVisible((v) => !v);
+    if (isFullscreen) {
+      // In fullscreen a tap is how a touch device reveals the controls at
+      // all, and that has to keep working — there is no hover to fall back
+      // on and no other way back to the buttons.
+      setFullscreenControlsVisible((v) => !v);
+      return;
+    }
+    if (!onTogglePlay) return;
+    // Nothing is listening for a double click (the room's "duplo clique para
+    // deixar em foco" is off — see WatchRoom), so there is nothing to wait
+    // for and the pause happens on the press.
+    if (!onDoubleClick) {
+      onTogglePlay();
+      return;
+    }
+    if (clickTimerRef.current) clearTimeout(clickTimerRef.current);
+    clickTimerRef.current = setTimeout(() => {
+      clickTimerRef.current = null;
+      onTogglePlay();
+    }, DOUBLE_CLICK_WINDOW_MS);
+  }
+
+  function handleVideoDoubleTap() {
+    // Whatever the single click had queued is not what was meant.
+    if (clickTimerRef.current) {
+      clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
+    }
   }
 
   const nameForLabel = accessibleLabel ?? "essa transmissão";
@@ -339,15 +405,29 @@ export function VideoTile({
         onCanPlay={() => setIsVideoLoading(false)}
         onPlaying={() => setIsVideoLoading(false)}
         onClick={handleVideoTap}
-        className="h-full w-full object-contain bg-black"
+        onDoubleClick={handleVideoDoubleTap}
+        className={`h-full w-full object-contain bg-black ${
+          onTogglePlay && !isFullscreen ? "cursor-pointer" : ""
+        }`}
       />
       {isVideoLoading && (
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="h-10 w-10 animate-spin rounded-full border-4 border-white/20 border-t-white/80" />
         </div>
       )}
+      {transport && !compact && (
+        <div className="absolute inset-x-0 bottom-0 z-10 bg-linear-to-t from-black/90 via-black/80 to-transparent pt-6">
+          {transport}
+        </div>
+      )}
       <div
-        className={`absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-linear-to-t from-black/85 to-transparent transition-opacity ${compact ? "px-2 py-1" : "px-3 py-2"
+        className={`absolute inset-x-0 flex items-center justify-between gap-2 bg-linear-to-t from-black/85 to-transparent transition-opacity ${
+          // Pushed up out of the transport's way when there is one, rather
+          // than the two overlapping at the bottom edge.
+          // Clears the transport's own height — a 28px row inside 8px of
+          // padding — with a little room to spare.
+          transport && !compact ? "bottom-10" : "bottom-0"
+          } ${compact ? "px-2 py-1" : "px-3 py-2"
           } ${
           // A thumbnail's name is the only thing identifying it, so unlike the
           // buttons it stays put — and stays put *visibly*, rather than
@@ -360,7 +440,9 @@ export function VideoTile({
           {label}
         </span>
         {badge && !compact && (
-          <span className="rounded-full bg-red-500/90 px-2 py-0.5 text-xs font-semibold text-white">
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs font-semibold text-white ${badgeClassName}`}
+          >
             {badge}
           </span>
         )}

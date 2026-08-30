@@ -25,6 +25,13 @@ const MIC_HINT_SEEN_KEY = "sharescreen:micHintSeen";
 const MUSIC_VOLUME_KEY = "sharescreen:musicVolume";
 export const DEFAULT_MUSIC_VOLUME = 0.5;
 const AUTO_JOIN_KEY = "sharescreen:autoJoin";
+// Whether a double click on a tile puts it in "Focar" (see WatchRoom's
+// toggleSpotlight). On by default — it is how focusing has always worked —
+// but it costs something now that a single click on a local file's picture is
+// play/pause: a double click fires its first click too, so the play/pause has
+// to wait out the double-click window before acting. Turning this off is what
+// makes that click instant for someone who focuses with the button instead.
+const DOUBLE_CLICK_FOCUS_KEY = "sharescreen:doubleClickFocus";
 // "Sempre abrir salas no aplicativo" — see components/OpenInAppBanner.
 const OPEN_IN_APP_KEY = "sharescreen:openRoomsInApp";
 const OPEN_IN_APP_DISMISSED_KEY = "sharescreen:openInAppDismissed";
@@ -66,6 +73,13 @@ export function getStoredMicOn(): boolean {
 }
 export function setStoredMicOn(value: boolean) {
   setStoredBoolean(MIC_ON_KEY, value);
+}
+
+export function getStoredDoubleClickFocus(): boolean {
+  return getStoredBoolean(DOUBLE_CLICK_FOCUS_KEY, true);
+}
+export function setStoredDoubleClickFocus(value: boolean) {
+  setStoredBoolean(DOUBLE_CLICK_FOCUS_KEY, value);
 }
 
 export function getStoredMicsMuted(): boolean {

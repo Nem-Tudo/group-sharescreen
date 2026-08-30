@@ -11,6 +11,8 @@ import {
   MdForward10,
   MdClose,
   MdPlaylistPlay,
+  MdLock,
+  MdLockOpen,
 } from "react-icons/md";
 import { Tooltip } from "@/components/Tooltip";
 import { VolumeSlider } from "@/components/VolumeSlider";
@@ -67,6 +69,7 @@ const AUTOPLAY_CHECK_MS = 2500;
 export function MusicBar({
   music,
   canControl,
+  isRoomManager,
   isMusicOwner,
   onReplace,
   serverNow = defaultServerNow,
@@ -75,6 +78,11 @@ export function MusicBar({
   // Owner and admins of the room. Everyone else gets the same bar with the
   // transport disabled — the volume, which is theirs alone, still works.
   canControl: boolean;
+  // Whether this viewer runs the room. Separate from canControl, which the
+  // music's own controlMode can widen to everybody: opening the decks up is a
+  // management decision, and must not become one that anyone who was let in
+  // can then take back.
+  isRoomManager: boolean;
   // Whether this viewer is the one who put the music on. Only they run the
   // position heartbeat, so a room full of admins doesn't have five clients
   // re-reporting the same track over each other.
@@ -412,7 +420,7 @@ export function MusicBar({
   const disabledControl = !canControl || !ready;
 
   return (
-    <div className="relative flex w-full shrink-0 flex-col border-b border-emerald-700/40 bg-emerald-600 text-white dark:bg-emerald-700">
+    <div className="relative flex w-full shrink-0 flex-col border-b border-sky-700/40 bg-sky-600 text-white dark:bg-sky-700">
       {/* The player itself. Audio only: it is parked at 1x1 with the sound
           left on rather than hidden with `display: none`, which browsers are
           entitled to treat as "not playing" and quietly stop. */}
@@ -517,7 +525,7 @@ export function MusicBar({
             <button
               type="button"
               onClick={activateAudio}
-              className="rounded-md bg-white px-2 py-1 text-[11px] font-semibold text-emerald-700 transition hover:bg-emerald-50"
+              className="rounded-md bg-white px-2 py-1 text-[11px] font-semibold text-sky-700 transition hover:bg-sky-50"
             >
               Ativar som
             </button>
@@ -528,7 +536,27 @@ export function MusicBar({
             onChange={changeVolume}
             className="hidden w-24 sm:flex"
           />
-          {canControl && (
+          {isRoomManager && (
+            <MusicButton
+              label={
+                music.controlMode === "anyone"
+                  ? "Todos podem controlar. Clique para deixar só com a administração"
+                  : "Só o dono e os administradores controlam. Clique para liberar para todos"
+              }
+              onClick={() =>
+                signalingClient.setMusicControlMode(
+                  music.controlMode === "anyone" ? "owner" : "anyone"
+                )
+              }
+            >
+              {music.controlMode === "anyone" ? (
+                <MdLockOpen className="h-4 w-4" />
+              ) : (
+                <MdLock className="h-4 w-4" />
+              )}
+            </MusicButton>
+          )}
+          {isRoomManager && (
             <>
               <MusicButton label="Trocar música" onClick={onReplace}>
                 <MdMusicNote className="h-4 w-4" />

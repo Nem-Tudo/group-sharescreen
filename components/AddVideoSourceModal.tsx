@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { FaYoutube, FaTwitch } from "react-icons/fa";
 import { SiKick } from "react-icons/si";
+import { MdFolderOpen } from "react-icons/md";
 import type { IconType } from "react-icons";
 import {
   isLiveChannelSource,
@@ -10,10 +11,32 @@ import {
   type VideoSourceKind,
 } from "@/lib/videoSource";
 import { BetaMark } from "./BetaMark";
+import { LocalMediaPicker } from "./LocalMediaPicker";
+import type { LocalMediaSlot } from "@/lib/localMediaSource";
 
 export type AddVideoSourcePopupData = {
   onSubmit: (kind: VideoSourceKind, url: string, controlMode: "owner" | "anyone") => void;
+  // The local-file platform below. A separate callback because it is a
+  // separate thing underneath: the other three become a room video source (a
+  // link everyone embeds themselves), while a file nobody else has is played
+  // here and broadcast instead — see lib/localMediaSource.ts.
+  onLocalFiles: (slot: LocalMediaSlot) => void;
+  // The slot those files go into, or null when all of them are busy — see
+  // nextFreeLocalMediaSlot.
+  localFilesSlot: LocalMediaSlot | null;
+  // Whether this person is signed in. Only an account may keep a source to
+  // itself — see the control-mode block below, and allowedControlMode on the
+  // server, which is what actually decides.
+  hasAccount: boolean;
+  // See LocalMediaPicker's prop of the same name.
+  localFilesBlockedReason?: string | null;
 };
+
+// The platform row's own union. "local" is not a VideoSourceKind and never
+// reaches the server — it is a fourth button in the same row because this is
+// where someone looks for "put something on for the room", whatever has to
+// happen behind it.
+type PickerKind = VideoSourceKind | "local";
 
 const INVALID_LINK_MESSAGE: Record<VideoSourceKind, string> = {
   youtube: "Cole um link de vídeo, live ou playlist do YouTube.",
@@ -22,7 +45,7 @@ const INVALID_LINK_MESSAGE: Record<VideoSourceKind, string> = {
 };
 
 const PLATFORMS: {
-  id: VideoSourceKind;
+  id: PickerKind;
   label: string;
   placeholder: string;
   icon: IconType;
@@ -50,6 +73,14 @@ const PLATFORMS: {
     activeClassName:
       "border-[#53FC18] bg-[#53FC18]/15 text-lime-700 dark:text-[#53FC18]",
   },
+  {
+    id: "local",
+    label: "Arquivo",
+    // Never used: the local branch replaces the link field entirely.
+    placeholder: "",
+    icon: MdFolderOpen,
+    activeClassName: "border-sky-500 bg-sky-500/10 text-sky-600 dark:text-sky-400",
+  },
 ];
 
 // The popup behind the header/empty-pane "Adicionar fonte de vídeo" buttons
@@ -61,27 +92,40 @@ const PLATFORMS: {
 // a link alone doesn't say whether it's a YouTube, Twitch or Kick address.
 export function AddVideoSourceModal({
   closePopup,
-  data: { onSubmit },
+  data: { onSubmit, onLocalFiles, localFilesSlot, localFilesBlockedReason, hasAccount },
 }: {
   closePopup: (hasAction?: boolean) => void;
   data: AddVideoSourcePopupData;
 }) {
-  const [kind, setKind] = useState<VideoSourceKind | null>("youtube");
+  const [kind, setKind] = useState<PickerKind | null>("youtube");
   // Defaults to "owner" — whoever adds a source keeping the wheel unless
   // they deliberately open it up is the same rule the room has always had,
   // just made visible instead of implicit. Twitch/Kick force "anyone"
   // because their live embeds always show native chrome (see
   // isLiveChannelSource).
-  const [controlMode, setControlMode] = useState<"owner" | "anyone">("owner");
+  // Defaults to "owner" for an account — whoever adds a source keeping the
+  // wheel unless they say otherwise is the rule the room has always had. A
+  // guest starts (and stays) on "anyone": see keptToMyself below.
+  const [controlMode, setControlMode] = useState<"owner" | "anyone">(
+    hasAccount ? "owner" : "anyone"
+  );
   const [link, setLink] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const platform = PLATFORMS.find((p) => p.id === kind) ?? null;
-  const liveChannel = kind !== null && isLiveChannelSource(kind);
+  const local = kind === "local";
+  const liveChannel = kind !== null && !local && isLiveChannelSource(kind);
+  // A source can only be kept to one person when there is one person to keep
+  // it for. A guest identity lives in a browser profile and is replaced by
+  // clearing site data — and a source pinned to an identity that no longer
+  // exists is one nobody in the room can steer, including whoever added it.
+  const keptToMyself = hasAccount && !liveChannel;
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!kind) return;
+    // The local branch has no link to submit — its own picker fires as soon as
+    // files are chosen.
+    if (!kind || local) return;
     const raw = link.trim();
     if (!raw) return;
     // Only to catch an obvious paste mistake without a round trip — the
@@ -90,7 +134,7 @@ export function AddVideoSourceModal({
       setError(INVALID_LINK_MESSAGE[kind]);
       return;
     }
-    onSubmit(kind, raw, liveChannel ? "anyone" : controlMode);
+    onSubmit(kind, raw, keptToMyself ? controlMode : "anyone");
     closePopup(true);
   }
 
@@ -115,7 +159,7 @@ export function AddVideoSourceModal({
 
       <div className="flex flex-col gap-1.5">
         <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Plataforma</p>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-4 gap-2">
           {PLATFORMS.map((p) => {
             const Icon = p.icon;
             const selected = kind === p.id;
@@ -126,10 +170,10 @@ export function AddVideoSourceModal({
                 onClick={() => {
                   setKind(p.id);
                   setError(null);
-                  if (isLiveChannelSource(p.id)) setControlMode("anyone");
+                  if (p.id !== "local" && isLiveChannelSource(p.id)) setControlMode("anyone");
                 }}
                 aria-pressed={selected}
-                className={`flex flex-1 items-center justify-center gap-1 rounded-lg border px-1.5 py-2 text-xs font-medium transition ${
+                className={`flex flex-1 flex-col items-center justify-center gap-1 rounded-lg border px-1 py-2 text-[11px] font-medium transition sm:text-xs ${
                   selected
                     ? p.activeClassName
                     : "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
@@ -143,29 +187,53 @@ export function AddVideoSourceModal({
         </div>
       </div>
 
-      <div className="flex flex-col gap-1.5">
+      {/* A local file has no "who can control": it is playing on this machine,
+          so whoever is at this machine is the only one who could. */}
+      <div className={`flex-col gap-1.5 ${local ? "hidden" : "flex"}`}>
         <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Quem pode controlar</p>
-        <label className="flex items-center gap-2 text-sm">
+        <label
+          className={`flex items-center gap-2 text-sm ${
+            keptToMyself ? "" : "cursor-not-allowed opacity-50"
+          }`}
+        >
           <input
             type="radio"
             name="video-source-control-mode"
-            checked={controlMode === "owner" && !liveChannel}
-            disabled={liveChannel}
+            checked={controlMode === "owner" && keptToMyself}
+            disabled={!keptToMyself}
             onChange={() => setControlMode("owner")}
           />
           Só eu posso controlar
         </label>
+        {!hasAccount && (
+          <p className="-mt-1 pl-6 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+            Conta necessária.
+          </p>
+        )}
         <label className="flex items-center gap-2 text-sm">
           <input
             type="radio"
             name="video-source-control-mode"
-            checked={controlMode === "anyone" || liveChannel}
+            checked={controlMode === "anyone" || !keptToMyself}
             onChange={() => setControlMode("anyone")}
           />
           Qualquer um pode controlar
         </label>
       </div>
 
+      {local ? (
+        <LocalMediaPicker
+          mode="video"
+          blockedReason={localFilesBlockedReason}
+          slot={localFilesSlot}
+          hasAccount={hasAccount}
+          onReady={(slot) => {
+            onLocalFiles(slot);
+            closePopup(true);
+          }}
+        />
+      ) : (
+        <>
       <div className="flex flex-col gap-1.5">
         <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Link</p>
         <input
@@ -189,6 +257,8 @@ export function AddVideoSourceModal({
       >
         Adicionar
       </button>
+        </>
+      )}
     </form>
   );
 }

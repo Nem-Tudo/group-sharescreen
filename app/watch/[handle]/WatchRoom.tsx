@@ -15,7 +15,11 @@ import {
 } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { signalingClient, type RoomPermissionKey } from "@/lib/signalingClient";
+import {
+  signalingClient,
+  type RoomPermissionKey,
+  type PeerInfo,
+} from "@/lib/signalingClient";
 import { useSignaling, useHasStoredName } from "@/lib/useSignaling";
 import { useAuth } from "@/lib/AuthContext";
 import {
@@ -53,6 +57,8 @@ import {
   setStoredGuestAccountBannerDismissed,
   getStoredMicHintSeen,
   setStoredMicHintSeen,
+  getStoredDoubleClickFocus,
+  setStoredDoubleClickFocus,
   getStoredOpenRoomsInApp,
   setStoredOpenRoomsInApp,
   setStoredOpenInAppDismissed,
@@ -64,7 +70,8 @@ import { ChatPanel } from "@/components/ChatPanel";
 import { OpenInAppBanner } from "@/components/OpenInAppBanner";
 import { RoomInfoControls } from "@/components/RoomInfoControls";
 import { MusicBar } from "@/components/MusicBar";
-import { LocalMediaBar } from "@/components/LocalMediaBar";
+import { LocalMediaControls, RemoteMediaControls } from "@/components/LocalMediaControls";
+import { LocalMusicBar, RemoteMusicBar } from "@/components/LocalMusicBar";
 import { isDesktopApp } from "@/lib/desktop";
 import { PartnerCard } from "@/components/PartnerCard";
 import { SupportersTooltipContent } from "@/components/SupportersTooltip";
@@ -78,6 +85,12 @@ import {
   videoSourceAdderVolumeKey,
   type VideoSourceKind,
 } from "@/lib/videoSource";
+import {
+  LOCAL_MEDIA_SLOTS,
+  localMediaSources,
+  nextFreeLocalMediaSlot,
+  type LocalMediaSlot,
+} from "@/lib/localMediaSource";
 import useNtPopups from "ntpopups";
 import {
   MicIcon,
@@ -97,6 +110,7 @@ import {
   ChevronDownIcon,
   EyeIcon,
   EyeOffIcon,
+  FocusIcon,
   ScreenIcon,
   CameraIcon,
 } from "@/components/icons";
@@ -112,7 +126,6 @@ import {
   MdOutlineChat,
   MdOutlinePeople,
   MdMusicNote,
-  MdMovie,
 } from "react-icons/md";
 import { BsGearFill, BsCoin } from "react-icons/bs";
 import { BetaMark } from "@/components/BetaMark";
@@ -750,7 +763,9 @@ function SwitchRoomFields({
 // The owner half is a peer connection id, SELF_TILE_OWNER for our own tiles,
 // or a video source's id. Those namespaces overlap, which is what the kind
 // half keeps apart.
-type TileKind = "screen" | "camera" | "video-source";
+// "file" tiles are addressed by `${slot}:${ownerId}` in their id — a person
+// can be playing three at once, so the owner alone no longer identifies one.
+type TileKind = "screen" | "camera" | "file" | "video-source";
 const SELF_TILE_OWNER = "self";
 
 function tileId(kind: TileKind, ownerId: string): string {
@@ -836,6 +851,8 @@ export function WatchRoom({ handle }: { handle: string }) {
     resumeWatchingPeer,
     shareError,
     shareSource,
+    fileChannels,
+    localMediaSnapshots,
     startCameraShare,
     stopCameraShare,
     localCameraStream,
@@ -906,6 +923,7 @@ export function WatchRoom({ handle }: { handle: string }) {
   const [openRoomsInApp, setOpenRoomsInApp] = useState(false);
   const [micsMuted, setMicsMuted] = useState(() => getStoredMicsMuted());
   const [soundEffectsOn, setSoundEffectsOn] = useState(() => getSoundEffectsEnabled());
+  const [doubleClickFocus, setDoubleClickFocus] = useState(() => getStoredDoubleClickFocus());
   const [mutedPeerIds, setMutedPeerIds] = useState<Set<string>>(new Set());
   const [peerVolumes, setPeerVolumes] = useState<Record<string, number>>(() => getStoredPeerVolumes());
   const [transmissionVolumes, setTransmissionVolumes] = useState<Record<string, number>>(() =>
@@ -1104,6 +1122,12 @@ export function WatchRoom({ handle }: { handle: string }) {
     isResizingChatRef.current = true;
     document.body.style.cursor = "ew-resize";
     document.body.style.userSelect = "none";
+  }
+
+  function toggleDoubleClickFocus() {
+    const next = !doubleClickFocus;
+    setDoubleClickFocus(next);
+    setStoredDoubleClickFocus(next);
   }
 
   function toggleSoundEffects() {
@@ -1675,6 +1699,23 @@ export function WatchRoom({ handle }: { handle: string }) {
   // for each, never one tile with the other crammed into a corner.
   const remoteScreenEntries = Object.entries(remoteStreams);
   const remoteCameraEntries = Object.entries(remoteCameraStreams);
+  // The file channels: local files people are playing for the room. One entry
+  // per slot per peer, for the same reason the camera has its own — one tile
+  // per channel, so playing a film and sharing a screen are two tiles rather
+  // than a fight over one, and three files are three tiles.
+  const allRemoteFileEntries = LOCAL_MEDIA_SLOTS.flatMap((slot) =>
+    Object.entries(fileChannels[slot].remoteStreams).map(([peerId, stream]) => {
+      const peer = state.peers.find((p) => p.id === peerId);
+      const shared = peer?.files?.find((f) => f.channel === slot) ?? null;
+      return { slot, peerId, stream, peer, shared } as const;
+    })
+  );
+  // A file its owner put on as music is the room's soundtrack, not something
+  // to watch: it belongs in the strip under the header next to a YouTube one,
+  // and taking a tile for it would spend a grid slot on a black rectangle.
+  // Everything else is a tile like any other transmission.
+  const remoteMusicEntries = allRemoteFileEntries.filter((e) => e.shared?.mode === "music");
+  const remoteFileEntries = allRemoteFileEntries.filter((e) => e.shared?.mode !== "music");
   // Hyperfocus survives only as long as what it's focused on does. When that
   // transmission ends — the peer stops sharing, or leaves — its tile goes
   // with it, and that tile is the only way out of hyperfocus (see
@@ -1712,6 +1753,26 @@ export function WatchRoom({ handle }: { handle: string }) {
       ? remoteCameraEntries.filter(([peerId]) => peerId === hyperfocusTarget.ownerId)
       : []
     : remoteCameraEntries;
+  const visibleFileEntries = hyperfocusTarget
+    ? hyperfocusTarget.kind === "file"
+      ? remoteFileEntries.filter(
+          ({ slot, peerId }) => `${slot}:${peerId}` === hyperfocusTarget.ownerId
+        )
+      : []
+    : remoteFileEntries;
+  // Ours, one per slot that is actually going out, split the same way.
+  const liveLocalSlots = LOCAL_MEDIA_SLOTS.filter((slot) => fileChannels[slot].localStream);
+  const localMusicSlots = liveLocalSlots.filter(
+    (slot) => localMediaSnapshots[slot].mode === "music"
+  );
+  const localFileSlots = liveLocalSlots.filter(
+    (slot) => localMediaSnapshots[slot].mode !== "music"
+  );
+  const visibleLocalFileSlots = hyperfocusTarget
+    ? hyperfocusTarget.kind === "file"
+      ? localFileSlots.filter((slot) => hyperfocusTarget.ownerId === `${slot}:${SELF_TILE_OWNER}`)
+      : []
+    : localFileSlots;
   // Room video sources (YouTube, today — see components/VideoSourceTile).
   // They are tiles in every sense the room cares about: they take a grid
   // slot, they can be focused and hyperfocused, and they count toward
@@ -1743,6 +1804,30 @@ export function WatchRoom({ handle }: { handle: string }) {
   const resumingCameraEntries = visiblePeers.filter(
     (p) => resumingCameraPeers.has(p.id) && !(p.id in remoteCameraStreams)
   );
+  // Music slots are skipped: a placeholder stands in for a missing *tile*, and
+  // a soundtrack never had one.
+  const isMusicSlotOf = (peer: PeerInfo, slot: string) =>
+    peer.files?.some((f) => f.channel === slot && f.mode === "music") ?? false;
+  const stoppedFileEntries = LOCAL_MEDIA_SLOTS.flatMap((slot) =>
+    visiblePeers
+      .filter(
+        (p) =>
+          fileChannels[slot].stoppedPeers.has(p.id) &&
+          !(p.id in fileChannels[slot].remoteStreams) &&
+          !isMusicSlotOf(p, slot)
+      )
+      .map((p) => [slot, p] as const)
+  );
+  const resumingFileEntries = LOCAL_MEDIA_SLOTS.flatMap((slot) =>
+    visiblePeers
+      .filter(
+        (p) =>
+          fileChannels[slot].resumingPeers.has(p.id) &&
+          !(p.id in fileChannels[slot].remoteStreams) &&
+          !isMusicSlotOf(p, slot)
+      )
+      .map((p) => [slot, p] as const)
+  );
   // Hidden along with everything else while hyperfocused — a placeholder for
   // someone hyperfocus itself just stopped watching would be confusing right
   // next to the "sair do hiperfoco" banner.
@@ -1750,13 +1835,20 @@ export function WatchRoom({ handle }: { handle: string }) {
   const visibleResumingEntries = activeHyperfocusId ? [] : resumingEntries;
   const visibleStoppedCameraEntries = activeHyperfocusId ? [] : stoppedCameraEntries;
   const visibleResumingCameraEntries = activeHyperfocusId ? [] : resumingCameraEntries;
+  const visibleStoppedFileEntries = activeHyperfocusId ? [] : stoppedFileEntries;
+  const visibleResumingFileEntries = activeHyperfocusId ? [] : resumingFileEntries;
   const nothingToShow =
     remoteScreenEntries.length === 0 &&
     remoteCameraEntries.length === 0 &&
+    remoteFileEntries.length === 0 &&
     state.videoSources.length === 0 &&
     stoppedEntries.length === 0 &&
     resumingEntries.length === 0 &&
-    !isSharing;
+    !isSharing &&
+    // Music slots deliberately excluded: a soundtrack playing is not something
+    // on screen, and the empty pane should still say the room has nothing to
+    // watch while it plays.
+    localFileSlots.length === 0;
   // Every tile the room has on screen, in the order they appear, as
   // descriptors rather than as JSX laid out where it is used. Two reasons:
   //
@@ -1793,7 +1885,7 @@ export function WatchRoom({ handle }: { handle: string }) {
           allowUnmute={false}
           fill={fill}
           compact={compact}
-          onDoubleClick={() => toggleSpotlight(id)}
+          onDoubleClick={doubleClickFocus ? () => toggleSpotlight(id) : undefined}
           onFocus={() => toggleSpotlight(id)}
           isSpotlighted={spotlightId === id}
           onHyperfocus={() => toggleHyperfocus(id)}
@@ -1821,7 +1913,118 @@ export function WatchRoom({ handle }: { handle: string }) {
           allowUnmute={false}
           fill={fill}
           compact={compact}
-          onDoubleClick={() => toggleSpotlight(id)}
+          onDoubleClick={doubleClickFocus ? () => toggleSpotlight(id) : undefined}
+          onFocus={() => toggleSpotlight(id)}
+          isSpotlighted={spotlightId === id}
+          onHyperfocus={() => toggleHyperfocus(id)}
+          isHyperfocused={activeHyperfocusId === id}
+          isMicOn={isMicOn}
+          onToggleMic={toggleMic}
+          micsMuted={micsMuted}
+          onToggleMicsMuted={toggleMicsMuted}
+        />
+      ),
+    });
+  }
+
+  // The local file this person is playing for the room. Captioned as one of
+  // the room's video sources rather than as a transmission, because that is
+  // what it is — its own channel is only how it gets there — and carrying its
+  // own transport, inside the tile the buttons actually drive.
+  for (const slot of visibleLocalFileSlots) {
+    const stream = fileChannels[slot].localStream;
+    if (!stream) continue;
+    const snap = localMediaSnapshots[slot];
+    const raw = snap.queue[snap.index]?.name ?? null;
+    const name = raw ? raw.split("/").pop() ?? raw : "Arquivo do computador";
+    const id = tileId("file", `${slot}:${SELF_TILE_OWNER}`);
+    tiles.push({
+      id,
+      render: (fill, compact) => (
+        <VideoTile
+          stream={stream}
+          label={name}
+          accessibleLabel={name}
+          badge="você adicionou"
+          badgeClassName="bg-sky-500/90"
+          transport={
+            <LocalMediaControls
+              slot={slot}
+              canRestrictControl={Boolean(state.account)}
+              onStop={() => fileChannels[slot].stop()}
+            />
+          }
+          onTogglePlay={() => localMediaSources[slot].togglePlay()}
+          muted
+          allowUnmute={false}
+          fill={fill}
+          compact={compact}
+          onDoubleClick={doubleClickFocus ? () => toggleSpotlight(id) : undefined}
+          onFocus={() => toggleSpotlight(id)}
+          isSpotlighted={spotlightId === id}
+          onHyperfocus={() => toggleHyperfocus(id)}
+          isHyperfocused={activeHyperfocusId === id}
+          isMicOn={isMicOn}
+          onToggleMic={toggleMic}
+          micsMuted={micsMuted}
+          onToggleMicsMuted={toggleMicsMuted}
+        />
+      ),
+    });
+  }
+
+  // Everyone else's copy of somebody's local file. Same captioning, from
+  // PeerInfo.file — which is why that name travels at all.
+  // What its owner last announced about each (see PeerInfo.files) — the name
+  // for the caption, and, when they opened it up, everything the transport
+  // needs to show a real position for a file on their machine.
+  for (const { slot, peerId, stream, peer, shared } of visibleFileEntries) {
+    const volumeKey = `file:${slot}:${peer?.userId ?? peerId}`;
+    const id = tileId("file", `${slot}:${peerId}`);
+    tiles.push({
+      id,
+      render: (fill, compact) => (
+        <VideoTile
+          stream={stream}
+          label={shared?.name ?? `arquivo de ${peer?.name ?? "alguém"}`}
+          accessibleLabel={shared?.name ?? "Arquivo"}
+          badge={`${peer?.name ?? "alguém"} adicionou`}
+          badgeClassName="bg-sky-500/90"
+          // Shown to everybody watching, and disabled for anyone its owner
+          // did not open it up to: the position, the length and which of how
+          // many it is are worth knowing whoever holds the wheel. Whether the
+          // buttons do anything is checked here and again on the owner's
+          // machine (see LocalMediaSource.applyRemote), which is the one that
+          // counts.
+          transport={
+            shared ? (
+              <RemoteMediaControls
+                peerId={peerId}
+                file={shared}
+                canControl={shared.controlMode === "anyone"}
+              />
+            ) : undefined
+          }
+          // Same relay the transport's buttons use — a click in the picture is
+          // just another way to press pause.
+          onTogglePlay={
+            shared?.controlMode === "anyone"
+              ? () =>
+                  signalingClient.sendSignal(peerId, {
+                    kind: "file-control",
+                    channel: slot,
+                    action: "toggle",
+                  })
+              : undefined
+          }
+          muted
+          volume={transmissionVolumes[volumeKey] ?? 1}
+          onVolumeChange={(volume) => setTransmissionVolume(volumeKey, volume)}
+          fill={fill}
+          compact={compact}
+          onRenderedSizeChange={(w, h) => qualityNegotiator.report(slot, peerId, w, h)}
+          onStopWatching={() => fileChannels[slot].stopWatchingPeer(peerId)}
+          onDoubleClick={doubleClickFocus ? () => toggleSpotlight(id) : undefined}
           onFocus={() => toggleSpotlight(id)}
           isSpotlighted={spotlightId === id}
           onHyperfocus={() => toggleHyperfocus(id)}
@@ -1868,6 +2071,7 @@ export function WatchRoom({ handle }: { handle: string }) {
           // controlMode — ending the video for the room stays with whoever
           // added it regardless of who's allowed to drive it.
           isOwner={state.selfUserId !== null && videoSource.addedById === state.selfUserId}
+          canRestrictControl={Boolean(state.account)}
           label={`${videoSource.addedByName} adicionou`}
           fill={fill}
           onStateChange={(playing, positionSeconds, playbackRate, playlistIndex) =>
@@ -1936,7 +2140,7 @@ export function WatchRoom({ handle }: { handle: string }) {
           compact={compact}
           onRenderedSizeChange={(w, h) => qualityNegotiator.report("screen", peerId, w, h)}
           onStopWatching={() => stopWatchingPeer(peerId)}
-          onDoubleClick={() => toggleSpotlight(id)}
+          onDoubleClick={doubleClickFocus ? () => toggleSpotlight(id) : undefined}
           onFocus={() => toggleSpotlight(id)}
           isSpotlighted={spotlightId === id}
           onHyperfocus={() => toggleHyperfocus(id)}
@@ -1975,7 +2179,7 @@ export function WatchRoom({ handle }: { handle: string }) {
           compact={compact}
           onRenderedSizeChange={(w, h) => qualityNegotiator.report("camera", peerId, w, h)}
           onStopWatching={() => stopWatchingCameraPeer(peerId)}
-          onDoubleClick={() => toggleSpotlight(id)}
+          onDoubleClick={doubleClickFocus ? () => toggleSpotlight(id) : undefined}
           onFocus={() => toggleSpotlight(id)}
           isSpotlighted={spotlightId === id}
           onHyperfocus={() => toggleHyperfocus(id)}
@@ -2025,6 +2229,26 @@ export function WatchRoom({ handle }: { handle: string }) {
   for (const peer of visibleResumingCameraEntries) {
     tiles.push({
       id: tileId("camera", peer.id),
+      render: (fill) => <ResumingPeerTile fill={fill} />,
+    });
+  }
+
+  for (const [slot, peer] of visibleStoppedFileEntries) {
+    tiles.push({
+      id: tileId("file", `${slot}:${peer.id}`),
+      render: (fill) => (
+        <StoppedPeerTile
+          label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} />}
+          fill={fill}
+          onResume={() => fileChannels[slot].resumeWatchingPeer(peer.id)}
+        />
+      ),
+    });
+  }
+
+  for (const [slot, peer] of visibleResumingFileEntries) {
+    tiles.push({
+      id: tileId("file", `${slot}:${peer.id}`),
       render: (fill) => <ResumingPeerTile fill={fill} />,
     });
   }
@@ -2236,6 +2460,14 @@ export function WatchRoom({ handle }: { handle: string }) {
       <div className="my-2 border-t border-zinc-200 dark:border-zinc-800" />
 
       <MenuToggleRow
+        label="Duplo clique para deixar em foco"
+        active={doubleClickFocus}
+        onToggle={toggleDoubleClickFocus}
+        hint="Quando desligado, focar em um vídeo é apenas pelo botão"
+        activeIcon={<FocusIcon className="h-4 w-4" />}
+        inactiveIcon={<EyeOffIcon className="h-4 w-4" />}
+      />
+      <MenuToggleRow
         label="Efeitos sonoros do site"
         active={soundEffectsOn}
         onToggle={toggleSoundEffects}
@@ -2364,26 +2596,6 @@ export function WatchRoom({ handle }: { handle: string }) {
       )}
 
       <div className="my-2 border-t border-zinc-200 dark:border-zinc-800" />
-
-      {/* Below lg the header's control row isn't rendered at all (it is the
-          bottom dock instead — see mobileDock), and the dock has no room for
-          a fourth transmission button. Without an entry here a phone would
-          have no way to reach the file picker at all. */}
-      {!isWideLayout && (
-        <button
-          type="button"
-          onClick={() => {
-            closeMenu();
-            openLocalMediaPopup();
-          }}
-          disabled={Boolean(screenBlockedReason)}
-          className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:text-zinc-300 dark:hover:bg-zinc-900"
-        >
-          <MdMovie className="h-4 w-4 shrink-0 text-sky-500" />
-          Transmitir arquivo do computador
-          <BetaMark />
-        </button>
-      )}
 
       {/* At every width now, not just on a phone: it used to have its own
           button in the desktop header, where a once-a-session action was
@@ -2588,7 +2800,15 @@ export function WatchRoom({ handle }: { handle: string }) {
   // and the empty pane's centred one) — see components/AddVideoSourceModal.
   function openAddVideoSourcePopup() {
     openPopup("add_video_source", {
-      data: { onSubmit: handleAddVideoSource },
+      data: {
+        onSubmit: handleAddVideoSource,
+        onLocalFiles: startLocalMediaShare,
+        localFilesSlot: freeLocalMediaSlot,
+        // The account this *socket* is registered as, which is exactly what
+        // the server checks — see the note on canManageMusic.
+        hasAccount: Boolean(state.account),
+        localFilesBlockedReason: videoSourceBlockedReason,
+      },
     });
   }
 
@@ -2614,28 +2834,72 @@ export function WatchRoom({ handle }: { handle: string }) {
   function openAddMusicPopup() {
     openPopup("add_music_source", {
       data: {
-        onSubmit: (url: string) => signalingClient.setMusicSource("youtube", url),
-        replacing: Boolean(state.music),
+        onSubmit: replaceMusicWithYouTube,
+        onLocalFiles: replaceMusicWithLocalFiles,
+        localFilesSlot: myMusicSlot ?? freeLocalMediaSlot,
+        // The account this *socket* is registered as, which is exactly what
+        // the server checks — see the note on canManageMusic.
+        hasAccount: Boolean(state.account),
+        localFilesBlockedReason: videoSourceBlockedReason,
+        replacing: Boolean(state.music) || myMusicSlot !== null,
       },
     });
   }
 
-  // Playing something off this person's own disk into the room. Not a video
-  // source (nobody else has the file, so there is no link to share) — it goes
-  // out through the screen channel as an ordinary transmission, which is why
-  // it is gated on the same permission and refuses while a share is already
-  // running. See lib/localMediaSource.ts.
-  function openLocalMediaPopup() {
-    openPopup("add_local_media", {
-      data: {
-        // Started from inside the popup's own click, so the capture still has
-        // the user gesture a browser wants to see behind it.
-        onReady: () => {
-          if (localStream) stopShare();
-          void startShare("file");
-        },
-      },
-    });
+  // What both add-source popups call once their local-file picker has a queue
+  // (see LocalMediaPicker). Local files are only ever offered *inside* those
+  // two pickers — one more option next to YouTube/Twitch/Kick and next to a
+  // YouTube link — but what happens behind the option is neither: nobody else
+  // has the file, so there is no link to share and it is played here and
+  // broadcast on a channel of its own (see useRoomMedia's `file` channel).
+  //
+  // A channel of its own is what lets this run *alongside* a screen share
+  // rather than replacing it. Restarting it is a stop-then-start, because a
+  // running channel is already bound to the previous queue's stream.
+  //
+  // Called from inside the picker's own click, so the capture still has the
+  // user gesture a browser wants to see behind it.
+  function startLocalMediaShare(slot: LocalMediaSlot) {
+    // The picker has already put the new queue into this slot. When the slot
+    // is *already* broadcasting — which is what "trocar" does, by aiming at
+    // the slot in use — the stream, the canvas and the audio graph are all
+    // still wired to the same element, so there is nothing to restart: just
+    // play what is now loaded. Stopping and starting instead would drop the
+    // channel and renegotiate it with every peer for a change of file.
+    if (fileChannels[slot].active) {
+      void localMediaSources[slot].playAt(0);
+      return;
+    }
+    void fileChannels[slot].start();
+  }
+
+  // The slot a picker would fill, or null when all three are busy — which is
+  // what the picker shows instead of quietly replacing something.
+  const freeLocalMediaSlot = nextFreeLocalMediaSlot((slot) =>
+    Boolean(fileChannels[slot].localStream)
+  );
+  // Music is a soundtrack: a room has one, not a pile. So the music picker
+  // aims at the slot already playing mine when there is one — "trocar música"
+  // means the next track replaces this one, not that the two play over each
+  // other — and only falls back to a free slot when there is nothing to
+  // replace. The video picker keeps taking a free slot every time, because
+  // several videos at once is the whole point of having three.
+  const myMusicSlot = localMusicSlots[0] ?? null;
+
+  // Putting music on means the room ends up with *one* soundtrack, whichever
+  // of the two kinds it is — so each one turns the other off on the way in.
+  function replaceMusicWithYouTube(url: string, controlMode: "owner" | "anyone") {
+    for (const slot of localMusicSlots) fileChannels[slot].stop();
+    signalingClient.setMusicSource("youtube", url, controlMode);
+  }
+
+  function replaceMusicWithLocalFiles(slot: LocalMediaSlot) {
+    // Only the room's music record, never someone else's local file: this
+    // client cannot stop another machine's playback, and taking a manager's
+    // ability to put music on and turning it into "kick whatever anyone else
+    // is playing" is not what this button is.
+    if (state.music) signalingClient.clearMusicSource();
+    startLocalMediaShare(slot);
   }
 
   // Both open components/ManageRoomModal — it just starts on a different
@@ -3003,7 +3267,12 @@ export function WatchRoom({ handle }: { handle: string }) {
                   whoever may not use it, rather than hidden: "why can't I put
                   music on" is a question the UI should answer by itself. */}
               <Tooltip
-                content={musicBlockedReason ?? (state.music ? "Trocar a música da sala" : "Colocar música na sala")}
+                content={
+                  musicBlockedReason ??
+                  (state.music || myMusicSlot
+                    ? "Trocar a música da sala"
+                    : "Colocar música na sala")
+                }
                 wrapperClassName="flex"
               >
                 <button
@@ -3014,28 +3283,6 @@ export function WatchRoom({ handle }: { handle: string }) {
                   className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <MdMusicNote className="h-5 w-5 shrink-0" />
-                  <span className="hidden 2xl:inline"><BetaMark /></span>
-                </button>
-              </Tooltip>
-
-              {/* A file off your own disk. Sits with the transmission
-                  controls rather than with "adicionar fonte de vídeo",
-                  because that is what it is: the room receives live video and
-                  audio, exactly like a screen share, and it takes the same
-                  channel — hence the same permission, and the same "one at a
-                  time" that sharing a screen has always had. */}
-              <Tooltip
-                content={screenBlockedReason ?? "Transmitir um arquivo do computador"}
-                wrapperClassName="flex"
-              >
-                <button
-                  type="button"
-                  onClick={openLocalMediaPopup}
-                  disabled={Boolean(screenBlockedReason)}
-                  aria-label="Transmitir um arquivo do computador"
-                  className="flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <MdMovie className="h-5 w-5 shrink-0" />
                   <span className="hidden 2xl:inline"><BetaMark /></span>
                 </button>
               </Tooltip>
@@ -3220,17 +3467,43 @@ export function WatchRoom({ handle }: { handle: string }) {
           looking at: it is a strip rather than a tile because music is not
           something you watch, and it must not take a slot away from the
           people and screens that are. */}
+      {/* Local files somebody put on as music — the same strip, the same
+          place, as a YouTube soundtrack. Several can be up at once, the same
+          way several people can be sharing a screen. */}
+      {localMusicSlots.map((slot) => (
+        <LocalMusicBar
+          key={slot}
+          slot={slot}
+          canRestrictControl={Boolean(state.account)}
+          onStop={() => fileChannels[slot].stop()}
+        />
+      ))}
+      {remoteMusicEntries.map(({ slot, peerId, stream, peer, shared }) =>
+        shared ? (
+          <RemoteMusicBar
+            key={`${slot}:${peerId}`}
+            peerId={peerId}
+            peerName={peer?.name ?? "alguém"}
+            file={shared}
+            stream={stream}
+            isRoomManager={isRoomManager}
+          />
+        ) : null
+      )}
+
       {state.music && (
         <MusicBar
           music={state.music}
-          canControl={canManageMusic}
+          // Transport follows the music's own control mode, and never the
+          // account check that gates *setting* it — this is playback, and a
+          // room's owner may well be a guest. Mirrors the server's rule in
+          // "music-state" exactly.
+          canControl={isRoomManager || state.music.controlMode === "anyone"}
+          isRoomManager={isRoomManager}
           isMusicOwner={state.selfUserId !== null && state.music.addedById === state.selfUserId}
           onReplace={openAddMusicPopup}
         />
       )}
-
-      {/* Only for whoever is broadcasting the file — see LocalMediaBar. */}
-      {shareSource === "file" && localStream && <LocalMediaBar onStop={stopShare} />}
 
       {!state.account && !guestBannerDismissed && (
         <div className="flex shrink-0 items-center justify-between gap-3 bg-blue-50 px-3 py-1.5 text-xs text-blue-800 lg:px-4 lg:py-2 lg:text-sm dark:bg-blue-950/40 dark:text-blue-300">

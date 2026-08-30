@@ -18,7 +18,11 @@
 import { signalingClient } from "./signalingClient";
 import { tierForRenderedSize, type QualityTier } from "./videoQuality";
 
-export type QualityChannel = "screen" | "camera";
+// The video channels a viewer can ask for a size on. The "fileN" ones are
+// local files being played into the room (see lib/localMediaSource.ts) — a
+// channel each, precisely so several can run at once and alongside a screen
+// share, and each wants the same per-viewer downscaling as the other two.
+export type QualityChannel = "screen" | "camera" | "file1" | "file2" | "file3";
 
 interface Entry {
   width: number;

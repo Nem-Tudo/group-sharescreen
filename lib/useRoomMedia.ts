@@ -27,23 +27,33 @@ import {
   tierForRenderedSize,
   type QualityTier,
 } from "./videoQuality";
-import { localMediaSource } from "./localMediaSource";
+import {
+  localMediaSources,
+  LOCAL_MEDIA_SLOTS,
+  type LocalMediaSlot,
+  type LocalMediaAction,
+} from "./localMediaSource";
 import { PeerQualityRegistry, type DegradationMode } from "./peerQualityController";
-import { qualityNegotiator } from "./qualityNegotiation";
+import { qualityNegotiator, type QualityChannel } from "./qualityNegotiation";
 import { useMeshCapacity, useMeshTopology, type PeerCapacity } from "./useMeshTopology";
 import { RelayManager, RELAY_ENABLED, type RelayChild } from "./relayLink";
 import { applyVideoCodecPreferences } from "./videoCodecPreferences";
 import { setPreferredAudioSink } from "./audioContext";
 import { startExcludedSystemAudio, prewarmExcludedSystemAudio } from "./desktopSystemAudio";
 
-type Channel = "screen" | "camera" | "mic";
+// "file1".."file3" are local video or audio files played into the room (see
+// lib/localMediaSource.ts). Each is a full sibling of screen and camera — its
+// own peer connections, its own tiles, its own start/stop — rather than a mode
+// of the screen channel, which is what lets several of them run at once and
+// alongside a screen share.
+type Channel = "screen" | "camera" | "mic" | LocalMediaSlot;
 // Where the screen channel's picture comes from. "display" is a real screen
 // capture; "camera" is the phone fallback (no getDisplayMedia there, so
-// "compartilhar tela" opens the camera); "file" is a video or audio file off
-// this person's own disk, played locally and captured (see
-// lib/localMediaSource.ts for why a local file has to travel this way rather
-// than as a shared link like a video source).
-type ShareSource = "display" | "camera" | "file";
+// "compartilhar tela" opens the camera). A local file is *not* one of these:
+// it has a channel of its own (see the `file` channel below), so that playing
+// something for the room and showing your screen are two things a person can
+// do at the same time rather than a choice between them.
+type ShareSource = "display" | "camera";
 
 type SignalData = {
   channel?: Channel;
@@ -285,6 +295,39 @@ const RECV_RECOVERY_TIMEOUT_MS = 9000;
 // mic), broadcast from this client to every peer in the room. Each channel
 // gets its own set of peer connections and its own signaling namespace so
 // screen-share and mic negotiation never interfere with each other.
+// One local-file slot. A thin wrapper so the three of them below read as three
+// of the same thing rather than as three copies of an eight-argument call.
+function useLocalFileChannel(
+  slot: LocalMediaSlot,
+  room: string,
+  forceRelayIce: boolean,
+  autoJoin: boolean,
+  quality: QualityPreset,
+  fpsRef: { current: number }
+) {
+  return useBroadcastChannel(
+    slot,
+    room,
+    // Nothing to request from the OS and no permission prompt: the file is
+    // already decoding in an element this page owns, because the picker filled
+    // this slot's queue before this ran. The resolution dials don't apply
+    // either — the stream is whatever the file is, and the per-viewer tiers
+    // still downscale it on the way out like any other channel.
+    () => localMediaSources[slot].captureStream(fpsRef.current),
+    // Whether the element can actually be captured is checked inside
+    // captureStream, which is the only place that knows.
+    () => true,
+    "Este navegador não permite tocar arquivos locais para a sala.",
+    "Não foi possível tocar esse arquivo para a sala.",
+    forceRelayIce,
+    autoJoin,
+    // Motion, always — see the contentHint block in start().
+    quality,
+    // Stops this slot's playback when the channel carrying it ends.
+    () => localMediaSources[slot].release()
+  );
+}
+
 function useBroadcastChannel(
   channel: Channel,
   room: string,
@@ -574,7 +617,7 @@ function useBroadcastChannel(
       // This peer is genuinely gone, so drop the size we were tracking for
       // their tile — otherwise the periodic re-announce keeps sending quality
       // requests to someone who left, for as long as the room stays open.
-      if (channel !== "mic") qualityNegotiator.forget(channel as "screen" | "camera", peerId);
+      if (channel !== "mic") qualityNegotiator.forget(channel as QualityChannel, peerId);
       // Their share actually ended — the next one they start should be
       // judged fresh by the autoJoin gate, not treated as a continuation.
       autoJoinDecidedRef.current.delete(peerId);
@@ -1034,11 +1077,7 @@ function useBroadcastChannel(
   const start = useCallback(async (requestedSource?: ShareSource) => {
     if (activeRef.current) return;
     setError(null);
-    // A file share needs no capture API at all — it plays an element this page
-    // already owns — so the screen-capture support check does not apply to it.
-    // Whether the *element* can be captured is checked where that is actually
-    // known, in localMediaSource.captureStream.
-    if (requestedSource !== "file" && !isSupported()) {
+    if (!isSupported()) {
       setError(notSupportedMessage);
       return;
     }
@@ -1066,7 +1105,7 @@ function useBroadcastChannel(
       // set to — same reasoning as the camera above: "text" tells the encoder
       // to protect sharpness and drop frames, which turns a film into a
       // slideshow the moment anything gets tight.
-      const capturingMotion = capturingCamera || requestedSource === "file";
+      const capturingMotion = capturingCamera || channel.startsWith("file");
       const hint =
         !capturingMotion && channel === "screen" && degradationModeRef.current === "text"
           ? "text"
@@ -1156,7 +1195,7 @@ function useBroadcastChannel(
         // encoding at its own ceiling for us. Re-announce immediately rather
         // than waiting for the next resize or the periodic refresh.
         if (channel !== "mic") {
-          qualityNegotiator.announce(channel as "screen" | "camera", peerId);
+          qualityNegotiator.announce(channel as QualityChannel, peerId);
         }
       };
       pc.onicecandidate = (e) => {
@@ -1897,15 +1936,6 @@ export function useRoomMedia(room: string) {
       if (source === "camera") {
         return captureCamera(videoConstraints, cameraDeviceIdRef.current);
       }
-      // A local file is already decoding in an element of its own by the time
-      // this runs — the picker filled the queue before starting the share —
-      // so there is nothing to request from the OS and no permission prompt.
-      // The resolution/fps dials above don't apply either: the stream is
-      // whatever the file is, and the per-viewer tiers still downscale it on
-      // the way out like any other share.
-      if (source === "file") {
-        return localMediaSource.captureStream(shareFpsRef.current);
-      }
       // No fallback to the camera here — on browsers without getDisplayMedia
       // (most mobile ones) this throws synchronously, which start() below
       // turns into a visible error instead of silently switching sources.
@@ -2001,10 +2031,7 @@ export function useRoomMedia(room: string) {
     "Não foi possível iniciar o compartilhamento. Verifique as permissões do navegador.",
     forceRelayIce,
     autoJoin,
-    screenQualityPreset,
-    // Stops the local file playing when the share it was feeding ends. A no-op
-    // for an ordinary screen share, which has no element to release.
-    () => localMediaSource.release()
+    screenQualityPreset
   );
 
   const camera = useBroadcastChannel(
@@ -2034,6 +2061,28 @@ export function useRoomMedia(room: string) {
     cameraQualityPreset
   );
 
+  // A local video or audio file played into the room (see
+  // lib/localMediaSource.ts). Its own channel, and that is the whole point:
+  // the file used to ride the screen channel, which meant putting a film on
+  // for the room and showing your screen were the same slot — starting one
+  // ended the other. They are different things people want at the same time,
+  // so they get different channels, the same way the camera does.
+  //
+  // Everything else about it is the ordinary broadcast path: its own peer
+  // connections, its own per-viewer quality tiers, its own tiles. The server
+  // needs to know nothing about it beyond the sharing flags — the signalling
+  // relay forwards a channel's payloads opaquely (see the "signal" case in
+  // server/signaling.ts).
+  // One hook per slot, spelled out rather than looped: hooks cannot be called
+  // in a loop of varying length, and a fixed three is also the honest ceiling
+  // (each slot is another canvas capture and another encode on this machine).
+  const file1 = useLocalFileChannel("file1", room, forceRelayIce, autoJoin, cameraQualityPreset, shareFpsRef);
+  const file2 = useLocalFileChannel("file2", room, forceRelayIce, autoJoin, cameraQualityPreset, shareFpsRef);
+  const file3 = useLocalFileChannel("file3", room, forceRelayIce, autoJoin, cameraQualityPreset, shareFpsRef);
+  const fileChannels = useMemo(
+    () => ({ file1, file2, file3 }) as Record<LocalMediaSlot, ReturnType<typeof useBroadcastChannel>>,
+    [file1, file2, file3]
+  );
   // Switches which camera is captured. A live camera share is restarted
   // (stop, then start) so the new device actually goes out — the same brief
   // drop the mic picker accepts below, which beats silently continuing to
@@ -2057,9 +2106,72 @@ export function useRoomMedia(room: string) {
     [camera, screen]
   );
 
+  // Every slot's playback state, so the announcement below can describe all of
+  // them. Three fixed subscriptions for the same reason there are three fixed
+  // channels.
+  const media1 = useSyncExternalStore(
+    localMediaSources.file1.subscribe,
+    localMediaSources.file1.getSnapshot,
+    localMediaSources.file1.getSnapshot
+  );
+  const media2 = useSyncExternalStore(
+    localMediaSources.file2.subscribe,
+    localMediaSources.file2.getSnapshot,
+    localMediaSources.file2.getSnapshot
+  );
+  const media3 = useSyncExternalStore(
+    localMediaSources.file3.subscribe,
+    localMediaSources.file3.getSnapshot,
+    localMediaSources.file3.getSnapshot
+  );
+  const mediaSnapshots = useMemo(
+    () => ({ file1: media1, file2: media2, file3: media3 }),
+    [media1, media2, media3]
+  );
+
+  // What the room is told about each live file slot. Only the discrete facts:
+  // which file, who may drive it, whether it is playing and where it was at
+  // `updatedAt`. A playing file's position is a function of time, so everyone
+  // else extrapolates it (see lib/localMediaSource's localFilePosition) rather
+  // than being sent a stream of positions — the same arithmetic a room video
+  // source has always used.
+  //
+  // Just the filename, never the path: the folders above it are this person's
+  // disk layout, not something a tile in someone else's room should show.
+  const announcedFiles = LOCAL_MEDIA_SLOTS.flatMap((slot) => {
+    if (!fileChannels[slot].active) return [];
+    const snap = mediaSnapshots[slot];
+    const raw = snap.queue[snap.index]?.name ?? null;
+    if (!raw) return [];
+    return [
+      {
+        channel: slot,
+        name: raw.split("/").pop() ?? raw,
+        mode: snap.mode,
+        controlMode: snap.controlMode,
+        playing: snap.playing,
+        positionSeconds: snap.position,
+        duration: snap.duration,
+        index: snap.index,
+        count: snap.queue.length,
+      },
+    ];
+  });
+  // Serialized, and then parsed back: the array above is a fresh literal on
+  // every render, so listing it as a dependency would re-announce on every
+  // keystroke in the room. The string is what actually changed or didn't, and
+  // rebuilding the array from it inside the effect keeps the effect honest
+  // about its own dependencies instead of reaching for a ref written during
+  // render.
+  const announcedFilesKey = JSON.stringify(announcedFiles);
+
   useEffect(() => {
-    signalingClient.setSharing({ screen: screen.active, camera: camera.active });
-  }, [screen.active, camera.active]);
+    signalingClient.setSharing({
+      screen: screen.active,
+      camera: camera.active,
+      files: JSON.parse(announcedFilesKey) as typeof announcedFiles,
+    });
+  }, [screen.active, camera.active, announcedFilesKey]);
 
   // Capacity measurement and the cascade decision. Both are driven by the
   // screen channel only: it is the expensive one, and the mic's ~32 kbps is
@@ -2067,7 +2179,42 @@ export function useRoomMedia(room: string) {
   // also deliberate — routing voice through a relay tree would add a hop of
   // latency to conversation, which is far more noticeable than the same delay
   // on video.
-  const sharingAnything = screen.active || camera.active;
+  const anyFileActive = LOCAL_MEDIA_SLOTS.some((slot) => fileChannels[slot].active);
+
+  // "Todos podem controlar", from the other side. A viewer's transport cannot
+  // touch this machine's playback, so it asks: the request rides the ordinary
+  // signalling relay (which forwards a payload opaquely — see the "signal"
+  // case in server/signaling.ts), addressed at the slot it means, and lands
+  // here. Whether to honour it is decided by the slot itself, which is where
+  // its control mode actually lives.
+  //
+  // A listener of its own rather than a branch inside useBroadcastChannel:
+  // this has nothing to do with negotiating a connection, and every channel's
+  // handler would otherwise have to know to ignore it.
+  useEffect(() => {
+    const unsubscribe = signalingClient.onSignal((from, rawData) => {
+      const data = rawData as { kind?: string; channel?: string } & LocalMediaAction;
+      if (data?.kind !== "file-control") return;
+      const slot = LOCAL_MEDIA_SLOTS.find((candidate) => candidate === data.channel);
+      if (!slot) return;
+      // Whether the asker runs this room, read at the moment the request
+      // arrives rather than remembered: a promotion or a demotion between one
+      // track and the next should take effect on the next button they press.
+      // Only music files admit it at all (see LocalMediaControlMode).
+      const room = signalingClient.getSnapshot();
+      const asker = room.peers.find((peer) => peer.id === from);
+      const askerId = asker?.userId;
+      const fromRoomManager = Boolean(
+        askerId &&
+          (room.roomOwnerId === askerId || room.roomAdmins.some((a) => a.id === askerId))
+      );
+      localMediaSources[slot].applyRemote(data, fromRoomManager);
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+  const sharingAnything = screen.active || camera.active || anyFileActive;
 
   const { capacity, self, reportLoad } = useMeshCapacity();
   const selfRef = useRef(self);
@@ -2096,8 +2243,17 @@ export function useRoomMedia(room: string) {
   // than the real one and stopped degrading when it should have.
   const getScreenTiers = screen.getRequestedTiers;
   const getCameraTiers = camera.getRequestedTiers;
+  // Every live slot's tiers, since each is a real encode of its own.
+  const getFileTiers = useCallback(
+    () =>
+      LOCAL_MEDIA_SLOTS.flatMap((slot) =>
+        fileChannels[slot].active ? [...fileChannels[slot].getRequestedTiers().values()] : []
+      ),
+    [fileChannels]
+  );
   const screenActive = screen.active;
   const cameraActive = camera.active;
+  const fileActive = anyFileActive;
   useEffect(() => {
     if (!sharingAnything) return;
     const timer = setInterval(() => {
@@ -2109,11 +2265,21 @@ export function useRoomMedia(room: string) {
       const tiers = [
         ...(screenActive ? getScreenTiers().values() : []),
         ...(cameraActive ? getCameraTiers().values() : []),
+        ...(fileActive ? getFileTiers() : []),
       ];
       reportLoad(tiers);
     }, 4000);
     return () => clearInterval(timer);
-  }, [sharingAnything, reportLoad, getScreenTiers, getCameraTiers, screenActive, cameraActive]);
+  }, [
+    sharingAnything,
+    reportLoad,
+    getScreenTiers,
+    getCameraTiers,
+    getFileTiers,
+    screenActive,
+    cameraActive,
+    fileActive,
+  ]);
 
   const topology = useMeshTopology(
     sharingAnything,
@@ -2312,6 +2478,13 @@ export function useRoomMedia(room: string) {
     remoteStreams: screen.remoteStreams,
     shareError: screen.error,
     shareSource: screen.source,
+    // The local-file slots (see useLocalFileChannel). A record rather than a
+    // flat set of fields, because there are three of them and every consumer
+    // wants to walk them.
+    fileChannels,
+    // Each slot's playback state, for the tile that renders its transport.
+    localMediaSnapshots: mediaSnapshots,
+    anyFileActive,
     isCameraSharing: camera.active,
     startCameraShare: camera.start,
     stopCameraShare: camera.stop,

@@ -16,6 +16,32 @@ import { getStoredGuestToken, setStoredGuestToken } from "./guestToken";
 // (see server/signaling.ts's "admin-join") — present in the peer list so
 // this client's own useRoomMedia still opens a WebRTC connection to it like
 // any other peer, but the UI (WatchRoom) filters it out of what's shown.
+// One local file a peer is playing, as announced in "sharing" and echoed back
+// by the server (see its ClientInfo.sharingFiles).
+export type SharedFile = {
+  // The broadcast channel carrying it — "file1".."file3". Also what a control
+  // request is addressed to (see useRoomMedia's file-control signal).
+  channel: string;
+  name: string;
+  // Which picker it came from. "music" is the room's soundtrack and belongs in
+  // the bar under the header next to a YouTube one (see MusicBar); "video" is
+  // something to watch and takes a tile. The channel carrying it is the same
+  // either way — this is what says how to present what arrives on it.
+  mode: "video" | "music";
+  // "owner": only the person playing it may drive it. "anyone": everybody in
+  // the room may, by asking that person's client to do it.
+  controlMode: "owner" | "anyone";
+  playing: boolean;
+  positionSeconds: number;
+  duration: number;
+  index: number;
+  count: number;
+  // The announcing client's clock, for the position arithmetic. Stamped by the
+  // server on arrival, so everyone extrapolates from one clock rather than
+  // from the announcer's.
+  updatedAt: number;
+};
+
 export type PeerInfo = {
   id: string;
   name: string;
@@ -27,6 +53,24 @@ export type PeerInfo = {
   // channel. Undefined only from a server that predates the fields.
   screen?: boolean | null;
   camera?: boolean | null;
+  // The name of the local file this peer is playing into the room, when their
+  // screen channel is carrying one rather than a screen (see
+  // lib/localMediaSource.ts and the server's ClientInfo.sharingFile). Null
+  // otherwise, and undefined from a server that predates it — both mean "an
+  // ordinary transmission", which is how every reader treats them.
+  //
+  // What it is for: a local file arrives through the same channel as a screen
+  // share and would otherwise be captioned as one. This is what lets its tile
+  // be labelled as the video source it actually is.
+  // Every local file this peer is currently playing into the room, one per
+  // broadcast channel (see lib/localMediaSource.ts). Empty — or undefined from
+  // a server that predates it — when they are playing none.
+  //
+  // Carries what a viewer's tile needs and nothing else: which file, who may
+  // drive it, and the discrete playback facts everyone extrapolates a position
+  // from (see localFilePosition). The picture itself arrives as live video on
+  // the channel this names.
+  files?: SharedFile[];
   mic: boolean;
   role?: "moderator";
   // Stable per-account/per-guest identity (see server/signaling.ts's
@@ -441,7 +485,11 @@ class SignalingClient {
   // Last reported state of each video channel — see setSharing, which merges
   // into this rather than overwriting, so one channel's update never claims
   // anything about the other.
-  private sharingSources = { screen: false, camera: false };
+  private sharingSources: {
+    screen: boolean;
+    camera: boolean;
+    files: Omit<SharedFile, "updatedAt">[];
+  } = { screen: false, camera: false, files: [] };
   // Consecutive "turnstile-required" rejections for the current join
   // attempt — see MAX_JOIN_RETRIES and performJoin.
   private joinRetryCount = 0;
@@ -802,6 +850,7 @@ class SignalingClient {
                   sharing: Boolean(msg.sharing),
                   screen: typeof msg.screen === "boolean" ? msg.screen : null,
                   camera: typeof msg.camera === "boolean" ? msg.camera : null,
+                  files: Array.isArray(msg.files) ? (msg.files as SharedFile[]) : [],
                 }
               : p
           ),
@@ -856,6 +905,20 @@ class SignalingClient {
       case "video-source-removed":
         this.setState({
           videoSources: this.state.videoSources.filter((v) => v.id !== msg.id),
+        });
+        break;
+      // Who may drive an existing source, changed after the fact by whoever
+      // added it (see the server's handler of the same name). Its own message
+      // rather than part of "state": nothing about playback moved, and
+      // re-rendering every player for a settings change would be a visible
+      // hiccup in the video for a word in a tooltip.
+      case "video-source-control-mode":
+        this.setState({
+          videoSources: this.state.videoSources.map((v) =>
+            v.id === msg.id
+              ? { ...v, controlMode: msg.controlMode === "anyone" ? "anyone" : "owner" }
+              : v
+          ),
         });
         break;
       case "video-source-state":
@@ -1212,12 +1275,24 @@ class SignalingClient {
     this.rawSend({ type: "video-source-remove", id });
   }
 
+  // Only whoever added it may change this, and only an account may ask for
+  // "owner" — both enforced server-side (see allowedControlMode there).
+  setVideoSourceControlMode(id: string, controlMode: "owner" | "anyone") {
+    this.rawSend({ type: "video-source-control-mode", id, controlMode });
+  }
+
   // The room's music. Setting replaces whatever was playing — there is only
   // one — and all three are refused server-side for anyone who isn't a room
   // manager with a real account, so the UI gating these is a courtesy rather
   // than the rule.
-  setMusicSource(kind: MusicSourceKind, url: string) {
-    this.rawSend({ type: "music-set", kind, url });
+  setMusicSource(kind: MusicSourceKind, url: string, controlMode: "owner" | "anyone") {
+    this.rawSend({ type: "music-set", kind, url, controlMode });
+  }
+
+  // Changed on the music already playing, so handing the decks over doesn't
+  // mean taking the track off and starting it again.
+  setMusicControlMode(controlMode: "owner" | "anyone") {
+    this.rawSend({ type: "music-control-mode", controlMode });
   }
 
   clearMusicSource() {
@@ -1265,10 +1340,28 @@ class SignalingClient {
   // useRoomMedia, each of which only knows its own state, but the server
   // wants both at once (plus the rolled-up boolean everything else reads).
   // Merging here is what lets each caller pass just its own half.
-  setSharing(sources: { screen?: boolean; camera?: boolean }) {
-    this.sharingSources = { ...this.sharingSources, ...sources };
-    const { screen, camera } = this.sharingSources;
-    this.rawSend({ type: "sharing", sharing: screen || camera, screen, camera });
+  // The two capture channels, plus every local file currently going out (see
+  // lib/localMediaSource.ts). Merged into the remembered state rather than
+  // overwritten, so re-announcing one — which happens whenever a file is
+  // paused, seeked or advances a track — never drops another's answer.
+  setSharing(sources: {
+    screen?: boolean;
+    camera?: boolean;
+    files?: Omit<SharedFile, "updatedAt">[];
+  }) {
+    if (sources.screen !== undefined) this.sharingSources.screen = sources.screen;
+    if (sources.camera !== undefined) this.sharingSources.camera = sources.camera;
+    if (sources.files !== undefined) this.sharingSources.files = sources.files;
+    const { screen, camera, files } = this.sharingSources;
+    this.rawSend({
+      type: "sharing",
+      // The rolled-up "is this person transmitting anything" every older
+      // reader keys off — files count towards it like any other channel.
+      sharing: screen || camera || files.length > 0,
+      screen,
+      camera,
+      files,
+    });
   }
 
   setMic(mic: boolean) {

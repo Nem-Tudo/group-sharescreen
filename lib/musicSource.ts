@@ -42,6 +42,14 @@ export type MusicSource = {
   // admins, so an admin who didn't add it can still skip a track.
   addedById: string;
   addedByName: string;
+  // Who may play/pause/skip it. "owner" — the default — means the room's owner
+  // and admins, not just whoever put it on: an admin who did not choose the
+  // playlist can still skip a track. "anyone" opens it to the whole room.
+  // Note this is a different "owner" from a video source's, which really is
+  // one person; music is something the room has rather than something a
+  // participant brought. Absent from a server that predates it, which is read
+  // as the old behaviour ("owner").
+  controlMode?: "owner" | "anyone";
   playing: boolean;
   playbackRate: number;
   positionSeconds: number;

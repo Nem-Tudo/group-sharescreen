@@ -8,7 +8,6 @@ import { PartnerRewardModal } from "@/components/PartnerRewardModal";
 import { AddVideoSourceModal } from "@/components/AddVideoSourceModal";
 import { ManageRoomModal } from "@/components/ManageRoomModal";
 import { AddMusicSourceModal } from "@/components/AddMusicSourceModal";
-import { AddLocalMediaModal } from "@/components/AddLocalMediaModal";
 
 // Popup types this app registers with the library, opened by name through
 // `useNtPopups().openPopup(...)`. The cast is because the library types
@@ -20,7 +19,6 @@ const customPopups: Record<string, ComponentType> = {
   add_video_source: AddVideoSourceModal as ComponentType,
   manage_room: ManageRoomModal as ComponentType,
   add_music_source: AddMusicSourceModal as ComponentType,
-  add_local_media: AddLocalMediaModal as ComponentType,
 };
 
 // Mounted once in app/layout.tsx, inside AuthProvider — the popups it renders
