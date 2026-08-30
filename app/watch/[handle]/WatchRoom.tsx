@@ -63,6 +63,7 @@ import { PartnerCard } from "@/components/PartnerCard";
 import { SupportersTooltipContent } from "@/components/SupportersTooltip";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { CreateAccountForm } from "@/components/CreateAccountForm";
+import { RoomAccountCard } from "@/components/RoomAccountCard";
 import { LoginForm } from "@/components/LoginForm";
 import { VideoSourceTile } from "@/components/VideoSourceTile";
 import { videoSourceVolumeKey, type VideoSourceKind } from "@/lib/videoSource";
@@ -2580,10 +2581,14 @@ export function WatchRoom({ handle }: { handle: string }) {
       />
   );
 
+  // Only ever rendered in the chat column, which only exists from lg up — so
+  // the header's own identity chip is kept for narrower screens and the two
+  // never both appear. See RoomAccountCard, and the chip in the header below.
   const chatSection = (
     <>
       {roomManageRow}
       {chatPanel}
+      <RoomAccountCard onCreateAccount={() => setAccountModal("create")} />
     </>
   );
 
@@ -2767,27 +2772,31 @@ export function WatchRoom({ handle }: { handle: string }) {
               </button>
             </Tooltip>
 
-            {/* Name + points. Both kinds of identity have a total worth
-                showing now that guests earn them too (see AuthContext's
-                `points`); the only real difference is that an account has a
-                public profile to link to and a guest has nowhere to go, so
-                the guest version is the same chip minus the link. Kept
-                deliberately muted (no fill color) either way so it reads as
-                a status readout, not another button. Shown only once there
-                *is* an identity — a name is what mints the guest one. */}
-            {account ? (
+            {/* Name + points, below lg only — from there up this is the card
+                at the foot of the chat column instead (see RoomAccountCard),
+                which has a whole column's width for it rather than the
+                sliver left over between the mid-call controls and "Apoiar
+                projeto". Rendered in one place at a time, never both.
+
+                Both kinds of identity have a total worth showing now that
+                guests earn them too (see AuthContext's `points`); the only
+                real difference is that an account has a public profile to
+                link to and a guest has nowhere to go, so the guest version is
+                the same chip minus the link. Kept deliberately muted (no fill
+                color) either way so it reads as a status readout, not another
+                button. Shown only once there *is* an identity — a name is
+                what mints the guest one. */}
+            {isWideLayout ? null : account ? (
               <Tooltip content="Ver seu perfil" placement="bottom">
                 <Link
                   href={`/user/${account.id}`}
                   target="_blank"
                   className="flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs font-medium text-zinc-500 transition hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-700 dark:hover:bg-zinc-900"
                 >
-                  {/* Back at xl rather than lg: between the two, the middle
-                      zone's controls are what the space is owed to. */}
-                  <span className="hidden max-w-[8rem] truncate text-zinc-700 sm:inline lg:hidden xl:inline dark:text-zinc-300">
+                  <span className="hidden max-w-[8rem] truncate text-zinc-700 sm:inline dark:text-zinc-300">
                     {state.name}
                   </span>
-                  <span className="hidden h-3 w-px bg-zinc-300 sm:inline-block lg:hidden xl:inline-block dark:bg-zinc-700" />
+                  <span className="hidden h-3 w-px bg-zinc-300 sm:inline-block dark:bg-zinc-700" />
                   <span className="flex items-center gap-1 tabular-nums">
                     <BsCoin className="h-3.5 w-3.5 shrink-0" />
                     {points}
@@ -2801,10 +2810,10 @@ export function WatchRoom({ handle }: { handle: string }) {
                   placement="bottom"
                 >
                   <div className="flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs font-medium text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
-                    <span className="hidden max-w-[8rem] truncate text-zinc-700 sm:inline lg:hidden xl:inline dark:text-zinc-300">
+                    <span className="hidden max-w-[8rem] truncate text-zinc-700 sm:inline dark:text-zinc-300">
                       {state.name}
                     </span>
-                    <span className="hidden h-3 w-px bg-zinc-300 sm:inline-block lg:hidden xl:inline-block dark:bg-zinc-700" />
+                    <span className="hidden h-3 w-px bg-zinc-300 sm:inline-block dark:bg-zinc-700" />
                     <span className="flex items-center gap-1 tabular-nums">
                       <BsCoin className="h-3.5 w-3.5 shrink-0" />
                       {points}
@@ -2858,17 +2867,22 @@ export function WatchRoom({ handle }: { handle: string }) {
               </button>
             </Popover>
 
-            {/* Guests only — an account already has the profile chip above,
-                and this is the one control that isn't buried in the menu:
+            {/* Guests only, and below lg only — the same rule as the chip
+                above, and for the same reason: from lg up the account card at
+                the foot of the chat column carries this, as a full-width
+                "Criar conta ou entrar" sitting directly under the guest
+                points it exists to protect. Two ways in, 400px apart, is
+                exactly the clutter the header was being cleared of.
+
+                Down here it is the one control that isn't buried in the menu:
                 the menu is where you go to change something about the room,
                 while this is about who you are. Sits after the menu so it's
                 the last thing in the row (and the closest to the thumb on a
-                phone). Label hidden wherever the row is tight, like "Apoiar
-                projeto" beside it. Keyed off the same `account` as
-                the profile chip above, not `state.account`, so logging in
-                swaps one for the other in the same render instead of
-                showing both while the signaling re-registration lands. */}
-            {!account && (
+                phone). Keyed off the same `account` as the chip above, not
+                `state.account`, so logging in swaps one for the other in the
+                same render instead of showing both while the signaling
+                re-registration lands. */}
+            {!isWideLayout && !account && (
               <Tooltip content="Entrar ou criar uma conta" placement="bottom">
                 <button
                   type="button"
@@ -2881,10 +2895,10 @@ export function WatchRoom({ handle }: { handle: string }) {
                     // click away for the other case.
                     setAccountModal("create");
                   }}
-                  className="flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-950 bg-zinc-950 px-2 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 sm:px-3 lg:px-2 xl:px-3 dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+                  className="flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-950 bg-zinc-950 px-2 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 sm:px-3 dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
                 >
                   <MdLogin className="h-5 w-5 shrink-0" />
-                  <span className="hidden sm:inline lg:hidden xl:inline">Entrar</span>
+                  <span className="hidden sm:inline">Entrar</span>
                 </button>
               </Tooltip>
             )}
