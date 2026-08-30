@@ -1,71 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { fetchPublicRooms, type PublicRoom } from "@/lib/roomsApi";
-import { WorldMap, type WorldMapMarker } from "@/components/WorldMap";
+import { WorldMap } from "@/components/WorldMap";
 import { GlobeIcon } from "@/components/icons";
 import { ThemeMenuButton } from "@/components/ThemeToggle";
-import { roomCategory } from "@/lib/roomCategories";
-
-// Same cadence as the plain /rooms list — a room appearing or emptying out is
-// worth seeing without a reload, and neither page is expensive to serve.
-const POLL_INTERVAL_MS = 8000;
+import { usePublicRoomMarkers } from "@/lib/usePublicRoomMarkers";
 
 export function RoomsMapClient() {
-  const [rooms, setRooms] = useState<PublicRoom[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    const controller = new AbortController();
-
-    async function load() {
-      try {
-        const data = await fetchPublicRooms(controller.signal);
-        if (cancelled) return;
-        setRooms(data);
-        setError(null);
-      } catch {
-        if (!cancelled) setError("Não foi possível carregar as salas públicas.");
-      }
-    }
-
-    load();
-    const interval = setInterval(load, POLL_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      controller.abort();
-      clearInterval(interval);
-    };
-  }, []);
-
-  // Only rooms whose owner actually placed them. A room with no pin isn't
-  // hidden from anyone — it's on /rooms like always; it simply has no answer
-  // to the question this page asks.
-  const markers = useMemo<WorldMapMarker[]>(
-    () =>
-      (rooms ?? [])
-        .filter((room): room is PublicRoom & { location: { lat: number; lng: number } } =>
-          Boolean(room.location)
-        )
-        .map((room) => ({
-          id: room.handle,
-          lat: room.location.lat,
-          lng: room.location.lng,
-          label: room.handle,
-          // Rides along on the pin itself and again in its popup, so it has
-          // to stay short enough not to stretch a pin across a country.
-          badge: `· ${room.peopleCount} ${room.peopleCount === 1 ? "pessoa" : "pessoas"}`,
-          tag: roomCategory(room.category)?.label,
-          description: room.description,
-          href: `/watch/${room.handle}`,
-        })),
-    [rooms]
-  );
+  // The same pins the location picker inside a room shows (see
+  // ManageRoomModal) — one definition of what a room looks like on a map.
+  const { rooms, markers, error } = usePublicRoomMarkers();
 
   const placedCount = markers.length;
-  const totalCount = rooms?.length ?? 0;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-zinc-50 dark:bg-black">

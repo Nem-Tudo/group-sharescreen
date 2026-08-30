@@ -400,9 +400,33 @@ export default function WorldMapImpl({
     <div
       ref={containerRef}
       className={`relative z-0 bg-zinc-200 dark:bg-zinc-900 ${className}`}
-      // Leaflet's own controls carry a light background of their own; this
-      // just keeps the attribution readable against a dark basemap.
-      style={{ colorScheme: "light" }}
+      style={{
+        // Leaflet's own controls carry a light background of their own; this
+        // just keeps the attribution readable against a dark basemap.
+        colorScheme: "light",
+        // Not cosmetic — this is what keeps the pins on the right spot.
+        //
+        // Every pin is a divIcon whose HTML is written as an indented,
+        // multi-line template literal below, and a pin's position comes from
+        // the size and layout of that markup: the room pin is a zero-sized
+        // box pulled into place by `translate(-50%,-100%)` of its own height,
+        // and the pick pin is a fixed box whose tip Leaflet anchors. Under
+        // the inherited `white-space: pre-wrap` of the popup this map is
+        // opened inside (see ManageRoomModal and ntpopups' own styles), the
+        // newlines and indentation in that markup stop collapsing: they
+        // become rendered whitespace and anonymous flex items, the icon grows
+        // by a line or two it was never meant to have, and every pin ends up
+        // a fixed number of pixels away from the point it names. A fixed
+        // pixel error covers more ground the further you zoom out, which is
+        // why it reads as "roughly right" up close and puts rooms in the sea
+        // at world zoom — and why /worldmap, which inherits nothing of the
+        // sort, has always looked correct.
+        //
+        // Set here, on the element every pane and popup hangs off, so the map
+        // renders the same wherever it is dropped rather than depending on
+        // what its host happens to inherit.
+        whiteSpace: "normal",
+      }}
     >
       {searchable && (
         // A child of the map element, not a sibling: it has to sit over the

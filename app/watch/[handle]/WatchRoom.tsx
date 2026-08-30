@@ -189,6 +189,11 @@ function DeviceMenuOption({
 
 // How long after joining the mic nudge below appears.
 const MIC_HINT_DELAY_MS = 2500;
+// And how long after creating a public room its "put it on the map" popup
+// does. Shorter, because it is the answer to something the person just did
+// rather than an interruption of what they came here for — but not instant:
+// the room they just made should be on screen behind it.
+const NEW_ROOM_POPUP_DELAY_MS = 900;
 
 // The one-time nudge over the mic button, for a first-time visitor who has
 // landed in a room with the mic off and no reason to suspect the site has
@@ -1279,6 +1284,38 @@ export function WatchRoom({ handle }: { handle: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMicOn, isRoomManager, state.roomPermissions.mic]);
 
+  // "Você criou uma sala pública!" — opened by itself, once, for whoever's
+  // join brought the room into existence (see the server's "room-state"
+  // `created`). A room is at its most findable the moment it is created and
+  // its owner is right here; asking later means asking someone who has
+  // already settled into a room nobody can find.
+  //
+  // Private rooms are excluded outright: they are not on the map, not in the
+  // listing, and the server refuses the write (see privateRoomCannotBeMapped).
+  const [newRoomPopupOpen, setNewRoomPopupOpen] = useState(false);
+  // Guards against a second opening — `roomCreated` stays true for as long as
+  // this room's state is held, so anything that re-runs the effect (a new
+  // `openPopup` identity, say) would otherwise reopen the popup on someone
+  // who already answered it.
+  const newRoomPopupShown = useRef(false);
+  useEffect(() => {
+    if (!state.roomCreated || privateRoomCannotBeMapped || newRoomPopupShown.current) return;
+    const timer = setTimeout(() => {
+      newRoomPopupShown.current = true;
+      setNewRoomPopupOpen(true);
+      openPopup("manage_room", {
+        // Same box as openRoomLocationPopup below — it is the same map view,
+        // and the width has to be set on the popup for the same reason.
+        width: "min(64rem, calc(100vw - 3rem))",
+        maxWidth: "min(64rem, calc(100vw - 3rem))",
+        maxHeight: "92dvh",
+        data: { initialView: "location", canEdit: true, justCreated: true },
+        onClose: () => setNewRoomPopupOpen(false),
+      });
+    }, NEW_ROOM_POPUP_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [state.roomCreated, privateRoomCannotBeMapped, openPopup]);
+
   // The one-time "ligue o microfone" nudge (see MicUsageHint above). Its
   // state lives here rather than in the component because the two mic
   // buttons — the desktop control row and the mobile dock — are one control
@@ -1304,6 +1341,9 @@ export function WatchRoom({ handle }: { handle: string }) {
     // from a stored preference never gets here at all: this re-runs when
     // that lands and clears the pending timer on the way out.
     if (!state.name || isMicOn || micBlockedReason || getStoredMicHintSeen()) return;
+    // A coach mark opening behind the new-room popup would be spent without
+    // ever being read — it waits for that to be dealt with first.
+    if (newRoomPopupOpen) return;
     // Late enough not to land on top of a room still connecting, early
     // enough to still be the first thing someone reads about the room.
     const timer = setTimeout(() => {
@@ -1314,7 +1354,7 @@ export function WatchRoom({ handle }: { handle: string }) {
       setStoredMicHintSeen(true);
     }, MIC_HINT_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [state.name, isMicOn, micBlockedReason]);
+  }, [state.name, isMicOn, micBlockedReason, newRoomPopupOpen]);
 
   useEffect(() => {
     if (localStream && !canUseRoomPermission("screen")) stopShare();

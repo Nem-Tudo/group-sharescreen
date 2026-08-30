@@ -9,6 +9,7 @@ import {
   MdArrowBack,
   MdOutlineChat,
   MdGif,
+  MdOutlineMap,
 } from "react-icons/md";
 import {
   signalingClient,
@@ -19,6 +20,7 @@ import {
 import { useSignaling } from "@/lib/useSignaling";
 import { DisplayUserName } from "./DisplayUserName";
 import { WorldMap } from "./WorldMap";
+import { usePublicRoomMarkers } from "@/lib/usePublicRoomMarkers";
 import { MicIcon, ScreenIcon, CameraIcon } from "./icons";
 import Link from "next/link";
 
@@ -73,6 +75,12 @@ export type ManageRoomPopupData = {
   // to render); this only says which of the two was pressed, and the server
   // refuses a move from anyone else regardless.
   canEdit?: boolean;
+  // Opened by itself the moment someone's join created a public room (see
+  // WatchRoom), rather than by pressing a button. Same location view, but
+  // introduced as the congratulation it is: a brand-new room is exactly when
+  // putting it on the map is worth something, and the moment its owner is
+  // most likely to bother.
+  justCreated?: boolean;
 };
 
 export function ManageRoomModal({
@@ -91,6 +99,11 @@ export function ManageRoomModal({
   // edit, and the popup is opened straight onto this view (see
   // WatchRoom's openRoomLocationPopup) so there is no later moment to seed it.
   const [pick, setPick] = useState<RoomLocation | null>(state.roomLocation);
+  // The rooms already on the map, drawn under the pin being placed. Someone
+  // choosing a spot is choosing it *relative to* other rooms — and an owner
+  // looking at an empty globe has no reason to think anyone would ever find
+  // them there. This room itself is left out: it is the `pick` pin.
+  const { markers } = usePublicRoomMarkers({ excludeHandle: state.room ?? undefined });
 
   const isOwner = Boolean(state.selfUserId && state.roomOwnerId === state.selfUserId);
   // Admins may flip the permission switches but not hand out admin — see
@@ -114,6 +127,9 @@ export function ManageRoomModal({
   // they were entitled to press it.
   const isManager = isOwner || state.roomAdmins.some((a) => a.id === state.selfUserId);
   const canEditLocation = (data?.canEdit ?? true) && isManager;
+  // Only ever the celebration when there is genuinely something to celebrate
+  // *and* to act on: whoever cannot move the pin has nothing to do here.
+  const celebrating = Boolean(data?.justCreated) && canEditLocation;
 
   const title =
     view === "admins"
@@ -121,9 +137,11 @@ export function ManageRoomModal({
       : view === "permissions"
         ? "Gerenciar permissões"
         : view === "location"
-          ? canEditLocation
-            ? "Definir local do mundo"
-            : "Local da sala no mundo"
+          ? celebrating
+            ? "Você criou uma sala pública!"
+            : canEditLocation
+              ? "Definir local do mundo"
+              : "Local da sala no mundo"
           : "Gerenciar sala";
 
 
@@ -154,7 +172,13 @@ export function ManageRoomModal({
             </button>
           )}
           <p className="flex min-w-0 items-center gap-1.5 truncate text-sm font-semibold">
-            <BsGearFill className="h-3.5 w-3.5 shrink-0 opacity-70" />
+            {/* The congratulation is not a settings screen, whatever it
+                reuses — a gear on it reads as a chore. */}
+            {celebrating ? (
+              <MdOutlineMap className="h-4 w-4 shrink-0 text-sky-500" />
+            ) : (
+              <BsGearFill className="h-3.5 w-3.5 shrink-0 opacity-70" />
+            )}
             {title}
           </p>
         </div>
@@ -294,8 +318,28 @@ export function ManageRoomModal({
 
       {view === "location" && (
         <div className="flex flex-col gap-3">
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">
-            {canEditLocation ? (
+          <p
+            className={
+              celebrating
+                ? "text-sm leading-relaxed text-zinc-600 dark:text-zinc-300"
+                : "text-xs text-zinc-500 dark:text-zinc-400"
+            }
+          >
+            {celebrating ? (
+              <>
+                Sua sala já está no ar e aparece na lista de{" "}
+                <Link style={{ color: "#25baff" }} href="/rooms" target="_blank">
+                  salas públicas
+                </Link>
+                . Marque no mapa abaixo de onde ela é — bairro, cidade ou país, o quanto você
+                quiser dizer — e ela também passa a aparecer no{" "}
+                <Link style={{ color: "#25baff" }} href="/worldmap" target="_blank">
+                  mapa de salas
+                </Link>
+                , onde quem está perto de você encontra ela primeiro. Dá para mudar ou tirar do
+                mapa quando quiser.
+              </>
+            ) : canEditLocation ? (
               <>
                 Defina um lugar para que a sala fique visível no <Link style={{color: "#25baff"}} href={"/worldmap"} target="_blank">mapa de salas</Link>. Pessoas que moram perto podem começar aparecer.
               </>
@@ -316,6 +360,9 @@ export function ManageRoomModal({
             <WorldMap
               className="h-full w-full"
               searchable
+              // The rooms already placed, so the globe isn't empty and the
+              // spot being picked has some context around it.
+              markers={markers}
               pick={pick}
               // Omitted entirely for a viewer — without it the map ignores
               // clicks, which is what makes this read-only rather than
@@ -330,6 +377,15 @@ export function ManageRoomModal({
           </div>
 
           <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            {markers.length > 0 && (
+              <>
+                <span className="font-medium text-zinc-600 dark:text-zinc-300">
+                  {markers.length}{" "}
+                  {markers.length === 1 ? "outra sala já está" : "outras salas já estão"} no mapa
+                </span>
+                {" · "}
+              </>
+            )}
             {pick ? (
               <>
                 {canEditLocation ? "Alfinete em" : "Sala em"}{" "}
@@ -348,11 +404,29 @@ export function ManageRoomModal({
               <button
                 type="button"
                 disabled={!pick || !pinMoved}
-                onClick={() => signalingClient.setRoomLocation(pick)}
+                onClick={() => {
+                  signalingClient.setRoomLocation(pick);
+                  // The congratulation is a one-shot errand, opened without
+                  // being asked for: once it's done, get out of the way.
+                  // The button reached from the room stays put, since it's
+                  // just as likely to be a nudge of a pin that's off.
+                  if (celebrating) closePopup(true);
+                }}
                 className="flex-1 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {saved ? "Salvar novo local" : "Salvar local"}
               </button>
+              {/* Only in the popup nobody asked for. Everywhere else the ×
+                  is the way out and a second one would just be noise. */}
+              {celebrating && (
+                <button
+                  type="button"
+                  onClick={() => closePopup(false)}
+                  className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900"
+                >
+                  Agora não
+                </button>
+              )}
               {/* Only offered once there is something to take off the map —
                   clearing a room that was never placed does nothing. */}
               {saved && (

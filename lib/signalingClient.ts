@@ -253,6 +253,13 @@ export type SignalingState = {
   roomOwnerId: string | null;
   roomAdmins: RoomAdmin[];
   roomPermissions: RoomPermissions;
+  // Whether the join that produced the room state we're holding is the one
+  // that *created* the room, as opposed to walking into one already running
+  // (see the server's "room-state"). False for everyone but its creator, and
+  // false again for a room restored from its persisted record — that owner
+  // has already been offered everything a new room gets offered. Read once,
+  // on arrival, by WatchRoom's "you just created a public room" popup.
+  roomCreated: boolean;
   // Where this room sits on the public room map — null until an owner/admin
   // places it. Kept here rather than fetched, so the "Definir local do
   // mundo" view opens on the pin that's already there.
@@ -320,6 +327,7 @@ const initialState: SignalingState = {
   supportersSeq: 0,
   desktopUpdateSeq: 0,
   chatBlockedMessage: null,
+  roomCreated: false,
   roomOwnerId: null,
   roomAdmins: [],
   roomPermissions: { ...DEFAULT_ROOM_PERMISSIONS },
@@ -702,6 +710,7 @@ class SignalingClient {
           chatMessages:
             history.length > MAX_CHAT_MESSAGES ? history.slice(-MAX_CHAT_MESSAGES) : history,
           videoSources: Array.isArray(msg.videoSources) ? (msg.videoSources as VideoSource[]) : [],
+          roomCreated: msg.created === true,
           roomOwnerId: typeof msg.ownerId === "string" ? msg.ownerId : null,
           roomAdmins: parseRoomAdmins(msg.admins),
           roomPermissions: parseRoomPermissions(msg.permissions),
@@ -1093,6 +1102,7 @@ class SignalingClient {
       joinError: null,
       // The room's rules leave with the room — carrying them into the next
       // one would gate the wrong controls until its "room-state" lands.
+      roomCreated: false,
       roomOwnerId: null,
       roomAdmins: [],
       roomPermissions: { ...DEFAULT_ROOM_PERMISSIONS },
