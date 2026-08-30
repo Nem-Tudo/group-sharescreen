@@ -42,6 +42,12 @@ const PEOPLE_COUNT_POLL_MS = 8000;
 // letter, short enough that the button has settled by the time someone's
 // hand reaches it.
 const ROOM_CHECK_DEBOUNCE_MS = 450;
+// How long "Reconectando..." is allowed to stand on its own before the page
+// offers something to press. Long enough that an ordinary reconnect — a
+// reload, a laptop waking up — is never interrupted by a button suggesting
+// something is wrong; short enough that nobody sits watching a word for a
+// minute with no way to act.
+const STUCK_RECONNECT_MS = 15_000;
 
 const inputClass =
   "rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50";
@@ -141,6 +147,24 @@ export default function Home() {
   const registered = Boolean(state.name);
   const restoring =
     !mounted || (!registered && (resolvingAccount || (hasStoredName && !state.nameError)));
+
+  // "Reconectando..." is honest for a second or two and useless after fifteen:
+  // the automatic retry is still running, but it has backed off to one attempt
+  // every ten seconds (see signalingClient's scheduleReconnect), so what the
+  // person is looking at is a page that says it is working and gives them
+  // nothing to do. Past this, they get something to press.
+  const [stuckReconnecting, setStuckReconnecting] = useState(false);
+  useEffect(() => {
+    if (!restoring) return;
+    const timer = setTimeout(() => setStuckReconnecting(true), STUCK_RECONNECT_MS);
+    // Cleared on the way out rather than on the way in: this runs when the
+    // connection recovers, so a later stall gets the full fifteen seconds of
+    // quiet again instead of showing the button the instant it starts.
+    return () => {
+      clearTimeout(timer);
+      setStuckReconnecting(false);
+    };
+  }, [restoring]);
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
@@ -350,7 +374,29 @@ export default function Home() {
             </Tooltip>
           </div>
           {restoring ? (
-            <p className="mt-8 text-sm text-sky-500 dark:text-zinc-400">Reconectando...</p>
+            <div className="mt-8 flex flex-col items-start gap-2">
+              <p className="text-sm text-sky-500 dark:text-zinc-400">Reconectando...</p>
+              {stuckReconnecting && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Not a page reload: the socket is what is stuck, and
+                      // reloading would throw away everything else that is
+                      // already loaded to fix one connection.
+                      signalingClient.retryNow();
+                      setStuckReconnecting(false);
+                    }}
+                    className="rounded-lg border border-zinc-300 px-3.5 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                  >
+                    Tentar novamente
+                  </button>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Está demorando mais que o normal. Pode ser a sua conexão ou o servidor.
+                  </p>
+                </>
+              )}
+            </div>
           ) : oauthTicket ? (
             <div className="mt-8">
               <CompleteOAuthSignupForm

@@ -1146,6 +1146,25 @@ class SignalingClient {
     this.ensureSocket();
   }
 
+  // Try again *now*, throwing away whatever backoff was pending.
+  //
+  // The automatic retry never stopped — but it backs off to one attempt every
+  // ten seconds (see scheduleReconnect), so somebody staring at
+  // "Reconectando..." can be up to ten seconds away from an attempt with no
+  // way to say "now". This is that way: it is what the home page's "Tentar
+  // novamente" calls, and it also resets the backoff, because a person asking
+  // to retry is evidence the situation changed (they reconnected their wifi,
+  // the server came back) and the next failure should start counting from
+  // scratch rather than from wherever the last hour of failures left it.
+  retryNow() {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.reconnectAttempts = 0;
+    this.ensureSocket();
+  }
+
   // `token` is an account JWT (see accountApi.ts) — pass it when
   // registering as a logged-in account so the server can verify the
   // reserved-name check against the right owner (and, as of the account
