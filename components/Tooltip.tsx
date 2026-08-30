@@ -164,7 +164,18 @@ export function Popover({
             // default would quietly cap the wider ones.
             maxWidth="none"
             popperOptions={{
-              modifiers: [{ name: "preventOverflow", options: { padding: 8 } }],
+              modifiers: [
+                { name: "preventOverflow", options: { padding: 8 } },
+                // Flip to the opposite side when the chosen one has no room,
+                // rather than letting preventOverflow shove the panel back
+                // over the element it is pointing at. Without a fallback list
+                // Popper only tries the mirror side; a panel anchored to a row
+                // in a narrow column needs the perpendicular ones too.
+                {
+                  name: "flip",
+                  options: { fallbackPlacements: ["top", "bottom", "right", "left"] },
+                },
+              ],
             }}
           />
           {tooltip ? (

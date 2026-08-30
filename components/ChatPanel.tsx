@@ -599,7 +599,14 @@ export function ChatPanel({
                   key={m.id}
                   open={authorMenuFor === m.id}
                   onClose={() => setAuthorMenuFor(null)}
-                  placement="left-start"
+                  // Opens *into the chat column*, not out of it. "left-start"
+                  // sent a 288px panel sideways over the video stage, which is
+                  // both the wrong place to look and the one direction where
+                  // it can end up over a tile rather than over the
+                  // conversation it belongs to. Below the message keeps it
+                  // where the eye already is, and Tippy flips it above near
+                  // the bottom of the list.
+                  placement="bottom-start"
                   content={
                     authorMenuFor === m.id
                       ? renderAuthorMenu(m.from, m.name, () => setAuthorMenuFor(null))
