@@ -102,6 +102,31 @@ async function parseErrorMessage(res: Response, fallback: string): Promise<strin
   return (data && typeof data === "object" && "error" in data && String(data.error)) || fallback;
 }
 
+export type UsernameCheck = {
+  username: string;
+  // Whether it passes the shape rules at all (3-20 letters, digits or _).
+  valid: boolean;
+  available: boolean;
+  error?: string;
+};
+
+// Asked as somebody types on the signup form. Cheap on the server (one lookup
+// in the same index every login goes through), and it exists so that finding a
+// free username is something you do *while typing* rather than by submitting
+// the form and reading the error — which is how people were burning the
+// signup rate limit and getting auto-banned for trying to sign up.
+export async function checkUsernameAvailable(
+  username: string,
+  signal?: AbortSignal
+): Promise<UsernameCheck> {
+  const res = await fetch(
+    `${getSignalingHttpBase()}/auth/username-available?username=${encodeURIComponent(username)}`,
+    { signal }
+  );
+  if (!res.ok) throw new Error("Não foi possível verificar o usuário.");
+  return (await res.json()) as UsernameCheck;
+}
+
 export async function registerAccount(
   username: string,
   displayName: string,
