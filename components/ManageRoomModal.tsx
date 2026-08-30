@@ -402,6 +402,26 @@ export function ManageRoomModal({
             )}
           </p>
 
+          {/* Said plainly, and to everyone rather than only to whoever can
+              move the pin: "põe a sala no mapa" is a sentence that sounds like
+              it might be reading somebody's position, and a person who thinks
+              that is being asked will simply not do it. The claim is also
+              true and checkable — nothing in this app calls the geolocation
+              API, and the only thing the search box sends anywhere is the
+              text typed into it (see lib/geocoding.ts). */}
+          <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-2.5 text-[11px] leading-relaxed text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+            <p className="mb-1 font-medium text-zinc-700 dark:text-zinc-300">
+              Privacidade: Nada aqui é detectado automaticamente.
+            </p>
+            <p>
+              O lugar é só o que {canEditLocation ? "você clicar" : "clicaram"} no mapa. O site
+              nunca pede nem lê a localização do seu aparelho, e o alfinete marca a{" "}
+              <span className="font-medium">sala</span>. Pode ser
+              tão vago quanto quiser: um país, uma cidade, um bairro.
+              {canEditLocation && " E dá para tirar do mapa a qualquer momento."}
+            </p>
+          </div>
+
           {/* Sized against the viewport rather than a fixed height: this is
               the whole point of the view, and the popup is as tall as the
               window allows. The floor keeps it usable on a phone, where a

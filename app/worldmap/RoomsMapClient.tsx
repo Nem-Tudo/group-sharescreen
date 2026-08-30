@@ -27,6 +27,16 @@ export function RoomsMapClient() {
                 ? "Nenhuma sala pública definiu seu local no mundo ainda."
                 : `Encontre salas no seu país, cidade ou bairro`}
           </p>
+          {/* Says what a pin is before anybody has to guess. A map of dots
+              over cities reads as "these are people's locations" unless it is
+              told otherwise, and what it actually shows is where each room's
+              owner chose to put a marker. Nothing here detects anyone: the
+              app never calls the geolocation API, and no participant's
+              position is known to it in the first place. */}
+          <p className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">
+            Cada alfinete é onde o dono da sala escolheu marcá-la, no mapa, na mão. Ninguém tem a
+            localização detectada — nem quem cria a sala, nem quem entra nela.
+          </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           {/* No SiteHeader on this page either, and the map's own colours
