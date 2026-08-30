@@ -13,6 +13,17 @@ const GUEST_ACCOUNT_BANNER_DISMISSED_KEY = "sharescreen:guestAccountBannerDismis
 // already learned it should not be taught again on the same browser just
 // because they signed in as someone else.
 const MIC_HINT_SEEN_KEY = "sharescreen:micHintSeen";
+
+// This listener's own volume for the room's music (see components/MusicBar),
+// 0-1. Not a shared setting: the track, where it is and whether it's playing
+// belong to the room, but how loud it is in *your* headphones is yours.
+//
+// Defaults to half rather than full. Music here plays underneath a
+// conversation, and a soundtrack that arrives at the same level as the person
+// talking is one everybody turns down anyway — the first thing a default
+// should avoid is being the wrong answer for everyone.
+const MUSIC_VOLUME_KEY = "sharescreen:musicVolume";
+export const DEFAULT_MUSIC_VOLUME = 0.5;
 const AUTO_JOIN_KEY = "sharescreen:autoJoin";
 // "Sempre abrir salas no aplicativo" — see components/OpenInAppBanner.
 const OPEN_IN_APP_KEY = "sharescreen:openRoomsInApp";
@@ -140,6 +151,27 @@ export function getStoredGuestAccountBannerDismissed(): boolean {
 }
 export function setStoredGuestAccountBannerDismissed(value: boolean) {
   setStoredBoolean(GUEST_ACCOUNT_BANNER_DISMISSED_KEY, value);
+}
+
+export function getStoredMusicVolume(): number {
+  if (typeof window === "undefined") return DEFAULT_MUSIC_VOLUME;
+  try {
+    const raw = window.localStorage.getItem(MUSIC_VOLUME_KEY);
+    if (raw === null) return DEFAULT_MUSIC_VOLUME;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return DEFAULT_MUSIC_VOLUME;
+    return Math.min(1, Math.max(0, parsed));
+  } catch {
+    return DEFAULT_MUSIC_VOLUME;
+  }
+}
+export function setStoredMusicVolume(volume: number) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(MUSIC_VOLUME_KEY, String(Math.min(1, Math.max(0, volume))));
+  } catch {
+    // ignored - localStorage may be unavailable (private mode, quota, etc.)
+  }
 }
 
 export function getStoredMicHintSeen(): boolean {

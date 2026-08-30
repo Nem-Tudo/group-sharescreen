@@ -6,6 +6,12 @@ import { Tooltip } from "@/components/Tooltip";
 import { VolumeSlider } from "@/components/VolumeSlider";
 import { MdClose, MdSettings } from "react-icons/md";
 import { isYouTubeVideoId, videoSourcePosition, type VideoSource } from "@/lib/videoSource";
+import {
+  loadYouTubeApi,
+  applyPlayerVolume,
+  PLAYER_STATE,
+  type EmbeddedPlayer,
+} from "@/lib/youtubePlayer";
 import { signalingClient } from "@/lib/signalingClient";
 import { BetaMark } from "./BetaMark";
 
@@ -51,46 +57,17 @@ const REMOTE_APPLY_QUIET_MS = 400;
 // once the burst settles, which is the one that carries the final position.
 const STATE_PUSH_MIN_INTERVAL_MS = 300;
 const STATE_PUSH_SETTLE_MS = 350;
-// The shape both platforms' players are wrapped down to below — YT.Player
-// already looks like this and is used directly; Twitch.Player doesn't
-// (different methods, no seek/rate on a channel embed at all — see
-// buildTwitchPlayer), so it's adapted to it instead of the sync logic
-// further down needing to know which platform it's driving.
+// The shape both platforms' players are wrapped down to lives in
+// lib/youtubePlayer (EmbeddedPlayer) — YT.Player already looks like it and is
+// used directly; Twitch.Player doesn't (different methods, no seek/rate on a
+// channel embed at all — see buildTwitchPlayer), so it is adapted to it
+// instead of the sync logic further down needing to know which platform it
+// is driving.
 //
-// Either script is loaded once for the whole page, the first time a source
-// tile of that kind mounts, and not from the document head: a room with no
-// video source (the overwhelming majority) should not be pulling either
-// platform's script at all.
-type EmbeddedPlayer = {
-  playVideo: () => void;
-  pauseVideo: () => void;
-  seekTo: (seconds: number, allowSeekAhead: boolean) => void;
-  getCurrentTime: () => number;
-  // 0 while a live broadcast's metadata hasn't loaded yet, and 0 for the
-  // rest of its life once it has — see isLiveBroadcast below.
-  getDuration?: () => number;
-  getPlayerState: () => number;
-  getPlaybackRate: () => number;
-  setPlaybackRate: (rate: number) => void;
-  // Playlist queue — YouTube's player exposes these; Twitch/Kick stubs omit
-  // them. getPlaylistIndex returns -1 when no playlist is loaded (or not
-  // yet), which callers treat as "nothing to sync".
-  getPlaylistIndex?: () => number;
-  playVideoAt?: (index: number) => void;
-  getPlaylist?: () => string[];
-  // 0-100, unlike everything else here — YouTube's scale, not ours.
-  // Optional/called with ?. like getPlaybackRate above: the API object is
-  // whatever YouTube's script hands back, not something we can typecheck.
-  setVolume?: (volume: number) => void;
-  mute?: () => void;
-  unMute?: () => void;
-  isMuted?: () => boolean;
-  destroy: () => void;
-};
-type YTNamespace = {
-  Player: new (el: HTMLElement, options: Record<string, unknown>) => EmbeddedPlayer;
-  PlayerState: { PLAYING: number; PAUSED: number; ENDED: number; BUFFERING: number };
-};
+// Either script is loaded once for the whole page, the first time something
+// that needs it mounts, and not from the document head: a room with no video
+// source (the overwhelming majority) should not be pulling either platform's
+// script at all.
 // Twitch's embed player, unlike YouTube's, is constructed against an element
 // *id* rather than the node itself, has no seek/duration/rate concept for a
 // channel embed, and reports state through named events rather than a
@@ -115,32 +92,8 @@ type TwitchNamespace = {
 };
 declare global {
   interface Window {
-    YT?: YTNamespace;
-    onYouTubeIframeAPIReady?: () => void;
     Twitch?: TwitchNamespace;
   }
-}
-
-// Numeric codes shared by both platforms' wrapped players below. YouTube's
-// own script defines the same four values (see YTNamespace.PlayerState) —
-// copied here as plain numbers rather than read off it so the sync logic
-// doesn't need the script loaded to know what state means what, and so
-// buildTwitchPlayer (whose own API has no such enum) can report the same
-// numbers for the same meaning.
-const PLAYER_STATE = { ENDED: 0, PLAYING: 1, PAUSED: 2, BUFFERING: 3 } as const;
-
-// Muting is separate from volume in YouTube's API (a muted player keeps
-// whatever volume it had), so both have to be pushed — and mute/unMute is
-// only touched when it actually disagrees with the player, since unMute() on
-// a player the browser auto-muted to allow autoplay can cost the playback
-// itself.
-function applyPlayerVolume(player: EmbeddedPlayer | null, volume: number, muted: boolean) {
-  if (!player) return;
-  player.setVolume?.(Math.round(Math.min(1, Math.max(0, volume)) * 100));
-  const wantMuted = muted || volume === 0;
-  if (player.isMuted?.() === wantMuted) return;
-  if (wantMuted) player.mute?.();
-  else player.unMute?.();
 }
 
 // The IFrame API has no "this is a livestream" flag, but a live broadcast
@@ -182,37 +135,6 @@ function applyPlaylistIndex(player: EmbeddedPlayer, source: VideoSource): boolea
 // arrow-wrapped on purpose: `signalingClient.serverNow` handed over bare
 // would be called with no `this` and blow up on its own field.
 const defaultServerNow = () => signalingClient.serverNow();
-
-let youtubeApiPromise: Promise<YTNamespace> | null = null;
-
-function loadYouTubeApi(): Promise<YTNamespace> {
-  if (youtubeApiPromise) return youtubeApiPromise;
-  youtubeApiPromise = new Promise<YTNamespace>((resolve, reject) => {
-    if (window.YT?.Player) {
-      resolve(window.YT);
-      return;
-    }
-    // The API calls this global once, for whoever asked first — chaining
-    // onto any existing one keeps a second tile mounting in the same tick
-    // from replacing the first one's callback.
-    const previous = window.onYouTubeIframeAPIReady;
-    window.onYouTubeIframeAPIReady = () => {
-      previous?.();
-      if (window.YT?.Player) resolve(window.YT);
-      else reject(new Error("YouTube API carregada sem Player"));
-    };
-    const script = document.createElement("script");
-    script.src = "https://www.youtube.com/iframe_api";
-    script.async = true;
-    script.onerror = () => reject(new Error("Falha ao carregar o player do YouTube"));
-    document.head.appendChild(script);
-  }).catch((err) => {
-    // Let a later tile retry rather than caching the failure forever.
-    youtubeApiPromise = null;
-    throw err;
-  });
-  return youtubeApiPromise;
-}
 
 let twitchApiPromise: Promise<TwitchNamespace> | null = null;
 

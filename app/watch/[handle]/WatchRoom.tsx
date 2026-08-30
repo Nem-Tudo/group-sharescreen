@@ -63,6 +63,8 @@ import { ParticipantRow } from "@/components/ParticipantRow";
 import { ChatPanel } from "@/components/ChatPanel";
 import { OpenInAppBanner } from "@/components/OpenInAppBanner";
 import { RoomInfoControls } from "@/components/RoomInfoControls";
+import { MusicBar } from "@/components/MusicBar";
+import { LocalMediaBar } from "@/components/LocalMediaBar";
 import { isDesktopApp } from "@/lib/desktop";
 import { PartnerCard } from "@/components/PartnerCard";
 import { SupportersTooltipContent } from "@/components/SupportersTooltip";
@@ -109,6 +111,8 @@ import {
   MdLogin,
   MdOutlineChat,
   MdOutlinePeople,
+  MdMusicNote,
+  MdMovie,
 } from "react-icons/md";
 import { BsGearFill, BsCoin } from "react-icons/bs";
 import { BetaMark } from "@/components/BetaMark";
@@ -2361,6 +2365,26 @@ export function WatchRoom({ handle }: { handle: string }) {
 
       <div className="my-2 border-t border-zinc-200 dark:border-zinc-800" />
 
+      {/* Below lg the header's control row isn't rendered at all (it is the
+          bottom dock instead — see mobileDock), and the dock has no room for
+          a fourth transmission button. Without an entry here a phone would
+          have no way to reach the file picker at all. */}
+      {!isWideLayout && (
+        <button
+          type="button"
+          onClick={() => {
+            closeMenu();
+            openLocalMediaPopup();
+          }}
+          disabled={Boolean(screenBlockedReason)}
+          className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:text-zinc-300 dark:hover:bg-zinc-900"
+        >
+          <MdMovie className="h-4 w-4 shrink-0 text-sky-500" />
+          Transmitir arquivo do computador
+          <BetaMark />
+        </button>
+      )}
+
       {/* At every width now, not just on a phone: it used to have its own
           button in the desktop header, where a once-a-session action was
           taking permanent space from the controls used all call long. */}
@@ -2565,6 +2589,52 @@ export function WatchRoom({ handle }: { handle: string }) {
   function openAddVideoSourcePopup() {
     openPopup("add_video_source", {
       data: { onSubmit: handleAddVideoSource },
+    });
+  }
+
+  // Putting music on the room (see components/MusicBar). Two gates, both
+  // re-checked server-side: a room manager, since this is one shared output
+  // for everybody rather than something each participant brings; and a real
+  // account, since a guest identity lasts as long as a browser profile does
+  // and the room's soundtrack should not sit behind one.
+  //
+  // The account read here is `state.account` — the one this *socket* is
+  // registered as — rather than the auth context's, because that is precisely
+  // what the server checks (`info.accountId`). They agree in the end, but for
+  // a moment after load one says "signed in" while the other hasn't
+  // registered yet, and gating on the wrong one offers a button whose click
+  // the server then refuses.
+  const canManageMusic = isRoomManager && Boolean(state.account);
+  const musicBlockedReason = !isRoomManager
+    ? "Só o dono e os administradores da sala podem colocar música."
+    : !state.account
+      ? "Entre com uma conta do site para colocar música na sala."
+      : null;
+
+  function openAddMusicPopup() {
+    openPopup("add_music_source", {
+      data: {
+        onSubmit: (url: string) => signalingClient.setMusicSource("youtube", url),
+        replacing: Boolean(state.music),
+      },
+    });
+  }
+
+  // Playing something off this person's own disk into the room. Not a video
+  // source (nobody else has the file, so there is no link to share) — it goes
+  // out through the screen channel as an ordinary transmission, which is why
+  // it is gated on the same permission and refuses while a share is already
+  // running. See lib/localMediaSource.ts.
+  function openLocalMediaPopup() {
+    openPopup("add_local_media", {
+      data: {
+        // Started from inside the popup's own click, so the capture still has
+        // the user gesture a browser wants to see behind it.
+        onReady: () => {
+          if (localStream) stopShare();
+          void startShare("file");
+        },
+      },
     });
   }
 
@@ -2923,6 +2993,52 @@ export function WatchRoom({ handle }: { handle: string }) {
                   <span className="hidden 2xl:inline"><BetaMark /></span>
                 </button>
               </Tooltip>
+
+              {/* The room's soundtrack. Next to the video button because it
+                  is the same kind of act — bringing something in for the
+                  whole room to hear — but a different thing entirely once
+                  it's here: one per room, managers only, and a bar under the
+                  header rather than a tile (see components/MusicBar). Shown
+                  to everyone, disabled with the reason in its tooltip for
+                  whoever may not use it, rather than hidden: "why can't I put
+                  music on" is a question the UI should answer by itself. */}
+              <Tooltip
+                content={musicBlockedReason ?? (state.music ? "Trocar a música da sala" : "Colocar música na sala")}
+                wrapperClassName="flex"
+              >
+                <button
+                  type="button"
+                  onClick={openAddMusicPopup}
+                  disabled={!canManageMusic}
+                  aria-label="Colocar música na sala"
+                  className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <MdMusicNote className="h-5 w-5 shrink-0" />
+                  <span className="hidden 2xl:inline"><BetaMark /></span>
+                </button>
+              </Tooltip>
+
+              {/* A file off your own disk. Sits with the transmission
+                  controls rather than with "adicionar fonte de vídeo",
+                  because that is what it is: the room receives live video and
+                  audio, exactly like a screen share, and it takes the same
+                  channel — hence the same permission, and the same "one at a
+                  time" that sharing a screen has always had. */}
+              <Tooltip
+                content={screenBlockedReason ?? "Transmitir um arquivo do computador"}
+                wrapperClassName="flex"
+              >
+                <button
+                  type="button"
+                  onClick={openLocalMediaPopup}
+                  disabled={Boolean(screenBlockedReason)}
+                  aria-label="Transmitir um arquivo do computador"
+                  className="flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <MdMovie className="h-5 w-5 shrink-0" />
+                  <span className="hidden 2xl:inline"><BetaMark /></span>
+                </button>
+              </Tooltip>
             </div>
           )}
 
@@ -3099,6 +3215,22 @@ export function WatchRoom({ handle }: { handle: string }) {
           </div>
         </div>
       </header>
+
+      {/* Directly under the header, above everything the room is actually
+          looking at: it is a strip rather than a tile because music is not
+          something you watch, and it must not take a slot away from the
+          people and screens that are. */}
+      {state.music && (
+        <MusicBar
+          music={state.music}
+          canControl={canManageMusic}
+          isMusicOwner={state.selfUserId !== null && state.music.addedById === state.selfUserId}
+          onReplace={openAddMusicPopup}
+        />
+      )}
+
+      {/* Only for whoever is broadcasting the file — see LocalMediaBar. */}
+      {shareSource === "file" && localStream && <LocalMediaBar onStop={stopShare} />}
 
       {!state.account && !guestBannerDismissed && (
         <div className="flex shrink-0 items-center justify-between gap-3 bg-blue-50 px-3 py-1.5 text-xs text-blue-800 lg:px-4 lg:py-2 lg:text-sm dark:bg-blue-950/40 dark:text-blue-300">

@@ -27,6 +27,7 @@ import {
   tierForRenderedSize,
   type QualityTier,
 } from "./videoQuality";
+import { localMediaSource } from "./localMediaSource";
 import { PeerQualityRegistry, type DegradationMode } from "./peerQualityController";
 import { qualityNegotiator } from "./qualityNegotiation";
 import { useMeshCapacity, useMeshTopology, type PeerCapacity } from "./useMeshTopology";
@@ -36,7 +37,13 @@ import { setPreferredAudioSink } from "./audioContext";
 import { startExcludedSystemAudio, prewarmExcludedSystemAudio } from "./desktopSystemAudio";
 
 type Channel = "screen" | "camera" | "mic";
-type ShareSource = "display" | "camera";
+// Where the screen channel's picture comes from. "display" is a real screen
+// capture; "camera" is the phone fallback (no getDisplayMedia there, so
+// "compartilhar tela" opens the camera); "file" is a video or audio file off
+// this person's own disk, played locally and captured (see
+// lib/localMediaSource.ts for why a local file has to travel this way rather
+// than as a shared link like a video source).
+type ShareSource = "display" | "camera" | "file";
 
 type SignalData = {
   channel?: Channel;
@@ -1027,7 +1034,11 @@ function useBroadcastChannel(
   const start = useCallback(async (requestedSource?: ShareSource) => {
     if (activeRef.current) return;
     setError(null);
-    if (!isSupported()) {
+    // A file share needs no capture API at all — it plays an element this page
+    // already owns — so the screen-capture support check does not apply to it.
+    // Whether the *element* can be captured is checked where that is actually
+    // known, in localMediaSource.captureStream.
+    if (requestedSource !== "file" && !isSupported()) {
       setError(notSupportedMessage);
       return;
     }
@@ -1051,8 +1062,13 @@ function useBroadcastChannel(
       // protect sharpness and throw frames away, which is exactly backwards for
       // a moving picture — so the source, not the channel name, decides.
       const capturingCamera = channel === "camera" || requestedSource === "camera";
+      // A file is moving pictures, whatever the "compartilhar tela" dial is
+      // set to — same reasoning as the camera above: "text" tells the encoder
+      // to protect sharpness and drop frames, which turns a film into a
+      // slideshow the moment anything gets tight.
+      const capturingMotion = capturingCamera || requestedSource === "file";
       const hint =
-        !capturingCamera && channel === "screen" && degradationModeRef.current === "text"
+        !capturingMotion && channel === "screen" && degradationModeRef.current === "text"
           ? "text"
           : "motion";
       stream.getVideoTracks().forEach((track) => {
@@ -1881,6 +1897,15 @@ export function useRoomMedia(room: string) {
       if (source === "camera") {
         return captureCamera(videoConstraints, cameraDeviceIdRef.current);
       }
+      // A local file is already decoding in an element of its own by the time
+      // this runs — the picker filled the queue before starting the share —
+      // so there is nothing to request from the OS and no permission prompt.
+      // The resolution/fps dials above don't apply either: the stream is
+      // whatever the file is, and the per-viewer tiers still downscale it on
+      // the way out like any other share.
+      if (source === "file") {
+        return localMediaSource.captureStream(shareFpsRef.current);
+      }
       // No fallback to the camera here — on browsers without getDisplayMedia
       // (most mobile ones) this throws synchronously, which start() below
       // turns into a visible error instead of silently switching sources.
@@ -1976,7 +2001,10 @@ export function useRoomMedia(room: string) {
     "Não foi possível iniciar o compartilhamento. Verifique as permissões do navegador.",
     forceRelayIce,
     autoJoin,
-    screenQualityPreset
+    screenQualityPreset,
+    // Stops the local file playing when the share it was feeding ends. A no-op
+    // for an ordinary screen share, which has no element to release.
+    () => localMediaSource.release()
   );
 
   const camera = useBroadcastChannel(

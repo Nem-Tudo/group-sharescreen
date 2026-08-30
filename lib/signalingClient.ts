@@ -2,6 +2,7 @@
 
 import { trackEvent } from "./analytics";
 import type { VideoSource, VideoSourceKind } from "./videoSource";
+import type { MusicSource, MusicSourceKind } from "./musicSource";
 import type { Announcement } from "./announcement";
 import type { Partner } from "./partner";
 import type { Supporter } from "./supporter";
@@ -184,6 +185,11 @@ export type SignalingState = {
   // lib/videoSource.ts. Server-owned and room-scoped: a fresh "room-state"
   // replaces this wholesale, which is also what empties it on a room switch.
   videoSources: VideoSource[];
+  // The room's one music source, or null when it has none (see
+  // lib/musicSource.ts). Server-owned and room-scoped like videoSources
+  // above: a fresh "room-state" replaces it wholesale, which is also what
+  // clears it on a room switch.
+  music: MusicSource | null;
   // Site-wide banner, independent of room — null when none is active. Set
   // from the server's "announcement" push (see server/signaling.ts's
   // broadcastToAll), which also fires once right after "welcome" for a
@@ -327,6 +333,7 @@ const initialState: SignalingState = {
   supportersSeq: 0,
   desktopUpdateSeq: 0,
   chatBlockedMessage: null,
+  music: null,
   roomCreated: false,
   roomOwnerId: null,
   roomAdmins: [],
@@ -710,6 +717,9 @@ class SignalingClient {
           chatMessages:
             history.length > MAX_CHAT_MESSAGES ? history.slice(-MAX_CHAT_MESSAGES) : history,
           videoSources: Array.isArray(msg.videoSources) ? (msg.videoSources as VideoSource[]) : [],
+          // Null both for a room with no music and for a server that predates
+          // the feature — the bar simply doesn't render in either case.
+          music: (msg.music as MusicSource | null | undefined) ?? null,
           roomCreated: msg.created === true,
           roomOwnerId: typeof msg.ownerId === "string" ? msg.ownerId : null,
           roomAdmins: parseRoomAdmins(msg.admins),
@@ -874,6 +884,37 @@ class SignalingClient {
           ),
         });
         break;
+      // The room's music (see lib/musicSource.ts). "music" carries the whole
+      // record — there is only one, so setting, replacing and clearing are
+      // all the same message with a different payload — and "music-state" is
+      // the transport half, which fires on every play/pause/seek/skip and
+      // must not re-render the player by replacing its source identity.
+      case "music":
+        this.setState({ music: (msg.music as MusicSource | null | undefined) ?? null });
+        break;
+      case "music-state": {
+        const current = this.state.music;
+        // A transport message that raced a replacement belongs to the song
+        // that is gone; applying it would drag the new one to the old one's
+        // timestamp.
+        if (!current || (typeof msg.id === "string" && msg.id !== current.id)) break;
+        this.setState({
+          music: {
+            ...current,
+            playing: Boolean(msg.playing),
+            positionSeconds: Number(msg.positionSeconds) || 0,
+            playbackRate: Number(msg.playbackRate) || current.playbackRate || 1,
+            updatedAt: Number(msg.updatedAt) || Date.now(),
+            // Merge-if-present, like a video source's: index 0 is a real
+            // position (the first track) and must not read as absent.
+            playlistIndex:
+              typeof msg.playlistIndex === "number" && Number.isFinite(msg.playlistIndex)
+                ? Math.max(0, Math.floor(msg.playlistIndex))
+                : current.playlistIndex,
+          },
+        });
+        break;
+      }
       case "time-sync": {
         const t0 = Number(msg.t0) || 0;
         const serverTime = Number(msg.serverTime) || 0;
@@ -1099,6 +1140,7 @@ class SignalingClient {
       peers: [],
       chatMessages: [],
       videoSources: [],
+      music: null,
       joinError: null,
       // The room's rules leave with the room — carrying them into the next
       // one would gate the wrong controls until its "room-state" lands.
@@ -1168,6 +1210,35 @@ class SignalingClient {
 
   removeVideoSource(id: string) {
     this.rawSend({ type: "video-source-remove", id });
+  }
+
+  // The room's music. Setting replaces whatever was playing — there is only
+  // one — and all three are refused server-side for anyone who isn't a room
+  // manager with a real account, so the UI gating these is a courtesy rather
+  // than the rule.
+  setMusicSource(kind: MusicSourceKind, url: string) {
+    this.rawSend({ type: "music-set", kind, url });
+  }
+
+  clearMusicSource() {
+    this.rawSend({ type: "music-clear" });
+  }
+
+  setMusicState(
+    id: string,
+    playing: boolean,
+    positionSeconds: number,
+    playbackRate: number,
+    playlistIndex?: number
+  ) {
+    this.rawSend({
+      type: "music-state",
+      id,
+      playing,
+      positionSeconds,
+      playbackRate,
+      ...(typeof playlistIndex === "number" ? { playlistIndex } : {}),
+    });
   }
 
   // Play/pause/seek performed locally, pushed so everyone else's player
