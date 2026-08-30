@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, type ComponentType } from "react";
+import { useEffect, useState, type ComponentType } from "react";
 import { BsGearFill } from "react-icons/bs";
 import { FaCrown } from "react-icons/fa";
 import {
+  MdGavel,
   MdOutlineOndemandVideo,
   MdChevronRight,
   MdArrowBack,
@@ -45,7 +46,7 @@ const PERMISSION_ROWS: {
   { key: "gif", label: "Permitir que todos enviem GIFS", icon: MdGif },
 ];
 
-type View = "menu" | "admins" | "permissions" | "location";
+type View = "menu" | "admins" | "permissions" | "location" | "bans";
 
 // Rounded for display only — the full precision is what gets sent. Six
 // decimals is roughly a tenth of a metre, far past anything a click on a
@@ -120,6 +121,14 @@ export function ManageRoomModal({
       p.role !== "moderator" && Boolean(p.userId) && p.userId !== state.roomOwnerId
   );
 
+  // Asked for rather than pushed on join: most managers never open this, and
+  // who a room banned is not something the room at large is told (see the
+  // server's sendRoomBansToManagers). Re-asked on entering the tab, so a list
+  // left open through a reconnect is not a stale one.
+  useEffect(() => {
+    if (view === "bans") signalingClient.requestRoomBans();
+  }, [view]);
+
   const saved = state.roomLocation;
   const pinMoved = pick?.lat !== saved?.lat || pick?.lng !== saved?.lng;
   // Read-only unless the opener said otherwise *and* this viewer really is a
@@ -136,7 +145,9 @@ export function ManageRoomModal({
       ? "Gerenciar administradores"
       : view === "permissions"
         ? "Gerenciar permissões"
-        : view === "location"
+        : view === "bans"
+          ? "Banimentos"
+          : view === "location"
           ? celebrating
             ? "Você criou uma sala pública!"
             : canEditLocation
@@ -203,6 +214,19 @@ export function ManageRoomModal({
               <span className="flex items-center gap-2">
                 <FaCrown className="h-4 w-4 shrink-0 text-amber-500" />
                 Gerenciar administradores
+              </span>
+              <MdChevronRight className="h-4 w-4 shrink-0 opacity-50" />
+            </button>
+          )}
+          {canManageAdmins && (
+            <button
+              type="button"
+              onClick={() => setView("bans")}
+              className="flex items-center justify-between gap-2 rounded-lg border border-zinc-300 px-3 py-2.5 text-left text-sm font-medium transition hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
+            >
+              <span className="flex items-center gap-2">
+                <MdGavel className="h-4 w-4 shrink-0 text-red-500" />
+                Banimentos
               </span>
               <MdChevronRight className="h-4 w-4 shrink-0 opacity-50" />
             </button>
@@ -442,6 +466,38 @@ export function ManageRoomModal({
                 </button>
               )}
             </div>
+          )}
+        </div>
+      )}
+
+      {view === "bans" && (
+        <div className="flex flex-col gap-2">
+          <p className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+            Quem foi banido não consegue entrar nesta sala. Banir é pelo botão direito na pessoa,
+            na lista de participantes ou numa mensagem dela no chat. Só o dono desfaz.
+          </p>
+          {state.roomBans.length === 0 ? (
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              Ninguém banido desta sala.
+            </p>
+          ) : (
+            <ul className="flex max-h-72 flex-col gap-1 overflow-y-auto">
+              {state.roomBans.map((ban) => (
+                <li
+                  key={ban.id}
+                  className="flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm"
+                >
+                  <span className="min-w-0 truncate font-medium">{ban.name || ban.id}</span>
+                  <button
+                    type="button"
+                    onClick={() => signalingClient.unbanMember(ban.id)}
+                    className="shrink-0 rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium transition hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
+                  >
+                    Desbanir
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       )}

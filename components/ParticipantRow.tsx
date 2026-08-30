@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { useState, type ReactNode } from "react";
 import { useSpeaking } from "@/lib/useSpeaking";
 import { MicIcon, MicOffIcon, ScreenIcon, CameraIcon } from "./icons";
 import { MdOutlineDesktopWindows, MdOutlineOndemandVideo } from "react-icons/md";
 import { FaCrown } from "react-icons/fa";
 import { VolumeSlider } from "./VolumeSlider";
 import { DisplayUserName } from "./DisplayUserName";
-import { Tooltip } from "./Tooltip";
+import { Tooltip, Popover } from "./Tooltip";
 import { MAX_GAIN } from "@/lib/audioGain";
 
 export function ParticipantRow({
@@ -30,6 +31,8 @@ export function ParticipantRow({
   isOwner = false,
   isAdmin = false,
   isApp = false,
+  renderMenu,
+  onContextMenu,
 }: {
   name: string;
   isSelf?: boolean;
@@ -74,8 +77,24 @@ export function ParticipantRow({
   // thing. False for anyone on the web, and for a peer sent by a server that
   // predates the field.
   isApp?: boolean;
+  // Right click opens the room's actions for this person (see
+  // MemberActionsModal). Omitted where there are none to offer — for yourself,
+  // and for anyone when this viewer does not run the room — so the browser's
+  // own context menu is left alone rather than replaced with an empty one.
+  //
+  // Two shapes, and the caller picks by which one it passes. `renderMenu`
+  // opens the panel right beside this row, which is where a menu about
+  // somebody belongs; `onContextMenu` just reports the click and lets the
+  // caller open whatever it likes, which is what a phone gets — a panel
+  // hanging off a row in a 360px column has nowhere to hang.
+  // Handed a `close` so an action taken inside can dismiss the panel it is
+  // in — the open state lives here, not with whoever built the content.
+  renderMenu?: (close: () => void) => ReactNode;
+  onContextMenu?: () => void;
 }) {
   const speaking = useSpeaking(micOn ? micStream : null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const hasMenu = Boolean(renderMenu || onContextMenu);
   // Whether the screen/camera split is actually known for this peer — see
   // the `screen`/`camera` props.
   const knowsChannels = screen != null || camera != null;
@@ -99,10 +118,26 @@ export function ParticipantRow({
     />
   );
 
-  return (
+  const row = (
     <li
+      onContextMenu={
+        hasMenu
+          ? (e) => {
+              e.preventDefault();
+              if (renderMenu) setMenuOpen((open) => !open);
+              else onContextMenu?.();
+            }
+          : undefined
+      }
+      // The whole row reacts when there is something behind it, rather than
+      // leaving a right click to be discovered. A pointer cursor and a hover
+      // on the *container* — not just on the name — because the row is the
+      // target: the actions are about the person, not about the word.
+      title={hasMenu ? "Clique com o botão direito para ver as ações" : undefined}
       className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm ${
         isSelf ? "bg-zinc-100 dark:bg-zinc-900" : "text-zinc-700 dark:text-zinc-300"
+      } ${
+        hasMenu ? "cursor-pointer transition hover:bg-zinc-200/70 dark:hover:bg-zinc-800" : ""
       }`}
     >
       <span className="flex min-w-0 items-baseline gap-1">
@@ -184,5 +219,21 @@ export function ParticipantRow({
         )}
       </span>
     </li>
+  );
+
+  if (!renderMenu) return row;
+
+  // The panel points at this row, so what it is about needs no explaining.
+  // "right-start" on a sidebar list puts it beside the name and lets Tippy
+  // flip it to the other side when the column is against the window edge.
+  return (
+    <Popover
+      open={menuOpen}
+      onClose={() => setMenuOpen(false)}
+      placement="right-start"
+      content={menuOpen ? renderMenu(() => setMenuOpen(false)) : null}
+    >
+      {row}
+    </Popover>
   );
 }

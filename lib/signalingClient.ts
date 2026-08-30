@@ -42,6 +42,13 @@ export type SharedFile = {
   updatedAt: number;
 };
 
+// Somebody a room banned. Mirrors the server's RoomBan (see roomStore.ts).
+export type RoomBan = {
+  id: string;
+  name: string;
+  bannedAt: number;
+};
+
 export type PeerInfo = {
   id: string;
   name: string;
@@ -302,6 +309,16 @@ export type SignalingState = {
   // PeerInfo.userId / `selfUserId` above — never against a connection id.
   roomOwnerId: string | null;
   roomAdmins: RoomAdmin[];
+  // Who this room threw out for good (see the server's "room-ban"). Only ever
+  // sent to the room's owner and admins — a list of names of people a room
+  // banned is not something the room at large needs — so it is empty for
+  // everyone else, and empty until it is asked for (see requestRoomBans).
+  roomBans: RoomBan[];
+  // Set when this room removed *us*: `banned` tells "you may not come back"
+  // apart from "you were kicked out of this one". Null the rest of the time,
+  // and cleared on the next join, so it only ever describes what just
+  // happened.
+  roomRemoval: { banned: boolean } | null;
   roomPermissions: RoomPermissions;
   // Whether the join that produced the room state we're holding is the one
   // that *created* the room, as opposed to walking into one already running
@@ -381,6 +398,8 @@ const initialState: SignalingState = {
   roomCreated: false,
   roomOwnerId: null,
   roomAdmins: [],
+  roomBans: [],
+  roomRemoval: null,
   roomPermissions: { ...DEFAULT_ROOM_PERMISSIONS },
   roomLocation: null,
   roomDescription: "",
@@ -771,6 +790,9 @@ class SignalingClient {
           roomCreated: msg.created === true,
           roomOwnerId: typeof msg.ownerId === "string" ? msg.ownerId : null,
           roomAdmins: parseRoomAdmins(msg.admins),
+          // A fresh join is a fresh answer to "was I thrown out", and the
+          // answer is no — we are in.
+          roomRemoval: null,
           roomPermissions: parseRoomPermissions(msg.permissions),
           roomLocation: parseRoomLocation(msg.location),
           roomDescription: typeof msg.description === "string" ? msg.description : "",
@@ -978,6 +1000,21 @@ class SignalingClient {
         });
         break;
       }
+      case "room-bans":
+        this.setState({
+          roomBans: Array.isArray(msg.bans) ? (msg.bans as RoomBan[]) : [],
+        });
+        break;
+      // This room threw us out. The server has already taken us out of it, so
+      // there is nothing to leave — this only records why, for the screen that
+      // says so (see WatchRoom).
+      case "room-removed":
+        this.setState({
+          room: null,
+          peers: [],
+          roomRemoval: { banned: msg.banned === true },
+        });
+        break;
       case "time-sync": {
         const t0 = Number(msg.t0) || 0;
         const serverTime = Number(msg.serverTime) || 0;
@@ -1210,6 +1247,7 @@ class SignalingClient {
       roomCreated: false,
       roomOwnerId: null,
       roomAdmins: [],
+      roomBans: [],
       roomPermissions: { ...DEFAULT_ROOM_PERMISSIONS },
       roomLocation: null,
       roomDescription: "",
@@ -1277,6 +1315,27 @@ class SignalingClient {
 
   // Only whoever added it may change this, and only an account may ask for
   // "owner" — both enforced server-side (see allowedControlMode there).
+  // Room moderation, from the member menu (see MemberActionsModal). All three
+  // are owner/admin-only and enforced server-side — kicking and banning by
+  // isRoomManager, lifting a ban by the owner alone.
+  kickMember(userId: string) {
+    this.rawSend({ type: "room-kick", userId });
+  }
+
+  banMember(userId: string) {
+    this.rawSend({ type: "room-ban", userId });
+  }
+
+  unbanMember(userId: string) {
+    this.rawSend({ type: "room-unban", userId });
+  }
+
+  // Asked for rather than pushed on join: most managers never open the list,
+  // and it is the one piece of room state that is not everybody's business.
+  requestRoomBans() {
+    this.rawSend({ type: "room-bans" });
+  }
+
   setVideoSourceControlMode(id: string, controlMode: "owner" | "anyone") {
     this.rawSend({ type: "video-source-control-mode", id, controlMode });
   }

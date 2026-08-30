@@ -72,6 +72,7 @@ import { RoomInfoControls } from "@/components/RoomInfoControls";
 import { MusicBar } from "@/components/MusicBar";
 import { LocalMediaControls, RemoteMediaControls } from "@/components/LocalMediaControls";
 import { LocalMusicBar, RemoteMusicBar } from "@/components/LocalMusicBar";
+import { MemberActionsMenu, type MemberActions } from "@/components/MemberActionsModal";
 import { isDesktopApp } from "@/lib/desktop";
 import { PartnerCard } from "@/components/PartnerCard";
 import { SupportersTooltipContent } from "@/components/SupportersTooltip";
@@ -1551,6 +1552,43 @@ export function WatchRoom({ handle }: { handle: string }) {
     );
   }
 
+  // This room threw us out (see the server's "room-kick"/"room-ban"). Its own
+  // screen rather than a toast: the room is gone from under this tab either
+  // way, and being dropped back into an empty page with a notification would
+  // leave someone wondering whether it broke. A kick says come back; a ban
+  // does not, because they cannot.
+  if (state.roomRemoval) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4 text-center">
+        <p className="text-lg font-medium text-zinc-900 dark:text-zinc-100">
+          {state.roomRemoval.banned
+            ? "Você foi banido desta sala."
+            : "Você foi removido desta sala."}
+        </p>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">
+          {!state.roomRemoval.banned && "Você pode entrar de novo, se quiser."}
+        </p>
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          {!state.roomRemoval.banned && (
+            <button
+              type="button"
+              onClick={() => signalingClient.joinRoom(handle)}
+              className="rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+            >
+              Entrar de novo
+            </button>
+          )}
+          <Link
+            href="/rooms"
+            className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+          >
+            Ver outras salas
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   // A different guest/account already holds this name in this specific
   // room (see server/signaling.ts's "join" handler) — unlike "superseded"
   // above, nobody here was kicked; this connection just never got in, so a
@@ -2902,6 +2940,71 @@ export function WatchRoom({ handle }: { handle: string }) {
     startLocalMediaShare(slot);
   }
 
+  // The room's actions for one person, from a right click on them in the
+  // participant list or on one of their chat messages (see
+  // MemberActionsModal). What this viewer may do is worked out here, which is
+  // the only place that knows both who is asking and who runs the room — and
+  // re-checked server-side either way.
+  //
+  // Two limits keep the power from turning on the room itself: nobody throws
+  // out the owner, and only the owner throws out an admin. Without the second,
+  // one admin could clear the bench of the others.
+  function memberActionsFor(peer: PeerInfo): MemberActions | null {
+    if (!peer.userId) return null;
+    const targetIsOwner = peer.userId === state.roomOwnerId;
+    const targetIsAdmin = state.roomAdmins.some((a) => a.id === peer.userId);
+    const allowed = isRoomManager && !targetIsOwner && (!targetIsAdmin || isRoomOwner);
+    return {
+      userId: peer.userId,
+      name: peer.name,
+      isGuest: peer.isGuest,
+      verified: peer.flags?.includes("VERIFIED"),
+      canKick: allowed,
+      canBan: allowed,
+      blockedReason: allowed
+        ? null
+        : targetIsOwner
+          ? "Ninguém pode expulsar ou banir o dono da sala."
+          : targetIsAdmin
+            ? "Só o dono da sala pode expulsar ou banir um administrador."
+            : "Só o dono e os administradores da sala podem expulsar ou banir.",
+    };
+  }
+
+  // The phone's shell. A panel anchored to a row needs somewhere to hang, and
+  // a 360px column has nowhere — so below sm the same menu opens as a popup
+  // instead. Above it, the row renders the menu itself, beside the person it
+  // is about (see ParticipantRow/ChatPanel's renderMenu).
+  function openMemberActions(peer: PeerInfo) {
+    const actions = memberActionsFor(peer);
+    if (actions) openPopup("member_actions", { data: actions });
+  }
+
+  // A chat message outlives the connection that sent it, so the id on it may
+  // be gone — the name is the fallback, and it is a reliable one: the server
+  // reserves display names per room, so at most one person in the room answers
+  // to it at a time.
+  function chatAuthorPeer(from: string, name: string) {
+    return (
+      state.peers.find((p) => p.id === from) ??
+      state.peers.find((p) => p.name.toLowerCase() === name.toLowerCase()) ??
+      null
+    );
+  }
+
+  function openMemberActionsFromChat(from: string, name: string) {
+    const peer = chatAuthorPeer(from, name);
+    if (peer) openMemberActions(peer);
+  }
+
+  // Built on open, not per row: `renderMenu` is only called for the one row
+  // whose menu is actually showing.
+  function renderMemberMenu(peer: PeerInfo | null, onDone: () => void) {
+    const actions = peer && memberActionsFor(peer);
+    if (!actions) return null;
+    return <MemberActionsMenu actions={actions} onDone={onDone} />;
+  }
+
   // Both open components/ManageRoomModal — it just starts on a different
   // screen. No other `data`: the popup reads the room's live state itself, so
   // it keeps up with people joining and other admins' changes while it's
@@ -2981,6 +3084,20 @@ export function WatchRoom({ handle }: { handle: string }) {
             name={p.name}
             isGuest={p.isGuest}
             userId={p.userId}
+            // Only where there is something to offer: for anyone else the
+            // browser's own context menu is more use than an empty one. Which
+            // of the two shells it gets is the screen's call — see
+            // openMemberActions.
+            renderMenu={
+              isRoomManager && p.userId && isDesktopLayout
+                ? (close) => renderMemberMenu(p, close)
+                : undefined
+            }
+            onContextMenu={
+              isRoomManager && p.userId && !isDesktopLayout
+                ? () => openMemberActions(p)
+                : undefined
+            }
             isOwner={Boolean(p.userId) && p.userId === state.roomOwnerId}
             isAdmin={state.roomAdmins.some((a) => a.id === p.userId)}
             isApp={p.app}
@@ -3072,6 +3189,14 @@ export function WatchRoom({ handle }: { handle: string }) {
         messages={state.chatMessages}
         selfId={state.selfId}
         selfName={state.name}
+        renderAuthorMenu={
+          isRoomManager && isDesktopLayout
+            ? (from, name, close) => renderMemberMenu(chatAuthorPeer(from, name), close)
+            : undefined
+        }
+        onAuthorContextMenu={
+          isRoomManager && !isDesktopLayout ? openMemberActionsFromChat : undefined
+        }
         peers={visiblePeers}
         onSend={(text) => signalingClient.sendChatMessage(text)}
         onSendGif={

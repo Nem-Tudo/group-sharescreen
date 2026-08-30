@@ -10,6 +10,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
+  type ReactNode,
 } from "react";
 import type { ChatMessage } from "@/lib/signalingClient";
 import type { GifResult } from "@/app/api/giphy/search/route";
@@ -109,6 +110,8 @@ export function ChatPanel({
   gifDisabledReason,
   heightClassName = "h-72",
   marginClassName = "mt-4 mb-4",
+  renderAuthorMenu,
+  onAuthorContextMenu,
 }: {
   messages: ChatMessage[];
   selfId: string | null;
@@ -154,8 +157,27 @@ export function ChatPanel({
   // sheet of its own, where a margin is just a strip of background between
   // the sheet's edge and its only content.
   marginClassName?: string;
+  // Right click on a message opens the room's actions for whoever wrote it
+  // (see MemberActionsModal). Omitted where there are none — for a viewer who
+  // does not run the room, and for the admin moderation view — so the
+  // browser's own menu is left alone rather than replaced by an empty one.
+  //
+  // Reports the connection id and the name, and lets the caller work out who
+  // that is: a message outlives the connection that sent it, and the room's
+  // actions are addressed to a person.
+  //
+  // Two shapes, like ParticipantRow's: `renderAuthorMenu` returns a panel to
+  // open beside the message, `onAuthorContextMenu` just reports the click for
+  // the caller to handle — which is what a phone gets.
+  // Handed a `close`, for the same reason as ParticipantRow's.
+  renderAuthorMenu?: (from: string, name: string, close: () => void) => ReactNode;
+  onAuthorContextMenu?: (from: string, name: string) => void;
 }) {
   const [input, setInput] = useState("");
+  // Which message's author menu is open, by message id — one at a time, and
+  // keyed on the message rather than the person so two messages from the same
+  // author don't both open.
+  const [authorMenuFor, setAuthorMenuFor] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
 
   // Mention autocomplete popup state
@@ -516,11 +538,31 @@ export function ChatPanel({
                 previous.from === m.from &&
                 previous.name === m.name &&
                 m.ts - previous.ts < GROUP_WINDOW_MS;
-              return (
+              const hasMenu = Boolean(renderAuthorMenu || onAuthorContextMenu);
+              const row = (
                 <div
                   key={m.id}
+                  // Right click anywhere on somebody's message opens the room's
+                  // actions for them — the same menu the participant list
+                  // offers, reachable from where you actually noticed them.
+                  onContextMenu={
+                    hasMenu
+                      ? (e) => {
+                          e.preventDefault();
+                          if (renderAuthorMenu) setAuthorMenuFor((open) => (open === m.id ? null : m.id));
+                          else onAuthorContextMenu?.(m.from, m.name);
+                        }
+                      : undefined
+                  }
+                  title={hasMenu ? "Clique com o botão direito para ver as ações" : undefined}
                   className={`-mx-1.5 rounded-md px-1.5 text-sm ${grouped ? "pb-0.5" : "mt-2.5 pb-0.5 first:mt-0"
-                    } ${isMention ? "bg-yellow-200 py-1 dark:bg-blue-500/25" : ""}`}
+                    } ${isMention ? "bg-yellow-200 py-1 dark:bg-blue-500/25" : ""} ${
+                      // Same affordance as a participant row, for the same
+                      // reason — the actions hang off the message's author.
+                      hasMenu
+                        ? "cursor-pointer transition hover:bg-zinc-100 dark:hover:bg-zinc-900"
+                        : ""
+                    }`}
                 >
                   {!grouped && (
                     <div className="flex items-baseline gap-1.5">
@@ -547,6 +589,25 @@ export function ChatPanel({
                     </p>
                   )}
                 </div>
+              );
+
+              if (!renderAuthorMenu) return row;
+              // Anchored to the message, opening into the room rather than
+              // over the rest of the conversation.
+              return (
+                <Popover
+                  key={m.id}
+                  open={authorMenuFor === m.id}
+                  onClose={() => setAuthorMenuFor(null)}
+                  placement="left-start"
+                  content={
+                    authorMenuFor === m.id
+                      ? renderAuthorMenu(m.from, m.name, () => setAuthorMenuFor(null))
+                      : null
+                  }
+                >
+                  {row}
+                </Popover>
               );
             })
           )}
