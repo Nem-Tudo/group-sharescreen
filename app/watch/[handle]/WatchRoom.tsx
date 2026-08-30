@@ -3052,9 +3052,30 @@ export function WatchRoom({ handle }: { handle: string }) {
           </Tooltip>
         )}
       </div>
-      <span className="shrink-0 rounded-full bg-zinc-200 px-2 py-0.5 text-xs font-semibold tabular-nums text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
-        {peerCount}
-      </span>
+      {/* The count alone until the room has a limit, and "8/12" once it does —
+          a number with nothing to compare it to is just a number, and knowing
+          how much room is left is the whole reason a limit is visible at all.
+          Turns amber on the last slot and red when full, so "quase cheia" is
+          something you notice rather than something you work out. */}
+      <Tooltip
+        content={
+          state.roomMemberLimit
+            ? `${peerCount} de ${state.roomMemberLimit} pessoas — o limite da sala`
+            : undefined
+        }
+      >
+        <span
+          className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${
+            state.roomMemberLimit && peerCount >= state.roomMemberLimit
+              ? "bg-red-200 text-red-800 dark:bg-red-950 dark:text-red-300"
+              : state.roomMemberLimit && peerCount >= state.roomMemberLimit - 1
+                ? "bg-amber-200 text-amber-900 dark:bg-amber-950 dark:text-amber-300"
+                : "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+          }`}
+        >
+          {state.roomMemberLimit ? `${peerCount}/${state.roomMemberLimit}` : peerCount}
+        </span>
+      </Tooltip>
     </div>
   );
 
@@ -4146,7 +4167,12 @@ export function WatchRoom({ handle }: { handle: string }) {
                 className={`${DOCK_TAB} ${mobilePanel === "participants" ? DOCK_TAB_ACTIVE : DOCK_TAB_IDLE}`}
               >
                 <MdOutlinePeople className="h-5 w-5" />
-                <span className="text-[10px] font-medium leading-none">Pessoas ({peerCount})</span>
+                {/* Same "x/y" as the sidebar heading — the phone has no
+                    sidebar, so this tab is the only place it can say it. */}
+                <span className="text-[10px] font-medium leading-none">
+                  Pessoas (
+                  {state.roomMemberLimit ? `${peerCount}/${state.roomMemberLimit}` : peerCount})
+                </span>
               </button>
             </nav>
           </>

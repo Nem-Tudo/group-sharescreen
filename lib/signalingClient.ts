@@ -314,6 +314,10 @@ export type SignalingState = {
   // banned is not something the room at large needs — so it is empty for
   // everyone else, and empty until it is asked for (see requestRoomBans).
   roomBans: RoomBan[];
+  // How many ordinary members this room accepts at once, or null for no limit
+  // (see the server's join gate). Public, unlike roomBans — a room being full
+  // is not a secret, and it is what lets the UI say so.
+  roomMemberLimit: number | null;
   // Set when this room removed *us*: `banned` tells "you may not come back"
   // apart from "you were kicked out of this one". Null the rest of the time,
   // and cleared on the next join, so it only ever describes what just
@@ -399,6 +403,7 @@ const initialState: SignalingState = {
   roomOwnerId: null,
   roomAdmins: [],
   roomBans: [],
+  roomMemberLimit: null,
   roomRemoval: null,
   roomPermissions: { ...DEFAULT_ROOM_PERMISSIONS },
   roomLocation: null,
@@ -790,6 +795,7 @@ class SignalingClient {
           roomCreated: msg.created === true,
           roomOwnerId: typeof msg.ownerId === "string" ? msg.ownerId : null,
           roomAdmins: parseRoomAdmins(msg.admins),
+          roomMemberLimit: typeof msg.memberLimit === "number" ? msg.memberLimit : null,
           // A fresh join is a fresh answer to "was I thrown out", and the
           // answer is no — we are in.
           roomRemoval: null,
@@ -892,6 +898,7 @@ class SignalingClient {
         this.setState({
           roomOwnerId: typeof msg.ownerId === "string" ? msg.ownerId : this.state.roomOwnerId,
           roomAdmins: parseRoomAdmins(msg.admins),
+          roomMemberLimit: typeof msg.memberLimit === "number" ? msg.memberLimit : null,
           roomPermissions: parseRoomPermissions(msg.permissions),
           roomLocation: parseRoomLocation(msg.location),
           roomDescription: typeof msg.description === "string" ? msg.description : "",
@@ -1248,6 +1255,7 @@ class SignalingClient {
       roomOwnerId: null,
       roomAdmins: [],
       roomBans: [],
+      roomMemberLimit: null,
       roomPermissions: { ...DEFAULT_ROOM_PERMISSIONS },
       roomLocation: null,
       roomDescription: "",
@@ -1334,6 +1342,12 @@ class SignalingClient {
   // and it is the one piece of room state that is not everybody's business.
   requestRoomBans() {
     this.rawSend({ type: "room-bans" });
+  }
+
+  // null lifts the limit. Owner/admins only, enforced server-side, and the
+  // value is clamped there too (see normalizeMemberLimit).
+  setRoomMemberLimit(limit: number | null) {
+    this.rawSend({ type: "room-member-limit", limit });
   }
 
   setVideoSourceControlMode(id: string, controlMode: "owner" | "anyone") {
