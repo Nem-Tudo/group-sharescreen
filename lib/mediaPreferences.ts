@@ -7,6 +7,12 @@ const MIC_ON_KEY = "sharescreen:micOn";
 const MICS_MUTED_KEY = "sharescreen:micsMuted";
 const FORCE_RELAY_ICE_KEY = "sharescreen:forceRelayIce";
 const GUEST_ACCOUNT_BANNER_DISMISSED_KEY = "sharescreen:guestAccountBannerDismissed";
+// Whether the one-time "ligue o microfone" nudge above the mic button has
+// already been shown (see WatchRoom's micHint). Per device rather than per
+// account on purpose: it teaches how the room works, and someone who has
+// already learned it should not be taught again on the same browser just
+// because they signed in as someone else.
+const MIC_HINT_SEEN_KEY = "sharescreen:micHintSeen";
 const AUTO_JOIN_KEY = "sharescreen:autoJoin";
 // "Sempre abrir salas no aplicativo" — see components/OpenInAppBanner.
 const OPEN_IN_APP_KEY = "sharescreen:openRoomsInApp";
@@ -134,6 +140,13 @@ export function getStoredGuestAccountBannerDismissed(): boolean {
 }
 export function setStoredGuestAccountBannerDismissed(value: boolean) {
   setStoredBoolean(GUEST_ACCOUNT_BANNER_DISMISSED_KEY, value);
+}
+
+export function getStoredMicHintSeen(): boolean {
+  return getStoredBoolean(MIC_HINT_SEEN_KEY, false);
+}
+export function setStoredMicHintSeen(value: boolean) {
+  setStoredBoolean(MIC_HINT_SEEN_KEY, value);
 }
 
 // Whether this browser should hand room links straight to the desktop app.

@@ -117,7 +117,7 @@ async function fetchPartner(
 // a house ad for this site's own Discord instead of an empty slot.
 const FALLBACK_PARTNER: PartnerCardData = {
   title: "Anuncie aqui pra todo mundo!",
-  description: "Esse site é visitado por mais de 30 mil pessoas por dia!\n\nAbra um ticket no meu Discord e vamos combinar um anúncio",
+  description: "Esse site é visitado por mais de 50 mil pessoas por dia!\n\nAbra um ticket no meu Discord e vamos combinar um anúncio",
   buttonLabel: "Abrir ticket no Discord",
   buttonUrl: "https://go.nemtudo.me/golive-partner-nemtudodiscord",
   backgroundColor: "#111827",

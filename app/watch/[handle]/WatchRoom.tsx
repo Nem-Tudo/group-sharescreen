@@ -2,12 +2,15 @@
 
 import {
   Fragment,
+  useCallback,
   useEffect,
   useRef,
   useState,
   type Dispatch,
   type FormEvent,
+  type ReactElement,
   type ReactNode,
+  type Ref,
   type SetStateAction,
 } from "react";
 import Link from "next/link";
@@ -48,6 +51,8 @@ import {
   setStoredTransmissionVolume,
   getStoredGuestAccountBannerDismissed,
   setStoredGuestAccountBannerDismissed,
+  getStoredMicHintSeen,
+  setStoredMicHintSeen,
   getStoredOpenRoomsInApp,
   setStoredOpenRoomsInApp,
   setStoredOpenInAppDismissed,
@@ -179,6 +184,82 @@ function DeviceMenuOption({
       <span className="truncate">{label}</span>
       {selected && <CheckIcon className="h-4 w-4 shrink-0" />}
     </button>
+  );
+}
+
+// How long after joining the mic nudge below appears.
+const MIC_HINT_DELAY_MS = 2500;
+
+// The one-time nudge over the mic button, for a first-time visitor who has
+// landed in a room with the mic off and no reason to suspect the site has
+// voice in it at all. Rooms are built around people talking to each other,
+// and someone who never finds the button silently gets the worst version of
+// the product — so this points at it once, on the first room this browser
+// ever opens, and never again (see getStoredMicHintSeen).
+//
+// A Popover rather than a Tooltip because it has to stay up on its own
+// without being hovered, and because it carries the button that acts on it:
+// the nudge is worth little if taking it up means finding the control anyway.
+// It also takes over the mic button's ordinary hover hint (Popover's
+// `tooltip`), which suppresses that hint while the panel is open instead of
+// letting the two stack on top of each other.
+function MicUsageHint({
+  open,
+  onDismiss,
+  onEnableMic,
+  tooltip,
+  wrapperClassName,
+  children,
+}: {
+  open: boolean;
+  onDismiss: () => void;
+  onEnableMic: () => void;
+  tooltip: ReactNode;
+  wrapperClassName: string;
+  children: ReactElement<{ ref?: Ref<Element> }>;
+}) {
+  return (
+    <Popover
+      open={open}
+      onClose={onDismiss}
+      // Above the button in both layouts: the desktop control row sits under
+      // the header with the video below it, and the mobile dock is at the
+      // very bottom of the screen — under it there is nothing to open into.
+      placement="top"
+      tooltip={tooltip}
+      wrapperClassName={wrapperClassName}
+      content={
+        <div className="w-64 max-w-[calc(100vw-1rem)] rounded-lg border border-zinc-300 bg-white p-3 text-left shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+          <p className="flex items-center gap-1.5 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+            <MicIcon className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-500" />
+            Fale com a sala
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-zinc-600 dark:text-zinc-300">
+            Ligue o microfone aqui para conversar com quem está na sala. O áudio
+            do site é feito para isso — com cancelamento de ruído e volume por
+            pessoa — e a sala fica bem melhor de acompanhar do que só assistindo.
+          </p>
+          <div className="mt-3 flex gap-2">
+            <button
+              type="button"
+              onClick={onEnableMic}
+              className="flex-1 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-700"
+            >
+              Ativar microfone
+            </button>
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="rounded-md px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+            >
+              Agora não
+            </button>
+          </div>
+        </div>
+      }
+    >
+      {children}
+    </Popover>
   );
 }
 
@@ -1197,6 +1278,43 @@ export function WatchRoom({ handle }: { handle: string }) {
     if (isMicOn && !canUseRoomPermission("mic")) toggleMic();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMicOn, isRoomManager, state.roomPermissions.mic]);
+
+  // The one-time "ligue o microfone" nudge (see MicUsageHint above). Its
+  // state lives here rather than in the component because the two mic
+  // buttons — the desktop control row and the mobile dock — are one control
+  // rendered in one place at a time (see isWideLayout), and this is where
+  // both of them already read their state from.
+  const [micHintOpen, setMicHintOpen] = useState(false);
+  const closeMicHint = useCallback(() => setMicHintOpen(false), []);
+  const enableMicFromHint = useCallback(() => {
+    setMicHintOpen(false);
+    if (!isMicOn) toggleMic();
+  }, [isMicOn, toggleMic]);
+  // What both mic buttons call instead of toggleMic directly: reaching for
+  // the control is itself an answer to the nudge, so it gets out of the way
+  // rather than hanging over the button that was just pressed.
+  const handleToggleMic = useCallback(() => {
+    setMicHintOpen(false);
+    toggleMic();
+  }, [toggleMic]);
+  useEffect(() => {
+    // Nothing to teach when the mic is already on or the room doesn't allow
+    // it, and nothing to point at before the join lands (`state.name`) — the
+    // controls aren't on screen until then. Someone whose mic auto-starts
+    // from a stored preference never gets here at all: this re-runs when
+    // that lands and clears the pending timer on the way out.
+    if (!state.name || isMicOn || micBlockedReason || getStoredMicHintSeen()) return;
+    // Late enough not to land on top of a room still connecting, early
+    // enough to still be the first thing someone reads about the room.
+    const timer = setTimeout(() => {
+      setMicHintOpen(true);
+      // Marked spent as it goes up, not as it's dismissed: whatever someone
+      // does with it — press it, wave it off, close the tab — it has had its
+      // one turn, and a nudge that reappears until it's clicked is nagging.
+      setStoredMicHintSeen(true);
+    }, MIC_HINT_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [state.name, isMicOn, micBlockedReason]);
 
   useEffect(() => {
     if (localStream && !canUseRoomPermission("screen")) stopShare();
@@ -2258,8 +2376,11 @@ export function WatchRoom({ handle }: { handle: string }) {
             <ChevronDownIcon className="h-3.5 w-3.5" />
           </button>
         </Popover>
-        <Tooltip
-          content={
+        <MicUsageHint
+          open={micHintOpen}
+          onDismiss={closeMicHint}
+          onEnableMic={enableMicFromHint}
+          tooltip={
             isMicOn
               ? "Desativar microfone"
               : (micBlockedReason ?? "Ativar microfone")
@@ -2268,7 +2389,7 @@ export function WatchRoom({ handle }: { handle: string }) {
         >
           <button
             type="button"
-            onClick={toggleMic}
+            onClick={handleToggleMic}
             // Only turning it *on* is blocked — see ShareControls'
             // screenBlockedReason for the same reasoning.
             disabled={!isMicOn && Boolean(micBlockedReason)}
@@ -2278,7 +2399,7 @@ export function WatchRoom({ handle }: { handle: string }) {
           >
             {isMicOn ? <MicIcon className="h-5 w-5" /> : <MicOffIcon className="h-5 w-5" />}
           </button>
-        </Tooltip>
+        </MicUsageHint>
       </div>
 
       <div className="flex items-stretch">
@@ -3301,13 +3422,16 @@ export function WatchRoom({ handle }: { handle: string }) {
                 scrolls, never moves. */}
             <nav className="flex shrink-0 items-center gap-1 border-t border-zinc-200 bg-white px-2 py-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] dark:border-zinc-800 dark:bg-zinc-950">
               <div className="flex min-w-0 flex-1 items-center gap-1">
-                <Tooltip
-                  content={isMicOn ? "Desativar microfone" : (micBlockedReason ?? "Ativar microfone")}
+                <MicUsageHint
+                  open={micHintOpen}
+                  onDismiss={closeMicHint}
+                  onEnableMic={enableMicFromHint}
+                  tooltip={isMicOn ? "Desativar microfone" : (micBlockedReason ?? "Ativar microfone")}
                   wrapperClassName={DOCK_SLOT}
                 >
                   <button
                     type="button"
-                    onClick={toggleMic}
+                    onClick={handleToggleMic}
                     // Only turning it *on* is blocked — same rule as the
                     // desktop control, see ShareControls.
                     disabled={!isMicOn && Boolean(micBlockedReason)}
@@ -3317,7 +3441,7 @@ export function WatchRoom({ handle }: { handle: string }) {
                   >
                     {isMicOn ? <MicIcon className="h-5 w-5" /> : <MicOffIcon className="h-5 w-5" />}
                   </button>
-                </Tooltip>
+                </MicUsageHint>
 
                 <Tooltip
                   content={micsMuted ? "Reativar microfones" : "Silenciar microfones"}

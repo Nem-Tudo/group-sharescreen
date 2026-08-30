@@ -86,6 +86,7 @@ export function Popover({
   placement = "bottom-end",
   offset = [0, 8],
   tooltip,
+  wrapperClassName,
 }: {
   content: ReactNode;
   open: boolean;
@@ -103,6 +104,12 @@ export function Popover({
   // the trigger, which would leave the outer one with no element to anchor
   // to. Suppressed while the panel is open, so the two never stack up.
   tooltip?: ReactNode;
+  // Same idea as Tooltip's prop of the same name: anchor to a wrapping span
+  // instead of to the trigger itself. Needed when the trigger can be
+  // disabled (it fires no pointer events of its own then, so its hover hint
+  // would never open), and when the trigger sits in a slot whose layout
+  // classes have to stay on a wrapper — the value carries them.
+  wrapperClassName?: string;
 }) {
   // State, not a ref: the tippys can only be created once the trigger's node
   // exists, and a ref alone would not re-render to tell us that it does.
@@ -133,7 +140,13 @@ export function Popover({
 
   return (
     <>
-      {cloneElement(children, { ref: captureAnchor })}
+      {wrapperClassName === undefined ? (
+        cloneElement(children, { ref: captureAnchor })
+      ) : (
+        <span ref={captureAnchor} className={wrapperClassName}>
+          {children}
+        </span>
+      )}
       {anchor && (
         <>
           <Tippy
