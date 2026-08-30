@@ -127,6 +127,7 @@ import {
   MdOutlineChat,
   MdOutlinePeople,
   MdMusicNote,
+  MdCameraswitch,
 } from "react-icons/md";
 import { BsGearFill, BsCoin } from "react-icons/bs";
 import { BetaMark } from "@/components/BetaMark";
@@ -1806,6 +1807,161 @@ export function WatchRoom({ handle }: { handle: string }) {
   const localFileSlots = liveLocalSlots.filter(
     (slot) => localMediaSnapshots[slot].mode !== "music"
   );
+  // Music is a soundtrack: a room has one, not a pile. So the music picker
+  // aims at the slot already playing mine when there is one — "trocar música"
+  // means the next track replaces this one, not that the two play over each
+  // other — and only falls back to a free slot when there is nothing to
+  // replace. The video picker keeps taking a free slot every time, because
+  // several videos at once is the whole point of having three.
+  const myMusicSlot = localMusicSlots[0] ?? null;
+
+  // Putting music on the room (see components/MusicBar). Two gates, both
+  // re-checked server-side: a room manager, since this is one shared output
+  // for everybody rather than something each participant brings; and a real
+  // account, since a guest identity lasts as long as a browser profile does
+  // and the room's soundtrack should not sit behind one.
+  //
+  // The account read here is `state.account` — the one this *socket* is
+  // registered as — rather than the auth context's, because that is precisely
+  // what the server checks (`info.accountId`). They agree in the end, but for
+  // a moment after load one says "signed in" while the other hasn't
+  // registered yet, and gating on the wrong one offers a button whose click
+  // the server then refuses.
+  // The camera the switch below moves to, named so the tooltip says where it
+  // is going rather than just "trocar". Falls back to the first when the
+  // current one isn't in the list — which is what a freshly unplugged (or
+  // never-yet-permitted) device looks like.
+  const nextCamera =
+    cameraDevices[
+      (cameraDevices.findIndex((d) => d.deviceId === cameraDeviceId) + 1) %
+        Math.max(cameraDevices.length, 1)
+    ] ?? null;
+  const nextCameraLabel = nextCamera ? `Mudar para ${nextCamera.label}` : "Trocar câmera";
+  function switchToNextCamera() {
+    if (nextCamera) setCameraDevice(nextCamera.deviceId);
+  }
+
+  const canManageMusic = isRoomManager && Boolean(state.account);
+  const musicBlockedReason = !isRoomManager
+    ? "Só o dono e os administradores da sala podem colocar música."
+    : !state.account
+      ? "Entre com uma conta do site para colocar música na sala."
+      : null;
+
+  function startLocalMediaShare(slot: LocalMediaSlot) {
+    // The picker has already put the new queue into this slot. When the slot
+    // is *already* broadcasting — which is what "trocar" does, by aiming at
+    // the slot in use — the stream, the canvas and the audio graph are all
+    // still wired to the same element, so there is nothing to restart: just
+    // play what is now loaded. Stopping and starting instead would drop the
+    // channel and renegotiate it with every peer for a change of file.
+    if (fileChannels[slot].active) {
+      void localMediaSources[slot].playAt(0);
+      return;
+    }
+    void fileChannels[slot].start();
+  }
+
+  // The slot a picker would fill, or null when all three are busy — which is
+  // what the picker shows instead of quietly replacing something.
+  const freeLocalMediaSlot = nextFreeLocalMediaSlot((slot) =>
+    Boolean(fileChannels[slot].localStream)
+  );
+
+  // Putting music on means the room ends up with *one* soundtrack, whichever
+  // of the two kinds it is — so each one turns the other off on the way in.
+  function replaceMusicWithYouTube(url: string, controlMode: "owner" | "anyone") {
+    for (const slot of localMusicSlots) fileChannels[slot].stop();
+    signalingClient.setMusicSource("youtube", url, controlMode);
+  }
+
+  function replaceMusicWithLocalFiles(slot: LocalMediaSlot) {
+    // Only the room's music record, never someone else's local file: this
+    // client cannot stop another machine's playback, and taking a manager's
+    // ability to put music on and turning it into "kick whatever anyone else
+    // is playing" is not what this button is.
+    if (state.music) signalingClient.clearMusicSource();
+    startLocalMediaShare(slot);
+  }
+
+  // The room's actions for one person, from a right click on them in the
+  // participant list or on one of their chat messages (see
+  // MemberActionsModal). What this viewer may do is worked out here, which is
+  // the only place that knows both who is asking and who runs the room — and
+  // re-checked server-side either way.
+  //
+  // Two limits keep the power from turning on the room itself: nobody throws
+  // out the owner, and only the owner throws out an admin. Without the second,
+  // one admin could clear the bench of the others.
+  function memberActionsFor(peer: PeerInfo): MemberActions | null {
+    if (!peer.userId) return null;
+    const targetIsOwner = peer.userId === state.roomOwnerId;
+    const targetIsAdmin = state.roomAdmins.some((a) => a.id === peer.userId);
+    const allowed = isRoomManager && !targetIsOwner && (!targetIsAdmin || isRoomOwner);
+    return {
+      userId: peer.userId,
+      name: peer.name,
+      isGuest: peer.isGuest,
+      verified: peer.flags?.includes("VERIFIED"),
+      canKick: allowed,
+      canBan: allowed,
+      blockedReason: allowed
+        ? null
+        : targetIsOwner
+          ? "Ninguém pode expulsar ou banir o dono da sala."
+          : targetIsAdmin
+            ? "Só o dono da sala pode expulsar ou banir um administrador."
+            : "Só o dono e os administradores da sala podem expulsar ou banir.",
+    };
+  }
+
+  // The phone's shell. A panel anchored to a row needs somewhere to hang, and
+  // a 360px column has nowhere — so below sm the same menu opens as a popup
+  // instead. Above it, the row renders the menu itself, beside the person it
+  // is about (see ParticipantRow/ChatPanel's renderMenu).
+  function openMemberActions(peer: PeerInfo) {
+    const actions = memberActionsFor(peer);
+    if (actions) openPopup("member_actions", { data: actions });
+  }
+
+  // A chat message outlives the connection that sent it, so the id on it may
+  // be gone — the name is the fallback, and it is a reliable one: the server
+  // reserves display names per room, so at most one person in the room answers
+  // to it at a time.
+  function chatAuthorPeer(from: string, name: string) {
+    return (
+      state.peers.find((p) => p.id === from) ??
+      state.peers.find((p) => p.name.toLowerCase() === name.toLowerCase()) ??
+      null
+    );
+  }
+
+  function openMemberActionsFromChat(from: string, name: string) {
+    const peer = chatAuthorPeer(from, name);
+    if (peer) openMemberActions(peer);
+  }
+
+  // Built on open, not per row: `renderMenu` is only called for the one row
+  // whose menu is actually showing.
+  function renderMemberMenu(peer: PeerInfo | null, onDone: () => void) {
+    const actions = peer && memberActionsFor(peer);
+    if (!actions) return null;
+    return <MemberActionsMenu actions={actions} onDone={onDone} />;
+  }
+
+  function openAddMusicPopup() {
+    openPopup("add_music_source", {
+      data: {
+        onSubmit: replaceMusicWithYouTube,
+        onLocalFiles: replaceMusicWithLocalFiles,
+        localFilesSlot: myMusicSlot ?? freeLocalMediaSlot,
+        hasAccount: Boolean(state.account),
+        localFilesBlockedReason: videoSourceBlockedReason,
+        replacing: Boolean(state.music) || myMusicSlot !== null,
+      },
+    });
+  }
+
   const visibleLocalFileSlots = hyperfocusTarget
     ? hyperfocusTarget.kind === "file"
       ? localFileSlots.filter((slot) => hyperfocusTarget.ownerId === `${slot}:${SELF_TILE_OWNER}`)
@@ -2497,6 +2653,33 @@ export function WatchRoom({ handle }: { handle: string }) {
 
       <div className="my-2 border-t border-zinc-200 dark:border-zinc-800" />
 
+      {/* Below lg the header's control row does not exist — the bottom dock
+          replaces it, and a dock wide enough for a phone has room for the
+          things used every minute and nothing else. Everything that lived
+          only in that row therefore needs a way in from here, or it is simply
+          unreachable on a phone. */}
+      {!isWideLayout && (
+        <>
+          <Tooltip content={musicBlockedReason ?? undefined} wrapperClassName="flex w-full">
+            <button
+              type="button"
+              onClick={() => {
+                closeMenu();
+                openAddMusicPopup();
+              }}
+              disabled={!canManageMusic}
+              className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:text-zinc-300 dark:hover:bg-zinc-900"
+            >
+              <MdMusicNote className="h-4 w-4 shrink-0 text-emerald-500" />
+              {state.music || myMusicSlot ? "Trocar a música da sala" : "Colocar música na sala"}
+              <BetaMark />
+            </button>
+          </Tooltip>
+
+          <div className="my-2 border-t border-zinc-200 dark:border-zinc-800" />
+        </>
+      )}
+
       <MenuToggleRow
         label="Duplo clique para deixar em foco"
         active={doubleClickFocus}
@@ -2850,40 +3033,6 @@ export function WatchRoom({ handle }: { handle: string }) {
     });
   }
 
-  // Putting music on the room (see components/MusicBar). Two gates, both
-  // re-checked server-side: a room manager, since this is one shared output
-  // for everybody rather than something each participant brings; and a real
-  // account, since a guest identity lasts as long as a browser profile does
-  // and the room's soundtrack should not sit behind one.
-  //
-  // The account read here is `state.account` — the one this *socket* is
-  // registered as — rather than the auth context's, because that is precisely
-  // what the server checks (`info.accountId`). They agree in the end, but for
-  // a moment after load one says "signed in" while the other hasn't
-  // registered yet, and gating on the wrong one offers a button whose click
-  // the server then refuses.
-  const canManageMusic = isRoomManager && Boolean(state.account);
-  const musicBlockedReason = !isRoomManager
-    ? "Só o dono e os administradores da sala podem colocar música."
-    : !state.account
-      ? "Entre com uma conta do site para colocar música na sala."
-      : null;
-
-  function openAddMusicPopup() {
-    openPopup("add_music_source", {
-      data: {
-        onSubmit: replaceMusicWithYouTube,
-        onLocalFiles: replaceMusicWithLocalFiles,
-        localFilesSlot: myMusicSlot ?? freeLocalMediaSlot,
-        // The account this *socket* is registered as, which is exactly what
-        // the server checks — see the note on canManageMusic.
-        hasAccount: Boolean(state.account),
-        localFilesBlockedReason: videoSourceBlockedReason,
-        replacing: Boolean(state.music) || myMusicSlot !== null,
-      },
-    });
-  }
-
   // What both add-source popups call once their local-file picker has a queue
   // (see LocalMediaPicker). Local files are only ever offered *inside* those
   // two pickers — one more option next to YouTube/Twitch/Kick and next to a
@@ -2897,114 +3046,6 @@ export function WatchRoom({ handle }: { handle: string }) {
   //
   // Called from inside the picker's own click, so the capture still has the
   // user gesture a browser wants to see behind it.
-  function startLocalMediaShare(slot: LocalMediaSlot) {
-    // The picker has already put the new queue into this slot. When the slot
-    // is *already* broadcasting — which is what "trocar" does, by aiming at
-    // the slot in use — the stream, the canvas and the audio graph are all
-    // still wired to the same element, so there is nothing to restart: just
-    // play what is now loaded. Stopping and starting instead would drop the
-    // channel and renegotiate it with every peer for a change of file.
-    if (fileChannels[slot].active) {
-      void localMediaSources[slot].playAt(0);
-      return;
-    }
-    void fileChannels[slot].start();
-  }
-
-  // The slot a picker would fill, or null when all three are busy — which is
-  // what the picker shows instead of quietly replacing something.
-  const freeLocalMediaSlot = nextFreeLocalMediaSlot((slot) =>
-    Boolean(fileChannels[slot].localStream)
-  );
-  // Music is a soundtrack: a room has one, not a pile. So the music picker
-  // aims at the slot already playing mine when there is one — "trocar música"
-  // means the next track replaces this one, not that the two play over each
-  // other — and only falls back to a free slot when there is nothing to
-  // replace. The video picker keeps taking a free slot every time, because
-  // several videos at once is the whole point of having three.
-  const myMusicSlot = localMusicSlots[0] ?? null;
-
-  // Putting music on means the room ends up with *one* soundtrack, whichever
-  // of the two kinds it is — so each one turns the other off on the way in.
-  function replaceMusicWithYouTube(url: string, controlMode: "owner" | "anyone") {
-    for (const slot of localMusicSlots) fileChannels[slot].stop();
-    signalingClient.setMusicSource("youtube", url, controlMode);
-  }
-
-  function replaceMusicWithLocalFiles(slot: LocalMediaSlot) {
-    // Only the room's music record, never someone else's local file: this
-    // client cannot stop another machine's playback, and taking a manager's
-    // ability to put music on and turning it into "kick whatever anyone else
-    // is playing" is not what this button is.
-    if (state.music) signalingClient.clearMusicSource();
-    startLocalMediaShare(slot);
-  }
-
-  // The room's actions for one person, from a right click on them in the
-  // participant list or on one of their chat messages (see
-  // MemberActionsModal). What this viewer may do is worked out here, which is
-  // the only place that knows both who is asking and who runs the room — and
-  // re-checked server-side either way.
-  //
-  // Two limits keep the power from turning on the room itself: nobody throws
-  // out the owner, and only the owner throws out an admin. Without the second,
-  // one admin could clear the bench of the others.
-  function memberActionsFor(peer: PeerInfo): MemberActions | null {
-    if (!peer.userId) return null;
-    const targetIsOwner = peer.userId === state.roomOwnerId;
-    const targetIsAdmin = state.roomAdmins.some((a) => a.id === peer.userId);
-    const allowed = isRoomManager && !targetIsOwner && (!targetIsAdmin || isRoomOwner);
-    return {
-      userId: peer.userId,
-      name: peer.name,
-      isGuest: peer.isGuest,
-      verified: peer.flags?.includes("VERIFIED"),
-      canKick: allowed,
-      canBan: allowed,
-      blockedReason: allowed
-        ? null
-        : targetIsOwner
-          ? "Ninguém pode expulsar ou banir o dono da sala."
-          : targetIsAdmin
-            ? "Só o dono da sala pode expulsar ou banir um administrador."
-            : "Só o dono e os administradores da sala podem expulsar ou banir.",
-    };
-  }
-
-  // The phone's shell. A panel anchored to a row needs somewhere to hang, and
-  // a 360px column has nowhere — so below sm the same menu opens as a popup
-  // instead. Above it, the row renders the menu itself, beside the person it
-  // is about (see ParticipantRow/ChatPanel's renderMenu).
-  function openMemberActions(peer: PeerInfo) {
-    const actions = memberActionsFor(peer);
-    if (actions) openPopup("member_actions", { data: actions });
-  }
-
-  // A chat message outlives the connection that sent it, so the id on it may
-  // be gone — the name is the fallback, and it is a reliable one: the server
-  // reserves display names per room, so at most one person in the room answers
-  // to it at a time.
-  function chatAuthorPeer(from: string, name: string) {
-    return (
-      state.peers.find((p) => p.id === from) ??
-      state.peers.find((p) => p.name.toLowerCase() === name.toLowerCase()) ??
-      null
-    );
-  }
-
-  function openMemberActionsFromChat(from: string, name: string) {
-    const peer = chatAuthorPeer(from, name);
-    if (peer) openMemberActions(peer);
-  }
-
-  // Built on open, not per row: `renderMenu` is only called for the one row
-  // whose menu is actually showing.
-  function renderMemberMenu(peer: PeerInfo | null, onDone: () => void) {
-    const actions = peer && memberActionsFor(peer);
-    if (!actions) return null;
-    return <MemberActionsMenu actions={actions} onDone={onDone} />;
-  }
-
   // Both open components/ManageRoomModal — it just starts on a different
   // screen. No other `data`: the popup reads the room's live state itself, so
   // it keeps up with people joining and other admins' changes while it's
@@ -4100,25 +4141,55 @@ export function WatchRoom({ handle }: { handle: string }) {
                 )}
 
                 {screenShareMode !== "unsupported" && (
-                  <Tooltip
-                    content={
-                      localCameraStream
-                        ? "Parar câmera"
-                        : (cameraBlockedReason ?? "Compartilhar câmera")
-                    }
-                    wrapperClassName={DOCK_SLOT}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => (localCameraStream ? stopCameraShare() : startCameraShare())}
-                      disabled={!localCameraStream && Boolean(cameraBlockedReason)}
-                      aria-pressed={Boolean(localCameraStream)}
-                      aria-label={localCameraStream ? "Parar câmera" : "Compartilhar câmera"}
-                      className={`${DOCK_BUTTON} ${localCameraStream ? DOCK_LIVE : DOCK_ON}`}
+                  // Two segments in one slot when there is more than one
+                  // camera, the same shape the desktop's mic and camera
+                  // controls have: the button does the thing, and the strip
+                  // welded to its side changes which thing it does. A separate
+                  // entry buried in a menu is where "frontal ou traseira" —
+                  // the one camera setting anyone on a phone actually reaches
+                  // for — goes to be never found.
+                  //
+                  // It cycles rather than opening a list: with two cameras a
+                  // list is a menu with one useful row, and setCameraDevice
+                  // already restarts a live camera onto the new one, so this
+                  // works mid-call and before starting alike.
+                  <div className={`${DOCK_SLOT} items-stretch gap-px`}>
+                    <Tooltip
+                      content={
+                        localCameraStream
+                          ? "Parar câmera"
+                          : (cameraBlockedReason ?? "Compartilhar câmera")
+                      }
+                      wrapperClassName="flex min-w-0 flex-1"
                     >
-                      <CameraIcon className="h-5 w-5" />
-                    </button>
-                  </Tooltip>
+                      <button
+                        type="button"
+                        onClick={() => (localCameraStream ? stopCameraShare() : startCameraShare())}
+                        disabled={!localCameraStream && Boolean(cameraBlockedReason)}
+                        aria-pressed={Boolean(localCameraStream)}
+                        aria-label={localCameraStream ? "Parar câmera" : "Compartilhar câmera"}
+                        className={`${DOCK_BUTTON} ${
+                          cameraDevices.length > 1 ? "rounded-r-none" : ""
+                        } ${localCameraStream ? DOCK_LIVE : DOCK_ON}`}
+                      >
+                        <CameraIcon className="h-5 w-5" />
+                      </button>
+                    </Tooltip>
+                    {cameraDevices.length > 1 && (
+                      <Tooltip content={nextCameraLabel} wrapperClassName="flex">
+                        <button
+                          type="button"
+                          onClick={switchToNextCamera}
+                          aria-label={nextCameraLabel}
+                          className={`flex h-11 w-7 shrink-0 items-center justify-center rounded-r-xl text-white transition ${
+                            localCameraStream ? DOCK_LIVE : DOCK_ON
+                          }`}
+                        >
+                          <MdCameraswitch className="h-4 w-4" />
+                        </button>
+                      </Tooltip>
+                    )}
+                  </div>
                 )}
 
                 <Tooltip
