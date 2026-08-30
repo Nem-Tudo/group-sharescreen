@@ -1,8 +1,8 @@
 "use client";
 
 import type { ComponentType, ReactNode } from "react";
-import { useSyncExternalStore } from "react";
 import { NtPopupProvider } from "ntpopups";
+import { useResolvedTheme } from "@/lib/useTheme";
 import "ntpopups/dist/styles.css";
 import { PartnerRewardModal } from "@/components/PartnerRewardModal";
 import { AddVideoSourceModal } from "@/components/AddVideoSourceModal";
@@ -19,33 +19,22 @@ const customPopups: Record<string, ComponentType> = {
   manage_room: ManageRoomModal as ComponentType,
 };
 
-// Matches the rest of the app, which themes purely off the OS preference
-// (Tailwind's `dark:` with no class toggle anywhere — see globals.css).
-// useSyncExternalStore rather than an effect so the server render has a
-// defined answer ("white") and the client corrects it during hydration
-// instead of after a paint.
-function usePrefersDark(): boolean {
-  return useSyncExternalStore(
-    (onChange) => {
-      const query = window.matchMedia("(prefers-color-scheme: dark)");
-      query.addEventListener("change", onChange);
-      return () => query.removeEventListener("change", onChange);
-    },
-    () => window.matchMedia("(prefers-color-scheme: dark)").matches,
-    () => false
-  );
-}
-
 // Mounted once in app/layout.tsx, inside AuthProvider — the popups it renders
 // (the partner reward video, for one) use the account. It renders nothing at
 // all until something opens a popup.
 export function NtPopups({ children }: { children: ReactNode }) {
-  const prefersDark = usePrefersDark();
+  // The theme the person actually chose, not the OS preference this used to
+  // read directly — with a switch in the UI (see lib/theme.ts) those are two
+  // different things, and a popup opening in the opposite theme to the page
+  // behind it is the most visible place that could go wrong. Still backed by
+  // useSyncExternalStore, so the server render has a defined answer ("white")
+  // and the client corrects it during hydration rather than after a paint.
+  const resolvedTheme = useResolvedTheme();
 
   return (
     <NtPopupProvider
       language="ptbr"
-      theme={prefersDark ? "dark" : "white"}
+      theme={resolvedTheme === "dark" ? "dark" : "white"}
       customPopups={customPopups}
     >
       {children}

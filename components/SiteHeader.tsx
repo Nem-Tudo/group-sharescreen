@@ -6,6 +6,7 @@ import { FaDiscord } from "react-icons/fa";
 import { MdMonitor, MdOutlineMap } from "react-icons/md";
 import { GlobeIcon } from "@/components/icons";
 import { AccountMenu } from "@/components/AccountMenu";
+import { ThemeMenuButton } from "@/components/ThemeToggle";
 
 // The site's top bar: everything GoLive offers besides the room form itself,
 // in one place, on every page that isn't a room.
@@ -103,6 +104,10 @@ export function SiteHeader() {
               </Link>
             );
           })}
+          {/* Claro / escuro / sistema. Right of the links and left of the
+              account, because it is a setting about the site rather than
+              another place in it. */}
+          <ThemeMenuButton />
           {/* Renders nothing until there is a name to show, so the bar looks
               the same on a first visit as it always did. */}
           <AccountMenu />

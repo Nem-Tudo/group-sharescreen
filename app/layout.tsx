@@ -6,6 +6,7 @@ import { InstallAppButton } from "@/components/InstallAppButton";
 import { UpdateAppButton } from "@/components/UpdateAppButton";
 import { AuthProvider } from "@/lib/AuthContext";
 import { NtPopups } from "@/components/NtPopups";
+import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import "./globals.css";
 import SupressErrors from "./middlewares/SupressErrors";
 
@@ -162,8 +163,20 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="pt-BR"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      // The script below stamps data-theme/color-scheme onto this element
+      // before React hydrates, which is by definition a difference from what
+      // the server sent — and the point of doing it there rather than in an
+      // effect (see THEME_INIT_SCRIPT).
+      suppressHydrationWarning
     >
       <body className="h-full flex flex-col">
+        {/* First thing in the document, and a plain <script> rather than
+            next/script: it has to run before the browser paints anything, and
+            every next/script strategy is either later than that or moves it
+            somewhere it can't be. Blocking here costs a few hundred bytes of
+            parse time and buys never showing a white flash to someone who
+            chose the dark theme. */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <Script
           id="jsonld-webapplication"
           type="application/ld+json"

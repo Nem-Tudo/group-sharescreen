@@ -233,7 +233,7 @@ async function pickSource(parent: BrowserWindow | null): Promise<PickResult> {
     maximizable: false,
     fullscreenable: false,
     title: "Escolha o que compartilhar",
-    backgroundColor: "#09090b",
+    backgroundColor: "#101014",
     webPreferences: {
       preload: path.join(__dirname, "picker-preload.js"),
       contextIsolation: true,
@@ -478,7 +478,7 @@ function createWindow(initialUrl: string = APP_URL) {
     minWidth: 940,
     minHeight: 600,
     show: false,
-    backgroundColor: "#09090b",
+    backgroundColor: "#101014",
     title: "GoLive",
     ...(process.platform === "linux" ? { icon: WINDOW_ICON } : {}),
     autoHideMenuBar: true,

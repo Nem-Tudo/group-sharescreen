@@ -5,6 +5,7 @@ import Link from "next/link";
 import { fetchPublicRooms, type PublicRoom } from "@/lib/roomsApi";
 import { WorldMap, type WorldMapMarker } from "@/components/WorldMap";
 import { GlobeIcon } from "@/components/icons";
+import { ThemeMenuButton } from "@/components/ThemeToggle";
 import { roomCategory } from "@/lib/roomCategories";
 
 // Same cadence as the plain /rooms list — a room appearing or emptying out is
@@ -82,6 +83,10 @@ export function RoomsMapClient() {
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {/* No SiteHeader on this page either, and the map's own colours
+              follow the theme (see WorldMapImpl) — so this is exactly where
+              someone would want to change it. */}
+          <ThemeMenuButton />
           <Link
             href="/rooms"
             className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"

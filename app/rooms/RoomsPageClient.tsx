@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { fetchPublicRooms, type PublicRoom } from "@/lib/roomsApi";
 import { Tooltip } from "@/components/Tooltip";
+import { ThemeMenuButton } from "@/components/ThemeToggle";
 import { roomCategory } from "@/lib/roomCategories";
 
 const POLL_INTERVAL_MS = 8000;
@@ -64,12 +65,19 @@ export function RoomsPageClient() {
               Salas com pelo menos uma pessoa conectada agora.
             </p>
           </div>
-          <Link
-            href="/"
-            className="shrink-0 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
-          >
-            Início
-          </Link>
+          {/* This page has no SiteHeader to hang the theme switch off, and
+              it's a page people leave open — so it gets its own copy next to
+              the way out. The setting itself is one global preference (see
+              lib/theme.ts); this is just another place to reach it. */}
+          <div className="flex shrink-0 items-center gap-1.5">
+            <ThemeMenuButton />
+            <Link
+              href="/"
+              className="shrink-0 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+            >
+              Início
+            </Link>
+          </div>
         </div>
 
         <input

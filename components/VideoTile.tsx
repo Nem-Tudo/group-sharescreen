@@ -42,6 +42,7 @@ export function VideoTile({
   volume,
   onVolumeChange,
   fill = false,
+  compact = false,
   onStopWatching,
   onDoubleClick,
   onRenderedSizeChange,
@@ -79,6 +80,13 @@ export function VideoTile({
   // When true (the lone tile in the room), grow to fill the available
   // space instead of staying locked to a 16:9 card like the grid view.
   fill?: boolean;
+  // A thumbnail rather than a tile — see the filmstrip under the stage in
+  // WatchRoom's "Focar". Drops the control cluster and shrinks the name, both
+  // for the same reason: at 200px wide there is no room for eight buttons,
+  // and on a touchscreen (where the cluster has no hover to hide behind and
+  // so is always on) they would cover the picture entirely. Whatever wraps a
+  // compact tile is expected to be what handles a click on it.
+  compact?: boolean;
   // Only passed for remote peers — lets the viewer stop receiving this
   // specific stream (see WatchRoom/useRoomMedia) without affecting anyone
   // else's tile. Omitted for the local "Você" tile, which has nothing to
@@ -329,10 +337,19 @@ export function VideoTile({
         </div>
       )}
       <div
-        className={`absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-linear-to-t from-black/85 to-transparent px-3 py-2 transition-opacity ${overlayVisibilityClass}`}
+        className={`absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-linear-to-t from-black/85 to-transparent transition-opacity ${compact ? "px-2 py-1" : "px-3 py-2"
+          } ${
+          // A thumbnail's name is the only thing identifying it, so unlike the
+          // buttons it stays put — and stays put *visibly*, rather than
+          // waiting for a hover that a strip of twelve faces should not
+          // require to be readable.
+          compact ? "opacity-100" : overlayVisibilityClass
+          }`}
       >
-        <span className="truncate text-sm font-medium text-white">{label}</span>
-        {badge && (
+        <span className={`truncate font-medium text-white ${compact ? "text-xs" : "text-sm"}`}>
+          {label}
+        </span>
+        {badge && !compact && (
           <span className="rounded-full bg-red-500/90 px-2 py-0.5 text-xs font-semibold text-white">
             {badge}
           </span>
@@ -345,7 +362,8 @@ export function VideoTile({
           handleVideoTap), since a touch device has no hover to fall back
           on and a permanent button bar defeats the point of fullscreen. */}
       <div
-        className={`absolute right-2 top-2 flex flex-wrap items-center justify-end gap-2 transition-opacity ${overlayVisibilityClass}`}
+        className={`absolute right-2 top-2 flex flex-wrap items-center justify-end gap-2 transition-opacity ${compact ? "hidden" : ""
+          } ${overlayVisibilityClass}`}
       >
         {isFullscreen && onToggleMic && (
           <Tooltip content={isMicOn ? "Desativar microfone" : "Ativar microfone"}>

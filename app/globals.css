@@ -1,6 +1,16 @@
 @import "tailwindcss";
 
+/* The theme is a choice now, not just an OS setting: every `dark:` utility
+   keys off `data-theme="dark"` on <html> instead of the prefers-color-scheme
+   media query Tailwind defaults to. lib/theme.ts owns the three-way
+   preference (claro / escuro / sistema) and resolves it onto that attribute;
+   an inline script in app/layout.tsx does it once more before the first paint
+   so the page never flashes the wrong theme. Nothing below this line has to
+   know the media query exists — "sistema" is resolved before it gets here. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 :root {
+  color-scheme: light;
   --background: #ffffff;
   --foreground: #171717;
   --color-black: #0f0f10 !important;
@@ -13,11 +23,38 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* The dark theme, lightened.
+
+   Everything here repaints Tailwind's own zinc tokens rather than the several
+   hundred `dark:bg-zinc-950` / `dark:border-zinc-800` classes spread across
+   the app: a v4 utility compiles to `background-color: var(--color-zinc-950)`,
+   so the whole dark palette is these few lines. Only the four darkest steps
+   move — from zinc-600 up they are text colors on a dark background and are
+   already where they should be.
+
+   The old values were both too dark and in the wrong order: `bg-black`
+   (#0f0f10) was *lighter* than the `bg-zinc-950` (#09090b) cards sitting on
+   it, so every panel read as a hole punched in the page rather than as a
+   surface raised off it. Now the page is the darkest thing on screen and each
+   layer above it is a step lighter — page, card, raised control, border.
+
+   `--color-black` needs its `!important` back: the light declaration above
+   carries one, and an important declaration beats a plain one from a more
+   specific rule no matter how specific that rule is. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  /* Same value as --color-black below on purpose: that is what the page
+     wrappers paint (`bg-zinc-50 dark:bg-black`), and the body showing through
+     a hair lighter behind them — on an overscroll bounce, or under a short
+     page — is exactly the kind of seam nobody can name but everybody sees. */
+  --background: #101014;
+  --foreground: #e9e9ec;
+
+  --color-black: #101014 !important;
+  --color-zinc-950: #1a1a1f;
+  --color-zinc-900: #232329;
+  --color-zinc-800: #313139;
+  --color-zinc-700: #43434d;
 }
 
 body {
@@ -54,19 +91,20 @@ body {
 
 /* A pure-black thumb would vanish against a dark background, so this
    lightens it just enough to stay visible while keeping the same thin,
-   understated look. */
-@media (prefers-color-scheme: dark) {
-  * {
-    scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
-  }
+   understated look. `:root[data-theme="dark"]` is listed alongside the
+   descendant selector because <html> is where the attribute lives, and it is
+   the element whose scrollbar this is mostly about. */
+:root[data-theme="dark"],
+[data-theme="dark"] * {
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+}
 
-  *::-webkit-scrollbar-thumb {
-    background-color: rgba(255, 255, 255, 0.25);
-  }
+[data-theme="dark"] *::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.25);
+}
 
-  *::-webkit-scrollbar-thumb:hover {
-    background-color: rgba(255, 255, 255, 0.4);
-  }
+[data-theme="dark"] *::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.4);
 }
 
 /* Shared look for every @tippyjs/react hint and panel (see
@@ -95,15 +133,16 @@ body {
   color: #18181b;
 }
 
-@media (prefers-color-scheme: dark) {
-  .tippy-box[data-theme~="golive"] {
-    background-color: #3f3f46;
-    color: #fafafa;
-  }
+/* The `="dark"` here is an exact match, so it never collides with Tippy's own
+   `data-theme~="golive"` on the box itself — and the box is portaled into
+   <body>, so it is always a descendant of the <html> that carries ours. */
+[data-theme="dark"] .tippy-box[data-theme~="golive"] {
+  background-color: #4a4a55;
+  color: #fafafa;
+}
 
-  .tippy-box[data-theme~="golive"] > .tippy-arrow {
-    color: #3f3f46;
-  }
+[data-theme="dark"] .tippy-box[data-theme~="golive"] > .tippy-arrow {
+  color: #4a4a55;
 }
 
 .tippy-box[data-theme~="golive-panel"] {

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { MdSearch, MdClose } from "react-icons/md";
-import { useMediaQuery } from "@/lib/useMediaQuery";
+import { useResolvedTheme } from "@/lib/useTheme";
 import { searchPlaces, type PlaceResult } from "@/lib/geocoding";
 import type { WorldMapMarker, WorldMapProps } from "./WorldMap";
 
@@ -38,8 +38,6 @@ const TILE_ATTRIBUTION =
 // Esri's Canvas tiles stop here; asking for a deeper one returns nothing at
 // all rather than an upscaled tile, so the map is capped to what exists.
 const MAX_ZOOM = 16;
-
-const DARK_QUERY = "(prefers-color-scheme: dark)";
 
 // How long the search box waits after the last keystroke before asking. Long
 // enough that typing a city name is one request rather than one per letter,
@@ -179,7 +177,10 @@ export default function WorldMapImpl({
     onPickRef.current = onPick;
   }, [onPick]);
 
-  const prefersDark = useMediaQuery(DARK_QUERY);
+  // The theme the person chose, not the OS preference this used to read: the
+  // map's tiles are the largest block of colour on the page, and a light map
+  // inside a dark page is the one place a mismatch is unmissable.
+  const prefersDark = useResolvedTheme() === "dark";
 
   const [query, setQuery] = useState("");
   // Tagged with the query it answers, so a list left over from two keystrokes

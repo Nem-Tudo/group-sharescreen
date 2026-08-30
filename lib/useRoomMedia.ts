@@ -533,6 +533,13 @@ function useBroadcastChannel(
     (peerId: string) => {
       closeRecvPC(peerId);
       signalingClient.sendSignal(peerId, { channel, role: "viewer", kind: "stop" });
+      // Stopping someone we were part-way through resuming (hyperfocus does
+      // exactly this to everyone else in the room) has to take them out of
+      // `resumingPeers` too — the recvPC that resume was waiting on is the one
+      // just closed above, so nothing was ever going to arrive and clear it.
+      // The two sets are read as alternatives everywhere (see WatchRoom's
+      // tiles), and a peer in both is one peer with two contradictory tiles.
+      clearResuming(peerId);
       setStoppedPeers((prev) => {
         if (prev.has(peerId)) return prev;
         const next = new Set(prev);
@@ -540,7 +547,7 @@ function useBroadcastChannel(
         return next;
       });
     },
-    [channel, closeRecvPC]
+    [channel, closeRecvPC, clearResuming]
   );
 
   const resumeWatchingPeer = useCallback(

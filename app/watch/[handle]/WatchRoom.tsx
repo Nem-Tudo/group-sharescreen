@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Fragment,
   useEffect,
   useRef,
   useState,
@@ -88,6 +89,7 @@ import {
   CameraIcon,
 } from "@/components/icons";
 import { Tooltip, Popover } from "@/components/Tooltip";
+import { ThemeSegmented } from "@/components/ThemeToggle";
 import { useMediaQuery, SM_BREAKPOINT_QUERY, LG_BREAKPOINT_QUERY } from "@/lib/useMediaQuery";
 import {
   MdHome,
@@ -641,12 +643,36 @@ function SwitchRoomFields({
   );
 }
 
-// Spotlight and hyperfocus address tiles by id, and those ids share one
-// namespace with peer connection ids and "self" — so a source's tile id is
-// prefixed rather than being its bare id.
-const VIDEO_SOURCE_TILE_PREFIX = "video-source:";
-function videoSourceTileId(sourceId: string): string {
-  return VIDEO_SOURCE_TILE_PREFIX + sourceId;
+// How "Focar" and "Hiperfoco" address a tile.
+//
+// One id per *tile*, not per person: screen and camera are independent
+// broadcast channels (see useRoomMedia's useBroadcastChannel) and each gets a
+// tile of its own, so someone sharing both has two. These used to be keyed by
+// the bare peer id, which meant focusing either one focused both — the camera
+// came along onto the stage uninvited, and hyperfocus kept receiving a channel
+// nobody had asked to see.
+//
+// The owner half is a peer connection id, SELF_TILE_OWNER for our own tiles,
+// or a video source's id. Those namespaces overlap, which is what the kind
+// half keeps apart.
+type TileKind = "screen" | "camera" | "video-source";
+const SELF_TILE_OWNER = "self";
+
+function tileId(kind: TileKind, ownerId: string): string {
+  return `${kind}:${ownerId}`;
+}
+
+// Null for anything this doesn't recognise — an id left over from an older
+// scheme, say — which every caller treats as "that tile is gone", the same
+// answer it gives for a peer who left.
+function parseTileId(id: string): { kind: TileKind; ownerId: string } | null {
+  const separator = id.indexOf(":");
+  if (separator < 0) return null;
+  const kind = id.slice(0, separator);
+  const ownerId = id.slice(separator + 1);
+  if (!ownerId) return null;
+  if (kind !== "screen" && kind !== "camera" && kind !== "video-source") return null;
+  return { kind, ownerId };
 }
 
 // Which of the two sheets the bottom bar has open below lg — see
@@ -1076,6 +1102,25 @@ export function WatchRoom({ handle }: { handle: string }) {
     rememberRecentRoom(handle);
   }, [state.room, handle]);
 
+  // Whether the tile an id points at still has anything to show. The one
+  // place that knows how each kind of tile answers that — used both by the
+  // effect right below (which clears a stale hyperfocus) and by
+  // hyperfocusTargetGone further down (which makes the render behave as
+  // un-focused immediately, without waiting for it).
+  function isTileGone(id: string): boolean {
+    const target = parseTileId(id);
+    if (!target) return true;
+    if (target.kind === "video-source") {
+      return !state.videoSources.some((v) => v.id === target.ownerId);
+    }
+    if (target.ownerId === SELF_TILE_OWNER) {
+      return target.kind === "screen" ? !(isSharing && localStream) : !localCameraStream;
+    }
+    return target.kind === "screen"
+      ? !(target.ownerId in remoteStreams)
+      : !(target.ownerId in remoteCameraStreams);
+  }
+
   // Clears the hyperfocus state once its target is gone (see
   // activeHyperfocusId further down, which already makes the *render* behave
   // as un-focused). Without this the stale id would silently re-engage
@@ -1085,14 +1130,9 @@ export function WatchRoom({ handle }: { handle: string }) {
   // cascading render.
   useEffect(() => {
     if (hyperfocusId === null) return;
-    const gone =
-      hyperfocusId === "self"
-        ? !((isSharing && localStream) || localCameraStream)
-        : hyperfocusId.startsWith(VIDEO_SOURCE_TILE_PREFIX)
-          ? !state.videoSources.some((v) => videoSourceTileId(v.id) === hyperfocusId)
-          : !(hyperfocusId in remoteStreams) && !(hyperfocusId in remoteCameraStreams);
-    if (!gone) return;
+    if (!isTileGone(hyperfocusId)) return;
     queueMicrotask(() => setHyperfocusId(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     hyperfocusId,
     isSharing,
@@ -1463,57 +1503,53 @@ export function WatchRoom({ handle }: { handle: string }) {
   // toggleHyperfocus): the room was left showing nothing at all, every other
   // transmission still hidden, and no button anywhere to bring them back.
   // Dropping the focus the moment its target is gone is what un-sticks it.
-  const hasLocalTile = Boolean((isSharing && localStream) || localCameraStream);
-  const hyperfocusTargetGone =
-    hyperfocusId !== null &&
-    (hyperfocusId === "self"
-      ? !hasLocalTile
-      : // A room video source is a tile like any other here, and this check
-      // not knowing that was why hyperfocusing one did nothing at all:
-      // every source id looked like a peer that had stopped transmitting,
-      // so the focus was dropped in the same render that set it.
-      hyperfocusId.startsWith(VIDEO_SOURCE_TILE_PREFIX)
-        ? !state.videoSources.some((v) => videoSourceTileId(v.id) === hyperfocusId)
-        : !(hyperfocusId in remoteStreams) && !(hyperfocusId in remoteCameraStreams));
+  const hyperfocusTargetGone = hyperfocusId !== null && isTileGone(hyperfocusId);
   // Used everywhere below instead of the raw state, so this render already
   // behaves as un-focused rather than waiting for the effect that clears it.
   const activeHyperfocusId = hyperfocusTargetGone ? null : hyperfocusId;
+  // Parsed once here rather than at each of the filters below. Null whenever
+  // nothing is hyperfocused, which is what every one of them tests first.
+  const hyperfocusTarget = activeHyperfocusId ? parseTileId(activeHyperfocusId) : null;
 
   // Hyperfocus hides every tile except the chosen one (its connections are
   // also actively closed — see enterHyperfocus below — so this isn't just a
   // display filter, the streams genuinely stop arriving).
-  const hyperfocusVisible = !activeHyperfocusId || activeHyperfocusId === "self";
-  const visibleScreenEntries = activeHyperfocusId
-    ? activeHyperfocusId === "self"
-      ? []
-      : remoteScreenEntries.filter(([peerId]) => peerId === activeHyperfocusId)
+  //
+  // "Except the chosen one" means exactly one tile now. Sharing your screen
+  // and your camera at once used to keep both of them on screen, because both
+  // answered to the same id.
+  const localScreenVisible =
+    !hyperfocusTarget ||
+    (hyperfocusTarget.kind === "screen" && hyperfocusTarget.ownerId === SELF_TILE_OWNER);
+  const localCameraVisible =
+    !hyperfocusTarget ||
+    (hyperfocusTarget.kind === "camera" && hyperfocusTarget.ownerId === SELF_TILE_OWNER);
+  const visibleScreenEntries = hyperfocusTarget
+    ? hyperfocusTarget.kind === "screen"
+      ? remoteScreenEntries.filter(([peerId]) => peerId === hyperfocusTarget.ownerId)
+      : []
     : remoteScreenEntries;
-  const visibleCameraEntries = activeHyperfocusId
-    ? activeHyperfocusId === "self"
-      ? []
-      : remoteCameraEntries.filter(([peerId]) => peerId === activeHyperfocusId)
+  const visibleCameraEntries = hyperfocusTarget
+    ? hyperfocusTarget.kind === "camera"
+      ? remoteCameraEntries.filter(([peerId]) => peerId === hyperfocusTarget.ownerId)
+      : []
     : remoteCameraEntries;
-  const localTileCount = (isSharing && localStream ? 1 : 0) + (localCameraStream ? 1 : 0);
   // Room video sources (YouTube, today — see components/VideoSourceTile).
   // They are tiles in every sense the room cares about: they take a grid
   // slot, they can be focused and hyperfocused, and they count toward
   // "is there more than one thing on screen". The only difference is that
   // nobody is transmitting them.
   const watchedVideoSources = state.videoSources.filter((v) => !leftVideoSourceIds.has(v.id));
-  const visibleVideoSources = activeHyperfocusId
-    ? watchedVideoSources.filter((v) => videoSourceTileId(v.id) === activeHyperfocusId)
+  const visibleVideoSources = hyperfocusTarget
+    ? hyperfocusTarget.kind === "video-source"
+      ? watchedVideoSources.filter((v) => v.id === hyperfocusTarget.ownerId)
+      : []
     : watchedVideoSources;
   // Placeholders for the ones this viewer stepped out of — hidden while
   // hyperfocused for the same reason a stopped peer's placeholder is.
   const leftVideoSources = activeHyperfocusId
     ? []
     : state.videoSources.filter((v) => leftVideoSourceIds.has(v.id));
-  const hasMultipleShares =
-    remoteScreenEntries.length +
-    remoteCameraEntries.length +
-    state.videoSources.length +
-    localTileCount >
-    1;
   // A peer we deliberately stopped watching (manually, or via the autoJoin
   // gate, or hyperfocus freeing them up) has no entry in remoteStreams, but
   // still gets a tile slot showing a "click to watch"/"you left this
@@ -1543,17 +1579,297 @@ export function WatchRoom({ handle }: { handle: string }) {
     stoppedEntries.length === 0 &&
     resumingEntries.length === 0 &&
     !isSharing;
-  const tileCount =
-    visibleScreenEntries.length +
-    visibleCameraEntries.length +
-    visibleStoppedEntries.length +
-    visibleResumingEntries.length +
-    visibleStoppedCameraEntries.length +
-    visibleResumingCameraEntries.length +
-    visibleVideoSources.length +
-    leftVideoSources.length +
-    (hyperfocusVisible ? localTileCount : 0);
+  // Every tile the room has on screen, in the order they appear, as
+  // descriptors rather than as JSX laid out where it is used. Two reasons:
+  //
+  // - the same tile now has to render into three different boxes — a grid
+  //   cell, the stage when it is the focused one, a filmstrip thumbnail when
+  //   something else is — and only the caller knows which;
+  // - the tile count was a hand-written sum of these same eight arrays,
+  //   sitting a hundred lines away from the JSX it had to agree with. It is
+  //   `tiles.length` now, and cannot drift.
+  //
+  // `id` is what "Focar" and "Hiperfoco" address, one per tile — see tileId.
+  // It doubles as the React key: there is exactly one tile per id.
+  type RoomTile = {
+    id: string;
+    // `fill` is "you have been given a box — grow into it"; false keeps the
+    // tile its own 16:9 card, which is what a grid cell wants. `compact` says
+    // the box is a filmstrip thumbnail, so drop the controls and shrink the
+    // name — tile kinds with nothing to drop simply ignore it. See VideoTile.
+    render: (fill: boolean, compact?: boolean) => ReactNode;
+  };
+  const tiles: RoomTile[] = [];
+
+  if (localScreenVisible && isSharing && localStream) {
+    const id = tileId("screen", SELF_TILE_OWNER);
+    tiles.push({
+      id,
+      render: (fill, compact) => (
+        <VideoTile
+          stream={localStream}
+          label="Você"
+          accessibleLabel="Você"
+          badge={shareSource === "camera" ? "câmera" : "transmitindo"}
+          muted
+          allowUnmute={false}
+          fill={fill}
+          compact={compact}
+          onDoubleClick={() => toggleSpotlight(id)}
+          onFocus={() => toggleSpotlight(id)}
+          isSpotlighted={spotlightId === id}
+          onHyperfocus={() => toggleHyperfocus(id)}
+          isHyperfocused={activeHyperfocusId === id}
+          isMicOn={isMicOn}
+          onToggleMic={toggleMic}
+          micsMuted={micsMuted}
+          onToggleMicsMuted={toggleMicsMuted}
+        />
+      ),
+    });
+  }
+
+  if (localCameraVisible && localCameraStream) {
+    const id = tileId("camera", SELF_TILE_OWNER);
+    tiles.push({
+      id,
+      render: (fill, compact) => (
+        <VideoTile
+          stream={localCameraStream}
+          label="Você"
+          accessibleLabel="Você"
+          badge="câmera"
+          muted
+          allowUnmute={false}
+          fill={fill}
+          compact={compact}
+          onDoubleClick={() => toggleSpotlight(id)}
+          onFocus={() => toggleSpotlight(id)}
+          isSpotlighted={spotlightId === id}
+          onHyperfocus={() => toggleHyperfocus(id)}
+          isHyperfocused={activeHyperfocusId === id}
+          isMicOn={isMicOn}
+          onToggleMic={toggleMic}
+          micsMuted={micsMuted}
+          onToggleMicsMuted={toggleMicsMuted}
+        />
+      ),
+    });
+  }
+
+  for (const videoSource of visibleVideoSources) {
+    const id = tileId("video-source", videoSource.id);
+    // The saved volume dial is keyed on the YouTube id (or playlist id), not
+    // the source id the tile uses: a source id is minted fresh every time
+    // someone adds the video, so keying on it would mean the dial never
+    // actually persists. A playlist is one source even as the current video
+    // changes, so the playlist id is the stable key when present. Its own
+    // prefix keeps it out of the way of the peer ids sharing that store.
+    const volumeKey = videoSourceVolumeKey(videoSource);
+    tiles.push({
+      id,
+      render: (fill) => (
+        <VideoSourceTile
+          source={videoSource}
+          volume={transmissionVolumes[volumeKey] ?? 1}
+          onVolumeChange={(volume) => setTransmissionVolume(volumeKey, volume)}
+          // Whoever added it drives — or, if they set it to "anyone" when
+          // adding it, everyone does. Either way this is enforced again
+          // server-side (see "video-source-state" in signaling.ts), not just
+          // here.
+          canControl={
+            state.selfUserId !== null &&
+            (videoSource.controlMode === "anyone" ||
+              videoSource.addedById === state.selfUserId)
+          }
+          // Ownership itself, unlike canControl, never widens with
+          // controlMode — ending the video for the room stays with whoever
+          // added it regardless of who's allowed to drive it.
+          isOwner={state.selfUserId !== null && videoSource.addedById === state.selfUserId}
+          label={`${videoSource.addedByName} adicionou`}
+          fill={fill}
+          onStateChange={(playing, positionSeconds, playbackRate, playlistIndex) =>
+            signalingClient.setVideoSourceState(
+              videoSource.id,
+              playing,
+              positionSeconds,
+              playbackRate,
+              playlistIndex
+            )
+          }
+          onRemove={() => signalingClient.removeVideoSource(videoSource.id)}
+          onLeave={() => setLeftVideoSourceIds((prev) => new Set(prev).add(videoSource.id))}
+          onFocus={() => toggleSpotlight(id)}
+          isSpotlighted={spotlightId === id}
+          onHyperfocus={() => toggleHyperfocus(id)}
+          isHyperfocused={activeHyperfocusId === id}
+        />
+      ),
+    });
+  }
+
+  for (const videoSource of leftVideoSources) {
+    tiles.push({
+      // The same id its live tile had: this is that tile, with the video
+      // stepped out of rather than gone, so a focus on it stays put.
+      id: tileId("video-source", videoSource.id),
+      render: (fill) => (
+        <StoppedPeerTile
+          label={`vídeo de ${videoSource.addedByName}`}
+          fill={fill}
+          onResume={() =>
+            setLeftVideoSourceIds((prev) => {
+              const next = new Set(prev);
+              next.delete(videoSource.id);
+              return next;
+            })
+          }
+        />
+      ),
+    });
+  }
+
+  for (const [peerId, stream] of visibleScreenEntries) {
+    const peer = state.peers.find((p) => p.id === peerId);
+    const volumeKey = peer?.userId ?? peerId;
+    const id = tileId("screen", peerId);
+    tiles.push({
+      id,
+      render: (fill, compact) => (
+        <VideoTile
+          stream={stream}
+          label={
+            <DisplayUserName
+              name={peer?.name ?? "Alguém"}
+              isGuest={peer?.isGuest}
+              verified={peer?.flags?.includes("VERIFIED")}
+            />
+          }
+          accessibleLabel={peer?.name ?? "Alguém"}
+          badge="ao vivo · tela"
+          muted
+          volume={transmissionVolumes[volumeKey] ?? 1}
+          onVolumeChange={(volume) => setTransmissionVolume(volumeKey, volume)}
+          fill={fill}
+          compact={compact}
+          onRenderedSizeChange={(w, h) => qualityNegotiator.report("screen", peerId, w, h)}
+          onStopWatching={() => stopWatchingPeer(peerId)}
+          onDoubleClick={() => toggleSpotlight(id)}
+          onFocus={() => toggleSpotlight(id)}
+          isSpotlighted={spotlightId === id}
+          onHyperfocus={() => toggleHyperfocus(id)}
+          isHyperfocused={activeHyperfocusId === id}
+          isMicOn={isMicOn}
+          onToggleMic={toggleMic}
+          micsMuted={micsMuted}
+          onToggleMicsMuted={toggleMicsMuted}
+        />
+      ),
+    });
+  }
+
+  for (const [peerId, stream] of visibleCameraEntries) {
+    const peer = state.peers.find((p) => p.id === peerId);
+    const volumeKey = peer?.userId ?? peerId;
+    const id = tileId("camera", peerId);
+    tiles.push({
+      id,
+      render: (fill, compact) => (
+        <VideoTile
+          stream={stream}
+          label={
+            <DisplayUserName
+              name={peer?.name ?? "Alguém"}
+              isGuest={peer?.isGuest}
+              verified={peer?.flags?.includes("VERIFIED")}
+            />
+          }
+          accessibleLabel={peer?.name ?? "Alguém"}
+          badge="ao vivo · câmera"
+          muted
+          volume={transmissionVolumes[volumeKey] ?? 1}
+          onVolumeChange={(volume) => setTransmissionVolume(volumeKey, volume)}
+          fill={fill}
+          compact={compact}
+          onRenderedSizeChange={(w, h) => qualityNegotiator.report("camera", peerId, w, h)}
+          onStopWatching={() => stopWatchingCameraPeer(peerId)}
+          onDoubleClick={() => toggleSpotlight(id)}
+          onFocus={() => toggleSpotlight(id)}
+          isSpotlighted={spotlightId === id}
+          onHyperfocus={() => toggleHyperfocus(id)}
+          isHyperfocused={activeHyperfocusId === id}
+          isMicOn={isMicOn}
+          onToggleMic={toggleMic}
+          micsMuted={micsMuted}
+          onToggleMicsMuted={toggleMicsMuted}
+        />
+      ),
+    });
+  }
+
+  for (const peer of visibleStoppedEntries) {
+    tiles.push({
+      id: tileId("screen", peer.id),
+      render: (fill) => (
+        <StoppedPeerTile
+          label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} />}
+          fill={fill}
+          onResume={() => resumeWatchingPeer(peer.id)}
+        />
+      ),
+    });
+  }
+
+  for (const peer of visibleResumingEntries) {
+    tiles.push({
+      id: tileId("screen", peer.id),
+      render: (fill) => <ResumingPeerTile fill={fill} />,
+    });
+  }
+
+  for (const peer of visibleStoppedCameraEntries) {
+    tiles.push({
+      id: tileId("camera", peer.id),
+      render: (fill) => (
+        <StoppedPeerTile
+          label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} />}
+          fill={fill}
+          onResume={() => resumeWatchingCameraPeer(peer.id)}
+        />
+      ),
+    });
+  }
+
+  for (const peer of visibleResumingCameraEntries) {
+    tiles.push({
+      id: tileId("camera", peer.id),
+      render: (fill) => <ResumingPeerTile fill={fill} />,
+    });
+  }
+
+  const tileCount = tiles.length;
   const isSingleTile = tileCount === 1;
+
+  // "Focar", resolved. Derived rather than read straight off `spotlightId`
+  // for the same reason activeHyperfocusId is: whatever was focused can stop
+  // transmitting, and a stage built around a tile that no longer exists is an
+  // empty box with everything else crammed into a filmstrip below it. A
+  // vanished target simply falls back to the grid, and re-takes the stage if
+  // that person starts again — nothing was disconnected on its behalf, so
+  // there is nothing to restore either way.
+  //
+  // Off entirely while hyperfocused (the two are mutually exclusive) and with
+  // a single tile, which already has the whole pane.
+  //
+  // Exactly one tile, since ids are per tile: focusing someone's screen puts
+  // their screen on the stage and leaves their camera in the strip with
+  // everyone else, which is what clicking that particular tile asked for.
+  const stageTile =
+    !activeHyperfocusId && spotlightId !== null && tileCount > 1
+      ? (tiles.find((tile) => tile.id === spotlightId) ?? null)
+      : null;
+  const stripTiles = stageTile ? tiles.filter((tile) => tile !== stageTile) : [];
+
   // Below `sm`, 2 tiles side by side are still each bigger than a single
   // full-width 16:9 tile would end up after the header/aside eat into a
   // phone's height, so they stay stacked — but 3+ was the actual complaint
@@ -1564,24 +1880,18 @@ export function WatchRoom({ handle }: { handle: string }) {
   // From lg up the video pane is a fixed box rather than a page that grows,
   // so the grid is shaped to fill it instead of being left to a static
   // column count that runs off the bottom: roughly square, at most four
-  // across, and with the spotlighted tile's 2x2 span counted as the four
-  // slots it actually takes up (without that, spotlighting in a two-tile
-  // room asked for a second row that the template never made).
+  // across.
   //
   // Rows have a floor, so a room with a dozen transmissions still shows
   // readable tiles and scrolls for the rest — past a point, scrolling beats
   // shrinking. Applied as an inline style rather than classes because the
   // count is a number, not one of a handful of breakpoints, and only from lg
   // up (isWideLayout): below that the responsive classes on the grid still
-  // decide, and this is `undefined`.
-  const spotlightSpanning = !activeHyperfocusId && spotlightId !== null && !isSingleTile;
-  const tileGridSlots = tileCount + (spotlightSpanning ? 3 : 0);
-  const tileGridCols =
-    tileGridSlots <= 1 ? 1 : tileGridSlots <= 4 ? 2 : tileGridSlots <= 9 ? 3 : 4;
-  const tileGridRows = Math.max(
-    spotlightSpanning ? 2 : 1,
-    Math.ceil(tileGridSlots / tileGridCols)
-  );
+  // decide, and this is `undefined`. Nothing here has to know about "Focar"
+  // any more — that has a layout of its own now instead of a 2x2 span
+  // borrowed from this one.
+  const tileGridCols = tileCount <= 1 ? 1 : tileCount <= 4 ? 2 : tileCount <= 9 ? 3 : 4;
+  const tileGridRows = Math.max(1, Math.ceil(tileCount / tileGridCols));
   const tileGridStyle =
     isWideLayout && !isSingleTile
       ? {
@@ -1610,11 +1920,16 @@ export function WatchRoom({ handle }: { handle: string }) {
   function enterHyperfocus(id: string) {
     setSpotlightId(null);
     setHyperfocusId(id);
+    // Everything that isn't this exact tile, which now includes the *other*
+    // channel of the same person: hyperfocusing someone's screen used to keep
+    // receiving their camera too, because both answered to their peer id.
+    // That is bandwidth spent on a tile the layout has already hidden.
+    const target = parseTileId(id);
     for (const [peerId] of remoteScreenEntries) {
-      if (peerId !== id) stopWatchingPeer(peerId);
+      if (target?.kind !== "screen" || target.ownerId !== peerId) stopWatchingPeer(peerId);
     }
     for (const [peerId] of remoteCameraEntries) {
-      if (peerId !== id) stopWatchingCameraPeer(peerId);
+      if (target?.kind !== "camera" || target.ownerId !== peerId) stopWatchingCameraPeer(peerId);
     }
     trackEvent("hyperfocus_enter");
   }
@@ -1722,6 +2037,19 @@ export function WatchRoom({ handle }: { handle: string }) {
       >
         Reportar bug
       </a>
+
+      <div className="my-2 border-t border-zinc-200 dark:border-zinc-800" />
+
+      {/* Above the toggles rather than among them: it is the only setting in
+          here that changes how the whole site looks, and it is three states
+          rather than the on/off every MenuToggleRow below is. The same
+          control sits in the site header on every page that has one (see
+          components/SiteHeader.tsx) — a room has no such header, which is
+          exactly why it needs a copy in here. */}
+      <div className="mb-1 px-1">
+        <p className="mb-1.5 text-xs font-semibold text-zinc-500 dark:text-zinc-400">Tema</p>
+        <ThemeSegmented />
+      </div>
 
       <div className="my-2 border-t border-zinc-200 dark:border-zinc-800" />
 
@@ -2763,8 +3091,12 @@ export function WatchRoom({ handle }: { handle: string }) {
               {/* Centred and slim rather than a full-size button in the top
                   left: it is a way *out* of a state you can see you're in,
                   not one of the pane's own controls, and at its old size it
-                  took a strip of the video's height to say so. */}
-              {!activeHyperfocusId && spotlightId && hasMultipleShares && (
+                  took a strip of the video's height to say so.
+
+                  Keyed on the resolved focus rather than the raw state, so it
+                  is never a button offering to leave a state the layout is
+                  not actually in (see stageTile). */}
+              {stageTile && (
                 <div className="flex shrink-0 justify-center">
                   <button
                     type="button"
@@ -2775,220 +3107,84 @@ export function WatchRoom({ handle }: { handle: string }) {
                   </button>
                 </div>
               )}
-              {/* The tiles scroll inside this box, never the page: from lg up
-                  `main` is a fixed-height pane, and the grid below asks for
-                  rows with a floor — so a handful of tiles divide the pane
-                  between them and fill it, and only a wall of them ever
-                  produces a scrollbar (see tileGridStyle). */}
+              {/* Nothing scrolls the page: from lg up `main` is a
+                  fixed-height pane, so whichever layout is on below scrolls
+                  inside this box or not at all. */}
               <div className="min-h-0 flex-1 overflow-y-auto">
-                <div
-                  className={
-                    isSingleTile
-                      ? "h-full"
-                      : `grid ${mobileGridCols} auto-rows-fr gap-2 sm:grid-cols-2 sm:gap-3 lg:min-h-full 2xl:grid-cols-3`
-                  }
-                  style={tileGridStyle}
-                >
-                  {hyperfocusVisible && isSharing && localStream && (
-                    <VideoTile
-                      stream={localStream}
-                      label="Você"
-                      accessibleLabel="Você"
-                      badge={shareSource === "camera" ? "câmera" : "transmitindo"}
-                      muted
-                      allowUnmute={false}
-                      fill={isSingleTile || spotlightId === "self"}
-                      className={spotlightId === "self" && !isSingleTile ? "sm:col-span-2 sm:row-span-2" : ""}
-                      onFocus={() => toggleSpotlight("self")}
-                      isSpotlighted={spotlightId === "self"}
-                      onHyperfocus={() => toggleHyperfocus("self")}
-                      isHyperfocused={activeHyperfocusId === "self"}
-                      isMicOn={isMicOn}
-                      onToggleMic={toggleMic}
-                      micsMuted={micsMuted}
-                      onToggleMicsMuted={toggleMicsMuted}
-                    />
-                  )}
-                  {hyperfocusVisible && localCameraStream && (
-                    <VideoTile
-                      stream={localCameraStream}
-                      label="Você"
-                      accessibleLabel="Você"
-                      badge="câmera"
-                      muted
-                      allowUnmute={false}
-                      fill={isSingleTile || spotlightId === "self"}
-                      className={spotlightId === "self" && !isSingleTile ? "sm:col-span-2 sm:row-span-2" : ""}
-                      onFocus={() => toggleSpotlight("self")}
-                      isSpotlighted={spotlightId === "self"}
-                      onHyperfocus={() => toggleHyperfocus("self")}
-                      isHyperfocused={activeHyperfocusId === "self"}
-                      isMicOn={isMicOn}
-                      onToggleMic={toggleMic}
-                      micsMuted={micsMuted}
-                      onToggleMicsMuted={toggleMicsMuted}
-                    />
-                  )}
-                  {visibleVideoSources.map((videoSource) => {
-                    const tileId = videoSourceTileId(videoSource.id);
-                    // Keyed on the YouTube id (or playlist id), not the source
-                    // id: a source id is minted fresh every time someone adds
-                    // the video, so keying on it would mean the dial never
-                    // actually persists. A playlist is one source even as the
-                    // current video changes, so the playlist id is the stable
-                    // key when present. The prefix keeps it out of the way of
-                    // the peer ids sharing this same store.
-                    const volumeKey = videoSourceVolumeKey(videoSource);
-                    return (
-                      <VideoSourceTile
-                        key={tileId}
-                        source={videoSource}
-                        volume={transmissionVolumes[volumeKey] ?? 1}
-                        onVolumeChange={(volume) => setTransmissionVolume(volumeKey, volume)}
-                        // Whoever added it drives — or, if they set it to
-                        // "anyone" when adding it, everyone does. Either way
-                        // this is enforced again server-side (see
-                        // "video-source-state" in signaling.ts), not just here.
-                        canControl={
-                          state.selfUserId !== null &&
-                          (videoSource.controlMode === "anyone" ||
-                            videoSource.addedById === state.selfUserId)
-                        }
-                        // Ownership itself, unlike canControl, never widens
-                        // with controlMode — ending the video for the room
-                        // stays with whoever added it regardless of who's
-                        // allowed to drive it.
-                        isOwner={
-                          state.selfUserId !== null && videoSource.addedById === state.selfUserId
-                        }
-                        label={`${videoSource.addedByName} adicionou`}
-                        fill={isSingleTile || spotlightId === tileId}
-                        className={spotlightId === tileId && !isSingleTile ? "sm:col-span-2 sm:row-span-2" : ""}
-                        onStateChange={(playing, positionSeconds, playbackRate, playlistIndex) =>
-                          signalingClient.setVideoSourceState(
-                            videoSource.id,
-                            playing,
-                            positionSeconds,
-                            playbackRate,
-                            playlistIndex
-                          )
-                        }
-                        onRemove={() => signalingClient.removeVideoSource(videoSource.id)}
-                        onLeave={() =>
-                          setLeftVideoSourceIds((prev) => new Set(prev).add(videoSource.id))
-                        }
-                        onFocus={() => toggleSpotlight(tileId)}
-                        isSpotlighted={spotlightId === tileId}
-                        onHyperfocus={() => toggleHyperfocus(tileId)}
-                        isHyperfocused={activeHyperfocusId === tileId}
-                      />
-                    );
-                  })}
-                  {leftVideoSources.map((videoSource) => (
-                    <StoppedPeerTile
-                      key={`left-${videoSource.id}`}
-                      label={`vídeo de ${videoSource.addedByName}`}
-                      fill={isSingleTile}
-                      onResume={() =>
-                        setLeftVideoSourceIds((prev) => {
-                          const next = new Set(prev);
-                          next.delete(videoSource.id);
-                          return next;
-                        })
-                      }
-                    />
-                  ))}
-                  {visibleScreenEntries.map(([peerId, stream]) => {
-                    const peer = state.peers.find((p) => p.id === peerId);
-                    const volumeKey = peer?.userId ?? peerId;
-                    return (
-                      <VideoTile
-                        key={`screen-${peerId}`}
-                        stream={stream}
-                        label={
-                          <DisplayUserName
-                            name={peer?.name ?? "Alguém"}
-                            isGuest={peer?.isGuest}
-                            verified={peer?.flags?.includes("VERIFIED")}
-                          />
-                        }
-                        accessibleLabel={peer?.name ?? "Alguém"}
-                        badge="ao vivo · tela"
-                        muted
-                        volume={transmissionVolumes[volumeKey] ?? 1}
-                        onVolumeChange={(volume) => setTransmissionVolume(volumeKey, volume)}
-                        fill={isSingleTile || spotlightId === peerId}
-                        className={spotlightId === peerId && !isSingleTile ? "sm:col-span-2 sm:row-span-2" : ""}
-                        onRenderedSizeChange={(w, h) => qualityNegotiator.report("screen", peerId, w, h)}
-                        onStopWatching={() => stopWatchingPeer(peerId)}
-                        onFocus={() => toggleSpotlight(peerId)}
-                        isSpotlighted={spotlightId === peerId}
-                        onHyperfocus={() => toggleHyperfocus(peerId)}
-                        isHyperfocused={activeHyperfocusId === peerId}
-                        isMicOn={isMicOn}
-                        onToggleMic={toggleMic}
-                        micsMuted={micsMuted}
-                        onToggleMicsMuted={toggleMicsMuted}
-                      />
-                    );
-                  })}
-                  {visibleCameraEntries.map(([peerId, stream]) => {
-                    const peer = state.peers.find((p) => p.id === peerId);
-                    const volumeKey = peer?.userId ?? peerId;
-                    return (
-                      <VideoTile
-                        key={`camera-${peerId}`}
-                        stream={stream}
-                        label={
-                          <DisplayUserName
-                            name={peer?.name ?? "Alguém"}
-                            isGuest={peer?.isGuest}
-                            verified={peer?.flags?.includes("VERIFIED")}
-                          />
-                        }
-                        accessibleLabel={peer?.name ?? "Alguém"}
-                        badge="ao vivo · câmera"
-                        muted
-                        volume={transmissionVolumes[volumeKey] ?? 1}
-                        onVolumeChange={(volume) => setTransmissionVolume(volumeKey, volume)}
-                        fill={isSingleTile || spotlightId === peerId}
-                        className={spotlightId === peerId && !isSingleTile ? "sm:col-span-2 sm:row-span-2" : ""}
-                        onRenderedSizeChange={(w, h) => qualityNegotiator.report("camera", peerId, w, h)}
-                        onStopWatching={() => stopWatchingCameraPeer(peerId)}
-                        onFocus={() => toggleSpotlight(peerId)}
-                        isSpotlighted={spotlightId === peerId}
-                        onHyperfocus={() => toggleHyperfocus(peerId)}
-                        isHyperfocused={activeHyperfocusId === peerId}
-                        isMicOn={isMicOn}
-                        onToggleMic={toggleMic}
-                        micsMuted={micsMuted}
-                        onToggleMicsMuted={toggleMicsMuted}
-                      />
-                    );
-                  })}
-                  {visibleStoppedEntries.map((peer) => (
-                    <StoppedPeerTile
-                      key={`stopped-${peer.id}`}
-                      label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} />}
-                      fill={isSingleTile}
-                      onResume={() => resumeWatchingPeer(peer.id)}
-                    />
-                  ))}
-                  {visibleResumingEntries.map((peer) => (
-                    <ResumingPeerTile key={`resuming-${peer.id}`} fill={isSingleTile} />
-                  ))}
-                  {visibleStoppedCameraEntries.map((peer) => (
-                    <StoppedPeerTile
-                      key={`stopped-camera-${peer.id}`}
-                      label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} />}
-                      fill={isSingleTile}
-                      onResume={() => resumeWatchingCameraPeer(peer.id)}
-                    />
-                  ))}
-                  {visibleResumingCameraEntries.map((peer) => (
-                    <ResumingPeerTile key={`resuming-camera-${peer.id}`} fill={isSingleTile} />
-                  ))}
-                </div>
+                {stageTile ? (
+                  /* "Focar": a stage with the rest of the room as a strip of
+                     thumbnails under it.
+
+                     This used to be a 2x2 span inside the ordinary grid, which
+                     bought the focused tile four cells out of nine — barely
+                     twice the size of the others, and less than that once
+                     auto-placement started leaving holes around it, since the
+                     spanning tile stayed wherever its turn in the DOM put it.
+                     Below `sm` the span classes didn't apply at all, so on a
+                     phone "Focar" did nothing whatsoever. A stage takes the
+                     whole pane minus one short row, at every width.
+
+                     It also makes the room cheaper to watch: every thumbnail
+                     reports its real drawn size like any other tile (see
+                     onRenderedSizeChange), so the people in the strip are
+                     asked for thumbnail-sized streams instead of full ones. */
+                  <div className="flex h-full min-h-0 flex-col gap-2 sm:gap-3">
+                    {/* `min-h-0 flex-1` is what gives the tile inside a real
+                        height to fill: `h-full` against a box sized by its own
+                        content is circular, and the tile is the side that
+                        gives up and collapses. */}
+                    <div className="min-h-0 flex-1">{stageTile.render(true)}</div>
+                    {stripTiles.length > 0 && (
+                      /* Scrolls sideways rather than wrapping onto a second
+                         row: the whole point of the strip is to cost the stage
+                         a small, fixed amount of height however many people
+                         are in the room. */
+                      <div className="shrink-0 overflow-x-auto overflow-y-hidden">
+                        <div className="flex h-20 gap-2 sm:h-24 sm:gap-3 lg:h-28">
+                          {stripTiles.map((tile) => (
+                            <div
+                              key={tile.id}
+                              className="relative aspect-video h-full shrink-0"
+                            >
+                              {tile.render(true, true)}
+                              {/* One transparent target over the whole
+                                  thumbnail, rather than asking someone to find
+                                  a 24px "focar" button on a 200px tile — and
+                                  it works the same over a YouTube iframe or a
+                                  "você saiu dessa transmissão" placeholder,
+                                  neither of which has a focus button at all.
+                                  It sits above the compact tile, whose own
+                                  controls are hidden, so nothing interactive
+                                  ends up buried underneath it. */}
+                              <button
+                                type="button"
+                                onClick={() => setSpotlightId(tile.id)}
+                                aria-label="Destacar esta transmissão"
+                                className="absolute inset-0 z-10 cursor-pointer rounded-xl ring-emerald-500 transition hover:ring-2 focus-visible:ring-2 focus-visible:outline-none"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div
+                    className={
+                      isSingleTile
+                        ? "h-full"
+                        : `grid ${mobileGridCols} auto-rows-fr gap-2 sm:grid-cols-2 sm:gap-3 lg:min-h-full 2xl:grid-cols-3`
+                    }
+                    style={tileGridStyle}
+                  >
+                    {/* Fragments rather than wrapper divs: the tile itself has
+                        to be the grid item, or its `aspect-video` would size a
+                        box inside a stretched cell instead of the cell. */}
+                    {tiles.map((tile) => (
+                      <Fragment key={tile.id}>{tile.render(isSingleTile)}</Fragment>
+                    ))}
+                  </div>
+                )}
               </div>
             </>
           )}
