@@ -471,6 +471,77 @@ function installDisplayMediaHandler() {
 // works both from source and from inside app.asar.
 const WINDOW_ICON = path.join(__dirname, "..", "build", "icon.png");
 
+// Recovery for a bundle chunk that came back as something other than
+// JavaScript — the failure that made the app unusable while the browser was
+// fine:
+//
+//   GET /_next/static/chunks/<hash>.js  ->  408, Content-Type: text/html
+//
+// A chunk is `immutable, max-age=31536000`, so whatever answer this session
+// gets for one is the answer it keeps. Cache a 408 error page under that URL
+// once and the app is broken *permanently*: every launch replays it from disk,
+// React never hydrates, and there is genuinely nothing the user can do from
+// inside a window whose JavaScript never ran. A browser has Ctrl+F5; this has
+// nothing, which is exactly why it needed handling here rather than in the
+// site's own recovery script (see lib/chunkRecovery.ts, which covers the
+// browser and cannot help once the renderer is dead).
+//
+// Watching responses in the main process is what makes this work at all: it
+// does not depend on any code in the page, which is the code that is missing.
+const CHUNK_PATH = "/_next/static/";
+// Two, for the same reason the web side caps its own attempts: a chunk that is
+// genuinely gone from the origin must not turn into an endless clear-and-reload
+// loop. Past this the window is left as it is.
+const MAX_CHUNK_RECOVERIES = 2;
+let chunkRecoveries = 0;
+let chunkRecoveryPending = false;
+
+function installChunkRecovery() {
+  session.defaultSession.webRequest.onCompleted(
+    { urls: [`${APP_ORIGIN}/_next/static/*`] },
+    (details) => {
+      if (!details.url.includes(CHUNK_PATH)) return;
+      // A script answered with a redirect or an error page is the case. The
+      // status check alone is not enough: the observed failure was a 408 whose
+      // body was HTML, and a 200 serving an HTML error page would be just as
+      // unexecutable and just as cacheable.
+      const type = String(
+        details.responseHeaders?.["content-type"] ??
+          details.responseHeaders?.["Content-Type"] ??
+          ""
+      );
+      const looksLikeScript = /javascript|text\/css/i.test(type);
+      const ok = details.statusCode >= 200 && details.statusCode < 300;
+      if (ok && looksLikeScript) return;
+      if (chunkRecoveryPending || chunkRecoveries >= MAX_CHUNK_RECOVERIES) return;
+      chunkRecoveryPending = true;
+      chunkRecoveries += 1;
+      console.warn(
+        `[golive] Chunk inutilizável (${details.statusCode}, ${type || "sem content-type"}): ${details.url}`
+      );
+      // Clearing the cache is the whole point — reloading alone would just
+      // replay the poisoned entry, which is why the app could never recover on
+      // its own no matter how many times it was restarted.
+      void session.defaultSession
+        .clearCache()
+        .then(() => {
+          // Jittered for the same reason the web side is: this failure arrives
+          // when the origin is struggling, and every app instance reloading on
+          // the same tick is a synchronised retry against it.
+          setTimeout(() => {
+            chunkRecoveryPending = false;
+            // reloadIgnoringCache rather than reload: belt and braces against
+            // anything the clear above did not reach.
+            mainWindow?.webContents.reloadIgnoringCache();
+          }, 500 + Math.random() * 2500);
+        })
+        .catch(() => {
+          chunkRecoveryPending = false;
+        });
+    }
+  );
+}
+
 function createWindow(initialUrl: string = APP_URL) {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -612,6 +683,7 @@ if (!gotLock) {
 
     installPermissionHandlers();
     installDisplayMediaHandler();
+    installChunkRecovery();
 
     ipcMain.handle(IPC.oauthStart, (_event, startUrl: unknown, nonce: unknown) => {
       if (typeof startUrl !== "string" || typeof nonce !== "string") return null;
