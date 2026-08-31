@@ -508,3 +508,83 @@ export async function setPartnerEmptyPercent(emptyPercent: number): Promise<numb
   });
   return data.emptyPercent;
 }
+
+// ── Client eval ────────────────────────────────────────────────────────────
+//
+// The targeting model is shared with the server (see the API's adminEval.ts) —
+// mirrored here rather than imported because the two are different packages,
+// and the shapes are small and change together. The field/op lists drive the
+// panel's dropdowns so a new field is added in one place.
+
+export type EvalOp = "eq" | "neq" | "contains" | "regex" | "exists" | "is" | "has";
+export type EvalClause = { field: string; op: EvalOp; value?: string };
+export type EvalFilter = { combine: "and" | "or"; clauses: EvalClause[] };
+
+// Each targetable field, its value kind, and a human label. `bool` fields use
+// the "is" op with a true/false value; `string` fields use the text ops.
+// `enum` values feed a dropdown instead of a free text box.
+export type EvalFieldDef = {
+  key: string;
+  label: string;
+  kind: "string" | "bool";
+  // When set, the value is chosen from these instead of typed.
+  options?: readonly string[];
+  placeholder?: string;
+};
+
+// Must stay in step with the API's CLIENT_PLATFORMS.
+export const EVAL_DEVICE_OPTIONS = [
+  "desktop-browser",
+  "desktop-webview",
+  "desktop-app",
+  "mobile-browser",
+  "mobile-webview",
+  "unknown",
+] as const;
+
+export const EVAL_FIELDS: readonly EvalFieldDef[] = [
+  { key: "version", label: "Build (commit)", kind: "string", placeholder: "ex: 0.1.17-abc1234" },
+  { key: "room", label: "Sala", kind: "string", placeholder: "handle da sala" },
+  { key: "inRoom", label: "Está numa sala", kind: "bool" },
+  { key: "path", label: "Página atual", kind: "string", placeholder: "ex: /watch/" },
+  { key: "platform", label: "Dispositivo", kind: "string", options: EVAL_DEVICE_OPTIONS },
+  { key: "name", label: "Nome", kind: "string" },
+  { key: "userId", label: "ID (conta ou convidado)", kind: "string" },
+  { key: "accountId", label: "ID da conta", kind: "string" },
+  { key: "guestId", label: "ID de convidado", kind: "string" },
+  { key: "account", label: "É conta logada", kind: "bool" },
+  { key: "registered", label: "Já registrou nome", kind: "bool" },
+  { key: "flag", label: "Flag da conta", kind: "string", placeholder: "ex: VERIFIED, ADMIN" },
+  { key: "sharing", label: "Transmitindo (tela ou câmera)", kind: "bool" },
+  { key: "sharingScreen", label: "Transmitindo a tela", kind: "bool" },
+  { key: "sharingCamera", label: "Transmitindo a câmera", kind: "bool" },
+  { key: "mic", label: "Microfone ligado", kind: "bool" },
+  { key: "ip", label: "IP", kind: "string" },
+  { key: "fingerprint", label: "Fingerprint", kind: "string" },
+] as const;
+
+// Which ops each value kind offers, in menu order.
+export const EVAL_STRING_OPS: { value: EvalOp; label: string }[] = [
+  { value: "eq", label: "é igual a" },
+  { value: "neq", label: "é diferente de" },
+  { value: "contains", label: "contém" },
+  { value: "regex", label: "casa regex" },
+  { value: "exists", label: "existe (não vazio)" },
+];
+export const EVAL_BOOL_OPS: { value: EvalOp; label: string }[] = [
+  { value: "is", label: "é" },
+];
+
+export function evalFieldDef(key: string): EvalFieldDef | undefined {
+  return EVAL_FIELDS.find((f) => f.key === key);
+}
+
+export type EvalResult = { id: string; matched: number; total: number };
+
+export async function sendClientEval(code: string, filter: EvalFilter): Promise<EvalResult> {
+  return adminFetch<EvalResult>("/admin/eval", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code, filter }),
+  });
+}

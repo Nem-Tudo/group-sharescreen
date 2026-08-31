@@ -5,6 +5,7 @@ import { AnnouncementBanner } from "@/components/AnnouncementBanner";
 import { InstallAppButton } from "@/components/InstallAppButton";
 import { UpdateAppButton } from "@/components/UpdateAppButton";
 import { AuthProvider } from "@/lib/AuthContext";
+import { PresenceReporter } from "@/components/PresenceReporter";
 import { NtPopups } from "@/components/NtPopups";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import { CHUNK_RECOVERY_SCRIPT } from "@/lib/chunkRecovery";
@@ -192,6 +193,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <SupressErrors>
           <AuthProvider>
             <NtPopups>
+              <PresenceReporter />
               <AnnouncementBanner />
               {children}
               <InstallAppButton />

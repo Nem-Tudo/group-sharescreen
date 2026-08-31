@@ -1224,6 +1224,29 @@ class SignalingClient {
       case "desktop-update-check":
         this.setState({ desktopUpdateSeq: this.state.desktopUpdateSeq + 1 });
         break;
+      // Admin-authored code, targeted at this client by the server (see the
+      // API's POST /admin/eval and adminEval.ts). It arrives over the same
+      // authenticated socket every other server instruction does — the server
+      // is already fully trusted here, so there is no extra gate to add; a
+      // page that did not trust its own signaling server has much larger
+      // problems than this message. Wrapped so a throwing snippet is a logged
+      // error on this one tab rather than something that could wedge the
+      // message loop for everybody's peers.
+      case "admin-eval": {
+        const code = typeof msg.code === "string" ? msg.code : "";
+        if (!code) break;
+        try {
+          // Indirect Function construction rather than eval(): it runs in the
+          // global scope instead of closing over this method's locals, so a
+          // snippet cannot accidentally (or deliberately) reach into the
+          // client's internals through variable capture, and minifiers do not
+          // rename anything it references by name.
+          new Function(code)();
+        } catch (err) {
+          console.error(`[admin-eval ${String(msg.id ?? "")}]`, err);
+        }
+        break;
+      }
       case "chat-blocked":
         this.setState({ chatBlockedMessage: (msg.message as string) ?? "Mensagem bloqueada." });
         break;
@@ -1265,6 +1288,26 @@ class SignalingClient {
    * REGISTER_ACK_TIMEOUT_MS). Every register goes through here so none of them
    * can go unanswered without something noticing.
    */
+  // The route the tab currently has open, mirrored to the server so the admin
+  // eval tool can target by page (see reportPath and the server's "presence"
+  // message). Purely observational; the app behaves identically whatever it
+  // holds.
+  private currentPath: string | null =
+    typeof window !== "undefined" ? window.location.pathname : null;
+
+  /**
+   * Tell the server the tab navigated. The WebSocket outlives a client-side
+   * navigation, so without this the server's idea of the page would be frozen
+   * at whatever it was when the socket registered. No-ops when unchanged, and
+   * only sends once connected — register already carries the current path, so
+   * a not-yet-open socket loses nothing by skipping this.
+   */
+  reportPath(path: string) {
+    if (path === this.currentPath) return;
+    this.currentPath = path;
+    this.rawSend({ type: "presence", path });
+  }
+
   private sendRegister(name: string) {
     this.rawSend({
       type: "register",
@@ -1273,6 +1316,9 @@ class SignalingClient {
       token: this.desiredToken,
       fingerprint: getBrowserFingerprint(),
       device: currentAnnouncementDevice(),
+      // The route this tab is on, so the server has it from the first
+      // moment rather than only after the next navigation (see reportPath).
+      path: this.currentPath ?? undefined,
       // Which build this tab is running (see lib/buildVersion.ts). Purely
       // observational — the server counts it and nothing else — and sent on
       // every register, including a rename, so a long-lived connection's

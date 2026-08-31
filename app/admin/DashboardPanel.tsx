@@ -8,6 +8,7 @@ import { BannedWordsPanel } from "./BannedWordsPanel";
 import { BansPanel } from "./BansPanel";
 import { SupportersPanel } from "./SupportersPanel";
 import { DesktopUpdatePanel } from "./DesktopUpdatePanel";
+import { EvalPanel } from "./EvalPanel";
 
 export function DashboardPanel() {
   return (
@@ -20,6 +21,7 @@ export function DashboardPanel() {
       <AntiSpamPanel />
       <BannedWordsPanel />
       <BansPanel />
+      <EvalPanel />
     </div>
   );
 }
