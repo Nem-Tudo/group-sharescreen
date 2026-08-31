@@ -1,4 +1,4 @@
-name: Deploy to Square Cloud
+name: Deploy GoLive Frontend
 
 on:
   push:
@@ -16,7 +16,6 @@ jobs:
           cache: npm
 
       - run: npm ci
-      - run: npm run electron:build
       - run: npm run build
 
       # 1. Set the commit SHA as an env var on the Square Cloud app
@@ -28,7 +27,16 @@ jobs:
             -H "Content-Type: application/json" \
             -d "{\"NEXT_PUBLIC_BUILD_COMMIT\":\"${{ github.sha }}\"}"
 
-      # 2. Deploy the built project
+      # 2. Zip the project (excluding .git, node_modules, etc.)
+      - name: Create project zip
+        run: |
+          zip -r project.zip . \
+            -x ".git/*" \
+            -x "node_modules/*" \
+            -x ".github/*" \
+            -x "project.zip"
+
+      # 3. Deploy
       - name: Deploy to Square Cloud
         uses: squarecloudofc/github-action@v2
         with:
