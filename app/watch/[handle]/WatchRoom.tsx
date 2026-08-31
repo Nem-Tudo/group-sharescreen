@@ -31,6 +31,7 @@ import {
   SHARE_RESOLUTION_OPTIONS,
   SHARE_FPS_OPTIONS,
   SHARE_BITRATE_OPTIONS,
+  SHARE_PROFILE_OPTIONS,
 } from "@/lib/useRoomMedia";
 import { trackEvent } from "@/lib/analytics";
 import { copyText } from "@/lib/clipboard";
@@ -360,13 +361,7 @@ function QualityControls({
               are what make these choosable, and they are the first thing to
               become unreadable when the buttons get narrow. */}
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-            {(
-              [
-                { value: "text", label: "Texto / código", hint: "prioriza nitidez" },
-                { value: "balanced", label: "Equilibrado", hint: "nitidez e fluidez" },
-                { value: "motion", label: "Vídeo / jogo", hint: "prioriza fluidez" },
-              ] as const
-            ).map((opt) => (
+            {SHARE_PROFILE_OPTIONS.map((opt) => (
               <button
                 key={opt.value}
                 type="button"
@@ -1349,6 +1344,30 @@ export function WatchRoom({ handle }: { handle: string }) {
   const chatBlockedReason = roomBlockReason("chat", "o chat");
   const gifBlockedReason = roomBlockReason("gif", "o envio de GIFs");
   const imageBlockedReason = roomBlockReason("image", "o envio de imagens");
+
+  // 2K, 120fps and the "máximo" bitrate need an account, and the pickers
+  // enforce that by disabling those options (see the `accountOnly` flag on
+  // each SHARE_*_OPTIONS). Now that the dials survive a reload, that is no
+  // longer the only way one can be selected: somebody who picked 2K while
+  // signed in and came back as a guest would have it restored straight past
+  // the disabled option, because localStorage does not know who is holding
+  // the browser.
+  //
+  // So the entitlement is re-checked once account status is actually known,
+  // rather than at restore time — at restore time it is not: the account
+  // resolves a moment later, and downgrading against a not-yet-resolved
+  // `null` would demote the very people who are entitled to it.
+  useEffect(() => {
+    if (!mounted || resolvingAccount || state.account) return;
+    if (SHARE_RESOLUTION_OPTIONS.find((o) => o.value === shareResolution)?.accountOnly) {
+      setShareResolution("1080p");
+    }
+    if (SHARE_FPS_OPTIONS.find((o) => o.value === shareFps)?.accountOnly) setShareFps(30);
+    if (SHARE_BITRATE_OPTIONS.find((o) => o.value === shareBitrate)?.accountOnly) {
+      setShareBitrate("high");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted, resolvingAccount, state.account, shareResolution, shareFps, shareBitrate]);
 
   // A permission can be turned off while someone is already using it — and
   // the mic in particular auto-starts from a stored preference the moment a

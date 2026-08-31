@@ -35,6 +35,26 @@ const DOUBLE_CLICK_FOCUS_KEY = "sharescreen:doubleClickFocus";
 // "Sempre abrir salas no aplicativo" — see components/OpenInAppBanner.
 const OPEN_IN_APP_KEY = "sharescreen:openRoomsInApp";
 const OPEN_IN_APP_DISMISSED_KEY = "sharescreen:openInAppDismissed";
+// The screen-share dials: resolution, frame rate, bitrate, content profile
+// and "qualidade inteligente". Persisted for the same reason the mic and
+// camera choices are — someone who broadcasts a game at 1080p60 on the
+// "Vídeo / jogo" profile is going to want that again tomorrow, and re-picking
+// five settings on every visit is five chances to forget one and wonder why
+// the share looks different.
+//
+// Stored as plain strings here on purpose. The values they may take live with
+// the pickers in useRoomMedia (SHARE_*_OPTIONS), and validating against those
+// from this file would mean importing them — a runtime cycle, since
+// useRoomMedia imports this module. So this end stores and returns text, and
+// the caller decides what counts as a valid answer. That split also happens
+// to be the right one: what is *allowed* changes with the app's options, what
+// is *stored* is just what was last chosen.
+const SHARE_RESOLUTION_KEY = "sharescreen:shareResolution";
+const SHARE_FPS_KEY = "sharescreen:shareFps";
+const SHARE_BITRATE_KEY = "sharescreen:shareBitrate";
+const SHARE_PROFILE_KEY = "sharescreen:shareProfile";
+const SMART_QUALITY_KEY = "sharescreen:smartQuality";
+
 const MIC_DEVICE_ID_KEY = "sharescreen:micDeviceId";
 const SPEAKER_DEVICE_ID_KEY = "sharescreen:speakerDeviceId";
 const CAMERA_DEVICE_ID_KEY = "sharescreen:cameraDeviceId";
@@ -262,6 +282,52 @@ export function getStoredSpeakerDeviceId(): string | null {
 }
 export function setStoredSpeakerDeviceId(value: string | null) {
   setStoredString(SPEAKER_DEVICE_ID_KEY, value);
+}
+
+// See the SHARE_*_KEY block above for why these deal in raw strings and
+// leave validation to the caller. A null means "nothing stored yet", which
+// the caller reads as "use the default" — distinct from a stored value that
+// is no longer offered, which it also has to handle.
+export function getStoredShareResolution(): string | null {
+  return getStoredString(SHARE_RESOLUTION_KEY);
+}
+export function setStoredShareResolution(value: string) {
+  setStoredString(SHARE_RESOLUTION_KEY, value);
+}
+
+export function getStoredShareBitrate(): string | null {
+  return getStoredString(SHARE_BITRATE_KEY);
+}
+export function setStoredShareBitrate(value: string) {
+  setStoredString(SHARE_BITRATE_KEY, value);
+}
+
+export function getStoredShareProfile(): string | null {
+  return getStoredString(SHARE_PROFILE_KEY);
+}
+export function setStoredShareProfile(value: string) {
+  setStoredString(SHARE_PROFILE_KEY, value);
+}
+
+// A number rather than a string, and NaN-guarded: this one is compared
+// against numeric option values, and a stored "abc" coming back as NaN would
+// silently fail every comparison and look like "nothing stored".
+export function getStoredShareFps(): number | null {
+  const raw = getStoredString(SHARE_FPS_KEY);
+  if (raw === null) return null;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+export function setStoredShareFps(value: number) {
+  setStoredString(SHARE_FPS_KEY, String(value));
+}
+
+// "Qualidade inteligente" — on by default, matching useRoomMedia.
+export function getStoredSmartQuality(): boolean {
+  return getStoredBoolean(SMART_QUALITY_KEY, true);
+}
+export function setStoredSmartQuality(value: boolean) {
+  setStoredBoolean(SMART_QUALITY_KEY, value);
 }
 
 // Which camera the camera share (and, on phones, the camera fallback for

@@ -11,6 +11,16 @@ import {
   getStoredMicOn,
   getStoredNoiseSuppressionOn,
   getStoredCameraDeviceId,
+  getStoredShareResolution,
+  setStoredShareResolution,
+  getStoredShareFps,
+  setStoredShareFps,
+  getStoredShareBitrate,
+  setStoredShareBitrate,
+  getStoredShareProfile,
+  setStoredShareProfile,
+  getStoredSmartQuality,
+  setStoredSmartQuality,
   getStoredMicDeviceId,
   getStoredSpeakerDeviceId,
   setStoredAutoJoin,
@@ -235,6 +245,21 @@ export const SHARE_FPS_OPTIONS: { value: ShareFps; label: string; accountOnly?: 
   { value: 120, label: "120 fps", accountOnly: true },
 ];
 
+// Beside the other three because it is the same kind of thing and now has
+// the same two consumers: the picker in WatchRoom, and the "is this a value
+// we still offer?" check that guards a setting restored from a previous
+// session. Kept inline in the component, those two would have drifted.
+export const SHARE_PROFILE_OPTIONS: {
+  value: DegradationMode;
+  label: string;
+  hint: string;
+  accountOnly?: boolean;
+}[] = [
+  { value: "text", label: "Texto / código", hint: "prioriza nitidez" },
+  { value: "balanced", label: "Equilibrado", hint: "nitidez e fluidez" },
+  { value: "motion", label: "Vídeo / jogo", hint: "prioriza fluidez" },
+];
+
 export const SHARE_BITRATE_OPTIONS: { value: ShareBitrate; label: string; accountOnly?: boolean }[] = [
   { value: "low", label: "Bitrate baixo (~700 kbps)" },
   { value: "medium", label: "Bitrate médio (~2 Mbps)" },
@@ -242,6 +267,25 @@ export const SHARE_BITRATE_OPTIONS: { value: ShareBitrate; label: string; accoun
   { value: "ultra", label: "Bitrate ultra (~8 Mbps)" },
   { value: "maximo", label: "Bitrate máximo (~16 Mbps)", accountOnly: true },
 ];
+
+/**
+ * A dial's value restored from a previous session, or the default.
+ *
+ * The stored value is checked against the options actually on offer rather
+ * than trusted: localStorage outlives the code that wrote it, so it can hold
+ * a setting from a build where the ladder had different rungs, or whatever
+ * somebody typed into devtools. An unrecognised value is not a smaller
+ * problem than no value — it is the one that ends up in a MediaTrackConstraint
+ * or a tier lookup — so both take the same path back to the default.
+ */
+function restoredSetting<T extends string | number>(
+  stored: string | number | null,
+  options: readonly { value: T }[],
+  fallback: T
+): T {
+  const match = options.find((opt) => opt.value === stored);
+  return match ? match.value : fallback;
+}
 
 // How far apart (in ms) openSendPCsStaggered spaces out opening sendPCs to
 // many peers at once. 150ms means a 50-person room's burst spreads across
@@ -1947,16 +1991,26 @@ export function useRoomMedia(room: string) {
   // state (same pattern as noiseSuppressionOnRef below) because capture()
   // only runs once per share start and would otherwise close over a stale
   // value from whatever render happened to create it.
-  const [shareResolution, setShareResolutionState] = useState<ShareResolution>("1080p");
-  const [shareFps, setShareFpsState] = useState<ShareFps>(30);
-  const [shareBitrate, setShareBitrateState] = useState<ShareBitrate>("high");
+  // Seeded from the last session (see lib/mediaPreferences). Lazy
+  // initialisers rather than an effect: an effect would render the defaults
+  // first and then correct them, which is a visible flicker in the picker and
+  // — worse — a window in which a share started from the wrong preset.
+  const [shareResolution, setShareResolutionState] = useState<ShareResolution>(() =>
+    restoredSetting(getStoredShareResolution(), SHARE_RESOLUTION_OPTIONS, "1080p")
+  );
+  const [shareFps, setShareFpsState] = useState<ShareFps>(() =>
+    restoredSetting(getStoredShareFps(), SHARE_FPS_OPTIONS, 30)
+  );
+  const [shareBitrate, setShareBitrateState] = useState<ShareBitrate>(() =>
+    restoredSetting(getStoredShareBitrate(), SHARE_BITRATE_OPTIONS, "high")
+  );
   // On by default. It no longer means "step quality down as the headcount
   // rises" — that guessed cost from a number of people while knowing nothing
   // about how large anyone renders the video. It now means "let each viewer
   // be served at the tier their own tile actually needs". Turning it off
   // forces the picked tier on everyone, which is what someone streaming to a
   // handful of fullscreen viewers may genuinely want.
-  const [smartQualityEnabled, setSmartQualityEnabledState] = useState(true);
+  const [smartQualityEnabled, setSmartQualityEnabledState] = useState(getStoredSmartQuality);
   // What is being shared. This drives contentHint, degradationPreference and
   // codec ordering all at once, and getting it wrong is the difference
   // between crisp text and a 60fps game that stutters into a slideshow.
@@ -1970,7 +2024,9 @@ export function useRoomMedia(room: string) {
   // qualidade mas 3 fps" was the setting working exactly as configured.
   // "balanced" gives up a little of each instead, which is the right answer
   // when nobody has said which one matters more.
-  const [shareProfile, setShareProfileState] = useState<DegradationMode>("balanced");
+  const [shareProfile, setShareProfileState] = useState<DegradationMode>(() =>
+    restoredSetting(getStoredShareProfile(), SHARE_PROFILE_OPTIONS, "balanced")
+  );
   const shareResolutionRef = useRef(shareResolution);
   const shareFpsRef = useRef(shareFps);
   const shareBitrateRef = useRef(shareBitrate);
@@ -1980,26 +2036,31 @@ export function useRoomMedia(room: string) {
   const setShareResolution = useCallback((value: ShareResolution) => {
     shareResolutionRef.current = value;
     setShareResolutionState(value);
+    setStoredShareResolution(value);
     trackEvent(`screen_share_resolution_${value}`);
   }, []);
   const setShareFps = useCallback((value: ShareFps) => {
     shareFpsRef.current = value;
     setShareFpsState(value);
+    setStoredShareFps(value);
     trackEvent(`screen_share_fps_${value}`);
   }, []);
   const setShareBitrate = useCallback((value: ShareBitrate) => {
     shareBitrateRef.current = value;
     setShareBitrateState(value);
+    setStoredShareBitrate(value);
     trackEvent(`screen_share_bitrate_${value}`);
   }, []);
   const setSmartQualityEnabled = useCallback((value: boolean) => {
     smartQualityEnabledRef.current = value;
     setSmartQualityEnabledState(value);
+    setStoredSmartQuality(value);
     trackEvent(value ? "smart_quality_on" : "smart_quality_off");
   }, []);
   const setShareProfile = useCallback((value: DegradationMode) => {
     shareProfileRef.current = value;
     setShareProfileState(value);
+    setStoredShareProfile(value);
     // Above 30fps only makes sense once the encoder is allowed to give frame
     // rate some weight, which "text" alone does not — picking it while asking
     // for 60fps is exactly the combination that produces a stuttering share,
@@ -2008,6 +2069,10 @@ export function useRoomMedia(room: string) {
     if (value === "text" && shareFpsRef.current > 30) {
       shareFpsRef.current = 30;
       setShareFpsState(30);
+      // Persisted as well: this path sets the state directly instead of going
+      // through setShareFps, and without this the next visit would restore
+      // the 60 that was just overruled while the picker showed 30.
+      setStoredShareFps(30);
     }
     trackEvent(`screen_share_profile_${value}`);
   }, []);
