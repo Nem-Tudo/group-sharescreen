@@ -678,12 +678,15 @@ export default function Home() {
         {/* No heading on this one: the home page is a form someone came here to
           fill in, and three handles under it explain themselves. */}
         <SocialLinks title={null} className="mt-6" />
-        <p className="mt-4 text-center text-xs text-zinc-400 dark:text-zinc-600">
+        <p className="mt-4 flex gap-5 text-center text-xs text-zinc-400 dark:text-zinc-600" style={{ alignItems: "center" }}>
           <Link
             href="/termos"
             className="underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-300"
           >
             Termos de uso
+          </Link>
+          <Link href={"https://go.nemtudo.me/square-link"} target="_blank">
+            <img src={"https://cdn.squarecloud.app/assets/powered-by.svg"} style={{ width: "200px" }} />
           </Link>
         </p>
         <p className="mt-4 text-center text-[11px] leading-relaxed text-zinc-400 dark:text-zinc-500">

@@ -29,9 +29,14 @@ const PRIMARY: any[] = [
   // { href: "/worldmap", label: "Mapa de salas", short: "Mapa", Icon: MdOutlineMap },
 ];
 
+function SquareIcon() {
+  return <img style={{ width: "20px" }} src={"https://cdn.squarecloud.app/assets/logo.svg"} />
+}
+
 const SECONDARY = [
-  { href: "/app", label: "App para PC", short: "App", Icon: MdMonitor },
-  { href: "/discord-bot", label: "Bot para Discord", short: "Bot", Icon: FaDiscord },
+  { href: "https://go.nemtudo.me/square-link", target: "_blank", label: "Square Cloud", short: "Square", Icon: SquareIcon },
+  { href: "/app", label: "App para PC", target: "", short: "App", Icon: MdMonitor },
+  { href: "/discord-bot", label: "Bot para Discord", target: "", short: "Bot", Icon: FaDiscord },
 ];
 
 export function SiteHeader() {
@@ -51,7 +56,7 @@ export function SiteHeader() {
           {/* The same red square that app/opengraph-image.tsx draws and every
               Discord embed of the site shows — the mark people already
               associate with GoLive, rather than a second one invented here. */}
-          <img src="/icon.png" alt="site icon" style={{width: "20px"}} />
+          <img src="/icon.png" alt="site icon" style={{ width: "20px" }} />
           <span className="hidden text-base font-semibold tracking-tight text-zinc-950 sm:inline dark:text-zinc-50">
             GoLive
           </span>
@@ -66,11 +71,10 @@ export function SiteHeader() {
                 key={href}
                 href={href}
                 aria-current={active ? "page" : undefined}
-                className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm font-medium transition ${
-                  active
-                    ? "border-zinc-950 bg-zinc-950 text-white dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-950"
-                    : "border-zinc-300 bg-white text-zinc-800 hover:border-zinc-400 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-900"
-                }`}
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm font-medium transition ${active
+                  ? "border-zinc-950 bg-zinc-950 text-white dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-950"
+                  : "border-zinc-300 bg-white text-zinc-800 hover:border-zinc-400 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-900"
+                  }`}
               >
                 <Icon className="h-4 w-4 shrink-0" />
                 {/* Two full labels do not fit a phone, and two bare icons are
@@ -84,7 +88,7 @@ export function SiteHeader() {
         </nav>
 
         <nav className="ml-auto flex items-center gap-0.5 sm:gap-1">
-          {SECONDARY.map(({ href, label, short, Icon }) => {
+          {SECONDARY.map(({ href, label, short, target, Icon }) => {
             const active = pathname === href;
             return (
               <Link
@@ -92,13 +96,13 @@ export function SiteHeader() {
                 href={href}
                 aria-current={active ? "page" : undefined}
                 title={label}
-                className={`inline-flex items-center gap-1.5 rounded-lg px-1.5 py-1.5 text-sm transition sm:px-2.5 ${
-                  active
-                    ? "font-medium text-zinc-950 dark:text-zinc-50"
-                    : "text-zinc-500 hover:bg-zinc-200/60 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
-                }`}
+                target={target}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-1.5 py-1.5 text-sm transition sm:px-2.5 ${active
+                  ? "font-medium text-zinc-950 dark:text-zinc-50"
+                  : "text-zinc-500 hover:bg-zinc-200/60 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
+                  }`}
               >
-                <Icon className="hidden h-4 w-4 shrink-0 sm:inline" />
+                {Icon && <Icon className="hidden h-4 w-4 shrink-0 sm:inline" />}
                 <span className="hidden lg:inline">{label}</span>
                 <span className="lg:hidden">{short}</span>
               </Link>
