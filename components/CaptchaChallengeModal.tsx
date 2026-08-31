@@ -70,7 +70,7 @@ export function CaptchaChallengeModal({
           <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
             {status === "unavailable"
               ? "Não conseguimos carregar a verificação. Desative bloqueadores de anúncios ou extensões de privacidade para este site e tente de novo."
-              : "Nossa verificação automática não teve certeza de que você é uma pessoa. Isso é comum com VPN, navegador anônimo ou o navegador dentro de outro app."}
+              : "Nossa verificação automática não teve certeza de que você é uma pessoa."}
           </p>
         </div>
 
