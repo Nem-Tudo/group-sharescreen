@@ -9,7 +9,6 @@ import { trackEvent } from "@/lib/analytics";
 import {
   toRoomHandle,
   isPrivateRoomHandle,
-  fetchPeopleOnline,
   generateRoomCode,
   roomExists,
   toPrivateRoomHandle,
@@ -18,6 +17,7 @@ import {
   MAX_PRIVATE_ROOM_NAME_LENGTH,
   ENFORCE_NEW_ROOM_CODE_SYSTEM,
 } from "@/lib/roomsApi";
+import { usePeopleOnline } from "@/lib/peopleOnline";
 import { useAuth } from "@/lib/AuthContext";
 import { CreateAccountForm } from "@/components/CreateAccountForm";
 import { LoginForm } from "@/components/LoginForm";
@@ -36,7 +36,6 @@ import { Tooltip } from "@/components/Tooltip";
 // this lets through but the server rejects lands the user in a dead room
 // (join fails server-side, but the client's already navigated to it).
 const HANDLE_RE = /^[a-zA-Z0-9_-]{1,32}$/;
-const PEOPLE_COUNT_POLL_MS = 8000;
 // How long typing has to settle before the room lookup fires. Long enough
 // that a name typed straight through costs one request rather than one per
 // letter, short enough that the button has settled by the time someone's
@@ -86,7 +85,9 @@ export default function Home() {
   const router = useRouter();
   const { loading: resolvingAccount } = useAuth();
 
-  const [peopleOnline, setPeopleOnline] = useState<number | null>(null);
+  // One shared poller for the whole page rather than one per component — see
+  // lib/peopleOnline.ts for why that mattered enough to be worth a module.
+  const peopleOnline = usePeopleOnline();
   const [roomInput, setRoomInput] = useState("");
   const [roomError, setRoomError] = useState<string | null>(null);
   const [roomMode, setRoomMode] = useState<RoomMode>("public");
@@ -115,9 +116,14 @@ export default function Home() {
 
   // useAccountToken()/useHasStoredName() briefly report empty/false on the
   // very first client paint (their useSyncExternalStore server snapshot),
-  // before correcting to the real localStorage-backed value — without this
-  // gate that one frame renders `restoring` as false for a logged-in
-  // account, flashing the "choose name" popups before flipping back.
+  // before correcting to the real localStorage-backed value — so for that one
+  // frame a returning visitor looks like a brand-new one, and the identity
+  // forms below would flash into view before flipping back.
+  //
+  // This gates only those forms now, not the page. Gating the page meant the
+  // pre-hydration state was a connection status the server could not know, and
+  // that a page which failed to hydrate had no way out of it — see `restoring`
+  // below.
   const [mounted, setMounted] = useState(false);
   // Deferred by a tick rather than set synchronously in the effect: setting
   // state during the effect body forces a second render pass before the
@@ -154,10 +160,29 @@ export default function Home() {
   // them.
   const superseded = state.status === "superseded";
   const banned = state.status === "banned";
+  // `mounted` is deliberately NOT part of this any more, and that is the whole
+  // point of the change.
+  //
+  // It used to be, as `!mounted || ...`, which meant the server-rendered HTML
+  // for this page always said "Reconectando...". That is a claim the server
+  // cannot possibly make — it knows nothing about this visitor's connection —
+  // and it turned every failure to hydrate into a permanently dead landing
+  // page: the text is server HTML so it paints, but `mounted`, the fifteen-
+  // second timer behind the retry button and every network call on this page
+  // all live in effects that never ran. The result was a site that said it was
+  // reconnecting while nothing was connecting, offered no button, and made no
+  // requests at all. Anything can stop hydration — a chunk that fails to
+  // download while the API is under load, an extension, a cold cache on a slow
+  // link — and none of it should be able to do that.
+  //
+  // Now the pre-hydration render is the ordinary page. The cost is the flash
+  // `mounted` was added to prevent (see its own comment), which is handled
+  // below where it actually happens instead of by hiding the entire page.
   const restoring =
     !banned &&
     !superseded &&
-    (!mounted || (!registered && (resolvingAccount || (hasStoredName && !state.nameError))));
+    !registered &&
+    (resolvingAccount || (hasStoredName && !state.nameError));
 
   // "Reconectando..." is honest for a second or two and useless after fifteen:
   // the automatic retry is still running, but it has backed off to one attempt
@@ -176,29 +201,6 @@ export default function Home() {
       setStuckReconnecting(false);
     };
   }, [restoring]);
-  useEffect(() => {
-    let cancelled = false;
-    const controller = new AbortController();
-
-    async function load() {
-      try {
-        const count = await fetchPeopleOnline(controller.signal);
-        if (cancelled) return;
-        setPeopleOnline(count);
-      } catch {
-        // Directory unreachable — leave the last known count in place
-        // rather than flashing an error over a non-essential counter.
-      }
-    }
-
-    load();
-    const interval = setInterval(load, PEOPLE_COUNT_POLL_MS);
-    return () => {
-      cancelled = true;
-      controller.abort();
-      clearInterval(interval);
-    };
-  }, []);
 
   function resetIdentityForm() {
     setMode("landing");
@@ -449,6 +451,14 @@ export default function Home() {
                 </>
               )}
             </div>
+          ) : !mounted ? (
+            // The one frame where a returning visitor still looks brand new
+            // (see `mounted`). An empty box the exact height of the identity
+            // area, so the layout does not jump when the real content lands —
+            // and, unlike gating the whole page, a state nothing can get stuck
+            // in: it ends on the first client render, hydrated or not, because
+            // a page that never hydrates never renders this at all.
+            <div className="mt-8 h-24" aria-hidden />
           ) : oauthTicket ? (
             <div className="mt-8">
               <CompleteOAuthSignupForm

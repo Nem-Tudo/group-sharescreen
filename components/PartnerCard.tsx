@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchPeopleOnline, getSignalingHttpBase } from "@/lib/roomsApi";
+import { getSignalingHttpBase } from "@/lib/roomsApi";
+import { usePeopleOnline } from "@/lib/peopleOnline";
 import { trackEvent } from "@/lib/analytics";
 import { useSignaling } from "@/lib/useSignaling";
 import { signalingClient } from "@/lib/signalingClient";
@@ -22,7 +23,6 @@ import { useVideoDurationLabel } from "@/lib/useVideoDuration";
 import { Popover } from "@/components/Tooltip";
 
 const STATS_DASHBOARD_URL = process.env.NEXT_PUBLIC_STATS_DASHBOARD_URL;
-const PEOPLE_COUNT_POLL_MS = 8000;
 
 // How often the slot asks the server for a different ad. Long on purpose: an
 // ad that changes while someone is still reading it is worse than no rotation
@@ -164,7 +164,9 @@ export function PartnerCard() {
   const signalingState = useSignaling();
   const [partner, setPartner] = useState<PartnerCardData | null>(null);
   const [loaded, setLoaded] = useState(false);
-  const [peopleOnline, setPeopleOnline] = useState<number | null>(null);
+  // Shared with the landing page's own readout instead of polling separately
+  // for the same number — see lib/peopleOnline.ts.
+  const peopleOnline = usePeopleOnline();
   const [statsOpen, setStatsOpen] = useState(false);
   const [showingExample, setShowingExample] = useState(false);
   // Lets someone looking at a real, paid ad discover they could buy this
@@ -435,32 +437,6 @@ export function PartnerCard() {
     const timer = setTimeout(() => setClickRewardJustClaimed(false), CLICK_REWARD_CLAIMED_MS);
     return () => clearTimeout(timer);
   }, [clickRewardJustClaimed]);
-
-  // Runs regardless of whether a real partner is configured: the count now
-  // shows next to "Anuncie aqui você também!" over a real ad too, not just
-  // inside the house ad itself, so there's no state where it's unneeded.
-  useEffect(() => {
-    let cancelled = false;
-    const controller = new AbortController();
-
-    async function load() {
-      try {
-        const count = await fetchPeopleOnline(controller.signal);
-        if (!cancelled) setPeopleOnline(count);
-      } catch {
-        // Directory unreachable — leave the last known count in place
-        // rather than flashing an error over a non-essential counter.
-      }
-    }
-
-    load();
-    const interval = setInterval(load, PEOPLE_COUNT_POLL_MS);
-    return () => {
-      cancelled = true;
-      controller.abort();
-      clearInterval(interval);
-    };
-  }, []);
 
   if (!loaded) return null;
 
