@@ -333,12 +333,19 @@ export type SignalingState = {
   bannedReason: string | null;
   joinError: string | null;
   // Which kind of refusal `joinError` describes, because the two need
-  // different screens and used to be indistinguishable. "name" is the room
-  // turning this connection away for a reason tied to it — the name is taken,
-  // the room is full, a private room's code is wrong — where offering a
-  // different name is the way forward. "captcha" is the security check, where
-  // a name field is beside the point and the only useful control is a retry.
-  joinErrorKind: "name" | "captcha" | null;
+  // different screens and different controls, and used to be
+  // indistinguishable — every failure got the same "choose another name"
+  // form, which is only ever the right answer for one of them.
+  //   "name"    — the name is taken in this room; a rename is the way in.
+  //   "full"    — the room hit its member limit; retrying later or going
+  //               elsewhere is all there is, a rename does nothing.
+  //   "banned"  — thrown out of this room; nothing to retry, support is the
+  //               only recourse.
+  //   "captcha" — the security check (its own screen above).
+  //   "generic" — everything else (a code-less private handle, a rate limit,
+  //               or an unrecognised reason from a newer/older server):
+  //               retry, home and support, but no misleading rename box.
+  joinErrorKind: "name" | "full" | "banned" | "captcha" | "generic" | null;
   // The invisible check refused this join and the server offered a challenge
   // instead of a dead end (see the API's join gate and TURNSTILE_ENABLED).
   // True means "show the person something to solve"; the join is still
@@ -841,14 +848,29 @@ class SignalingClient {
       // server/signaling.ts's "join" handler) — surfaced separately from
       // register-error since, unlike that one, our name registration itself
       // was fine; only entering *this* room failed.
-      case "join-error":
+      case "join-error": {
         this.desiredRoom = null;
+        // The server tags each refusal with a `reason` (see its join handler);
+        // the booleans are the older signal an out-of-date server still sends,
+        // read as a fallback so this keeps working across a deploy. Anything
+        // unrecognised is "generic" — a real failure with honest controls,
+        // never the rename box, which was the whole bug.
+        const reason = typeof msg.reason === "string" ? msg.reason : "";
+        const kind: SignalingState["joinErrorKind"] =
+          reason === "name-taken"
+            ? "name"
+            : reason === "full" || msg.full === true
+              ? "full"
+              : reason === "banned" || msg.banned === true
+                ? "banned"
+                : "generic";
         this.setState({
           joinError: (msg.message as string) ?? "Não foi possível entrar nesta sala.",
-          joinErrorKind: "name",
+          joinErrorKind: kind,
         });
         trackEvent("join_error");
         break;
+      }
       case "room-state": {
         // The server sends the room's full retained chat history (kept for
         // the room's lifetime — see server/signaling.ts) on every join,

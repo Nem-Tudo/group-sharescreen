@@ -1662,64 +1662,112 @@ export function WatchRoom({ handle }: { handle: string }) {
     );
   }
 
-  // The security check refused this join (see signalingClient.ts's
-  // "captcha-required" handling). Its own screen, tested before the one
-  // below, because both used to key off `joinError` alone and the first one
-  // written won — so every captcha failure was shown a "choose another name"
-  // form, which is not what is wrong and not something that helps. reCAPTCHA
-  // v3 never shows a challenge, so the message is the only thing that can
-  // explain it and a retry is the only useful control.
-  if (state.joinError && state.joinErrorKind === "captcha") {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4 text-center">
-        <p className="text-lg font-medium text-zinc-900 dark:text-zinc-100">
-          Não foi possível entrar na sala.
-        </p>
-        <p className="max-w-md text-sm text-zinc-500 dark:text-zinc-400">{state.joinError}</p>
-        <button
-          type="button"
-          onClick={() => signalingClient.joinRoom(handle)}
-          className="rounded-lg bg-zinc-950 px-4 py-2.5 font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
-        >
-          Tentar novamente
-        </button>
-      </div>
-    );
-  }
-
-  // A different guest/account already holds this name in this specific
-  // room (see server/signaling.ts's "join" handler) — unlike "superseded"
-  // above, nobody here was kicked; this connection just never got in, so a
-  // different name lets it retry immediately instead of waiting/reloading.
+  // The room turned this connection away. One screen for every reason, but
+  // the reason decides the words, the icon and — the whole point — which
+  // action is offered first: a rename only where a rename actually helps
+  // (the name is taken), a retry where retrying can change the outcome, and
+  // never a rename box for someone who is banned or in a full room, which is
+  // what the old single screen showed everyone. See joinErrorKind in
+  // signalingClient. Home, other rooms and support are always there, because
+  // "this didn't work" should never be a dead end.
   if (state.joinError) {
+    const kind = state.joinErrorKind;
+    const failure: {
+      icon: string;
+      title: string;
+      // Whether a plain retry can plausibly succeed next time. A taken name
+      // needs the form instead; a ban never will.
+      retry: boolean;
+    } =
+      kind === "name"
+        ? { icon: "\u{1F464}", title: "Esse nome já está em uso", retry: false }
+        : kind === "full"
+          ? { icon: "\u{1F6AA}", title: "Esta sala está cheia", retry: true }
+          : kind === "banned"
+            ? { icon: "\u{1F6D1}", title: "Você foi banido desta sala", retry: false }
+            : kind === "captcha"
+              ? { icon: "\u{1F6E1}\uFE0F", title: "Verificação de segurança", retry: true }
+              : { icon: "\u26A0\uFE0F", title: "Não foi possível entrar na sala", retry: true };
+
     return (
       <div className="flex flex-1 items-center justify-center px-4 py-16">
-        <main className="w-full max-w-md rounded-2xl border border-black/10 bg-white p-8 shadow-sm dark:border-white/10 dark:bg-zinc-950">
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-            Não foi possível entrar na sala {handle}
+        <main className="w-full max-w-md rounded-2xl border border-black/10 bg-white p-8 text-center shadow-sm dark:border-white/10 dark:bg-zinc-950">
+          <div
+            aria-hidden
+            className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-zinc-100 text-2xl dark:bg-zinc-900"
+          >
+            {failure.icon}
+          </div>
+          <h1 className="mt-4 text-xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
+            {failure.title}
           </h1>
-          <p className="mt-1 text-sm text-red-500">{state.joinError}</p>
-          <form onSubmit={handleNameSubmit} className="mt-8 flex flex-col gap-3">
-            <label htmlFor="join-error-name" className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              Escolha outro nome
-            </label>
-            <input
-              id="join-error-name"
-              autoFocus
-              value={nameInput}
-              onChange={(e) => setNameInput(e.target.value)}
-              maxLength={24}
-              placeholder="Ex: Maria"
-              className="rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-            />
-            <button
-              type="submit"
-              disabled={!nameInput.trim()}
-              className="mt-2 rounded-lg bg-zinc-950 px-4 py-2.5 font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{state.joinError}</p>
+
+          {/* Only where changing the name is the actual fix. Everywhere else a
+              name field would be the same misdirection the old screen gave
+              everyone. */}
+          {kind === "name" && (
+            <form onSubmit={handleNameSubmit} className="mt-6 flex flex-col gap-2 text-left">
+              <label
+                htmlFor="join-error-name"
+                className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
+              >
+                Escolha outro nome
+              </label>
+              <div className="flex gap-2">
+                <input
+                  id="join-error-name"
+                  autoFocus
+                  value={nameInput}
+                  onChange={(e) => setNameInput(e.target.value)}
+                  maxLength={24}
+                  placeholder="Ex: Maria"
+                  className="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                />
+                <button
+                  type="submit"
+                  disabled={!nameInput.trim()}
+                  className="shrink-0 rounded-lg bg-zinc-950 px-4 py-2.5 font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+                >
+                  Entrar
+                </button>
+              </div>
+            </form>
+          )}
+
+          <div className="mt-6 flex flex-col gap-2">
+            {failure.retry && (
+              <button
+                type="button"
+                onClick={() => signalingClient.joinRoom(handle)}
+                className="rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+              >
+                Tentar novamente
+              </button>
+            )}
+            <div className="flex gap-2">
+              <Link
+                href="/"
+                className="flex-1 rounded-lg border border-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+              >
+                Início
+              </Link>
+              <Link
+                href="/rooms"
+                className="flex-1 rounded-lg border border-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+              >
+                Outras salas
+              </Link>
+            </div>
+            <a
+              href="https://discord.gg/nemtudo"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-lg px-4 py-2 text-sm font-medium text-blue-600 transition hover:text-blue-700 dark:text-blue-500 dark:hover:text-blue-400"
             >
-              Entrar na sala
-            </button>
-          </form>
+              Precisa de ajuda? Fale com o suporte no Discord
+            </a>
+          </div>
         </main>
       </div>
     );
