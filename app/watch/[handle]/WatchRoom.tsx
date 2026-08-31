@@ -22,6 +22,7 @@ import {
 } from "@/lib/signalingClient";
 import { useSignaling, useHasStoredName } from "@/lib/useSignaling";
 import { useAuth } from "@/lib/AuthContext";
+import { CaptchaChallengeModal } from "@/components/CaptchaChallengeModal";
 import { getAccountToken } from "@/lib/accountApi";
 import { sendChatImages } from "@/lib/chatImage";
 import {
@@ -1622,6 +1623,46 @@ export function WatchRoom({ handle }: { handle: string }) {
     );
   }
 
+  // The invisible check refused this join but the server offered a challenge
+  // instead of a dead end (see signalingClient's "captcha-required"). Takes
+  // the screen like the other pre-join states below rather than layering over
+  // the room, because there is no room yet: the join is still pending, just
+  // waiting on a person instead of on the network.
+  if (state.captchaChallenge) {
+    return (
+      <CaptchaChallengeModal
+        error={state.captchaChallengeError}
+        onToken={(token) => signalingClient.submitCaptchaChallenge(token)}
+        onCancel={() => signalingClient.dismissCaptchaChallenge()}
+      />
+    );
+  }
+
+  // The security check refused this join (see signalingClient.ts's
+  // "captcha-required" handling). Its own screen, tested before the one
+  // below, because both used to key off `joinError` alone and the first one
+  // written won — so every captcha failure was shown a "choose another name"
+  // form, which is not what is wrong and not something that helps. reCAPTCHA
+  // v3 never shows a challenge, so the message is the only thing that can
+  // explain it and a retry is the only useful control.
+  if (state.joinError && state.joinErrorKind === "captcha") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4 text-center">
+        <p className="text-lg font-medium text-zinc-900 dark:text-zinc-100">
+          Não foi possível entrar na sala.
+        </p>
+        <p className="max-w-md text-sm text-zinc-500 dark:text-zinc-400">{state.joinError}</p>
+        <button
+          type="button"
+          onClick={() => signalingClient.joinRoom(handle)}
+          className="rounded-lg bg-zinc-950 px-4 py-2.5 font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+        >
+          Tentar novamente
+        </button>
+      </div>
+    );
+  }
+
   // A different guest/account already holds this name in this specific
   // room (see server/signaling.ts's "join" handler) — unlike "superseded"
   // above, nobody here was kicked; this connection just never got in, so a
@@ -1715,28 +1756,6 @@ export function WatchRoom({ handle }: { handle: string }) {
   }
 
   // Ran out of automatic retries getting a captcha token accepted for this
-  // join (see signalingClient.ts's performJoin/MAX_JOIN_RETRIES) — unlike
-  // "banned" above, this is usually transient (network blip, ad blocker
-  // interfering with the reCAPTCHA script), so offer a manual retry instead
-  // of a dead end.
-  if (state.joinError) {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4 text-center">
-        <p className="text-lg font-medium text-zinc-900 dark:text-zinc-100">
-          Não foi possível entrar na sala.
-        </p>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">{state.joinError}</p>
-        <button
-          type="button"
-          onClick={() => signalingClient.joinRoom(handle)}
-          className="rounded-lg bg-zinc-950 px-4 py-2.5 font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
-        >
-          Tentar novamente
-        </button>
-      </div>
-    );
-  }
-
   // Registered but the "join" for this room hasn't resolved into a
   // "room-state" yet — covers the (usually sub-second) time spent resolving
   // a captcha token before the join is even sent. Without this the room

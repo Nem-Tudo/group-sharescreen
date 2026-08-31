@@ -50,8 +50,38 @@ const SCRIPT_READY_TIMEOUT_MS = 8_000;
 // call to Google and this sits in front of a user pressing a button.
 const EXECUTE_TIMEOUT_MS = 10_000;
 
+// Set once the script has been waited out and never arrived — almost always
+// an ad blocker or privacy extension, since reCAPTCHA is on most blocklists.
+//
+// Remembered because the join path retries: without this, four attempts each
+// spend the full SCRIPT_READY_TIMEOUT_MS waiting for a script that is not
+// coming, so somebody with uBlock sits on "Entrando..." for half a minute
+// before being told anything at all. With it, the second attempt onwards
+// fails instantly and the person gets a message they can act on.
+let scriptUnavailable = false;
+
+/** Whether the last attempt found reCAPTCHA's script missing (see above). */
+export function isCaptchaScriptUnavailable(): boolean {
+  return scriptUnavailable;
+}
+
+/**
+ * Forgets that verdict, so the next call waits for the script again.
+ *
+ * Called when somebody presses "Tentar novamente": the most likely thing they
+ * did between the failure and the button is turn off the extension that
+ * caused it, and a cached "blocked" would make that have no effect.
+ */
+export function resetCaptchaScriptCache(): void {
+  scriptUnavailable = false;
+}
+
 function waitForScript(): Promise<GrecaptchaApi | null> {
-  if (window.grecaptcha?.execute) return Promise.resolve(window.grecaptcha);
+  if (window.grecaptcha?.execute) {
+    scriptUnavailable = false;
+    return Promise.resolve(window.grecaptcha);
+  }
+  if (scriptUnavailable) return Promise.resolve(null);
   return new Promise((resolve) => {
     const start = Date.now();
     const interval = setInterval(() => {
@@ -60,9 +90,11 @@ function waitForScript(): Promise<GrecaptchaApi | null> {
       // for the namespace alone can hand back something that throws.
       if (window.grecaptcha?.execute) {
         clearInterval(interval);
+        scriptUnavailable = false;
         resolve(window.grecaptcha);
       } else if (Date.now() - start > SCRIPT_READY_TIMEOUT_MS) {
         clearInterval(interval);
+        scriptUnavailable = true;
         resolve(null);
       }
     }, 100);
