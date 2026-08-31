@@ -100,7 +100,9 @@ export class RelayLink {
   // viewer, and deserves the same treatment. Left unset before the first
   // relay-assign arrives, but that assignment is also what triggers the
   // first openChild, so no child is ever built against the wrong value.
-  private degradation: DegradationMode = "text";
+  // The app-wide default, until the origin's own pick arrives via
+  // setChildren — see useRoomMedia's shareProfile.
+  private degradation: DegradationMode = "balanced";
 
   constructor(
     /** Who originally produced this stream — not who handed it to us. */
@@ -195,6 +197,10 @@ export class RelayLink {
         // which is a plausible source of "losing FPS" complaints on its
         // own: exactly the deepest, most cascade-dependent viewers got the
         // least-informed encode of anyone in the room.
+        // "balanced" hints motion alongside "motion": contentHint has no middle
+        // value, and "text"/"detail" is the one that tells the encoder to
+        // protect sharpness and throw frames away — the exact behaviour a
+        // balanced share is asking not to have.
         track.contentHint = this.degradation === "text" ? "text" : "motion";
         const transceivers = pc.getTransceivers();
         const transceiver = transceivers.find((t) => t.sender === sender);

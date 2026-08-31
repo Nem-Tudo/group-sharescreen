@@ -531,12 +531,12 @@ function useBroadcastChannel(
   }, []);
   const videoQualityRef = useRef(videoQuality);
   const qualityCeilingRef = useRef<QualityTier>(videoQuality?.ceilingTier ?? BEST_TIER);
-  const degradationModeRef = useRef<DegradationMode>(videoQuality?.degradation ?? "text");
+  const degradationModeRef = useRef<DegradationMode>(videoQuality?.degradation ?? "balanced");
   const honorRequestsRef = useRef<boolean>(videoQuality?.honorViewerRequests ?? true);
   useEffect(() => {
     videoQualityRef.current = videoQuality;
     qualityCeilingRef.current = videoQuality?.ceilingTier ?? BEST_TIER;
-    degradationModeRef.current = videoQuality?.degradation ?? "text";
+    degradationModeRef.current = videoQuality?.degradation ?? "balanced";
     honorRequestsRef.current = videoQuality?.honorViewerRequests ?? true;
   }, [videoQuality]);
 
@@ -1471,12 +1471,24 @@ function useBroadcastChannel(
             });
             return;
           }
-          // "text" if the sender predates this field (an older tab still
-          // open through a deploy) — the same default RelayLink itself
-          // starts with, so a missing field changes nothing about today's
-          // behavior; it just stops silently overriding a broadcaster who
-          // did send one.
-          const degradation: DegradationMode = data.degradation === "motion" ? "motion" : "text";
+          // Read as a set rather than "motion or else text": with three
+          // profiles that shape is no longer a default, it is a
+          // misclassification. A broadcaster sharing a game on "balanced"
+          // would have had their relayed viewers served under
+          // maintain-resolution — the one setting they did not choose, and
+          // the one that turns their share into a slideshow.
+          //
+          // A sender that names no profile at all predates this field (an
+          // older tab still open through a deploy). That falls to the app's
+          // default, same as RelayLink's own — "nobody said" and "nobody
+          // opened the menu" are the same statement and deserve the same
+          // answer. It used to resolve to "text" because that was the
+          // default at the time; reproducing it now would hand a relayed
+          // viewer the one profile this app no longer picks for anyone.
+          const degradation: DegradationMode =
+            data.degradation === "motion" || data.degradation === "balanced"
+              ? data.degradation
+              : "balanced";
           const link = relays.current.ensure(origin, source.stream, source.pc, forceRelayIceRef.current, () => {
             // Our own source died. Tell the broadcaster so it can re-plan
             // rather than keep routing people through a dead branch.
@@ -1948,7 +1960,17 @@ export function useRoomMedia(room: string) {
   // What is being shared. This drives contentHint, degradationPreference and
   // codec ordering all at once, and getting it wrong is the difference
   // between crisp text and a 60fps game that stutters into a slideshow.
-  const [shareProfile, setShareProfileState] = useState<DegradationMode>("text");
+  //
+  // "balanced" is the default, and deliberately not "text" any more. A
+  // default is what almost everyone actually gets — most people never open
+  // this menu — so it has to be the setting that is least wrong for content
+  // nobody has described. "text" was the opposite of that: it pins
+  // maintain-resolution and a software VP9 encode, so any shortage of bits or
+  // CPU comes out as discarded frames, and a share people described as "boa
+  // qualidade mas 3 fps" was the setting working exactly as configured.
+  // "balanced" gives up a little of each instead, which is the right answer
+  // when nobody has said which one matters more.
+  const [shareProfile, setShareProfileState] = useState<DegradationMode>("balanced");
   const shareResolutionRef = useRef(shareResolution);
   const shareFpsRef = useRef(shareFps);
   const shareBitrateRef = useRef(shareBitrate);
@@ -1978,9 +2000,11 @@ export function useRoomMedia(room: string) {
   const setShareProfile = useCallback((value: DegradationMode) => {
     shareProfileRef.current = value;
     setShareProfileState(value);
-    // 60fps only makes sense with the motion profile; picking "game" while
-    // the encoder is told to protect resolution is exactly the combination
-    // that produces a stuttering share, so nudge fps down with it.
+    // Above 30fps only makes sense once the encoder is allowed to give frame
+    // rate some weight, which "text" alone does not — picking it while asking
+    // for 60fps is exactly the combination that produces a stuttering share,
+    // so nudge fps down with it. Deliberately not applied to "balanced":
+    // holding a high frame rate is half of what that profile is for.
     if (value === "text" && shareFpsRef.current > 30) {
       shareFpsRef.current = 30;
       setShareFpsState(30);

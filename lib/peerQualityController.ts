@@ -29,7 +29,32 @@ import {
   type QualityTier,
 } from "./videoQuality";
 
-export type DegradationMode = "text" | "motion";
+// What the broadcaster says they are sharing, which decides how the encoder
+// spends a shortage — of bits, of CPU, or both.
+//
+// "balanced" is the middle rung and maps to WebRTC's own degradation
+// preference of the same name: instead of protecting one axis absolutely and
+// sacrificing the other, the encoder gives up a little of each. It exists
+// because the two ends are both a cliff. "text" holds 1080p and lets frame
+// rate collapse to single digits (a sharp slideshow); "motion" holds 60fps
+// and lets the picture soften until small text is unreadable. Most real
+// screen sharing — a browser, a terminal, a video playing in a tab — is
+// neither, and picking either end for it is picking which way to be wrong.
+export type DegradationMode = "text" | "balanced" | "motion";
+
+// The one place the three profiles become the WebRTC setting. A record rather
+// than a chain of ternaries so a fourth mode cannot be added without deciding
+// what it does here.
+const DEGRADATION_PREFERENCE: Record<DegradationMode, RTCDegradationPreference> = {
+  // Sharpness above all: right for code and documents, and the reason a
+  // 60fps share on this setting degrades into a slideshow.
+  text: "maintain-resolution",
+  // Give up some of each. The encoder decides the mix, continuously, from
+  // what it is actually short of.
+  balanced: "balanced",
+  // Fluidity above all: right for a game or a film.
+  motion: "maintain-framerate",
+};
 
 // Congestion thresholds.
 //
@@ -184,7 +209,16 @@ export class PeerQualityController {
     const targetKbps = congestedBitrateKbps(ceilingKbps, this.ratio);
     const tierScale = scaleFactorFor(this.tier, this.captureHeight);
     const share = tierKbps > 0 ? targetKbps / tierKbps : 1;
-    const congestionScale = share <= SCALE_HARD ? 2 : share <= SCALE_SOFT ? 1.5 : 1;
+    // "balanced" opts out of this extra downscale, and that opt-out is the
+    // profile's whole promise: stay at the best picture the ceiling allows
+    // and let the encoder find the equilibrium. Under the other two modes
+    // this is a useful nudge, because the encoder is protecting one axis
+    // absolutely and will not shrink the picture on its own. Under
+    // "balanced" it already does exactly that, adaptively and from moment to
+    // moment — so applying both means degrading twice for one shortage: the
+    // app halves the picture, then the encoder degrades what is left.
+    const congestionScale =
+      this.degradation === "balanced" ? 1 : share <= SCALE_HARD ? 2 : share <= SCALE_SOFT ? 1.5 : 1;
     const scale = Math.round(tierScale * congestionScale * 100) / 100;
 
     // setParameters triggers an encoder reconfiguration; calling it with
@@ -212,12 +246,10 @@ export class PeerQualityController {
     encodings[0].scaleResolutionDownBy = scale;
     encodings[0].maxFramerate = tierSpec(this.tier).frameRate;
     params.encodings = encodings;
-    // "text" keeps the picture sharp and lets frame rate fall — right for
-    // code and documents. "motion" does the opposite, which is what a 60fps
-    // game or video needs. Choosing wrong is not subtle: a 60fps share under
-    // maintain-resolution degrades into a slideshow rather than softening.
-    params.degradationPreference =
-      this.degradation === "text" ? "maintain-resolution" : "maintain-framerate";
+    // See DEGRADATION_PREFERENCE. Choosing wrong is not subtle: a 60fps share
+    // under maintain-resolution degrades into a slideshow rather than
+    // softening.
+    params.degradationPreference = DEGRADATION_PREFERENCE[this.degradation];
     this.sender.setParameters(params).catch(() => {
       // Racing a renegotiation or a closing pc — the next apply() will
       // reconcile, so a failure here is not worth surfacing.
@@ -239,7 +271,11 @@ export class PeerQualityRegistry {
   // Seeded to the "alto" dial position, which is also useRoomMedia's default.
   // Overwritten by setBitrateCeiling as soon as a share's preset is known.
   private bitrateCeilingKbps = 4000;
-  private degradation: DegradationMode = "text";
+  // Matches useRoomMedia's own default, for the same reason the bitrate seed
+  // above does: this is only ever read in the gap before a share's preset
+  // arrives, and a seed that disagreed with the default would make that gap
+  // visible as a brief switch of encoder strategy.
+  private degradation: DegradationMode = "balanced";
   private keyPrefix: string;
 
   /**

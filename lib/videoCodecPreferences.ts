@@ -7,7 +7,9 @@ import type { DegradationMode } from "./peerQualityController";
 
 // Codec preference. VP9 first for text-heavy screen content (its screen
 // content mode is what keeps small text legible at low bitrate). H264 first
-// for motion — despite AV1 compressing motion better bit-for-bit, that is a
+// for everything else — "motion" and "balanced" alike, since the moment a
+// profile cares about frame rate at all, encode speed is what decides
+// whether it gets one — despite AV1 compressing motion better bit-for-bit, that is a
 // statement about compression efficiency, not encode speed, and encode speed
 // is what motion content actually needs. Almost nobody's hardware has an AV1
 // encoder (unlike H264, which is close to universal); everywhere else the
@@ -24,6 +26,10 @@ export function applyVideoCodecPreferences(transceiver: RTCRtpTransceiver, mode:
   if (typeof RTCRtpSender.getCapabilities !== "function") return;
   const capabilities = RTCRtpSender.getCapabilities("video");
   if (!capabilities?.codecs) return;
+  // Only "text" takes the VP9-first branch. "balanced" deliberately shares
+  // the motion ordering: it is asking to hold quality *and* frame rate, and
+  // a software VP9 encode is precisely what makes holding both impossible on
+  // ordinary hardware.
   const order =
     mode === "text"
       ? ["video/VP9", "video/AV1", "video/H264", "video/VP8"]

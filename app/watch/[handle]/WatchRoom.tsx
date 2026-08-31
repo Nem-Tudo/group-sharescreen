@@ -356,10 +356,14 @@ function QualityControls({
           <span className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
             O que você está compartilhando
           </span>
-          <div className="grid grid-cols-2 gap-2">
+          {/* One column on a phone rather than three cramped ones: the hints
+              are what make these choosable, and they are the first thing to
+              become unreadable when the buttons get narrow. */}
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             {(
               [
                 { value: "text", label: "Texto / código", hint: "prioriza nitidez" },
+                { value: "balanced", label: "Equilibrado", hint: "nitidez e fluidez" },
                 { value: "motion", label: "Vídeo / jogo", hint: "prioriza fluidez" },
               ] as const
             ).map((opt) => (
@@ -388,8 +392,9 @@ function QualityControls({
               already there, and needs the same threshold. */}
           {shareProfile === "text" && shareFps > 30 && (
             <p className="mt-1 text-xs text-amber-600 dark:text-amber-500">
-              Acima de 30fps, escolha &quot;Vídeo / jogo&quot; — no modo texto o
-              navegador descarta quadros para manter a nitidez.
+              Acima de 30fps, escolha &quot;Equilibrado&quot; ou &quot;Vídeo /
+              jogo&quot; — no modo texto o navegador descarta quadros para
+              manter a nitidez.
             </p>
           )}
         </div>
