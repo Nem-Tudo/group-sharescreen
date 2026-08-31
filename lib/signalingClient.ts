@@ -432,6 +432,20 @@ const TYPING_EXPIRE_MS = 6000;
 // verification call without retrying forever if Turnstile is genuinely
 // broken (blocked by an extension, network issue, misconfigured site key).
 const MAX_JOIN_RETRIES = 3;
+
+// How long to wait for the server to answer a "register" before treating the
+// connection as dead and starting over.
+//
+// Every other recovery path in this client hangs off the socket closing, which
+// leaves one hole: a socket that opens fine, carries the register, and is then
+// never answered. Nothing closes, so nothing retries, and the client sits at
+// status "open" with no name forever — which the home page renders as
+// "Reconectando..." with no reconnect actually pending. Anything can put it
+// there: a server restarting between the upgrade and the message, a proxy that
+// half-closes without a close frame, a slow account lookup on the far side.
+// Generous enough that a genuinely slow answer is never cut off, short enough
+// to resolve before the page starts telling the user something is wrong.
+const REGISTER_ACK_TIMEOUT_MS = 10_000;
 // Mirrors server/signaling.ts's TURNSTILE_REVERIFY_INTERVAL_MS — purely an
 // optimization to skip a pointless getTurnstileToken() call once the server
 // would reject a stale connection-level verification anyway; the server is
@@ -545,6 +559,14 @@ class SignalingClient {
   // like the announcement banner, for a visitor who hasn't registered a name
   // yet and so has no desiredName of their own.
   private wantsConnection = false;
+  // Backs REGISTER_ACK_TIMEOUT_MS.
+  private registerAckTimer: ReturnType<typeof setTimeout> | null = null;
+  // The socket a "registered" was last received on. Compared by identity, not
+  // by `state.name`: that survives reconnects, so it cannot answer "has *this*
+  // connection been registered", which is the only question the ack timeout is
+  // asking. It is also what keeps a rename — a register sent on an already
+  // registered socket — from being able to trip the timeout.
+  private registeredSocket: WebSocket | null = null;
 
   state: SignalingState = initialState;
 
@@ -612,22 +634,19 @@ class SignalingClient {
     this.ws = ws;
 
     ws.onopen = () => {
+      // A socket this client has already replaced must not report anything
+      // about the current one. Without the guard a stale close in particular
+      // could wipe `desiredName` (see the banned branch below) and silently
+      // disable reconnection for a connection that is perfectly healthy.
+      if (this.ws !== ws) return;
       this.reconnectAttempts = 0;
       this.setState({ status: "open" });
       this.startClockSync();
-      if (this.desiredName) {
-        this.rawSend({
-          type: "register",
-          name: this.desiredName,
-          clientId: getClientId(),
-          token: this.desiredToken,
-          fingerprint: getBrowserFingerprint(),
-          device: currentAnnouncementDevice(),
-        });
-      }
+      if (this.desiredName) this.sendRegister(this.desiredName);
     };
 
     ws.onmessage = (event) => {
+      if (this.ws !== ws) return;
       let msg: Record<string, unknown>;
       try {
         msg = JSON.parse(event.data as string);
@@ -638,6 +657,8 @@ class SignalingClient {
     };
 
     ws.onclose = (event) => {
+      if (this.ws !== ws) return;
+      this.clearRegisterAck();
       // Deliberately keep the last-known room/peers instead of blanking
       // them: the underlying WebRTC connections to those peers are
       // untouched by a brief signaling hiccup, so wiping the list here
@@ -690,6 +711,8 @@ class SignalingClient {
         this.setState({ selfId: msg.id as string });
         break;
       case "registered": {
+        this.clearRegisterAck();
+        this.registeredSocket = this.ws;
         const account = (msg.account as RegisteredAccount | null) ?? null;
         const guestToken = typeof msg.guestToken === "string" ? msg.guestToken : null;
         // A guest identity token is only ever sent when the server minted a
@@ -750,9 +773,11 @@ class SignalingClient {
       // this client into the "banned" status; this message only carries the
       // reason to show there.
       case "banned":
+        this.clearRegisterAck();
         this.setState({ bannedReason: typeof msg.reason === "string" ? msg.reason : null });
         break;
       case "register-error":
+        this.clearRegisterAck();
         this.setState({ nameError: msg.message as string });
         // If we already had a confirmed name, this was a rename attempt —
         // fall back to it instead of abandoning an otherwise-working
@@ -1128,6 +1153,42 @@ class SignalingClient {
     }
   }
 
+  private clearRegisterAck() {
+    if (!this.registerAckTimer) return;
+    clearTimeout(this.registerAckTimer);
+    this.registerAckTimer = null;
+  }
+
+  /**
+   * Sends a "register" and starts the clock on an answer (see
+   * REGISTER_ACK_TIMEOUT_MS). Every register goes through here so none of them
+   * can go unanswered without something noticing.
+   */
+  private sendRegister(name: string) {
+    this.rawSend({
+      type: "register",
+      name,
+      clientId: getClientId(),
+      token: this.desiredToken,
+      fingerprint: getBrowserFingerprint(),
+      device: currentAnnouncementDevice(),
+    });
+    this.clearRegisterAck();
+    const ws = this.ws;
+    if (!ws) return;
+    this.registerAckTimer = setTimeout(() => {
+      this.registerAckTimer = null;
+      // Superseded by a newer socket, or this one already got its answer
+      // (a rename on an established connection) — either way, nothing to fix.
+      if (this.ws !== ws || this.registeredSocket === ws) return;
+      // Closing is the whole repair: onclose runs the ordinary backoff, which
+      // opens a fresh socket and registers again. Doing it this way rather
+      // than re-sending on the same socket means a connection that is broken
+      // in some way we cannot see gets replaced rather than talked to twice.
+      ws.close();
+    }, REGISTER_ACK_TIMEOUT_MS);
+  }
+
   private rawSend(msg: unknown) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg));
@@ -1184,22 +1245,10 @@ class SignalingClient {
     this.setState({ nameError: null, joinError: null });
     const wasOpen = this.ws && this.ws.readyState === WebSocket.OPEN;
     this.ensureSocket();
-    if (wasOpen) {
-      this.rawSend({
-        type: "register",
-        name,
-        clientId: getClientId(),
-        token: this.desiredToken,
-        // See lib/fingerprint.ts — a moderation handle that outlives a new
-        // guest identity or a fresh account, sent on every register.
-        fingerprint: getBrowserFingerprint(),
-        // Browser vs desktop app, PC vs phone — the same value announcement
-        // targeting uses. The server pairs it with the User-Agent to sort
-        // this connection into a /metrics platform bucket; see the API's
-        // server/clientPlatform.ts for why neither side can do it alone.
-        device: currentAnnouncementDevice(),
-      });
-    }
+    // Not sent when the socket was still connecting: ws.onopen sends it, and
+    // it goes through the same sendRegister so it is watched for an answer
+    // either way.
+    if (wasOpen) this.sendRegister(name);
   }
 
   // Drops the current identity (guest name or account) entirely and closes

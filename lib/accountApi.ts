@@ -190,16 +190,39 @@ export function logoutAccount() {
 // request that already knows the answer: re-asking on every render of the
 // connections panel would be a second round trip for data this one carries
 // for free.
+// Ceiling on the one request the whole app start-up waits for — see fetchMe.
+const ME_TIMEOUT_MS = 10_000;
+
 export async function fetchMe(): Promise<{
   account: Account;
   connections: AccountConnections;
 } | null> {
   const token = getAccountToken();
   if (!token) return null;
-  const res = await fetch(`${getSignalingHttpBase()}/auth/me`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  // Bounded, because the whole app waits on this one request: until it settles
+  // AuthContext reports `loading`, and every page that gates on that shows a
+  // restoring state with nothing to press. A fetch with no timeout can hang for
+  // as long as the OS lets it — a captive portal, a half-open connection after
+  // a laptop wakes up, a server accepting sockets but not answering — and that
+  // is indistinguishable, from the outside, from the app being broken. Failing
+  // is fine here: the caller treats a rejection as "resolved, no account", and
+  // the user gets a page they can act on.
+  const abort = new AbortController();
+  const timeout = setTimeout(() => abort.abort(), ME_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(`${getSignalingHttpBase()}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: abort.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
   if (!res.ok) {
+    // Deliberately only for an answer we actually got. A timeout or a network
+    // failure throws above and never reaches here, which matters: those say
+    // nothing about whether the token is good, and discarding it would log
+    // someone out for a bad minute of connectivity.
     setAccountToken(null);
     return null;
   }

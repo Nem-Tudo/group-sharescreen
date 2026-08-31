@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { signalingClient } from "@/lib/signalingClient";
+import { signalingClient, getStoredName } from "@/lib/signalingClient";
 import { useSignaling, useHasStoredName } from "@/lib/useSignaling";
 import { trackEvent } from "@/lib/analytics";
 import {
@@ -145,8 +145,19 @@ export default function Home() {
     : null;
 
   const registered = Boolean(state.name);
+  // Connection states the client has deliberately stopped retrying from (see
+  // signalingClient's onclose). Neither is a reconnect in progress, and both
+  // used to be rendered here as one: this page never read `status` at all, so a
+  // tab that had been superseded or banned sat on "Reconectando..." forever
+  // while nothing anywhere was reconnecting or ever would. The room view has
+  // had proper screens for both of these all along; this one just never got
+  // them.
+  const superseded = state.status === "superseded";
+  const banned = state.status === "banned";
   const restoring =
-    !mounted || (!registered && (resolvingAccount || (hasStoredName && !state.nameError)));
+    !banned &&
+    !superseded &&
+    (!mounted || (!registered && (resolvingAccount || (hasStoredName && !state.nameError))));
 
   // "Reconectando..." is honest for a second or two and useless after fifteen:
   // the automatic retry is still running, but it has backed off to one attempt
@@ -373,7 +384,48 @@ export default function Home() {
               </Link>
             </Tooltip>
           </div>
-          {restoring ? (
+          {banned ? (
+            <div className="mt-8 flex flex-col items-start gap-2">
+              <p className="text-sm font-medium text-red-600 dark:text-red-400">
+                {state.bannedReason
+                  ? `Você foi banido do site: ${state.bannedReason}`
+                  : "Você foi temporariamente banido do site pelo AntiSpam. Duração: 1h."}
+              </p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Se você acredita que isso é um engano, abra um ticket em{" "}
+                <a
+                  href="https://discord.gg/nemtudo"
+                  target="_blank"
+                  className="font-medium text-blue-600 hover:text-blue-700 dark:text-blue-500 dark:hover:text-blue-400"
+                >
+                  discord.gg/nemtudo
+                </a>
+              </p>
+            </div>
+          ) : superseded ? (
+            <div className="mt-8 flex flex-col items-start gap-2">
+              <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                Essa sessão foi aberta em outra aba ou dispositivo.
+              </p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Só é possível ficar conectado com o mesmo nome em um lugar por vez.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  // state.name is null when this tab never got as far as
+                  // registering, which is exactly the case that used to look
+                  // like an endless reconnect — so fall back to the name on
+                  // disk rather than leaving the button doing nothing.
+                  const name = state.name ?? getStoredName();
+                  if (name) signalingClient.register(name);
+                }}
+                className={secondaryButtonClass}
+              >
+                Usar esta aba
+              </button>
+            </div>
+          ) : restoring ? (
             <div className="mt-8 flex flex-col items-start gap-2">
               <p className="text-sm text-sky-500 dark:text-zinc-400">Reconectando...</p>
               {stuckReconnecting && (

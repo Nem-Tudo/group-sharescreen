@@ -65,6 +65,12 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+// How long after an unanswered /auth/me before trying once more — see the
+// resolve effect below. Long enough to outlast the blip that caused it, short
+// enough that a signed-in session comes back while the person is still looking
+// at the page.
+const ME_RETRY_DELAY_MS = 4000;
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const accountToken = useAccountToken();
   const guestToken = useGuestToken();
@@ -99,18 +105,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!accountToken || resolvedToken === accountToken) return;
     let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const apply = (me: Awaited<ReturnType<typeof fetchMe>>) => {
+      setAccount(me?.account ?? null);
+      setConnections(me?.connections ?? null);
+      setResolvedToken(accountToken);
+    };
+
+    // A rejection here is a request that never got an answer — a timeout (see
+    // fetchMe's own ceiling), a dropped connection, a captive portal. It says
+    // nothing about the token, so the account is not discarded; but the app
+    // cannot wait on it either, because every page gates its start-up on this
+    // resolving and a page that never resolves is one the user cannot use.
+    //
+    // So: unblock immediately, then try once more in the background. A blip on
+    // a slow link resolves into a signed-in session a few seconds late instead
+    // of a session silently demoted to guest until the next reload.
+    const failed = () => {
+      setResolvedToken(accountToken);
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        fetchMe()
+          .then((me) => {
+            // Only worth applying if it actually found the account: by now the
+            // UI has already settled into its signed-out shape, and replacing
+            // that with another "no account" would be a re-render saying
+            // nothing.
+            if (!cancelled && me) apply(me);
+          })
+          .catch(() => {
+            // Two failures is enough to stop asking. The user still has a
+            // working page, and any deliberate action — a reload, a login —
+            // starts this over.
+          });
+      }, ME_RETRY_DELAY_MS);
+    };
+
     fetchMe()
       .then((me) => {
-        if (cancelled) return;
-        setAccount(me?.account ?? null);
-        setConnections(me?.connections ?? null);
-        setResolvedToken(accountToken);
+        if (!cancelled) apply(me);
       })
       .catch(() => {
-        if (!cancelled) setResolvedToken(accountToken);
+        if (!cancelled) failed();
       });
+
     return () => {
       cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
     };
   }, [accountToken, resolvedToken]);
 

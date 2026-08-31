@@ -1224,7 +1224,14 @@ export function WatchRoom({ handle }: { handle: string }) {
     !mounted ||
     (!state.name &&
       (resolvingAccount || (hasStoredName && !state.nameError)) &&
-      state.status !== "banned");
+      state.status !== "banned" &&
+      // Same reasoning as "banned", and the same bug it was written to fix:
+      // a superseded connection has deliberately stopped reconnecting (see
+      // signalingClient's onclose), so it is not restoring either. This check
+      // renders above the superseded screen below, so without this a tab that
+      // was taken over before it ever registered sat on the spinner forever
+      // and never reached the screen that explains what happened.
+      state.status !== "superseded");
 
   // Announced on every join, and on the rejoin after a reconnect: the server
   // resets this for the new socket, and unlike the mic it is restored from
