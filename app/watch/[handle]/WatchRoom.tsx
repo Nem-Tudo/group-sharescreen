@@ -22,6 +22,8 @@ import {
 } from "@/lib/signalingClient";
 import { useSignaling, useHasStoredName } from "@/lib/useSignaling";
 import { useAuth } from "@/lib/AuthContext";
+import { getAccountToken } from "@/lib/accountApi";
+import { sendChatImages } from "@/lib/chatImage";
 import {
   useRoomMedia,
   useScreenShareMode,
@@ -1340,6 +1342,7 @@ export function WatchRoom({ handle }: { handle: string }) {
   const videoSourceBlockedReason = roomBlockReason("videoSource", "adicionar fontes de vídeo");
   const chatBlockedReason = roomBlockReason("chat", "o chat");
   const gifBlockedReason = roomBlockReason("gif", "o envio de GIFs");
+  const imageBlockedReason = roomBlockReason("image", "o envio de imagens");
 
   // A permission can be turned off while someone is already using it — and
   // the mic in particular auto-starts from a stored preference the moment a
@@ -3282,6 +3285,33 @@ export function WatchRoom({ handle }: { handle: string }) {
     </>
   );
 
+  // The client half of sending a message with pictures in it. ChatPanel has
+  // already shrunk them (see lib/chatImage.ts); this hands the whole message
+  // — caption included — to the API in one request, and the API is what puts
+  // the files on the CDN and broadcasts the result. Nothing about the CDN,
+  // not its address and not its token, exists on this side.
+  //
+  // The message arrives back through the socket like any other, so there is
+  // nothing to append locally; only a failure has anything to report, which
+  // is why this answers instead of throwing.
+  async function handleSendChatImages(
+    text: string,
+    images: string[]
+  ): Promise<{ ok: boolean; error?: string }> {
+    const token = getAccountToken();
+    if (!token) return { ok: false, error: "Entre com uma conta para enviar imagens." };
+    if (!state.selfId) return { ok: false, error: "Reconectando... tente de novo em instantes." };
+
+    const result = await sendChatImages({
+      handle,
+      clientId: state.selfId,
+      token,
+      text,
+      images,
+    });
+    return result.ok ? { ok: true } : { ok: false, error: result.error };
+  }
+
   const chatPanel = (
     <ChatPanel
         messages={state.chatMessages}
@@ -3300,6 +3330,9 @@ export function WatchRoom({ handle }: { handle: string }) {
         onSendGif={
           state.account && !gifBlockedReason ? (url) => signalingClient.sendGif(url) : undefined
         }
+        onSendImages={
+          state.account && !imageBlockedReason ? handleSendChatImages : undefined
+        }
         onTypingChange={(typing) => signalingClient.setTyping(typing)}
         typingNames={visiblePeers
           .filter((p) => state.typingPeerIds.includes(p.id))
@@ -3307,6 +3340,7 @@ export function WatchRoom({ handle }: { handle: string }) {
         blockedMessage={state.chatBlockedMessage}
         sendDisabledReason={chatBlockedReason}
         gifDisabledReason={gifBlockedReason}
+        imageDisabledReason={imageBlockedReason}
         // Fills whatever box it is given, in both layouts: its own column
         // from lg up, the sheet the bottom bar raises below that. No margins
         // of its own in either: on desktop it now starts flush with the top

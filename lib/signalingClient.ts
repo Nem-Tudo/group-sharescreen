@@ -127,7 +127,8 @@ export type RoomPermissionKey =
   | "camera"
   | "videoSource"
   | "chat"
-  | "gif";
+  | "gif"
+  | "image";
 
 export type RoomPermissions = Record<RoomPermissionKey, boolean>;
 
@@ -141,6 +142,7 @@ export const DEFAULT_ROOM_PERMISSIONS: RoomPermissions = {
   videoSource: true,
   chat: true,
   gif: true,
+  image: true,
 };
 
 // Someone the owner promoted to help run the room. `id` is a stable
@@ -206,11 +208,19 @@ export type ChatMessage = {
   flags?: string[];
   // See PeerInfo.nameColor's doc comment.
   nameColor?: string | null;
-  // Missing/anything other than "gif" (including messages persisted before
-  // this field existed) renders as plain text.
-  kind?: "text" | "gif";
+  // "gif" is a link into Giphy's catalogue, "image" a file somebody uploaded
+  // (see lib/chatImage.ts — it goes through the API, never straight to the
+  // CDN); both carry the picture in `url`. Missing/anything else (including
+  // messages persisted before this field existed) renders as plain text.
+  kind?: "text" | "gif" | "image";
   text: string;
   url?: string;
+  // Pictures attached to this message (see lib/chatImage.ts and the API's
+  // POST /rooms/:handle/chat/images). Independent of `text` — a message can
+  // be a caption with pictures, pictures alone, or neither. Absent on every
+  // message from before this existed, where a lone picture arrives as
+  // kind "image" with a single `url` instead.
+  images?: string[];
   ts: number;
 };
 
@@ -1158,10 +1168,12 @@ class SignalingClient {
           name: msg.name as string,
           isGuest: Boolean(msg.isGuest),
           flags: Array.isArray(msg.flags) ? (msg.flags as string[]) : undefined,
-          nameColor: typeof msg.nameColor === "string" ? msg.nameColor : null,
           kind: msg.kind === "gif" ? "gif" : "text",
           text: (msg.text as string) ?? "",
           url: typeof msg.url === "string" ? msg.url : undefined,
+          images: Array.isArray(msg.images)
+            ? (msg.images as unknown[]).filter((u): u is string => typeof u === "string")
+            : undefined,
           ts: msg.ts as number,
         };
         const next = [...this.state.chatMessages, chatMessage];
