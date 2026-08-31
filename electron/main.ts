@@ -496,56 +496,88 @@ const MAX_CHUNK_RECOVERIES = 2;
 let chunkRecoveries = 0;
 let chunkRecoveryPending = false;
 
+// Electron hands headers back as a map whose casing is not guaranteed, so the
+// name has to be matched rather than indexed, and each value can be a list.
+function headerValue(
+  headers: Record<string, string[] | string> | undefined,
+  name: string
+): string | null {
+  if (!headers) return null;
+  const wanted = name.toLowerCase();
+  for (const key of Object.keys(headers)) {
+    if (key.toLowerCase() !== wanted) continue;
+    const value = headers[key];
+    return Array.isArray(value) ? value.join(",") : String(value);
+  }
+  return null;
+}
+
+function recoverFromBadChunk(url: string, why: string) {
+  if (chunkRecoveryPending || chunkRecoveries >= MAX_CHUNK_RECOVERIES) return;
+  chunkRecoveryPending = true;
+  chunkRecoveries += 1;
+  console.warn(`[golive] Chunk inutilizável (${why}): ${url}`);
+  // Clearing the cache is the whole point — reloading alone would just replay
+  // the poisoned entry, which is why the app could never recover on its own no
+  // matter how many times it was restarted.
+  void session.defaultSession
+    .clearCache()
+    .then(() => {
+      // Jittered for the same reason the web side is: this failure arrives when
+      // the origin is struggling, and every app instance reloading on the same
+      // tick is a synchronised retry against it.
+      setTimeout(() => {
+        chunkRecoveryPending = false;
+        // reloadIgnoringCache rather than reload: belt and braces against
+        // anything the clear above did not reach.
+        mainWindow?.webContents.reloadIgnoringCache();
+      }, 500 + Math.random() * 2500);
+    })
+    .catch(() => {
+      chunkRecoveryPending = false;
+    });
+}
+
 function installChunkRecovery() {
-  session.defaultSession.webRequest.onCompleted(
-    { urls: [`${APP_ORIGIN}/_next/static/*`] },
-    (details) => {
-      if (!details.url.includes(CHUNK_PATH)) return;
-      // A script answered with a redirect or an error page is the case. The
-      // status check alone is not enough: the observed failure was a 408 whose
-      // body was HTML, and a 200 serving an HTML error page would be just as
-      // unexecutable and just as cacheable.
-      const type = String(
-        details.responseHeaders?.["content-type"] ??
-          details.responseHeaders?.["Content-Type"] ??
-          ""
-      );
-      const looksLikeScript = /javascript|text\/css/i.test(type);
-      const ok = details.statusCode >= 200 && details.statusCode < 300;
-      if (ok && looksLikeScript) return;
-      if (chunkRecoveryPending || chunkRecoveries >= MAX_CHUNK_RECOVERIES) return;
-      chunkRecoveryPending = true;
-      chunkRecoveries += 1;
-      console.warn(
-        `[golive] Chunk inutilizável (${details.statusCode}, ${type || "sem content-type"}): ${details.url}`
-      );
-      // Clearing the cache is the whole point — reloading alone would just
-      // replay the poisoned entry, which is why the app could never recover on
-      // its own no matter how many times it was restarted.
-      void session.defaultSession
-        .clearCache()
-        .then(() => {
-          // Jittered for the same reason the web side is: this failure arrives
-          // when the origin is struggling, and every app instance reloading on
-          // the same tick is a synchronised retry against it.
-          setTimeout(() => {
-            chunkRecoveryPending = false;
-            // reloadIgnoringCache rather than reload: belt and braces against
-            // anything the clear above did not reach.
-            mainWindow?.webContents.reloadIgnoringCache();
-          }, 500 + Math.random() * 2500);
-        })
-        .catch(() => {
-          chunkRecoveryPending = false;
-        });
+  const filter = { urls: [`${APP_ORIGIN}/_next/static/*`] };
+
+  session.defaultSession.webRequest.onCompleted(filter, (details) => {
+    if (!details.url.includes(CHUNK_PATH)) return;
+
+    // Act only on positive evidence that this response is unusable, never on
+    // the absence of evidence. That distinction is the whole correctness of
+    // this handler: a response served from Electron's own cache frequently
+    // arrives here with no responseHeaders at all, and treating "I could not
+    // read a content-type" as "this is broken" would clear the cache and
+    // reload on every launch of a perfectly healthy app.
+    if (details.statusCode < 200 || details.statusCode >= 300) {
+      recoverFromBadChunk(details.url, `status ${details.statusCode}`);
+      return;
     }
-  );
+    const type = headerValue(details.responseHeaders, "content-type");
+    // No content-type to judge, and the status was fine — nothing to act on.
+    if (!type) return;
+    // The observed failure was an HTML error page under a .js URL. A 200
+    // serving one would be exactly as unexecutable and exactly as cacheable as
+    // the 408 was, so the status check alone would have missed it.
+    if (/javascript|ecmascript|text\/css/i.test(type)) return;
+    recoverFromBadChunk(details.url, `content-type ${type}`);
+  });
+
+  // A request that never produced an HTTP response at all — DNS, TLS, a reset
+  // connection — does not reach onCompleted. It is the same outcome for the
+  // page (no chunk, no hydration) and it can equally leave a negative entry
+  // behind, so it gets the same treatment.
+  session.defaultSession.webRequest.onErrorOccurred(filter, (details) => {
+    if (!details.url.includes(CHUNK_PATH)) return;
+    recoverFromBadChunk(details.url, details.error || "erro de rede");
+  });
 }
 
 function createWindow(initialUrl: string = APP_URL) {
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 820,
+    width: 1660,
+    height: 1054,
     minWidth: 940,
     minHeight: 600,
     show: false,
