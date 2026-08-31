@@ -31,6 +31,13 @@ const LINKS = [
   },
 ];
 
+// The attribution Google requires in exchange for hiding the reCAPTCHA badge
+// (see globals.css). It belongs wherever the footer is, so it rides along with
+// the follow links rather than being pasted into each page that has one.
+// Absent when reCAPTCHA is not configured, because then there is nothing to
+// attribute and the line would be a lie.
+const RECAPTCHA_SITE_KEY = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
+
 /**
  * Row of follow links. `title` is the line above them — pass null on a
  * surface that already says what they are.

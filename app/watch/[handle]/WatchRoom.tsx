@@ -1711,10 +1711,10 @@ export function WatchRoom({ handle }: { handle: string }) {
     );
   }
 
-  // Ran out of automatic retries resolving a Turnstile challenge for this
+  // Ran out of automatic retries getting a captcha token accepted for this
   // join (see signalingClient.ts's performJoin/MAX_JOIN_RETRIES) — unlike
   // "banned" above, this is usually transient (network blip, ad blocker
-  // interfering with the challenge script), so offer a manual retry instead
+  // interfering with the reCAPTCHA script), so offer a manual retry instead
   // of a dead end.
   if (state.joinError) {
     return (
@@ -1736,7 +1736,7 @@ export function WatchRoom({ handle }: { handle: string }) {
 
   // Registered but the "join" for this room hasn't resolved into a
   // "room-state" yet — covers the (usually sub-second) time spent resolving
-  // a Turnstile token before the join is even sent. Without this the room
+  // a captcha token before the join is even sent. Without this the room
   // UI below would render immediately with an empty peer list, looking
   // joined when it isn't yet.
   if (!state.room) {

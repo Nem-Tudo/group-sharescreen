@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import { getSignalingHttpBase } from "./roomsApi";
+import { getCaptchaToken } from "./recaptcha";
 
 export type Account = {
   id: string;
@@ -132,10 +133,15 @@ export async function registerAccount(
   displayName: string,
   password: string
 ): Promise<{ token: string; account: Account }> {
+  // Fetched immediately before the request, never cached: a v3 token is spent
+  // by the first verification and expires after two minutes. Null when
+  // reCAPTCHA is not configured or Google could not be reached, and the server
+  // decides whether that is acceptable — see lib/recaptcha.ts.
+  const captchaToken = await getCaptchaToken("register_account");
   const res = await fetch(`${getSignalingHttpBase()}/auth/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, displayName, password }),
+    body: JSON.stringify({ username, displayName, password, captchaToken }),
   });
   if (!res.ok) throw new Error(await parseErrorMessage(res, "Falha ao criar conta."));
   const data = (await res.json()) as { token: string; account: Account };
@@ -147,10 +153,11 @@ export async function loginAccount(
   username: string,
   password: string
 ): Promise<{ token: string; account: Account }> {
+  const captchaToken = await getCaptchaToken("login");
   const res = await fetch(`${getSignalingHttpBase()}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ username, password, captchaToken }),
   });
   if (!res.ok) throw new Error(await parseErrorMessage(res, "Usuário ou senha inválidos."));
   const data = (await res.json()) as { token: string; account: Account };
@@ -167,10 +174,11 @@ export async function completeOAuthSignup(
   username: string,
   displayName: string
 ): Promise<{ token: string; account: Account }> {
+  const captchaToken = await getCaptchaToken("oauth_signup");
   const res = await fetch(`${getSignalingHttpBase()}/auth/oauth/complete`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ticket, username, displayName }),
+    body: JSON.stringify({ ticket, username, displayName, captchaToken }),
   });
   if (!res.ok) throw new Error(await parseErrorMessage(res, "Falha ao criar conta."));
   const data = (await res.json()) as { token: string; account: Account };

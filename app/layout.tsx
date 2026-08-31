@@ -11,7 +11,7 @@ import "./globals.css";
 import SupressErrors from "./middlewares/SupressErrors";
 
 const UMAMI_WEBSITE_ID = process.env.NEXT_PUBLIC_UMAMI_WEBSITE_ID;
-const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+const RECAPTCHA_SITE_KEY = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
 
 const SITE_URL = "https://golive.nemtudo.me";
 const SITE_NAME = "GoLive";
@@ -199,12 +199,14 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             strategy="afterInteractive"
           />
         )}
-        {TURNSTILE_SITE_KEY && (
-          // render=explicit: lib/turnstile.ts renders its own widget
-          // programmatically (see getTurnstileToken) instead of the script
-          // auto-rendering anything with a "cf-turnstile" class.
+        {RECAPTCHA_SITE_KEY && (
+          // ?render=<site key> is what makes this reCAPTCHA v3 rather than v2:
+          // the script sets up a single invisible assessment for the page and
+          // exposes grecaptcha.execute(), instead of looking for a container to
+          // draw a checkbox into. Nothing is ever rendered and nobody is ever
+          // challenged — see lib/recaptcha.ts.
           <Script
-            src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"
+            src={`https://www.google.com/recaptcha/api.js?render=${RECAPTCHA_SITE_KEY}`}
             strategy="afterInteractive"
           />
         )}

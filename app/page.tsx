@@ -660,6 +660,27 @@ export default function Home() {
             Termos de uso
           </Link>
         </p>
+        <p className="mt-4 text-center text-[11px] leading-relaxed text-zinc-400 dark:text-zinc-500">
+          Este site é protegido pelo reCAPTCHA. Aplicam-se a{" "}
+          <a
+            href="https://policies.google.com/privacy"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-300"
+          >
+            Política de Privacidade
+          </a>{" "}
+          e os{" "}
+          <a
+            href="https://policies.google.com/terms"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-300"
+          >
+            Termos de Serviço
+          </a>{" "}
+          do Google.
+        </p>
       </div>
     </>
   );

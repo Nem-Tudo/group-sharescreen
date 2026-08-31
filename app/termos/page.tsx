@@ -136,8 +136,34 @@ export default function TermosPage() {
               Bloqueio automático de comportamento abusivo (ex.: flood de conexões/mensagens);
             </li>
             <li>Banimento de contas e de endereços IP, temporário ou permanente;</li>
-            <li>Verificação anti-bot (Cloudflare Turnstile) em pontos sensíveis, quando ativa.</li>
+            <li>
+              Verificação anti-bot invisível (Google reCAPTCHA v3) nas ações sensíveis — criar
+              conta, entrar na conta e entrar/criar uma sala. Não há desafio de imagens nem
+              qualquer interação: o Google atribui uma pontuação de confiança e o servidor decide.
+              Navegar pelo site, ver a lista de salas ou o mapa não passam por essa verificação.
+            </li>
           </ul>
+          <p className={pClass}>
+            Este site é protegido pelo reCAPTCHA. Aplicam-se a{" "}
+            <a
+              className={linkClass}
+              href="https://policies.google.com/privacy"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Política de Privacidade
+            </a>{" "}
+            e os{" "}
+            <a
+              className={linkClass}
+              href="https://policies.google.com/terms"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Termos de Serviço
+            </a>{" "}
+            do Google.
+          </p>
           <p className={pClass}>
             Contas ou IPs podem ser suspensos ou banidos a qualquer momento, a critério da
             administração, em caso de violação destes termos.

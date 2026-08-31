@@ -1,5 +1,16 @@
 @import "tailwindcss";
 
+/*
+ * reCAPTCHA v3 plants a floating badge in the bottom-right corner of every
+ * page it loads on. Google's terms allow hiding it, on the condition that the
+ * required attribution appears in the user flow instead — which it does, in the
+ * site footer and on /termos. Hidden rather than removed: the widget still has
+ * to exist and be measurable for the assessment to work at all.
+ */
+.grecaptcha-badge {
+  visibility: hidden;
+}
+
 /* The theme is a choice now, not just an OS setting: every `dark:` utility
    keys off `data-theme="dark"` on <html> instead of the prefers-color-scheme
    media query Tailwind defaults to. lib/theme.ts owns the three-way

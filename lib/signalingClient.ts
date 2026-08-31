@@ -7,7 +7,7 @@ import type { Announcement } from "./announcement";
 import type { Partner } from "./partner";
 import type { Supporter } from "./supporter";
 import { getAccountToken } from "./accountApi";
-import { getTurnstileToken } from "./turnstile";
+import { getCaptchaToken } from "./recaptcha";
 import { getBrowserFingerprint } from "./fingerprint";
 import { currentAnnouncementDevice } from "./announcement";
 import { getStoredGuestToken, setStoredGuestToken } from "./guestToken";
@@ -230,7 +230,7 @@ export type SignalingState = {
   // else — a provably different guest/account, not just another connection
   // of ours — already holds this display name in that specific room (see
   // server/signaling.ts's "join" handler and the "join-error" case below),
-  // or performJoin's turnstile verification kept getting rejected past
+  // or performJoin's captcha verification kept getting rejected past
   // MAX_JOIN_RETRIES. Cleared as soon as a room is actually entered or a
   // fresh join attempt starts. Distinct from nameError: that one is about
   // the name itself (format, or reserved by an account) and can block
@@ -426,10 +426,10 @@ const initialState: SignalingState = {
 // the explicit "false" is lost.
 const TYPING_EXPIRE_MS = 6000;
 
-// How many times performJoin auto-retries after a "turnstile-required"
+// How many times performJoin auto-retries after a "captcha-required"
 // rejection (fetching a fresh token each time) before giving up and
 // surfacing joinError instead — covers a token expiring in flight or one bad
-// verification call without retrying forever if Turnstile is genuinely
+// verification call without retrying forever if reCAPTCHA is genuinely
 // broken (blocked by an extension, network issue, misconfigured site key).
 const MAX_JOIN_RETRIES = 3;
 
@@ -446,12 +446,12 @@ const MAX_JOIN_RETRIES = 3;
 // Generous enough that a genuinely slow answer is never cut off, short enough
 // to resolve before the page starts telling the user something is wrong.
 const REGISTER_ACK_TIMEOUT_MS = 10_000;
-// Mirrors server/signaling.ts's TURNSTILE_REVERIFY_INTERVAL_MS — purely an
-// optimization to skip a pointless getTurnstileToken() call once the server
+// Mirrors server/signaling.ts's CAPTCHA_REVERIFY_INTERVAL_MS — purely an
+// optimization to skip a pointless getCaptchaToken() call once the server
 // would reject a stale connection-level verification anyway; the server is
 // the actual source of truth (a mismatch here just costs one extra
-// "turnstile-required" round trip, already handled by performJoin's retry).
-const TURNSTILE_REVERIFY_INTERVAL_MS = 30 * 60_000;
+// "captcha-required" round trip, already handled by performJoin's retry).
+const CAPTCHA_REVERIFY_INTERVAL_MS = 30 * 60_000;
 
 // Cap on retained chat history per room, to keep memory bounded in a
 // long-running room instead of growing the array forever.
@@ -534,23 +534,23 @@ class SignalingClient {
     camera: boolean;
     files: Omit<SharedFile, "updatedAt">[];
   } = { screen: false, camera: false, files: [] };
-  // Consecutive "turnstile-required" rejections for the current join
+  // Consecutive "captcha-required" rejections for the current join
   // attempt — see MAX_JOIN_RETRIES and performJoin.
   private joinRetryCount = 0;
   // When this browser last passed a challenge: later joins within
-  // TURNSTILE_REVERIFY_INTERVAL_MS skip fetching a token entirely, because
+  // CAPTCHA_REVERIFY_INTERVAL_MS skip fetching a token entirely, because
   // the server would wave them through anyway (see its
-  // turnstileVerifiedIps).
+  // captchaVerifiedIps).
   //
   // Deliberately *not* reset when a new WebSocket opens, which it used to
   // be. That reset assumed the server forgot on every reconnect — true back
   // when its only memory was per-socket, and the reason a phone changing
   // networks or a laptop waking up meant another challenge. Both sides now
   // remember for the same window, so a reconnect costs nothing. If the two
-  // ever disagree, the server says so with "turnstile-required" and
+  // ever disagree, the server says so with "captcha-required" and
   // performJoin retries with a real token, which is the same safety net
   // that has always backed this optimization.
-  private turnstileVerifiedAt: number | null = null;
+  private captchaVerifiedAt: number | null = null;
   // Per-peer safety-net expiry timers backing typingPeerIds — see that
   // field's doc comment and TYPING_EXPIRE_MS.
   private typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -809,7 +809,7 @@ class SignalingClient {
         // they arrived.
         const history = Array.isArray(msg.messages) ? (msg.messages as ChatMessage[]) : [];
         this.joinRetryCount = 0;
-        this.turnstileVerifiedAt = Date.now();
+        this.captchaVerifiedAt = Date.now();
         this.clearAllTyping();
         this.setState({
           room: msg.room as string,
@@ -841,10 +841,13 @@ class SignalingClient {
         this.roomJoinedListeners.forEach((l) => l());
         break;
       }
-      // The server's server/turnstile.ts rejected (or never received) a
-      // valid challenge token for our last "join" — see performJoin, which
-      // fetches a fresh token per attempt since each one is single-use.
-      case "turnstile-required": {
+      // The server's server/captcha.ts rejected (or never received) a
+      // valid token for our last "join" — see performJoin, which fetches a
+      // fresh one per attempt since each is single-use. With reCAPTCHA v3
+      // "rejected" also covers a score below the server's threshold, which
+      // is not something the user can do anything about and not something
+      // retrying is likely to change — hence the retry cap.
+      case "captcha-required": {
         if (!this.desiredRoom) break;
         // The server just contradicted whatever this client believed about
         // being verified, so drop that belief before retrying — otherwise
@@ -853,7 +856,7 @@ class SignalingClient {
         // one side that actually decides. Matters now that this survives
         // reconnects (see the field's comment): the two sides can genuinely
         // disagree, and this is how the client is told which one is right.
-        this.turnstileVerifiedAt = null;
+        this.captchaVerifiedAt = null;
         this.joinRetryCount += 1;
         if (this.joinRetryCount > MAX_JOIN_RETRIES) {
           this.setState({
@@ -1272,26 +1275,26 @@ class SignalingClient {
     if (this.state.name) void this.performJoin(room);
   }
 
-  // Fetches a fresh Turnstile token (single-use — see lib/turnstile.ts) and
+  // Fetches a fresh captcha token (single-use — see lib/recaptcha.ts) and
   // sends the actual "join". Split out from joinRoom() so both the public
-  // entry point and the "turnstile-required" retry path (see
-  // handleMessage) go through the exact same token-fetch-then-send flow.
+  // entry point and the "captcha-required" retry path (see handleMessage) go
+  // through the exact same token-fetch-then-send flow.
   private async performJoin(room: string) {
     // Verified recently (see room-state above) — the server remembers this
-    // address passed too (see its turnstileVerifiedIps) and won't ask again
-    // within the same window, so skip bothering the widget for a token it'll
-    // just ignore. Worth skipping rather than fetching-and-discarding:
-    // asking for a token is what can surface an interactive challenge.
+    // address passed too (see its captchaVerifiedIps) and won't ask again
+    // within the same window, so skip fetching a token it will just ignore.
+    // Worth skipping rather than fetching-and-discarding: v3 shows nobody
+    // anything, but it is still a round trip to Google in front of a join.
     const stillFresh =
-      this.turnstileVerifiedAt !== null &&
-      Date.now() - this.turnstileVerifiedAt < TURNSTILE_REVERIFY_INTERVAL_MS;
-    const turnstileToken = stillFresh ? null : await getTurnstileToken();
+      this.captchaVerifiedAt !== null &&
+      Date.now() - this.captchaVerifiedAt < CAPTCHA_REVERIFY_INTERVAL_MS;
+    const captchaToken = stillFresh ? null : await getCaptchaToken("join_room");
     // Bail if the desired room or our identity changed while the token
     // fetch was in flight (room switch, logout, disconnect) — sending a
     // stale join here would either land in the wrong room or get rejected
     // anyway since the socket/name it was meant for is gone.
     if (this.desiredRoom !== room || !this.state.name) return;
-    this.rawSend({ type: "join", room, turnstileToken });
+    this.rawSend({ type: "join", room, captchaToken });
   }
 
   /**
