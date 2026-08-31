@@ -1168,6 +1168,7 @@ class SignalingClient {
           name: msg.name as string,
           isGuest: Boolean(msg.isGuest),
           flags: Array.isArray(msg.flags) ? (msg.flags as string[]) : undefined,
+          nameColor: typeof msg.nameColor === "string" ? msg.nameColor : null,
           kind: msg.kind === "gif" ? "gif" : "text",
           text: (msg.text as string) ?? "",
           url: typeof msg.url === "string" ? msg.url : undefined,

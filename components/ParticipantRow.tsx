@@ -121,7 +121,13 @@ export function ParticipantRow({
       name={name}
       isGuest={isGuest}
       verified={verified}
-      color={nameColor}
+      // The speaking indicator (name turns green while this person's mic is
+      // audibly active) has to win over a custom name color, not just sit
+      // under it — DisplayUserName's color is an inline style on the name
+      // text itself, which would otherwise mask the outer span's Tailwind
+      // color the moment someone equips one. Suppressing the prop while
+      // speaking lets that text inherit the outer span's color instead.
+      color={speaking ? undefined : nameColor}
       connectionLost={connectionLost}
       className={`truncate font-medium transition-colors ${
         speaking
