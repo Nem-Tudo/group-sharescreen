@@ -453,12 +453,25 @@ export default function Home() {
             </div>
           ) : !mounted ? (
             // The one frame where a returning visitor still looks brand new
-            // (see `mounted`). An empty box the exact height of the identity
-            // area, so the layout does not jump when the real content lands —
-            // and, unlike gating the whole page, a state nothing can get stuck
-            // in: it ends on the first client render, hydrated or not, because
-            // a page that never hydrates never renders this at all.
-            <div className="mt-8 h-24" aria-hidden />
+            // (see `mounted`), sized so the layout does not jump when the real
+            // content lands.
+            //
+            // It says something, and it carries an escape hatch, because this
+            // is also the exact markup a visitor is left staring at if the page
+            // never hydrates — and a silent empty box is the worst possible
+            // thing to leave them with. The link is a plain anchor revealed by
+            // a CSS animation (see .reveal-when-stuck), so it works when no
+            // JavaScript on the page is running at all, which is precisely the
+            // situation it exists for.
+            <div className="mt-8 flex h-24 flex-col items-start gap-2">
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">Carregando...</p>
+              <a
+                href="/"
+                className={`reveal-when-stuck ${linkButtonClass}`}
+              >
+                Demorou demais — recarregar a página
+              </a>
+            </div>
           ) : oauthTicket ? (
             <div className="mt-8">
               <CompleteOAuthSignupForm

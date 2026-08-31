@@ -11,6 +11,36 @@
   visibility: hidden;
 }
 
+/*
+ * A way out of a page that never finished hydrating.
+ *
+ * Everything this app can normally offer as a recovery — a retry button, a
+ * timer that reveals one, any state at all — lives in a React effect, and an
+ * effect is exactly what does not run when hydration fails. The result was a
+ * page that painted its server HTML, sat there, and gave the user nothing to
+ * press, which is what "fica um buraco" actually was.
+ *
+ * A CSS animation needs no JavaScript whatsoever, so this reveals a plain
+ * anchor after the point where waiting has clearly stopped being productive.
+ * When hydration does work the element is unmounted long before it appears, so
+ * nobody who is not actually stuck ever sees it.
+ */
+@keyframes golive-reveal-late {
+  0%,
+  99% {
+    opacity: 0;
+    visibility: hidden;
+  }
+  100% {
+    opacity: 1;
+    visibility: visible;
+  }
+}
+
+.reveal-when-stuck {
+  animation: golive-reveal-late 8s step-end forwards;
+}
+
 /* The theme is a choice now, not just an OS setting: every `dark:` utility
    keys off `data-theme="dark"` on <html> instead of the prefers-color-scheme
    media query Tailwind defaults to. lib/theme.ts owns the three-way
