@@ -538,11 +538,41 @@ function recoverFromBadChunk(url: string, why: string) {
     });
 }
 
+// Whether this response is one whose failure actually breaks the app.
+//
+// `/_next/static/` is not only chunks: Next serves fonts from
+// /_next/static/media, and this build puts the favicon and the map's marker
+// PNGs there too. Those come back as font/woff2, image/x-icon and image/png —
+// none of which is JavaScript, all of which are perfectly healthy, and every
+// one of which the content-type test below used to read as "unusable". So a
+// completely fine app cleared its cache and reloaded on launch, twice, until
+// MAX_CHUNK_RECOVERIES stopped it: three page loads, three signaling
+// connections, three disconnections, every single time. Only in the desktop
+// app, because only the desktop app runs this.
+//
+// The extension, not the content-type, is what says whether we are entitled
+// to an opinion — a .woff2 answering with font/woff2 is not evidence of
+// anything, and the comment below about acting only on positive evidence was
+// only ever true for the assets this now selects.
+function isRecoverableAsset(url: string): boolean {
+  let pathname: string;
+  try {
+    pathname = new URL(url).pathname;
+  } catch {
+    return false;
+  }
+  if (!pathname.includes(CHUNK_PATH)) return false;
+  // A stylesheet is in scope alongside a script: it is equally cacheable,
+  // equally immutable, and an app painted with no CSS is as unusable as one
+  // that never hydrated. A font that fails to load is neither.
+  return pathname.endsWith(".js") || pathname.endsWith(".css");
+}
+
 function installChunkRecovery() {
   const filter = { urls: [`${APP_ORIGIN}/_next/static/*`] };
 
   session.defaultSession.webRequest.onCompleted(filter, (details) => {
-    if (!details.url.includes(CHUNK_PATH)) return;
+    if (!isRecoverableAsset(details.url)) return;
 
     // Act only on positive evidence that this response is unusable, never on
     // the absence of evidence. That distinction is the whole correctness of
@@ -569,7 +599,7 @@ function installChunkRecovery() {
   // page (no chunk, no hydration) and it can equally leave a negative entry
   // behind, so it gets the same treatment.
   session.defaultSession.webRequest.onErrorOccurred(filter, (details) => {
-    if (!details.url.includes(CHUNK_PATH)) return;
+    if (!isRecoverableAsset(details.url)) return;
     recoverFromBadChunk(details.url, details.error || "erro de rede");
   });
 }
