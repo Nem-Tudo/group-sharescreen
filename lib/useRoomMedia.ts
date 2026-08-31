@@ -243,6 +243,26 @@ export const SHARE_BITRATE_OPTIONS: { value: ShareBitrate; label: string; accoun
   { value: "maximo", label: "Bitrate máximo (~16 Mbps)", accountOnly: true },
 ];
 
+export type ShareAudioMode = "tab" | "system" | "muted";
+
+export const SHARE_AUDIO_MODE_OPTIONS: { value: ShareAudioMode; label: string; description: string }[] = [
+  {
+    value: "tab",
+    label: "Aba / Janela (Sem eco)",
+    description: "Transmite o som apenas da aba ou janela selecionada, evitando eco das vozes de quem estiver falando na sala.",
+  },
+  {
+    value: "system",
+    label: "Áudio do sistema inteiro",
+    description: "Transmite todo o áudio do computador. Pode capturar as vozes dos participantes da sala se não estiver usando fone.",
+  },
+  {
+    value: "muted",
+    label: "Sem áudio",
+    description: "Transmite apenas o vídeo da tela sem capturar nenhum som.",
+  },
+];
+
 // How far apart (in ms) openSendPCsStaggered spaces out opening sendPCs to
 // many peers at once. 150ms means a 50-person room's burst spreads across
 // ~7.5s instead of landing in a single instant, so it no longer clusters
@@ -1938,6 +1958,7 @@ export function useRoomMedia(room: string) {
   const [shareResolution, setShareResolutionState] = useState<ShareResolution>("1080p");
   const [shareFps, setShareFpsState] = useState<ShareFps>(30);
   const [shareBitrate, setShareBitrateState] = useState<ShareBitrate>("high");
+  const [shareAudioMode, setShareAudioModeState] = useState<ShareAudioMode>("tab");
   // On by default. It no longer means "step quality down as the headcount
   // rises" — that guessed cost from a number of people while knowing nothing
   // about how large anyone renders the video. It now means "let each viewer
@@ -1952,6 +1973,7 @@ export function useRoomMedia(room: string) {
   const shareResolutionRef = useRef(shareResolution);
   const shareFpsRef = useRef(shareFps);
   const shareBitrateRef = useRef(shareBitrate);
+  const shareAudioModeRef = useRef(shareAudioMode);
   const smartQualityEnabledRef = useRef(smartQualityEnabled);
   const shareProfileRef = useRef(shareProfile);
 
@@ -1969,6 +1991,11 @@ export function useRoomMedia(room: string) {
     shareBitrateRef.current = value;
     setShareBitrateState(value);
     trackEvent(`screen_share_bitrate_${value}`);
+  }, []);
+  const setShareAudioMode = useCallback((value: ShareAudioMode) => {
+    shareAudioModeRef.current = value;
+    setShareAudioModeState(value);
+    trackEvent(`screen_share_audio_${value}`);
   }, []);
   const setSmartQualityEnabled = useCallback((value: boolean) => {
     smartQualityEnabledRef.current = value;
@@ -2061,20 +2088,32 @@ export function useRoomMedia(room: string) {
       if (source === "camera") {
         return captureCamera(videoConstraints, cameraDeviceIdRef.current);
       }
-      // No fallback to the camera here — on browsers without getDisplayMedia
-      // (most mobile ones) this throws synchronously, which start() below
-      // turns into a visible error instead of silently switching sources.
-      // Explicit false on the mic-oriented processing constraints: left
-      // unset, Chrome runs tab/system audio through the same APM pipeline
-      // as a microphone (echo cancellation, noise suppression, AGC), which
-      // mangles music/game audio into something that sounds noise-gated.
-      // Screen/tab audio isn't a voice call, so it should pass through
-      // unprocessed — stereo, uncompressed dynamic range.
-      const audioConstraints = {
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
-      };
+
+      const audioMode = shareAudioModeRef.current;
+      let audioConstraints: boolean | MediaTrackConstraints = false;
+      const extraDisplayMediaOptions: Record<string, unknown> = {};
+
+      if (audioMode === "tab") {
+        audioConstraints = {
+          echoCancellation: true,
+          noiseSuppression: false,
+          autoGainControl: false,
+        };
+        // Excludes the active call tab and nudges browser to share tab/isolated audio rather than system loopback
+        extraDisplayMediaOptions.selfBrowserSurface = "exclude";
+        extraDisplayMediaOptions.systemAudio = "exclude";
+        extraDisplayMediaOptions.surfaceSwitching = "include";
+      } else if (audioMode === "system") {
+        audioConstraints = {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        };
+        extraDisplayMediaOptions.systemAudio = "include";
+      } else {
+        audioConstraints = false;
+      }
+
       // In the desktop app on Windows 11, the system audio comes from
       // somewhere else entirely: a native helper capturing the mix with
       // GoLive's own process tree excluded, so the share does not carry the
@@ -2099,6 +2138,7 @@ export function useRoomMedia(room: string) {
         .getDisplayMedia({
           video: videoConstraints,
           audio: excluded ? false : audioConstraints,
+          ...extraDisplayMediaOptions,
         })
         .catch((err) => {
           // Requesting system audio can fail for reasons that have nothing
@@ -2632,6 +2672,8 @@ export function useRoomMedia(room: string) {
     setShareFps,
     shareBitrate,
     setShareBitrate,
+    shareAudioMode,
+    setShareAudioMode,
     smartQualityEnabled,
     setSmartQualityEnabled,
     shareProfile,
