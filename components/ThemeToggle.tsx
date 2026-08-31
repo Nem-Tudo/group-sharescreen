@@ -87,7 +87,7 @@ export function ThemeMenuButton({ className = "" }: { className?: string }) {
       // outer one with nothing to anchor to (see Tooltip.tsx).
       tooltip={label}
       content={
-        <div className="w-56 max-w-[calc(100vw-1rem)] rounded-xl border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-800 dark:bg-zinc-950">
+        <div className="w-65 max-w-[calc(100vw-1rem)] rounded-xl border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-800 dark:bg-zinc-950">
           <p className="mb-1.5 px-1 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
             Tema
           </p>
