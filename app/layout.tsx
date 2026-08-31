@@ -7,6 +7,7 @@ import { UpdateAppButton } from "@/components/UpdateAppButton";
 import { AuthProvider } from "@/lib/AuthContext";
 import { NtPopups } from "@/components/NtPopups";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
+import { CHUNK_RECOVERY_SCRIPT } from "@/lib/chunkRecovery";
 import "./globals.css";
 import SupressErrors from "./middlewares/SupressErrors";
 
@@ -177,6 +178,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             parse time and buys never showing a white flash to someone who
             chose the dark theme. */}
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        {/* Before anything else that could fail, because what it listens for
+            is exactly the bundle failing to arrive — see lib/chunkRecovery.ts.
+            Inline for the same reason the theme script above is: it has to
+            work in the one situation where none of the app's own code runs. */}
+        <script dangerouslySetInnerHTML={{ __html: CHUNK_RECOVERY_SCRIPT }} />
         <Script
           id="jsonld-webapplication"
           type="application/ld+json"

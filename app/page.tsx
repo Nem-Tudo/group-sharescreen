@@ -465,10 +465,13 @@ export default function Home() {
             // situation it exists for.
             <div className="mt-8 flex h-24 flex-col items-start gap-2">
               <p className="text-sm text-zinc-500 dark:text-zinc-400">Carregando...</p>
-              <a
-                href="/"
-                className={`reveal-when-stuck ${linkButtonClass}`}
-              >
+              {/* eslint-disable-next-line @next/next/no-html-link-for-pages --
+                  A plain anchor on purpose. <Link> is client-side navigation,
+                  which needs the very JavaScript that has failed to arrive in
+                  the one situation this link exists for; it would render a
+                  control that does nothing. A real href does a full document
+                  load with no script involved at all. */}
+              <a href="/" className={`reveal-when-stuck ${linkButtonClass}`}>
                 Demorou demais — recarregar a página
               </a>
             </div>
