@@ -304,6 +304,7 @@ export function ManageRoomModal({
                           name={live?.name || admin.name || "Participante"}
                           isGuest={live?.isGuest}
                           verified={live?.flags?.includes("VERIFIED")}
+                          color={live?.nameColor}
                           className="truncate font-medium"
                         />
                         {!live && (
@@ -347,6 +348,7 @@ export function ManageRoomModal({
                         name={peer.name}
                         isGuest={peer.isGuest}
                         verified={peer.flags?.includes("VERIFIED")}
+                        color={peer.nameColor}
                         className="truncate font-medium"
                       />
                       <button

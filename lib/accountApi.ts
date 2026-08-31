@@ -17,6 +17,12 @@ export type Account = {
   // who earns the same rewards without an account to hold them, see
   // lib/guestPoints.ts — is shown the same way.
   points?: number;
+  // The cosmetics store (see lib/cosmetics.ts) — product ids this account
+  // owns, and the hex color from whichever "name_color" one is equipped
+  // (null for none). Absent on a response from an older API, read the same
+  // as an empty inventory / nothing equipped.
+  ownedCosmetics?: string[];
+  equippedNameColor?: string | null;
   // Public profile page content (see app/user/[id]/page.tsx and lib/
   // userProfile.ts) — DB-edited only, unlike points above.
   bio?: string | null;

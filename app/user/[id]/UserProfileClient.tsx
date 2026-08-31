@@ -112,7 +112,9 @@ function ProfileContent({ profile }: { profile: UserProfile }) {
         <div className="flex flex-wrap items-end justify-between gap-3 pt-4">
           <div className="min-w-0">
             <h1 className="flex items-center gap-1.5 truncate text-2xl font-semibold text-zinc-950 dark:text-zinc-50">
-              {account.displayName}
+              <span style={account.equippedNameColor ? { color: account.equippedNameColor } : undefined}>
+                {account.displayName}
+              </span>
               {verified && <VerifiedBadgeIcon className="h-6 w-6 shrink-0 text-blue-500" />}
             </h1>
             <p className="truncate text-sm text-zinc-500 dark:text-zinc-400">@{account.username}</p>

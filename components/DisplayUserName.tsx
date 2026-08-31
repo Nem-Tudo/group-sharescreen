@@ -10,6 +10,7 @@ export function DisplayUserName({
   name,
   isGuest,
   verified,
+  color,
   connectionLost,
   className,
 }: {
@@ -18,6 +19,11 @@ export function DisplayUserName({
   // Account has the "VERIFIED" flag (see RegisteredAccount.flags /
   // PeerInfo.flags) — never true for a guest.
   verified?: boolean;
+  // Cosmetics-store name color (see PeerInfo.nameColor / lib/cosmetics.ts) —
+  // a hex value applied to the name text itself. Undefined/null for no
+  // color equipped, which leaves the name at whatever color its container
+  // already set (e.g. ParticipantRow's speaking-state color).
+  color?: string | null;
   // Shows a small red dot after the name — this peer has (or recently had)
   // an active stream from them, but the underlying peer connection just
   // isn't there right now (failed/disconnected, mid-reconnect). See
@@ -27,7 +33,7 @@ export function DisplayUserName({
 }) {
   return (
     <span className={className} style={{ display: "flex" }}>
-      {name}
+      <span style={color ? { color } : undefined}>{name}</span>
       {verified && (
         <VerifiedBadgeIcon
           className="ml-1 inline h-5.5 w-5.5 shrink-0 align-text-top text-blue-500"

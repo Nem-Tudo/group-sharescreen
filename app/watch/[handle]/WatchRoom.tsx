@@ -1932,6 +1932,7 @@ export function WatchRoom({ handle }: { handle: string }) {
       name: peer.name,
       isGuest: peer.isGuest,
       verified: peer.flags?.includes("VERIFIED"),
+      nameColor: peer.nameColor,
       canKick: allowed,
       canBan: allowed,
       blockedReason: allowed
@@ -2352,6 +2353,7 @@ export function WatchRoom({ handle }: { handle: string }) {
               name={peer?.name ?? "Alguém"}
               isGuest={peer?.isGuest}
               verified={peer?.flags?.includes("VERIFIED")}
+              color={peer?.nameColor}
             />
           }
           accessibleLabel={peer?.name ?? "Alguém"}
@@ -2391,6 +2393,7 @@ export function WatchRoom({ handle }: { handle: string }) {
               name={peer?.name ?? "Alguém"}
               isGuest={peer?.isGuest}
               verified={peer?.flags?.includes("VERIFIED")}
+              color={peer?.nameColor}
             />
           }
           accessibleLabel={peer?.name ?? "Alguém"}
@@ -3161,6 +3164,7 @@ export function WatchRoom({ handle }: { handle: string }) {
         isAdmin={isRoomAdmin}
         isApp={mounted && isDesktopApp()}
         verified={state.account?.flags?.includes("VERIFIED")}
+        nameColor={account?.equippedNameColor}
         micOn={isMicOn}
         sharing={isSharing}
         screen={Boolean(localStream)}
@@ -3195,6 +3199,7 @@ export function WatchRoom({ handle }: { handle: string }) {
             isAdmin={state.roomAdmins.some((a) => a.id === p.userId)}
             isApp={p.app}
             verified={p.flags?.includes("VERIFIED")}
+            nameColor={p.nameColor}
             micOn={p.mic}
             sharing={p.sharing}
             screen={p.screen}

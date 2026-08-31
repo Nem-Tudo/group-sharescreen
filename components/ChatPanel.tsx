@@ -31,6 +31,7 @@ export type ChatPeer = {
   name: string;
   isGuest?: boolean;
   flags?: string[];
+  nameColor?: string | null;
   role?: string;
 };
 
@@ -296,6 +297,7 @@ export function ChatPanel({
             name: p.name.trim(),
             isGuest: p.isGuest,
             flags: p.flags,
+            nameColor: p.nameColor,
           });
         }
       }
@@ -570,10 +572,8 @@ export function ChatPanel({
                         name={m.name}
                         isGuest={m.isGuest}
                         verified={m.flags?.includes("VERIFIED")}
-                        className={`min-w-0 font-medium ${isSelf
-                          ? "text-emerald-700 dark:text-emerald-400"
-                          : "text-zinc-700 dark:text-zinc-300"
-                          }`}
+                        color={m.nameColor}
+                        className={"min-w-0 font-medium text-zinc-700 dark:text-zinc-300"}
                       />
                       <span className="shrink-0 text-xs text-zinc-400 tabular-nums dark:text-zinc-600">
                         {formatTime(m.ts)}
@@ -692,6 +692,7 @@ export function ChatPanel({
                       name={peer.name}
                       isGuest={peer.isGuest}
                       verified={peer.flags?.includes("VERIFIED")}
+                      color={peer.nameColor}
                       className="truncate"
                     />
                     <span className="shrink-0 text-[10px] text-zinc-400 dark:text-zinc-500 font-mono">

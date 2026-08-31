@@ -35,6 +35,7 @@ export function ParticipantRow({
   onVolumeChange,
   connectionLost = false,
   verified = false,
+  nameColor,
   isOwner = false,
   isAdmin = false,
   isApp = false,
@@ -73,6 +74,9 @@ export function ParticipantRow({
   // still expect one — see useRoomMedia's recvConnectionStates.
   connectionLost?: boolean;
   verified?: boolean;
+  // Cosmetics-store name color (see PeerInfo.nameColor) — undefined/null for
+  // none equipped.
+  nameColor?: string | null;
   // Owns this room (see server/roomStore.ts's RoomRecord.ownerId) — gets a
   // gold crown right after the name. Exactly one person in a room has this
   // at a time; ownership moves on when they leave.
@@ -117,6 +121,7 @@ export function ParticipantRow({
       name={name}
       isGuest={isGuest}
       verified={verified}
+      color={nameColor}
       connectionLost={connectionLost}
       className={`truncate font-medium transition-colors ${
         speaking

@@ -102,6 +102,12 @@ export type PeerInfo = {
   // doesn't include this yet; DisplayUserName treats both the same (no
   // badge). Only ever meaningful for a real account, never a guest name.
   flags?: string[];
+  // Cosmetics-store name color (see lib/cosmetics.ts and
+  // components/DisplayUserName's `color` prop) — the hex value of whichever
+  // "name_color" product this peer has equipped, or null/undefined for none
+  // (a guest, an account with nothing equipped, or a peer sent by an older
+  // server version that doesn't include this yet).
+  nameColor?: string | null;
   // On the GoLive desktop app rather than a browser (see
   // server/signaling.ts's peerSummary) — ParticipantRow shows a small app
   // icon for these. Undefined for a peer sent by an older server version
@@ -198,6 +204,8 @@ export type ChatMessage = {
   isGuest?: boolean;
   // See PeerInfo.flags's doc comment.
   flags?: string[];
+  // See PeerInfo.nameColor's doc comment.
+  nameColor?: string | null;
   // Missing/anything other than "gif" (including messages persisted before
   // this field existed) renders as plain text.
   kind?: "text" | "gif";
@@ -877,16 +885,17 @@ class SignalingClient {
         const userId = typeof msg.userId === "string" ? msg.userId : undefined;
         const isGuest = Boolean(msg.isGuest);
         const flags = Array.isArray(msg.flags) ? (msg.flags as string[]) : undefined;
+        const nameColor = typeof msg.nameColor === "string" ? msg.nameColor : null;
         this.setState({
           peers: alreadyKnown
             ? this.state.peers.map((p) =>
                 p.id === msg.id
-                  ? { ...p, name: msg.name as string, sharing: false, mic: false, role, userId, isGuest, flags }
+                  ? { ...p, name: msg.name as string, sharing: false, mic: false, role, userId, isGuest, flags, nameColor }
                   : p
               )
             : [
                 ...this.state.peers,
-                { id: msg.id as string, name: msg.name as string, sharing: false, mic: false, role, userId, isGuest, flags },
+                { id: msg.id as string, name: msg.name as string, sharing: false, mic: false, role, userId, isGuest, flags, nameColor },
               ],
         });
         break;
@@ -896,13 +905,22 @@ class SignalingClient {
         this.setState({ peers: this.state.peers.filter((p) => p.id !== msg.id) });
         this.signalListeners.forEach((l) => l(msg.id as string, { kind: "peer-left" }));
         break;
-      case "peer-renamed":
+      case "peer-renamed": {
+        // Also carries flags/nameColor now, not just the name — a cosmetics
+        // purchase re-registers on the same open socket (see
+        // lib/cosmetics.ts) rather than reconnecting, and this is what tells
+        // peers already in the room their badge/color just changed.
+        const renameFlags = Array.isArray(msg.flags) ? (msg.flags as string[]) : undefined;
+        const renameNameColor = typeof msg.nameColor === "string" ? msg.nameColor : null;
         this.setState({
           peers: this.state.peers.map((p) =>
-            p.id === msg.id ? { ...p, name: msg.name as string } : p
+            p.id === msg.id
+              ? { ...p, name: msg.name as string, flags: renameFlags, nameColor: renameNameColor }
+              : p
           ),
         });
         break;
+      }
       case "peer-sharing":
         this.setState({
           peers: this.state.peers.map((p) =>
@@ -1140,6 +1158,7 @@ class SignalingClient {
           name: msg.name as string,
           isGuest: Boolean(msg.isGuest),
           flags: Array.isArray(msg.flags) ? (msg.flags as string[]) : undefined,
+          nameColor: typeof msg.nameColor === "string" ? msg.nameColor : null,
           kind: msg.kind === "gif" ? "gif" : "text",
           text: (msg.text as string) ?? "",
           url: typeof msg.url === "string" ? msg.url : undefined,

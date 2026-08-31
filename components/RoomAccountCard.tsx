@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { BsCoin } from "react-icons/bs";
+import useNtPopups from "ntpopups";
+import { BsCoin, BsShop } from "react-icons/bs";
 import { MdLogin } from "react-icons/md";
 import { useAuth } from "@/lib/AuthContext";
 import { useSignaling } from "@/lib/useSignaling";
@@ -33,6 +34,7 @@ import { VerifiedBadgeIcon } from "@/components/icons";
 export function RoomAccountCard({ onCreateAccount }: { onCreateAccount: () => void }) {
   const state = useSignaling();
   const { account, points } = useAuth();
+  const { openPopup } = useNtPopups();
 
   // Nothing to show before an identity exists — a name is what mints even the
   // guest one, and until then the room is still asking for it.
@@ -61,7 +63,10 @@ export function RoomAccountCard({ onCreateAccount }: { onCreateAccount: () => vo
   const identity = (
     <div className="flex min-w-0 flex-col">
       <span className="flex min-w-0 items-center gap-1">
-        <span className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+        <span
+          className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100"
+          style={account?.equippedNameColor ? { color: account.equippedNameColor } : undefined}
+        >
           {state.name}
         </span>
         {verified && <VerifiedBadgeIcon className="h-4 w-4 shrink-0 text-blue-500" />}
@@ -101,6 +106,20 @@ export function RoomAccountCard({ onCreateAccount }: { onCreateAccount: () => vo
           </div>
         )}
 
+        {/* Beside the identity block rather than its own row, so it never
+            competes with the points chip's own wrap behavior — see the
+            comment on the card's outer div. */}
+        <Tooltip content="Loja de cosméticos" placement="top">
+          <button
+            type="button"
+            onClick={() => openPopup("cosmetics_store", { data: {} })}
+            aria-label="Loja de cosméticos"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-zinc-200 text-zinc-600 transition hover:bg-zinc-100 [@media(max-height:52rem)]:h-7 [@media(max-height:52rem)]:w-7 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-900"
+          >
+            <BsShop className="h-4 w-4 shrink-0 [@media(max-height:52rem)]:h-3.5 [@media(max-height:52rem)]:w-3.5" />
+          </button>
+        </Tooltip>
+
         {/* A row of its own where there is height for it, a chip on the name's
             line where there isn't. Same coin the rest of the site uses for
             points; the word "Pontos" is what gets dropped in the narrow form,
@@ -113,10 +132,10 @@ export function RoomAccountCard({ onCreateAccount }: { onCreateAccount: () => vo
           }
           placement="top"
         >
-          <div className="flex shrink-0 basis-full items-center justify-between gap-2 rounded-lg bg-zinc-100 px-3 py-2 [@media(max-height:52rem)]:basis-auto [@media(max-height:52rem)]:px-2 [@media(max-height:52rem)]:py-1 dark:bg-zinc-900">
-            <span className="flex items-center gap-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-400">
-              <BsCoin className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-              <span className="[@media(max-height:52rem)]:hidden">Pontos</span>
+          <div className="flex shrink-0 basis-full items-center gap-1.5 rounded-lg bg-zinc-100 px-3 py-2 [@media(max-height:52rem)]:basis-auto [@media(max-height:52rem)]:px-2 [@media(max-height:52rem)]:py-1 dark:bg-zinc-900">
+            <BsCoin className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+            <span className="text-xs font-medium text-zinc-600 [@media(max-height:52rem)]:hidden dark:text-zinc-400">
+              Pontos
             </span>
             <span className="text-sm font-semibold tabular-nums text-zinc-900 [@media(max-height:52rem)]:text-xs dark:text-zinc-100">
               {points.toLocaleString("pt-BR")}
