@@ -35,6 +35,15 @@ ARG NEXT_PUBLIC_UMAMI_WEBSITE_ID
 ENV NEXT_PUBLIC_UMAMI_WEBSITE_ID=${NEXT_PUBLIC_UMAMI_WEBSITE_ID}
 ARG NEXT_PUBLIC_STATS_DASHBOARD_URL
 ENV NEXT_PUBLIC_STATS_DASHBOARD_URL=${NEXT_PUBLIC_STATS_DASHBOARD_URL}
+# The commit half of the version every browser reports, counted as
+# sharescreen_clients_by_version on the API (see lib/buildVersion.ts). The
+# release half comes from package.json, which is already in this image;
+# next.config.ts would read the commit from git on its own, but .dockerignore
+# keeps .git out of the build context — so it has to be passed in:
+#   docker build --build-arg NEXT_PUBLIC_BUILD_COMMIT=$(git rev-parse --short HEAD) ...
+# Left unset the build still works and still reports, as "<versão>-unknown".
+ARG NEXT_PUBLIC_BUILD_COMMIT
+ENV NEXT_PUBLIC_BUILD_COMMIT=${NEXT_PUBLIC_BUILD_COMMIT}
 ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN npm run build

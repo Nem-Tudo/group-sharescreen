@@ -9,6 +9,7 @@ import type { Supporter } from "./supporter";
 import { getAccountToken } from "./accountApi";
 import { getCaptchaToken } from "./recaptcha";
 import { getBrowserFingerprint } from "./fingerprint";
+import { BUILD_VERSION } from "./buildVersion";
 import { currentAnnouncementDevice } from "./announcement";
 import { getStoredGuestToken, setStoredGuestToken } from "./guestToken";
 
@@ -775,6 +776,7 @@ class SignalingClient {
             token: guestToken,
             fingerprint: getBrowserFingerprint(),
             device: currentAnnouncementDevice(),
+            version: BUILD_VERSION,
           });
         }
         // A fresh registration (initial connect, or reconnect) counts as a
@@ -1207,6 +1209,11 @@ class SignalingClient {
       token: this.desiredToken,
       fingerprint: getBrowserFingerprint(),
       device: currentAnnouncementDevice(),
+      // Which build this tab is running (see lib/buildVersion.ts). Purely
+      // observational — the server counts it and nothing else — and sent on
+      // every register, including a rename, so a long-lived connection's
+      // version is never inferred from when it first connected.
+      version: BUILD_VERSION,
     });
     this.clearRegisterAck();
     const ws = this.ws;
