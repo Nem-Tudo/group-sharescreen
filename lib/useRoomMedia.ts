@@ -81,6 +81,7 @@ type SignalData = {
     | "quality"
     | "capacity"
     | "relay-assign"
+    | "relay-nack"
     | "reconnect-request";
   sdp?: RTCSessionDescriptionInit;
   // Set on an offer that renegotiates an *existing* connection with fresh ICE
@@ -96,6 +97,16 @@ type SignalData = {
   uploadKbps?: number;
   encodeMpxs?: number;
   eligibleRelay?: boolean;
+  // Whether uploadKbps/encodeMpxs above were observed or assumed — see
+  // PlannerNode.measured in topologyPlanner. Absent from an older client's
+  // report and read as "assumed", which is both conservative and accurate.
+  measured?: boolean;
+  // Set on a "stop" that is a change of route rather than the end of a
+  // transmission: the sender is handing this viewer to someone else and
+  // another offer is already on its way. The viewer keeps the tile as a
+  // reconnecting placeholder instead of clearing it, which is the difference
+  // between a brief flicker and the stream appearing to have ended.
+  reparenting?: boolean;
   // Present only on relayed traffic: who originally produced this stream, as
   // opposed to who forwarded it. The receiving side files the stream under
   // this so a relayed viewer still sees the real broadcaster's name on the
@@ -510,6 +521,14 @@ function useBroadcastChannel(
       return next;
     });
   }, []);
+  const markResuming = useCallback((peerId: string) => {
+    setResumingPeers((prev) => {
+      if (prev.has(peerId)) return prev;
+      const next = new Set(prev);
+      next.add(peerId);
+      return next;
+    });
+  }, []);
   const videoQualityRef = useRef(videoQuality);
   const qualityCeilingRef = useRef<QualityTier>(videoQuality?.ceilingTier ?? BEST_TIER);
   const degradationModeRef = useRef<DegradationMode>(videoQuality?.degradation ?? "text");
@@ -645,6 +664,26 @@ function useBroadcastChannel(
     [channel]
   );
 
+  // Maps a tile back to the connection carrying it.
+  //
+  // Everything the UI holds is keyed by *origin* — the person whose screen this
+  // is — because that is what the tile shows and what survives the stream being
+  // rerouted. Connections are keyed by *sender*, which for a relayed stream is
+  // somebody else entirely. The two are the same for a direct connection, which
+  // is why this went unnoticed: stopping a relayed stream looked up a recvPC
+  // under the origin's id, found nothing, closed nothing, and sent the request
+  // to a broadcaster with no connection to us. The tile said "you left this
+  // transmission" while the relay went on sending it, and hyperfocus — whose
+  // entire purpose is to free bandwidth in exactly the large rooms where relays
+  // exist — freed none of it.
+  const senderForOrigin = useCallback((originOrPeerId: string): string => {
+    if (recvPCs.current.has(originOrPeerId)) return originOrPeerId;
+    for (const [sender, origin] of recvOrigins.current) {
+      if (origin === originOrPeerId) return sender;
+    }
+    return originOrPeerId;
+  }, []);
+
   // Lets a viewer stop receiving one specific peer's stream without touching
   // anyone else's — closes our recvPC for it (freeing decode/network
   // resources on our end) and tells that peer to close their matching sendPC
@@ -652,8 +691,9 @@ function useBroadcastChannel(
   // locally while the connection keeps running in the background.
   const stopWatchingPeer = useCallback(
     (peerId: string) => {
-      closeRecvPC(peerId);
-      signalingClient.sendSignal(peerId, { channel, role: "viewer", kind: "stop" });
+      const senderId = senderForOrigin(peerId);
+      closeRecvPC(senderId);
+      signalingClient.sendSignal(senderId, { channel, role: "viewer", kind: "stop" });
       // Stopping someone we were part-way through resuming (hyperfocus does
       // exactly this to everyone else in the room) has to take them out of
       // `resumingPeers` too — the recvPC that resume was waiting on is the one
@@ -668,7 +708,7 @@ function useBroadcastChannel(
         return next;
       });
     },
-    [channel, closeRecvPC, clearResuming]
+    [channel, closeRecvPC, clearResuming, senderForOrigin]
   );
 
   const resumeWatchingPeer = useCallback(
@@ -963,14 +1003,33 @@ function useBroadcastChannel(
       }
 
       // Someone a relay has taken over: drop our direct connection to them.
+      // Telling them first is what stops the handover looking like a failure:
+      // a connection that simply dies leaves them to discover it through ICE,
+      // conclude we broke, and send a reconnect-request for a link we
+      // deliberately closed.
       for (const peerId of nowRelayed) {
         if (!relayedAway.current.has(peerId) && sendPCs.current.has(peerId)) {
+          signalingClient.sendSignal(peerId, {
+            channel,
+            role: "broadcaster",
+            kind: "stop",
+            reparenting: true,
+          });
           closeSendPC(peerId);
         }
       }
       // Someone a relay used to serve but no longer does: we own them again.
       for (const peerId of relayedAway.current) {
         if (!nowRelayed.has(peerId) && activeRef.current) openSendPCRef.current(peerId);
+      }
+      // Nothing about the cascade is visible from outside the browser it
+      // happens in, which is why every question about it so far has had to be
+      // answered by reading code. A transition either way is rare and worth
+      // one event.
+      if (nowRelayed.size > 0 && relayedAway.current.size === 0) {
+        trackEvent("cascade_engage");
+      } else if (nowRelayed.size === 0 && relayedAway.current.size > 0) {
+        trackEvent("cascade_release");
       }
       relayedAway.current = nowRelayed;
     },
@@ -1366,6 +1425,18 @@ function useBroadcastChannel(
             pendingRecvCandidates.current.set(from, queue);
           }
         } else if (data.kind === "stop") {
+          if (data.reparenting) {
+            // Same stream, different route. Closing the connection is right —
+            // it is genuinely going away — but clearing the tile is not: an
+            // offer from the new parent is already in flight, and treating the
+            // handover as "they stopped sharing" is what turned every
+            // reparenting into a tile that vanished and then reappeared.
+            // Marking it resuming keeps a placeholder on screen for the second
+            // or two in between, and openRecvPC's ontrack clears it.
+            closeRecvPC(from);
+            markResuming(recvOrigins.current.get(from) ?? from);
+            return;
+          }
           // The broadcaster stopped sharing entirely — nothing to "come
           // back" to, so this fully clears the tile rather than leaving a
           // stopped-by-us placeholder behind.
@@ -1380,7 +1451,26 @@ function useBroadcastChannel(
           if (!RELAY_ENABLED || channel !== "screen") return;
           const origin = data.originId ?? from;
           const source = relaySources.current.get(origin);
-          if (!source || !data.children) return;
+          if (!data.children) return;
+          if (!source) {
+            // We are not receiving this stream, so we cannot forward it. That
+            // is an ordinary situation — we may have stopped watching them, be
+            // hyperfocused elsewhere, or have auto-join switched off — and it
+            // used to be handled by silently dropping the assignment. Silence
+            // was the wrong answer: the broadcaster had already closed its
+            // direct connection to every viewer in this list on the assumption
+            // we would take them, so each of them lost their stream outright
+            // and stayed black until some later plan happened to route around
+            // us. Saying so puts them back within one signalling round trip.
+            signalingClient.sendSignal(origin, {
+              channel: "screen",
+              role: "viewer",
+              kind: "relay-nack",
+              originId: origin,
+              children: data.children,
+            });
+            return;
+          }
           // "text" if the sender predates this field (an older tab still
           // open through a deploy) — the same default RelayLink itself
           // starts with, so a missing field changes nothing about today's
@@ -1397,9 +1487,25 @@ function useBroadcastChannel(
               uploadKbps: 0,
               encodeMpxs: 0,
               eligibleRelay: false,
+              measured: true,
             });
           });
+          const wasIdle = !link.hasChildren();
           link.setChildren(data.children, degradation);
+          if (wasIdle && link.hasChildren()) trackEvent("relay_promoted");
+          return;
+        }
+        if (data.kind === "relay-nack") {
+          // A relay we assigned children to cannot serve them. Take them back
+          // immediately rather than waiting for the next planning pass, and
+          // drop them from relayedAway so the peer-list-driven loop stops
+          // skipping them too.
+          if (!activeRef.current) return;
+          for (const child of data.children ?? []) {
+            relayedAway.current.delete(child.id);
+            if (!viewerPausedPeers.current.has(child.id)) openSendPC(child.id);
+          }
+          trackEvent("relay_nack");
           return;
         }
         if (data.kind === "capacity") {
@@ -1410,6 +1516,7 @@ function useBroadcastChannel(
             uploadKbps: data.uploadKbps ?? 0,
             encodeMpxs: data.encodeMpxs ?? 0,
             eligibleRelay: data.eligibleRelay === true,
+            measured: data.measured === true,
             // firstSeenAt is preserved across updates on purpose: it is how
             // "has been here a while" is measured, and that is the tiebreak
             // that stops the planner promoting someone who just walked in and
@@ -1430,8 +1537,19 @@ function useBroadcastChannel(
           // our own until they explicitly ask to resume.
           viewerPausedPeers.current.add(from);
           closeSendPC(from);
+          // They may be a relay child rather than one of our own viewers, and
+          // that connection lives somewhere else entirely (see relayLink). It
+          // is also the expensive one — a whole re-encode — so it is the one
+          // most worth releasing when someone says they are not watching.
+          relays.current.findByChild(from)?.releaseChild(from);
         } else if (data.kind === "resume") {
           viewerPausedPeers.current.delete(from);
+          // If a relay was serving them, that arrangement ended when they
+          // asked to stop. Forgetting it here keeps the direct connection we
+          // are about to open from being immediately closed again as a
+          // duplicate, and lets the next planning pass decide afresh whether
+          // they should go back to a relay.
+          relayedAway.current.delete(from);
           // Closed first, deliberately. openSendPC is a no-op when a pc for
           // this peer already exists, and one can perfectly well still be
           // sitting there: the "stop" that should have torn it down is sent
@@ -1450,6 +1568,12 @@ function useBroadcastChannel(
           // wrong on its own. Force a fresh sendPC regardless of what ours
           // currently thinks, unless they deliberately paused us.
           if (viewerPausedPeers.current.has(from)) return;
+          // A relay is serving them on our behalf. Reopening a direct
+          // connection here would not repair anything — it would double-encode
+          // and double-send the very stream the cascade exists to send once.
+          // Their relay is the one that can help, and they will reach it (see
+          // the relay branch below, which runs on that machine).
+          if (relayedAway.current.has(from)) return;
           // We may not be the broadcaster at all: if we are relaying someone
           // else's stream to this viewer, the dead connection is the relay
           // child, and we are the only party who can rebuild it. Without this
@@ -1605,6 +1729,7 @@ function useBroadcastChannel(
     closeRecvPCFully,
     clearStopped,
     clearResuming,
+    markResuming,
     tierForPeer,
   ]);
 

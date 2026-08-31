@@ -51,12 +51,26 @@ export interface RelayOfferMeta {
   originId: string;
 }
 
-// If the source stream stops producing frames for this long, the relay is
-// forwarding nothing and its children are staring at a frozen tile. Far
-// shorter than the signalling server's 25s heartbeat, which is much too slow
-// to be the thing that notices a dead subtree.
-const SOURCE_STALL_MS = 1500;
-const STALL_CHECK_MS = 500;
+// How long the incoming stream may deliver nothing before this relay decides
+// its source is genuinely gone rather than merely quiet.
+//
+// This is deliberately long, and the previous 1.5s was the single most
+// destructive number in the cascade. A screen share of static content produces
+// *no media at all* while nothing on screen changes — that is the whole point
+// of a screen codec, and it is the normal state of the most common thing
+// anyone shares: a slide, a document, an editor sitting still. At 1.5s every
+// such pause was read as a dead source, so the relay tore down its entire
+// subtree, reported itself unusable and destroyed itself, several times a
+// minute, in a loop. A presentation in a large room could not stay up.
+//
+// The connection genuinely dying is not what this catches and never was: a
+// recvPC that fails or closes already releases the relay through
+// closeRecvPC/RelayManager.release. What is left for this to catch is the much
+// rarer "connected, but the media stopped" case, and being slow about that
+// costs a frozen tile for a few seconds, where being fast about it cost the
+// room its cascade.
+const SOURCE_STALL_MS = 12_000;
+const STALL_CHECK_MS = 1000;
 
 // Distinguishes one relay's senders from another's — and from the broadcast
 // channels' — inside the process-wide stats pump (see PeerQualityRegistry's
@@ -78,8 +92,8 @@ export class RelayLink {
   private children = new Map<string, RelayChildState>();
   private quality = new PeerQualityRegistry(`relay:${(relaySeq += 1)}`);
   private stallTimer: ReturnType<typeof setInterval> | null = null;
-  private lastFrames = 0;
-  private lastFrameAt = 0;
+  private lastBytes = 0;
+  private lastMediaAt = 0;
   // The origin's own "O que você está compartilhando" pick — carried over
   // from theirs rather than defaulting here (see setChildren), because a
   // relay's re-encode is the same content, being handed to the same kind of
@@ -113,7 +127,9 @@ export class RelayLink {
     this.quality.setDegradation(degradation);
     const wanted = new Map(assignment.map((c) => [c.id, c.tier]));
     for (const id of [...this.children.keys()]) {
-      if (!wanted.has(id)) this.closeChild(id);
+      // Dropped from the assignment means the root moved them, not that their
+      // stream ended — the root opens their replacement in the same pass.
+      if (!wanted.has(id)) this.closeChild(id, "reparent");
     }
     for (const [id, tier] of wanted) {
       const existing = this.children.get(id);
@@ -250,6 +266,10 @@ export class RelayLink {
     return this.children.has(peerId);
   }
 
+  hasChildren(): boolean {
+    return this.children.size > 0;
+  }
+
   /**
    * Rebuilds one child's connection from scratch, keeping its assigned tier.
    *
@@ -275,18 +295,38 @@ export class RelayLink {
     this.openChild(peerId, tier);
   }
 
-  private closeChild(peerId: string) {
+  /**
+   * Drops one child.
+   *
+   * `reason` decides what the child is told, and the distinction matters to
+   * them a great deal more than it does to us:
+   *
+   *  - "reparent": the plan moved them elsewhere and another offer is already
+   *    coming. They hold a placeholder instead of clearing the tile.
+   *  - "ended": we can no longer serve this stream at all. They clear it.
+   *  - "requested": they asked us to stop, so telling them to stop would be
+   *    an echo — and one that would clear the very placeholder their own
+   *    request just put up. Nothing is sent.
+   */
+  private closeChild(peerId: string, reason: "ended" | "reparent" | "requested" = "ended") {
     const entry = this.children.get(peerId);
     if (!entry) return;
     entry.pc.close();
     this.children.delete(peerId);
     this.quality.remove(peerId);
+    if (reason === "requested") return;
     signalingClient.sendSignal(peerId, {
       channel: "screen",
       role: "broadcaster",
       kind: "stop",
       originId: this.originId,
+      reparenting: reason === "reparent",
     });
+  }
+
+  /** The child asked us to stop sending. Frees the re-encode immediately. */
+  releaseChild(peerId: string) {
+    this.closeChild(peerId, "requested");
   }
 
   // Watches the *incoming* stream. A relay whose own source died is worse
@@ -295,7 +335,7 @@ export class RelayLink {
   // root's point of view the relay is still connected and still assigned.
   private ensureStallWatch() {
     if (this.stallTimer || this.children.size === 0) return;
-    this.lastFrameAt = Date.now();
+    this.lastMediaAt = Date.now();
     this.stallTimer = setInterval(() => {
       void this.checkStall();
     }, STALL_CHECK_MS);
@@ -310,25 +350,37 @@ export class RelayLink {
     // window or monitor) is picked up.
     const sourceHeight = this.stream.getVideoTracks()[0]?.getSettings().height;
     if (sourceHeight) this.quality.setCaptureHeight(sourceHeight);
-    let frames = 0;
+    // A source whose transport has already given up is not a stall, it is a
+    // loss, and closeRecvPC handles that far more directly than this poll ever
+    // could. Bailing out here keeps the two paths from racing to tear the same
+    // link down twice.
+    const sourceState = this.sourcePc.connectionState;
+    if (sourceState === "closed" || sourceState === "failed") return;
+
+    let bytes = 0;
     try {
       const report = await this.sourcePc.getStats();
       report.forEach((r) => {
         const rec = r as unknown as Record<string, unknown>;
         if (r.type === "inbound-rtp" && rec.kind === "video") {
-          frames = (rec.framesDecoded as number) ?? 0;
+          // Bytes rather than framesDecoded. They mostly move together, but
+          // bytes also count the packets a codec emits without producing a new
+          // decodable frame, so this errs towards "still alive" — which is the
+          // right direction to err when the cost of a false positive is
+          // demolishing a working subtree.
+          bytes = (rec.bytesReceived as number) ?? 0;
         }
       });
     } catch {
       return;
     }
     const now = Date.now();
-    if (frames > this.lastFrames) {
-      this.lastFrames = frames;
-      this.lastFrameAt = now;
+    if (bytes > this.lastBytes) {
+      this.lastBytes = bytes;
+      this.lastMediaAt = now;
       return;
     }
-    if (now - this.lastFrameAt > SOURCE_STALL_MS) {
+    if (now - this.lastMediaAt > SOURCE_STALL_MS) {
       // Tell the children right away so they can re-parent, rather than
       // leaving them to discover it via their own stall detection.
       for (const peerId of [...this.children.keys()]) this.closeChild(peerId);

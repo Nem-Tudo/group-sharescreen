@@ -27,14 +27,33 @@ import {
 
 export interface PlannerNode {
   id: string;
-  /** Measured uplink, kbps. */
+  /** Uplink, kbps. See `measured` before trusting it. */
   uploadKbps: number;
-  /** Measured encode budget, megapixels/second. */
+  /** Encode budget, megapixels/second. See `measured` before trusting it. */
   encodeMpxs: number;
   /** Seconds this node has been connected — a proxy for "won't vanish". */
   stableSeconds: number;
   /** Mobile/battery devices are never promoted to relay. */
   eligibleRelay: boolean;
+  /**
+   * Whether the two figures above came from observing real traffic, or are
+   * this device's opening assumption about itself.
+   *
+   * The distinction is load-bearing and used to be invisible. A viewer that is
+   * neither sharing nor relaying has no outbound media, so nothing ever runs
+   * the stats pump for it and its numbers stay at the seeded defaults — an
+   * assumed uplink, and an encode budget extrapolated from core count. Every
+   * such viewer therefore advertised the *same* comfortable figures no matter
+   * what their connection or machine actually was, and the planner, unable to
+   * tell that apart from a measurement, promoted them on the strength of it.
+   * Someone on a slow uplink would be handed a subtree and collapse under it.
+   *
+   * Unmeasured nodes are still usable — refusing them outright would disable
+   * cascading entirely, since a viewer cannot measure an uplink it is not
+   * using — but they are discounted (see UNMEASURED_DISCOUNT) and sorted
+   * behind anyone who has actually proven what they can carry.
+   */
+  measured: boolean;
 }
 
 export interface PlannerViewer extends PlannerNode {
@@ -82,15 +101,53 @@ const ENCODE_HEADROOM = 0.85;
 // deepening, which is the better trade.
 const MAX_DEPTH = 3;
 
+// Hard ceiling on how many children any one relay may be given, whatever the
+// arithmetic says it can afford.
+//
+// The arithmetic was the problem. With an unmeasured node's assumed budget and
+// a cheap content multiplier, slotsFor would happily conclude a single viewer
+// could carry twenty-odd children: ~27 by upload and ~38 by encode is a real
+// pair of numbers this produced for 576p30 static content. Nobody's browser
+// survives twenty simultaneous re-encodes, and when it stops surviving, every
+// one of those children goes black at once. A relay is a favour asked of a
+// participant who came to watch, and the size of the favour has to be bounded
+// by something other than optimism.
+const MAX_CHILDREN_PER_RELAY = 4;
+
+// What an unmeasured node's self-reported budget is worth (see
+// PlannerNode.measured). Not zero, because it is a genuine best guess and
+// cascading has to be possible at all; not one, because it is a guess about
+// the one thing that decides whether promoting this person wrecks their
+// experience and their children's.
+const UNMEASURED_DISCOUNT = 0.4;
+
 interface WorkNode extends PlannerNode {
   usedUploadKbps: number;
   usedEncodeMpxs: number;
+  usedChildren: number;
   depth: number;
   served: boolean;
+  isRoot: boolean;
+}
+
+// The share of a node's claimed budget the planner is willing to spend. The
+// root's own figures come from its live encoders and are trusted as given; a
+// viewer's may be nothing more than a default it has never had occasion to
+// test (see PlannerNode.measured).
+function trust(n: WorkNode): number {
+  return n.isRoot || n.measured ? 1 : UNMEASURED_DISCOUNT;
 }
 
 function freeUpload(n: WorkNode): number {
-  return n.uploadKbps * UPLOAD_HEADROOM - n.usedUploadKbps;
+  return n.uploadKbps * trust(n) * UPLOAD_HEADROOM - n.usedUploadKbps;
+}
+
+// The cap does not apply to the root: it is the one node that chose to be
+// here, whose budget is genuinely measured, and whose whole job is serving the
+// room. Capping it would push people into a cascade the direct mesh could have
+// carried, which is the opposite of what any of this is for.
+function freeSlots(n: WorkNode): number {
+  return n.isRoot ? Number.POSITIVE_INFINITY : MAX_CHILDREN_PER_RELAY - n.usedChildren;
 }
 
 function slotsFor(n: WorkNode, tier: QualityTier, multiplier: number): number {
@@ -98,8 +155,10 @@ function slotsFor(n: WorkNode, tier: QualityTier, multiplier: number): number {
   const perChildEnc = encodeMpxs(tier);
   if (perChildUp <= 0 || perChildEnc <= 0) return 0;
   const byUpload = Math.floor(freeUpload(n) / perChildUp);
-  const byEncode = Math.floor((n.encodeMpxs * ENCODE_HEADROOM - n.usedEncodeMpxs) / perChildEnc);
-  return Math.max(0, Math.min(byUpload, byEncode));
+  const byEncode = Math.floor(
+    (n.encodeMpxs * trust(n) * ENCODE_HEADROOM - n.usedEncodeMpxs) / perChildEnc
+  );
+  return Math.max(0, Math.min(byUpload, byEncode, freeSlots(n)));
 }
 
 /**
@@ -113,7 +172,11 @@ function slotsFor(n: WorkNode, tier: QualityTier, multiplier: number): number {
 export function planTopology(
   root: PlannerNode,
   viewers: PlannerViewer[],
-  contentMultiplier: number
+  contentMultiplier: number,
+  // Who is serving whom right now, as childId -> parentId. Purely an
+  // optimisation target: a plan that keeps someone where they are is worth
+  // more than an equivalent plan that moves them. See allocate's parent sort.
+  currentParents?: ReadonlyMap<string, string>
 ): TopologyPlan {
   // Each downgrade level is a *fresh* allocation, not a continuation of the
   // previous one. Continuing was subtly wrong: the greedy pass would let the
@@ -123,7 +186,7 @@ export function planTopology(
   // at the lower tier is what actually makes the room fit.
   let best: TopologyPlan | null = null;
   for (let downgrade = 0; downgrade < TIERS.length; downgrade += 1) {
-    const attempt = allocate(root, viewers, contentMultiplier, downgrade);
+    const attempt = allocate(root, viewers, contentMultiplier, downgrade, currentParents);
     if (attempt.unserved.length === 0) return attempt;
     // Keep whichever attempt reaches the most people, in case even the
     // lowest tier cannot cover everyone.
@@ -136,16 +199,40 @@ function allocate(
   root: PlannerNode,
   viewers: PlannerViewer[],
   contentMultiplier: number,
-  globalDowngrade: number
+  globalDowngrade: number,
+  currentParents?: ReadonlyMap<string, string>
 ): TopologyPlan {
   const nodes = new Map<string, WorkNode>();
-  nodes.set(root.id, { ...root, usedUploadKbps: 0, usedEncodeMpxs: 0, depth: 0, served: true });
+  nodes.set(root.id, {
+    ...root,
+    usedUploadKbps: 0,
+    usedEncodeMpxs: 0,
+    usedChildren: 0,
+    depth: 0,
+    served: true,
+    isRoot: true,
+  });
   for (const v of viewers) {
-    nodes.set(v.id, { ...v, usedUploadKbps: 0, usedEncodeMpxs: 0, depth: -1, served: false });
+    nodes.set(v.id, {
+      ...v,
+      usedUploadKbps: 0,
+      usedEncodeMpxs: 0,
+      usedChildren: 0,
+      depth: -1,
+      served: false,
+      isRoot: false,
+    });
   }
 
   const edges: PlanEdge[] = [];
   const wanted = new Map(viewers.map((v) => [v.id, v.wantTier]));
+  // Who is relaying right now. Keeping the same people in the job is worth as
+  // much as keeping the same people under them: which nodes get promoted was
+  // decided purely by free capacity, so a jitter of a few hundred kbps in the
+  // reports could swap out half the relays — and every relay that loses the
+  // job hands its whole subtree to somebody else, which is several viewers
+  // reconnecting to fix a difference that was noise.
+  const currentRelays = new Set(currentParents ? [...currentParents.values()] : []);
   // Most expensive first, so the strongest parent absorbs the fullscreen
   // viewers and relays are left with cheap grid tiles.
   const pending = [...viewers]
@@ -157,6 +244,18 @@ function allocate(
       .filter((n) => n.served && n.depth < MAX_DEPTH && (n.id === root.id || n.eligibleRelay))
       .sort(
         (a, b) =>
+          // Shallower first, so the root fills up before anyone is promoted
+          // and a second hop is only ever reached once a first one is full.
+          // Sorting purely by free capacity could put a fresh, idle viewer
+          // ahead of the root and start a cascade the root did not need.
+          a.depth - b.depth ||
+          // Then whoever is already doing the job, so the set of relays is not
+          // reshuffled by noise (see currentRelays).
+          Number(currentRelays.has(b.id)) - Number(currentRelays.has(a.id)) ||
+          // Then whoever has actually proven what they can carry. An assumed
+          // budget is already discounted (see trust()), but between two nodes
+          // that still look similar, evidence wins.
+          Number(b.measured) - Number(a.measured) ||
           freeUpload(b) - freeUpload(a) ||
           b.stableSeconds - a.stableSeconds ||
           b.encodeMpxs - a.encodeMpxs
@@ -167,6 +266,25 @@ function allocate(
       if (pending.length === 0) break;
       const childDepth = parent.depth + 1;
       if (childDepth > MAX_DEPTH) continue;
+
+      // Whoever this parent was already serving goes first, so a plan that
+      // could keep them takes that option before a stranger consumes the slot.
+      //
+      // This is the entire hysteresis mechanism, and without it the allocator
+      // was free to redraw the tree from scratch every six seconds. Its inputs
+      // move constantly — a capacity report every eight seconds, a want-tier on
+      // every tile resize — and it is a pure greedy pass with no memory, so a
+      // fractional change in someone's measured uplink could reshuffle who
+      // serves whom across the whole room. Each reshuffle costs the moved
+      // viewer a torn-down connection and a visibly blank tile, for no gain
+      // whatsoever: the plan it moved to was no better, only different.
+      if (currentParents) {
+        pending.sort((a, b) => {
+          const keepA = currentParents.get(a) === parent.id ? 0 : 1;
+          const keepB = currentParents.get(b) === parent.id ? 0 : 1;
+          return keepA - keepB;
+        });
+      }
 
       let i = 0;
       while (i < pending.length) {
@@ -187,6 +305,7 @@ function allocate(
         }
         parent.usedUploadKbps += uploadKbps(tier, contentMultiplier);
         parent.usedEncodeMpxs += encodeMpxs(tier);
+        parent.usedChildren += 1;
         child.served = true;
         child.depth = childDepth;
         edges.push({ from: parent.id, to: childId, tier, depth: childDepth });
@@ -238,4 +357,11 @@ export function fitsDirectMesh(
     enc += encodeMpxs(v.wantTier);
   }
   return up <= root.uploadKbps * UPLOAD_HEADROOM && enc <= root.encodeMpxs * ENCODE_HEADROOM;
+}
+
+/** Every child-to-parent edge in a plan, for feeding back as `currentParents`. */
+export function parentsOf(plan: TopologyPlan | null): Map<string, string> {
+  const parents = new Map<string, string>();
+  for (const edge of plan?.edges ?? []) parents.set(edge.to, edge.from);
+  return parents;
 }

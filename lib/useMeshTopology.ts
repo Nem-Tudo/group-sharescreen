@@ -18,6 +18,7 @@ import { signalingClient } from "./signalingClient";
 import { encodeBudget, mediaStats, type CapacitySample } from "./mediaStats";
 import {
   fitsDirectMesh,
+  parentsOf,
   planTopology,
   type PlannerNode,
   type PlannerViewer,
@@ -31,6 +32,13 @@ export interface PeerCapacity {
   encodeMpxs: number;
   /** false for phones/tablets and anything on battery — never promoted. */
   eligibleRelay: boolean;
+  /**
+   * Whether the two figures above were observed or assumed — see
+   * PlannerNode.measured. Absent from an older client's report, which is read
+   * as "assumed", the conservative reading and the one that matches what those
+   * clients are actually sending.
+   */
+  measured: boolean;
   firstSeenAt: number;
   updatedAt: number;
 }
@@ -39,12 +47,35 @@ export interface PeerCapacity {
 // A phone can momentarily show a fine uplink and still be the worst possible
 // choice: thermal throttling, metered data, and the fact that backgrounding
 // the tab suspends everything the subtree below it depends on.
+type NetworkInformation = {
+  effectiveType?: string;
+  saveData?: boolean;
+  type?: string;
+};
+
+function networkInformation(): NetworkInformation | undefined {
+  if (typeof navigator === "undefined") return undefined;
+  return (navigator as unknown as { connection?: NetworkInformation }).connection;
+}
+
 function isRelayEligible(): boolean {
   if (typeof navigator === "undefined") return false;
   const ua = navigator.userAgent || "";
   if (/Android|iPhone|iPad|iPod|Mobile/i.test(ua)) return false;
   const cores = navigator.hardwareConcurrency || 2;
   if (cores < 4) return false;
+  // What the browser will admit about the connection itself. Absent in Safari
+  // and Firefox, where the checks above stand alone — but where it does exist
+  // it is the only direct evidence available about a link this device is not
+  // currently pushing traffic through, and every one of these says "do not
+  // hand this person someone else's stream to carry".
+  const connection = networkInformation();
+  if (connection) {
+    if (connection.saveData === true) return false;
+    if (connection.type === "cellular") return false;
+    const effective = connection.effectiveType;
+    if (effective === "slow-2g" || effective === "2g" || effective === "3g") return false;
+  }
   const battery = (navigator as unknown as { getBattery?: unknown }).getBattery;
   // Presence of a battery API says nothing on its own; the charging check
   // happens asynchronously in useMeshCapacity and can veto later.
@@ -150,6 +181,14 @@ export function useMeshCapacity() {
   // the capacity broadcast below restart its interval.
   const uplinkKbps = estimatedUplinkKbps(capacity);
 
+  // Whether the stats pump has ever produced a sample for us. It only runs
+  // while we have outbound media, so this is precisely "have we ever actually
+  // pushed anything and watched what happened" — which is the difference
+  // between the numbers above being a measurement and being a default. See
+  // PlannerNode.measured for why that difference decides whether this device
+  // is safe to promote.
+  const measured = capacity.sampledAt > 0;
+
   const self = useMemo<PlannerNode>(
     () => ({
       id: signalingClient.state.selfId ?? "self",
@@ -157,8 +196,9 @@ export function useMeshCapacity() {
       encodeMpxs: encodeBudget.get(),
       stableSeconds: 0,
       eligibleRelay: relayEligible,
+      measured,
     }),
-    [uplinkKbps, relayEligible]
+    [uplinkKbps, relayEligible, measured]
   );
 
   // Tell whoever is broadcasting what we could carry, so they can plan.
@@ -185,6 +225,7 @@ export function useMeshCapacity() {
           uploadKbps: self.uploadKbps,
           encodeMpxs: self.encodeMpxs,
           eligibleRelay: self.eligibleRelay,
+          measured: self.measured,
         });
       }
     };
@@ -208,6 +249,24 @@ export interface TopologyAdvice {
 // tearing down and rebuilding real connections. Only re-plan when the inputs
 // have actually moved, and never faster than this.
 const REPLAN_COOLDOWN_MS = 6000;
+
+// How many consecutive evaluations must agree the room does not fit before a
+// cascade is actually built.
+//
+// The very first evaluation of a share is systematically the most pessimistic
+// one it will ever make, and it used to be acted on immediately. Nobody has
+// reported a tile size yet, so every viewer is budgeted at the broadcaster's
+// full ceiling rather than the thumbnail they will turn out to need; the
+// bandwidth estimator has not ramped, so the uplink reads at its assumed
+// floor; and the content multiplier is still at its neutral 1.0. Demand is
+// overstated and supply understated at the same moment, so a large room
+// reliably concluded it needed a cascade, built the whole tree, and then tore
+// it down again once the real numbers arrived seconds later — with a
+// reconnection and a blank tile for every viewer, twice, before anyone had
+// watched anything. Requiring the answer to hold still first costs a few
+// seconds of a mesh that may be over-subscribed; acting on the first answer
+// cost every large share a guaranteed double reshuffle.
+const CASCADE_ENGAGE_STREAK = 3;
 
 /**
  * Decides whether the current room needs a cascade, and if so, what shape.
@@ -240,6 +299,13 @@ export function useMeshTopology(
     // updater form is also load-bearing: it returns the previous object
     // unchanged when nothing meaningful moved, so a room sitting comfortably
     // in direct mesh re-renders nobody, every six seconds, forever.
+    // Consecutive evaluations that said the room does not fit (see
+    // CASCADE_ENGAGE_STREAK) and the shape of the last plan built (see
+    // planTopology's `currentParents`). Both live for as long as this share
+    // does and reset with it, which is exactly the right lifetime: a new share
+    // has no history worth preserving and should not inherit another one's.
+    let missStreak = 0;
+    let lastParents: Map<string, string> | undefined;
     const idle = () =>
       setAdvice((prev) =>
         prev.directMeshFits && !prev.plan ? prev : { directMeshFits: true, plan: null, reason: null }
@@ -267,11 +333,13 @@ export function useMeshTopology(
           // A peer we have never heard capacity from cannot be trusted to
           // relay; silence is not evidence of capability.
           eligibleRelay: cap?.eligibleRelay ?? false,
+          measured: cap?.measured ?? false,
           wantTier: requestedTiers.get(p.id) ?? "720p30",
         };
       });
 
     if (viewers.length === 0) {
+      missStreak = 0;
       setAdvice((prev) => (prev.directMeshFits && !prev.plan ? prev : { directMeshFits: true, plan: null, reason: null }));
       return;
     }
@@ -279,9 +347,17 @@ export function useMeshTopology(
     // The cheap path, and the one that should normally win: if the root can
     // reach everyone directly there is no plan to build and nothing to change.
     if (fitsDirectMesh(self, viewers, contentMultiplier)) {
+      missStreak = 0;
       setAdvice((prev) => (prev.directMeshFits && !prev.plan ? prev : { directMeshFits: true, plan: null, reason: null }));
       return;
     }
+
+    // It does not fit — but wait for the reading to hold before acting on it.
+    // See CASCADE_ENGAGE_STREAK. Once a cascade is running the streak is
+    // already satisfied, so this delays engaging without ever delaying a
+    // re-plan of a tree that exists.
+    missStreak += 1;
+    if (missStreak < CASCADE_ENGAGE_STREAK) return;
 
     // Below the threshold, nobody is eligible to relay — the planner falls
     // back to its uniform-downgrade path on its own (the same one it already
@@ -293,7 +369,10 @@ export function useMeshTopology(
         ? viewers
         : viewers.map((v) => (v.eligibleRelay ? { ...v, eligibleRelay: false } : v));
 
-    const plan = planTopology(self, plannerViewers, contentMultiplier);
+    // Feeding the previous plan back in is what keeps this from redrawing the
+    // tree on every pass — see planTopology's `currentParents`.
+    const plan = planTopology(self, plannerViewers, contentMultiplier, lastParents);
+    lastParents = parentsOf(plan);
     const reason =
       plan.depth > 1
         ? `Sua conexão não alcança ${viewers.length} pessoas sozinha — ${plan.relays.length} participante(s) estão ajudando a retransmitir.`

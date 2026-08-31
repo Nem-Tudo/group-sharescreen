@@ -19,7 +19,7 @@ import {
   uploadKbps,
   TIERS,
 } from "./videoQuality";
-import { fitsDirectMesh, planTopology, type PlannerViewer } from "./topologyPlanner";
+import { fitsDirectMesh, parentsOf, planTopology, type PlannerViewer } from "./topologyPlanner";
 
 // --- tier selection -------------------------------------------------------
 
@@ -159,6 +159,7 @@ const strongViewer = (id: string, wantTier: PlannerViewer["wantTier"]): PlannerV
   encodeMpxs: 400,
   stableSeconds: 300,
   eligibleRelay: true,
+  measured: true,
   wantTier,
 });
 
@@ -173,7 +174,14 @@ const realisticRoom = (): PlannerViewer[] => [
 // 900 and no longer suffices for the room above: with the ladder's floor
 // raised to 576p, a grid thumbnail costs ~2.6x the encode it used to, and 22
 // of them is most of the bill.
-const desktop = { id: "host", uploadKbps: 100_000, encodeMpxs: 1200, stableSeconds: 999, eligibleRelay: true };
+const desktop = {
+  id: "host",
+  uploadKbps: 100_000,
+  encodeMpxs: 1200,
+  stableSeconds: 999,
+  eligibleRelay: true,
+  measured: true,
+};
 
 // The headline claim: an ordinary desktop serves 30 people with NO cascade.
 assert.ok(fitsDirectMesh(desktop, realisticRoom(), 1.0), "desktop deveria caber em malha direta");
@@ -193,7 +201,14 @@ assert.deepEqual(cascaded.unserved, [], "ninguém pode ficar sem stream");
 // The bug that the first draft of this planner had: a host too weak to encode
 // the requested tier for ANYONE gave up and served nobody. The correct
 // behaviour is to drop the whole room a tier until it fits.
-const weakHost = { id: "host", uploadKbps: 20_000, encodeMpxs: 150, stableSeconds: 999, eligibleRelay: false };
+const weakHost = {
+  id: "host",
+  uploadKbps: 20_000,
+  encodeMpxs: 150,
+  stableSeconds: 999,
+  eligibleRelay: false,
+  measured: true,
+};
 const degraded = planTopology(weakHost, realisticRoom(), 1.2);
 assert.deepEqual(degraded.unserved, [], "host fraco deve rebaixar a qualidade, não deixar ninguém sem stream");
 assert.ok(degraded.edges.length === 29, "todos os 29 espectadores precisam de uma aresta");
@@ -214,6 +229,80 @@ const phones: PlannerViewer[] = Array.from({ length: 29 }, (_, i) => ({
 const noRelayPlan = planTopology(desktop, phones, 1.0);
 assert.deepEqual(noRelayPlan.relays, [], "celular nunca deve virar relay");
 assert.deepEqual(noRelayPlan.unserved, [], "sem relays elegíveis, rebaixa em vez de falhar");
+
+// No relay may be handed an unbounded subtree. Cheap content used to make the
+// arithmetic conclude a single viewer could carry twenty-odd re-encodes, which
+// no browser survives — and when it stops surviving, every child goes black at
+// once. The root is deliberately exempt: it is the one node that chose to be
+// here and whose budget is genuinely measured.
+const cheapBigRoom = Array.from({ length: 40 }, (_, i) => strongViewer(`c${i}`, "576p30"));
+const capped = planTopology(
+  { ...desktop, uploadKbps: 6000, encodeMpxs: 200 },
+  cheapBigRoom,
+  0.12
+);
+const childCounts = new Map<string, number>();
+for (const edge of capped.edges) {
+  if (edge.depth <= 1) continue;
+  childCounts.set(edge.from, (childCounts.get(edge.from) ?? 0) + 1);
+}
+assert.ok(childCounts.size > 0, "o cenário precisa de fato promover relays");
+for (const [relayId, count] of childCounts) {
+  assert.ok(count <= 4, `relay ${relayId} recebeu ${count} filhos, acima do teto`);
+}
+assert.deepEqual(capped.unserved, [], "o teto não pode deixar ninguém sem stream");
+
+// An unmeasured node's self-reported budget is a default, not an observation,
+// so it must buy strictly less than the same numbers backed by evidence.
+const unmeasuredRoom = Array.from({ length: 29 }, (_, i) => ({
+  ...strongViewer(`u${i}`, "1080p60"),
+  measured: false,
+}));
+const measuredRoom = Array.from({ length: 29 }, (_, i) => strongViewer(`m${i}`, "1080p60"));
+const weakRoot = { ...desktop, uploadKbps: 30_000, encodeMpxs: 300 };
+const unmeasuredPlan = planTopology(weakRoot, unmeasuredRoom, 1.0);
+const measuredPlan = planTopology(weakRoot, measuredRoom, 1.0);
+assert.ok(
+  unmeasuredPlan.globalDowngrade >= measuredPlan.globalDowngrade,
+  "capacidade presumida não pode render um plano melhor que capacidade medida"
+);
+assert.deepEqual(unmeasuredPlan.unserved, [], "mesmo descontado, ninguém pode ficar sem stream");
+
+// Re-planning with the current shape fed back must not shuffle people between
+// parents for no reason. Without this the tree was redrawn every six seconds —
+// each move costing the viewer a torn-down connection and a blank tile — on
+// nothing more than a jitter in someone's reported capacity.
+const churnRoom = Array.from({ length: 25 }, (_, i) => strongViewer(`k${i}`, "1080p60"));
+const first = planTopology(desktop, churnRoom, 1.0);
+assert.ok(first.depth > 1, "o cenário precisa de fato produzir uma cascata");
+const before = parentsOf(first);
+
+// The jitter a real room produces between passes: capacity reports land every
+// few seconds and never repeat a number exactly. Re-planning on identical
+// input would be stable by accident, so the input has to move for this to test
+// anything.
+const jittered = churnRoom.map((v, i) => ({
+  ...v,
+  uploadKbps: v.uploadKbps + ((i % 5) - 2) * 500,
+  encodeMpxs: v.encodeMpxs + ((i % 3) - 1) * 10,
+}));
+
+// Without the hint, that jitter is free to reshuffle the tree.
+const blind = parentsOf(planTopology(desktop, jittered, 1.0));
+const blindMoves = [...blind].filter(([child, parent]) => before.get(child) !== parent).length;
+
+// With it, nobody moves who did not have to.
+const sticky = parentsOf(planTopology(desktop, jittered, 1.0, before));
+const stickyMoves = [...sticky].filter(([child, parent]) => before.get(child) !== parent).length;
+
+assert.ok(
+  blindMoves > 0,
+  "o cenário precisa de fato provocar reparentamento quando não há histerese"
+);
+assert.ok(
+  stickyMoves < blindMoves,
+  `histerese deveria reduzir reparentamentos (${stickyMoves} vs ${blindMoves})`
+);
 
 // Depth is capped: quality is sacrificed before latency is.
 assert.ok(cascaded.depth <= 3, "profundidade não pode passar de 3");
