@@ -21,6 +21,7 @@ import { VolumeSlider } from "@/components/VolumeSlider";
 import { Tooltip } from "@/components/Tooltip";
 import { MAX_GAIN } from "@/lib/audioGain";
 import { useGainedAudio } from "@/lib/useGainedAudio";
+import { usePinchZoom } from "@/lib/usePinchZoom";
 
 function noopSubscribe() {
   return () => { };
@@ -155,6 +156,12 @@ export function VideoTile({
   // blank black tile, and reset it whenever the stream is swapped out.
   const [isVideoLoading, setIsVideoLoading] = useState(true);
   const pipSupported = useSyncExternalStore(noopSubscribe, getPipSupported, getPipSupportedServer);
+
+  // Pinch to zoom, only once the tile owns the whole screen. A phone looking
+  // at somebody's shared 1440p desktop is reading text at a tenth of its
+  // size, and the browser's own pinch does nothing inside a fullscreen
+  // element — see lib/usePinchZoom.ts.
+  const pinchZoom = usePinchZoom({ containerRef, videoRef, enabled: isFullscreen });
 
   // Resetting the spinner is derived state, not a side effect: it is a pure
   // function of "the stream changed". React's documented pattern for that is
@@ -334,6 +341,10 @@ export function VideoTile({
   // never reach this handler — toggles the controls while fullscreen. Outside
   // fullscreen the existing hover/touch-always-on behavior is untouched.
   function handleVideoTap() {
+    // A one-finger drag on a zoomed picture still ends in a click. That click
+    // is the tail of a pan, not a tap, and revealing the controls on it would
+    // make the picture impossible to move without them flashing up.
+    if (pinchZoom.consumeGesture()) return;
     if (isFullscreen) {
       // In fullscreen a tap is how a touch device reveals the controls at
       // all, and that has to keep working — there is no hover to fall back
@@ -380,6 +391,11 @@ export function VideoTile({
     <div
       ref={containerRef}
       onDoubleClick={onDoubleClick}
+      // Hands the gesture to usePinchZoom instead of the browser, but only
+      // where it has one to handle: outside fullscreen this tile is one cell
+      // of a scrollable page, and swallowing touches there would break the
+      // page's own scrolling.
+      style={isFullscreen ? { touchAction: "none" } : undefined}
       className={`group relative w-full overflow-hidden rounded-xl border border-white/10 bg-black ${
         // No min-height floor here: on a short viewport a fixed floor could
         // force this box taller than the space main actually has, which is
@@ -414,6 +430,19 @@ export function VideoTile({
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="h-10 w-10 animate-spin rounded-full border-4 border-white/20 border-t-white/80" />
         </div>
+      )}
+      {/* Deliberately outside the overlay that hides itself: once the picture
+          is zoomed this is the way back to fitting it on screen, and a way
+          back you have to remember to tap the video to reveal is not one. */}
+      {isFullscreen && pinchZoom.isZoomed && (
+        <button
+          type="button"
+          onClick={pinchZoom.reset}
+          aria-label="Redefinir o zoom"
+          className="absolute left-1/2 top-2 z-20 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-xs font-medium text-white tabular-nums backdrop-blur-sm active:bg-black/80"
+        >
+          {pinchZoom.scale.toFixed(1)}x · redefinir
+        </button>
       )}
       {transport && !compact && (
         <div className="absolute inset-x-0 bottom-0 z-10 bg-linear-to-t from-black/90 via-black/80 to-transparent pt-6">
