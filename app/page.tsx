@@ -427,7 +427,7 @@ export default function Home() {
             </div>
           ) : restoring ? (
             <div className="mt-8 flex flex-col items-start gap-2">
-              <p className="text-sm text-sky-500 dark:text-zinc-400">Reconectando...</p>
+              <p className="text-sm text-sky-500 dark:text-zinc-400">Conectando...</p>
               {stuckReconnecting && (
                 <>
                   <button
