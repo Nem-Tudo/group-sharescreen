@@ -15,6 +15,7 @@ import {
   MdArrowBack,
   MdOutlineChat,
   MdGif,
+  MdOutlineImage,
   MdOutlineMap,
 } from "react-icons/md";
 import {
@@ -49,6 +50,7 @@ const PERMISSION_ROWS: {
   },
   { key: "chat", label: "Permitir que todos enviem mensagens no chat", icon: MdOutlineChat },
   { key: "gif", label: "Permitir que todos enviem GIFS", icon: MdGif },
+  { key: "image", label: "Permitir que todos enviem imagens", icon: MdOutlineImage },
 ];
 
 type View = "menu" | "admins" | "permissions" | "location" | "bans" | "limit";

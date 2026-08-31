@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type ClipboardEvent as ReactClipboardEvent,
   type FormEvent,
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
@@ -15,8 +16,17 @@ import {
 import type { ChatMessage } from "@/lib/signalingClient";
 import type { GifResult } from "@/app/api/giphy/search/route";
 import { GifPicker } from "@/components/GifPicker";
+import {
+  CHAT_IMAGE_ACCEPT,
+  CHAT_IMAGE_MAX_BYTES,
+  CHAT_IMAGE_MAX_PER_MESSAGE,
+  CHAT_IMAGE_TOTAL_MAX_BYTES,
+  isSupportedChatImage,
+  prepareChatImage,
+} from "@/lib/chatImage";
 import { DisplayUserName } from "@/components/DisplayUserName";
-import { Popover } from "@/components/Tooltip";
+import { Popover, Tooltip } from "@/components/Tooltip";
+import { MdClose, MdOutlineImage } from "react-icons/md";
 import {
   buildMentionsRegex,
   tokenizeMentions,
@@ -25,6 +35,15 @@ import {
   filterMentionCandidates,
   applyMentionInsertion,
 } from "@/lib/chatMentions";
+
+type ChatAttachment = {
+  id: number;
+  name: string;
+  // Absent while the downscale is still running (see prepareChatImage).
+  dataUrl?: string;
+  byteLength: number;
+  pending: boolean;
+};
 
 export type ChatPeer = {
   id: string;
@@ -77,6 +96,14 @@ function linkifyText(text: string, mentionRegex: RegExp | null) {
   });
 }
 
+// The pictures a message carries, whichever way it says so: `images` is what
+// a current server sends, and a lone `url` under kind "image" is the older
+// shape still sitting in room histories.
+function messageImages(m: ChatMessage): string[] {
+  if (m.images && m.images.length > 0) return m.images;
+  return m.kind === "image" && m.url ? [m.url] : [];
+}
+
 // How long the box waits after the last keystroke before sending an
 // explicit "stopped typing" — well under the receiving end's own
 // TYPING_EXPIRE_MS safety net (see lib/signalingClient.ts), so under normal
@@ -103,11 +130,13 @@ export function ChatPanel({
   peers = [],
   onSend,
   onSendGif,
+  onSendImages,
   onTypingChange,
   typingNames,
   blockedMessage,
   sendDisabledReason,
   gifDisabledReason,
+  imageDisabledReason,
   heightClassName = "h-72",
   marginClassName = "mt-4 mb-4",
   renderAuthorMenu,
@@ -125,6 +154,18 @@ export function ChatPanel({
   // input form instead of sending into a room the viewer isn't a member of.
   onSend?: (text: string) => void;
   onSendGif?: (url: string) => void;
+  // Sends one message made of whatever was typed plus the pictures sitting
+  // in the tray, as `data:` URLs already downscaled by this component. Used
+  // *instead of* onSend whenever there is at least one attachment, because
+  // the caption travels with its pictures in a single request — see
+  // lib/chatImage.ts's sendChatImages for why they can't be two messages.
+  //
+  // It answers rather than throws so a refusal ("imagem muito grande", a CDN
+  // that's down) can be shown in place instead of vanishing into a console;
+  // on a failure the composer keeps the text and the attachments, so the
+  // retry is one more click rather than picking three files again. Omitted
+  // the same way onSendGif is, which is what disables the button.
+  onSendImages?: (text: string, images: string[]) => Promise<{ ok: boolean; error?: string }>;
   // Fired at most twice per typing burst — true on the first keystroke,
   // false after TYPING_IDLE_MS of inactivity or on send — not on every
   // change. Omitted (like onSend) for a read-only viewer.
@@ -148,6 +189,9 @@ export function ChatPanel({
   // disallowing GIFs. Only used as the button's tooltip; the button itself
   // is already disabled by `onSendGif` being omitted.
   gifDisabledReason?: string | null;
+  // Same again, for the image button — a room can allow GIFs and not
+  // uploads, or the other way round.
+  imageDisabledReason?: string | null;
   // Lets a caller give this a taller box than the default fixed 18rem — e.g.
   // WatchRoom.tsx's mobile tab view, where chat is the sole content of its
   // pane instead of one of several things stacked in a shared sidebar.
@@ -179,6 +223,21 @@ export function ChatPanel({
   // author don't both open.
   const [authorMenuFor, setAuthorMenuFor] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  // The attachment tray: pictures picked or pasted but not sent yet. They sit
+  // above the input until the message goes, which is what lets a caption and
+  // its pictures leave together — and what lets somebody change their mind
+  // about one of three without losing the other two.
+  //
+  // Each entry holds the downscaled `data:` URL rather than the File: the
+  // shrinking happens once, on attach, so the preview shown is exactly what
+  // will be sent and the send itself has nothing left to compute. `pending`
+  // is that shrink still running.
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [sendingImages, setSendingImages] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+  // Only ever counts up, and only to give each attachment a stable React key
+  // — two copies of the same file are two attachments.
+  const attachmentSeqRef = useRef(0);
 
   // Mention autocomplete popup state
   const [mentionQuery, setMentionQuery] = useState("");
@@ -211,6 +270,7 @@ export function ChatPanel({
 
   const listRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   // Tracks whether we've already jumped to bottom for the current batch of
   // messages, so a room's preloaded history opens scrolled to the bottom
   // (like a real chat) instead of at the top where it first renders.
@@ -392,9 +452,11 @@ export function ChatPanel({
     }
   }
 
-  function sendInput() {
-    if (!input.trim() || !onSend || sendDisabledReason) return;
-    onSend(input);
+  // Everything the composer resets once a message is on its way. Not called
+  // on a failed image send: the text and the tray are what the retry is made
+  // of, and clearing them would throw the message away to report that it
+  // didn't go.
+  function clearComposer() {
     setInput("");
     setMentionMenuOpen(false);
     setMentionStartIndex(null);
@@ -405,10 +467,67 @@ export function ChatPanel({
     if (textareaRef.current) textareaRef.current.style.height = "auto";
   }
 
+  async function sendWithAttachments() {
+    if (!onSendImages || sendingImages) return;
+    const ready = attachments.filter((entry) => entry.dataUrl);
+    if (ready.length === 0) return;
+    const total = ready.reduce((sum, entry) => sum + entry.byteLength, 0);
+    if (total > CHAT_IMAGE_TOTAL_MAX_BYTES) {
+      const mb = Math.round(CHAT_IMAGE_TOTAL_MAX_BYTES / (1024 * 1024));
+      setImageError(`As imagens somam mais do que o limite de ${mb} MB por mensagem.`);
+      return;
+    }
+
+    // Read before the await, because the box is cleared optimistically below
+    // and would otherwise be empty by the time the request is built.
+    const text = input.trim();
+    setImageError(null);
+    setSendingImages(true);
+    try {
+      const result = await onSendImages(
+        text,
+        ready.map((entry) => entry.dataUrl as string)
+      );
+      if (result.ok) {
+        setAttachments([]);
+        clearComposer();
+      } else {
+        setImageError(result.error ?? "Não foi possível enviar a imagem.");
+      }
+    } finally {
+      setSendingImages(false);
+    }
+  }
+
+  function sendInput() {
+    if (sendDisabledReason || sendingImages) return;
+    // A message with pictures goes as one request, caption included — never
+    // as a socket message plus a separate upload.
+    if (attachments.length > 0) {
+      if (attachments.some((entry) => entry.pending)) return;
+      void sendWithAttachments();
+      return;
+    }
+    if (!input.trim() || !onSend) return;
+    onSend(input);
+    clearComposer();
+  }
+
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     sendInput();
   }
+
+  const trayFull = attachments.length >= CHAT_IMAGE_MAX_PER_MESSAGE;
+  const canAttach = Boolean(onSendImages) && !trayFull && !sendingImages;
+  // A message needs *something* in it — text or a picture — and every picture
+  // in the tray has to have finished shrinking before any of them can go.
+  const canSend =
+    !sendDisabledReason &&
+    !sendingImages &&
+    (attachments.length > 0
+      ? Boolean(onSendImages) && !attachments.some((entry) => entry.pending)
+      : Boolean(input.trim()));
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (mentionMenuOpen && filteredCandidates.length > 0) {
@@ -492,6 +611,91 @@ export function ChatPanel({
     onSendGif?.(gif.url);
   }
 
+  // Puts files in the tray. Nothing is uploaded here — that happens on send.
+  async function attachFiles(files: File[]) {
+    if (!onSendImages || files.length === 0) return;
+    setImageError(null);
+
+    const room = CHAT_IMAGE_MAX_PER_MESSAGE - attachments.length;
+    if (room <= 0) {
+      setImageError(`Máximo de ${CHAT_IMAGE_MAX_PER_MESSAGE} imagens por mensagem.`);
+      return;
+    }
+    // Takes what fits and says so, rather than refusing the whole drop: three
+    // of five pictures is closer to what was asked for than none of them.
+    const accepted = files.slice(0, room);
+    if (files.length > accepted.length) {
+      setImageError(`Máximo de ${CHAT_IMAGE_MAX_PER_MESSAGE} imagens por mensagem.`);
+    }
+
+    for (const file of accepted) {
+      if (!isSupportedChatImage(file)) {
+        setImageError("Formato não suportado. Envie PNG, JPG, WEBP, GIF ou AVIF.");
+        continue;
+      }
+      const id = (attachmentSeqRef.current += 1);
+      // In the tray before it has been read, so three big files show three
+      // placeholders filling in rather than nothing at all for a moment.
+      // Truncated inside the updater rather than trusted from the `room`
+      // computed above: two pastes in the same tick would both read the same
+      // stale length, and this is the one place that can see the real one.
+      // A file that loses that race is simply dropped — the "too many"
+      // message above has already been shown.
+      setAttachments((current) =>
+        [...current, { id, name: file.name, byteLength: file.size, pending: true }].slice(
+          0,
+          CHAT_IMAGE_MAX_PER_MESSAGE
+        )
+      );
+      try {
+        const prepared = await prepareChatImage(file);
+        if (prepared.byteLength > CHAT_IMAGE_MAX_BYTES) {
+          const mb = Math.round(CHAT_IMAGE_MAX_BYTES / (1024 * 1024));
+          setImageError(`Imagem muito grande (máximo ${mb} MB por imagem).`);
+          setAttachments((current) => current.filter((entry) => entry.id !== id));
+          continue;
+        }
+        setAttachments((current) =>
+          current.map((entry) =>
+            entry.id === id
+              ? { ...entry, dataUrl: prepared.dataUrl, byteLength: prepared.byteLength, pending: false }
+              : entry
+          )
+        );
+      } catch {
+        setImageError("Não foi possível ler essa imagem.");
+        setAttachments((current) => current.filter((entry) => entry.id !== id));
+      }
+    }
+  }
+
+  function removeAttachment(id: number) {
+    setAttachments((current) => current.filter((entry) => entry.id !== id));
+    setImageError(null);
+  }
+
+  function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    // Cleared before anything else, so picking the *same* file twice in a
+    // row still fires a change event the second time.
+    e.target.value = "";
+    void attachFiles(files);
+  }
+
+  // Ctrl+V of a screenshot, which is how most images actually get into a
+  // chat. Only takes over the paste when the clipboard really carries an
+  // image — a copied <img> from a web page arrives as image data *and* HTML,
+  // and pasting text has to keep working untouched.
+  function handlePaste(e: ReactClipboardEvent<HTMLTextAreaElement>) {
+    if (!onSendImages) return;
+    const files = Array.from(e.clipboardData?.files ?? []).filter((f) =>
+      f.type.startsWith("image/")
+    );
+    if (files.length === 0) return;
+    e.preventDefault();
+    void attachFiles(files);
+  }
+
   return (
     <div
       className={`${marginClassName} flex ${heightClassName} flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950`}
@@ -525,6 +729,7 @@ export function ChatPanel({
                 !isSelf &&
                 Boolean(selfName) &&
                 m.kind !== "gif" &&
+                m.kind !== "image" &&
                 isUserMentionedInMessage(m.text, selfName, allKnownNames);
               // Someone typing three lines in a row is one person saying one
               // thing — repeating their name and the same clock time above
@@ -584,9 +789,41 @@ export function ChatPanel({
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={m.url} alt="GIF" className="mt-1 max-h-40 max-w-full rounded-md" />
                   ) : (
-                    <p className="break-words text-zinc-800 dark:text-zinc-200">
-                      {linkifyText(m.text, mentionRegex)}
-                    </p>
+                    <>
+                      {/* Text and pictures are no longer either/or: a message
+                          can be a caption with its pictures under it. Empty
+                          text draws nothing rather than an empty line. */}
+                      {m.text.trim() && (
+                        <p className="break-words text-zinc-800 dark:text-zinc-200">
+                          {linkifyText(m.text, mentionRegex)}
+                        </p>
+                      )}
+                      {messageImages(m).length > 0 && (
+                        <div className="mt-1 flex flex-wrap gap-1.5">
+                          {messageImages(m).map((url, index) => (
+                            // Wrapped in a link because the log shows these
+                            // small: the thumbnail is for following the
+                            // conversation, the tab is for actually looking
+                            // at what was sent.
+                            <a
+                              key={`${m.id}-img-${index}`}
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-block"
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={url}
+                                alt="Imagem enviada no chat"
+                                loading="lazy"
+                                className="max-h-56 max-w-full rounded-md border border-zinc-200 transition hover:opacity-90 dark:border-zinc-800"
+                              />
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               );
@@ -637,9 +874,9 @@ export function ChatPanel({
         )}
       </div>
 
-      {blockedMessage && (
+      {(blockedMessage || imageError) && (
         <p className="border-t border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-600 dark:border-red-900 dark:bg-red-950/40 dark:text-red-400">
-          {blockedMessage}
+          {blockedMessage || imageError}
         </p>
       )}
 
@@ -655,7 +892,7 @@ export function ChatPanel({
           // items-end, so the GIF and send buttons stay on the last line as
           // the box grows with a long message (see handleInput) instead of
           // floating in the middle of it.
-          className="relative flex shrink-0 items-end gap-2 border-t border-zinc-200 p-2 dark:border-zinc-800"
+          className="relative flex shrink-0 flex-col gap-2 border-t border-zinc-200 p-2 dark:border-zinc-800"
         >
           {/* Autocomplete mention popup */}
           {mentionMenuOpen && filteredCandidates.length > 0 && (
@@ -703,54 +940,146 @@ export function ChatPanel({
             </div>
           )}
 
-          <Popover
-            open={pickerOpen}
-            onClose={() => setPickerOpen(false)}
-            placement="top-start"
-            content={<GifPicker onSelect={handleGifSelect} />}
-            tooltip={
-              onSendGif
-                ? "Adicionar GIF"
-                : (gifDisabledReason ?? "Utilize uma conta para enviar GIFs")
-            }
-          >
-            <span className="inline-flex shrink-0">
-              <button
-                type="button"
-                disabled={!onSendGif}
-                onClick={() => setPickerOpen((open) => !open)}
-                aria-label="Adicionar GIF"
-                className={`inline-flex h-8 shrink-0 items-center justify-center rounded-lg border px-2.5 text-xs font-semibold transition ${
-                  onSendGif
-                    ? "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                    : "cursor-not-allowed border-zinc-200 text-zinc-400 dark:border-zinc-800 dark:text-zinc-600"
-                }`}
-              >
-                GIF
-              </button>
-            </span>
-          </Popover>
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={handleChange}
-            onKeyDown={handleKeyDown}
-            onKeyUp={handleKeyUp}
-            onClick={handleClick}
-            onInput={handleInput}
-            maxLength={500}
-            rows={1}
-            disabled={Boolean(sendDisabledReason)}
-            placeholder={sendDisabledReason ?? "Digite uma mensagem..."}
-            className="min-h-8 min-w-0 flex-1 resize-none rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-sm leading-5 text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-white/10"
-          />
-          <button
-            type="submit"
-            disabled={!input.trim() || Boolean(sendDisabledReason)}
-            className="h-8 shrink-0 rounded-lg bg-zinc-950 px-3 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
-          >
-            Enviar
-          </button>
+          {/* The pictures waiting to go, above the input rather than in the
+              log: nothing has been sent yet, and a message that is a caption
+              plus its pictures has to be composable as one thing. */}
+          {attachments.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {attachments.map((attachment) => (
+                <div
+                  key={attachment.id}
+                  className="relative h-16 w-16 overflow-hidden rounded-lg border border-zinc-300 bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900"
+                >
+                  {attachment.dataUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={attachment.dataUrl}
+                      alt={attachment.name || "Imagem anexada"}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <span className="flex h-full w-full items-center justify-center">
+                      <span
+                        aria-hidden
+                        className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-400 border-t-transparent"
+                      />
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => removeAttachment(attachment.id)}
+                    disabled={sendingImages}
+                    aria-label={`Remover ${attachment.name || "imagem"}`}
+                    className="absolute right-0.5 top-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-zinc-950/70 text-xs text-white transition hover:bg-zinc-950 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <MdClose aria-hidden />
+                  </button>
+                </div>
+              ))}
+              {/* Says how much room is left without needing a second look at
+                  the tray, and is the only place the limit is stated. */}
+              <span className="self-end pb-1 text-[11px] text-zinc-400 dark:text-zinc-600">
+                {attachments.length}/{CHAT_IMAGE_MAX_PER_MESSAGE}
+              </span>
+            </div>
+          )}
+          <div className="flex items-end gap-2">
+            <Popover
+              open={pickerOpen}
+              onClose={() => setPickerOpen(false)}
+              placement="top-start"
+              content={<GifPicker onSelect={handleGifSelect} />}
+              tooltip={
+                onSendGif
+                  ? "Adicionar GIF"
+                  : (gifDisabledReason ?? "Utilize uma conta para enviar GIFs")
+              }
+            >
+              <span className="inline-flex shrink-0">
+                <button
+                  type="button"
+                  disabled={!onSendGif}
+                  onClick={() => setPickerOpen((open) => !open)}
+                  aria-label="Adicionar GIF"
+                  className={`inline-flex h-8 shrink-0 items-center justify-center rounded-lg border px-2.5 text-xs font-semibold transition ${
+                    onSendGif
+                      ? "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                      : "cursor-not-allowed border-zinc-200 text-zinc-400 dark:border-zinc-800 dark:text-zinc-600"
+                  }`}
+                >
+                  GIF
+                </button>
+              </span>
+            </Popover>
+            {/* Off-screen rather than absent: a file input is the only way to
+                open the system picker, and it has to survive between clicks. */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={CHAT_IMAGE_ACCEPT}
+              multiple
+              onChange={handleFileChange}
+              className="hidden"
+            />
+            <Tooltip
+              content={
+                !onSendImages
+                  ? (imageDisabledReason ?? "Utilize uma conta para enviar imagens")
+                  : trayFull
+                    ? `Máximo de ${CHAT_IMAGE_MAX_PER_MESSAGE} imagens por mensagem`
+                    : "Anexar imagem (ou cole com Ctrl+V)"
+              }
+            >
+              <span className="inline-flex shrink-0">
+                <button
+                  type="button"
+                  disabled={!canAttach}
+                  onClick={() => fileInputRef.current?.click()}
+                  aria-label="Anexar imagem"
+                  className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border text-base transition ${
+                    canAttach
+                      ? "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                      : "cursor-not-allowed border-zinc-200 text-zinc-400 dark:border-zinc-800 dark:text-zinc-600"
+                  }`}
+                >
+                  <MdOutlineImage aria-hidden />
+                </button>
+              </span>
+            </Tooltip>
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={handleChange}
+              onKeyDown={handleKeyDown}
+              onKeyUp={handleKeyUp}
+              onClick={handleClick}
+              onInput={handleInput}
+              onPaste={handlePaste}
+              maxLength={500}
+              rows={1}
+              disabled={Boolean(sendDisabledReason) || sendingImages}
+              placeholder={
+                sendDisabledReason ??
+                (attachments.length > 0
+                  ? "Escreva algo junto (opcional)..."
+                  : "Digite uma mensagem...")
+              }
+              className="min-h-8 min-w-0 flex-1 resize-none rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-sm leading-5 text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-white/10"
+            />
+            <button
+              type="submit"
+              disabled={!canSend}
+              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-zinc-950 px-3 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+            >
+              {sendingImages && (
+                <span
+                  aria-hidden
+                  className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"
+                />
+              )}
+              Enviar
+            </button>
+          </div>
         </form>
       )}
     </div>
