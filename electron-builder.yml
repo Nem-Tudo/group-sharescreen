@@ -108,7 +108,7 @@ nsis:
   createStartMenuShortcut: true
 
 mac:
-  icon: electron/build/icon.ico
+  icon: electron/build/icon.icns
   category: public.app-category.video
   target:
     # One universal binary rather than separate arm64/x64 builds, because
@@ -139,7 +139,7 @@ mac:
     NSScreenCaptureUsageDescription: O GoLive captura sua tela para compartilhá-la com a sala.
 
 linux:
-  icon: electron/build/icon.ico
+  icon: electron/build/icon.png
   category: Network
   target:
     # AppImage only, on purpose. A .deb would be nice for Debian/Ubuntu, but
