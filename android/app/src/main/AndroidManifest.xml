@@ -70,6 +70,15 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- Google Advertising ID. From Android 13 (API 33) an app must declare
+         this permission to read the advertising ID; without it Play Services
+         hands back a string of zeros. Analytics/attribution SDKs bundled via
+         Play Services expect it, and Play Console's Data safety form flags an
+         app that resolves the ID without declaring it. Declare it here so the
+         behaviour is intentional and reviewable rather than silently merged in
+         from a dependency's own manifest. -->
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
+
     <!-- getUserMedia's video/audio capture (camera + mic channels, and the
          camera fallback for "compartilhar tela" on any platform without real
          screen capture — see useRoomMedia's getScreenShareMode; Android has

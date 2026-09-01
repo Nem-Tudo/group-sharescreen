@@ -23,7 +23,7 @@ const APP_URL = process.env.GOLIVE_APP_URL || "https://golive.nemtudo.me";
 
 const config: CapacitorConfig = {
   appId: "me.nemtudo.golive",
-  appName: "GoLive",
+  appName: "Go Live",
   webDir: "public",
   server: {
     url: APP_URL,
