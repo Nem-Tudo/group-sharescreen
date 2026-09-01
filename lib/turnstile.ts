@@ -1,5 +1,7 @@
 "use client";
 
+import type { CaptchaAction } from "./recaptcha";
+
 // Cloudflare Turnstile — the challenge somebody is actually shown when the
 // invisible reCAPTCHA v3 check refuses them (see lib/recaptcha.ts and the
 // API's server/captcha.ts).
@@ -122,10 +124,16 @@ export async function renderTurnstile(
   {
     onToken,
     onError,
+    action = "join_room",
     theme = "auto",
   }: {
     onToken: (token: string) => void;
     onError?: () => void;
+    // Which gated action this challenge is standing in for. Must be the one
+    // the API will verify the answer against — a challenge solved for
+    // "join_room" and sent to /auth/login is refused as a replay, so this
+    // travels with the caller rather than being assumed.
+    action?: CaptchaAction;
     theme?: "auto" | "light" | "dark";
   }
 ): Promise<TurnstileWidget | null> {
@@ -139,7 +147,7 @@ export async function renderTurnstile(
       sitekey: SITE_KEY,
       // Must match the CaptchaAction the API verifies against, for the same
       // replay reason the reCAPTCHA path names its action.
-      action: "join_room",
+      action,
       theme,
       callback: onToken,
       "error-callback": onError,

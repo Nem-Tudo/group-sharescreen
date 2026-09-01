@@ -2,7 +2,13 @@
 
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
-import { adminLogin, adminLogout, useAdminToken } from "@/lib/adminApi";
+import {
+  adminLogin,
+  adminLogout,
+  useAdminToken,
+  CaptchaChallengeRequiredError,
+} from "@/lib/adminApi";
+import { CaptchaChallengeModal } from "@/components/CaptchaChallengeModal";
 import { DashboardPanel } from "./DashboardPanel";
 
 // Site administration: statistics, announcements, partners, supporters, the
@@ -20,19 +26,53 @@ export default function AdminPage() {
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loggingIn, setLoggingIn] = useState(false);
+  // Open when the server refused the invisible reCAPTCHA check but offered a
+  // challenge instead of just saying no — see CaptchaChallengeRequiredError.
+  // Without this the refusal reached the form as a bare "Usuário ou senha
+  // inválidos.", which is both wrong and unactionable: the password was fine,
+  // and there was nothing on screen to do about the thing that actually failed.
+  const [challenge, setChallenge] = useState(false);
+  const [challengeError, setChallengeError] = useState<string | null>(null);
 
-  async function handleLogin(e: FormEvent) {
-    e.preventDefault();
+  // `challengeToken` is present only on the retry that follows a solved
+  // challenge; the first attempt always goes through the invisible check.
+  async function submitLogin(challengeToken?: string) {
     setLoggingIn(true);
     setLoginError(null);
+    // Cleared before every attempt so the modal can tell a fresh refusal from
+    // the one it is already showing (it compares `error` by value).
+    setChallengeError(null);
     try {
-      await adminLogin(user, password);
+      await adminLogin(user, password, challengeToken);
       setPassword("");
-    } catch {
-      setLoginError("Usuário ou senha inválidos.");
+      setChallenge(false);
+    } catch (err) {
+      if (err instanceof CaptchaChallengeRequiredError) {
+        setChallenge(true);
+        // Nothing to say on the way in — the challenge itself explains what to
+        // do, and the reason only means anything once an answer was refused.
+        if (challengeToken) setChallengeError(err.message);
+        return;
+      }
+      setChallenge(false);
+      setLoginError(err instanceof Error ? err.message : "Usuário ou senha inválidos.");
     } finally {
       setLoggingIn(false);
     }
+  }
+
+  function handleLogin(e: FormEvent) {
+    e.preventDefault();
+    void submitLogin();
+  }
+
+  // Giving up on the challenge. The login has genuinely failed at this point,
+  // so it says so under the form rather than leaving a form that looks
+  // untouched next to a password that was never accepted.
+  function cancelChallenge() {
+    setChallenge(false);
+    setChallengeError(null);
+    setLoginError("Verificação de segurança não concluída. Tente entrar de novo.");
   }
 
   function handleLogout() {
@@ -82,6 +122,15 @@ export default function AdminPage() {
             </button>
           </form>
         </main>
+        {challenge && (
+          <CaptchaChallengeModal
+            error={challengeError}
+            action="login"
+            submittingLabel="Entrando..."
+            onToken={(token) => void submitLogin(token)}
+            onCancel={cancelChallenge}
+          />
+        )}
       </div>
     );
   }

@@ -2,6 +2,8 @@
 
 import { useSyncExternalStore } from "react";
 import { getSignalingHttpBase } from "./roomsApi";
+import { getCaptchaToken } from "./recaptcha";
+import { isTurnstileConfigured } from "./turnstile";
 import type {
   Announcement,
   AnnouncementButtonAction,
@@ -90,13 +92,68 @@ export function useAdminToken(): string | null {
 // rest of the app uses. The admin token is still kept in its own
 // localStorage slot (not accountApi's localStorage one) so a moderator
 // session doesn't silently outlive the tab the way a regular viewer's does.
-export async function adminLogin(user: string, password: string): Promise<void> {
+/**
+ * Thrown when the server refused the login on the captcha rather than on the
+ * credentials, *and* offered a challenge to get past it.
+ *
+ * Its own type because it is the one login failure that is not a dead end: the
+ * page catches it and opens the challenge, where every other error just gets
+ * printed under the form. Distinguishing them by message would mean matching
+ * on Portuguese prose the server owns.
+ */
+export class CaptchaChallengeRequiredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CaptchaChallengeRequiredError";
+  }
+}
+
+/**
+ * Signs in as an administrator.
+ *
+ * `challengeToken` is the answer to a Turnstile challenge (see
+ * components/CaptchaChallengeModal), passed when retrying a login that
+ * CaptchaChallengeRequiredError just refused. It *replaces* the invisible
+ * reCAPTCHA token rather than joining it — the server checks one or the
+ * other, and minting a v3 token here would only spend a second call on the
+ * check that already said no.
+ */
+export async function adminLogin(
+  user: string,
+  password: string,
+  challengeToken?: string
+): Promise<void> {
+  // /auth/login is captcha-gated on the server exactly like the main site's
+  // login is (see the API's passesCaptcha). This used to send nothing at all,
+  // which was invisible for as long as RECAPTCHA_ENFORCE stayed off and then
+  // refused every administrator outright the moment it was switched on — with
+  // the 403 landing in the same `catch` as a wrong password and being read
+  // back as "Usuário ou senha inválidos.", which is the one thing it was not.
+  const captchaToken = challengeToken ? null : await getCaptchaToken("login");
   const res = await fetch(`${getSignalingHttpBase()}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username: user, password }),
+    body: JSON.stringify({
+      username: user,
+      password,
+      captchaToken,
+      challengeToken: challengeToken ?? null,
+    }),
   });
-  if (!res.ok) throw new Error("Usuário ou senha inválidos.");
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as {
+      error?: string;
+      challenge?: boolean;
+    } | null;
+    const message = data?.error || "Usuário ou senha inválidos.";
+    // Only escalate when both halves agree there is a challenge to show: the
+    // server holds the Turnstile secret, this app holds the site key, and a
+    // modal opened without the latter is an empty box.
+    if (res.status === 403 && data?.challenge && isTurnstileConfigured()) {
+      throw new CaptchaChallengeRequiredError(message);
+    }
+    throw new Error(message);
+  }
   const data = (await res.json()) as { token: string; account: { flags: string[] } };
   if (!data.account.flags.includes("ADMIN")) {
     throw new Error("Essa conta não tem permissão de administrador.");

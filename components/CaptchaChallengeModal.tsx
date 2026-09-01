@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { renderTurnstile, type TurnstileWidget } from "@/lib/turnstile";
+import type { CaptchaAction } from "@/lib/recaptcha";
 
 // The challenge somebody is shown when the invisible check refused them.
 //
@@ -12,12 +13,21 @@ import { renderTurnstile, type TurnstileWidget } from "@/lib/turnstile";
 // nothing to actually do. This is the something to do.
 export function CaptchaChallengeModal({
   error,
+  action = "join_room",
+  submittingLabel = "Entrando na sala...",
   onToken,
   onCancel,
 }: {
   // Why the last attempt did not land — either the invisible check's reason
   // for escalating here, or a challenge answer the server rejected.
   error?: string | null;
+  // Which gated action is being stood in for. The API verifies the answer
+  // against this exact value, so a modal opened by the login form has to say
+  // "login" or the solved challenge is refused as a replay.
+  action?: CaptchaAction;
+  // What to say while the answer is in flight, since that is the one line
+  // here that depends on what the person was trying to do.
+  submittingLabel?: string;
   onToken: (token: string) => void;
   onCancel: () => void;
 }) {
@@ -32,6 +42,13 @@ export function CaptchaChallengeModal({
   useEffect(() => {
     onTokenRef.current = onToken;
   }, [onToken]);
+  // Same reason, and it is read once when the widget is drawn: a caller that
+  // changed the action mid-challenge would be changing what the answer buys
+  // out from under somebody halfway through solving it.
+  const actionRef = useRef(action);
+  // The live widget, so a rejected answer can put a fresh challenge back on
+  // screen (see the effect below).
+  const widgetRef = useRef<TurnstileWidget | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -40,6 +57,7 @@ export function CaptchaChallengeModal({
     let cancelled = false;
 
     void renderTurnstile(container, {
+      action: actionRef.current,
       onToken: (token) => {
         setStatus("submitting");
         onTokenRef.current(token);
@@ -51,14 +69,41 @@ export function CaptchaChallengeModal({
         return;
       }
       widget = created;
+      widgetRef.current = created;
       setStatus(created ? "ready" : "unavailable");
     });
 
     return () => {
       cancelled = true;
+      widgetRef.current = null;
       widget?.remove();
     };
   }, []);
+
+  // An answer the server refused arrives as a new `error` while this is still
+  // sitting on "submitting" — and in that state the message below is
+  // deliberately not rendered (a challenge in flight has no failure to report
+  // yet), so left alone the person is looking at a solved tick, no
+  // explanation and nothing to press. Coming back to "ready" both shows the
+  // reason and, together with the reset in the effect underneath, puts a
+  // fresh challenge on screen: the only thing left to do about it.
+  //
+  // Adjusted during render rather than in an effect because it is state that
+  // simply has to follow a prop, and compared by value rather than presence:
+  // every caller clears `error` back to null before retrying, so a second
+  // refusal reads as a change even when it carries the same words.
+  const [shownError, setShownError] = useState(error ?? null);
+  if ((error ?? null) !== shownError) {
+    setShownError(error ?? null);
+    if (error && status === "submitting") setStatus("ready");
+  }
+
+  useEffect(() => {
+    if (!error) return;
+    // A solved widget shows a tick and will not produce a second token —
+    // clearing it is what makes another attempt possible at all.
+    widgetRef.current?.reset();
+  }, [error]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -83,7 +128,7 @@ export function CaptchaChallengeModal({
           <p className="text-xs text-zinc-400 dark:text-zinc-600">Carregando verificação...</p>
         )}
         {status === "submitting" && (
-          <p className="text-xs text-zinc-400 dark:text-zinc-600">Entrando na sala...</p>
+          <p className="text-xs text-zinc-400 dark:text-zinc-600">{submittingLabel}</p>
         )}
         {error && status !== "submitting" && (
           <p className="text-xs text-red-500 dark:text-red-400">{error}</p>
