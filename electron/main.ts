@@ -323,7 +323,7 @@ async function audioAppRows(): Promise<PickerAudioApp[]> {
     // from a checkout — productName only reaches package.json in a packaged
     // build, and a row nobody recognises would defeat the point of listing
     // ourselves at all.
-    name: "GoLive",
+    name: "Go Live",
     icon: await fileIcon(process.execPath),
     muted: true,
     locked: true,
