@@ -1210,10 +1210,24 @@ function useBroadcastChannel(
       // to protect sharpness and drop frames, which turns a film into a
       // slideshow the moment anything gets tight.
       const capturingMotion = capturingCamera || channel.startsWith("file");
-      const hint =
-        !capturingMotion && channel === "screen" && degradationModeRef.current === "text"
+      // On a real screen share the profile chooses the hint, and both quality
+      // profiles bias the encoder toward spatial detail — the difference
+      // between them lives in degradationPreference (text holds resolution
+      // absolutely; balanced sheds a little of each), not here. Balanced used
+      // to share "motion" with the game/video profile, which is exactly what
+      // made it look soft: "motion" tells the encoder to spend its bits on
+      // frames and let sharpness go. "detail" is what makes balanced actually
+      // keep the picture it advertises. The VP9-vs-"detail" caveat above does
+      // not reach it — balanced encodes with H264 (see videoCodecPreferences),
+      // where "detail" behaves. Motion, camera and files stay "motion".
+      const screenShare = !capturingMotion && channel === "screen";
+      const hint = !screenShare
+        ? "motion"
+        : degradationModeRef.current === "text"
           ? "text"
-          : "motion";
+          : degradationModeRef.current === "balanced"
+            ? "detail"
+            : "motion";
       stream.getVideoTracks().forEach((track) => {
         track.contentHint = hint;
       });

@@ -197,11 +197,19 @@ export class RelayLink {
         // which is a plausible source of "losing FPS" complaints on its
         // own: exactly the deepest, most cascade-dependent viewers got the
         // least-informed encode of anyone in the room.
-        // "balanced" hints motion alongside "motion": contentHint has no middle
-        // value, and "text"/"detail" is the one that tells the encoder to
-        // protect sharpness and throw frames away — the exact behaviour a
-        // balanced share is asking not to have.
-        track.contentHint = this.degradation === "text" ? "text" : "motion";
+        // Both quality profiles bias toward sharpness here, matching the
+        // origin encode (see useRoomMedia's hint logic): "text" holds
+        // resolution absolutely, "balanced" gets "detail" so the re-encode a
+        // relayed viewer receives keeps the picture the profile promises
+        // rather than the soft, frame-first one "motion" produced. What still
+        // separates balanced from text is degradationPreference, not the hint.
+        // Only genuine motion content ("motion") keeps the motion hint.
+        track.contentHint =
+          this.degradation === "text"
+            ? "text"
+            : this.degradation === "balanced"
+              ? "detail"
+              : "motion";
         const transceivers = pc.getTransceivers();
         const transceiver = transceivers.find((t) => t.sender === sender);
         if (transceiver) applyVideoCodecPreferences(transceiver, this.degradation);
