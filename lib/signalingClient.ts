@@ -17,6 +17,8 @@ import { getBrowserFingerprint } from "./fingerprint";
 import { BUILD_VERSION } from "./buildVersion";
 import { currentAnnouncementDevice } from "./announcement";
 import { getStoredGuestToken, setStoredGuestToken } from "./guestToken";
+import { isUserMentionedInMessage } from "./chatMentions";
+import { showNotification } from "./notifications";
 
 // `role: "moderator"` marks a moderator silently watching for moderation
 // (see server/signaling.ts's "admin-join") — present in the peer list so
@@ -1292,6 +1294,7 @@ class SignalingClient {
         this.setState({
           chatMessages: next.length > MAX_CHAT_MESSAGES ? next.slice(-MAX_CHAT_MESSAGES) : next,
         });
+        this.notifyIfMentioned(chatMessage);
         break;
       }
       default:
@@ -1303,6 +1306,47 @@ class SignalingClient {
     if (!this.registerAckTimer) return;
     clearTimeout(this.registerAckTimer);
     this.registerAckTimer = null;
+  }
+
+  /**
+   * The first consumer of lib/notifications: raise a system notification when
+   * an incoming chat message @-mentions us. Lives here, not in ChatPanel, so it
+   * fires even when the chat is closed or unmounted — the whole point of a
+   * notification is to reach someone who is looking elsewhere. showNotification
+   * self-gates on permission, the mute preference and window focus, so this only
+   * has to answer "is this a mention worth raising?".
+   */
+  private notifyIfMentioned(message: ChatMessage) {
+    // Never notify ourselves for our own message. `from` is the sender's
+    // client id; selfId is ours.
+    if (this.state.selfId && message.from === this.state.selfId) return;
+    const selfName = this.state.name;
+    if (!selfName) return;
+
+    // The same full participant list ChatPanel uses, so "@João" cannot falsely
+    // notify a "João Silva" (or vice-versa) — see isUserMentionedInMessage.
+    const knownNames = this.state.peers.map((p) => p.name).filter((n): n is string => Boolean(n));
+    if (!isUserMentionedInMessage(message.text, selfName, knownNames)) return;
+
+    // A mention with no words of its own (just "@me", or an image/GIF) still
+    // deserves a sensible body.
+    const body =
+      message.text.trim() ||
+      (message.kind === "gif"
+        ? "enviou um GIF"
+        : message.images && message.images.length > 0
+          ? "enviou uma imagem"
+          : "mencionou você");
+
+    void showNotification({
+      title: `${message.name} mencionou você`,
+      body,
+      // One room's mentions collapse into a single toast rather than stacking.
+      tag: `mention:${this.desiredRoom ?? "room"}`,
+      renotify: true,
+      // No onClick: showNotification already focuses the tab on click, and the
+      // mention is in the chat that is on screen once the window is foreground.
+    });
   }
 
   /**

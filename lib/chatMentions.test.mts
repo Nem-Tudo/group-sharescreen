@@ -114,6 +114,16 @@ assert.deepEqual(getMentionTriggerInfo("Olá @Jo", 3), {
   startIndex: -1,
 });
 
+// A completed mention ("@João " with a trailing space) stops triggering, so
+// the popup closes and Enter sends instead of re-selecting. Live search for a
+// spaced name still works because that query ends in a letter (see "João S"
+// above), not a space.
+assert.deepEqual(getMentionTriggerInfo("Olá @João ", 10), {
+  isTriggered: false,
+  query: "",
+  startIndex: -1,
+});
+
 // Email address (no space before @)
 assert.deepEqual(getMentionTriggerInfo("contato@empresa", 12), {
   isTriggered: false,

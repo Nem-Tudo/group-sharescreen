@@ -692,6 +692,14 @@ function installPermissionHandlers() {
     "audioCapture",
     "videoCapture",
     "clipboard-sanitized-write",
+    // System notifications (chat mentions today, more later — see
+    // lib/notifications.ts). Electron shows the renderer's `new Notification()`
+    // as a native toast, but still routes the permission request here; without
+    // this the web app's Notification.requestPermission() resolves to "denied"
+    // in the app while working on the web. Notifications are a push the user
+    // opted into, not a capability that can read anything, so granting them to
+    // our own origin is safe.
+    "notifications",
     // Same story as clipboard-sanitized-write: a browser lets
     // Element.requestFullscreen() through on the user gesture alone and
     // never asks, so nothing on the site looks like it needs permission —

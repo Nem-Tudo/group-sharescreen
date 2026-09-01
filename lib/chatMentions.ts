@@ -134,6 +134,17 @@ export function getMentionTriggerInfo(text: string, cursorPos: number): MentionT
     return { isTriggered: false, query: "", startIndex: -1 };
   }
 
+  // A trailing space ends the token: the mention is complete, whether the user
+  // accepted a suggestion (applyMentionInsertion appends "@Name ") or typed the
+  // name and a space themselves. This is the fix for the popup that stayed open
+  // "@João |" forever and, with it, made Enter keep re-selecting a name instead
+  // of sending. Live search for a spaced name ("@João S") still works because
+  // that query ends in a letter, not a space — only the finished "@João " closes
+  // the menu.
+  if (/\s$/.test(query)) {
+    return { isTriggered: false, query: "", startIndex: -1 };
+  }
+
   return {
     isTriggered: true,
     query,

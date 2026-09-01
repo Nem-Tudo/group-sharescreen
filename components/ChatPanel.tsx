@@ -26,6 +26,7 @@ import {
 } from "@/lib/chatImage";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { Popover, Tooltip } from "@/components/Tooltip";
+import { NotificationBell } from "@/components/NotificationBell";
 import { MdClose, MdOutlineImage } from "react-icons/md";
 import {
   buildMentionsRegex,
@@ -245,6 +246,13 @@ export function ChatPanel({
   const [mentionStartIndex, setMentionStartIndex] = useState<number | null>(null);
   const [mentionMenuOpen, setMentionMenuOpen] = useState(false);
   const [mentionIndex, setMentionIndex] = useState(0);
+  // Whether the user has actively moved through the suggestion list (arrows).
+  // It decides what Enter means while the popup is open: with no navigation
+  // Enter sends the message (the common case — you typed "@joão" and want to
+  // post it), and only after arrowing to a name, or pressing Tab, does Enter
+  // insert that name. Reset every time the query changes, so each fresh
+  // "@..." starts out "Enter sends".
+  const [mentionNavigated, setMentionNavigated] = useState(false);
 
   const mentionMenuRef = useRef<HTMLDivElement>(null);
   const activeItemRef = useRef<HTMLButtonElement | null>(null);
@@ -412,6 +420,7 @@ export function ChatPanel({
       setMentionStartIndex(trigger.startIndex);
       setMentionQuery(trigger.query);
       setMentionIndex(0);
+      setMentionNavigated(false);
       setMentionMenuOpen(true);
     } else {
       setMentionMenuOpen(false);
@@ -535,15 +544,22 @@ export function ChatPanel({
     if (mentionMenuOpen && filteredCandidates.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
+        setMentionNavigated(true);
         setMentionIndex((prev) => (prev + 1) % filteredCandidates.length);
         return;
       }
       if (e.key === "ArrowUp") {
         e.preventDefault();
+        setMentionNavigated(true);
         setMentionIndex((prev) => (prev - 1 + filteredCandidates.length) % filteredCandidates.length);
         return;
       }
-      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+      // Tab always accepts the highlighted name; Enter only accepts once the
+      // user has arrowed into the list. Enter without navigation falls through
+      // to the send branch below, so typing "@joão" and pressing Enter posts
+      // the message instead of silently swallowing the keystroke to re-insert
+      // a name that is already there.
+      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey && mentionNavigated)) {
         e.preventDefault();
         const selected = filteredCandidates[selectedIndex];
         if (selected) {
@@ -705,11 +721,14 @@ export function ChatPanel({
     >
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
         <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Chat</h2>
-        {messages.length > 0 && (
-          <span className="text-xs tabular-nums text-zinc-400 dark:text-zinc-600">
-            {messages.length}
-          </span>
-        )}
+        <div className="flex items-center gap-1.5">
+          {messages.length > 0 && (
+            <span className="text-xs tabular-nums text-zinc-400 dark:text-zinc-600">
+              {messages.length}
+            </span>
+          )}
+          <NotificationBell />
+        </div>
       </div>
 
       {/* `relative` so the "jump to the newest" pill below can hang over the
