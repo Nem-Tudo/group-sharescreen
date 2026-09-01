@@ -62,6 +62,7 @@ function getSnapshot(): Snapshot {
 // The server has no notifications; a stable snapshot keeps hydration quiet.
 const SERVER_SNAPSHOT: Snapshot = { supported: false, permission: "unsupported", muted: false };
 
+
 function subscribe(onChange: () => void): () => void {
   const off = onNotificationStateChange(onChange);
   // A mute toggled in another tab arrives as a storage event, not through our

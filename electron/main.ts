@@ -73,6 +73,13 @@ const APP_ORIGIN = new URL(APP_URL).origin;
 // startOAuth below and the web app's lib/desktop.ts.
 const PROTOCOL = "golive";
 
+// Must match electron-builder.yml's `appId`. On Windows, a renderer's
+// `new Notification()` (see lib/notifications.ts) silently shows nothing unless
+// the process declares this same AppUserModelID — the OS keys toasts to the
+// installed app's identity, and without it every notification is dropped with
+// no error. Harmless on macOS/Linux.
+const APP_USER_MODEL_ID = "me.nemtudo.golive";
+
 // A login the user never finishes would otherwise leave a promise pending in
 // the renderer forever. Generous, because the flow legitimately involves
 // typing a password and possibly a 2FA code in another application.
@@ -742,6 +749,10 @@ if (!gotLock) {
   });
 
   app.whenReady().then(() => {
+    // Declare the app identity to Windows before anything can raise a toast,
+    // or notifications silently no-op (see APP_USER_MODEL_ID).
+    app.setAppUserModelId(APP_USER_MODEL_ID);
+
     // In dev the executable is Electron itself, so the OS has to be told
     // which binary and argv to invoke — otherwise the protocol registers
     // against `electron.exe` with no script and the callback lands nowhere.

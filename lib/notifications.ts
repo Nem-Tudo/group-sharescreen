@@ -314,6 +314,40 @@ export async function showNotification(opts: NotifyOptions): Promise<boolean> {
   return false;
 }
 
+// ---------------------------------------------------------------------------
+// Manual test hook
+// ---------------------------------------------------------------------------
+
+/**
+ * Fire a sample notification on demand — the "does this work at all?" probe.
+ * Requests permission first if it isn't granted yet, then shows a toast that
+ * bypasses the focus and mute gates a real alert respects, so a successful
+ * call always surfaces something. Returns whether a notification was shown.
+ *
+ * Exposed as window.testNotification() (see below) so it can be run straight
+ * from the console while diagnosing "nothing appears".
+ */
+export async function testNotification(): Promise<boolean> {
+  if (getNotificationPermission() !== "granted") {
+    await requestNotificationPermission();
+  }
+  return showNotification({
+    title: "Notificação de teste",
+    body: "Se você está vendo isso, as notificações funcionam.",
+    tag: "notifications-test",
+    skipWhenFocused: false,
+    ignoreMutePreference: true,
+  });
+}
+
+// Attached on import (this module is always loaded on the client, via
+// signalingClient), so window.testNotification() is available everywhere for
+// manual verification without wiring any UI.
+if (isBrowser()) {
+  (window as unknown as { testNotification?: typeof testNotification }).testNotification =
+    testNotification;
+}
+
 // FNV-1a folded into a positive 31-bit int — Capacitor notification ids must be
 // a Java int, and this gives one tag the same id every time so it collapses.
 function hashTo31Bit(text: string): number {
