@@ -22,6 +22,7 @@
     "android:sync": "cap sync android",
     "android:open": "cap sync android && cap open android",
     "android:assets": "capacitor-assets generate --android",
+    "android:version": "node -e \"const fs=require('fs'); const p='android/app/build.gradle'; let s=fs.readFileSync(p,'utf8'); s=s.replace(/versionCode\\s+(\\d+)/,(_,n)=>'versionCode '+(+n+1)); fs.writeFileSync(p,s);\"",
     "preversion": "npm run typecheck && npm run electron:typecheck && npm run electron:build && npm test",
     "postversion": "git push --follow-tags",
     "release": "npm version patch",
