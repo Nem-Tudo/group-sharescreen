@@ -689,7 +689,7 @@ export default function Home() {
             <img src={"https://cdn.squarecloud.app/assets/powered-by.svg"} style={{ width: "200px" }} />
           </Link>
         </p>
-        <p className="mt-4 text-center text-[11px] leading-relaxed text-zinc-400 dark:text-zinc-500">
+        {/* <p className="mt-4 text-center text-[11px] leading-relaxed text-zinc-400 dark:text-zinc-500">
           Este site é protegido pelo reCAPTCHA. Aplicam-se a{" "}
           <a
             href="https://policies.google.com/privacy"
@@ -709,7 +709,7 @@ export default function Home() {
             Termos de Serviço
           </a>{" "}
           do Google.
-        </p>
+        </p> */}
       </div>
     </>
   );
