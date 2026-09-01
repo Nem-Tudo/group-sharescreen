@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
 import { AnnouncementBanner } from "@/components/AnnouncementBanner";
+import { CapacitorBridge } from "@/components/CapacitorBridge";
 import { InstallAppButton } from "@/components/InstallAppButton";
 import { UpdateAppButton } from "@/components/UpdateAppButton";
 import { AuthProvider } from "@/lib/AuthContext";
@@ -193,6 +194,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <SupressErrors>
           <AuthProvider>
             <NtPopups>
+              <CapacitorBridge />
               <PresenceReporter />
               <AnnouncementBanner />
               {children}

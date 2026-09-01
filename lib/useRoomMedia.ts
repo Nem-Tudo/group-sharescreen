@@ -50,6 +50,7 @@ import { RelayManager, RELAY_ENABLED, type RelayChild } from "./relayLink";
 import { applyVideoCodecPreferences } from "./videoCodecPreferences";
 import { setPreferredAudioSink } from "./audioContext";
 import { startExcludedSystemAudio, prewarmExcludedSystemAudio } from "./desktopSystemAudio";
+import { captureAndroidScreen, isAndroidScreenCaptureAvailable } from "./androidScreenCapture";
 
 // "file1".."file3" are local video or audio files played into the room (see
 // lib/localMediaSource.ts). Each is a full sibling of screen and camera — its
@@ -1935,10 +1936,16 @@ async function captureCamera(
 // support getDisplayMedia at all, so screen capture from a website simply
 // isn't possible there. Falling back to the device camera lets mobile users
 // still broadcast something instead of just hitting an unsupported error.
+//
+// The Android *app* is the one exception: isAndroidScreenCaptureAvailable()
+// is true there, and lib/androidScreenCapture.ts captures the screen through
+// a native MediaProjection plugin instead of the (nonexistent) browser API —
+// see that file's own comment for why the plugin bridge, not getDisplayMedia,
+// is what "display" means on this one platform.
 type ScreenShareMode = "display" | "camera" | "unsupported";
 
 function getScreenShareMode(): ScreenShareMode {
-  if (hasDisplayCapture()) return "display";
+  if (hasDisplayCapture() || isAndroidScreenCaptureAvailable()) return "display";
   if (hasCameraCapture()) return "camera";
   return "unsupported";
 }
@@ -2150,6 +2157,19 @@ export function useRoomMedia(room: string) {
       if (source === "camera") {
         return captureCamera(videoConstraints, cameraDeviceIdRef.current);
       }
+      // The Android app: a real screen capture, just not through
+      // getDisplayMedia (which does not exist there — see
+      // lib/androidScreenCapture.ts). No system-audio exclusion, no retry
+      // path below — the native capture is video-only from the start, the
+      // same degraded shape a browser without loopback audio already hands
+      // back here.
+      if (isAndroidScreenCaptureAvailable()) {
+        return captureAndroidScreen({
+          width: dims.width,
+          height: dims.height,
+          fps: shareFpsRef.current,
+        });
+      }
       // No fallback to the camera here — on browsers without getDisplayMedia
       // (most mobile ones) this throws synchronously, which start() below
       // turns into a visible error instead of silently switching sources.
@@ -2240,7 +2260,7 @@ export function useRoomMedia(room: string) {
       stream.addTrack(excluded.track);
       return stream;
     },
-    () => hasDisplayCapture() || hasCameraCapture(),
+    () => hasDisplayCapture() || isAndroidScreenCaptureAvailable() || hasCameraCapture(),
     "Seu navegador não suporta compartilhamento de tela nem câmera.",
     "Não foi possível iniciar o compartilhamento. Verifique as permissões do navegador.",
     forceRelayIce,

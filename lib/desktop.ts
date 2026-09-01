@@ -41,7 +41,14 @@ export function desktopOAuthNonce(next: string): string | null {
 export interface DesktopBridge {
   /** The packaged app's version, for the "about"/diagnostics line. */
   readonly appVersion: string;
-  readonly platform: "darwin" | "win32" | "linux";
+  // "android" is the Capacitor shell (lib/capacitorBridge.ts) — same
+  // contract, same DESKTOP_OAUTH_RETURN_PREFIX handoff, just a phone instead
+  // of a desktop OS. Naming this file/function "desktop" predates that and is
+  // now a bit narrow, but every consumer already treats "a golive shell
+  // exists" as the one thing that matters, never which platform string it
+  // carries — see the grep-worthy absence of any `.platform === "win32"`
+  // check anywhere in the site's own code.
+  readonly platform: "darwin" | "win32" | "linux" | "android";
   /**
    * Opens `startUrl` in the user's *real* browser and resolves with the URL
    * fragment the OAuth flow eventually hands back through the app's custom

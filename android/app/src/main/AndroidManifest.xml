@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme">
+
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:name=".MainActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:launchMode="singleTask"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- The same golive:// scheme electron-builder.yml registers for the
+                 desktop build (see electron/main.ts's handleDeepLink). A login
+                 handed off to the system browser (lib/capacitorBridge.ts calls
+                 the Browser plugin instead of loading the provider inline,
+                 because Google/Discord refuse to authenticate inside an
+                 embedded WebView) comes back through this, and so does a
+                 "abrir no app" room link from OpenInAppBanner.tsx.
+                 android:launchMode="singleTask" above is load-bearing here: it
+                 is what makes the intent resume this activity instead of
+                 spawning a second one. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="golive" />
+            </intent-filter>
+
+        </activity>
+
+        <!-- Screen sharing's native half — see ScreenCapturePlugin.java and
+             ScreenCaptureService.java, and lib/androidScreenCapture.ts for
+             why a plugin+service exists at all (getDisplayMedia does not on
+             Android, in any Chromium embedding). foregroundServiceType is
+             load-bearing from Android 14 on: MediaProjectionManager throws a
+             SecurityException out of getMediaProjection() if a foreground
+             service of exactly this type is not already running. -->
+        <service
+            android:name=".ScreenCaptureService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"></meta-data>
+        </provider>
+    </application>
+
+    <!-- Permissions -->
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- getUserMedia's video/audio capture (camera + mic channels, and the
+         camera fallback for "compartilhar tela" on any platform without real
+         screen capture — see useRoomMedia's getScreenShareMode; Android has
+         its own real one, see the permissions block below). Capacitor's own
+         WebChromeClient already prompts for these at runtime when a page
+         asks; without the manifest entries the prompt itself would never
+         appear and the request would just be denied. MODIFY_AUDIO_SETTINGS
+         is requested alongside RECORD_AUDIO by that same handler (echo
+         cancellation / audio routing). -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+    <!-- Real screen sharing — ScreenCapturePlugin.java / ScreenCaptureService.java.
+         FOREGROUND_SERVICE_MEDIA_PROJECTION and the type on the <service>
+         above are both required from Android 14 (API 34); FOREGROUND_SERVICE
+         itself has been required for any foreground service since Android 9.
+         POST_NOTIFICATIONS is for the foreground service's own ongoing
+         notification (required at runtime from API 33 — ScreenCapturePlugin
+         requests it, and proceeds either way if it's refused: a denial only
+         hides that notification, it does not block the capture itself). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Neither is required: GoLive is a comms app, not a camera app, and
+         plenty of phones/tablets people call from have no rear camera, no
+         mic, or both. required="false" is what stops Play from hiding the
+         listing on those devices — without it, "uses-permission CAMERA" is
+         read as "uses-feature camera, required" by default. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+</manifest>

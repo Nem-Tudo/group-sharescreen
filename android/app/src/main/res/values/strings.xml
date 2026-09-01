@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">GoLive</string>
+    <string name="title_activity_main">GoLive</string>
+    <string name="package_name">me.nemtudo.golive</string>
+    <string name="custom_url_scheme">me.nemtudo.golive</string>
+</resources>

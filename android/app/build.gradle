@@ -1,0 +1,101 @@
+apply plugin: 'com.android.application'
+
+// versionName tracks package.json's version (the same file next.config.ts's
+// resolvePackageVersion reads for the desktop/web build number), so a Play
+// Store listing and a website build never disagree about which release
+// they're looking at. Read directly rather than duplicated by hand, which is
+// exactly the kind of thing that drifts the first time someone bumps one and
+// forgets the other.
+//
+// versionCode has no such source of truth: Play requires it to be a bare,
+// strictly-increasing integer, which a semver string can't honestly produce
+// (a patch bump and a major bump are indistinguishable to an integer
+// comparison unless the string is padded to a fixed width). Bump it by hand
+// on every release that goes to Play, same as electron-builder's own `npm
+// version` bump is a separate, deliberate step from this one.
+def packageJson = new groovy.json.JsonSlurper().parse(file('../../package.json'))
+
+// Release signing, read from a file that is deliberately not in this repo —
+// the Play Store key is a secret the same way CSC_LINK/CSC_KEY_PASSWORD are
+// for electron-builder.yml's Windows signing, and for the same reason: a
+// signing key committed to a public source tree is a signing key that no
+// longer means anything. See android/keystore.properties.example for the
+// expected shape.
+//
+// Its absence is not an error: `./gradlew assembleDebug` and any CI run that
+// only needs to verify the app still builds have no reason to know this key
+// exists, and get a debug-signed (or unsigned) release build instead — the
+// same "builds normally, just skips the upload" fallback electron-builder.yml
+// documents for a missing GH_TOKEN.
+def keystorePropertiesFile = file('../keystore.properties')
+def keystoreProperties = new Properties()
+def hasReleaseSigning = keystorePropertiesFile.exists()
+if (hasReleaseSigning) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
+android {
+    namespace = "me.nemtudo.golive"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "me.nemtudo.golive"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 1
+        versionName packageJson.version
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

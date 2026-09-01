@@ -19,6 +19,9 @@
     "electron:start": "npm run electron:build && electron .",
     "electron:pack": "npm run electron:build && electron-builder --dir",
     "electron:dist": "npm run electron:build && electron-builder",
+    "android:sync": "cap sync android",
+    "android:open": "cap sync android && cap open android",
+    "android:assets": "capacitor-assets generate --android",
     "preversion": "npm run typecheck && npm run electron:typecheck && npm run electron:build && npm test",
     "postversion": "git push --follow-tags",
     "release": "npm version patch",
@@ -26,6 +29,10 @@
     "release:major": "npm version major"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.1",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/browser": "^8.0.4",
+    "@capacitor/core": "^8.5.1",
     "@sapphi-red/web-noise-suppressor": "^0.4.0",
     "@tailwindcss/postcss": "^4",
     "@tippyjs/react": "^4.2.6",
@@ -37,6 +44,8 @@
     "react-icons": "^5.7.0"
   },
   "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.5.1",
     "@types/leaflet": "^1.9.22",
     "@types/node": "^20",
     "@types/react": "^19",
@@ -50,5 +59,9 @@
     "eslint-config-next": "16.3.1",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "allowScripts": {
+    "sharp@0.32.6": true,
+    "sharp@0.35.3": true
   }
 }

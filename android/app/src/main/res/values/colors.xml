@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- AppTheme (styles.xml) references these three by name — the base
+         @capacitor/android template ships the style but not the colors, so
+         this file has to exist or the resource linker fails the build
+         outright ("resource color/colorPrimary not found").
+
+         Values matched to the site's own theme rather than left as
+         Capacitor's stock blue: #09090b is manifest.ts's theme_color/
+         background_color and layout.tsx's viewport.themeColor, so the
+         status bar and any native chrome around the WebView reads as the
+         same near-black as the page itself instead of clashing with it. -->
+    <color name="colorPrimary">#09090b</color>
+    <color name="colorPrimaryDark">#000000</color>
+    <color name="colorAccent">#10b981</color>
+</resources>
