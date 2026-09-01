@@ -37,15 +37,30 @@ type AuthContextValue = {
   // True while the stored token (if any) is still being resolved against
   // /auth/me — the one request this context makes on app open.
   loading: boolean;
-  login: (username: string, password: string) => Promise<Account>;
-  register: (username: string, displayName: string, password: string) => Promise<Account>;
+  // `challengeToken` on each of these three is the answer to a Turnstile
+  // challenge, passed on the retry that follows a
+  // CaptchaChallengeRequiredError (see lib/turnstile.ts). The forms own that
+  // retry — this context only has to stop swallowing the argument, which it
+  // used to, leaving the modal nothing to submit even where one was shown.
+  login: (username: string, password: string, challengeToken?: string) => Promise<Account>;
+  register: (
+    username: string,
+    displayName: string,
+    password: string,
+    challengeToken?: string
+  ) => Promise<Account>;
   // Finishes a Discord/Google *signup* (see lib/oauthApi.ts): the ticket
   // stands in for the password here — the provider identity behind it was
   // already verified server-side — and the result is an ordinary account,
   // indistinguishable from a registered one from this point on. A plain
   // social *login* needs nothing from this context beyond refresh(), since
   // its token arrives through accountApi's store on its own.
-  completeOAuthSignup: (ticket: string, username: string, displayName: string) => Promise<Account>;
+  completeOAuthSignup: (
+    ticket: string,
+    username: string,
+    displayName: string,
+    challengeToken?: string
+  ) => Promise<Account>;
   // Detaches a provider, then re-resolves so the panel reflects it. Rejects
   // (with the API's message) when it would leave the account with no way in.
   unlinkProvider: (provider: string) => Promise<void>;
@@ -185,16 +200,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [refresh]
   );
 
-  const login = useCallback(async (username: string, password: string) => {
-    const { account: acc } = await loginAccount(username, password);
-    setAccount(acc);
-    setResolvedToken(getAccountToken());
-    return acc;
-  }, []);
+  const login = useCallback(
+    async (username: string, password: string, challengeToken?: string) => {
+      const { account: acc } = await loginAccount(username, password, challengeToken);
+      setAccount(acc);
+      setResolvedToken(getAccountToken());
+      return acc;
+    },
+    []
+  );
 
   const register = useCallback(
-    async (username: string, displayName: string, password: string) => {
-      const { account: acc } = await registerAccount(username, displayName, password);
+    async (username: string, displayName: string, password: string, challengeToken?: string) => {
+      const { account: acc } = await registerAccount(
+        username,
+        displayName,
+        password,
+        challengeToken
+      );
       setAccount(acc);
       setResolvedToken(getAccountToken());
       return acc;
@@ -203,8 +226,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const completeOAuthSignup = useCallback(
-    async (ticket: string, username: string, displayName: string) => {
-      const { account: acc } = await completeOAuthSignupRequest(ticket, username, displayName);
+    async (ticket: string, username: string, displayName: string, challengeToken?: string) => {
+      const { account: acc } = await completeOAuthSignupRequest(
+        ticket,
+        username,
+        displayName,
+        challengeToken
+      );
       setAccount(acc);
       setResolvedToken(getAccountToken());
       return acc;

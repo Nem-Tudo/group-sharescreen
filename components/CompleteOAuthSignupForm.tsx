@@ -3,6 +3,8 @@
 import { useState, type FormEvent } from "react";
 import { useAuth } from "@/lib/AuthContext";
 import { trackEvent } from "@/lib/analytics";
+import { CaptchaChallengeRequiredError } from "@/lib/turnstile";
+import { CaptchaChallengeModal } from "./CaptchaChallengeModal";
 import type { OAuthProviderId } from "@/lib/oauthApi";
 
 // Mirrors server-side validation (see the API's USERNAME_RE) — duplicated
@@ -52,8 +54,61 @@ export function CompleteOAuthSignupForm({
   const [displayName, setDisplayName] = useState(suggestedDisplayName);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Open when the server refused the invisible reCAPTCHA check but offered a
+  // challenge instead of just saying no - see CaptchaChallengeRequiredError.
+  // This step is the worst place in the app to be refused without one: the
+  // provider has already been through its consent screen, the identity is
+  // verified and riding in `ticket`, and the person is one field short of an
+  // account. What they used to get was "Verificação de segurança falhou.
+  // Recarregue a página e tente de novo." - and reloading loses the ticket,
+  // so the advice sent them back to the start of a flow that would refuse them
+  // again for exactly the same reason.
+  const [challenge, setChallenge] = useState(false);
+  const [challengeError, setChallengeError] = useState<string | null>(null);
 
-  async function handleSubmit(e: FormEvent) {
+  // `challengeToken` is present only on the retry that follows a solved
+  // challenge; the first attempt always goes through the invisible check.
+  async function submitSignup(challengeToken?: string) {
+    const trimmedUser = username.trim();
+    const trimmedDisplay = displayName.trim();
+    setSubmitting(true);
+    setFormError(null);
+    // Cleared before every attempt so the modal can tell a fresh refusal from
+    // the one it is already showing (it compares `error` by value).
+    setChallengeError(null);
+    try {
+      await completeOAuthSignup(ticket, trimmedUser, trimmedDisplay, challengeToken);
+      trackEvent("account_created_oauth");
+      setChallenge(false);
+      onSuccess?.();
+    } catch (err) {
+      if (err instanceof CaptchaChallengeRequiredError) {
+        setChallenge(true);
+        // Nothing to say on the way in - the challenge itself explains what to
+        // do, and the reason only means anything once an answer was refused.
+        if (challengeToken) setChallengeError(err.message);
+        return;
+      }
+      setChallenge(false);
+      // The realistic failure is the name being taken — the ticket is still
+      // good, so the user just picks another one right here instead of
+      // starting the whole provider flow over.
+      setFormError(err instanceof Error ? err.message : "Falha ao criar conta.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  // Giving up on the challenge. The ticket is untouched by any of this, so the
+  // form stays exactly as it was and pressing "Criar conta" again is a fresh
+  // attempt - no going back through the provider.
+  function cancelChallenge() {
+    setChallenge(false);
+    setChallengeError(null);
+    setFormError("Verificação de segurança não concluída. Tente criar a conta de novo.");
+  }
+
+  function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setFormError(null);
     const trimmedUser = username.trim();
@@ -66,19 +121,7 @@ export function CompleteOAuthSignupForm({
       setFormError("Escolha um nome de exibição.");
       return;
     }
-    setSubmitting(true);
-    try {
-      await completeOAuthSignup(ticket, trimmedUser, trimmedDisplay);
-      trackEvent("account_created_oauth");
-      onSuccess?.();
-    } catch (err) {
-      // The realistic failure is the name being taken — the ticket is still
-      // good, so the user just picks another one right here instead of
-      // starting the whole provider flow over.
-      setFormError(err instanceof Error ? err.message : "Falha ao criar conta.");
-    } finally {
-      setSubmitting(false);
-    }
+    void submitSignup();
   }
 
   return (
@@ -128,6 +171,18 @@ export function CompleteOAuthSignupForm({
           </button>
         )}
       </div>
+      {/* Fixed-position and full-screen, so it sits above whichever surface
+          this step was rendered into - the OAuth callback page, the home
+          page's identity area, or the account menu's dropdown. */}
+      {challenge && (
+        <CaptchaChallengeModal
+          error={challengeError}
+          action="oauth_signup"
+          submittingLabel="Criando conta..."
+          onToken={(token) => void submitSignup(token)}
+          onCancel={cancelChallenge}
+        />
+      )}
     </form>
   );
 }

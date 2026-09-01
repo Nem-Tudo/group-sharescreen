@@ -4,6 +4,8 @@ import { useEffect, useState, type FormEvent } from "react";
 import { checkUsernameAvailable, type UsernameCheck } from "@/lib/accountApi";
 import { useAuth } from "@/lib/AuthContext";
 import { trackEvent } from "@/lib/analytics";
+import { CaptchaChallengeRequiredError } from "@/lib/turnstile";
+import { CaptchaChallengeModal } from "./CaptchaChallengeModal";
 import { OAuthButtons } from "./OAuthButtons";
 import { CompleteOAuthSignupForm } from "./CompleteOAuthSignupForm";
 import type { OAuthResult } from "@/lib/oauthApi";
@@ -53,6 +55,13 @@ export function CreateAccountForm({
   const [password, setPassword] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Open when the server refused the invisible reCAPTCHA check but offered a
+  // challenge instead of just saying no — see CaptchaChallengeRequiredError.
+  // Without this the refusal landed under the form as "Confirme que você não é
+  // um robô para continuar." with no robot to confirm anything to: the message
+  // named a challenge that nothing on this page ever opened.
+  const [challenge, setChallenge] = useState(false);
+  const [challengeError, setChallengeError] = useState<string | null>(null);
   // Set when a social login turned out to be a signup. While it's here this
   // component renders *only* the username step — the fields below ask for
   // the same two names plus a password the social account doesn't have, so
@@ -98,7 +107,46 @@ export function CreateAccountForm({
       : null;
   const usernameTaken = check?.valid === true && check.available === false;
 
-  async function handleSubmit(e: FormEvent) {
+  // `challengeToken` is present only on the retry that follows a solved
+  // challenge; the first attempt always goes through the invisible check.
+  async function submitRegister(challengeToken?: string) {
+    const trimmedUser = username.trim();
+    const trimmedDisplay = displayName.trim();
+    setSubmitting(true);
+    setFormError(null);
+    // Cleared before every attempt so the modal can tell a fresh refusal from
+    // the one it is already showing (it compares `error` by value).
+    setChallengeError(null);
+    try {
+      await register(trimmedUser, trimmedDisplay, password, challengeToken);
+      trackEvent("account_created");
+      setChallenge(false);
+      onSuccess?.();
+    } catch (err) {
+      if (err instanceof CaptchaChallengeRequiredError) {
+        setChallenge(true);
+        // Nothing to say on the way in — the challenge itself explains what to
+        // do, and the reason only means anything once an answer was refused.
+        if (challengeToken) setChallengeError(err.message);
+        return;
+      }
+      setChallenge(false);
+      setFormError(err instanceof Error ? err.message : "Falha ao criar conta.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  // Giving up on the challenge. The signup has genuinely failed at this point,
+  // so it says so under the form rather than leaving one that looks untouched
+  // next to an account that was never created.
+  function cancelChallenge() {
+    setChallenge(false);
+    setChallengeError(null);
+    setFormError("Verificação de segurança não concluída. Tente criar a conta de novo.");
+  }
+
+  function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setFormError(null);
     const trimmedUser = username.trim();
@@ -115,16 +163,7 @@ export function CreateAccountForm({
       setFormError("Senha deve ter ao menos 6 caracteres.");
       return;
     }
-    setSubmitting(true);
-    try {
-      await register(trimmedUser, trimmedDisplay, password);
-      trackEvent("account_created");
-      onSuccess?.();
-    } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Falha ao criar conta.");
-    } finally {
-      setSubmitting(false);
-    }
+    void submitRegister();
   }
 
   if (oauthTicket) {
@@ -233,6 +272,18 @@ export function CreateAccountForm({
           the same place as the password one (an account either way), so
           onSuccess is the same callback. */}
       <OAuthButtons onSuccess={onSuccess} onTicket={setOAuthTicket} />
+      {/* Fixed-position and full-screen, so it sits above whichever surface
+          this form was rendered into — the home page, the account menu's
+          dropdown, or WatchRoom's name gate. */}
+      {challenge && (
+        <CaptchaChallengeModal
+          error={challengeError}
+          action="register_account"
+          submittingLabel="Criando conta..."
+          onToken={(token) => void submitRegister(token)}
+          onCancel={cancelChallenge}
+        />
+      )}
     </div>
   );
 }

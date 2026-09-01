@@ -3,7 +3,7 @@
 import { useSyncExternalStore } from "react";
 import { getSignalingHttpBase } from "./roomsApi";
 import { getCaptchaToken } from "./recaptcha";
-import { isTurnstileConfigured } from "./turnstile";
+import { errorForFailedCaptchaGatedResponse } from "./turnstile";
 import type {
   Announcement,
   AnnouncementButtonAction,
@@ -92,21 +92,11 @@ export function useAdminToken(): string | null {
 // rest of the app uses. The admin token is still kept in its own
 // localStorage slot (not accountApi's localStorage one) so a moderator
 // session doesn't silently outlive the tab the way a regular viewer's does.
-/**
- * Thrown when the server refused the login on the captcha rather than on the
- * credentials, *and* offered a challenge to get past it.
- *
- * Its own type because it is the one login failure that is not a dead end: the
- * page catches it and opens the challenge, where every other error just gets
- * printed under the form. Distinguishing them by message would mean matching
- * on Portuguese prose the server owns.
- */
-export class CaptchaChallengeRequiredError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "CaptchaChallengeRequiredError";
-  }
-}
+// Re-exported so app/admin/page.tsx keeps importing it from the module whose
+// call it is catching. It lives in turnstile.ts because the account flows
+// throw the same thing (see accountApi.ts) and two identically named classes
+// would be two types no `instanceof` could reconcile.
+export { CaptchaChallengeRequiredError } from "./turnstile";
 
 /**
  * Signs in as an administrator.
@@ -141,18 +131,7 @@ export async function adminLogin(
     }),
   });
   if (!res.ok) {
-    const data = (await res.json().catch(() => null)) as {
-      error?: string;
-      challenge?: boolean;
-    } | null;
-    const message = data?.error || "Usuário ou senha inválidos.";
-    // Only escalate when both halves agree there is a challenge to show: the
-    // server holds the Turnstile secret, this app holds the site key, and a
-    // modal opened without the latter is an empty box.
-    if (res.status === 403 && data?.challenge && isTurnstileConfigured()) {
-      throw new CaptchaChallengeRequiredError(message);
-    }
-    throw new Error(message);
+    throw await errorForFailedCaptchaGatedResponse(res, "Usuário ou senha inválidos.");
   }
   const data = (await res.json()) as { token: string; account: { flags: string[] } };
   if (!data.account.flags.includes("ADMIN")) {

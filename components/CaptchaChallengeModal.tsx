@@ -1,8 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import { renderTurnstile, type TurnstileWidget } from "@/lib/turnstile";
 import type { CaptchaAction } from "@/lib/recaptcha";
+
+// Client/server is not a thing that changes, so the store this reads from
+// never notifies: the two snapshots below are the whole answer. Unsubscribing
+// is a no-op for the same reason.
+const subscribeNothing = () => () => {};
 
 // The challenge somebody is shown when the invisible check refused them.
 //
@@ -36,6 +42,22 @@ export function CaptchaChallengeModal({
     "loading"
   );
 
+  // This renders into document.body rather than where it was written, because
+  // `fixed inset-0` only means "the viewport" when no ancestor has a
+  // transform — and one of the places this opens from is the account menu,
+  // whose panel is a Tippy popover positioned with translate3d. Inside that,
+  // the same classes mean "the dropdown", so the overlay came out as a 288px
+  // box tucked under the trigger with the challenge cropped inside it. A
+  // portal makes where the caller put this irrelevant, which is the only way
+  // a modal shared by a page, a dropdown and a room overlay can be right in
+  // all three.
+  //
+  // Gated on being on the client rather than on `typeof document` directly, so
+  // the server render and the first client render agree that nothing is here
+  // and hydration has nothing to reconcile — `document.body` only gets read
+  // on the render after that.
+  const onClient = useSyncExternalStore(subscribeNothing, () => true, () => false);
+
   // Held in a ref so the effect below can stay mounted once — re-running it
   // would tear down a challenge somebody is halfway through solving.
   const onTokenRef = useRef(onToken);
@@ -51,6 +73,10 @@ export function CaptchaChallengeModal({
   const widgetRef = useRef<TurnstileWidget | null>(null);
 
   useEffect(() => {
+    // Nothing is in the document until the portal exists, so this waits for
+    // it — and then runs exactly once, since re-running would tear down a
+    // challenge somebody is halfway through solving.
+    if (!onClient) return;
     const container = containerRef.current;
     if (!container) return;
     let widget: TurnstileWidget | null = null;
@@ -78,7 +104,7 @@ export function CaptchaChallengeModal({
       widgetRef.current = null;
       widget?.remove();
     };
-  }, []);
+  }, [onClient]);
 
   // An answer the server refused arrives as a new `error` while this is still
   // sitting on "submitting" — and in that state the message below is
@@ -105,7 +131,9 @@ export function CaptchaChallengeModal({
     widgetRef.current?.reset();
   }, [error]);
 
-  return (
+  if (!onClient) return null;
+
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div className="flex w-full max-w-sm flex-col gap-4 rounded-2xl border border-black/10 bg-white p-6 text-center shadow-xl dark:border-white/10 dark:bg-zinc-950">
         <div>
@@ -142,6 +170,7 @@ export function CaptchaChallengeModal({
           Cancelar
         </button>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

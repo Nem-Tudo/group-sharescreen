@@ -48,6 +48,48 @@ declare global {
 }
 
 /**
+ * Thrown by an API call the server refused with a captcha 403 that offered a
+ * challenge — as opposed to any other failure, which is just an error to print
+ * under the form.
+ *
+ * Its own class rather than a flag on the message, because the callers that
+ * care have to tell the two apart: a wrong password and "we are not sure you
+ * are a person" both come back as a rejected promise with Portuguese prose the
+ * server owns, and matching on that prose to decide whether to open a modal
+ * would be a string comparison standing between somebody and their account.
+ */
+export class CaptchaChallengeRequiredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CaptchaChallengeRequiredError";
+  }
+}
+
+/**
+ * Reads a failed response and decides which of the two it is.
+ *
+ * Every captcha-gated call in this app funnels its `!res.ok` through here, so
+ * that "the server offered a challenge" is decided once. It escalates only
+ * when both halves agree there is a challenge to show: the server holds the
+ * Turnstile secret and says so with `challenge`, this app holds the site key —
+ * and a modal opened without the latter is an empty box with a cancel button.
+ */
+export async function errorForFailedCaptchaGatedResponse(
+  res: Response,
+  fallbackMessage: string
+): Promise<Error> {
+  const data = (await res.json().catch(() => null)) as {
+    error?: string;
+    challenge?: boolean;
+  } | null;
+  const message = data?.error || fallbackMessage;
+  if (res.status === 403 && data?.challenge && isTurnstileConfigured()) {
+    return new CaptchaChallengeRequiredError(message);
+  }
+  return new Error(message);
+}
+
+/**
  * Whether a challenge can be offered at all on this deployment. The server
  * decides this independently (it holds the secret key), and both halves have
  * to be configured for the fallback to exist — this one only stops the client
