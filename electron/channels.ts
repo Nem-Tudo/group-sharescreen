@@ -72,6 +72,17 @@ export const IPC = {
    */
   systemAudioEnded: "golive:system-audio:ended",
 
+  /**
+   * renderer -> main: this installation's id (see the site's
+   * lib/installId.ts), so main can drop it somewhere the *uninstaller* can
+   * read it — the renderer keeps it in localStorage, which NSIS has no way
+   * to open (it is a LevelDB directory, not a file).
+   *
+   * The only reason this crosses the bridge at all. Nothing in the shell
+   * reads the value otherwise.
+   */
+  installIdReport: "golive:install-id:report",
+
   /** renderer -> main: register or update global shortcuts map. */
   shortcutsSet: "golive:shortcuts:set",
   /** main -> renderer: a registered global shortcut fired. */

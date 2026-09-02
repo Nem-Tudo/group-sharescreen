@@ -82,6 +82,13 @@ export interface DesktopBridge {
   // before these existed is still out there running today's site, so every
   // one of them must be treated as possibly absent — checked, not assumed.
 
+  /**
+   * Hands the shell this installation's id, so the Windows uninstaller can
+   * report the removal on its way out. Fire-and-forget, and a no-op on the
+   * platforms whose uninstallers cannot run anything.
+   */
+  reportInstallId?(installId: string): void;
+
   /** The version already downloaded and waiting to be applied, or null. */
   pendingUpdate?(): Promise<string | null>;
   /**
@@ -151,6 +158,20 @@ declare global {
 export function getDesktopBridge(): DesktopBridge | null {
   if (typeof window === "undefined") return null;
   return window.golive ?? null;
+}
+
+/**
+ * Hands the shell this installation's id so its uninstaller can report the
+ * removal (see electron/main.ts's writeInstallIdFile).
+ *
+ * Optional on both ends: absent in a browser, and absent in a desktop build
+ * from before this existed — hence the optional call rather than a version
+ * check, the same pattern every other bridge method here uses. The Android
+ * shell has no such method and never will, because Android does not let an
+ * app run code while it is being uninstalled.
+ */
+export function reportInstallIdToShell(installId: string): void {
+  getDesktopBridge()?.reportInstallId?.(installId);
 }
 
 export function isDesktopApp(): boolean {

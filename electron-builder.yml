@@ -101,6 +101,10 @@ nsis:
   # "Setup" in the name so it reads as an installer rather than the app
   # itself once it is sitting in someone's Downloads folder.
   artifactName: ${productName}-Setup-${version}.${ext}
+  # Adds the customUnInstall macro that reports a removal on the way out —
+  # the only platform where that is possible at all. See the file itself for
+  # why it does nothing during an auto-update.
+  include: electron/build/installer.nsh
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true

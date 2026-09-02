@@ -3952,11 +3952,11 @@ export function WatchRoom({ handle }: { handle: string }) {
         </Tooltip>
 
         {isWideLayout && hasAnyMedia && (
-          <Tooltip content="Ocultar participantes e anúncio">
+          <Tooltip content="Ocultar participantes">
             <button
               type="button"
               onClick={toggleLeftSidebar}
-              aria-label="Ocultar participantes e anúncio"
+              aria-label="Ocultar participantes"
               className="rounded-lg p-1 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
             >
               <LuPanelLeftClose className="h-4 w-4" />

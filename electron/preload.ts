@@ -41,6 +41,13 @@ contextBridge.exposeInMainWorld("golive", {
     return ipcRenderer.invoke(IPC.openExternal, url);
   },
 
+  // Fire-and-forget, and optional on the website's side: a shell from before
+  // this existed simply doesn't have it, and the site checks for the
+  // function rather than the version.
+  reportInstallId(installId: unknown): void {
+    if (typeof installId === "string") ipcRenderer.send(IPC.installIdReport, installId);
+  },
+
   pendingUpdate(): Promise<string | null> {
     return ipcRenderer.invoke(IPC.updatePending);
   },

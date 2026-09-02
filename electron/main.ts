@@ -32,6 +32,7 @@ import {
   type DesktopCapturerSource,
 } from "electron";
 import path from "node:path";
+import fs from "node:fs";
 import {
   IPC,
   SYSTEM_AUDIO_ARG,
@@ -842,6 +843,51 @@ function safeProtocol(url: string): string {
   }
 }
 
+// Where the uninstaller looks for this installation's id. Windows only,
+// because it is the only platform whose installer can run anything on the
+// way out: NSIS has a customUnInstall hook (see electron/build/installer.nsh),
+// while a .dmg is uninstalled by dragging the app to the trash and an
+// AppImage by deleting a file — neither gives anyone a chance to say goodbye.
+//
+// Deliberately NOT app.getPath("userData"). That directory's name comes from
+// how Electron resolves the app name at runtime, which the .nsh would have to
+// reproduce as a literal string — a guess that breaks silently, on the one
+// path nobody exercises until somebody actually uninstalls. A directory both
+// sides simply agree on has no such failure mode: this constant and the
+// `$APPDATA\GoLive\install-id` in the .nsh are the entire contract.
+//
+// The id itself is not a secret and not proof of anything (see the site's
+// lib/installId.ts) — a random number whose only job is to be the same one
+// tomorrow. It stays in %APPDATA% rather than the install directory so the
+// uninstaller can still read it after the program files are gone.
+const INSTALL_ID_DIR_NAME = "GoLive";
+const INSTALL_ID_FILE_NAME = "install-id";
+
+// Same shape the server validates against, and for the same reason: this
+// value ends up on a command line the uninstaller builds, so it is checked
+// rather than trusted even though it arrived from our own origin.
+const INSTALL_ID_PATTERN = /^[0-9a-fA-F-]{16,64}$/;
+
+let lastWrittenInstallId: string | null = null;
+
+function writeInstallIdFile(installId: string) {
+  if (process.platform !== "win32") return;
+  if (!INSTALL_ID_PATTERN.test(installId)) return;
+  // The site reports this once per page load, and a page load happens on
+  // every navigation. Writing the same bytes each time would be pointless
+  // disk churn.
+  if (installId === lastWrittenInstallId) return;
+  try {
+    const dir = path.join(app.getPath("appData"), INSTALL_ID_DIR_NAME);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, INSTALL_ID_FILE_NAME), installId, "utf8");
+    lastWrittenInstallId = installId;
+  } catch {
+    // Best-effort by design: failing to write this costs an uninstall
+    // report, which is a statistic, and must never cost anything else.
+  }
+}
+
 // Camera, microphone and screen capture are the app's reason to exist and
 // are granted; everything else a web page can ask for is refused outright
 // rather than left to a default that may change between Electron versions.
@@ -940,6 +986,16 @@ if (!gotLock) {
     ipcMain.handle(IPC.openExternal, (_event, url: unknown) => {
       if (typeof url !== "string" || !/^https?:$/.test(safeProtocol(url))) return;
       return shell.openExternal(url);
+    });
+
+    // Parks the site's install id where the NSIS uninstaller can find it —
+    // see writeInstallIdFile, and electron/build/installer.nsh for the half
+    // that reads it. Origin-checked like the capabilities above: this writes
+    // a file the uninstaller acts on, so it takes its value from our own
+    // page and not from whatever happens to be loaded.
+    ipcMain.on(IPC.installIdReport, (event, installId: unknown) => {
+      if (!event.sender.getURL().startsWith(APP_ORIGIN)) return;
+      if (typeof installId === "string") writeInstallIdFile(installId);
     });
 
     // Checked against our own origin like every other capability: the

@@ -1,6 +1,6 @@
 "use client";
 
-import { isDesktopApp, isMobileApp } from "./desktop";
+import { isDesktopApp, isMobileApp, reportInstallIdToShell } from "./desktop";
 
 // A random id identifying one *installation* of a GoLive shell — the desktop
 // (Electron) or Android (Capacitor) build — so the API can count how many
@@ -32,6 +32,8 @@ import { isDesktopApp, isMobileApp } from "./desktop";
 // would be meaningless the moment it counted one.
 const INSTALL_ID_STORAGE_KEY = "sharescreen:installId";
 
+let reportedToShell = false;
+
 function mintInstallId(): string {
   try {
     if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
@@ -59,11 +61,18 @@ export function getInstallId(): string | null {
   if (typeof window === "undefined") return null;
   if (!isDesktopApp() && !isMobileApp()) return null;
   try {
-    const existing = window.localStorage.getItem(INSTALL_ID_STORAGE_KEY);
-    if (existing) return existing;
-    const minted = mintInstallId();
-    window.localStorage.setItem(INSTALL_ID_STORAGE_KEY, minted);
-    return minted;
+    const stored = window.localStorage.getItem(INSTALL_ID_STORAGE_KEY);
+    const installId = stored || mintInstallId();
+    if (!stored) window.localStorage.setItem(INSTALL_ID_STORAGE_KEY, installId);
+    // Handed to the shell here rather than by each caller, so that a caller
+    // added later cannot forget to — and once per page, because the shell
+    // writes a file on receipt (see electron/main.ts's writeInstallIdFile)
+    // and this is read on every register, including every reconnect.
+    if (!reportedToShell) {
+      reportedToShell = true;
+      reportInstallIdToShell(installId);
+    }
+    return installId;
   } catch {
     return null;
   }
