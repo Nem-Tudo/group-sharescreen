@@ -70,6 +70,8 @@ import { VideoTile, StoppedPeerTile, ResumingPeerTile } from "@/components/Video
 import { RemoteAudio } from "@/components/RemoteAudio";
 import { ParticipantRow } from "@/components/ParticipantRow";
 import { countDevicesByOwner, withDeviceSuffix } from "@/lib/displayName";
+import { isMobileDevice } from "@/lib/announcement";
+import type { CameraFacing } from "@/lib/mediaPreferences";
 import { ChatPanel } from "@/components/ChatPanel";
 import { OpenInAppBanner } from "@/components/OpenInAppBanner";
 import { RoomInfoControls } from "@/components/RoomInfoControls";
@@ -83,6 +85,7 @@ import { SupportersTooltipContent } from "@/components/SupportersTooltip";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { CreateAccountForm } from "@/components/CreateAccountForm";
 import { RoomSkeleton } from "@/components/RoomSkeleton";
+import { MobileQualitySheet, type MobileQualityChoice } from "@/components/MobileQualitySheet";
 import { prewarmCaptcha } from "@/lib/turnstile";
 import { RoomAccountCard } from "@/components/RoomAccountCard";
 import { LoginForm } from "@/components/LoginForm";
@@ -134,6 +137,7 @@ import {
   MdOutlinePeople,
   MdMusicNote,
   MdCameraswitch,
+  MdFlipCameraAndroid,
 } from "react-icons/md";
 import { BsGearFill, BsCoin } from "react-icons/bs";
 import { BetaMark } from "@/components/BetaMark";
@@ -524,6 +528,9 @@ function ShareControls({
   cameraDevices,
   cameraDeviceId,
   setCameraDevice,
+  cameraFacing,
+  setCameraFacing,
+  onPhone,
   cameraMenuOpen,
   setCameraMenuOpen,
   open,
@@ -554,6 +561,15 @@ function ShareControls({
   cameraDevices: MediaDeviceOption[];
   cameraDeviceId: string | null;
   setCameraDevice: (deviceId: string | null) => void;
+  // The phone's replacement for that picker: which way the camera points,
+  // and a button to turn it round. A list of opaque lens ids is the wrong
+  // control on a phone — see useRoomMedia's setCameraFacing for why the flip
+  // is built on facingMode rather than on that list.
+  cameraFacing: CameraFacing;
+  setCameraFacing: (facing: CameraFacing) => void;
+  // Actual phone/tablet hardware, not a narrow window. A laptop dragged
+  // narrow still wants the picker; a phone in landscape still wants the flip.
+  onPhone: boolean;
   cameraMenuOpen: boolean;
   setCameraMenuOpen: Dispatch<SetStateAction<boolean>>;
   open: boolean;
@@ -650,7 +666,31 @@ function ShareControls({
           single entry is pure clutter. Enumeration fills in after the first
           camera permission, so this can appear mid-session — which is also
           when it starts being useful. */}
-      {cameraSupported && cameraDevices.length > 1 && (
+      {/* One control or the other, never both: they answer the same question
+          ("which camera?") and a phone showing a flip button *and* a list of
+          "camera2 0, facing back" entries would be two ways to do one thing,
+          one of them unreadable. */}
+      {cameraSupported && onPhone ? (
+        <Tooltip
+          content={
+            cameraFacing === "environment"
+              ? "Usar a câmera frontal"
+              : "Usar a câmera traseira"
+          }
+          placement="bottom"
+        >
+          <button
+            type="button"
+            onClick={() =>
+              setCameraFacing(cameraFacing === "environment" ? "user" : "environment")
+            }
+            aria-label="Virar a câmera"
+            className={`flex items-center border-l border-black/15 px-2 text-white transition ${cameraSharing ? live : idle}`}
+          >
+            <MdFlipCameraAndroid className="h-4 w-4" />
+          </button>
+        </Tooltip>
+      ) : cameraSupported && cameraDevices.length > 1 ? (
         <Popover
           open={cameraMenuOpen}
           onClose={() => setCameraMenuOpen(false)}
@@ -689,7 +729,7 @@ function ShareControls({
             <ChevronDownIcon className="h-3.5 w-3.5" />
           </button>
         </Popover>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -878,6 +918,8 @@ export function WatchRoom({ handle }: { handle: string }) {
     cameraShareError,
     cameraDeviceId,
     setCameraDevice,
+    cameraFacing,
+    setCameraFacing,
     stoppedCameraPeers,
     resumingCameraPeers,
     stopWatchingCameraPeer,
@@ -1053,6 +1095,19 @@ export function WatchRoom({ handle }: { handle: string }) {
   // paint before correcting to the real localStorage-backed value, which
   // would otherwise flash the "choose a name" form for a logged-in account.
   const [mounted, setMounted] = useState(false);
+  // Which transmission is waiting on the quality question, or null. Only ever
+  // set on a phone (see MobileQualitySheet); "screen" covers both the real
+  // screen capture of the Android app and the camera fallback a phone browser
+  // gets instead, because from the person's side both are "transmitir".
+  //
+  // Up here with the other hooks, not down beside the render that uses it:
+  // everything below the pre-join early returns runs conditionally, and a
+  // useState there changes hook order between the skeleton and the room.
+  const [qualityPrompt, setQualityPrompt] = useState<"screen" | null>(null);
+  // Real phone/tablet hardware, not a narrow window — a laptop dragged narrow
+  // still wants the desktop picker. Gated on the mount flag because it reads the
+  // user agent, which the server render has no answer for.
+  const onPhone = mounted && isMobileDevice();
   useEffect(() => {
     const id = setTimeout(() => {
       setMounted(true);
@@ -3187,10 +3242,27 @@ export function WatchRoom({ handle }: { handle: string }) {
           cameraSupported={screenShareMode !== "unsupported"}
           screenBlockedReason={screenBlockedReason}
           cameraBlockedReason={cameraBlockedReason}
-          onToggleScreen={() => (localStream ? stopShare() : startShare("display"))}
+          onToggleScreen={() => {
+            if (localStream) {
+              stopShare();
+              return;
+            }
+            // On a phone the quality question is asked here rather than left
+            // in a settings menu nobody opens — see MobileQualitySheet. The
+            // start is deferred until it is answered; on anything else it
+            // goes straight through, unchanged.
+            if (onPhone) {
+              setQualityPrompt("screen");
+              return;
+            }
+            void startShare("display");
+          }}
           onToggleCamera={() => (localCameraStream ? stopCameraShare() : startCameraShare())}
           cameraDevices={cameraDevices}
           cameraDeviceId={cameraDeviceId}
+          cameraFacing={cameraFacing}
+          setCameraFacing={setCameraFacing}
+          onPhone={onPhone}
           setCameraDevice={setCameraDevice}
           cameraMenuOpen={cameraDeviceMenuOpen}
           setCameraMenuOpen={setCameraDeviceMenuOpen}
@@ -4008,6 +4080,26 @@ export function WatchRoom({ handle }: { handle: string }) {
           />
         );
       })}
+
+      {/* Asked at the moment a phone starts transmitting, and nowhere else —
+          see MobileQualitySheet for why this is a question rather than a
+          setting on this one platform. */}
+      {qualityPrompt === "screen" && (
+        <MobileQualitySheet
+          currentResolution={shareResolution}
+          onChoose={(choice: MobileQualityChoice) => {
+            // Applied before starting, not after: the capture reads these
+            // through refs when it opens (see useRoomMedia's capture
+            // closures), so setting them afterwards would leave this
+            // transmission on the previous quality and only move the next one.
+            setShareResolution(choice.resolution);
+            setShareFps(choice.fps);
+            setQualityPrompt(null);
+            void startShare("display");
+          }}
+          onCancel={() => setQualityPrompt(null)}
+        />
+      )}
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row lg:gap-3 lg:p-3">
         {/* From lg up, participants get this dedicated full-height column

@@ -166,7 +166,7 @@ export function clearStoredPersistentAnnouncement() {
 // True for a phone or tablet. UA-first rather than a viewport width, because
 // this has to answer "what kind of machine is this" and not "how wide is the
 // window" — a half-width browser on a desktop is still a desktop.
-function isMobileDevice(): boolean {
+export function isMobileDevice(): boolean {
   if (typeof navigator === "undefined") return false;
   const ua = navigator.userAgent;
   if (/android|iphone|ipod|ipad|windows phone/i.test(ua)) return true;
