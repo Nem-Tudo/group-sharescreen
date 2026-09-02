@@ -54,11 +54,41 @@ test("remembers a new room at the front without reordering one already saved", (
     { handle: "beta", visitedAt: 2 },
     { handle: "alpha", visitedAt: 1 },
   ]);
+  // Re-entering a saved room leaves the *order* alone — that is what keeps
+  // three buttons in the places somebody's hand has learned — but refreshes
+  // when it was last visited.
+  //
+  // The two used to be one fact, and conflating them was a bug with a
+  // visible symptom: the phone has room for a single button and picked
+  // position 0, which is the most recently *discovered* room rather than the
+  // last one you were in. Re-entering a room already on the list changed
+  // nothing at all, so the phone kept offering some other room indefinitely.
+  // See RecentRooms, which picks by this timestamp and not by position.
   rememberRecentRoom("alpha", 3);
   assert.deepEqual(getRecentRooms(), [
     { handle: "beta", visitedAt: 2 },
-    { handle: "alpha", visitedAt: 1 },
+    { handle: "alpha", visitedAt: 3 },
   ]);
+});
+
+test("the most recently visited room is the newest timestamp, not the first slot", () => {
+  rememberRecentRoom("alpha", 1);
+  rememberRecentRoom("beta", 2);
+  rememberRecentRoom("alpha", 3);
+  const rooms = getRecentRooms();
+  // What the phone renders (see RecentRooms' latestHandle). Asserted through
+  // the same reduce rather than by index, because "the last room you were in"
+  // is the property that has to hold — which slot it happens to occupy is
+  // deliberately not it.
+  const latest = rooms.reduce((newest, room) =>
+    room.visitedAt > newest.visitedAt ? room : newest
+  );
+  assert.equal(latest.handle, "alpha");
+  // And the order it is rendered in on a desktop is still stable.
+  assert.deepEqual(
+    rooms.map((room) => room.handle),
+    ["beta", "alpha"]
+  );
 });
 
 test("keeps a room already in a full list in its slot", () => {
