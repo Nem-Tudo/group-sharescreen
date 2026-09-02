@@ -559,6 +559,28 @@ const REGISTER_ACK_TIMEOUT_MS = 10_000;
 // "captcha-required" round trip, already handled by performJoin's retry).
 const CAPTCHA_REVERIFY_INTERVAL_MS = 30 * 60_000;
 
+/**
+ * How long a peer we already knew may stay in the list after a reconnect
+ * without the server having mentioned them again.
+ *
+ * When the signaling server restarts, every socket in every room drops at
+ * once and each client reconnects on its own jittered backoff. So the first
+ * room-state a client gets back is not a picture of the room — it is a
+ * picture of whoever happened to reconnect first, which is frequently nobody.
+ * Taking it literally is what made a restart look like everyone left and then
+ * filed back in one at a time, chiming as they went, while their screen share
+ * carried on playing throughout: the media never dropped, because WebRTC is
+ * peer-to-peer and does not care that the signaling server went away.
+ *
+ * Deliberately the same 5s as useRoomMedia's PEER_PRUNE_GRACE_MS, which is
+ * the identical judgement one layer down — it already refuses to tear down a
+ * peer connection missing from a fresh room-state for exactly this long. The
+ * two have to agree: a shorter window here drops people from the list whose
+ * video is still on screen, a longer one keeps names for peers whose
+ * connection has already been torn down.
+ */
+export const PEER_RESETTLE_MS = 5000;
+
 // Cap on retained chat history per room, to keep memory bounded in a
 // long-running room instead of growing the array forever.
 const MAX_CHAT_MESSAGES = 200;
@@ -703,6 +725,12 @@ class SignalingClient {
   // See readConfirmedDeviceRooms — which rooms this tab has already said
   // "yes, let me in anyway" for.
   private confirmedDeviceRooms: Set<string> = readConfirmedDeviceRooms();
+  // Peers carried over a reconnect that the server has not re-announced yet
+  // (see PEER_RESETTLE_MS). Emptied as each one is confirmed by a
+  // "peer-joined"; whatever is left when the timer fires genuinely went away
+  // while we were disconnected.
+  private provisionalPeerIds = new Set<string>();
+  private resettleTimer: ReturnType<typeof setTimeout> | null = null;
   // Whether the join now in flight actually carried a token. Read only by the
   // "captcha-required" handler: a refusal for "missing" means something very
   // different depending on this. Having sent nothing on purpose (the window
@@ -1024,7 +1052,7 @@ class SignalingClient {
           deviceConflict: null,
           joinError: null,
           joinErrorKind: null,
-          peers: msg.peers as PeerInfo[],
+          peers: this.peersForRoomState(msg.room as string, msg.peers as PeerInfo[]),
           chatMessages:
             history.length > MAX_CHAT_MESSAGES ? history.slice(-MAX_CHAT_MESSAGES) : history,
           videoSources: Array.isArray(msg.videoSources) ? (msg.videoSources as VideoSource[]) : [],
@@ -1125,6 +1153,11 @@ class SignalingClient {
         // arrive are the empty ones this used to hard-code.
         const joined: PeerInfo & { type?: string } = { ...(msg as unknown as PeerInfo) };
         delete joined.type;
+        // They are back. Whatever the resettle timer would have done about
+        // them, it must not do it now — and because this peer is already in
+        // the list (carried over), the merge below changes nothing visible
+        // and useRoomSoundEffects sees no arrival to chime for.
+        this.provisionalPeerIds.delete(joined.id);
         this.setState({
           peers: alreadyKnown
             ? this.state.peers.map((p) => (p.id === joined.id ? { ...p, ...joined } : p))
@@ -1133,6 +1166,9 @@ class SignalingClient {
         break;
       }
       case "peer-left":
+        // An explicit departure is an answer, so it stops this peer being
+        // pruned a second time when the resettle timer fires.
+        if (typeof msg.id === "string") this.provisionalPeerIds.delete(msg.id);
         this.clearTyping(msg.id as string);
         this.setState({ peers: this.state.peers.filter((p) => p.id !== msg.id) });
         this.signalListeners.forEach((l) => l(msg.id as string, { kind: "peer-left" }));
@@ -1636,6 +1672,69 @@ class SignalingClient {
   }
 
   /**
+   * The peer list to adopt from a room-state.
+   *
+   * A *fresh* join — first arrival, or a switch to a different room — takes
+   * the server's list verbatim: there is nothing to carry over, and anything
+   * we still held belongs to a room we just left.
+   *
+   * A *rejoin* into the room we were already in is the interesting one, and
+   * it is where a server restart lands. The list that comes back is
+   * everybody who has reconnected so far, which moments after a restart is
+   * close to nobody — while the peers it omits are still on screen and still
+   * audible, because their WebRTC connections never dropped. So they are kept
+   * and marked provisional, and the timer below decides which of them were
+   * genuinely gone. See PEER_RESETTLE_MS.
+   */
+  private peersForRoomState(room: string, serverPeers: PeerInfo[]): PeerInfo[] {
+    this.clearResettleTimer();
+    const rejoining = this.state.room === room && this.state.peers.length > 0;
+    if (!rejoining) {
+      this.provisionalPeerIds.clear();
+      return serverPeers;
+    }
+    const announced = new Set(serverPeers.map((p) => p.id));
+    const carried = this.state.peers.filter((p) => !announced.has(p.id));
+    this.provisionalPeerIds = new Set(carried.map((p) => p.id));
+    if (this.provisionalPeerIds.size === 0) return serverPeers;
+    this.resettleTimer = setTimeout(() => {
+      this.resettleTimer = null;
+      // The room may have changed while this was pending — pruning then would
+      // be deciding the fate of peers in a room nobody is looking at.
+      if (this.state.room !== room) {
+        this.provisionalPeerIds.clear();
+        return;
+      }
+      const stale = this.provisionalPeerIds;
+      this.provisionalPeerIds = new Set();
+      if (stale.size === 0) return;
+      this.setState({ peers: this.state.peers.filter((p) => !stale.has(p.id)) });
+      // A wholesale change to the peer list decided by this client rather than
+      // announced by the server, which is the one case nothing downstream
+      // would otherwise hear about — there is no "peer-left" for somebody the
+      // server forgot across its own restart. Re-firing the room-joined
+      // listeners is how that reconciliation already works: useRoomMedia tears
+      // down the connections of anyone now missing (on its own further grace,
+      // re-checked against the room as it is *then*), and the other two
+      // subscribers simply re-assert state they had already asserted.
+      //
+      // Without this the list would be right and the media wrong: a peer who
+      // genuinely left during the restart would vanish from the participants
+      // while their tile and PeerConnection lingered as a ghost, which is the
+      // exact failure useRoomMedia's prune exists to prevent.
+      this.roomJoinedListeners.forEach((l) => l());
+    }, PEER_RESETTLE_MS);
+    // Server first, so anybody it did mention keeps its authoritative entry.
+    return [...serverPeers, ...carried];
+  }
+
+  private clearResettleTimer() {
+    if (this.resettleTimer === null) return;
+    clearTimeout(this.resettleTimer);
+    this.resettleTimer = null;
+  }
+
+  /**
    * Records (or clears) the fact that this browser passed the captcha, in
    * memory and on disk together so the two can never drift.
    */
@@ -1752,6 +1851,10 @@ class SignalingClient {
     this.desiredRoom = null;
     this.rawSend({ type: "leave" });
     this.clearAllTyping();
+    // Nothing left to resettle: the peers it was holding open belong to the
+    // room being left.
+    this.clearResettleTimer();
+    this.provisionalPeerIds.clear();
     this.setState({
       room: null,
       // Both are room-scoped, exactly as the server's ClientInfo.deviceNo is:
