@@ -71,6 +71,7 @@ import { RemoteAudio } from "@/components/RemoteAudio";
 import { ParticipantRow } from "@/components/ParticipantRow";
 import { countDevicesByOwner, withDeviceSuffix } from "@/lib/displayName";
 import { isMobileDevice } from "@/lib/announcement";
+import { enterAndroidPip, onAndroidPipModeChange } from "@/lib/androidPictureInPicture";
 import type { CameraFacing } from "@/lib/mediaPreferences";
 import { ChatPanel } from "@/components/ChatPanel";
 import { OpenInAppBanner } from "@/components/OpenInAppBanner";
@@ -1104,6 +1105,20 @@ export function WatchRoom({ handle }: { handle: string }) {
   // everything below the pre-join early returns runs conditionally, and a
   // useState there changes hook order between the skeleton and the room.
   const [qualityPrompt, setQualityPrompt] = useState<"screen" | null>(null);
+  // True while Android is floating this app's window (see
+  // lib/androidPictureInPicture.ts). Drives `data-pip` on the room shell,
+  // which is what strips the page down to the one tile being watched — the
+  // system floats whatever the page renders, so this has to happen in CSS
+  // here rather than being something the native side could do.
+  const [pipActive, setPipActive] = useState(false);
+  // Android tells us when the floating window opens *and* when it closes —
+  // the second one is what matters, since the person closing it or tapping
+  // back into the app is not something this side could otherwise detect, and
+  // the room would stay stripped down to one tile forever.
+  useEffect(() => {
+    return onAndroidPipModeChange((active) => setPipActive(active));
+  }, []);
+
   // Real phone/tablet hardware, not a narrow window — a laptop dragged narrow
   // still wants the desktop picker. Gated on the mount flag because it reads the
   // user agent, which the server render has no answer for.
@@ -2332,6 +2347,7 @@ export function WatchRoom({ handle }: { handle: string }) {
           onFocus={() => toggleSpotlight(id)}
           isSpotlighted={spotlightId === id}
           onHyperfocus={() => toggleHyperfocus(id)}
+          onNativePip={(ratio) => void enterNativePip(id, ratio)}
           isHyperfocused={activeHyperfocusId === id}
           isMicOn={isMicOn}
           onToggleMic={toggleMic}
@@ -2360,6 +2376,7 @@ export function WatchRoom({ handle }: { handle: string }) {
           onFocus={() => toggleSpotlight(id)}
           isSpotlighted={spotlightId === id}
           onHyperfocus={() => toggleHyperfocus(id)}
+          onNativePip={(ratio) => void enterNativePip(id, ratio)}
           isHyperfocused={activeHyperfocusId === id}
           isMicOn={isMicOn}
           onToggleMic={toggleMic}
@@ -2406,6 +2423,7 @@ export function WatchRoom({ handle }: { handle: string }) {
           onFocus={() => toggleSpotlight(id)}
           isSpotlighted={spotlightId === id}
           onHyperfocus={() => toggleHyperfocus(id)}
+          onNativePip={(ratio) => void enterNativePip(id, ratio)}
           isHyperfocused={activeHyperfocusId === id}
           isMicOn={isMicOn}
           onToggleMic={toggleMic}
@@ -2471,6 +2489,7 @@ export function WatchRoom({ handle }: { handle: string }) {
           onFocus={() => toggleSpotlight(id)}
           isSpotlighted={spotlightId === id}
           onHyperfocus={() => toggleHyperfocus(id)}
+          onNativePip={(ratio) => void enterNativePip(id, ratio)}
           isHyperfocused={activeHyperfocusId === id}
           isMicOn={isMicOn}
           onToggleMic={toggleMic}
@@ -2588,6 +2607,7 @@ export function WatchRoom({ handle }: { handle: string }) {
           onFocus={() => toggleSpotlight(id)}
           isSpotlighted={spotlightId === id}
           onHyperfocus={() => toggleHyperfocus(id)}
+          onNativePip={(ratio) => void enterNativePip(id, ratio)}
           isHyperfocused={activeHyperfocusId === id}
           isMicOn={isMicOn}
           onToggleMic={toggleMic}
@@ -2628,6 +2648,7 @@ export function WatchRoom({ handle }: { handle: string }) {
           onFocus={() => toggleSpotlight(id)}
           isSpotlighted={spotlightId === id}
           onHyperfocus={() => toggleHyperfocus(id)}
+          onNativePip={(ratio) => void enterNativePip(id, ratio)}
           isHyperfocused={activeHyperfocusId === id}
           isMicOn={isMicOn}
           onToggleMic={toggleMic}
@@ -2768,6 +2789,30 @@ export function WatchRoom({ handle }: { handle: string }) {
   // hiding them — closes every other screen/camera recvPC (see
   // stopWatchingPeer/stopWatchingCameraPeer), which is what makes hyperfocus
   // worth using over spotlight for someone on a constrained link.
+  /**
+   * Floats the app window with this tile in it (Android only).
+   *
+   * Hyperfocus first, and that is not decoration: Android floats whatever the
+   * page is rendering, so the page has to *be* one tile before the window
+   * shrinks. Hyperfocus is already exactly that — it hides every other
+   * transmission and drops their connections — so PiP reuses it rather than
+   * inventing a second "show only this" mode that would have to be kept in
+   * step with it.
+   *
+   * If the system refuses (PiP switched off for this app in Android settings,
+   * or a state it will not enter from), the hyperfocus is left in place: the
+   * person asked to watch this one thing, and undoing that as well would
+   * answer a request they did not make.
+   */
+  async function enterNativePip(id: string, aspectRatio: number) {
+    if (hyperfocusId !== id) enterHyperfocus(id);
+    const entered = await enterAndroidPip(aspectRatio);
+    // The mode-change listener sets this too, but only once Android has
+    // actually switched — setting it here as well would risk stripping the
+    // layout for a window that never floated.
+    if (!entered) setPipActive(false);
+  }
+
   function enterHyperfocus(id: string) {
     setSpotlightId(null);
     setHyperfocusId(id);
@@ -3605,6 +3650,11 @@ export function WatchRoom({ handle }: { handle: string }) {
       // it to the viewport actually on screen below lg — see the
       // `[data-room-shell]` rule there.
       data-room-shell
+      // Read by app/globals.css, which hides the header, both side columns
+      // and the bottom bar while Android is floating the window. A React
+      // branch would mean unmounting the video element the floating window is
+      // showing, which is exactly the thing that must survive.
+      data-pip={pipActive ? "true" : undefined}
       className="flex min-h-0 flex-1 flex-col bg-zinc-50 dark:bg-black"
     >
       {/* Above the header so it reads as a property of the page rather than

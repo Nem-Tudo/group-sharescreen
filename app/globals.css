@@ -399,3 +399,46 @@ html .ntpopups-main {
     animation: none;
   }
 }
+
+/*
+ * Picture-in-picture on the Android shell.
+ *
+ * Android floats the whole activity window, not a video element (see
+ * lib/androidPictureInPicture.ts) — so the floating box shows whatever this
+ * page happens to be rendering. At the size of a playing card that cannot be
+ * a header, two side columns, a chat and a grid; it has to be the one thing
+ * the person asked to watch.
+ *
+ * Done here rather than by branching the React tree, and that is the whole
+ * point: a branch would unmount and remount the <video> element, which is the
+ * one element that has to survive, because it is what is being watched. CSS
+ * changes what is painted without touching what exists.
+ *
+ * WatchRoom pairs this with hyperfocus, which has already reduced the grid to
+ * a single tile and dropped every other connection. So all that is left here
+ * is to take away the furniture around it.
+ */
+[data-room-shell][data-pip="true"] > header,
+[data-room-shell][data-pip="true"] aside,
+[data-room-shell][data-pip="true"] nav {
+  display: none !important;
+}
+
+/* Every gap the removed furniture was leaving behind. The video should reach
+   all four edges of the floating window — a letterbox inside a box that is
+   already small is the difference between watching something and squinting
+   at it. */
+[data-room-shell][data-pip="true"],
+[data-room-shell][data-pip="true"] main,
+[data-room-shell][data-pip="true"] main > div {
+  padding: 0 !important;
+  gap: 0 !important;
+  border-radius: 0 !important;
+}
+
+/* The tile's own controls: a fullscreen button and a volume slider are not
+   reachable in a window this size, and they cover the picture. Tapping the
+   floating window brings the app back up, which is where those live. */
+[data-room-shell][data-pip="true"] [data-tile-controls] {
+  display: none !important;
+}
