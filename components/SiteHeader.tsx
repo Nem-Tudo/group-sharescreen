@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { FaDiscord } from "react-icons/fa";
 import { MdMonitor, MdOutlineMap } from "react-icons/md";
-import { GlobeIcon } from "@/components/icons";
+import { GlobeIcon, VerifiedBadgeIcon } from "@/components/icons";
 import { AccountMenu } from "@/components/AccountMenu";
 import { ThemeMenuButton } from "@/components/ThemeToggle";
 import { UpdateAppButton } from "@/components/UpdateAppButton";
@@ -36,6 +36,17 @@ function SquareIcon() {
 
 const SECONDARY = [
   { href: "https://go.nemtudo.me/square-link", target: "_blank", label: "Square Cloud", short: "Square", Icon: SquareIcon },
+  // The same blue badge that marks a verified name (see DisplayUserName) —
+  // it keeps its own colour rather than inheriting the row's grey, because it
+  // only reads as *that* badge if it looks like it everywhere.
+  {
+    href: "/pro",
+    label: "Pro",
+    target: "",
+    short: "Pro",
+    Icon: VerifiedBadgeIcon,
+    iconClassName: "text-blue-500",
+  },
   { href: "/app", label: "App para PC", target: "", short: "App", Icon: MdMonitor },
   { href: "/discord-bot", label: "Bot para Discord", target: "", short: "Bot", Icon: FaDiscord },
 ];
@@ -89,7 +100,7 @@ export function SiteHeader() {
         </nav>
 
         <nav className="ml-auto flex items-center gap-0.5 sm:gap-1">
-          {SECONDARY.map(({ href, label, short, target, Icon }) => {
+          {SECONDARY.map(({ href, label, short, target, Icon, iconClassName }) => {
             const active = pathname === href;
             return (
               <Link
@@ -103,7 +114,9 @@ export function SiteHeader() {
                   : "text-zinc-500 hover:bg-zinc-200/60 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
                   }`}
               >
-                {Icon && <Icon className="hidden h-4 w-4 shrink-0 sm:inline" />}
+                {Icon && (
+                  <Icon className={`hidden h-4 w-4 shrink-0 sm:inline ${iconClassName ?? ""}`} />
+                )}
                 <span className="hidden lg:inline">{label}</span>
                 <span className="lg:hidden">{short}</span>
               </Link>

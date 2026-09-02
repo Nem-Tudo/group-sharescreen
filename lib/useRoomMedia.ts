@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { signalingClient } from "./signalingClient";
+import type { Feature } from "./entitlements";
 import { trackEvent } from "./analytics";
 import { iceConfigFor } from "./iceConfig";
 import { captureNoiseSuppressedMic, setGraphSuppressionEnabled, type MicNoiseGraph } from "./rnnoise";
@@ -139,16 +140,18 @@ type SignalData = {
 // a big room that upload is often the actual bottleneck, so letting the
 // broadcaster trade resolution/fps/bitrate down independently is the one
 // lever that helps without a server-side media relay.
-// "1440p" (2K), 120fps, and (below) the "ultra" bitrate are account-only —
-// see the relevant SHARE_*_OPTIONS' `accountOnly` flag and WatchRoom.tsx,
-// which lists them for a guest as disabled options ("conta necessária")
-// rather than letting one be selected. Nothing in this file itself checks
-// account status: a guest simply never has a code path that could set any
-// of these values, since a disabled <option> can't be chosen.
-export type ShareResolution = "1440p" | "1080p" | "720p" | "576p";
+// The top of each dial is gated — see each SHARE_*_OPTIONS' `feature` key,
+// lib/entitlements.ts for what the keys mean, and WatchRoom.tsx, which
+// renders a locked option disabled and labelled with the tier that unlocks
+// it. Nothing in this file itself checks entitlements: no code path here can
+// set a value the picker did not offer, since a disabled <option> cannot be
+// chosen. The check that *matters* is the server's — an account's feature
+// list is computed there (see the API's entitlements.ts) and this end only
+// ever reads it.
+export type ShareResolution = "2160p" | "1440p" | "1080p" | "720p" | "576p";
 export type ShareFps = 15 | 24 | 30 | 60 | 120;
-// "ultra" is account-only — see SHARE_BITRATE_OPTIONS' `accountOnly` flag
-// and its doc comment above ShareResolution/ShareFps for the same pattern.
+// "maximo" is gated — see SHARE_BITRATE_OPTIONS' `feature` key and the doc
+// comment above ShareResolution/ShareFps for the same pattern.
 export type ShareBitrate = "low" | "medium" | "high" | "ultra" | "maximo";
 
 type QualityPreset = {
@@ -179,6 +182,10 @@ type QualityPreset = {
 // (see videoQuality's TIERS). Below it a shared screen stops being readable,
 // and an unreadable stream is not a saving.
 const RESOLUTION_DIMENSIONS: Record<ShareResolution, { width: number; height: number }> = {
+  // 3840x2160 rather than DCI's 4096 wide: this is a screen share, and a
+  // screen is UHD. Asking for a width no display actually has would make
+  // getDisplayMedia scale to something arbitrary.
+  "2160p": { width: 3840, height: 2160 },
   "1440p": { width: 2560, height: 1440 },
   "1080p": { width: 1920, height: 1080 },
   "720p": { width: 1280, height: 720 },
@@ -231,22 +238,35 @@ function getPeerCount() {
 function getPeerCountServer() {
   return 0;
 }
-// `accountOnly` — WatchRoom.tsx still lists these for a guest (so the picker
-// itself advertises they exist), but renders them as a disabled option
-// suffixed "(conta necessária)" instead of a selectable one.
-export const SHARE_RESOLUTION_OPTIONS: { value: ShareResolution; label: string; accountOnly?: boolean }[] = [
+// `feature` names the entitlement an option needs (see lib/entitlements.ts).
+// WatchRoom.tsx still lists every option for everybody — the picker is also
+// how people find out these exist — but renders a locked one disabled, with
+// the tier that unlocks it spelled out beside the label.
+//
+// It replaced a plain `accountOnly` boolean, which could only express one
+// kind of lock. The moment there were two ("conta" and "Premium") a boolean
+// would have had to become two booleans, and the option list would have
+// become the place where entitlement rules live. Naming the feature instead
+// keeps that in one table, and adding a paid option later means writing one
+// key here.
+export const SHARE_RESOLUTION_OPTIONS: {
+  value: ShareResolution;
+  label: string;
+  feature?: Feature;
+}[] = [
   { value: "576p", label: "576p" },
   { value: "720p", label: "720p" },
   { value: "1080p", label: "Full HD (1080p)" },
-  { value: "1440p", label: "2K (1440p)", accountOnly: true },
+  { value: "1440p", label: "2K (1440p)", feature: "quality_1440p" },
+  { value: "2160p", label: "4K (2160p)", feature: "quality_2160p" },
 ];
 
-export const SHARE_FPS_OPTIONS: { value: ShareFps; label: string; accountOnly?: boolean }[] = [
+export const SHARE_FPS_OPTIONS: { value: ShareFps; label: string; feature?: Feature }[] = [
   { value: 15, label: "15 fps" },
   { value: 24, label: "24 fps" },
   { value: 30, label: "30 fps" },
   { value: 60, label: "60 fps" },
-  { value: 120, label: "120 fps", accountOnly: true },
+  { value: 120, label: "120 fps", feature: "fps_120" },
 ];
 
 // Beside the other three because it is the same kind of thing and now has
@@ -257,19 +277,18 @@ export const SHARE_PROFILE_OPTIONS: {
   value: DegradationMode;
   label: string;
   hint: string;
-  accountOnly?: boolean;
 }[] = [
   { value: "text", label: "Texto / código", hint: "prioriza nitidez" },
   { value: "balanced", label: "Equilibrado", hint: "nitidez e fluidez" },
   { value: "motion", label: "Vídeo / jogo", hint: "prioriza fluidez" },
 ];
 
-export const SHARE_BITRATE_OPTIONS: { value: ShareBitrate; label: string; accountOnly?: boolean }[] = [
+export const SHARE_BITRATE_OPTIONS: { value: ShareBitrate; label: string; feature?: Feature }[] = [
   { value: "low", label: "Bitrate baixo (~700 kbps)" },
   { value: "medium", label: "Bitrate médio (~2 Mbps)" },
   { value: "high", label: "Bitrate alto (~4 Mbps)" },
   { value: "ultra", label: "Bitrate ultra (~8 Mbps)" },
-  { value: "maximo", label: "Bitrate máximo (~16 Mbps)", accountOnly: true },
+  { value: "maximo", label: "Bitrate máximo (~16 Mbps)", feature: "bitrate_maximo" },
 ];
 
 /**

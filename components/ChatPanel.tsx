@@ -38,6 +38,7 @@ import {
   filterMentionCandidates,
   applyMentionInsertion,
 } from "@/lib/chatMentions";
+import { hasVerifiedBadge } from "@/lib/entitlements";
 
 type ChatAttachment = {
   id: number;
@@ -842,7 +843,7 @@ export function ChatPanel({
                           <DisplayUserName
                             name={withDeviceSuffix(m.name, m.userId, m.device, deviceCounts)}
                             isGuest={m.isGuest}
-                            verified={m.flags?.includes("VERIFIED")}
+                            verified={hasVerifiedBadge(m?.flags)}
                             color={m.nameColor}
                             className={"min-w-0 font-medium text-zinc-700 hover:underline dark:text-zinc-300"}
                           />
@@ -851,7 +852,7 @@ export function ChatPanel({
                         <DisplayUserName
                           name={withDeviceSuffix(m.name, m.userId, m.device, deviceCounts)}
                           isGuest={m.isGuest}
-                          verified={m.flags?.includes("VERIFIED")}
+                          verified={hasVerifiedBadge(m?.flags)}
                           color={m.nameColor}
                           className={"min-w-0 font-medium text-zinc-700 dark:text-zinc-300"}
                         />
@@ -1004,7 +1005,7 @@ export function ChatPanel({
                     <DisplayUserName
                       name={withDeviceSuffix(peer.name, peer.userId, peer.device, deviceCounts)}
                       isGuest={peer.isGuest}
-                      verified={peer.flags?.includes("VERIFIED")}
+                      verified={hasVerifiedBadge(peer?.flags)}
                       color={peer.nameColor}
                       className="truncate"
                     />

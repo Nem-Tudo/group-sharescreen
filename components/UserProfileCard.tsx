@@ -5,6 +5,7 @@ import Link from "next/link";
 import { fetchUserProfile, formatDuration, type UserProfile } from "@/lib/userProfile";
 import { VerifiedBadgeIcon, MicIcon, ScreenIcon } from "@/components/icons";
 import { BsCoin, BsClock } from "react-icons/bs";
+import { hasVerifiedBadge } from "@/lib/entitlements";
 
 // A person's public profile, as a self-contained card.
 //
@@ -152,7 +153,7 @@ function ProfileContent({
   onNavigate?: () => void;
 }) {
   const { account, live } = profile;
-  const verified = account.flags?.includes("VERIFIED") ?? false;
+  const verified = hasVerifiedBadge(account?.flags);
   const memberSince = new Date(account.createdAt).toLocaleDateString("pt-BR", {
     month: "long",
     year: "numeric",

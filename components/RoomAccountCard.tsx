@@ -9,6 +9,7 @@ import { useSignaling } from "@/lib/useSignaling";
 import { trackEvent } from "@/lib/analytics";
 import { Tooltip } from "@/components/Tooltip";
 import { VerifiedBadgeIcon } from "@/components/icons";
+import { hasVerifiedBadge } from "@/lib/entitlements";
 
 // Who you are, at the foot of the room's chat column (see WatchRoom, from lg
 // up). It used to be a chip wedged into the header between "Compartilhar
@@ -51,7 +52,7 @@ export function RoomAccountCard({
 
   const isAccount = Boolean(account);
   const initial = state.name.trim().slice(0, 1).toUpperCase();
-  const verified = state.account?.flags?.includes("VERIFIED");
+  const verified = hasVerifiedBadge(state.account?.flags);
 
   const avatar = (
     <span

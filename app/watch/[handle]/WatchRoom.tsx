@@ -91,7 +91,6 @@ import { LocalMusicBar, RemoteMusicBar } from "@/components/LocalMusicBar";
 import { MemberActionsMenu, type MemberActions } from "@/components/MemberActionsModal";
 import { isDesktopApp, isMobileApp, armSavedShareSource } from "@/lib/desktop";
 import { PartnerCard } from "@/components/PartnerCard";
-import { SupportersTooltipContent } from "@/components/SupportersTooltip";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { CreateAccountForm } from "@/components/CreateAccountForm";
 import { RoomSkeleton } from "@/components/RoomSkeleton";
@@ -99,7 +98,6 @@ import { MobileQualitySheet, type MobileQualityChoice } from "@/components/Mobil
 import { UserProfileDialog } from "@/components/UserProfileDialog";
 import { prewarmCaptcha } from "@/lib/turnstile";
 import { RoomAccountCard } from "@/components/RoomAccountCard";
-import { LoginForm } from "@/components/LoginForm";
 import { VideoSourceTile } from "@/components/VideoSourceTile";
 import {
   videoSourceVolumeKey,
@@ -160,6 +158,8 @@ import {
 } from "react-icons/lu";
 import { BetaMark } from "@/components/BetaMark";
 import { UpdateAppButton } from "@/components/UpdateAppButton";
+import { AccountModal } from "@/components/AccountModal";
+import { GUEST_FEATURES, hasFeature, lockLabel } from "@/lib/entitlements";
 import { PartnerMediaTile } from "@/components/PartnerMediaTile";
 import { usePartnerAd } from "@/lib/usePartnerAd";
 import {
@@ -168,6 +168,7 @@ import {
 } from "@/lib/keyboardShortcuts";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
 import { ShortcutQuickPopover } from "@/components/ShortcutQuickPopover";
+import { hasVerifiedBadge } from "@/lib/entitlements";
 
 // Mirrors server/signaling.ts's HANDLE_RE — must match exactly, or a name
 // this lets through but the server rejects lands the user in a dead room
@@ -344,7 +345,7 @@ function QualityControls({
   setShareResolution,
   shareBitrate,
   setShareBitrate,
-  hasAccount,
+  features,
   isSharing,
   meshCapacity,
   meshTopology,
@@ -363,7 +364,7 @@ function QualityControls({
   | "isSharing"
   | "meshCapacity"
   | "meshTopology"
-> & { hasAccount: boolean }) {
+> & { features: readonly string[] }) {
   return (
     <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
       <div className="flex flex-col gap-3">
@@ -440,9 +441,9 @@ function QualityControls({
             className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
           >
             {SHARE_RESOLUTION_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value} disabled={opt.accountOnly && !hasAccount}>
+              <option key={opt.value} value={opt.value} disabled={!hasFeature(opt.feature, features)}>
                 {opt.label}
-                {opt.accountOnly && !hasAccount ? " (conta necessária)" : ""}
+                {lockLabel(opt.feature, features) ?? ""}
               </option>
             ))}
           </select>
@@ -462,9 +463,9 @@ function QualityControls({
             className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
           >
             {SHARE_FPS_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value} disabled={opt.accountOnly && !hasAccount}>
+              <option key={opt.value} value={opt.value} disabled={!hasFeature(opt.feature, features)}>
                 {opt.label}
-                {opt.accountOnly && !hasAccount ? " (conta necessária)" : ""}
+                {lockLabel(opt.feature, features) ?? ""}
               </option>
             ))}
           </select>
@@ -484,9 +485,9 @@ function QualityControls({
             className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
           >
             {SHARE_BITRATE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value} disabled={opt.accountOnly && !hasAccount}>
+              <option key={opt.value} value={opt.value} disabled={!hasFeature(opt.feature, features)}>
                 {opt.label}
-                {opt.accountOnly && !hasAccount ? " (conta necessária)" : ""}
+                {lockLabel(opt.feature, features) ?? ""}
               </option>
             ))}
           </select>
@@ -620,7 +621,7 @@ function ShareControls({
     | "isSharing"
     | "meshCapacity"
     | "meshTopology"
-  > & { hasAccount: boolean };
+  > & { hasAccount: boolean; features: readonly string[] };
   onOpenShortcutQuick?: (action: ShortcutAction) => void;
   quickShortcutAction?: ShortcutAction | null;
   onCloseShortcutQuick?: () => void;
@@ -1762,29 +1763,34 @@ export function WatchRoom({ handle }: { handle: string }) {
   const gifBlockedReason = roomBlockReason("gif", "o envio de GIFs");
   const imageBlockedReason = roomBlockReason("image", "o envio de imagens");
 
-  // 2K, 120fps and the "máximo" bitrate need an account, and the pickers
-  // enforce that by disabling those options (see the `accountOnly` flag on
-  // each SHARE_*_OPTIONS). Now that the dials survive a reload, that is no
-  // longer the only way one can be selected: somebody who picked 2K while
-  // signed in and came back as a guest would have it restored straight past
-  // the disabled option, because localStorage does not know who is holding
-  // the browser.
+  // The top dial positions are gated (see each SHARE_*_OPTIONS' `feature`),
+  // and the pickers enforce that by disabling those options. Now that the
+  // dials survive a reload, that is no longer the only way one can be
+  // selected: somebody who picked 4K while subscribed and came back after the
+  // subscription lapsed would have it restored straight past the disabled
+  // option, because localStorage does not know who is holding the browser —
+  // or what they are still paying for.
   //
-  // So the entitlement is re-checked once account status is actually known,
-  // rather than at restore time — at restore time it is not: the account
-  // resolves a moment later, and downgrading against a not-yet-resolved
-  // `null` would demote the very people who are entitled to it.
+  // So the entitlement is re-checked once it is actually known, rather than
+  // at restore time — at restore time it is not: the account resolves a
+  // moment later, and downgrading against a not-yet-resolved `null` would
+  // demote the very people who are entitled to it.
+  //
+  // Checked against the resolved feature list rather than "is there an
+  // account", which is what makes this keep working as perks are added: a
+  // future paid option needs nothing here, because the option already knows
+  // which feature it needs and this only asks whether that feature is held.
   useEffect(() => {
-    if (!mounted || resolvingAccount || state.account) return;
-    if (SHARE_RESOLUTION_OPTIONS.find((o) => o.value === shareResolution)?.accountOnly) {
-      setShareResolution("1080p");
-    }
-    if (SHARE_FPS_OPTIONS.find((o) => o.value === shareFps)?.accountOnly) setShareFps(30);
-    if (SHARE_BITRATE_OPTIONS.find((o) => o.value === shareBitrate)?.accountOnly) {
-      setShareBitrate("high");
-    }
+    if (!mounted || resolvingAccount) return;
+    const features = account?.features ?? GUEST_FEATURES;
+    const resolution = SHARE_RESOLUTION_OPTIONS.find((o) => o.value === shareResolution);
+    if (!hasFeature(resolution?.feature, features)) setShareResolution("1080p");
+    const fps = SHARE_FPS_OPTIONS.find((o) => o.value === shareFps);
+    if (!hasFeature(fps?.feature, features)) setShareFps(30);
+    const bitrate = SHARE_BITRATE_OPTIONS.find((o) => o.value === shareBitrate);
+    if (!hasFeature(bitrate?.feature, features)) setShareBitrate("high");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mounted, resolvingAccount, state.account, shareResolution, shareFps, shareBitrate]);
+  }, [mounted, resolvingAccount, account, shareResolution, shareFps, shareBitrate]);
 
   // A permission can be turned off while someone is already using it — and
   // the mic in particular auto-starts from a stored preference the moment a
@@ -2608,7 +2614,7 @@ export function WatchRoom({ handle }: { handle: string }) {
       userId: peer.userId,
       name: peer.name,
       isGuest: peer.isGuest,
-      verified: peer.flags?.includes("VERIFIED"),
+      verified: hasVerifiedBadge(peer?.flags),
       nameColor: peer.nameColor,
       canKick: allowed,
       canBan: allowed,
@@ -3031,7 +3037,7 @@ export function WatchRoom({ handle }: { handle: string }) {
             <DisplayUserName
               name={peer?.name ?? "Alguém"}
               isGuest={peer?.isGuest}
-              verified={peer?.flags?.includes("VERIFIED")}
+              verified={hasVerifiedBadge(peer?.flags)}
               color={peer?.nameColor}
             />
           }
@@ -3074,7 +3080,7 @@ export function WatchRoom({ handle }: { handle: string }) {
             <DisplayUserName
               name={peer?.name ?? "Alguém"}
               isGuest={peer?.isGuest}
-              verified={peer?.flags?.includes("VERIFIED")}
+              verified={hasVerifiedBadge(peer?.flags)}
               color={peer?.nameColor}
             />
           }
@@ -3335,6 +3341,13 @@ export function WatchRoom({ handle }: { handle: string }) {
     shareBitrate,
     setShareBitrate,
     hasAccount: Boolean(state.account),
+    // The resolved entitlement list from the API (see the account's
+    // `features`), not something derived here: what premium includes is the
+    // server's answer, and this end only renders it. Falls back to the guest
+    // list while auth is still resolving, which is the safe direction — an
+    // option that appears a moment later is better than one that is offered
+    // and then taken away.
+    features: account?.features ?? GUEST_FEATURES,
     isSharing,
     meshCapacity,
     meshTopology,
@@ -3631,8 +3644,8 @@ export function WatchRoom({ handle }: { handle: string }) {
   // The mic toggle, mute-mics toggle, and share/camera controls — kept
   // prominent since they're used mid-call, not just once at setup, unlike
   // everything else in "Mais opções" above. Rendered in the header's single
-  // control row, alongside "Compartilhar sala"/"Trocar de sala" and
-  // "Apoiar projeto".
+  // control row, alongside "Compartilhar sala"/"Trocar de sala" and the
+  // "Pro" button.
   const mainControls = (
     <>
       <div className="flex items-stretch">
@@ -3983,7 +3996,7 @@ export function WatchRoom({ handle }: { handle: string }) {
         isAdmin={isRoomAdmin}
         isApp={mounted && isDesktopApp() && !isMobileApp()}
         isMobileApp={mounted && isMobileApp()}
-        verified={state.account?.flags?.includes("VERIFIED")}
+        verified={hasVerifiedBadge(state.account?.flags)}
         nameColor={account?.equippedNameColor}
         micOn={isMicOn}
         sharing={isSharing}
@@ -4020,7 +4033,7 @@ export function WatchRoom({ handle }: { handle: string }) {
             isAdmin={state.roomAdmins.some((a) => a.id === p.userId)}
             isApp={p.app}
             isMobileApp={p.mobileApp}
-            verified={p.flags?.includes("VERIFIED")}
+            verified={hasVerifiedBadge(p?.flags)}
             nameColor={p.nameColor}
             micOn={p.mic}
             sharing={p.sharing}
@@ -4456,25 +4469,23 @@ export function WatchRoom({ handle }: { handle: string }) {
                 </Tooltip>
               )
             )}
-            <Tooltip content={<SupportersTooltipContent />} placement="bottom" interactive>
-              <a
-                href="https://livepix.gg/nemtudo"
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => trackEvent("support_project_clicked")}
-                className="flex shrink-0 items-center gap-1.5 rounded-lg border border-pink-300 px-2 py-2 text-sm font-medium text-pink-600 transition hover:bg-pink-50 dark:border-pink-800 dark:text-pink-400 dark:hover:bg-pink-950/40 2xl:px-3"
+            {/* Was "Apoiar projeto", a link to LivePix. The badge it already
+                carried is now what the subscription grants, so the button
+                points at the thing that sells it instead of at a donation
+                page — see app/pro. */}
+            <Tooltip content="GoLive Pro — transmita em 2K, 4K e 120fps" placement="bottom">
+              <Link
+                href="/pro"
+                onClick={() => trackEvent("pro_button_clicked")}
+                className="flex shrink-0 items-center gap-1.5 rounded-lg border border-blue-300 px-2 py-2 text-sm font-medium text-blue-600 transition hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-950/40 2xl:px-3"
               >
-                {/* The verified badge rather than a heart: the badge is what
-                    supporting actually gets you now (see
-                    SupportersTooltipContent), so the button shows the thing
-                    instead of a generic affection icon. */}
-                {/* Blue rather than the button's pink: this is the same
-                    badge that appears next to a verified name (see
-                    DisplayUserName, which uses the same colour), and it only
-                    reads as that badge if it keeps its own. */}
+                {/* Blue rather than inheriting the label's colour: this is the
+                    same badge that appears next to a verified name (see
+                    DisplayUserName), and it only reads as that badge if it
+                    keeps its own. */}
                 <VerifiedBadgeIcon className="h-5 w-5 shrink-0 text-blue-500" />
-                <span className="hidden sm:inline lg:hidden 2xl:inline">Apoiar projeto</span>
-              </a>
+                <span className="hidden sm:inline lg:hidden 2xl:inline">Pro</span>
+              </Link>
             </Tooltip>
 
             <Popover
@@ -5289,35 +5300,11 @@ export function WatchRoom({ handle }: { handle: string }) {
         )}
       </div>
 
-      {accountModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          onClick={() => setAccountModal(null)}
-        >
-          <div
-            className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-black/10 bg-white p-8 shadow-xl dark:border-white/10 dark:bg-zinc-950"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="text-xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-              {accountModal === "login" ? "Entrar na conta" : "Criar conta"}
-            </h2>
-            {accountModal === "login" ? (
-              <LoginForm
-                onCancel={() => setAccountModal(null)}
-                onSuccess={() => setAccountModal(null)}
-                onSwitchToCreate={() => setAccountModal("create")}
-              />
-            ) : (
-              <CreateAccountForm
-                initialDisplayName={state.name ?? ""}
-                onCancel={() => setAccountModal(null)}
-                onSuccess={() => setAccountModal(null)}
-                onSwitchToLogin={() => setAccountModal("login")}
-              />
-            )}
-          </div>
-        </div>
-      )}
+      <AccountModal
+        mode={accountModal}
+        onModeChange={setAccountModal}
+        initialDisplayName={state.name ?? ""}
+      />
 
       <KeyboardShortcutsModal
         open={shortcutsModalOpen}
