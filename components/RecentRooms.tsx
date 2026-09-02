@@ -1,29 +1,51 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { MdChevronRight, MdClose, MdLock } from "react-icons/md";
 import { GlobeIcon } from "@/components/icons";
+import { ButtonSpinner } from "@/components/ButtonSpinner";
 import { trackEvent } from "@/lib/analytics";
 import {
   forgetRecentRoom,
   getRecentRooms,
-  MAX_RECENT_ROOMS,
+  getRecentRoomsServer,
   recentRoomPresentation,
   subscribeRecentRooms,
-  type RecentRoom,
 } from "@/lib/recentRooms";
 
 export function RecentRooms() {
-  // Read once on mount rather than via useSyncExternalStore: that hook
-  // calls getSnapshot twice per render and demands Object.is equality,
-  // which a localStorage parse cannot honestly guarantee.
-  const [rooms, setRooms] = useState<RecentRoom[]>(() => getRecentRooms());
-  useEffect(() => {
-    setRooms(getRecentRooms());
-    return subscribeRecentRooms(() => setRooms(getRecentRooms()));
-  }, []);
+  // useSyncExternalStore after all. The note that used to be here said this
+  // hook "demands Object.is equality, which a localStorage parse cannot
+  // honestly guarantee" — true of a naive reader, and not true of this one:
+  // getRecentRooms caches the raw string it parsed and returns the very same
+  // array while that string is unchanged, which is exactly the guarantee the
+  // hook wants. What the state-plus-effect version cost was a second render
+  // on every mount (the server has no localStorage, so the effect always had
+  // something to correct) and a lint error for setting state in an effect.
+  const rooms = useSyncExternalStore(subscribeRecentRooms, getRecentRooms, getRecentRoomsServer);
+  const [opening, setOpening] = useState<string | null>(null);
   if (rooms.length === 0) return null;
+
+  // The one the phone shows. Below sm there is room for a single button, and
+  // it has to be the room you were in last — which is *not* rooms[0]: the list
+  // is ordered by when each room was first added and deliberately kept stable
+  // (see rememberRecentRoom), so position 0 is the most recently discovered
+  // room, not the most recently visited one. Re-entering a room already on
+  // the list left the phone pointing somewhere else forever, which is the bug.
+  //
+  // Picked by timestamp instead. The desktop list keeps its stable order, so
+  // the two do not have to agree on anything except which entry is newest.
+  // Which one was clicked, so it can say so. Entering a room from here is a
+  // full route change followed by a socket and a join; until the next page
+  // paints, the only thing that had happened on screen was nothing.
+  //
+  // Never cleared: the navigation ends by replacing this page. A room that
+  // somehow fails to open leaves a spinner behind, which is still a truer
+  // account than a button that looks untouched.
+  const latestHandle = rooms.reduce((newest, room) =>
+    room.visitedAt > newest.visitedAt ? room : newest
+  ).handle;
 
   return (
     <div className="flex flex-col gap-2">
@@ -45,16 +67,19 @@ export function RecentRooms() {
           return (
             <li
               key={room.handle}
-              className={index > 0 ? "relative hidden sm:block" : "relative"}
+              className={
+                room.handle === latestHandle ? "relative" : "relative hidden sm:block"
+              }
             >
               <Link
                 href={`/watch/${room.handle}`}
-                onClick={() =>
+                onClick={() => {
+                  setOpening(room.handle);
                   trackEvent("recent_room_click", {
                     visibility: isPrivate ? "private" : "public",
                     index,
-                  })
-                }
+                  });
+                }}
                 aria-label={`Entrar na sala ${visibility} ${name}`}
                 className="flex min-h-10 w-full items-center gap-2 rounded-lg border border-zinc-300 px-3.5 py-2 text-sm font-medium text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900"
               >
@@ -69,10 +94,18 @@ export function RecentRooms() {
                     {code}
                   </span>
                 )}
-                <MdChevronRight
-                  className="h-4 w-4 shrink-0 text-zinc-400 dark:text-zinc-500"
-                  aria-hidden="true"
-                />
+                {/* In the chevron's place rather than beside it: the arrow
+                    means "this goes somewhere", and once it is going, saying
+                    so is the more useful of the two. Same box either way, so
+                    the row does not resize under the cursor. */}
+                {opening === room.handle ? (
+                  <ButtonSpinner className="text-zinc-400 dark:text-zinc-500" />
+                ) : (
+                  <MdChevronRight
+                    className="h-4 w-4 shrink-0 text-zinc-400 dark:text-zinc-500"
+                    aria-hidden="true"
+                  />
+                )}
               </Link>
               <button
                 type="button"

@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "@/lib/AuthContext";
 import { trackEvent } from "@/lib/analytics";
+import { ButtonSpinner } from "@/components/ButtonSpinner";
 import { prewarmCaptcha } from "@/lib/turnstile";
 import type { OAuthProviderId } from "@/lib/oauthApi";
 
@@ -142,9 +143,10 @@ export function CompleteOAuthSignupForm({
         <button
           type="submit"
           disabled={submitting || !username.trim() || !displayName.trim()}
-          className={`flex-1 ${primaryButtonClass}`}
+          className={`flex flex-1 items-center justify-center gap-2 ${primaryButtonClass}`}
         >
-          {submitting ? "Criando..." : "Criar conta"}
+          {submitting && <ButtonSpinner />}
+            {submitting ? "Criando..." : "Criar conta"}
         </button>
         {onCancel && (
           <button type="button" onClick={onCancel} className={secondaryButtonClass}>

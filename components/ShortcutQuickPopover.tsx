@@ -62,7 +62,13 @@ export function ShortcutQuickPopover({
                 Atalho: {definition?.label ?? "Ação"}
               </h3>
             </div>
-            {isAppOnly && (
+            {/* Only outside the app — same reasoning as the modal's category
+                badge. In it this reads "No app" inside the app, over a link to
+                download it. The body below already drew this distinction with
+                `isAppOnly && !isDesktop`; the badge was the half that did
+                not, so the popover told you to get something you had while
+                letting you edit the shortcut right underneath. */}
+            {isAppOnly && !isDesktop && (
               <a
                 href="https://golive.nemtudo.me/app"
                 target="_blank"

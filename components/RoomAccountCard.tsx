@@ -31,7 +31,16 @@ import { VerifiedBadgeIcon } from "@/components/icons";
 // copy of the markup rather than a tall and a short variant to keep in step.
 // 52rem lands 1080p windows on the roomy side and 768/800px laptops on the
 // compact one.
-export function RoomAccountCard({ onCreateAccount }: { onCreateAccount: () => void }) {
+export function RoomAccountCard({
+  onCreateAccount,
+  onOpenProfile,
+}: {
+  onCreateAccount: () => void;
+  // Open your own profile in the room's dialog. Absent where there is no
+  // dialog to open it in, which keeps the new-tab link as the fallback rather
+  // than making the card unclickable.
+  onOpenProfile?: (userId: string) => void;
+}) {
   const state = useSignaling();
   const { account, points } = useAuth();
   const { openPopup } = useNtPopups();
@@ -88,7 +97,23 @@ export function RoomAccountCard({ onCreateAccount }: { onCreateAccount: () => vo
         {/* Only an account has somewhere to go — a guest has no public
             profile, so theirs is the same block without the link rather than
             a link that lands nowhere. */}
-        {account ? (
+        {account && onOpenProfile ? (
+          <Tooltip content="Ver seu perfil" placement="top">
+            {/* Your own profile opens the same way everybody else's does —
+                see WatchRoom's UserProfileDialog. It was the one name in the
+                room that still took you out to a new tab. A button rather
+                than a styled link, for the reason ParticipantRow gives: this
+                navigates nowhere. */}
+            <button
+              type="button"
+              onClick={() => onOpenProfile(account.id)}
+              className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left transition hover:opacity-80 [@media(max-height:52rem)]:gap-2"
+            >
+              {avatar}
+              {identity}
+            </button>
+          </Tooltip>
+        ) : account ? (
           <Tooltip content="Ver seu perfil" placement="top">
             <Link
               href={`/user/${account.id}`}

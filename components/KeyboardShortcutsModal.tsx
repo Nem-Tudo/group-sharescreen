@@ -45,7 +45,12 @@ export function KeyboardShortcutsModal({
           <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
             {title}
           </h4>
-          {isAppOnlyCategory && (
+          {/* Only outside the app. In it, this is a badge saying "apenas
+              no app" on a screen that is the app, linking to a download page
+              for software already running — every part of that is noise. The
+              per-row "Apenas no app" placeholder below already behaves this
+              way (see isAppOnlyDisabled); this was the one that did not. */}
+          {isAppOnlyCategory && !isDesktop && (
             <a
               href="https://golive.nemtudo.me/app"
               target="_blank"
@@ -170,7 +175,13 @@ export function KeyboardShortcutsModal({
           )}
 
           <div className="flex flex-col gap-5">
-            {renderGroup("Áudio (Navegador e Aplicativo)", audioShortcuts, false)}
+            {/* The browser/app split is what somebody outside needs to know
+                and what somebody inside has already resolved. */}
+            {renderGroup(
+              isDesktop ? "Áudio" : "Áudio (Navegador e Aplicativo)",
+              audioShortcuts,
+              false
+            )}
             {renderGroup("Transmissão & Câmera", videoShortcuts, true)}
             {renderGroup("Música", musicShortcuts, true)}
           </div>
@@ -181,22 +192,34 @@ export function KeyboardShortcutsModal({
               <span>Informações sobre os atalhos:</span>
             </div>
             <ul className="mt-1.5 list-disc pl-5 space-y-1">
+              {/* Which shortcuts exist where, for somebody who might not have
+                  the app. Inside it the answer is "all of them", so both lines
+                  are answering a question that no longer arises. */}
+              {!isDesktop && (
+                <>
+                  <li>
+                    Os atalhos de áudio (microfone e fone) funcionam tanto no navegador quanto no aplicativo do computador.
+                  </li>
+                  <li>
+                    Os atalhos de transmissão, câmera e música funcionam no{" "}
+                    <a
+                      href="https://golive.nemtudo.me/app"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium text-indigo-600 underline hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
+                    >
+                      aplicativo GoLive para computador
+                    </a>.
+                  </li>
+                </>
+              )}
+              {/* This one stays either way — it is the only line that is about
+                  what the shortcuts *do* rather than about where to get them —
+                  but inside the app it does not need to name it. */}
               <li>
-                Os atalhos de áudio (microfone e fone) funcionam tanto no navegador quanto no aplicativo do computador.
-              </li>
-              <li>
-                Os atalhos de transmissão, câmera e música funcionam no{" "}
-                <a
-                  href="https://golive.nemtudo.me/app"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="font-medium text-indigo-600 underline hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
-                >
-                  aplicativo GoLive para computador
-                </a>.
-              </li>
-              <li>
-                No aplicativo GoLive, os atalhos funcionam globalmente, mesmo com o foco em outros programas ou jogos.
+                {isDesktop
+                  ? "Os atalhos funcionam globalmente, mesmo com o foco em outros programas ou jogos."
+                  : "No aplicativo GoLive, os atalhos funcionam globalmente, mesmo com o foco em outros programas ou jogos."}
               </li>
               <li>
                 Atalhos nativos do sistema (como <kbd className="font-mono font-semibold">Ctrl+C</kbd> ou <kbd className="font-mono font-semibold">Ctrl+V</kbd>) continuam funcionando normalmente.

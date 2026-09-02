@@ -3853,6 +3853,11 @@ export function WatchRoom({ handle }: { handle: string }) {
         isSelf
         isGuest={!state.account}
         userId={account?.id}
+        // Your own row too. It was left out on the reasoning that this row has
+        // "nobody else's profile to open", which missed that it opens *yours*
+        // — and it was the one name in the list still leaving the room for a
+        // new tab.
+        onOpenProfile={setProfileUserId}
         micsMuted={micsMuted}
         isOwner={isRoomOwner}
         isAdmin={isRoomAdmin}
@@ -4057,7 +4062,10 @@ export function WatchRoom({ handle }: { handle: string }) {
     <>
       {roomManageRow}
       {chatPanel}
-      <RoomAccountCard onCreateAccount={() => setAccountModal("create")} />
+      <RoomAccountCard
+        onCreateAccount={() => setAccountModal("create")}
+        onOpenProfile={setProfileUserId}
+      />
     </>
   );
 
@@ -4291,9 +4299,12 @@ export function WatchRoom({ handle }: { handle: string }) {
                 what mints the guest one. */}
             {isWideLayout ? null : account ? (
               <Tooltip content="Ver seu perfil" placement="bottom">
-                <Link
-                  href={`/user/${account.id}`}
-                  target="_blank"
+                {/* Your own profile opens in the room's dialog like everybody
+                    else's — it was the last name here that still took you out
+                    to a second tab. */}
+                <button
+                  type="button"
+                  onClick={() => setProfileUserId(account.id)}
                   className="flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs font-medium text-zinc-500 transition hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-700 dark:hover:bg-zinc-900"
                 >
                   <span className="hidden max-w-[8rem] truncate text-zinc-700 sm:inline dark:text-zinc-300">
@@ -4304,7 +4315,7 @@ export function WatchRoom({ handle }: { handle: string }) {
                     <BsCoin className="h-3.5 w-3.5 shrink-0" />
                     {points}
                   </span>
-                </Link>
+                </button>
               </Tooltip>
             ) : (
               state.name && (
@@ -5048,7 +5059,14 @@ export function WatchRoom({ handle }: { handle: string }) {
                   // list is a menu with one useful row, and setCameraDevice
                   // already restarts a live camera onto the new one, so this
                   // works mid-call and before starting alike.
-                  <div className={`${DOCK_SLOT} items-stretch gap-px`}>
+                  // Wider than a plain slot when it holds two controls, so
+                  // the camera button keeps a usable share of it rather than
+                  // being reduced to whatever the switch leaves over.
+                  <div
+                    className={`flex min-w-0 items-stretch gap-px ${
+                      canSwitchCamera ? "flex-[1.8]" : "flex-1"
+                    }`}
+                  >
                     <Tooltip
                       content={
                         localCameraStream
@@ -5063,15 +5081,21 @@ export function WatchRoom({ handle }: { handle: string }) {
                         disabled={!localCameraStream && Boolean(cameraBlockedReason)}
                         aria-pressed={Boolean(localCameraStream)}
                         aria-label={localCameraStream ? "Parar câmera" : "Compartilhar câmera"}
-                        className={`${DOCK_BUTTON} ${
-                          cameraDevices.length > 1 ? "rounded-r-none" : ""
+                        // DOCK_BUTTON_BASE, not DOCK_BUTTON: the latter's
+                        // `min-w-10` floor plus the switch's fixed 28px add up
+                        // to more than a slot has on a narrow phone, so the
+                        // pair overflowed instead of shrinking and the switch
+                        // landed on top of this button. The floor is still
+                        // right when this button is alone in its slot.
+                        className={`${DOCK_BUTTON_BASE} ${
+                          canSwitchCamera ? "rounded-r-none" : "min-w-10"
                         } ${localCameraStream ? DOCK_LIVE : DOCK_ON}`}
                       >
                         <CameraIcon className="h-5 w-5" />
                       </button>
                     </Tooltip>
-                    {cameraDevices.length > 1 && (
-                      <Tooltip content={nextCameraLabel} wrapperClassName="flex">
+                    {canSwitchCamera && (
+                      <Tooltip content={switchCameraLabel} wrapperClassName="flex">
                         <button
                           type="button"
                           onClick={switchCamera}

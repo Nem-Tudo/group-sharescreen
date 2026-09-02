@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "@/lib/AuthContext";
 import { trackEvent } from "@/lib/analytics";
+import { ButtonSpinner } from "@/components/ButtonSpinner";
 import { prewarmCaptcha } from "@/lib/turnstile";
 import { OAuthButtons } from "./OAuthButtons";
 import { CompleteOAuthSignupForm } from "./CompleteOAuthSignupForm";
@@ -128,8 +129,9 @@ export function LoginForm({
           <button
             type="submit"
             disabled={submitting || !username.trim() || !password}
-            className={`flex-1 ${primaryButtonClass}`}
+            className={`flex flex-1 items-center justify-center gap-2 ${primaryButtonClass}`}
           >
+            {submitting && <ButtonSpinner />}
             {submitting ? "Entrando..." : "Entrar"}
           </button>
           <button type="button" onClick={onCancel} className={secondaryButtonClass}>

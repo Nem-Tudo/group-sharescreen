@@ -92,6 +92,19 @@ export function getRecentRooms(): RecentRoom[] {
   }
 }
 
+/**
+ * The server's answer, for useSyncExternalStore.
+ *
+ * Its own function rather than reusing getRecentRooms — which would return
+ * the same thing on the server — because the hook calls this one during SSR
+ * and hydration specifically, and naming it makes "there is no localStorage
+ * here" a statement rather than something a reader has to derive from the
+ * first line of the other one.
+ */
+export function getRecentRoomsServer(): RecentRoom[] {
+  return EMPTY_ROOMS;
+}
+
 function persist(next: RecentRoom[]) {
   snapshot = next.length === 0 ? EMPTY_ROOMS : next;
   const serialized = next.length === 0 ? null : JSON.stringify(next);
@@ -109,10 +122,25 @@ export function rememberRecentRoom(handle: string, now = Date.now()) {
   if (typeof window === "undefined") return;
   if (!HANDLE_RE.test(handle)) return;
   const existing = getRecentRooms();
-  // Already on the list: leave the order alone. Re-entering the second
-  // slot would otherwise bump it to the top and shuffle the other two,
-  // which is the opposite of a stable "salas recentes" shortcut.
-  if (existing.some((room) => room.handle === handle)) return;
+  // Already on the list: leave the *order* alone. Re-entering the second slot
+  // would otherwise bump it to the top and shuffle the other two, which is
+  // the opposite of a stable "salas recentes" shortcut — the whole value of
+  // three buttons is that each stays where your hand learned it.
+  //
+  // But `visitedAt` is updated, which it did not used to be. Order and
+  // recency are two different facts, and conflating them broke the phone:
+  // there is only room for one button there, it showed position 0, and
+  // position 0 is the most recently *discovered* room — not the last one you
+  // were in. Re-entering a room you already had listed changed nothing, so
+  // the phone kept offering some other room indefinitely. See RecentRooms,
+  // which now picks by this timestamp rather than by position.
+  const known = existing.find((room) => room.handle === handle);
+  if (known) {
+    persist(
+      existing.map((room) => (room.handle === handle ? { ...room, visitedAt: now } : room))
+    );
+    return;
+  }
   persist([{ handle, visitedAt: now }, ...existing].slice(0, MAX_RECENT_ROOMS));
 }
 

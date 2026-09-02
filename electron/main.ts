@@ -629,6 +629,19 @@ function createWindow(initialUrl: string = APP_URL) {
       // renderer runs the live website, so it must have no path to Node:
       // contextIsolation keeps the preload's own scope out of the page, and
       // sandbox puts the renderer in the OS sandbox on top of that.
+      // Chromium throttles a renderer whose window is hidden, minimised or
+      // covered: timers clamp to about once a second and rendering stops.
+      // That is right for a browser tab nobody is looking at and wrong for
+      // this app, whose whole point in the background is the global shortcuts
+      // (see updateGlobalShortcuts). Those fire fine — they are registered
+      // with the OS — and the IPC reaches the page, but the handler that acts
+      // on it was being throttled along with everything else, so muting the
+      // mic from another window felt broken or arrived seconds late.
+      //
+      // It costs what it says: a hidden window keeps running its timers. This
+      // one is holding WebRTC connections open and metering audio the whole
+      // time anyway, so there was no idle to protect.
+      backgroundThrottling: false,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,

@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { adminLogin, adminLogout, useAdminToken } from "@/lib/adminApi";
 import { prewarmCaptcha } from "@/lib/turnstile";
+import { ButtonSpinner } from "@/components/ButtonSpinner";
 import { DashboardPanel } from "./DashboardPanel";
 
 // Site administration: statistics, announcements, partners, supporters, the
@@ -93,8 +94,9 @@ export default function AdminPage() {
             <button
               type="submit"
               disabled={!user.trim() || !password || loggingIn}
-              className="mt-2 rounded-lg bg-zinc-950 px-4 py-2.5 font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+              className="mt-2 flex items-center justify-center gap-2 rounded-lg bg-zinc-950 px-4 py-2.5 font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
             >
+              {loggingIn && <ButtonSpinner />}
               {loggingIn ? "Entrando..." : "Entrar"}
             </button>
           </form>

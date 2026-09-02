@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { checkUsernameAvailable, type UsernameCheck } from "@/lib/accountApi";
 import { useAuth } from "@/lib/AuthContext";
 import { trackEvent } from "@/lib/analytics";
+import { ButtonSpinner } from "@/components/ButtonSpinner";
 import { prewarmCaptcha } from "@/lib/turnstile";
 import { OAuthButtons } from "./OAuthButtons";
 import { CompleteOAuthSignupForm } from "./CompleteOAuthSignupForm";
@@ -235,7 +236,8 @@ export function CreateAccountForm({
         />
         {formError && <p className="text-sm text-red-500">{formError}</p>}
         <div className="mt-2 flex gap-2">
-          <button type="submit" disabled={submitting} className={`flex-1 ${primaryButtonClass}`}>
+          <button type="submit" disabled={submitting} className={`flex flex-1 items-center justify-center gap-2 ${primaryButtonClass}`}>
+            {submitting && <ButtonSpinner />}
             {submitting ? "Criando..." : "Criar conta"}
           </button>
           <button type="button" onClick={onCancel} className={secondaryButtonClass}>

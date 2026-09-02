@@ -27,6 +27,7 @@ import type { OAuthResult } from "@/lib/oauthApi";
 import { GlobeIcon } from "@/components/icons";
 import { DownloadAppButton } from "@/components/DownloadAppButton";
 import { RecentRooms } from "@/components/RecentRooms";
+import { ButtonSpinner } from "@/components/ButtonSpinner";
 import { prewarmCaptcha } from "@/lib/turnstile";
 import { MdLock, MdOutlineMap } from "react-icons/md";
 import { SocialLinks } from "@/components/SocialLinks";
@@ -105,6 +106,13 @@ export default function Home() {
   const [roomError, setRoomError] = useState<string | null>(null);
   const [roomMode, setRoomMode] = useState<RoomMode>("public");
   const [checkingRoom, setCheckingRoom] = useState(false);
+  // Set the moment a router.push is fired and never cleared: the navigation
+  // it marks ends by replacing this page, so there is nothing left to reset —
+  // and clearing it on an error path would be wrong too, since every one of
+  // those returns before pushing. Entering a room is the slowest button on
+  // this page (a whole route, then a socket, then a join) and was the one
+  // with no feedback at all.
+  const [navigating, setNavigating] = useState(false);
   // Every "does this room exist?" answer this session, keyed by handle.
   // State rather than a ref because a landing answer has to re-render the
   // button, and a plain map doubles as the cache: backspacing through a
@@ -294,7 +302,8 @@ export default function Home() {
         return;
       }
       trackEvent("room_create", { visibility: "private" });
-      router.push(`/watch/${handle}`);
+      setNavigating(true);
+    router.push(`/watch/${handle}`);
       return;
     }
 
@@ -334,7 +343,8 @@ export default function Home() {
       } finally {
         setCheckingRoom(false);
       }
-      router.push(`/watch/${handle}`);
+      setNavigating(true);
+    router.push(`/watch/${handle}`);
       return;
     }
 
@@ -343,6 +353,7 @@ export default function Home() {
       setRoomError("Use de 1 a 32 letras, números, - e _.");
       return;
     }
+    setNavigating(true);
     router.push(`/watch/${fullHandle}`);
   }
 
@@ -665,9 +676,10 @@ export default function Home() {
               {roomError && <p className="text-sm text-red-500">{roomError}</p>}
               <button
                 type="submit"
-                disabled={!roomInput.trim() || checkingRoom}
-                className={`mt-2 ${primaryButtonClass}`}
+                disabled={!roomInput.trim() || checkingRoom || navigating}
+                className={`mt-2 flex items-center justify-center gap-2 ${primaryButtonClass}`}
               >
+                {(checkingRoom || navigating) && <ButtonSpinner />}
                 {roomMode === "private-create"
                   ? "Criar sala privada"
                   : roomMode === "private-join"
