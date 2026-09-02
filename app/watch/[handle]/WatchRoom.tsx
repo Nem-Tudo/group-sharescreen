@@ -2371,7 +2371,6 @@ export function WatchRoom({ handle }: { handle: string }) {
     );
   }
 
-  // Ran out of automatic retries getting a captcha token accepted for this
   // Registered but the "join" for this room hasn't resolved into a
   // "room-state" yet — covers the (usually sub-second) time spent resolving
   // a captcha token before the join is even sent. Without this the room

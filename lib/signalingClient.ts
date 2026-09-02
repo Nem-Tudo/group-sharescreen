@@ -901,6 +901,17 @@ class SignalingClient {
         break;
       case "registered": {
         this.clearRegisterAck();
+        // Whether this socket had already been registered before this
+        // message — i.e. whether this is a *reply to a re-register* rather
+        // than the answer to a fresh one. Read before the assignment below,
+        // which is what makes it true from here on.
+        //
+        // Two things provoke a re-register on an established socket, and
+        // neither is a new arrival: the guest-token echo a few lines down,
+        // and a rename (which a cosmetics purchase also performs — see
+        // lib/cosmetics.ts). The same discriminator already draws this line
+        // for the register timeout below; see registeredSocket's use there.
+        const isReRegister = this.registeredSocket === this.ws;
         this.registeredSocket = this.ws;
         const account = (msg.account as RegisteredAccount | null) ?? null;
         const guestToken = typeof msg.guestToken === "string" ? msg.guestToken : null;
@@ -953,7 +964,20 @@ class SignalingClient {
         // A fresh registration (initial connect, or reconnect) counts as a
         // new join attempt — reset the retry budget rather than carrying
         // over count from whatever happened before the connection dropped.
-        if (this.desiredRoom) {
+        //
+        // A *re*-registration is not one, and treating it as one is how the
+        // captcha came up twice on the way into a room. The echo above sends
+        // a second "register" on this same socket, the server answers it with
+        // a second "registered", and this used to fire a second join for a
+        // room the first join was already fetching a token for. Each join
+        // mints its own single-use Turnstile token (see performJoin), so on
+        // the occasions Cloudflare wanted to challenge, it challenged twice —
+        // once before the room loaded and once after, since join #1 landed in
+        // between. A rename does the same thing for the same reason, which is
+        // its own small bug: the rename is already announced to the room from
+        // the register handler server-side, so the join it provoked was pure
+        // duplicate work carrying a pure duplicate captcha.
+        if (this.desiredRoom && !isReRegister) {
           this.joinRetryCount = 0;
           void this.performJoin(this.desiredRoom);
         }
