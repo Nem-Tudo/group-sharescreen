@@ -857,8 +857,16 @@ const MAX_CHAT_WIDTH = 720;
 // pointer events, and the disabled state is exactly when the tooltip has
 // something to say (see Tooltip's wrapperClassName).
 const DOCK_SLOT = "flex min-w-0 flex-1";
-const DOCK_BUTTON =
-  "flex h-11 w-full min-w-10 items-center justify-center rounded-xl text-white transition disabled:cursor-not-allowed disabled:opacity-50";
+// Split so the one control that shares its slot can opt out of the minimum
+// width. `min-w-10` is right for a button alone in a slot — it stops a very
+// narrow phone squeezing a tap target below 40px — and wrong for one paired
+// with the camera switch, where the floor plus the switch's fixed 28px add up
+// to more than a `flex-1` slot has on a narrow screen. The pair then
+// overflowed instead of shrinking, which is what put the switch on top of the
+// camera button.
+const DOCK_BUTTON_BASE =
+  "flex h-11 w-full items-center justify-center rounded-xl text-white transition disabled:cursor-not-allowed disabled:opacity-50";
+const DOCK_BUTTON = `${DOCK_BUTTON_BASE} min-w-10`;
 const DOCK_ON = "bg-emerald-600 active:bg-emerald-700";
 const DOCK_OFF = "bg-red-600 active:bg-red-700";
 // Same red as DOCK_OFF, named apart because it means the opposite thing: not
@@ -4557,7 +4565,14 @@ export function WatchRoom({ handle }: { handle: string }) {
                   // list is a menu with one useful row, and setCameraDevice
                   // already restarts a live camera onto the new one, so this
                   // works mid-call and before starting alike.
-                  <div className={`${DOCK_SLOT} items-stretch gap-px`}>
+                  // Wider than a plain slot when it holds two controls, so
+                  // the camera button keeps a usable share of it rather than
+                  // being reduced to whatever the switch leaves over.
+                  <div
+                    className={`flex min-w-0 items-stretch gap-px ${
+                      canSwitchCamera ? "flex-[1.8]" : "flex-1"
+                    }`}
+                  >
                     <Tooltip
                       content={
                         localCameraStream
@@ -4572,8 +4587,8 @@ export function WatchRoom({ handle }: { handle: string }) {
                         disabled={!localCameraStream && Boolean(cameraBlockedReason)}
                         aria-pressed={Boolean(localCameraStream)}
                         aria-label={localCameraStream ? "Parar câmera" : "Compartilhar câmera"}
-                        className={`${DOCK_BUTTON} ${
-                          canSwitchCamera ? "rounded-r-none" : ""
+                        className={`${DOCK_BUTTON_BASE} ${
+                          canSwitchCamera ? "rounded-r-none" : "min-w-10"
                         } ${localCameraStream ? DOCK_LIVE : DOCK_ON}`}
                       >
                         <CameraIcon className="h-5 w-5" />
