@@ -491,10 +491,6 @@ export function ProPanel() {
                       <div className="flex items-center gap-2 text-sm font-medium text-zinc-900 dark:text-zinc-100">
                         <PixIcon className="h-4 w-4 shrink-0 text-[#32BCAD]" />
                         Aguardando o pagamento
-                        <span
-                          aria-hidden
-                          className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent"
-                        />
                       </div>
                       {pix.qrCodeBase64 && (
                         // eslint-disable-next-line @next/next/no-img-element
