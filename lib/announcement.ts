@@ -179,9 +179,12 @@ export function isMobileDevice(): boolean {
 /**
  * Which of the four buckets this client falls into.
  *
- * Both shells expose the same bridge (see lib/desktop.ts) and are told apart
- * by its `platform` — so the mobile branch asks the same question the desktop
- * one does, rather than assuming a phone is always a browser.
+ * The mobile branch asks whether a shell is running rather than assuming a
+ * phone is always a browser. It does not ask it the same way the desktop one
+ * does, though: isDesktopApp() reads the injected bridge, while isMobileApp()
+ * asks Capacitor directly, because this function's answer is read once per
+ * connection at register time and the Android bridge does not exist yet at
+ * that moment — see isMobileApp() in lib/desktop.ts.
  *
  * Note that an installed PWA is deliberately *not* "mobile-app": it is the
  * same website in a chrome-less window, indistinguishable to everything else

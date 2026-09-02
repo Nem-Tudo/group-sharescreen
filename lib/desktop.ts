@@ -1,5 +1,7 @@
 "use client";
 
+import { Capacitor } from "@capacitor/core";
+
 // The web app's half of the Electron bridge.
 //
 // Everything here is defensive by design: this file is part of the *website*,
@@ -167,10 +169,32 @@ export function isDesktopApp(): boolean {
  *
  * This one exists because the participant list does need to tell them apart:
  * a phone icon and a monitor icon say different things about who is in the
- * room.
+ * room — and because currentAnnouncementDevice() turns it into the
+ * "mobile-app" the /metrics platform gauge and announcement targeting are
+ * both keyed on.
+ *
+ * Asks Capacitor rather than `window.golive`, which is the whole point. The
+ * two shells fill that bridge in at very different moments: Electron's
+ * preload runs before any page script, so reading it is safe from the first
+ * line of the bundle, while the Android one is assembled in an effect that
+ * awaits two dynamic imports and two native calls (see initCapacitorBridge).
+ * Meanwhile signalingClient's constructor registers a stored guest name at
+ * module-eval time, and the device it reports is read once, at ws.onopen,
+ * with nothing re-registering afterwards. Keyed on the bridge, that returning
+ * guest was counted as "mobile-browser" for the life of the connection and
+ * missed every announcement aimed at the app. Capacitor's own global is
+ * injected by the native layer ahead of the page's scripts — the same thing
+ * initCapacitorBridge already trusts synchronously on its first line — so
+ * this answer is correct from the first render instead of a few hundred ms
+ * in.
+ *
+ * Still false in an ordinary browser and in the Electron shell, where
+ * getPlatform() is "web": on the site this is the same constant it always
+ * was.
  */
 export function isMobileApp(): boolean {
-  return getDesktopBridge()?.platform === "android";
+  if (typeof window === "undefined") return false;
+  return Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
 }
 
 // Nonces come from the platform CSPRNG rather than Math.random: this value

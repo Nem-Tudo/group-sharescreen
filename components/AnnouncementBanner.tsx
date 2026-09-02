@@ -84,11 +84,17 @@ export function AnnouncementBanner() {
 
   // Null on the server and through hydration, then the real answer — the
   // same shape as useHasStoredName in lib/useSignaling.ts, and for the same
-  // reason: this depends on `navigator` and on the desktop bridge, neither
-  // of which exists during the server render, so reading it eagerly would
-  // be a hydration mismatch. useSyncExternalStore rather than an effect
-  // because the value never changes for the life of the page — there is
-  // nothing to synchronise, just a client-only constant to read safely.
+  // reason: this depends on `navigator` and on which shell is running,
+  // neither of which exists during the server render, so reading it eagerly
+  // would be a hydration mismatch. useSyncExternalStore rather than an
+  // effect because the value never changes for the life of the page — there
+  // is nothing to synchronise, just a client-only constant to read safely.
+  //
+  // "Never changes" is load-bearing here, and it is why isMobileApp() asks
+  // Capacitor instead of waiting for `window.golive` to be filled in: paired
+  // with a no-op subscribe, a device that only became knowable a few hundred
+  // ms into the page would be read as "mobile-browser" and never corrected
+  // on its own.
   const device = useSyncExternalStore(
     noopSubscribe,
     currentAnnouncementDevice,

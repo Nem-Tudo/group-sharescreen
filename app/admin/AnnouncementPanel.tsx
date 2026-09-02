@@ -458,16 +458,13 @@ export function AnnouncementPanel() {
                   className="h-4 w-4 rounded border-zinc-300 dark:border-zinc-700"
                 />
                 {ANNOUNCEMENT_DEVICE_LABELS[device]}
-                {device === "mobile-app" && (
-                  <span className="text-xs text-zinc-400 dark:text-zinc-500">(em breve)</span>
-                )}
               </label>
             ))}
           </div>
           <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
             {devices.length === 0
               ? "Selecione pelo menos um — sem nenhum marcado, ninguém veria o aviso."
-              : "O aviso é entregue a todo mundo e cada cliente decide se mostra, então as estatísticas contam só quem realmente viu. O app de celular ainda não existe: marcá-lo não muda nada por enquanto."}
+              : "O aviso é entregue a todo mundo e cada cliente decide se mostra, então as estatísticas contam só quem realmente viu."}
           </p>
         </fieldset>
 
