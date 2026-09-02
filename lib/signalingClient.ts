@@ -473,6 +473,37 @@ const initialState: SignalingState = {
 // the explicit "false" is lost.
 const TYPING_EXPIRE_MS = 6000;
 
+// Where the "this address already passed" window is remembered across page
+// loads — see SignalingClient.captchaVerifiedAt for why it has to survive one.
+// Mirrors the server's own CAPTCHA_REVERIFY_INTERVAL_MS window; a value older
+// than that is simply ignored rather than cleaned up.
+const CAPTCHA_VERIFIED_STORAGE_KEY = "sharescreen:captchaVerifiedAt";
+
+function readStoredCaptchaVerifiedAt(): number | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(CAPTCHA_VERIFIED_STORAGE_KEY);
+    if (!raw) return null;
+    const at = Number(raw);
+    // A timestamp from the future is a clock that moved, not a pass — and
+    // trusting one would skip the check for as long as the skew lasts.
+    if (!Number.isFinite(at) || at > Date.now()) return null;
+    return Date.now() - at < CAPTCHA_REVERIFY_INTERVAL_MS ? at : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredCaptchaVerifiedAt(at: number | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (at === null) window.localStorage.removeItem(CAPTCHA_VERIFIED_STORAGE_KEY);
+    else window.localStorage.setItem(CAPTCHA_VERIFIED_STORAGE_KEY, String(at));
+  } catch {
+    // ignored - localStorage may be unavailable (private mode, quota, etc.)
+  }
+}
+
 // How many times performJoin auto-retries after a "captcha-required"
 // rejection (fetching a fresh token each time) before giving up and
 // surfacing joinError instead — covers a token expiring in flight or one bad
@@ -597,7 +628,23 @@ class SignalingClient {
   // ever disagree, the server says so with "captcha-required" and
   // performJoin retries with a real token, which is the same safety net
   // that has always backed this optimization.
-  private captchaVerifiedAt: number | null = null;
+  //
+  // Persisted, and that is not a micro-optimization: the server's own memory
+  // of this address (captchaVerifiedIps) outlives the page, so an in-memory
+  // value meant every reload — opening a room link, which is *the* way people
+  // arrive here — minted a token the server was about to ignore anyway. With
+  // reCAPTCHA that was an unnoticed 200ms. With Turnstile it is a widget doing
+  // real browser work, and it was the difference between joining instantly and
+  // waiting seconds for permission nobody was going to ask for.
+  private captchaVerifiedAt: number | null = readStoredCaptchaVerifiedAt();
+  // Whether the join now in flight actually carried a token. Read only by the
+  // "captcha-required" handler: a refusal for "missing" means something very
+  // different depending on this. Having sent nothing on purpose (the window
+  // above said we were still verified, and the server disagreed) is fixed
+  // completely by retrying *with* a token. Having sent nothing because none
+  // could be minted is not fixed by anything, and retrying just spends the
+  // budget on a foregone conclusion.
+  private lastJoinSentToken = false;
   // Per-peer safety-net expiry timers backing typingPeerIds — see that
   // field's doc comment and TYPING_EXPIRE_MS.
   private typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -875,7 +922,7 @@ class SignalingClient {
         // they arrived.
         const history = Array.isArray(msg.messages) ? (msg.messages as ChatMessage[]) : [];
         this.joinRetryCount = 0;
-        this.captchaVerifiedAt = Date.now();
+        this.markCaptchaVerified();
         this.clearAllTyping();
         this.setState({
           room: msg.room as string,
@@ -928,7 +975,8 @@ class SignalingClient {
         // one side that actually decides. Matters now that this survives
         // reconnects (see the field's comment): the two sides can genuinely
         // disagree, and this is how the client is told which one is right.
-        this.captchaVerifiedAt = null;
+        const skippedToken = !this.lastJoinSentToken;
+        this.markCaptchaVerified(null);
         const captchaMessage =
           (msg.message as string) ?? "Não foi possível verificar a segurança da sala.";
         const captchaReason = typeof msg.reason === "string" ? msg.reason : "";
@@ -941,8 +989,17 @@ class SignalingClient {
         // and neither is a token Cloudflare rejected outright, which will be
         // rejected identically however many times it is re-sent. Spending the
         // budget on those just makes somebody wait for a foregone conclusion.
+        //
+        // "missing" is the one that has to be read together with what we
+        // actually sent. It normally means the script is blocked and nothing
+        // will change — but when we deliberately sent no token because the
+        // persisted window above said we were still verified, it just means
+        // the server disagreed, and the retry (which now mints one, since
+        // markCaptchaVerified(null) above cleared that belief) is precisely
+        // the fix. Without this distinction, one stale window entry turned
+        // into a join that failed outright instead of retrying once.
         const retryCouldHelp =
-          captchaReason !== "missing" &&
+          (captchaReason !== "missing" || skippedToken) &&
           captchaReason !== "rejected" &&
           !isCaptchaScriptUnavailable();
         if (!retryCouldHelp || this.joinRetryCount > MAX_JOIN_RETRIES) {
@@ -1482,6 +1539,15 @@ class SignalingClient {
     if (this.state.name) void this.performJoin(room);
   }
 
+  /**
+   * Records (or clears) the fact that this browser passed the captcha, in
+   * memory and on disk together so the two can never drift.
+   */
+  private markCaptchaVerified(at: number | null = Date.now()) {
+    this.captchaVerifiedAt = at;
+    writeStoredCaptchaVerifiedAt(at);
+  }
+
   // Fetches a fresh captcha token (single-use — see lib/turnstile.ts) and
   // sends the actual "join". Split out from joinRoom() so both the public
   // entry point and the "captcha-required" retry path (see handleMessage) go
@@ -1507,6 +1573,7 @@ class SignalingClient {
     // stale join here would either land in the wrong room or get rejected
     // anyway since the socket/name it was meant for is gone.
     if (this.desiredRoom !== room || !this.state.name) return;
+    this.lastJoinSentToken = turnstileToken !== null;
     // `turnstileToken` rather than the old `captchaToken` field: that one used
     // to carry a reCAPTCHA token, and the server has to be able to tell the
     // two apart to keep a tab that was open across the migration working.

@@ -204,16 +204,27 @@ function loadScript(): Promise<TurnstileApi | null> {
 // page, and a WebSocket client — reimplementing the same overlay, and the
 // signaling one could not.
 //
-// It is empty and display:none for almost everybody. Only
-// `before-interactive-callback` — Cloudflare telling us it is about to need
-// the screen — ever makes it visible.
+// The rule that decides how this is built, and that the first version got
+// wrong: **the widget's container has to be visible and measurable at all
+// times**, including while nothing is being shown. Turnstile inspects the
+// element it was handed; rendered inside a `display:none` parent it has
+// nothing to measure, cannot complete its silent checks, and falls back to
+// asking the person to click. That is how "invisible for almost everybody"
+// became a challenge on every single join, and how a check that used to cost
+// ~200ms started costing ~5s of stalling before showing one.
+//
+// So the overlay is always in the document and always displayed. What toggles
+// is only its *chrome*. Idle, it is transparent and click-through, wrapping a
+// widget Turnstile itself renders at zero height — nothing paints, nothing
+// intercepts a click. `before-interactive-callback`, Cloudflare telling us it
+// is about to need the screen, is what turns on the backdrop and the card.
 
 let overlay: HTMLDivElement | null = null;
-let overlayBody: HTMLDivElement | null = null;
 let overlayHost: HTMLDivElement | null = null;
-// How many widgets currently want the overlay visible. A count rather than a
-// boolean because two gated actions can genuinely overlap (a join firing while
-// a login is in flight), and the first one to finish must not pull the screen
+let setChromeVisible: ((visible: boolean) => void) | null = null;
+// How many widgets currently want the screen. A count rather than a boolean
+// because two gated actions can genuinely overlap (a join firing while a
+// login is in flight), and the first one to finish must not pull the chrome
 // out from under the second.
 let interactiveCount = 0;
 
@@ -224,90 +235,272 @@ function isDarkTheme(): boolean {
 function ensureOverlay(): HTMLDivElement {
   if (overlayHost) return overlayHost;
 
-  overlay = document.createElement("div");
   // Inline styles, not Tailwind classes: this element is created at runtime
   // from a string, and Tailwind only emits the classes it can see in the
   // source. A class name assembled here would compile to nothing.
+  overlay = document.createElement("div");
   overlay.style.cssText = [
     "position:fixed",
     "inset:0",
     "z-index:2147483000",
-    "display:none",
+    // Always laid out — see this section's header. Only the paint changes.
+    "display:flex",
     "align-items:center",
     "justify-content:center",
     "padding:16px",
-    "background:rgba(0,0,0,0.6)",
+    // Click-through while idle, so a full-screen element that is showing
+    // nothing does not sit on top of the whole app eating clicks.
+    "pointer-events:none",
+    "background:transparent",
   ].join(";");
 
-  overlayBody = document.createElement("div");
-  overlayBody.style.cssText = [
+  const body = document.createElement("div");
+  body.style.cssText = [
     "display:flex",
     "flex-direction:column",
     "align-items:center",
     "gap:14px",
-    "width:100%",
     "max-width:24rem",
-    "padding:24px",
     "border-radius:16px",
     "text-align:center",
-    "box-shadow:0 20px 60px rgba(0,0,0,0.35)",
     "font-family:system-ui,-apple-system,'Segoe UI',sans-serif",
   ].join(";");
 
   const title = document.createElement("h2");
   title.textContent = "Confirme que você não é um robô";
   title.style.cssText = "margin:0;font-size:1.125rem;font-weight:600;";
+  title.hidden = true;
 
   const subtitle = document.createElement("p");
   subtitle.textContent =
     "Isso aparece raramente, só quando a verificação automática não tem certeza. É rápido.";
   subtitle.style.cssText = "margin:0;font-size:0.875rem;line-height:1.4;";
+  subtitle.hidden = true;
 
   overlayHost = document.createElement("div");
-  overlayHost.style.cssText = "min-height:65px;display:flex;align-items:center;justify-content:center;";
+  // `pointer-events:auto` unconditionally, and it costs nothing: idle, this
+  // element wraps a zero-height widget and therefore has no area to click.
+  // Granting it here rather than when the chrome appears means the widget is
+  // clickable the instant Cloudflare draws it, with no ordering to get wrong.
+  overlayHost.style.cssText =
+    "display:flex;align-items:center;justify-content:center;pointer-events:auto;";
 
-  overlayBody.append(title, subtitle, overlayHost);
-  overlay.appendChild(overlayBody);
+  body.append(title, subtitle, overlayHost);
+  overlay.appendChild(body);
   document.body.appendChild(overlay);
 
-  // Kept in a closure over the two elements the theme actually colours, so
-  // paintTheme can be called again every time the overlay is shown — somebody
-  // may have flipped the theme since it was built.
-  const paintTheme = () => {
+  setChromeVisible = (visible: boolean) => {
     const dark = isDarkTheme();
-    overlayBody!.style.background = dark ? "#09090b" : "#ffffff";
-    overlayBody!.style.border = dark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.1)";
+    // Re-read the theme on every reveal rather than once at build time —
+    // somebody may have flipped it since.
+    overlay!.style.background = visible ? "rgba(0,0,0,0.6)" : "transparent";
+    overlay!.style.pointerEvents = visible ? "auto" : "none";
+    body.style.background = visible ? (dark ? "#09090b" : "#ffffff") : "transparent";
+    body.style.border = visible
+      ? dark
+        ? "1px solid rgba(255,255,255,0.1)"
+        : "1px solid rgba(0,0,0,0.1)"
+      : "none";
+    body.style.boxShadow = visible ? "0 20px 60px rgba(0,0,0,0.35)" : "none";
+    body.style.padding = visible ? "24px" : "0";
+    body.style.width = visible ? "100%" : "auto";
+    title.hidden = !visible;
+    subtitle.hidden = !visible;
     title.style.color = dark ? "#fafafa" : "#09090b";
     subtitle.style.color = dark ? "#a1a1aa" : "#71717a";
+    overlayHost!.style.minHeight = visible ? "65px" : "0";
   };
-  paintTheme();
-  overlayThemePainter = paintTheme;
+  setChromeVisible(false);
 
   return overlayHost;
 }
 
-let overlayThemePainter: (() => void) | null = null;
-
-function showOverlay() {
+function showChrome() {
   interactiveCount += 1;
-  if (!overlay) return;
-  overlayThemePainter?.();
-  overlay.style.display = "flex";
+  setChromeVisible?.(true);
 }
 
-function hideOverlay() {
+function hideChrome() {
   interactiveCount = Math.max(0, interactiveCount - 1);
-  if (overlay && interactiveCount === 0) overlay.style.display = "none";
+  if (interactiveCount === 0) setChromeVisible?.(false);
+}
+
+// ─── Minting, and why a token is fetched before it is needed ──────────────
+//
+// Turnstile is not reCAPTCHA v3 in one way that is felt directly: v3's script
+// set up a single page-wide assessment at load, so execute() was a ~200ms
+// lookup of work already done. Turnstile does its work *per widget*, when the
+// widget is rendered — a second or three of real browser checks. Minting one
+// in front of a button press therefore puts that whole cost on the critical
+// path of joining a room, which is exactly where it is most visible.
+//
+// So a token is minted ahead of time (prewarmCaptcha, called by the screens
+// that are about to need one) and parked here until it is spent. A hit costs
+// nothing at all; a miss is no worse than not having done it.
+
+// How long a minted token may sit here before it is treated as stale.
+// Cloudflare expires one 300s after issue and the server verifies against
+// that, so this leaves a wide margin for the request that spends it.
+const TOKEN_REUSE_MS = 3 * 60_000;
+
+const cache = new Map<CaptchaAction, { token: string; mintedAt: number }>();
+
+type InflightMint = {
+  promise: Promise<string | null>;
+  /**
+   * Says that somebody is now actually waiting on this token, which is the
+   * only thing that allows a challenge to take the screen.
+   *
+   * A prewarmed mint starts *cold*: if Cloudflare decides it wants
+   * interaction, the widget is prepared but stays invisible, because a
+   * captcha appearing over a page nobody asked anything of is worse than a
+   * slow join. It reveals the moment a real call arrives — and because the
+   * widget is already built and waiting, that reveal is faster than not
+   * having prewarmed at all.
+   */
+  markHot: () => void;
+};
+
+const inflight = new Map<CaptchaAction, InflightMint>();
+
+function mintToken(action: CaptchaAction): InflightMint {
+  let hot = false;
+  let wantsScreen = false;
+  let showing = false;
+
+  const reveal = () => {
+    if (showing || !wantsScreen || !hot) return;
+    showing = true;
+    showChrome();
+  };
+  const conceal = () => {
+    if (!showing) return;
+    showing = false;
+    hideChrome();
+  };
+
+  const promise = new Promise<string | null>((resolve) => {
+    let settled = false;
+    let widgetId: string | null = null;
+    let container: HTMLDivElement | null = null;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+
+    const settle = (token: string | null) => {
+      if (settled) return;
+      settled = true;
+      if (timeout !== null) clearTimeout(timeout);
+      conceal();
+      if (widgetId !== null && window.turnstile) {
+        try {
+          window.turnstile.remove(widgetId);
+        } catch {
+          // Already gone; nothing to remove.
+        }
+      }
+      container?.remove();
+      resolve(token);
+    };
+
+    void loadScript().then((api) => {
+      if (!api) {
+        settle(null);
+        return;
+      }
+      const host = ensureOverlay();
+      // Its own container inside the host, so two overlapping mints each get
+      // their own widget instead of rendering over one another.
+      container = document.createElement("div");
+      host.appendChild(container);
+      timeout = setTimeout(() => settle(null), TOKEN_TIMEOUT_MS);
+      try {
+        widgetId = api.render(container, {
+          sitekey: SITE_KEY as string,
+          action,
+          theme: isDarkTheme() ? "dark" : "light",
+          // The whole point: draw nothing unless Cloudflare decides this
+          // person has to interact. With "always" (the default) every visitor
+          // would see a widget on every gated action, which is the reCAPTCHA
+          // badge problem in a louder form.
+          appearance: "interaction-only",
+          callback: (token) => settle(token),
+          // A code is passed but deliberately not surfaced: it names
+          // Cloudflare's internal failure, and the caller's own message
+          // ("could not verify, try again") is the only thing a person can
+          // act on either way.
+          "error-callback": () => settle(null),
+          // The token went stale before it was spent — only reachable for a
+          // challenge left unsolved on screen, since settle() ends the
+          // widget's life otherwise.
+          "expired-callback": () => settle(null),
+          // Shown a challenge and did not finish it in the time Cloudflare
+          // allows.
+          "timeout-callback": () => settle(null),
+          "before-interactive-callback": () => {
+            wantsScreen = true;
+            reveal();
+          },
+          // Fires when the interactive part is done — solved or abandoned.
+          // The token, if there is one, arrives separately through
+          // `callback`, so this only puts the screen back.
+          "after-interactive-callback": () => {
+            wantsScreen = false;
+            conceal();
+          },
+        });
+      } catch {
+        settle(null);
+      }
+    });
+  });
+
+  return {
+    promise,
+    markHot: () => {
+      hot = true;
+      reveal();
+    },
+  };
+}
+
+function ensureMint(action: CaptchaAction): InflightMint {
+  const existing = inflight.get(action);
+  if (existing) return existing;
+  const mint = mintToken(action);
+  inflight.set(action, mint);
+  void mint.promise.then((token) => {
+    inflight.delete(action);
+    if (token) cache.set(action, { token, mintedAt: Date.now() });
+  });
+  return mint;
+}
+
+/**
+ * Starts minting a token for `action` now, so the call that needs it later
+ * does not have to wait for one.
+ *
+ * Fire-and-forget: it never throws, never blocks, and a screen that prewarms
+ * something nobody ends up doing has wasted an idle widget and nothing else.
+ * Call it from wherever a gated action becomes *likely* — mounting the room
+ * page, opening the login form — not from wherever it becomes certain, which
+ * is far too late to help.
+ */
+export function prewarmCaptcha(action: CaptchaAction): void {
+  if (!SITE_KEY || typeof window === "undefined") return;
+  const cached = cache.get(action);
+  if (cached && Date.now() - cached.mintedAt < TOKEN_REUSE_MS) return;
+  if (inflight.has(action)) return;
+  void ensureMint(action).promise;
 }
 
 /**
  * Resolves a fresh, single-use token for `action`, or null when Turnstile is
  * not configured, the script never loaded, or Cloudflare refused to issue one.
  *
- * Usually invisible and near-instant. Occasionally it puts a challenge on
- * screen and does not resolve until the person has solved it — so a caller
- * that shows a "carregando" state should be prepared for this to take as long
- * as a human takes, rather than treating a slow answer as a hang.
+ * Instant when a prewarm has already landed one (see prewarmCaptcha), a second
+ * or two otherwise, and as long as a person takes on the rare occasion
+ * Cloudflare wants to challenge them — so a caller showing a "carregando"
+ * state should be prepared for this to take human time rather than treating a
+ * slow answer as a hang.
  *
  * Callers send whatever comes back as-is and let the server decide: a null is
  * acceptable exactly when the server has no secret key configured, or has one
@@ -316,91 +509,39 @@ function hideOverlay() {
  * code at all.
  *
  * A token expires after five minutes and is spent by the first verification,
- * so this must be called immediately before the action it protects rather than
- * cached or reused.
+ * so what comes back is handed over and never held: every path below removes
+ * it from the cache on the way out.
  */
 export async function getCaptchaToken(action: CaptchaAction): Promise<string | null> {
   if (!SITE_KEY || typeof window === "undefined") return null;
-  const api = await loadScript();
-  if (!api) return null;
+  // Serialized per action, because a token is single-use and two callers that
+  // arrived together would otherwise both be handed the *same* one — the
+  // second request then failing verification as a duplicate, which looks to
+  // the person like an expired captcha they did nothing to deserve. Queueing
+  // makes the second caller take (or mint) its own instead. Cross-action
+  // calls never queue behind each other: the chain is per action.
+  const previous = takeQueue.get(action) ?? Promise.resolve<string | null>(null);
+  const mine = previous.catch(() => null).then(() => takeToken(action));
+  takeQueue.set(action, mine);
+  try {
+    return await mine;
+  } finally {
+    if (takeQueue.get(action) === mine) takeQueue.delete(action);
+  }
+}
 
-  const host = ensureOverlay();
-  // Its own container inside the host, so two overlapping calls each get their
-  // own widget instead of rendering over one another.
-  const container = document.createElement("div");
-  host.appendChild(container);
+const takeQueue = new Map<CaptchaAction, Promise<string | null>>();
 
-  return new Promise<string | null>((resolve) => {
-    let settled = false;
-    let widgetId: string | null = null;
-    // Tracked so the cleanup below only un-shows the overlay if this widget is
-    // what showed it — decrementing a count we never incremented would hide a
-    // challenge somebody else is still solving.
-    let wentInteractive = false;
+async function takeToken(action: CaptchaAction): Promise<string | null> {
+  const cached = cache.get(action);
+  cache.delete(action);
+  if (cached && Date.now() - cached.mintedAt < TOKEN_REUSE_MS) return cached.token;
 
-    const settle = (token: string | null) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      // Reset alongside the call, not just before it: Cloudflare may still
-      // fire after-interactive-callback for a widget that already produced
-      // its token, and a second hideOverlay() for the same widget would
-      // decrement a count that is holding the screen open for a *different*
-      // one — pulling a challenge out from under somebody mid-solve.
-      if (wentInteractive) {
-        wentInteractive = false;
-        hideOverlay();
-      }
-      if (widgetId !== null) {
-        try {
-          api.remove(widgetId);
-        } catch {
-          // Already gone; nothing to remove.
-        }
-      }
-      container.remove();
-      resolve(token);
-    };
-
-    const timeout = setTimeout(() => settle(null), TOKEN_TIMEOUT_MS);
-
-    try {
-      widgetId = api.render(container, {
-        sitekey: SITE_KEY,
-        action,
-        theme: isDarkTheme() ? "dark" : "light",
-        // The whole point: draw nothing unless Cloudflare decides this person
-        // has to interact. With "always" (the default) every visitor would see
-        // a widget on every gated action, which is the reCAPTCHA badge problem
-        // in a louder form.
-        appearance: "interaction-only",
-        callback: (token) => settle(token),
-        // A code is passed but deliberately not surfaced: it names Cloudflare's
-        // internal failure, and the caller's own message ("could not verify,
-        // try again") is the only thing a person can act on either way.
-        "error-callback": () => settle(null),
-        // The token went stale before it was spent. Nothing here is holding
-        // one — settle() ends the widget's life — so this can only fire for a
-        // challenge left unsolved on screen.
-        "expired-callback": () => settle(null),
-        // The person was shown a challenge and did not finish it in the time
-        // Cloudflare allows.
-        "timeout-callback": () => settle(null),
-        "before-interactive-callback": () => {
-          wentInteractive = true;
-          showOverlay();
-        },
-        // Fires when the interactive part is done — whether it was solved or
-        // abandoned. The token (if there is one) arrives separately through
-        // `callback`, so this only puts the screen back.
-        "after-interactive-callback": () => {
-          if (!wentInteractive) return;
-          wentInteractive = false;
-          hideOverlay();
-        },
-      });
-    } catch {
-      settle(null);
-    }
-  });
+  const mint = ensureMint(action);
+  // Somebody is waiting on this one now, so a challenge may take the screen —
+  // including one a prewarm already prepared and deliberately kept hidden.
+  mint.markHot();
+  const token = await mint.promise;
+  cache.delete(action);
+  return token;
 }

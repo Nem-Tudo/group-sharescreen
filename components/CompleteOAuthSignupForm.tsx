@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "@/lib/AuthContext";
 import { trackEvent } from "@/lib/analytics";
+import { prewarmCaptcha } from "@/lib/turnstile";
 import type { OAuthProviderId } from "@/lib/oauthApi";
 
 // Mirrors server-side validation (see the API's USERNAME_RE) — duplicated
@@ -52,6 +53,14 @@ export function CompleteOAuthSignupForm({
   const [displayName, setDisplayName] = useState(suggestedDisplayName);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // Mint the captcha token while this form is being filled in, not when it is
+  // submitted. Turnstile does its work when its widget renders, so asking for
+  // a token at submit time puts a second or two between the button and
+  // anything happening; the seconds somebody spends typing confirming the suggested name are free.
+  useEffect(() => {
+    prewarmCaptcha("oauth_signup");
+  }, []);
 
   // This step used to be the worst place in the app to be refused by the
   // captcha: the provider has already been through its consent screen, the

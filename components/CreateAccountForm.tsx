@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { checkUsernameAvailable, type UsernameCheck } from "@/lib/accountApi";
 import { useAuth } from "@/lib/AuthContext";
 import { trackEvent } from "@/lib/analytics";
+import { prewarmCaptcha } from "@/lib/turnstile";
 import { OAuthButtons } from "./OAuthButtons";
 import { CompleteOAuthSignupForm } from "./CompleteOAuthSignupForm";
 import type { OAuthResult } from "@/lib/oauthApi";
@@ -69,6 +70,14 @@ export function CreateAccountForm({
   // Tagged with the username it answers, so a reply for two keystrokes ago is
   // never shown under a different word.
   const [usernameCheck, setUsernameCheck] = useState<UsernameCheck | null>(null);
+
+  // Mint the captcha token while this form is being filled in, not when it is
+  // submitted. Turnstile does its work when its widget renders, so asking for
+  // a token at submit time puts a second or two between the button and
+  // anything happening; the seconds somebody spends typing choosing a username are free.
+  useEffect(() => {
+    prewarmCaptcha("register_account");
+  }, []);
 
   const trimmedUsername = username.trim();
   const usernameWellFormed = USERNAME_RE.test(trimmedUsername);

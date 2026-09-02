@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { adminLogin, adminLogout, useAdminToken } from "@/lib/adminApi";
+import { prewarmCaptcha } from "@/lib/turnstile";
 import { DashboardPanel } from "./DashboardPanel";
 
 // Site administration: statistics, announcements, partners, supporters, the
@@ -20,6 +21,14 @@ export default function AdminPage() {
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loggingIn, setLoggingIn] = useState(false);
+
+  // Mint the captcha token while this form is being filled in, not when it is
+  // submitted. Turnstile does its work when its widget renders, so asking for
+  // a token at submit time puts a second or two between the button and
+  // anything happening; the seconds somebody spends typing credentials are free.
+  useEffect(() => {
+    prewarmCaptcha("login");
+  }, []);
 
   // No captcha branch here any more: adminLogin mints a Turnstile token on the
   // way out, and Cloudflare shows a challenge itself if it wants one, before

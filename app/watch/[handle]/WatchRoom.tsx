@@ -81,6 +81,7 @@ import { PartnerCard } from "@/components/PartnerCard";
 import { SupportersTooltipContent } from "@/components/SupportersTooltip";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { CreateAccountForm } from "@/components/CreateAccountForm";
+import { prewarmCaptcha } from "@/lib/turnstile";
 import { RoomAccountCard } from "@/components/RoomAccountCard";
 import { LoginForm } from "@/components/LoginForm";
 import { VideoSourceTile } from "@/components/VideoSourceTile";
@@ -842,6 +843,17 @@ export function WatchRoom({ handle }: { handle: string }) {
   // for a public room, and for a private one predating the code scheme.
   const privateRoomParts = splitPrivateRoomHandle(handle);
   const screenShareMode = useScreenShareMode();
+
+  // Start minting a captcha token now rather than when the join fires. There
+  // is real time between this page mounting and a join — resolving the
+  // account, opening the socket, and often somebody typing a name — and
+  // Turnstile does its work when its widget is rendered, not when the script
+  // loads (unlike the reCAPTCHA this replaced, where a token was a ~200ms
+  // lookup of an assessment the page had already done). Spending that window
+  // is the difference between joining instantly and watching a spinner.
+  useEffect(() => {
+    prewarmCaptcha("join_room");
+  }, []);
 
   const {
     isSharing,

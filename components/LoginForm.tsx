@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "@/lib/AuthContext";
 import { trackEvent } from "@/lib/analytics";
+import { prewarmCaptcha } from "@/lib/turnstile";
 import { OAuthButtons } from "./OAuthButtons";
 import { CompleteOAuthSignupForm } from "./CompleteOAuthSignupForm";
 import type { OAuthResult } from "@/lib/oauthApi";
@@ -45,6 +46,14 @@ export function LoginForm({
   const [oauthTicket, setOAuthTicket] = useState<
     Extract<OAuthResult, { kind: "ticket" }> | null
   >(null);
+
+  // Mint the captcha token while this form is being filled in, not when it is
+  // submitted. Turnstile does its work when its widget renders, so asking for
+  // a token at submit time puts a second or two between the button and
+  // anything happening; the seconds somebody spends typing a password are free.
+  useEffect(() => {
+    prewarmCaptcha("login");
+  }, []);
 
   // No captcha branch here any more: login() mints a Turnstile token on the
   // way out, and Cloudflare shows this person a challenge itself if it wants

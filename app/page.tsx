@@ -27,6 +27,7 @@ import type { OAuthResult } from "@/lib/oauthApi";
 import { GlobeIcon } from "@/components/icons";
 import { DownloadAppButton } from "@/components/DownloadAppButton";
 import { RecentRooms } from "@/components/RecentRooms";
+import { prewarmCaptcha } from "@/lib/turnstile";
 import { MdLock, MdOutlineMap } from "react-icons/md";
 import { SocialLinks } from "@/components/SocialLinks";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -84,6 +85,18 @@ export default function Home() {
   const state = useSignaling();
   const router = useRouter();
   const { loading: resolvingAccount } = useAuth();
+
+
+  // Start minting a captcha token now rather than when the join fires. There
+  // is real time between this page mounting and a join — resolving the
+  // account, opening the socket, and often somebody typing a name — and
+  // Turnstile does its work when its widget is rendered, not when the script
+  // loads (unlike the reCAPTCHA this replaced, where a token was a ~200ms
+  // lookup of an assessment the page had already done). Spending that window
+  // is the difference between joining instantly and watching a spinner.
+  useEffect(() => {
+    prewarmCaptcha("join_room");
+  }, []);
 
   // One shared poller for the whole page rather than one per component — see
   // lib/peopleOnline.ts for why that mattered enough to be worth a module.
