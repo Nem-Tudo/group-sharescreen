@@ -7,6 +7,7 @@ import { MdMonitor, MdOutlineMap } from "react-icons/md";
 import { GlobeIcon } from "@/components/icons";
 import { AccountMenu } from "@/components/AccountMenu";
 import { ThemeMenuButton } from "@/components/ThemeToggle";
+import { UpdateAppButton } from "@/components/UpdateAppButton";
 
 // The site's top bar: everything GoLive offers besides the room form itself,
 // in one place, on every page that isn't a room.
@@ -115,6 +116,13 @@ export function SiteHeader() {
           {/* Renders nothing until there is a name to show, so the bar looks
               the same on a first visit as it always did. */}
           <AccountMenu />
+          {/* Same for this one, twice over: nothing in a browser, and nothing
+              in the desktop app until an update has finished downloading. It
+              used to live only in the room's own header, which meant the one
+              moment somebody was *not* in a call — the moment an update is
+              least disruptive to apply — was the one moment they could not
+              reach the button. */}
+          <UpdateAppButton />
         </nav>
       </div>
     </header>

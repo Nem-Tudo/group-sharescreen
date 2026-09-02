@@ -843,6 +843,84 @@ function safeProtocol(url: string): string {
   }
 }
 
+// ─── Coming back to where you were after an update ───────────────────────
+//
+// Applying an update is a quit and a relaunch, and a relaunch used to mean
+// the home page. Pressing "atualizar" from a room therefore cost the room:
+// the very thing the button is meant to be cheap enough to press at any time
+// was the most expensive thing to press while actually using the app.
+//
+// So the URL is written down on the way out and read back on the way in.
+// Three rules keep that from resurrecting something stale:
+//
+//   - it is written *only* by the update path. A normal quit leaves nothing,
+//     because reopening the app by hand is a fresh start and somebody who
+//     closed the app on a room did not necessarily mean to go back to it.
+//   - it is consumed on read, file deleted, so it applies to exactly the one
+//     launch that follows the update.
+//   - it expires. An install that fails and is opened again days later must
+//     not drop somebody into a call that ended a long time ago.
+const RESUME_FILE_NAME = "resume-url.json";
+
+// The gap between "quit to install" and "the new version is on screen".
+// Seconds in practice; ten minutes is generous enough to survive a slow
+// installer and short enough that nothing else could reasonably be inside it.
+const RESUME_MAX_AGE_MS = 10 * 60 * 1000;
+
+function resumeFilePath(): string {
+  return path.join(app.getPath("userData"), RESUME_FILE_NAME);
+}
+
+// Called just before the installer takes over — see initAutoUpdater's
+// onInstallRequested, which is the only caller and deliberately the only
+// moment this is written.
+function saveResumeUrl() {
+  try {
+    const current = mainWindow?.webContents.getURL();
+    if (!current) return;
+    const url = new URL(current);
+    // Only ever our own site. will-navigate already guarantees it, but this
+    // value is read back to decide what the next launch loads, so it is
+    // checked at the point of use rather than assumed from somewhere else.
+    if (url.origin !== APP_ORIGIN) return;
+    // The one page nobody wants to be returned to: it exists to hand a login
+    // result over and immediately move on, so restoring it would restore a
+    // spinner waiting on a callback that already happened.
+    if (url.pathname.startsWith("/oauth/")) return;
+    fs.writeFileSync(resumeFilePath(), JSON.stringify({ url: current, savedAt: Date.now() }));
+  } catch {
+    // Best-effort: worst case the app comes back on the home page, which is
+    // what it always did.
+  }
+}
+
+/** The URL to reopen, if the last quit was an update and it was recent. */
+function takeResumeUrl(): string | null {
+  const file = resumeFilePath();
+  let raw: string;
+  try {
+    raw = fs.readFileSync(file, "utf8");
+  } catch {
+    return null;
+  }
+  // Deleted before it is even parsed, so a malformed file cannot make every
+  // future launch try to read it again.
+  try {
+    fs.unlinkSync(file);
+  } catch {
+    // Nothing to do; the age check below is the other half of this guard.
+  }
+  try {
+    const { url, savedAt } = JSON.parse(raw) as { url?: unknown; savedAt?: unknown };
+    if (typeof url !== "string" || typeof savedAt !== "number") return null;
+    if (Date.now() - savedAt > RESUME_MAX_AGE_MS) return null;
+    if (new URL(url).origin !== APP_ORIGIN) return null;
+    return url;
+  } catch {
+    return null;
+  }
+}
+
 // Where the uninstaller looks for this installation's id. Windows only,
 // because it is the only platform whose installer can run anything on the
 // way out: NSIS has a customUnInstall hook (see electron/build/installer.nsh),
@@ -1026,14 +1104,19 @@ if (!gotLock) {
     if (initialLink) {
       handleDeepLink(initialLink);
     }
+    // Read unconditionally, and therefore deleted unconditionally, even when
+    // a deep link is about to win: a launch that went somewhere else has
+    // answered the question of where this launch belongs, and leaving the
+    // file behind would let it answer the *next* one too.
+    const resumeUrl = takeResumeUrl();
     // Still needed when the link was not a room one (an OAuth callback that
     // launched the app, or no link at all) — openRoom creates the window
     // itself, so this must not make a second one.
-    if (!mainWindow) createWindow();
+    if (!mainWindow) createWindow(resumeUrl ?? undefined);
 
     // Keeps the shell current. The website updates itself by being loaded
     // fresh; this is for the code that ships inside the executable.
-    initAutoUpdater(APP_URL);
+    initAutoUpdater(APP_URL, { onInstallRequested: saveResumeUrl });
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();

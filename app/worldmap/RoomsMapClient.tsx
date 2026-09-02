@@ -4,6 +4,7 @@ import Link from "next/link";
 import { WorldMap } from "@/components/WorldMap";
 import { GlobeIcon } from "@/components/icons";
 import { ThemeMenuButton } from "@/components/ThemeToggle";
+import { UpdateAppButton } from "@/components/UpdateAppButton";
 import { usePublicRoomMarkers } from "@/lib/usePublicRoomMarkers";
 
 export function RoomsMapClient() {
@@ -43,6 +44,7 @@ export function RoomsMapClient() {
               follow the theme (see WorldMapImpl) — so this is exactly where
               someone would want to change it. */}
           <ThemeMenuButton />
+          <UpdateAppButton />
           <Link
             href="/rooms"
             className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"

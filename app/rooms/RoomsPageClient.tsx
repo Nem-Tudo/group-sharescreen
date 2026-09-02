@@ -5,6 +5,7 @@ import Link from "next/link";
 import { fetchPublicRooms, roomActivity, type PublicRoom } from "@/lib/roomsApi";
 import { Tooltip } from "@/components/Tooltip";
 import { ThemeMenuButton } from "@/components/ThemeToggle";
+import { UpdateAppButton } from "@/components/UpdateAppButton";
 import { CameraIcon, MicIcon, ScreenIcon, VideoSourceIcon } from "@/components/icons";
 import { roomCategory } from "@/lib/roomCategories";
 
@@ -141,6 +142,9 @@ export function RoomsPageClient() {
               lib/theme.ts); this is just another place to reach it. */}
           <div className="flex shrink-0 items-center gap-1.5">
             <ThemeMenuButton />
+            {/* Same reasoning as the theme switch beside it: no SiteHeader
+                here to carry it, and this is a page people leave open. */}
+            <UpdateAppButton />
             <Link
               href="/"
               className="shrink-0 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"

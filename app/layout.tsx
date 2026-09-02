@@ -4,7 +4,6 @@ import Script from "next/script";
 import { AnnouncementBanner } from "@/components/AnnouncementBanner";
 import { CapacitorBridge } from "@/components/CapacitorBridge";
 import { InstallAppButton } from "@/components/InstallAppButton";
-import { UpdateAppButton } from "@/components/UpdateAppButton";
 import { AuthProvider } from "@/lib/AuthContext";
 import { PresenceReporter } from "@/components/PresenceReporter";
 import { NtPopups } from "@/components/NtPopups";

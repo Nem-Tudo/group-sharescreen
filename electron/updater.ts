@@ -274,7 +274,17 @@ function check() {
   });
 }
 
-export function initAutoUpdater(appUrl: string) {
+/**
+ * `onInstallRequested` runs in the moment between the user pressing the
+ * button and the app being torn down, which is the last point at which
+ * anything can still be read out of the running window. main.ts uses it to
+ * write down where to come back to; passed in rather than reached for here
+ * because this module knows about releases and not about windows.
+ */
+export function initAutoUpdater(
+  appUrl: string,
+  { onInstallRequested }: { onInstallRequested?: () => void } = {}
+) {
   downloadUrl = new URL("/download", appUrl).toString();
 
   // Registered before the isPackaged bail-out below so the renderer's query
@@ -296,6 +306,9 @@ export function initAutoUpdater(appUrl: string) {
   });
   ipcMain.on(IPC.updateInstall, () => {
     if (!pendingVersion) return;
+    // Before install(), which quits: anything that needs the live window has
+    // to happen while there still is one.
+    onInstallRequested?.();
     install(pendingVersion);
   });
 
