@@ -49,6 +49,7 @@ import {
 // bundles into the main process without dragging the app in with it.
 import { desktopOAuthNonce } from "../lib/desktop";
 import { initAutoUpdater } from "./updater";
+import { getSavedShareSource, saveShareSource } from "./shareSource.js";
 import {
   getSystemAudioSettings,
   normalizeMutedApps,
@@ -222,6 +223,58 @@ interface PickResult {
 // open window and every program running on the machine, which is a meaningful
 // amount of information about the user, and remote content has no business
 // seeing it before a choice is made.
+/**
+ * One-shot: the next getDisplayMedia should reuse the last source instead of
+ * opening the picker.
+ *
+ * A flag rather than an argument because the renderer cannot pass anything to
+ * this handler — it calls the standard getDisplayMedia, and the shell only
+ * hears about it through setDisplayMediaRequestHandler. Armed over IPC just
+ * before that call, and cleared by the first request that reads it, so a
+ * shortcut cannot silently arm every future share.
+ */
+let reuseSavedSourceOnce = false;
+
+/**
+ * The saved source, matched against what is actually open now — or null.
+ *
+ * Two passes, in this order, and the order is the whole of it. An exact id is
+ * the same surface with certainty. A name match is a guess that is right
+ * almost always for a window whose id went stale across a restart, and can be
+ * wrong — two windows of the same application often share a title. So it is
+ * only ever reached when the certain answer is not available.
+ *
+ * A screen that has been unplugged and a window that has been closed both
+ * return null here, which puts the picker back. That is the right failure:
+ * silently sharing a *different* monitor because it happened to inherit the
+ * id would be worse than asking.
+ */
+function matchSavedSourceIn(sources: DesktopCapturerSource[]): DesktopCapturerSource | null {
+  const saved = getSavedShareSource();
+  if (!saved) return null;
+  const byId = sources.find((source) => source.id === saved.id);
+  if (byId) return byId;
+  if (!saved.name) return null;
+  return (
+    sources.find(
+      (source) =>
+        source.name === saved.name && source.id.startsWith(`${saved.kind}:`)
+    ) ?? null
+  );
+}
+
+async function resolveSavedShareSource(): Promise<DesktopCapturerSource | null> {
+  if (!getSavedShareSource()) return null;
+  const sources = await desktopCapturer.getSources({
+    types: ["screen", "window"],
+    // No thumbnails and no icons: nothing is being drawn, and asking for a
+    // bitmap of every open window is the expensive part of this call — the
+    // point of skipping the picker is that this path is instant.
+    thumbnailSize: { width: 0, height: 0 },
+  });
+  return matchSavedSourceIn(sources);
+}
+
 async function pickSource(parent: BrowserWindow | null): Promise<PickResult> {
   const sources = await desktopCapturer.getSources({
     types: ["screen", "window"],
@@ -260,6 +313,10 @@ async function pickSource(parent: BrowserWindow | null): Promise<PickResult> {
   }));
 
   const data: PickerData = {
+    // Pre-selects the last shared surface when it is still on this list —
+    // see PickerData.selectedId. Matched here, where both the saved value
+    // and the live list are in hand.
+    selectedId: matchSavedSourceIn(sources)?.id ?? null,
     sources: payload,
     audio: {
       // Electron's loopback capture is a Windows capability; on macOS and
@@ -394,10 +451,81 @@ function mergeMutedApps(audio: NonNullable<PickerChoice["audio"]>): string[] {
   return [...new Set([...kept, ...normalizeMutedApps(audio.muted)])];
 }
 
+function installShareSourceHandlers() {
+  // invoke/handle rather than send: the renderer waits for the answer before
+  // calling getDisplayMedia, both so the arming cannot land *after* the
+  // request it was meant for, and so it can tell whether a picker is about to
+  // appear.
+  ipcMain.handle(IPC.shareUseSaved, async () => {
+    const source = await resolveSavedShareSource();
+    // Only armed when there is genuinely something to reuse. Arming
+    // optimistically would leave the flag set for whatever share came next
+    // if this one never happened.
+    reuseSavedSourceOnce = source !== null;
+    return reuseSavedSourceOnce;
+  });
+}
+
 function installDisplayMediaHandler() {
   session.defaultSession.setDisplayMediaRequestHandler(
     (request, callback) => {
+      // Every path out of this handler goes through `answer`, for two
+      // reasons that both showed up as bugs.
+      //
+      // It must happen exactly once: getDisplayMedia is waiting on it, and
+      // answering twice is as wrong as not answering at all.
+      //
+      // And it must not throw. Electron 38 raises "Video was requested, but
+      // no video stream was provided" straight out of the callback when the
+      // request asked for video and the answer carries none — which is
+      // precisely how a *denial* is spelled here, so closing the picker threw
+      // every time. Inside the async function below that became an
+      // UnhandledPromiseRejectionWarning in the console: noise rather than
+      // breakage (the denial itself lands, and the renderer gets its
+      // NotAllowedError), but noise that hid anything genuinely wrong.
+      let answered = false;
+      const answer = (streams: Electron.Streams) => {
+        if (answered) return;
+        answered = true;
+        try {
+          callback(streams);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          // The denial complaint above, and only that. Anything else is a
+          // real fault and gets said out loud rather than swallowed with it.
+          if (!message.includes("no video stream was provided")) {
+            console.error("[golive] Falha ao responder ao pedido de captura:", message);
+          }
+        }
+      };
+
       void (async () => {
+        // Armed by the renderer immediately before this call, for the global
+        // shortcut (see IPC.shareUseSaved). Read and cleared here whatever
+        // the outcome: if the saved surface is gone, this falls through to
+        // the picker rather than staying armed for a later share nobody
+        // asked to be silent.
+        const reuseSaved = reuseSavedSourceOnce;
+        reuseSavedSourceOnce = false;
+        if (reuseSaved) {
+          const savedSource = await resolveSavedShareSource();
+          if (savedSource) {
+            answer({
+              video: savedSource,
+              // The same conditions as the picker path below — see its
+              // comment. Nothing about reusing a source changes what the
+              // audio may be.
+              audio:
+                request.audioRequested &&
+                  (process.platform === "win32" || process.platform === "linux") &&
+                  !isSystemAudioCapturing() &&
+                  getSystemAudioSettings().enabled
+                  ? "loopback"
+                  : undefined,
+            });
+            return;
+          }
+        }
         const { source, audio } = await pickSource(mainWindow);
         // Saved only on a confirmed share. Dismissing the picker calls the
         // whole thing off, and a setting the user changed on their way to
@@ -412,15 +540,26 @@ function installDisplayMediaHandler() {
         if (source && audio) {
           applySystemAudioSettings(saveSystemAudioSettings(audio));
         }
+        // Remembered on a confirmed share only, for the same reason the audio
+        // settings are: a source highlighted on the way to pressing cancel
+        // was never shared, and offering it back as "the last one" would be
+        // remembering a decision nobody made.
+        if (source) {
+          saveShareSource({
+            id: source.id,
+            name: source.name,
+            kind: source.id.startsWith("window:") ? "window" : "screen",
+          });
+        }
         if (!source) {
           // An empty result surfaces in the renderer as the same
           // NotAllowedError a browser raises when the picker is dismissed,
           // which the web app already treats as a silent cancel rather than
           // an error worth showing.
-          callback({});
+          answer({});
           return;
         }
-        callback({
+        answer({
           video: source,
           // System audio, and only where it actually exists. Electron's
           // loopback capture is a Windows capability; on macOS and Linux
@@ -456,7 +595,16 @@ function installDisplayMediaHandler() {
               ? "loopback"
               : undefined,
         });
-      })();
+      })().catch((err) => {
+        // Anything that went wrong on the way to an answer — the source list
+        // failing, the picker window dying, the saved-source lookup throwing.
+        // Before this, such a throw left getDisplayMedia waiting forever and
+        // the site stuck on a share that never starts or fails. Denying is
+        // the honest outcome: the renderer treats it as a cancelled picker,
+        // which is what the person will have seen.
+        console.error("[golive] Pedido de captura falhou:", err);
+        answer({});
+      });
     },
     // Prefer the OS's own picker where one exists (macOS 15+, and Windows
     // as support lands): it is the interface the user already knows, it can
@@ -778,6 +926,7 @@ if (!gotLock) {
 
     installPermissionHandlers();
     installDisplayMediaHandler();
+  installShareSourceHandlers();
     installChunkRecovery();
 
     ipcMain.handle(IPC.oauthStart, (_event, startUrl: unknown, nonce: unknown) => {

@@ -76,6 +76,15 @@ export const IPC = {
   shortcutsSet: "golive:shortcuts:set",
   /** main -> renderer: a registered global shortcut fired. */
   shortcutsTriggered: "golive:shortcuts:triggered",
+  /**
+   * renderer -> main: the next getDisplayMedia should reuse the last shared
+   * source instead of opening the picker.
+   *
+   * Answers whether there is one to reuse, so the caller knows whether the
+   * share it is about to start will be silent or will still put a window on
+   * screen. A one-shot: main clears it on the first request that reads it.
+   */
+  shareUseSaved: "golive:share:use-saved",
 } as const;
 
 /**
@@ -141,6 +150,17 @@ export interface PickerAudioApp {
 /** Everything the picker window needs to draw itself. */
 export interface PickerData {
   sources: PickerSource[];
+  /**
+   * The source id to open pre-selected — the last one shared, resolved
+   * against this very list, or null when there is nothing remembered or it is
+   * no longer on screen.
+   *
+   * Resolved in main rather than sent as "whatever was saved", because a
+   * saved id can be stale (a window's id is rebuilt from its OS handle every
+   * launch) and the picker has no way to tell a stale id from an absent one.
+   * What arrives here is always something in `sources`.
+   */
+  selectedId: string | null;
   audio: {
     /**
      * Whether a share on this machine can carry system audio at all. False

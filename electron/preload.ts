@@ -76,6 +76,20 @@ contextBridge.exposeInMainWorld("golive", {
     }
   },
 
+  /**
+   * Asks the shell to reuse the last shared screen/window for the very next
+   * getDisplayMedia, skipping the picker. Resolves true when there was one to
+   * reuse — false means the picker will open as usual, which is what happens
+   * before anything has ever been shared, or when the saved monitor has been
+   * unplugged since.
+   *
+   * Must be awaited immediately before getDisplayMedia: it is a one-shot on
+   * the other side, spent by the first request that reads it.
+   */
+  useSavedShareSource(): Promise<boolean> {
+    return ipcRenderer.invoke(IPC.shareUseSaved) as Promise<boolean>;
+  },
+
   onGlobalShortcut(callback: unknown): () => void {
     if (typeof callback !== "function") return () => {};
     const listener = (_event: unknown, action: unknown) => {

@@ -517,6 +517,17 @@
 
         window.picker.list().then(function (data) {
           sources = data.sources;
+          // The surface this machine shared last, when it is still open (main
+          // resolves it against this very list, so anything that arrives here
+          // is real — see PickerData.selectedId). Pre-selecting it makes the
+          // common case one keypress: the picker opens on the monitor you
+          // always share, already chosen, and Enter confirms it.
+          selectedId = data.selectedId || null;
+          // Enabled here as well as on a card click, which is where it used
+          // to be enabled exclusively — a pre-selected source would otherwise
+          // look chosen above a Confirmar nobody could press, and the one
+          // keypress this feature is for would do nothing.
+          confirmBtn.disabled = !selectedId;
 
           audioToggle.checked = data.audio.enabled;
           audioRow.hidden = !data.audio.supported;
@@ -525,10 +536,25 @@
           gear.hidden = !data.audio.perApp;
           syncAudioControls();
 
+          // Open on the tab holding the pre-selected source, so a remembered
+          // *window* is visible rather than selected behind the Telas tab
+          // with nothing on screen looking chosen.
+          var preselected = selectedId
+            ? sources.filter(function (s) {
+                return s.id === selectedId;
+              })[0]
+            : null;
+          if (preselected && preselected.kind === "window") {
+            tab = "window";
+            Array.prototype.forEach.call(document.querySelectorAll("nav button"), function (b) {
+              b.setAttribute("aria-selected", String(b.getAttribute("data-tab") === "window"));
+            });
+          }
           // Open on whichever tab actually has something in it, so a machine
           // with a single screen and many windows does not start on a view
           // that looks empty.
           if (
+            !preselected &&
             !sources.some(function (s) {
               return s.kind === "screen";
             })
@@ -539,6 +565,16 @@
             });
           }
           render();
+          // Brought into view after the cards exist. A remembered window can
+          // be well down a long list, and a selection nobody can see is the
+          // same as no selection — worse, because Enter would then confirm
+          // something off screen.
+          if (selectedId) {
+            var chosen = document.querySelector('.card[aria-selected="true"]');
+            if (chosen && chosen.scrollIntoView) {
+              chosen.scrollIntoView({ block: "nearest" });
+            }
+          }
         });
       })();
     </script>

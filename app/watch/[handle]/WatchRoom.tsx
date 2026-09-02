@@ -52,6 +52,8 @@ import {
   playMicOffSound,
   playDeafenSound,
   playUndeafenSound,
+  playShareStartSound,
+  playShareStopSound,
 } from "@/lib/soundEffects";
 import { qualityNegotiator } from "@/lib/qualityNegotiation";
 import { TURN_CONFIGURED } from "@/lib/iceConfig";
@@ -87,7 +89,7 @@ import { MusicBar } from "@/components/MusicBar";
 import { LocalMediaControls, RemoteMediaControls } from "@/components/LocalMediaControls";
 import { LocalMusicBar, RemoteMusicBar } from "@/components/LocalMusicBar";
 import { MemberActionsMenu, type MemberActions } from "@/components/MemberActionsModal";
-import { isDesktopApp, isMobileApp } from "@/lib/desktop";
+import { isDesktopApp, isMobileApp, armSavedShareSource } from "@/lib/desktop";
 import { PartnerCard } from "@/components/PartnerCard";
 import { SupportersTooltipContent } from "@/components/SupportersTooltip";
 import { DisplayUserName } from "@/components/DisplayUserName";
@@ -1095,6 +1097,33 @@ export function WatchRoom({ handle }: { handle: string }) {
     else playMicOffSound();
   }, [isMicOn]);
 
+  // Your own transmissions, the same way the mic pair works and for the same
+  // reason: these are toggled by a global shortcut fired from inside a game,
+  // where nothing on screen confirms that anything happened.
+  //
+  // The two channels share one pair of sounds rather than having four. What
+  // the sound reports is "a transmission of yours started/stopped", and which
+  // one it was is not something a chime can say better than the tile that
+  // appears a moment later. Starting both does chime twice, which is right —
+  // two things started.
+  const screenSharingSoundRef = useRef(Boolean(localStream));
+  useEffect(() => {
+    const sharing = Boolean(localStream);
+    if (screenSharingSoundRef.current === sharing) return;
+    screenSharingSoundRef.current = sharing;
+    if (sharing) playShareStartSound();
+    else playShareStopSound();
+  }, [localStream]);
+
+  const cameraSharingSoundRef = useRef(Boolean(localCameraStream));
+  useEffect(() => {
+    const sharing = Boolean(localCameraStream);
+    if (cameraSharingSoundRef.current === sharing) return;
+    cameraSharingSoundRef.current = sharing;
+    if (sharing) playShareStartSound();
+    else playShareStopSound();
+  }, [localCameraStream]);
+
   const micsMutedSoundRef = useRef(micsMuted);
   useEffect(() => {
     // Only an actual change of the deafen state does anything here. The guard
@@ -1876,8 +1905,26 @@ export function WatchRoom({ handle }: { handle: string }) {
       toggleDeafen: toggleMicsMuted,
       toggleMute: handleToggleMic,
       toggleScreenShare: () => {
-        if (localStream) stopShare();
-        else if (screenShareMode === "display" && !screenBlockedReason) startShare("display");
+        if (localStream) {
+          stopShare();
+          return;
+        }
+        if (screenShareMode !== "display" || screenBlockedReason) return;
+        // The shortcut's whole point is not having to be at the app. Opening
+        // the source picker put a window in front of somebody who is inside a
+        // game and cannot see it — so this reuses the last screen/window
+        // instead, and the shell only falls back to the picker when there is
+        // nothing to reuse (see lib/desktop's armSavedShareSource).
+        //
+        // Awaited before startShare, not alongside it: the arming is a
+        // one-shot read by the getDisplayMedia that startShare is about to
+        // make, so racing them would let the request arrive first and open
+        // the picker anyway.
+        //
+        // Deliberately only here. Pressing the button is being at the app,
+        // looking at it, having chosen to — that is exactly when being asked
+        // which screen is the right thing to happen.
+        void armSavedShareSource().then(() => startShare("display"));
       },
       toggleCamera: () => {
         if (localCameraStream) stopCameraShare();

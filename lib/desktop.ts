@@ -50,6 +50,15 @@ export interface DesktopBridge {
   // check anywhere in the site's own code.
   readonly platform: "darwin" | "win32" | "linux" | "android";
   /**
+   * Reuse the last shared screen/window for the very next getDisplayMedia,
+   * instead of opening the picker. Resolves whether there was one to reuse.
+   *
+   * Optional because the shell is loaded live and an older build will not
+   * have it — every caller has to treat its absence as "no", which is also
+   * exactly the old behaviour.
+   */
+  readonly useSavedShareSource?: () => Promise<boolean>;
+  /**
    * Opens `startUrl` in the user's *real* browser and resolves with the URL
    * fragment the OAuth flow eventually hands back through the app's custom
    * protocol — or null if it was cancelled or timed out.
@@ -173,4 +182,25 @@ export function createOAuthNonce(): string {
   let out = "";
   for (const b of bytes) out += b.toString(16).padStart(2, "0");
   return out;
+}
+
+/**
+ * Asks the desktop shell to start the next screen share from the last one's
+ * source, with no picker.
+ *
+ * Resolves false anywhere that cannot do it — a browser, the Android shell, a
+ * desktop build from before this existed, or a first share with nothing saved
+ * — and false simply means the picker opens, which is what always happened.
+ */
+// "arm", not "use": a `use` prefix is reserved for React hooks, and this is a
+// plain async call made from an event handler — named otherwise, every lint
+// rule about hook ordering would apply to it and none of them would be right.
+export async function armSavedShareSource(): Promise<boolean> {
+  const bridge = getDesktopBridge();
+  if (!bridge?.useSavedShareSource) return false;
+  try {
+    return await bridge.useSavedShareSource();
+  } catch {
+    return false;
+  }
 }
