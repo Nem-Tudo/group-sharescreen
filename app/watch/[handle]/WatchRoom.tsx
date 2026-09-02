@@ -2104,6 +2104,34 @@ export function WatchRoom({ handle }: { handle: string }) {
     if (nextCamera) setCameraDevice(nextCamera.deviceId);
   }
 
+  // On a phone the switch is driven by facingMode, not by the device list
+  // above — and that is not a preference, it is the only thing that works.
+  // The Android shell's WebView does not enumerate the phone's lenses as
+  // separate video inputs the way mobile Chrome does, so `cameraDevices`
+  // comes back with one entry and the button that gated on `length > 1`
+  // simply never appeared in the app. It appeared in the browser, which is
+  // exactly the shape of the bug that was reported.
+  //
+  // facingMode asks for "the one pointing the other way" and lets the
+  // platform resolve it, with no enumeration and no labels — see
+  // useRoomMedia's setCameraFacing. Used for every phone rather than only the
+  // app, so both behave the same and the label says something a person
+  // recognises ("usar a câmera traseira") instead of "camera2 0, facing back".
+  const flipsByFacing = onPhone;
+  const canSwitchCamera = flipsByFacing || cameraDevices.length > 1;
+  const switchCameraLabel = flipsByFacing
+    ? cameraFacing === "environment"
+      ? "Usar a câmera frontal"
+      : "Usar a câmera traseira"
+    : nextCameraLabel;
+  function switchCamera() {
+    if (flipsByFacing) {
+      setCameraFacing(cameraFacing === "environment" ? "user" : "environment");
+      return;
+    }
+    switchToNextCamera();
+  }
+
   const canManageMusic = isRoomManager && Boolean(state.account);
   const musicBlockedReason = !isRoomManager
     ? "Só o dono e os administradores da sala podem colocar música."
@@ -4545,18 +4573,18 @@ export function WatchRoom({ handle }: { handle: string }) {
                         aria-pressed={Boolean(localCameraStream)}
                         aria-label={localCameraStream ? "Parar câmera" : "Compartilhar câmera"}
                         className={`${DOCK_BUTTON} ${
-                          cameraDevices.length > 1 ? "rounded-r-none" : ""
+                          canSwitchCamera ? "rounded-r-none" : ""
                         } ${localCameraStream ? DOCK_LIVE : DOCK_ON}`}
                       >
                         <CameraIcon className="h-5 w-5" />
                       </button>
                     </Tooltip>
-                    {cameraDevices.length > 1 && (
-                      <Tooltip content={nextCameraLabel} wrapperClassName="flex">
+                    {canSwitchCamera && (
+                      <Tooltip content={switchCameraLabel} wrapperClassName="flex">
                         <button
                           type="button"
-                          onClick={switchToNextCamera}
-                          aria-label={nextCameraLabel}
+                          onClick={switchCamera}
+                          aria-label={switchCameraLabel}
                           className={`flex h-11 w-7 shrink-0 items-center justify-center rounded-r-xl text-white transition ${
                             localCameraStream ? DOCK_LIVE : DOCK_ON
                           }`}
