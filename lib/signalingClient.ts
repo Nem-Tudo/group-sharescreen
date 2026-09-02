@@ -126,6 +126,11 @@ export type PeerInfo = {
   // icon for these. Undefined for a peer sent by an older server version
   // that doesn't include it yet, treated the same as `false`.
   app?: boolean;
+  // On the GoLive Android app rather than a phone browser (see the server's
+  // peerSummary). Its own field beside `app` rather than a value inside it —
+  // ParticipantRow shows a phone icon for these and a monitor for those.
+  // Undefined from a server that predates it, read the same as `false`.
+  mobileApp?: boolean;
 };
 
 export type SignalingStatus = "idle" | "connecting" | "open" | "closed" | "superseded" | "banned";

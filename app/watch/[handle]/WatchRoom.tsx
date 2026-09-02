@@ -77,7 +77,7 @@ import { MusicBar } from "@/components/MusicBar";
 import { LocalMediaControls, RemoteMediaControls } from "@/components/LocalMediaControls";
 import { LocalMusicBar, RemoteMusicBar } from "@/components/LocalMusicBar";
 import { MemberActionsMenu, type MemberActions } from "@/components/MemberActionsModal";
-import { isDesktopApp } from "@/lib/desktop";
+import { isDesktopApp, isMobileApp } from "@/lib/desktop";
 import { PartnerCard } from "@/components/PartnerCard";
 import { SupportersTooltipContent } from "@/components/SupportersTooltip";
 import { DisplayUserName } from "@/components/DisplayUserName";
@@ -3326,7 +3326,8 @@ export function WatchRoom({ handle }: { handle: string }) {
         micsMuted={micsMuted}
         isOwner={isRoomOwner}
         isAdmin={isRoomAdmin}
-        isApp={mounted && isDesktopApp()}
+        isApp={mounted && isDesktopApp() && !isMobileApp()}
+        isMobileApp={mounted && isMobileApp()}
         verified={state.account?.flags?.includes("VERIFIED")}
         nameColor={account?.equippedNameColor}
         micOn={isMicOn}
@@ -3362,6 +3363,7 @@ export function WatchRoom({ handle }: { handle: string }) {
             isOwner={Boolean(p.userId) && p.userId === state.roomOwnerId}
             isAdmin={state.roomAdmins.some((a) => a.id === p.userId)}
             isApp={p.app}
+            isMobileApp={p.mobileApp}
             verified={p.flags?.includes("VERIFIED")}
             nameColor={p.nameColor}
             micOn={p.mic}

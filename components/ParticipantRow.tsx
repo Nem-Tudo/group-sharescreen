@@ -10,7 +10,11 @@ import {
   CameraIcon,
   HeadphonesOffIcon,
 } from "./icons";
-import { MdOutlineDesktopWindows, MdOutlineOndemandVideo } from "react-icons/md";
+import {
+  MdOutlineDesktopWindows,
+  MdOutlineOndemandVideo,
+  MdOutlineSmartphone,
+} from "react-icons/md";
 import { FaCrown } from "react-icons/fa";
 import { VolumeSlider } from "./VolumeSlider";
 import { DisplayUserName } from "./DisplayUserName";
@@ -39,6 +43,7 @@ export function ParticipantRow({
   isOwner = false,
   isAdmin = false,
   isApp = false,
+  isMobileApp = false,
   renderMenu,
   onContextMenu,
 }: {
@@ -91,6 +96,10 @@ export function ParticipantRow({
   // thing. False for anyone on the web, and for a peer sent by a server that
   // predates the field.
   isApp?: boolean;
+  // On the Android app. Mutually exclusive with isApp in practice (the server
+  // derives both from one platform value), but written as one branch so a
+  // client that somehow received both shows one icon rather than two.
+  isMobileApp?: boolean;
   // Right click opens the room's actions for this person (see
   // MemberActionsModal). Omitted where there are none to offer — for yourself,
   // and for anyone when this viewer does not run the room — so the browser's
@@ -184,12 +193,23 @@ export function ParticipantRow({
             </Tooltip>
           )
         )}
-        {isApp && (
-          <Tooltip content={`${name} está usando o aplicativo do GoLive`}>
+        {isApp ? (
+          <Tooltip content={`${name} está usando o aplicativo do GoLive no PC`}>
             <span className="flex shrink-0 items-center self-center">
               <MdOutlineDesktopWindows className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
             </span>
           </Tooltip>
+        ) : (
+          isMobileApp && (
+            <Tooltip content={`${name} está usando o aplicativo do GoLive no celular`}>
+              <span className="flex shrink-0 items-center self-center">
+                {/* Same size and colour as the desktop one on purpose: they
+                    are the same fact about a person, and a different colour
+                    would read as a different kind of thing. */}
+                <MdOutlineSmartphone className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
+              </span>
+            </Tooltip>
+          )
         )}
         {isSelf && <span className="shrink-0 text-xs font-normal text-zinc-500">(você)</span>}
       </span>

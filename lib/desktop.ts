@@ -135,6 +135,24 @@ export function isDesktopApp(): boolean {
   return getDesktopBridge() !== null;
 }
 
+/**
+ * Specifically the Android shell (see lib/capacitorBridge.ts), as opposed to
+ * the Electron one.
+ *
+ * Note what this is *not*: a narrowing of isDesktopApp() above, which stays
+ * true for both and means "a GoLive shell exists at all". Every consumer of
+ * that — the download button, the install prompt, the open-in-app banner —
+ * wants exactly that question, and answering it differently on Android would
+ * start offering the app to people already inside it.
+ *
+ * This one exists because the participant list does need to tell them apart:
+ * a phone icon and a monitor icon say different things about who is in the
+ * room.
+ */
+export function isMobileApp(): boolean {
+  return getDesktopBridge()?.platform === "android";
+}
+
 // Nonces come from the platform CSPRNG rather than Math.random: this value
 // is the only thing standing between a real login result and one injected by
 // another process on the same machine (see the prefix comment above).
