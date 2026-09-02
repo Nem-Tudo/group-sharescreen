@@ -26,6 +26,7 @@ export function ParticipantRow({
   isSelf = false,
   isGuest = false,
   userId,
+  onOpenProfile,
   micOn,
   micsMuted = false,
   sharing,
@@ -54,6 +55,11 @@ export function ParticipantRow({
   // viewable profile when the peer isn't a guest. Undefined for a peer sent
   // by an older server version that doesn't include it yet, same as isGuest.
   userId?: string;
+  // Open this person's profile without leaving the page. Given by the room,
+  // which renders it as a dialog over everything (see UserProfileDialog);
+  // where it is absent — the admin console, or any caller that has nowhere to
+  // put a dialog — the name stays the ordinary link to /user/[id] it was.
+  onOpenProfile?: (userId: string) => void;
   micOn: boolean;
   // They silenced everyone else's mic for themselves ("silenciar microfones").
   // Nothing about what they transmit — see PeerInfo.micsMuted.
@@ -171,7 +177,24 @@ export function ParticipantRow({
       }`}
     >
       <span className="flex min-w-0 items-baseline gap-1">
-        {canOpenProfile ? (
+        {canOpenProfile && onOpenProfile ? (
+          // A button, not a styled link: this goes nowhere, and marking it up
+          // as navigation would promise a middle-click and a "copy link
+          // address" that do not exist. The link below is still the right
+          // element for the case that really is navigation.
+          <button
+            type="button"
+            onClick={(e) => {
+              // The row itself may carry the moderation menu (see hasMenu) —
+              // opening a profile must not also open that.
+              e.stopPropagation();
+              onOpenProfile(userId as string);
+            }}
+            className="min-w-0 cursor-pointer text-left hover:underline"
+          >
+            {nameElement}
+          </button>
+        ) : canOpenProfile ? (
           <Link href={`/user/${userId}`} target="_blank" className="min-w-0 hover:underline">
             {nameElement}
           </Link>

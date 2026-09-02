@@ -87,6 +87,7 @@ import { DisplayUserName } from "@/components/DisplayUserName";
 import { CreateAccountForm } from "@/components/CreateAccountForm";
 import { RoomSkeleton } from "@/components/RoomSkeleton";
 import { MobileQualitySheet, type MobileQualityChoice } from "@/components/MobileQualitySheet";
+import { UserProfileDialog } from "@/components/UserProfileDialog";
 import { prewarmCaptcha } from "@/lib/turnstile";
 import { RoomAccountCard } from "@/components/RoomAccountCard";
 import { LoginForm } from "@/components/LoginForm";
@@ -1119,6 +1120,11 @@ export function WatchRoom({ handle }: { handle: string }) {
   // system floats whatever the page renders, so this has to happen in CSS
   // here rather than being something the native side could do.
   const [pipActive, setPipActive] = useState(false);
+  // Whose profile is open over the room, or null. Every screen size: the
+  // point of the dialog is not saving space, it is not losing the room you
+  // are in — which is if anything truer on a phone, where the alternative was
+  // a second tab to find your way back out of.
+  const [profileUserId, setProfileUserId] = useState<string | null>(null);
   // Android tells us when the floating window opens *and* when it closes —
   // the second one is what matters, since the person closing it or tapping
   // back into the app is not something this side could otherwise detect, and
@@ -3496,6 +3502,7 @@ export function WatchRoom({ handle }: { handle: string }) {
           <ParticipantRow
             key={p.id}
             name={withDeviceSuffix(p.name, p.userId, p.device, deviceCounts)}
+            onOpenProfile={setProfileUserId}
             isGuest={p.isGuest}
             userId={p.userId}
             micsMuted={p.micsMuted}
@@ -3643,6 +3650,7 @@ export function WatchRoom({ handle }: { handle: string }) {
         }
         peers={visiblePeers}
         deviceCounts={deviceCounts}
+        onOpenProfile={setProfileUserId}
         onSend={(text) => signalingClient.sendChatMessage(text)}
         onSendGif={
           state.account && !gifBlockedReason ? (url) => signalingClient.sendGif(url) : undefined
@@ -4170,6 +4178,10 @@ export function WatchRoom({ handle }: { handle: string }) {
       {/* Asked at the moment a phone starts transmitting, and nowhere else —
           see MobileQualitySheet for why this is a question rather than a
           setting on this one platform. */}
+      {profileUserId && (
+        <UserProfileDialog userId={profileUserId} onClose={() => setProfileUserId(null)} />
+      )}
+
       {qualityPrompt === "screen" && (
         <MobileQualitySheet
           currentResolution={shareResolution}

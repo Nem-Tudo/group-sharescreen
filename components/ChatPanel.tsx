@@ -134,6 +134,7 @@ export function ChatPanel({
   selfName,
   peers = [],
   deviceCounts,
+  onOpenProfile,
   onSend,
   onSendGif,
   onSendImages,
@@ -162,6 +163,10 @@ export function ChatPanel({
   // the count has to include it — otherwise your own second device would be
   // the one thing in the room that never says which one it is.
   deviceCounts: Map<string, number>;
+  // Open the sender's profile. Same handler the participant list gets — see
+  // ParticipantRow's own prop. Absent in the admin console's copy of this
+  // panel, where the names simply stay unclickable as they always were.
+  onOpenProfile?: (userId: string) => void;
   // Omitted for a read-only viewer (the admin moderation view) — hides the
   // input form instead of sending into a room the viewer isn't a member of.
   onSend?: (text: string) => void;
@@ -802,13 +807,38 @@ export function ChatPanel({
                 >
                   {!grouped && (
                     <div className="flex items-baseline gap-1.5">
-                      <DisplayUserName
-                        name={withDeviceSuffix(m.name, m.userId, m.device, deviceCounts)}
-                        isGuest={m.isGuest}
-                        verified={m.flags?.includes("VERIFIED")}
-                        color={m.nameColor}
-                        className={"min-w-0 font-medium text-zinc-700 dark:text-zinc-300"}
-                      />
+                      {/* Clickable only for a real account: a guest has no
+                          profile to open, and `userId` is absent on messages
+                          from before it was sent at all. Both keep the plain
+                          name rather than a control that would 404. */}
+                      {onOpenProfile && m.userId && !m.isGuest ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            // The message row may itself open the moderation
+                            // menu on click — see hasMenu below.
+                            e.stopPropagation();
+                            onOpenProfile(m.userId as string);
+                          }}
+                          className="min-w-0 cursor-pointer text-left"
+                        >
+                          <DisplayUserName
+                            name={withDeviceSuffix(m.name, m.userId, m.device, deviceCounts)}
+                            isGuest={m.isGuest}
+                            verified={m.flags?.includes("VERIFIED")}
+                            color={m.nameColor}
+                            className={"min-w-0 font-medium text-zinc-700 hover:underline dark:text-zinc-300"}
+                          />
+                        </button>
+                      ) : (
+                        <DisplayUserName
+                          name={withDeviceSuffix(m.name, m.userId, m.device, deviceCounts)}
+                          isGuest={m.isGuest}
+                          verified={m.flags?.includes("VERIFIED")}
+                          color={m.nameColor}
+                          className={"min-w-0 font-medium text-zinc-700 dark:text-zinc-300"}
+                        />
+                      )}
                       <span className="shrink-0 text-xs text-zinc-400 tabular-nums dark:text-zinc-600">
                         {formatTime(m.ts)}
                       </span>

@@ -442,3 +442,55 @@ html .ntpopups-main {
 [data-room-shell][data-pip="true"] [data-tile-controls] {
   display: none !important;
 }
+
+/*
+ * The profile dialog's entrance (see components/UserProfileDialog).
+ *
+ * Two animations rather than one, because the backdrop and the card are
+ * saying different things. The backdrop fades: it is establishing that the
+ * room behind is still there and merely covered. The card rises and settles:
+ * it is arriving from the thing that was clicked, and a plain fade would let
+ * it materialise in the middle of the screen with no sense of having been
+ * summoned by anything.
+ *
+ * Short and small on purpose. This opens on a name click, sometimes several
+ * times in a row while working out who is who in a busy room, and an
+ * entrance that has to be waited through is one that gets annoying by the
+ * third time. 160ms is under the threshold where movement reads as delay.
+ */
+@keyframes golive-dialog-backdrop {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes golive-dialog-card {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.golive-dialog-backdrop {
+  animation: golive-dialog-backdrop 160ms ease-out;
+}
+
+.golive-dialog-card {
+  animation: golive-dialog-card 190ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Nothing is communicated by the movement that the dialog appearing does not
+   already say, so it is the first thing to go. */
+@media (prefers-reduced-motion: reduce) {
+  .golive-dialog-backdrop,
+  .golive-dialog-card {
+    animation: none;
+  }
+}
