@@ -1112,23 +1112,23 @@ class SignalingClient {
         // stale departure isn't announced, to avoid tearing down otherwise
         // still-healthy WebRTC connections over a brief signaling hiccup).
         const alreadyKnown = this.state.peers.some((p) => p.id === msg.id);
-        const role = msg.role === "moderator" ? "moderator" : undefined;
-        const userId = typeof msg.userId === "string" ? msg.userId : undefined;
-        const device = typeof msg.device === "number" ? msg.device : undefined;
-        const isGuest = Boolean(msg.isGuest);
-        const flags = Array.isArray(msg.flags) ? (msg.flags as string[]) : undefined;
-        const nameColor = typeof msg.nameColor === "string" ? msg.nameColor : null;
+        // The server sends the same shape here as it does in room-state's peer
+        // list (its peerSummary), so this takes the whole thing rather than
+        // naming the fields it wants. Listing them is what let the two drift:
+        // `app` and `mobileApp` were added to the summary and not here, and
+        // the result was an app icon that appeared or not depending on who
+        // arrived first.
+        //
+        // `type` is dropped because it is the envelope, not the peer. Nothing
+        // else needs excluding: a joining peer's sharing/mic/files are reset
+        // server-side immediately before the broadcast, so the values that
+        // arrive are the empty ones this used to hard-code.
+        const joined: PeerInfo & { type?: string } = { ...(msg as unknown as PeerInfo) };
+        delete joined.type;
         this.setState({
           peers: alreadyKnown
-            ? this.state.peers.map((p) =>
-                p.id === msg.id
-                  ? { ...p, name: msg.name as string, device, sharing: false, mic: false, role, userId, isGuest, flags, nameColor }
-                  : p
-              )
-            : [
-                ...this.state.peers,
-                { id: msg.id as string, name: msg.name as string, device, sharing: false, mic: false, role, userId, isGuest, flags, nameColor },
-              ],
+            ? this.state.peers.map((p) => (p.id === joined.id ? { ...p, ...joined } : p))
+            : [...this.state.peers, joined],
         });
         break;
       }
