@@ -5,6 +5,8 @@ import { MdCheck, MdLock } from "react-icons/md";
 import { PixIcon } from "@/components/icons";
 import { useAuth } from "@/lib/AuthContext";
 import { AccountModal, type AccountModalMode } from "@/components/AccountModal";
+import { PixChargeModal } from "@/components/PixChargeModal";
+import { isIosDevice, isStandaloneDisplay } from "@/lib/browserEnv";
 import { getDesktopBridge } from "@/lib/desktop";
 import { type Feature } from "@/lib/entitlements";
 import {
@@ -59,6 +61,50 @@ function periodEndLabel(timestamp: number): string {
   }
 }
 
+/**
+ * Whether the checkout has to replace this page instead of opening beside it.
+ *
+ * True on iOS and in any installed PWA, and the reason is not a preference:
+ * on those the second window is where the payment goes to die.
+ *
+ *   - iOS Safari switches to a new tab the moment it is created, so the blank
+ *     placeholder this used to open became the *foreground* tab while the
+ *     checkout URL was still being fetched. Assigning a cross-origin URL to
+ *     that backgrounded opener-owned tab afterwards is unreliable there, and
+ *     iOS discards background tabs under memory pressure — which is exactly
+ *     what somebody sees as "the button did nothing and the page reloaded":
+ *     the blank tab never navigated, and coming back reloaded this one.
+ *   - a standalone PWA has no tab strip at all. `window.open` hands the URL to
+ *     the default browser as a separate app, and returning to the installed
+ *     window restarts it from its start URL — the same reload, for the same
+ *     reason.
+ *
+ * Navigating in place costs nothing here: the checkout is a full-page flow at
+ * Mercado Pago and its back_url points at this very page (see the API's
+ * premiumRoutes.ts), so the person lands back on /pro either way — and the
+ * status sync on mount is what turns that arrival into an active subscription.
+ */
+function checkoutMustReplacePage(): boolean {
+  return isIosDevice() || isStandaloneDisplay();
+}
+
+/**
+ * Points an already-open tab at `url`, reporting whether it took.
+ *
+ * Guarded because this is the one step that can fail silently: a browser that
+ * decides the placeholder is no longer ours to steer throws a SecurityError,
+ * and an unguarded throw here would leave the button spun down with nothing
+ * open and nothing said. The caller falls back to navigating in place.
+ */
+function navigateTab(tab: Window, url: string): boolean {
+  try {
+    tab.location.href = url;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function ProPanel() {
   const { account, loading: resolvingAccount, refresh } = useAuth();
   const [plan, setPlan] = useState<PremiumPlan | null>(null);
@@ -90,14 +136,22 @@ export function ProPanel() {
   // another app entirely — the page's job is to show a code and notice when
   // the money lands.
   const [pix, setPix] = useState<PixCharge | null>(null);
-  const [copied, setCopied] = useState(false);
+  // Where the paid period ended at the moment the code above was created.
+  // This is what tells a *paid* charge from an account that simply already
+  // had access: renewing is bought by somebody for whom `active` is true
+  // before, during and after the payment, so `active` alone would call every
+  // renewal confirmed the instant its QR appeared — which is precisely how
+  // the old inline block managed to render nothing at all for a renewal.
+  const [pixBaselineEnd, setPixBaselineEnd] = useState(0);
 
   const premium = account?.premium ?? null;
   const active = isPremiumActive(premium);
   const cancelled = premium?.status === "cancelled";
   const viaPix = premium?.method === "pix";
+  /** The money for the code on screen has landed and bought time. */
+  const pixPaid = Boolean(pix) && active && (premium?.currentPeriodEnd ?? 0) > pixBaselineEnd;
   /** A Pix code on screen that has not been paid yet. */
-  const pixPending = Boolean(pix) && !active;
+  const pixPending = Boolean(pix) && !pixPaid;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -175,15 +229,22 @@ export function ProPanel() {
     //     does, and it is not optional: Electron *denies* window.open and
     //     redirects it (see electron/main.ts's setWindowOpenHandler), so the
     //     browser path below would open nothing at all there.
-    //   - in a browser, a new tab.
+    //   - on iOS, or in an installed PWA, this page itself — a second window
+    //     there is a window the payment never reaches; see
+    //     checkoutMustReplacePage above for what that looks like to the person
+    //     pressing the button.
+    //   - in every other browser, a new tab.
     //
     // The tab is opened *now*, empty, while the click is still the reason
     // anything is happening. Opening it after the await instead would put it
     // outside the user gesture, which is exactly what a popup blocker exists
     // to stop — the request takes a round trip to Mercado Pago, so that window
-    // is wide.
+    // is wide. Decided before the await for the same reason: on the platforms
+    // above there must be no placeholder tab at all, and asking afterwards
+    // would already have opened one.
     const bridge = getDesktopBridge();
-    const tab = bridge ? null : window.open("", "_blank");
+    const replacePage = !bridge && checkoutMustReplacePage();
+    const tab = bridge || replacePage ? null : window.open("", "_blank");
 
     const result = await startPremiumCheckout(email.trim() || undefined);
     if (!result.ok) {
@@ -202,16 +263,17 @@ export function ProPanel() {
     if (bridge?.openExternal) {
       void bridge.openExternal(result.checkoutUrl);
       setCheckoutUrl(result.checkoutUrl);
-    } else if (tab && !tab.closed) {
-      tab.location.href = result.checkoutUrl;
+    } else if (tab && !tab.closed && navigateTab(tab, result.checkoutUrl)) {
       checkoutTabRef.current = tab;
       setCheckoutUrl(result.checkoutUrl);
     } else {
-      // Blocked, or closed while the request was in flight. Navigating in
-      // place is worse than a tab but far better than a button that did
+      // The placeholder was never opened (iOS, a PWA), was blocked, was closed
+      // while the request was in flight, or refused the assignment. Navigating
+      // in place is worse than a tab but far better than a button that did
       // nothing — and it is what this did before there was a tab at all.
       // No indicator here on purpose: this page is being replaced, so there
       // is nothing left to indicate anything to.
+      if (tab && !tab.closed) tab.close();
       window.location.href = result.checkoutUrl;
       return;
     }
@@ -259,6 +321,9 @@ export function ProPanel() {
     // to object to.
     const tab = window.open(checkoutUrl, "_blank");
     if (tab) checkoutTabRef.current = tab;
+    // Blocked. The URL is the same one already minted, so going there in place
+    // costs nothing and is better than a button that looks broken.
+    else window.location.href = checkoutUrl;
   }, [checkoutUrl]);
 
   const handlePix = useCallback(async () => {
@@ -271,9 +336,12 @@ export function ProPanel() {
       setBusy(false);
       return;
     }
+    // Read from the account as it stands *before* the money could possibly
+    // arrive, so the confirmation below has something to compare against.
+    setPixBaselineEnd(premium?.currentPeriodEnd ?? 0);
     setPix(result.charge);
     setBusy(false);
-  }, [email]);
+  }, [email, premium?.currentPeriodEnd]);
 
   // Pix is paid in a banking app, which tells this page nothing. Polling is
   // the only way it learns — the focus listener above does not fire, because
@@ -281,28 +349,15 @@ export function ProPanel() {
   // another app, or just their phone. Every four seconds while a code is on
   // screen, and only then.
   //
-  // Stops the moment the access is live. `pixPending` rather than `pix` alone
-  // is what ends it: clearing the state from an effect when it went active
-  // would be a setState inside an effect, and the render already hides the
-  // code — the branch below only draws it while there is nothing active.
+  // Stops the moment the money lands, and `pix` is deliberately *not* cleared
+  // when it does: the dialog stays open on a confirmation, which is what
+  // somebody who just paid in another app came back to see. Closing it is
+  // theirs to do.
   useEffect(() => {
     if (!pixPending) return;
     const timer = setInterval(() => void syncStatus(true), 4000);
     return () => clearInterval(timer);
   }, [pixPending, syncStatus]);
-
-  const handleCopyPix = useCallback(async () => {
-    if (!pix?.qrCode) return;
-    try {
-      await navigator.clipboard.writeText(pix.qrCode);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard denied (an insecure origin, a permission prompt refused).
-      // The code is on screen and selectable, so there is nothing to repair
-      // and nothing worth interrupting them about.
-    }
-  }, [pix]);
 
   const handleCancel = useCallback(async () => {
     setBusy(true);
@@ -486,54 +541,6 @@ export function ProPanel() {
                       </span>
                     </label>
                   )}
-                  {pixPending && pix && (
-                    <div className="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900">
-                      <div className="flex items-center gap-2 text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                        <PixIcon className="h-4 w-4 shrink-0 text-[#32BCAD]" />
-                        Aguardando o pagamento
-                      </div>
-                      {pix.qrCodeBase64 && (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={`data:image/png;base64,${pix.qrCodeBase64}`}
-                          alt="QR code do Pix"
-                          className="h-48 w-48 self-center rounded-lg bg-white p-2"
-                        />
-                      )}
-                      {pix.qrCode && (
-                        <div className="flex flex-col gap-1.5">
-                          <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                            Ou copie o código Pix:
-                          </span>
-                          {/* Selectable and wrapped rather than truncated: if
-                              the clipboard is unavailable, reading it off the
-                              screen has to still be possible. */}
-                          <code className="max-h-24 overflow-y-auto break-all rounded-md border border-zinc-200 bg-white p-2 text-[11px] leading-snug text-zinc-700 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">
-                            {pix.qrCode}
-                          </code>
-                          <button
-                            type="button"
-                            onClick={handleCopyPix}
-                            className="self-start rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                          >
-                            {copied ? "Copiado!" : "Copiar código"}
-                          </button>
-                        </div>
-                      )}
-                      <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                        {pix.amountLabel} por {pix.days} dias de acesso. Esta página libera sozinha
-                        assim que o pagamento cair.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => setPix(null)}
-                        className="self-start text-xs font-medium underline-offset-2 hover:underline"
-                      >
-                        Cancelar
-                      </button>
-                    </div>
-                  )}
-
                   {/* Both ways to pay, side by side and equal in weight —
                       they are two products, not a default and an alternative:
                       one starts a renewal, the other buys days. Wrapping
@@ -590,6 +597,20 @@ export function ProPanel() {
           state — and that is this panel, which is what reacts to the account
           appearing. */}
       <AccountModal mode={accountModal} onModeChange={setAccountModal} />
+
+      {/* Top level for the same reason, plus one of its own: a Pix charge can
+          be created from either branch above — a first purchase and a renewal
+          — and a dialog rendered inside one of them would be a dialog the
+          other could not open. */}
+      <PixChargeModal
+        charge={pix}
+        paid={pixPaid}
+        paidUntilLabel={premium ? periodEndLabel(premium.currentPeriodEnd) : null}
+        busy={busy}
+        onRegenerate={handlePix}
+        onCheckNow={() => void syncStatus(true)}
+        onClose={() => setPix(null)}
+      />
 
       <p className="mt-4 text-xs text-zinc-400 dark:text-zinc-500">
         O pagamento é processado pelo Mercado Pago. A cobrança é mensal e pode ser cancelada a
