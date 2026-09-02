@@ -11,8 +11,7 @@ import {
   getCaptchaToken,
   isCaptchaScriptUnavailable,
   resetCaptchaScriptCache,
-} from "./recaptcha";
-import { isTurnstileConfigured } from "./turnstile";
+} from "./turnstile";
 import { getBrowserFingerprint } from "./fingerprint";
 import { BUILD_VERSION } from "./buildVersion";
 import { currentAnnouncementDevice } from "./announcement";
@@ -348,15 +347,13 @@ export type SignalingState = {
   //               or an unrecognised reason from a newer/older server):
   //               retry, home and support, but no misleading rename box.
   joinErrorKind: "name" | "full" | "banned" | "captcha" | "generic" | null;
-  // The invisible check refused this join and the server offered a challenge
-  // instead of a dead end (see the API's join gate and TURNSTILE_ENABLED).
-  // True means "show the person something to solve"; the join is still
-  // pending, not failed, which is why this is separate from joinError rather
-  // than a third joinErrorKind.
-  captchaChallenge: boolean;
-  // Why the last attempt did not land, shown inside that challenge — either
-  // the reason it escalated here, or a challenge answer the server rejected.
-  captchaChallengeError: string | null;
+  // There used to be a `captchaChallenge` pair here, driving a modal this
+  // client opened when the server said the invisible check had refused the
+  // join but a challenge was available. Turnstile owns that step now: it
+  // decides in the browser whether this person is shown anything, and does it
+  // before the join is ever sent (see lib/turnstile.ts). So a "captcha-required"
+  // that still arrives is a plain failure again, and joinError/joinErrorKind
+  // are enough to say so.
   // Who runs this room and what it currently allows — pushed on join
   // (inside "room-state") and again on every change ("room-settings"), so
   // these are never stale for anyone who was already here. `roomOwnerId` and
@@ -442,8 +439,6 @@ const initialState: SignalingState = {
   bannedReason: null,
   joinError: null,
   joinErrorKind: null,
-  captchaChallenge: false,
-  captchaChallengeError: null,
   peers: [],
   chatMessages: [],
   videoSources: [],
@@ -481,7 +476,7 @@ const TYPING_EXPIRE_MS = 6000;
 // How many times performJoin auto-retries after a "captcha-required"
 // rejection (fetching a fresh token each time) before giving up and
 // surfacing joinError instead — covers a token expiring in flight or one bad
-// verification call without retrying forever if reCAPTCHA is genuinely
+// verification call without retrying forever if Turnstile is genuinely
 // broken (blocked by an extension, network issue, misconfigured site key).
 const MAX_JOIN_RETRIES = 3;
 
@@ -888,8 +883,6 @@ class SignalingClient {
           selfUserId: (msg.selfUserId as string | undefined) ?? null,
           joinError: null,
           joinErrorKind: null,
-          captchaChallenge: false,
-          captchaChallengeError: null,
           peers: msg.peers as PeerInfo[],
           chatMessages:
             history.length > MAX_CHAT_MESSAGES ? history.slice(-MAX_CHAT_MESSAGES) : history,
@@ -916,11 +909,16 @@ class SignalingClient {
         break;
       }
       // The server's server/captcha.ts rejected (or never received) a
-      // valid token for our last "join" — see performJoin, which fetches a
-      // fresh one per attempt since each is single-use. With reCAPTCHA v3
-      // "rejected" also covers a score below the server's threshold, which
-      // is not something the user can do anything about and not something
-      // retrying is likely to change — hence the retry cap.
+      // valid token for our last "join" — see performJoin, which mints a
+      // fresh one per attempt since each is single-use.
+      //
+      // Rarer than it used to be, and for a good reason: this used to also
+      // cover "your reCAPTCHA score was below the threshold", which no amount
+      // of retrying could change. Turnstile has no score — it shows a
+      // challenge to whoever it is unsure about, in the browser, before the
+      // join is sent — so what is left here is a token that expired, was
+      // already spent, or never got minted at all. The retry cap stays for
+      // the last of those.
       case "captcha-required": {
         if (!this.desiredRoom) break;
         // The server just contradicted whatever this client believed about
@@ -933,45 +931,27 @@ class SignalingClient {
         this.captchaVerifiedAt = null;
         const captchaMessage =
           (msg.message as string) ?? "Não foi possível verificar a segurança da sala.";
-        const challengeOffered = msg.challenge === true;
         const captchaReason = typeof msg.reason === "string" ? msg.reason : "";
-
-        // An answer to a challenge that was just solved and refused anyway (a
-        // stale token, usually). The challenge stays open with the reason on
-        // it: closing it to reopen it would throw away a widget the person is
-        // looking at, and there is nowhere better for them to go.
-        if (this.state.captchaChallenge) {
-          this.setState({ captchaChallengeError: captchaMessage });
-          break;
-        }
 
         this.joinRetryCount += 1;
         // Retrying is only worth anything when a *different* answer is
-        // possible next time. A token that expired in flight is exactly that
-        // case. A low score is not — v3 will score the same person the same
-        // way — and neither is a script that never loaded, where every
-        // further attempt sends the same nothing. Spending the budget on
-        // those just makes somebody wait for a foregone conclusion.
+        // possible next time. A token that expired or was already spent is
+        // exactly that case: the next attempt mints a fresh one. A script that
+        // never loaded is not — every further attempt sends the same nothing —
+        // and neither is a token Cloudflare rejected outright, which will be
+        // rejected identically however many times it is re-sent. Spending the
+        // budget on those just makes somebody wait for a foregone conclusion.
         const retryCouldHelp =
-          captchaReason !== "low-score" &&
           captchaReason !== "missing" &&
+          captchaReason !== "rejected" &&
           !isCaptchaScriptUnavailable();
         if (!retryCouldHelp || this.joinRetryCount > MAX_JOIN_RETRIES) {
-          if (challengeOffered && isTurnstileConfigured()) {
-            // desiredRoom is deliberately kept: the join has not failed, it
-            // is waiting on a person. Solving the challenge resumes it.
-            this.setState({
-              captchaChallenge: true,
-              captchaChallengeError: null,
-              joinError: null,
-              joinErrorKind: null,
-            });
-            break;
-          }
           this.desiredRoom = null;
           this.setState({ joinError: captchaMessage, joinErrorKind: "captcha" });
           break;
         }
+        // A fresh token, and with it a fresh chance for Cloudflare to put a
+        // challenge on screen if it now wants one — performJoin mints it.
         void this.performJoin(this.desiredRoom);
         break;
       }
@@ -1464,8 +1444,6 @@ class SignalingClient {
       nameError: null,
       joinError: null,
       joinErrorKind: null,
-      captchaChallenge: false,
-      captchaChallengeError: null,
     });
     const wasOpen = this.ws && this.ws.readyState === WebSocket.OPEN;
     this.ensureSocket();
@@ -1500,63 +1478,39 @@ class SignalingClient {
     this.setState({
       joinError: null,
       joinErrorKind: null,
-      captchaChallenge: false,
-      captchaChallengeError: null,
     });
     if (this.state.name) void this.performJoin(room);
   }
 
-  // Fetches a fresh captcha token (single-use — see lib/recaptcha.ts) and
+  // Fetches a fresh captcha token (single-use — see lib/turnstile.ts) and
   // sends the actual "join". Split out from joinRoom() so both the public
   // entry point and the "captcha-required" retry path (see handleMessage) go
   // through the exact same token-fetch-then-send flow.
-  private async performJoin(room: string, challengeToken?: string) {
+  //
+  // Note that the await below can now last as long as a *person* does: if
+  // Cloudflare decides this join needs a challenge, getCaptchaToken puts one
+  // on screen and resolves only once it is solved. That is fine here — the UI
+  // is already showing "Entrando..." and the challenge is on top of it — but
+  // it is why nothing in this method treats slowness as failure.
+  private async performJoin(room: string) {
     // Verified recently (see room-state above) — the server remembers this
     // address passed too (see its captchaVerifiedIps) and won't ask again
-    // within the same window, so skip fetching a token it will just ignore.
-    // Worth skipping rather than fetching-and-discarding: v3 shows nobody
-    // anything, but it is still a round trip to Google in front of a join.
+    // within the same window, so skip minting a token it will just ignore.
+    // Worth skipping rather than minting-and-discarding: it is a round trip to
+    // Cloudflare in front of a join, and on an unlucky one, a challenge.
     const stillFresh =
       this.captchaVerifiedAt !== null &&
       Date.now() - this.captchaVerifiedAt < CAPTCHA_REVERIFY_INTERVAL_MS;
-    // A challenge token replaces the invisible one rather than joining it:
-    // the only reason somebody is holding one is that v3 already said no, so
-    // sending both would just hand the server the refusal again.
-    const captchaToken =
-      challengeToken || stillFresh ? null : await getCaptchaToken("join_room");
+    const turnstileToken = stillFresh ? null : await getCaptchaToken("join_room");
     // Bail if the desired room or our identity changed while the token
     // fetch was in flight (room switch, logout, disconnect) — sending a
     // stale join here would either land in the wrong room or get rejected
     // anyway since the socket/name it was meant for is gone.
     if (this.desiredRoom !== room || !this.state.name) return;
-    this.rawSend({ type: "join", room, captchaToken, challengeToken: challengeToken ?? null });
-  }
-
-  /**
-   * Resumes a join with a challenge somebody just solved (see
-   * components/CaptchaChallengeModal). The token is single-use, so this is
-   * the only place it is ever sent.
-   */
-  submitCaptchaChallenge(token: string) {
-    if (!this.desiredRoom || !token) return;
-    this.setState({ captchaChallengeError: null });
-    void this.performJoin(this.desiredRoom, token);
-  }
-
-  /**
-   * Gives up on the challenge. The join genuinely has failed at this point,
-   * so it becomes an ordinary join error with the retry screen behind it —
-   * closing the modal into a room that never loads would be worse than
-   * saying so.
-   */
-  dismissCaptchaChallenge() {
-    this.desiredRoom = null;
-    this.setState({
-      captchaChallenge: false,
-      captchaChallengeError: null,
-      joinError: "Verificação de segurança não concluída.",
-      joinErrorKind: "captcha",
-    });
+    // `turnstileToken` rather than the old `captchaToken` field: that one used
+    // to carry a reCAPTCHA token, and the server has to be able to tell the
+    // two apart to keep a tab that was open across the migration working.
+    this.rawSend({ type: "join", room, turnstileToken });
   }
 
   /**
@@ -1596,8 +1550,6 @@ class SignalingClient {
       music: null,
       joinError: null,
       joinErrorKind: null,
-      captchaChallenge: false,
-      captchaChallengeError: null,
       // The room's rules leave with the room — carrying them into the next
       // one would gate the wrong controls until its "room-state" lands.
       roomCreated: false,

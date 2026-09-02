@@ -1,15 +1,11 @@
 @import "tailwindcss";
 
 /*
- * reCAPTCHA v3 plants a floating badge in the bottom-right corner of every
- * page it loads on. Google's terms allow hiding it, on the condition that the
- * required attribution appears in the user flow instead — which it does, in the
- * site footer and on /termos. Hidden rather than removed: the widget still has
- * to exist and be measurable for the assessment to work at all.
+ * There used to be a `.grecaptcha-badge { visibility: hidden }` here, and a
+ * matching attribution line in the footer, because Google's terms trade one
+ * for the other. Turnstile plants no badge and asks for no attribution, so
+ * both are gone rather than left behind as dead rules.
  */
-.grecaptcha-badge {
-  visibility: hidden;
-}
 
 /*
  * A way out of a page that never finished hydrating.

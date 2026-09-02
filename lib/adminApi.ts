@@ -2,8 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import { getSignalingHttpBase } from "./roomsApi";
-import { getCaptchaToken } from "./recaptcha";
-import { errorForFailedCaptchaGatedResponse } from "./turnstile";
+import { getCaptchaToken } from "./turnstile";
 import type {
   Announcement,
   AnnouncementButtonAction,
@@ -92,46 +91,30 @@ export function useAdminToken(): string | null {
 // rest of the app uses. The admin token is still kept in its own
 // localStorage slot (not accountApi's localStorage one) so a moderator
 // session doesn't silently outlive the tab the way a regular viewer's does.
-// Re-exported so app/admin/page.tsx keeps importing it from the module whose
-// call it is catching. It lives in turnstile.ts because the account flows
-// throw the same thing (see accountApi.ts) and two identically named classes
-// would be two types no `instanceof` could reconcile.
-export { CaptchaChallengeRequiredError } from "./turnstile";
-
 /**
  * Signs in as an administrator.
  *
- * `challengeToken` is the answer to a Turnstile challenge (see
- * components/CaptchaChallengeModal), passed when retrying a login that
- * CaptchaChallengeRequiredError just refused. It *replaces* the invisible
- * reCAPTCHA token rather than joining it — the server checks one or the
- * other, and minting a v3 token here would only spend a second call on the
- * check that already said no.
+ * The captcha token is minted here, immediately before the request. Cloudflare
+ * decides on its own whether this person is shown a challenge first (see
+ * lib/turnstile.ts), so there is nothing for the page to catch and re-submit:
+ * by the time this resolves, that has already happened or was never needed.
  */
-export async function adminLogin(
-  user: string,
-  password: string,
-  challengeToken?: string
-): Promise<void> {
+export async function adminLogin(user: string, password: string): Promise<void> {
   // /auth/login is captcha-gated on the server exactly like the main site's
-  // login is (see the API's passesCaptcha). This used to send nothing at all,
-  // which was invisible for as long as RECAPTCHA_ENFORCE stayed off and then
-  // refused every administrator outright the moment it was switched on — with
-  // the 403 landing in the same `catch` as a wrong password and being read
-  // back as "Usuário ou senha inválidos.", which is the one thing it was not.
-  const captchaToken = challengeToken ? null : await getCaptchaToken("login");
+  // login is (see the API's passesHttpCaptcha). This used to send nothing at
+  // all, which was invisible while enforcement stayed off and then refused
+  // every administrator outright the moment it was switched on — with the 403
+  // landing in the same `catch` as a wrong password and being read back as
+  // "Usuário ou senha inválidos.", which is the one thing it was not.
+  const turnstileToken = await getCaptchaToken("login");
   const res = await fetch(`${getSignalingHttpBase()}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      username: user,
-      password,
-      captchaToken,
-      challengeToken: challengeToken ?? null,
-    }),
+    body: JSON.stringify({ username: user, password, turnstileToken }),
   });
   if (!res.ok) {
-    throw await errorForFailedCaptchaGatedResponse(res, "Usuário ou senha inválidos.");
+    const data = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(data?.error || "Usuário ou senha inválidos.");
   }
   const data = (await res.json()) as { token: string; account: { flags: string[] } };
   if (!data.account.flags.includes("ADMIN")) {

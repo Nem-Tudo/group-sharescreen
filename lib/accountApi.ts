@@ -2,8 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import { getSignalingHttpBase } from "./roomsApi";
-import { getCaptchaToken, type CaptchaAction } from "./recaptcha";
-import { errorForFailedCaptchaGatedResponse } from "./turnstile";
+import { getCaptchaToken, type CaptchaAction } from "./turnstile";
 
 export type Account = {
   id: string;
@@ -135,38 +134,32 @@ export async function checkUsernameAvailable(
   return (await res.json()) as UsernameCheck;
 }
 
-// The captcha fields every gated account call carries.
+// The captcha field every gated call carries.
 //
-// `challengeToken` is the answer to a Turnstile challenge, passed on the retry
-// that follows a CaptchaChallengeRequiredError (see lib/turnstile.ts and
-// components/CaptchaChallengeModal). It *replaces* the invisible reCAPTCHA
-// token rather than joining it — the server checks one or the other, and
-// minting a v3 token alongside it would only spend a second call on the check
-// that already said no.
+// `turnstileToken` and not the older `captchaToken`: that name used to hold a
+// reCAPTCHA token, and the API has to be able to tell the two apart to keep a
+// tab that was open across the migration working — see the server's
+// presentedToken. Fetched immediately before the request and never cached,
+// because a token is spent by the first verification and expires after five
+// minutes.
 //
-// All three calls below take one, because a challenge is worth nothing unless
-// the request it was solved for can carry the answer back. Not being able to
-// is what made a refusal on these forms a dead end: there was no point opening
-// a modal whose result had nowhere to go.
-async function captchaFieldsFor(
-  action: CaptchaAction,
-  challengeToken?: string
-): Promise<{ captchaToken: string | null; challengeToken: string | null }> {
-  return {
-    // Fetched immediately before the request, never cached: a v3 token is
-    // spent by the first verification and expires after two minutes. Null when
-    // reCAPTCHA is not configured or Google could not be reached, and the
-    // server decides whether that is acceptable — see lib/recaptcha.ts.
-    captchaToken: challengeToken ? null : await getCaptchaToken(action),
-    challengeToken: challengeToken ?? null,
-  };
+// This may take as long as a person takes: getCaptchaToken is usually
+// invisible and instant, but when Cloudflare wants interaction it puts a
+// challenge on screen and resolves only once that is done. Nothing here needs
+// to know which of the two happened — the caller is already in its submitting
+// state, which is the right thing to be showing either way.
+async function captchaFieldFor(
+  action: CaptchaAction
+): Promise<{ turnstileToken: string | null }> {
+  // Null when Turnstile is not configured or its script never loaded, and the
+  // server decides whether that is acceptable — see lib/turnstile.ts.
+  return { turnstileToken: await getCaptchaToken(action) };
 }
 
 export async function registerAccount(
   username: string,
   displayName: string,
-  password: string,
-  challengeToken?: string
+  password: string
 ): Promise<{ token: string; account: Account }> {
   const res = await fetch(`${getSignalingHttpBase()}/auth/register`, {
     method: "POST",
@@ -175,10 +168,10 @@ export async function registerAccount(
       username,
       displayName,
       password,
-      ...(await captchaFieldsFor("register_account", challengeToken)),
+      ...(await captchaFieldFor("register_account")),
     }),
   });
-  if (!res.ok) throw await errorForFailedCaptchaGatedResponse(res, "Falha ao criar conta.");
+  if (!res.ok) throw new Error(await parseErrorMessage(res, "Falha ao criar conta."));
   const data = (await res.json()) as { token: string; account: Account };
   setAccountToken(data.token);
   return data;
@@ -186,8 +179,7 @@ export async function registerAccount(
 
 export async function loginAccount(
   username: string,
-  password: string,
-  challengeToken?: string
+  password: string
 ): Promise<{ token: string; account: Account }> {
   const res = await fetch(`${getSignalingHttpBase()}/auth/login`, {
     method: "POST",
@@ -195,12 +187,10 @@ export async function loginAccount(
     body: JSON.stringify({
       username,
       password,
-      ...(await captchaFieldsFor("login", challengeToken)),
+      ...(await captchaFieldFor("login")),
     }),
   });
-  if (!res.ok) {
-    throw await errorForFailedCaptchaGatedResponse(res, "Usuário ou senha inválidos.");
-  }
+  if (!res.ok) throw new Error(await parseErrorMessage(res, "Usuário ou senha inválidos."));
   const data = (await res.json()) as { token: string; account: Account };
   setAccountToken(data.token);
   return data;
@@ -213,8 +203,7 @@ export async function loginAccount(
 export async function completeOAuthSignup(
   ticket: string,
   username: string,
-  displayName: string,
-  challengeToken?: string
+  displayName: string
 ): Promise<{ token: string; account: Account }> {
   const res = await fetch(`${getSignalingHttpBase()}/auth/oauth/complete`, {
     method: "POST",
@@ -223,10 +212,10 @@ export async function completeOAuthSignup(
       ticket,
       username,
       displayName,
-      ...(await captchaFieldsFor("oauth_signup", challengeToken)),
+      ...(await captchaFieldFor("oauth_signup")),
     }),
   });
-  if (!res.ok) throw await errorForFailedCaptchaGatedResponse(res, "Falha ao criar conta.");
+  if (!res.ok) throw new Error(await parseErrorMessage(res, "Falha ao criar conta."));
   const data = (await res.json()) as { token: string; account: Account };
   setAccountToken(data.token);
   return data;

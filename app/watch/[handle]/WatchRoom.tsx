@@ -22,7 +22,6 @@ import {
 } from "@/lib/signalingClient";
 import { useSignaling, useHasStoredName } from "@/lib/useSignaling";
 import { useAuth } from "@/lib/AuthContext";
-import { CaptchaChallengeModal } from "@/components/CaptchaChallengeModal";
 import { getAccountToken } from "@/lib/accountApi";
 import { sendChatImages } from "@/lib/chatImage";
 import {
@@ -1644,21 +1643,6 @@ export function WatchRoom({ handle }: { handle: string }) {
           </Link>
         </div>
       </div>
-    );
-  }
-
-  // The invisible check refused this join but the server offered a challenge
-  // instead of a dead end (see signalingClient's "captcha-required"). Takes
-  // the screen like the other pre-join states below rather than layering over
-  // the room, because there is no room yet: the join is still pending, just
-  // waiting on a person instead of on the network.
-  if (state.captchaChallenge) {
-    return (
-      <CaptchaChallengeModal
-        error={state.captchaChallengeError}
-        onToken={(token) => signalingClient.submitCaptchaChallenge(token)}
-        onCancel={() => signalingClient.dismissCaptchaChallenge()}
-      />
     );
   }
 
