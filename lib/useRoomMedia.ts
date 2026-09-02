@@ -2707,6 +2707,32 @@ export function useRoomMedia(room: string) {
     else mic.start();
   }, [mic]);
 
+  /**
+   * Opens or closes the mic explicitly, **without** touching the stored
+   * preference.
+   *
+   * For a mic change that is a consequence rather than a decision — today,
+   * deafening yourself, which closes the mic and reopens it when you undeafen
+   * (see WatchRoom). Two things follow from that and both are deliberate:
+   *
+   * Explicit rather than toggleMic, because a consequence has a target state,
+   * not a direction. A toggle called from an effect that ran on a value it
+   * read one render ago can flip the wrong way; this cannot.
+   *
+   * And it leaves setStoredMicOn alone, because the stored value is what you
+   * chose, and being deafened is not a choice about your microphone. Without
+   * that, deafening once would persist "mic off" and you would come back to a
+   * closed mic on the next visit having never asked for one.
+   */
+  const setMicOn = useCallback(
+    (on: boolean) => {
+      if (mic.active === on) return;
+      if (on) mic.start();
+      else mic.stop();
+    },
+    [mic]
+  );
+
   // Switches the input device the mic captures from. If the mic is live
   // right now, restarts the capture (stop, then start) so the new device
   // actually takes effect — same trade-off phone/desktop call apps make,
@@ -2829,6 +2855,7 @@ export function useRoomMedia(room: string) {
 
     isMicOn: mic.active,
     toggleMic,
+    setMicOn,
     micError: mic.error,
     localMicStream: mic.localStream,
     remoteMicStreams: mic.remoteStreams,

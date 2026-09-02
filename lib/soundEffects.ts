@@ -110,6 +110,62 @@ export function playMentionSound() {
   ]);
 }
 
+// ─── Your own mic and speakers ────────────────────────────────────────────
+//
+// The other effects in this file all announce something *somebody else* did,
+// on the reasoning that you already watched your own button change. That
+// reasoning does not survive the global shortcuts: muting from inside a game,
+// with the app behind it, is the case these exist for — there is no button to
+// watch, and without a sound the only way to know whether it worked is to
+// switch windows and look.
+//
+// Two pairs, and the pairs have to be distinguishable from each other, not
+// just internally: hitting the wrong key and hearing "something happened" is
+// no better than silence. So the mic pair is a bright, short blip and the
+// speaker pair is lower and rounder — deafening yourself is the heavier
+// action and sounds like it.
+//
+// Rising for on, falling for off, in both pairs. It is the one convention
+// nobody has to be taught.
+
+/** Your mic just opened. */
+export function playMicOnSound() {
+  playNotes([
+    { freq: 660, start: 0, duration: 0.06, gain: 0.12 },
+    { freq: 880, start: 0.05, duration: 0.08, gain: 0.12 },
+  ]);
+}
+
+/** Your mic just closed. */
+export function playMicOffSound() {
+  playNotes([
+    { freq: 880, start: 0, duration: 0.06, gain: 0.12 },
+    { freq: 660, start: 0.05, duration: 0.08, gain: 0.12 },
+  ]);
+}
+
+/**
+ * You silenced everyone else ("silenciar microfones").
+ *
+ * Triangle rather than sine, and a fourth below the mic pair: it is the same
+ * gesture one level heavier, and it should not be mistakable for having muted
+ * yourself.
+ */
+export function playDeafenSound() {
+  playNotes([
+    { freq: 523, start: 0, duration: 0.07, gain: 0.13, type: "triangle" },
+    { freq: 349, start: 0.06, duration: 0.12, gain: 0.13, type: "triangle" },
+  ]);
+}
+
+/** You can hear the room again. */
+export function playUndeafenSound() {
+  playNotes([
+    { freq: 349, start: 0, duration: 0.07, gain: 0.13, type: "triangle" },
+    { freq: 523, start: 0.06, duration: 0.12, gain: 0.13, type: "triangle" },
+  ]);
+}
+
 // Used for site-wide "top" warnings/announcements (see AnnouncementBanner).
 export function playWarningSound() {
   playNotes([

@@ -45,7 +45,14 @@ import {
 import { rememberRecentRoom } from "@/lib/recentRooms";
 import { useRoomSoundEffects } from "@/lib/useRoomSoundEffects";
 import { useBackgroundKeepAlive } from "@/lib/useBackgroundKeepAlive";
-import { getSoundEffectsEnabled, setSoundEffectsEnabled } from "@/lib/soundEffects";
+import {
+  getSoundEffectsEnabled,
+  setSoundEffectsEnabled,
+  playMicOnSound,
+  playMicOffSound,
+  playDeafenSound,
+  playUndeafenSound,
+} from "@/lib/soundEffects";
 import { qualityNegotiator } from "@/lib/qualityNegotiation";
 import { TURN_CONFIGURED } from "@/lib/iceConfig";
 import { useMediaDevices, type MediaDeviceOption } from "@/lib/useMediaDevices";
@@ -999,6 +1006,7 @@ export function WatchRoom({ handle }: { handle: string }) {
     setSmartQualityEnabled,
     isMicOn,
     toggleMic,
+    setMicOn,
     micError,
     localMicStream,
     remoteMicStreams,
@@ -1051,6 +1059,72 @@ export function WatchRoom({ handle }: { handle: string }) {
   useEffect(() => {
     micsMutedRef.current = micsMuted;
   }, [micsMuted]);
+
+  // A sound on your own mute and unmute, both for the mic and for the room.
+  //
+  // Driven by the resulting *state* rather than wired into the buttons on
+  // purpose: these are toggled from the header, the bottom bar, the tile
+  // overlay, a keyboard shortcut, and — the case that matters most — a global
+  // shortcut fired while the app is behind a game. Hanging the sound off each
+  // handler would mean five places to keep in step and one of them missed;
+  // watching the value catches every path, including the ones added later.
+  //
+  // The refs start at the mounted value and the effects compare against them,
+  // so restoring a stored "microfones silenciados" on entry is silent. Only a
+  // change somebody actually made makes a noise.
+  // What the mic was doing when the room was deafened, so undeafening can put
+  // it back exactly there. Deafening with the mic already closed has nothing
+  // to restore, which is the whole of the "fica apenas deafen" case.
+  const micBeforeDeafenRef = useRef(false);
+  // Set to the value a deafen/undeafen is about to move the mic to, so the
+  // mic's own sound below stays quiet for that one change. Without it,
+  // deafening plays two sounds at once — the deafen chime and the mic-off
+  // blip — for a single press, and the pair is no longer recognisable as
+  // either.
+  const micFollowingDeafenRef = useRef<boolean | null>(null);
+
+  const micSoundRef = useRef(isMicOn);
+  useEffect(() => {
+    if (micSoundRef.current === isMicOn) return;
+    micSoundRef.current = isMicOn;
+    if (micFollowingDeafenRef.current === isMicOn) {
+      micFollowingDeafenRef.current = null;
+      return;
+    }
+    if (isMicOn) playMicOnSound();
+    else playMicOffSound();
+  }, [isMicOn]);
+
+  const micsMutedSoundRef = useRef(micsMuted);
+  useEffect(() => {
+    // Only an actual change of the deafen state does anything here. The guard
+    // is what makes it safe to depend on isMicOn as well: the mic moving does
+    // re-run this effect, and without this it would re-apply the follow.
+    if (micsMutedSoundRef.current === micsMuted) return;
+    micsMutedSoundRef.current = micsMuted;
+    if (micsMuted) {
+      playDeafenSound();
+      // Deafened: the mic goes with it, and is remembered so undeafening can
+      // bring it back. Muting yourself is what deafening means — leaving the
+      // mic open while you cannot hear anyone is a way to talk over people
+      // without knowing it.
+      micBeforeDeafenRef.current = isMicOn;
+      if (isMicOn) {
+        micFollowingDeafenRef.current = false;
+        setMicOn(false);
+      }
+      return;
+    }
+    playUndeafenSound();
+    // Undeafened: back to whatever the mic was. Closed before means closed
+    // now — coming back from deafen must never open a microphone the person
+    // had deliberately shut.
+    if (micBeforeDeafenRef.current && !isMicOn) {
+      micFollowingDeafenRef.current = true;
+      setMicOn(true);
+    }
+    micBeforeDeafenRef.current = false;
+  }, [micsMuted, isMicOn, setMicOn]);
   const [soundEffectsOn, setSoundEffectsOn] = useState(() => getSoundEffectsEnabled());
   const [doubleClickFocus, setDoubleClickFocus] = useState(() => getStoredDoubleClickFocus());
   const [mutedPeerIds, setMutedPeerIds] = useState<Set<string>>(new Set());
