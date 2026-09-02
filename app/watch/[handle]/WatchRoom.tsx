@@ -4476,6 +4476,7 @@ export function WatchRoom({ handle }: { handle: string }) {
             <Tooltip content="GoLive Pro — Seja Verificado, transmita em 4K e 120fps" placement="bottom">
               <Link
                 href="/pro"
+                target="_blank"
                 onClick={() => trackEvent("pro_button_clicked")}
                 className="flex shrink-0 items-center gap-1.5 rounded-lg border border-blue-300 px-2 py-2 text-sm font-medium text-blue-600 transition hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-950/40 2xl:px-3"
               >
