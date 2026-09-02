@@ -22,6 +22,10 @@ import { Tooltip } from "@/components/Tooltip";
 import { MAX_GAIN } from "@/lib/audioGain";
 import { useGainedAudio } from "@/lib/useGainedAudio";
 import { usePinchZoom } from "@/lib/usePinchZoom";
+import {
+  isAndroidPipAvailable,
+  refreshAndroidPipSupport,
+} from "@/lib/androidPictureInPicture";
 
 function noopSubscribe() {
   return () => { };
@@ -54,6 +58,7 @@ export function VideoTile({
   onDoubleClick,
   onRenderedSizeChange,
   onFocus,
+  onNativePip,
   isSpotlighted = false,
   onHyperfocus,
   isHyperfocused = false,
@@ -109,6 +114,11 @@ export function VideoTile({
   // connection — see WatchRoom's spotlightId. Omitted where focusing makes
   // no sense (e.g. the admin moderation viewer).
   onFocus?: () => void;
+  // Enter Android's window-level picture-in-picture with this tile. Given
+  // only by screens that can strip themselves down to one tile first — see
+  // WatchRoom. Its absence is what keeps the button hidden in the admin
+  // moderation viewer, which has no such layout.
+  onNativePip?: (aspectRatio: number) => void;
   isSpotlighted?: boolean;
   // "Hiperfoco": grow this tile to near-fullscreen and actively disconnect
   // every other transmission to free up bandwidth/CPU — see WatchRoom's
@@ -159,7 +169,31 @@ export function VideoTile({
   // actually has data flowing — surface that gap as a spinner instead of a
   // blank black tile, and reset it whenever the stream is swapped out.
   const [isVideoLoading, setIsVideoLoading] = useState(true);
-  const pipSupported = useSyncExternalStore(noopSubscribe, getPipSupported, getPipSupportedServer);
+  const browserPipSupported = useSyncExternalStore(
+    noopSubscribe,
+    getPipSupported,
+    getPipSupportedServer
+  );
+  // The Android shell has no browser PiP (see lib/androidPictureInPicture.ts)
+  // and floats the whole app window instead. Asked once, on mount, because
+  // the answer is about hardware and cannot change while the app runs.
+  const [androidPipSupported, setAndroidPipSupported] = useState(() =>
+    isAndroidPipAvailable()
+  );
+  useEffect(() => {
+    let cancelled = false;
+    void refreshAndroidPipSupport().then((ok) => {
+      if (!cancelled) setAndroidPipSupported(ok);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  // One button, two entirely different mechanisms behind it. The Android one
+  // needs the page stripped to this tile before the window floats, which only
+  // the screen holding the layout can do — hence the callback rather than
+  // something this component could carry out itself.
+  const pipSupported = browserPipSupported || (androidPipSupported && Boolean(onNativePip));
 
   // Pinch to zoom, only once the tile owns the whole screen. A phone looking
   // at somebody's shared 1440p desktop is reading text at a tenth of its
@@ -307,6 +341,20 @@ export function VideoTile({
   }
 
   async function togglePiP() {
+    // Android first: where both look available, the native one is the only
+    // one that actually works there.
+    if (androidPipSupported && onNativePip) {
+      const video = videoRef.current;
+      // The shape of what is being watched, so the floating window matches
+      // it. Falls back to 16:9 before the first frame has arrived, when the
+      // element reports 0x0.
+      const ratio =
+        video && video.videoWidth > 0 && video.videoHeight > 0
+          ? video.videoWidth / video.videoHeight
+          : 16 / 9;
+      onNativePip(ratio);
+      return;
+    }
     if (!videoRef.current) return;
     try {
       if (document.pictureInPictureElement) {
@@ -487,6 +535,11 @@ export function VideoTile({
           handleVideoTap), since a touch device has no hover to fall back
           on and a permanent button bar defeats the point of fullscreen. */}
       <div
+        // Marked so app/globals.css can take the whole cluster away while
+        // Android is floating the window — see its [data-pip] rules. None of
+        // these buttons is reachable at that size, and all of them cover the
+        // picture the window exists to show.
+        data-tile-controls
         className={`absolute top-2 flex flex-wrap items-center justify-end gap-2 transition-opacity ${
           overlayRightOffset ? "right-[50px]" : "right-2"
         } ${compact ? "hidden" : ""} ${overlayVisibilityClass}`}

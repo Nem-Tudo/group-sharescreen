@@ -22,7 +22,6 @@ import {
 } from "@/lib/signalingClient";
 import { useSignaling, useHasStoredName } from "@/lib/useSignaling";
 import { useAuth } from "@/lib/AuthContext";
-import { CaptchaChallengeModal } from "@/components/CaptchaChallengeModal";
 import { getAccountToken } from "@/lib/accountApi";
 import { sendChatImages } from "@/lib/chatImage";
 import {
@@ -70,6 +69,10 @@ import {
 import { VideoTile, StoppedPeerTile, ResumingPeerTile } from "@/components/VideoTile";
 import { RemoteAudio } from "@/components/RemoteAudio";
 import { ParticipantRow } from "@/components/ParticipantRow";
+import { countDevicesByOwner, withDeviceSuffix } from "@/lib/displayName";
+import { isMobileDevice } from "@/lib/announcement";
+import { enterAndroidPip, onAndroidPipModeChange } from "@/lib/androidPictureInPicture";
+import type { CameraFacing } from "@/lib/mediaPreferences";
 import { ChatPanel } from "@/components/ChatPanel";
 import { OpenInAppBanner } from "@/components/OpenInAppBanner";
 import { RoomInfoControls } from "@/components/RoomInfoControls";
@@ -77,11 +80,15 @@ import { MusicBar } from "@/components/MusicBar";
 import { LocalMediaControls, RemoteMediaControls } from "@/components/LocalMediaControls";
 import { LocalMusicBar, RemoteMusicBar } from "@/components/LocalMusicBar";
 import { MemberActionsMenu, type MemberActions } from "@/components/MemberActionsModal";
-import { isDesktopApp } from "@/lib/desktop";
+import { isDesktopApp, isMobileApp } from "@/lib/desktop";
 import { PartnerCard } from "@/components/PartnerCard";
 import { SupportersTooltipContent } from "@/components/SupportersTooltip";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { CreateAccountForm } from "@/components/CreateAccountForm";
+import { RoomSkeleton } from "@/components/RoomSkeleton";
+import { MobileQualitySheet, type MobileQualityChoice } from "@/components/MobileQualitySheet";
+import { UserProfileDialog } from "@/components/UserProfileDialog";
+import { prewarmCaptcha } from "@/lib/turnstile";
 import { RoomAccountCard } from "@/components/RoomAccountCard";
 import { LoginForm } from "@/components/LoginForm";
 import { VideoSourceTile } from "@/components/VideoSourceTile";
@@ -132,6 +139,7 @@ import {
   MdOutlinePeople,
   MdMusicNote,
   MdCameraswitch,
+  MdFlipCameraAndroid,
   MdOutlineKeyboard,
 } from "react-icons/md";
 import { BsGearFill, BsCoin } from "react-icons/bs";
@@ -537,6 +545,9 @@ function ShareControls({
   cameraDevices,
   cameraDeviceId,
   setCameraDevice,
+  cameraFacing,
+  setCameraFacing,
+  onPhone,
   cameraMenuOpen,
   setCameraMenuOpen,
   open,
@@ -572,6 +583,15 @@ function ShareControls({
   cameraDevices: MediaDeviceOption[];
   cameraDeviceId: string | null;
   setCameraDevice: (deviceId: string | null) => void;
+  // The phone's replacement for that picker: which way the camera points,
+  // and a button to turn it round. A list of opaque lens ids is the wrong
+  // control on a phone — see useRoomMedia's setCameraFacing for why the flip
+  // is built on facingMode rather than on that list.
+  cameraFacing: CameraFacing;
+  setCameraFacing: (facing: CameraFacing) => void;
+  // Actual phone/tablet hardware, not a narrow window. A laptop dragged
+  // narrow still wants the picker; a phone in landscape still wants the flip.
+  onPhone: boolean;
   cameraMenuOpen: boolean;
   setCameraMenuOpen: Dispatch<SetStateAction<boolean>>;
   open: boolean;
@@ -699,7 +719,31 @@ function ShareControls({
           single entry is pure clutter. Enumeration fills in after the first
           camera permission, so this can appear mid-session — which is also
           when it starts being useful. */}
-      {cameraSupported && cameraDevices.length > 1 && (
+      {/* One control or the other, never both: they answer the same question
+          ("which camera?") and a phone showing a flip button *and* a list of
+          "camera2 0, facing back" entries would be two ways to do one thing,
+          one of them unreadable. */}
+      {cameraSupported && onPhone ? (
+        <Tooltip
+          content={
+            cameraFacing === "environment"
+              ? "Usar a câmera frontal"
+              : "Usar a câmera traseira"
+          }
+          placement="bottom"
+        >
+          <button
+            type="button"
+            onClick={() =>
+              setCameraFacing(cameraFacing === "environment" ? "user" : "environment")
+            }
+            aria-label="Virar a câmera"
+            className={`flex items-center border-l border-black/15 px-2 text-white transition ${cameraSharing ? live : idle}`}
+          >
+            <MdFlipCameraAndroid className="h-4 w-4" />
+          </button>
+        </Tooltip>
+      ) : cameraSupported && cameraDevices.length > 1 ? (
         <Popover
           open={cameraMenuOpen}
           onClose={() => setCameraMenuOpen(false)}
@@ -738,7 +782,7 @@ function ShareControls({
             <ChevronDownIcon className="h-3.5 w-3.5" />
           </button>
         </Popover>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -865,8 +909,16 @@ const MAX_CHAT_WIDTH = 720;
 // pointer events, and the disabled state is exactly when the tooltip has
 // something to say (see Tooltip's wrapperClassName).
 const DOCK_SLOT = "flex min-w-0 flex-1";
-const DOCK_BUTTON =
-  "flex h-11 w-full min-w-10 items-center justify-center rounded-xl text-white transition disabled:cursor-not-allowed disabled:opacity-50";
+// Split so the one control that shares its slot can opt out of the minimum
+// width. `min-w-10` is right for a button alone in a slot — it stops a very
+// narrow phone squeezing a tap target below 40px — and wrong for one paired
+// with the camera switch, where the floor plus the switch's fixed 28px add up
+// to more than a `flex-1` slot has on a narrow screen. The pair then
+// overflowed instead of shrinking, which is what put the switch on top of the
+// camera button.
+const DOCK_BUTTON_BASE =
+  "flex h-11 w-full items-center justify-center rounded-xl text-white transition disabled:cursor-not-allowed disabled:opacity-50";
+const DOCK_BUTTON = `${DOCK_BUTTON_BASE} min-w-10`;
 const DOCK_ON = "bg-emerald-600 active:bg-emerald-700";
 const DOCK_OFF = "bg-red-600 active:bg-red-700";
 // Same red as DOCK_OFF, named apart because it means the opposite thing: not
@@ -895,6 +947,17 @@ export function WatchRoom({ handle }: { handle: string }) {
   const privateRoomParts = splitPrivateRoomHandle(handle);
   const screenShareMode = useScreenShareMode();
 
+  // Start minting a captcha token now rather than when the join fires. There
+  // is real time between this page mounting and a join — resolving the
+  // account, opening the socket, and often somebody typing a name — and
+  // Turnstile does its work when its widget is rendered, not when the script
+  // loads (unlike the reCAPTCHA this replaced, where a token was a ~200ms
+  // lookup of an assessment the page had already done). Spending that window
+  // is the difference between joining instantly and watching a spinner.
+  useEffect(() => {
+    prewarmCaptcha("join_room");
+  }, []);
+
   const {
     isSharing,
     startShare,
@@ -916,6 +979,8 @@ export function WatchRoom({ handle }: { handle: string }) {
     cameraShareError,
     cameraDeviceId,
     setCameraDevice,
+    cameraFacing,
+    setCameraFacing,
     stoppedCameraPeers,
     resumingCameraPeers,
     stopWatchingCameraPeer,
@@ -1091,6 +1156,38 @@ export function WatchRoom({ handle }: { handle: string }) {
   // paint before correcting to the real localStorage-backed value, which
   // would otherwise flash the "choose a name" form for a logged-in account.
   const [mounted, setMounted] = useState(false);
+  // Which transmission is waiting on the quality question, or null. Only ever
+  // set on a phone (see MobileQualitySheet); "screen" covers both the real
+  // screen capture of the Android app and the camera fallback a phone browser
+  // gets instead, because from the person's side both are "transmitir".
+  //
+  // Up here with the other hooks, not down beside the render that uses it:
+  // everything below the pre-join early returns runs conditionally, and a
+  // useState there changes hook order between the skeleton and the room.
+  const [qualityPrompt, setQualityPrompt] = useState<"screen" | null>(null);
+  // True while Android is floating this app's window (see
+  // lib/androidPictureInPicture.ts). Drives `data-pip` on the room shell,
+  // which is what strips the page down to the one tile being watched — the
+  // system floats whatever the page renders, so this has to happen in CSS
+  // here rather than being something the native side could do.
+  const [pipActive, setPipActive] = useState(false);
+  // Whose profile is open over the room, or null. Every screen size: the
+  // point of the dialog is not saving space, it is not losing the room you
+  // are in — which is if anything truer on a phone, where the alternative was
+  // a second tab to find your way back out of.
+  const [profileUserId, setProfileUserId] = useState<string | null>(null);
+  // Android tells us when the floating window opens *and* when it closes —
+  // the second one is what matters, since the person closing it or tapping
+  // back into the app is not something this side could otherwise detect, and
+  // the room would stay stripped down to one tile forever.
+  useEffect(() => {
+    return onAndroidPipModeChange((active) => setPipActive(active));
+  }, []);
+
+  // Real phone/tablet hardware, not a narrow window — a laptop dragged narrow
+  // still wants the desktop picker. Gated on the mount flag because it reads the
+  // user agent, which the server render has no answer for.
+  const onPhone = mounted && isMobileDevice();
   useEffect(() => {
     const id = setTimeout(() => {
       setMounted(true);
@@ -1824,21 +1921,19 @@ export function WatchRoom({ handle }: { handle: string }) {
     );
   }
 
+  // Still resolving who this person is — a stored guest name, or an account
+  // token on its way through /auth/me. The room's own shape stands in for it
+  // (see components/RoomSkeleton) rather than a spinner on an empty page,
+  // because what follows this is the room itself: drawing its layout now
+  // means the only thing that changes when it lands is the content inside it.
   if (restoring) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 text-center">
-        {false && <>
-
-          <h2 style={{ color: "#ff2828", maxWidth: "500px", fontSize: "1.3rem" }}>Site fora do ar momentâneamente!!</h2>
-          <h2 style={{ color: "#ff6767", maxWidth: "500px" }}>A API foi reiniciar pra atualizar e não consegue mais ligar por ter mais de 2000 pessoas tentando reconectar.</h2>
-          <h2 style={{ color: "#ff6767", maxWidth: "500px" }}>Eu tô programando um sistema de balanceamento de carga. Aguentaí que já volta</h2>
-          <h2 style={{ color: "#ff6767", maxWidth: "500px" }}>Deve voltar em uns 10 minutos</h2>
-          <h2 style={{ color: "#67c7ff", maxWidth: "500px" }}>Para atualizações/sugestões/etc entre no meu Discord: <Link style={{ color: "#00ff00" }} href={"https://go.nemtudo.me/golive-nemtudodiscord"} target="_blank">discord.gg/nemtudo</Link></h2>
-          <h2 style={{ color: "#67c7ff", maxWidth: "500px" }}>Me segue no Twitter tbm, sempre posto update e projeto por lá <Link style={{ color: "#00ff00" }} href={"https://go.nemtudo.me/golive-nemtudo-twitter"} target="_blank">x.com/NemTudo_</Link></h2>
-        </>
-        }
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-white/20 border-t-white/80" />
-      </div>
+      <>
+        <RoomSkeleton />
+        <p className="sr-only" role="status">
+          Entrando na sala...
+        </p>
+      </>
     );
   }
 
@@ -1927,21 +2022,6 @@ export function WatchRoom({ handle }: { handle: string }) {
     );
   }
 
-  // The invisible check refused this join but the server offered a challenge
-  // instead of a dead end (see signalingClient's "captcha-required"). Takes
-  // the screen like the other pre-join states below rather than layering over
-  // the room, because there is no room yet: the join is still pending, just
-  // waiting on a person instead of on the network.
-  if (state.captchaChallenge) {
-    return (
-      <CaptchaChallengeModal
-        error={state.captchaChallengeError}
-        onToken={(token) => signalingClient.submitCaptchaChallenge(token)}
-        onCancel={() => signalingClient.dismissCaptchaChallenge()}
-      />
-    );
-  }
-
   // The room turned this connection away. One screen for every reason, but
   // the reason decides the words, the icon and — the whole point — which
   // action is offered first: a rename only where a rename actually helps
@@ -1949,6 +2029,63 @@ export function WatchRoom({ handle }: { handle: string }) {
   // never a rename box for someone who is banned or in a full room, which is
   // what the old single screen showed everyone. See joinErrorKind in
   // signalingClient. Home, other rooms and support are always there, because
+  // Already in this room somewhere else. A question, not a failure — which is
+  // why it sits above the joinError screen and looks nothing like it: nothing
+  // has gone wrong, the other device is not being disconnected, and the only
+  // thing missing is an answer. Rendered as a full pre-join screen rather than
+  // a modal for the same reason every other pre-join state is: there is no
+  // room behind it yet to layer anything over.
+  if (state.deviceConflict) {
+    const { devices, maxDevices } = state.deviceConflict;
+    // The count is of the *others* already there, so this one would be the
+    // next. Said out loud because "you can have 3" means nothing without
+    // knowing which number you are about to become.
+    const afterJoining = devices + 1;
+    return (
+      <div className="flex flex-1 items-center justify-center px-4 py-16">
+        <main className="w-full max-w-md rounded-2xl border border-black/10 bg-white p-8 text-center shadow-sm dark:border-white/10 dark:bg-zinc-950">
+          <div
+            aria-hidden
+            className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-zinc-100 text-2xl dark:bg-zinc-900"
+          >
+            {"\u{1F4BB}"}
+          </div>
+          <h1 className="mt-4 text-xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
+            Você está conectado nesta sala com outro dispositivo.
+          </h1>
+          <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+            {devices === 1
+              ? "Entrar aqui não desconecta o outro — vocês dois ficam na sala."
+              : `Entrar aqui não desconecta os outros ${devices} — todos ficam na sala.`}{" "}
+            Na lista e no chat, cada um aparece com um número para dar para
+            diferenciar.
+          </p>
+          <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+            {afterJoining} de {maxDevices} dispositivos.
+          </p>
+
+          <div className="mt-6 flex flex-col gap-2">
+            <button
+              type="button"
+              autoFocus
+              onClick={() => signalingClient.confirmDeviceJoin()}
+              className="rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+            >
+              Entrar mesmo assim
+            </button>
+            <button
+              type="button"
+              onClick={() => signalingClient.dismissDeviceJoin()}
+              className="rounded-lg border border-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+            >
+              Cancelar
+            </button>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   // "this didn't work" should never be a dead end.
   if (state.joinError) {
     const kind = state.joinErrorKind;
@@ -1967,7 +2104,13 @@ export function WatchRoom({ handle }: { handle: string }) {
             ? { icon: "\u{1F6D1}", title: "Você foi banido desta sala", retry: false }
             : kind === "captcha"
               ? { icon: "\u{1F6E1}\uFE0F", title: "Verificação de segurança", retry: true }
-              : { icon: "\u26A0\uFE0F", title: "Não foi possível entrar na sala", retry: true };
+              : kind === "device-limit"
+                ? // Retryable on purpose, unlike a ban: the fix is on another
+                  // screen the person can go and close, and coming back here
+                  // to press a button is the whole of what they then have to
+                  // do. The message already says how many and what to do.
+                  { icon: "\u{1F4BB}", title: "Dispositivos demais nesta sala", retry: true }
+                : { icon: "\u26A0\uFE0F", title: "Não foi possível entrar na sala", retry: true };
 
     return (
       <div className="flex flex-1 items-center justify-center px-4 py-16">
@@ -2115,10 +2258,12 @@ export function WatchRoom({ handle }: { handle: string }) {
   // joined when it isn't yet.
   if (!state.room) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 text-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-zinc-300 border-t-zinc-600 dark:border-zinc-700 dark:border-t-zinc-300" />
-        <p className="text-zinc-600 dark:text-zinc-400">Entrando na sala...</p>
-      </div>
+      <>
+        <RoomSkeleton />
+        <p className="sr-only" role="status">
+          Entrando na sala...
+        </p>
+      </>
     );
   }
 
@@ -2127,6 +2272,15 @@ export function WatchRoom({ handle }: { handle: string }) {
   // but must never show up to real participants — filtered out here rather
   // than never added, so this is the one place that has to remember it.
   const visiblePeers = state.peers.filter((p) => p.role !== "moderator");
+  // Built from the peer list *plus this client*, because the peer list never
+  // contains us and our own second device has to be numbered like anybody
+  // else's. Recomputed every render on purpose: the label is a fact about the
+  // room right now, so a device leaving un-numbers the one left behind with no
+  // message from the server. See lib/displayName.ts.
+  const deviceCounts = countDevicesByOwner([
+    ...visiblePeers,
+    { userId: state.selfUserId ?? undefined },
+  ]);
   const peerCount = visiblePeers.length + (state.name ? 1 : 0);
   // A peer showing mic-on doesn't mean their audio is actually reaching us
   // yet — the recvPC for it still has to come up, which right after joining
@@ -2243,6 +2397,34 @@ export function WatchRoom({ handle }: { handle: string }) {
   const nextCameraLabel = nextCamera ? `Mudar para ${nextCamera.label}` : "Trocar câmera";
   function switchToNextCamera() {
     if (nextCamera) setCameraDevice(nextCamera.deviceId);
+  }
+
+  // On a phone the switch is driven by facingMode, not by the device list
+  // above — and that is not a preference, it is the only thing that works.
+  // The Android shell's WebView does not enumerate the phone's lenses as
+  // separate video inputs the way mobile Chrome does, so `cameraDevices`
+  // comes back with one entry and the button that gated on `length > 1`
+  // simply never appeared in the app. It appeared in the browser, which is
+  // exactly the shape of the bug that was reported.
+  //
+  // facingMode asks for "the one pointing the other way" and lets the
+  // platform resolve it, with no enumeration and no labels — see
+  // useRoomMedia's setCameraFacing. Used for every phone rather than only the
+  // app, so both behave the same and the label says something a person
+  // recognises ("usar a câmera traseira") instead of "camera2 0, facing back".
+  const flipsByFacing = onPhone;
+  const canSwitchCamera = flipsByFacing || cameraDevices.length > 1;
+  const switchCameraLabel = flipsByFacing
+    ? cameraFacing === "environment"
+      ? "Usar a câmera frontal"
+      : "Usar a câmera traseira"
+    : nextCameraLabel;
+  function switchCamera() {
+    if (flipsByFacing) {
+      setCameraFacing(cameraFacing === "environment" ? "user" : "environment");
+      return;
+    }
+    switchToNextCamera();
   }
 
   const canManageMusic = isRoomManager && Boolean(state.account);
@@ -2475,6 +2657,7 @@ export function WatchRoom({ handle }: { handle: string }) {
           onFocus={() => toggleSpotlight(id)}
           isSpotlighted={spotlightId === id}
           onHyperfocus={() => toggleHyperfocus(id)}
+          onNativePip={(ratio) => void enterNativePip(id, ratio)}
           isHyperfocused={activeHyperfocusId === id}
           hasAccount={Boolean(state.account)}
           overlayRightOffset={overlayRightOffset}
@@ -2505,6 +2688,7 @@ export function WatchRoom({ handle }: { handle: string }) {
           onFocus={() => toggleSpotlight(id)}
           isSpotlighted={spotlightId === id}
           onHyperfocus={() => toggleHyperfocus(id)}
+          onNativePip={(ratio) => void enterNativePip(id, ratio)}
           isHyperfocused={activeHyperfocusId === id}
           hasAccount={Boolean(state.account)}
           overlayRightOffset={overlayRightOffset}
@@ -2554,6 +2738,7 @@ export function WatchRoom({ handle }: { handle: string }) {
           onFocus={() => toggleSpotlight(id)}
           isSpotlighted={spotlightId === id}
           onHyperfocus={() => toggleHyperfocus(id)}
+          onNativePip={(ratio) => void enterNativePip(id, ratio)}
           isHyperfocused={activeHyperfocusId === id}
           hasAccount={Boolean(state.account)}
           overlayRightOffset={overlayRightOffset}
@@ -2621,6 +2806,7 @@ export function WatchRoom({ handle }: { handle: string }) {
           onFocus={() => toggleSpotlight(id)}
           isSpotlighted={spotlightId === id}
           onHyperfocus={() => toggleHyperfocus(id)}
+          onNativePip={(ratio) => void enterNativePip(id, ratio)}
           isHyperfocused={activeHyperfocusId === id}
           hasAccount={Boolean(state.account)}
           overlayRightOffset={overlayRightOffset}
@@ -2742,6 +2928,7 @@ export function WatchRoom({ handle }: { handle: string }) {
           onFocus={() => toggleSpotlight(id)}
           isSpotlighted={spotlightId === id}
           onHyperfocus={() => toggleHyperfocus(id)}
+          onNativePip={(ratio) => void enterNativePip(id, ratio)}
           isHyperfocused={activeHyperfocusId === id}
           hasAccount={Boolean(state.account)}
           overlayRightOffset={overlayRightOffset}
@@ -2784,6 +2971,7 @@ export function WatchRoom({ handle }: { handle: string }) {
           onFocus={() => toggleSpotlight(id)}
           isSpotlighted={spotlightId === id}
           onHyperfocus={() => toggleHyperfocus(id)}
+          onNativePip={(ratio) => void enterNativePip(id, ratio)}
           isHyperfocused={activeHyperfocusId === id}
           hasAccount={Boolean(state.account)}
           overlayRightOffset={overlayRightOffset}
@@ -2952,6 +3140,30 @@ export function WatchRoom({ handle }: { handle: string }) {
   // hiding them — closes every other screen/camera recvPC (see
   // stopWatchingPeer/stopWatchingCameraPeer), which is what makes hyperfocus
   // worth using over spotlight for someone on a constrained link.
+  /**
+   * Floats the app window with this tile in it (Android only).
+   *
+   * Hyperfocus first, and that is not decoration: Android floats whatever the
+   * page is rendering, so the page has to *be* one tile before the window
+   * shrinks. Hyperfocus is already exactly that — it hides every other
+   * transmission and drops their connections — so PiP reuses it rather than
+   * inventing a second "show only this" mode that would have to be kept in
+   * step with it.
+   *
+   * If the system refuses (PiP switched off for this app in Android settings,
+   * or a state it will not enter from), the hyperfocus is left in place: the
+   * person asked to watch this one thing, and undoing that as well would
+   * answer a request they did not make.
+   */
+  async function enterNativePip(id: string, aspectRatio: number) {
+    if (hyperfocusId !== id) enterHyperfocus(id);
+    const entered = await enterAndroidPip(aspectRatio);
+    // The mode-change listener sets this too, but only once Android has
+    // actually switched — setting it here as well would risk stripping the
+    // layout for a window that never floated.
+    if (!entered) setPipActive(false);
+  }
+
   function enterHyperfocus(id: string) {
     setSpotlightId(null);
     setHyperfocusId(id);
@@ -3468,10 +3680,27 @@ export function WatchRoom({ handle }: { handle: string }) {
           cameraSupported={screenShareMode !== "unsupported"}
           screenBlockedReason={screenBlockedReason}
           cameraBlockedReason={cameraBlockedReason}
-          onToggleScreen={() => (localStream ? stopShare() : startShare("display"))}
+          onToggleScreen={() => {
+            if (localStream) {
+              stopShare();
+              return;
+            }
+            // On a phone the quality question is asked here rather than left
+            // in a settings menu nobody opens — see MobileQualitySheet. The
+            // start is deferred until it is answered; on anything else it
+            // goes straight through, unchanged.
+            if (onPhone) {
+              setQualityPrompt("screen");
+              return;
+            }
+            void startShare("display");
+          }}
           onToggleCamera={() => (localCameraStream ? stopCameraShare() : startCameraShare())}
           cameraDevices={cameraDevices}
           cameraDeviceId={cameraDeviceId}
+          cameraFacing={cameraFacing}
+          setCameraFacing={setCameraFacing}
+          onPhone={onPhone}
           setCameraDevice={setCameraDevice}
           cameraMenuOpen={cameraDeviceMenuOpen}
           setCameraMenuOpen={setCameraDeviceMenuOpen}
@@ -3620,14 +3849,15 @@ export function WatchRoom({ handle }: { handle: string }) {
   const participantsList = (
     <ul className="flex flex-col gap-1.5">
       <ParticipantRow
-        name={state.name}
+        name={withDeviceSuffix(state.name, state.selfUserId ?? undefined, state.selfDevice ?? undefined, deviceCounts)}
         isSelf
         isGuest={!state.account}
         userId={account?.id}
         micsMuted={micsMuted}
         isOwner={isRoomOwner}
         isAdmin={isRoomAdmin}
-        isApp={mounted && isDesktopApp()}
+        isApp={mounted && isDesktopApp() && !isMobileApp()}
+        isMobileApp={mounted && isMobileApp()}
         verified={state.account?.flags?.includes("VERIFIED")}
         nameColor={account?.equippedNameColor}
         micOn={isMicOn}
@@ -3642,7 +3872,8 @@ export function WatchRoom({ handle }: { handle: string }) {
         return (
           <ParticipantRow
             key={p.id}
-            name={p.name}
+            name={withDeviceSuffix(p.name, p.userId, p.device, deviceCounts)}
+            onOpenProfile={setProfileUserId}
             isGuest={p.isGuest}
             userId={p.userId}
             micsMuted={p.micsMuted}
@@ -3663,6 +3894,7 @@ export function WatchRoom({ handle }: { handle: string }) {
             isOwner={Boolean(p.userId) && p.userId === state.roomOwnerId}
             isAdmin={state.roomAdmins.some((a) => a.id === p.userId)}
             isApp={p.app}
+            isMobileApp={p.mobileApp}
             verified={p.flags?.includes("VERIFIED")}
             nameColor={p.nameColor}
             micOn={p.mic}
@@ -3788,6 +4020,8 @@ export function WatchRoom({ handle }: { handle: string }) {
           isRoomManager && !isDesktopLayout ? openMemberActionsFromChat : undefined
         }
         peers={visiblePeers}
+        deviceCounts={deviceCounts}
+        onOpenProfile={setProfileUserId}
         onSend={(text) => signalingClient.sendChatMessage(text)}
         onSendGif={
           state.account && !gifBlockedReason ? (url) => signalingClient.sendGif(url) : undefined
@@ -3833,6 +4067,11 @@ export function WatchRoom({ handle }: { handle: string }) {
       // it to the viewport actually on screen below lg — see the
       // `[data-room-shell]` rule there.
       data-room-shell
+      // Read by app/globals.css, which hides the header, both side columns
+      // and the bottom bar while Android is floating the window. A React
+      // branch would mean unmounting the video element the floating window is
+      // showing, which is exactly the thing that must survive.
+      data-pip={pipActive ? "true" : undefined}
       className="flex min-h-0 flex-1 flex-col bg-zinc-50 dark:bg-black"
     >
       {/* Above the header so it reads as a property of the page rather than
@@ -4318,6 +4557,30 @@ export function WatchRoom({ handle }: { handle: string }) {
         );
       })}
 
+      {/* Asked at the moment a phone starts transmitting, and nowhere else —
+          see MobileQualitySheet for why this is a question rather than a
+          setting on this one platform. */}
+      {profileUserId && (
+        <UserProfileDialog userId={profileUserId} onClose={() => setProfileUserId(null)} />
+      )}
+
+      {qualityPrompt === "screen" && (
+        <MobileQualitySheet
+          currentResolution={shareResolution}
+          onChoose={(choice: MobileQualityChoice) => {
+            // Applied before starting, not after: the capture reads these
+            // through refs when it opens (see useRoomMedia's capture
+            // closures), so setting them afterwards would leave this
+            // transmission on the previous quality and only move the next one.
+            setShareResolution(choice.resolution);
+            setShareFps(choice.fps);
+            setQualityPrompt(null);
+            void startShare("display");
+          }}
+          onCancel={() => setQualityPrompt(null)}
+        />
+      )}
+
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row lg:gap-3 lg:p-3">
         {/* From lg up, participants get this dedicated full-height column
             instead of sharing a pane with chat — see isWideLayout. A card of
@@ -4786,46 +5049,33 @@ export function WatchRoom({ handle }: { handle: string }) {
                   // already restarts a live camera onto the new one, so this
                   // works mid-call and before starting alike.
                   <div className={`${DOCK_SLOT} items-stretch gap-px`}>
-                    <ShortcutQuickPopover
-                      action="toggleCamera"
-                      open={quickShortcutAction === "toggleCamera"}
-                      onClose={() => setQuickShortcutAction(null)}
-                      hasAccount={Boolean(state.account)}
-                      onRequestAccount={() => setAccountModal("create")}
-                      onOpenAllShortcuts={() => setShortcutsModalOpen(true)}
+                    <Tooltip
+                      content={
+                        localCameraStream
+                          ? "Parar câmera"
+                          : (cameraBlockedReason ?? "Compartilhar câmera")
+                      }
+                      wrapperClassName="flex min-w-0 flex-1"
                     >
-                      <Tooltip
-                        content={
-                          localCameraStream
-                            ? "Parar câmera"
-                            : (cameraBlockedReason ?? "Compartilhar câmera")
-                        }
-                        wrapperClassName="flex min-w-0 flex-1"
+                      <button
+                        type="button"
+                        onClick={() => (localCameraStream ? stopCameraShare() : startCameraShare())}
+                        disabled={!localCameraStream && Boolean(cameraBlockedReason)}
+                        aria-pressed={Boolean(localCameraStream)}
+                        aria-label={localCameraStream ? "Parar câmera" : "Compartilhar câmera"}
+                        className={`${DOCK_BUTTON} ${
+                          cameraDevices.length > 1 ? "rounded-r-none" : ""
+                        } ${localCameraStream ? DOCK_LIVE : DOCK_ON}`}
                       >
-                        <button
-                          type="button"
-                          onClick={() => (localCameraStream ? stopCameraShare() : startCameraShare())}
-                          onContextMenu={(e) => {
-                            e.preventDefault();
-                            setQuickShortcutAction("toggleCamera");
-                          }}
-                          disabled={!localCameraStream && Boolean(cameraBlockedReason)}
-                          aria-pressed={Boolean(localCameraStream)}
-                          aria-label={localCameraStream ? "Parar câmera" : "Compartilhar câmera"}
-                          className={`${DOCK_BUTTON} ${
-                            cameraDevices.length > 1 ? "rounded-r-none" : ""
-                          } ${localCameraStream ? DOCK_LIVE : DOCK_ON}`}
-                        >
-                          <CameraIcon className="h-5 w-5" />
-                        </button>
-                      </Tooltip>
-                    </ShortcutQuickPopover>
+                        <CameraIcon className="h-5 w-5" />
+                      </button>
+                    </Tooltip>
                     {cameraDevices.length > 1 && (
                       <Tooltip content={nextCameraLabel} wrapperClassName="flex">
                         <button
                           type="button"
-                          onClick={switchToNextCamera}
-                          aria-label={nextCameraLabel}
+                          onClick={switchCamera}
+                          aria-label={switchCameraLabel}
                           className={`flex h-11 w-7 shrink-0 items-center justify-center rounded-r-xl text-white transition ${
                             localCameraStream ? DOCK_LIVE : DOCK_ON
                           }`}

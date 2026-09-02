@@ -11,8 +11,7 @@ import {
   getCaptchaToken,
   isCaptchaScriptUnavailable,
   resetCaptchaScriptCache,
-} from "./recaptcha";
-import { isTurnstileConfigured } from "./turnstile";
+} from "./turnstile";
 import { getBrowserFingerprint } from "./fingerprint";
 import { BUILD_VERSION } from "./buildVersion";
 import { currentAnnouncementDevice } from "./announcement";
@@ -60,6 +59,12 @@ export type RoomBan = {
 export type PeerInfo = {
   id: string;
   name: string;
+  // Which of this person's devices in the room this connection is, 1..3 (see
+  // the server's ClientInfo.deviceNo). Undefined from a server that predates
+  // it, and — importantly — never rendered on its own: the "(2)" only appears
+  // while `userId` has more than one device present, so somebody alone in the
+  // room is never labelled. See lib/displayName.ts.
+  device?: number;
   sharing: boolean;
   // Which of the two video channels the peer is broadcasting — `sharing` is
   // just the two OR-ed together. null when the peer's client never reported
@@ -121,6 +126,11 @@ export type PeerInfo = {
   // icon for these. Undefined for a peer sent by an older server version
   // that doesn't include it yet, treated the same as `false`.
   app?: boolean;
+  // On the GoLive Android app rather than a phone browser (see the server's
+  // peerSummary). Its own field beside `app` rather than a value inside it —
+  // ParticipantRow shows a phone icon for these and a monitor for those.
+  // Undefined from a server that predates it, read the same as `false`.
+  mobileApp?: boolean;
 };
 
 export type SignalingStatus = "idle" | "connecting" | "open" | "closed" | "superseded" | "banned";
@@ -209,6 +219,12 @@ export type ChatMessage = {
   id: string;
   from: string;
   name: string;
+  // Who sent it and from which of their devices — see PeerInfo.userId and
+  // PeerInfo.device. Captured per-message at send time (the server's "chat"
+  // handler), so history keeps saying which device said what. Absent on
+  // anything sent before this existed, which reads as "no suffix".
+  userId?: string;
+  device?: number;
   // See PeerInfo.isGuest's doc comment — captured per-message at send time
   // (see server/signaling.ts's "chat" handler), same as `name`.
   isGuest?: boolean;
@@ -247,6 +263,15 @@ export type SignalingState = {
   // what says whether this viewer is the one allowed to steer it. The
   // connection id above changes on every reconnect and can't answer that.
   selfUserId: string | null;
+  // This connection's own device number (see PeerInfo.device). Separate from
+  // the peer list because this client is not in its own peer list, and the
+  // participant row for "you" needs the same "(2)" everybody else sees.
+  selfDevice: number | null;
+  // Set when the server refused a join *pending a decision*: this account is
+  // already in the room on another device. Not an error — the join is
+  // waiting, not failed, and answering yes does not disconnect anything —
+  // which is why it is its own field rather than a joinErrorKind.
+  deviceConflict: { devices: number; maxDevices: number } | null;
   name: string | null;
   nameError: string | null;
   account: RegisteredAccount | null;
@@ -347,16 +372,14 @@ export type SignalingState = {
   //   "generic" — everything else (a code-less private handle, a rate limit,
   //               or an unrecognised reason from a newer/older server):
   //               retry, home and support, but no misleading rename box.
-  joinErrorKind: "name" | "full" | "banned" | "captcha" | "generic" | null;
-  // The invisible check refused this join and the server offered a challenge
-  // instead of a dead end (see the API's join gate and TURNSTILE_ENABLED).
-  // True means "show the person something to solve"; the join is still
-  // pending, not failed, which is why this is separate from joinError rather
-  // than a third joinErrorKind.
-  captchaChallenge: boolean;
-  // Why the last attempt did not land, shown inside that challenge — either
-  // the reason it escalated here, or a challenge answer the server rejected.
-  captchaChallengeError: string | null;
+  joinErrorKind: "name" | "full" | "banned" | "captcha" | "device-limit" | "generic" | null;
+  // There used to be a `captchaChallenge` pair here, driving a modal this
+  // client opened when the server said the invisible check had refused the
+  // join but a challenge was available. Turnstile owns that step now: it
+  // decides in the browser whether this person is shown anything, and does it
+  // before the join is ever sent (see lib/turnstile.ts). So a "captcha-required"
+  // that still arrives is a plain failure again, and joinError/joinErrorKind
+  // are enough to say so.
   // Who runs this room and what it currently allows — pushed on join
   // (inside "room-state") and again on every change ("room-settings"), so
   // these are never stale for anyone who was already here. `roomOwnerId` and
@@ -435,6 +458,8 @@ const initialState: SignalingState = {
   status: "idle",
   selfId: null,
   selfUserId: null,
+  selfDevice: null,
+  deviceConflict: null,
   name: null,
   nameError: null,
   account: null,
@@ -442,8 +467,6 @@ const initialState: SignalingState = {
   bannedReason: null,
   joinError: null,
   joinErrorKind: null,
-  captchaChallenge: false,
-  captchaChallengeError: null,
   peers: [],
   chatMessages: [],
   videoSources: [],
@@ -478,10 +501,41 @@ const initialState: SignalingState = {
 // the explicit "false" is lost.
 const TYPING_EXPIRE_MS = 6000;
 
+// Where the "this address already passed" window is remembered across page
+// loads — see SignalingClient.captchaVerifiedAt for why it has to survive one.
+// Mirrors the server's own CAPTCHA_REVERIFY_INTERVAL_MS window; a value older
+// than that is simply ignored rather than cleaned up.
+const CAPTCHA_VERIFIED_STORAGE_KEY = "sharescreen:captchaVerifiedAt";
+
+function readStoredCaptchaVerifiedAt(): number | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(CAPTCHA_VERIFIED_STORAGE_KEY);
+    if (!raw) return null;
+    const at = Number(raw);
+    // A timestamp from the future is a clock that moved, not a pass — and
+    // trusting one would skip the check for as long as the skew lasts.
+    if (!Number.isFinite(at) || at > Date.now()) return null;
+    return Date.now() - at < CAPTCHA_REVERIFY_INTERVAL_MS ? at : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredCaptchaVerifiedAt(at: number | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (at === null) window.localStorage.removeItem(CAPTCHA_VERIFIED_STORAGE_KEY);
+    else window.localStorage.setItem(CAPTCHA_VERIFIED_STORAGE_KEY, String(at));
+  } catch {
+    // ignored - localStorage may be unavailable (private mode, quota, etc.)
+  }
+}
+
 // How many times performJoin auto-retries after a "captcha-required"
 // rejection (fetching a fresh token each time) before giving up and
 // surfacing joinError instead — covers a token expiring in flight or one bad
-// verification call without retrying forever if reCAPTCHA is genuinely
+// verification call without retrying forever if Turnstile is genuinely
 // broken (blocked by an extension, network issue, misconfigured site key).
 const MAX_JOIN_RETRIES = 3;
 
@@ -504,6 +558,28 @@ const REGISTER_ACK_TIMEOUT_MS = 10_000;
 // the actual source of truth (a mismatch here just costs one extra
 // "captcha-required" round trip, already handled by performJoin's retry).
 const CAPTCHA_REVERIFY_INTERVAL_MS = 30 * 60_000;
+
+/**
+ * How long a peer we already knew may stay in the list after a reconnect
+ * without the server having mentioned them again.
+ *
+ * When the signaling server restarts, every socket in every room drops at
+ * once and each client reconnects on its own jittered backoff. So the first
+ * room-state a client gets back is not a picture of the room — it is a
+ * picture of whoever happened to reconnect first, which is frequently nobody.
+ * Taking it literally is what made a restart look like everyone left and then
+ * filed back in one at a time, chiming as they went, while their screen share
+ * carried on playing throughout: the media never dropped, because WebRTC is
+ * peer-to-peer and does not care that the signaling server went away.
+ *
+ * Deliberately the same 5s as useRoomMedia's PEER_PRUNE_GRACE_MS, which is
+ * the identical judgement one layer down — it already refuses to tear down a
+ * peer connection missing from a fresh room-state for exactly this long. The
+ * two have to agree: a shorter window here drops people from the list whose
+ * video is still on screen, a longer one keeps names for peers whose
+ * connection has already been torn down.
+ */
+export const PEER_RESETTLE_MS = 5000;
 
 // Cap on retained chat history per room, to keep memory bounded in a
 // long-running room instead of growing the array forever.
@@ -542,6 +618,41 @@ function getClientId(): string | null {
     return window.sessionStorage.getItem(CLIENT_ID_STORAGE_KEY);
   } catch {
     return null;
+  }
+}
+
+// Rooms this tab has already answered the other-device question for.
+//
+// Without this the question comes back on every reconnect, which is not a
+// rare event: a phone changing networks, a laptop waking, a deploy dropping
+// every socket at once. Each of those re-registers and re-joins, the other
+// device is still sitting there, and the server — which has no memory of a
+// decision, only of who is present — asks again. Being asked to confirm
+// something you confirmed thirty seconds ago reads as the app having lost
+// track, and after a deploy it would ask everybody at once.
+//
+// sessionStorage, so it is scoped to exactly one tab and survives exactly one
+// thing: a reload of that tab. A genuinely new tab is a genuinely new device
+// and gets asked, which is the whole point of the question.
+const DEVICE_CONFIRMED_STORAGE_KEY = "sharescreen:deviceConfirmedRooms";
+
+function readConfirmedDeviceRooms(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = window.sessionStorage.getItem(DEVICE_CONFIRMED_STORAGE_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    return new Set(Array.isArray(parsed) ? parsed.filter((r): r is string => typeof r === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeConfirmedDeviceRooms(rooms: Set<string>): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(DEVICE_CONFIRMED_STORAGE_KEY, JSON.stringify([...rooms]));
+  } catch {
+    // ignored - sessionStorage may be unavailable (private mode, quota, etc.)
   }
 }
 
@@ -602,7 +713,32 @@ class SignalingClient {
   // ever disagree, the server says so with "captcha-required" and
   // performJoin retries with a real token, which is the same safety net
   // that has always backed this optimization.
-  private captchaVerifiedAt: number | null = null;
+  //
+  // Persisted, and that is not a micro-optimization: the server's own memory
+  // of this address (captchaVerifiedIps) outlives the page, so an in-memory
+  // value meant every reload — opening a room link, which is *the* way people
+  // arrive here — minted a token the server was about to ignore anyway. With
+  // reCAPTCHA that was an unnoticed 200ms. With Turnstile it is a widget doing
+  // real browser work, and it was the difference between joining instantly and
+  // waiting seconds for permission nobody was going to ask for.
+  private captchaVerifiedAt: number | null = readStoredCaptchaVerifiedAt();
+  // See readConfirmedDeviceRooms — which rooms this tab has already said
+  // "yes, let me in anyway" for.
+  private confirmedDeviceRooms: Set<string> = readConfirmedDeviceRooms();
+  // Peers carried over a reconnect that the server has not re-announced yet
+  // (see PEER_RESETTLE_MS). Emptied as each one is confirmed by a
+  // "peer-joined"; whatever is left when the timer fires genuinely went away
+  // while we were disconnected.
+  private provisionalPeerIds = new Set<string>();
+  private resettleTimer: ReturnType<typeof setTimeout> | null = null;
+  // Whether the join now in flight actually carried a token. Read only by the
+  // "captcha-required" handler: a refusal for "missing" means something very
+  // different depending on this. Having sent nothing on purpose (the window
+  // above said we were still verified, and the server disagreed) is fixed
+  // completely by retrying *with* a token. Having sent nothing because none
+  // could be minted is not fixed by anything, and retrying just spends the
+  // budget on a foregone conclusion.
+  private lastJoinSentToken = false;
   // Per-peer safety-net expiry timers backing typingPeerIds — see that
   // field's doc comment and TYPING_EXPIRE_MS.
   private typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -851,6 +987,10 @@ class SignalingClient {
       // register-error since, unlike that one, our name registration itself
       // was fine; only entering *this* room failed.
       case "join-error": {
+        // Kept before it is cleared: the other-device branch below is a
+        // question, not a refusal, and answering it has to resume the join
+        // for *this* room rather than for whatever desiredRoom became.
+        const refusedRoom = this.desiredRoom;
         this.desiredRoom = null;
         // The server tags each refusal with a `reason` (see its join handler);
         // the booleans are the older signal an out-of-date server still sends,
@@ -858,6 +998,23 @@ class SignalingClient {
         // unrecognised is "generic" — a real failure with honest controls,
         // never the rename box, which was the whole bug.
         const reason = typeof msg.reason === "string" ? msg.reason : "";
+        // Already in this room on another device, and the server is asking
+        // rather than refusing. Handled before everything below because it is
+        // not a failure: desiredRoom is deliberately put *back*, so answering
+        // yes resumes the join that is still pending rather than starting a
+        // new one, exactly as the captcha challenge used to.
+        if (reason === "other-device") {
+          this.desiredRoom = refusedRoom;
+          this.setState({
+            deviceConflict: {
+              devices: typeof msg.devices === "number" ? msg.devices : 1,
+              maxDevices: typeof msg.maxDevices === "number" ? msg.maxDevices : 3,
+            },
+            joinError: null,
+            joinErrorKind: null,
+          });
+          break;
+        }
         const kind: SignalingState["joinErrorKind"] =
           reason === "name-taken"
             ? "name"
@@ -865,10 +1022,14 @@ class SignalingClient {
               ? "full"
               : reason === "banned" || msg.banned === true
                 ? "banned"
-                : "generic";
+                : reason === "device-limit"
+                  ? "device-limit"
+                  : "generic";
         this.setState({
           joinError: (msg.message as string) ?? "Não foi possível entrar nesta sala.",
           joinErrorKind: kind,
+          // A refusal ends any pending question about it.
+          deviceConflict: null,
         });
         trackEvent("join_error");
         break;
@@ -880,17 +1041,18 @@ class SignalingClient {
         // they arrived.
         const history = Array.isArray(msg.messages) ? (msg.messages as ChatMessage[]) : [];
         this.joinRetryCount = 0;
-        this.captchaVerifiedAt = Date.now();
+        this.markCaptchaVerified();
         this.clearAllTyping();
         this.setState({
           room: msg.room as string,
           selfId: msg.selfId as string,
           selfUserId: (msg.selfUserId as string | undefined) ?? null,
+          selfDevice: typeof msg.selfDevice === "number" ? msg.selfDevice : null,
+          // We are in; whatever was being asked about getting in is settled.
+          deviceConflict: null,
           joinError: null,
           joinErrorKind: null,
-          captchaChallenge: false,
-          captchaChallengeError: null,
-          peers: msg.peers as PeerInfo[],
+          peers: this.peersForRoomState(msg.room as string, msg.peers as PeerInfo[]),
           chatMessages:
             history.length > MAX_CHAT_MESSAGES ? history.slice(-MAX_CHAT_MESSAGES) : history,
           videoSources: Array.isArray(msg.videoSources) ? (msg.videoSources as VideoSource[]) : [],
@@ -916,11 +1078,16 @@ class SignalingClient {
         break;
       }
       // The server's server/captcha.ts rejected (or never received) a
-      // valid token for our last "join" — see performJoin, which fetches a
-      // fresh one per attempt since each is single-use. With reCAPTCHA v3
-      // "rejected" also covers a score below the server's threshold, which
-      // is not something the user can do anything about and not something
-      // retrying is likely to change — hence the retry cap.
+      // valid token for our last "join" — see performJoin, which mints a
+      // fresh one per attempt since each is single-use.
+      //
+      // Rarer than it used to be, and for a good reason: this used to also
+      // cover "your reCAPTCHA score was below the threshold", which no amount
+      // of retrying could change. Turnstile has no score — it shows a
+      // challenge to whoever it is unsure about, in the browser, before the
+      // join is sent — so what is left here is a token that expired, was
+      // already spent, or never got minted at all. The retry cap stays for
+      // the last of those.
       case "captcha-required": {
         if (!this.desiredRoom) break;
         // The server just contradicted whatever this client believed about
@@ -930,48 +1097,40 @@ class SignalingClient {
         // one side that actually decides. Matters now that this survives
         // reconnects (see the field's comment): the two sides can genuinely
         // disagree, and this is how the client is told which one is right.
-        this.captchaVerifiedAt = null;
+        const skippedToken = !this.lastJoinSentToken;
+        this.markCaptchaVerified(null);
         const captchaMessage =
           (msg.message as string) ?? "Não foi possível verificar a segurança da sala.";
-        const challengeOffered = msg.challenge === true;
         const captchaReason = typeof msg.reason === "string" ? msg.reason : "";
-
-        // An answer to a challenge that was just solved and refused anyway (a
-        // stale token, usually). The challenge stays open with the reason on
-        // it: closing it to reopen it would throw away a widget the person is
-        // looking at, and there is nowhere better for them to go.
-        if (this.state.captchaChallenge) {
-          this.setState({ captchaChallengeError: captchaMessage });
-          break;
-        }
 
         this.joinRetryCount += 1;
         // Retrying is only worth anything when a *different* answer is
-        // possible next time. A token that expired in flight is exactly that
-        // case. A low score is not — v3 will score the same person the same
-        // way — and neither is a script that never loaded, where every
-        // further attempt sends the same nothing. Spending the budget on
-        // those just makes somebody wait for a foregone conclusion.
+        // possible next time. A token that expired or was already spent is
+        // exactly that case: the next attempt mints a fresh one. A script that
+        // never loaded is not — every further attempt sends the same nothing —
+        // and neither is a token Cloudflare rejected outright, which will be
+        // rejected identically however many times it is re-sent. Spending the
+        // budget on those just makes somebody wait for a foregone conclusion.
+        //
+        // "missing" is the one that has to be read together with what we
+        // actually sent. It normally means the script is blocked and nothing
+        // will change — but when we deliberately sent no token because the
+        // persisted window above said we were still verified, it just means
+        // the server disagreed, and the retry (which now mints one, since
+        // markCaptchaVerified(null) above cleared that belief) is precisely
+        // the fix. Without this distinction, one stale window entry turned
+        // into a join that failed outright instead of retrying once.
         const retryCouldHelp =
-          captchaReason !== "low-score" &&
-          captchaReason !== "missing" &&
+          (captchaReason !== "missing" || skippedToken) &&
+          captchaReason !== "rejected" &&
           !isCaptchaScriptUnavailable();
         if (!retryCouldHelp || this.joinRetryCount > MAX_JOIN_RETRIES) {
-          if (challengeOffered && isTurnstileConfigured()) {
-            // desiredRoom is deliberately kept: the join has not failed, it
-            // is waiting on a person. Solving the challenge resumes it.
-            this.setState({
-              captchaChallenge: true,
-              captchaChallengeError: null,
-              joinError: null,
-              joinErrorKind: null,
-            });
-            break;
-          }
           this.desiredRoom = null;
           this.setState({ joinError: captchaMessage, joinErrorKind: "captcha" });
           break;
         }
+        // A fresh token, and with it a fresh chance for Cloudflare to put a
+        // challenge on screen if it now wants one — performJoin mints it.
         void this.performJoin(this.desiredRoom);
         break;
       }
@@ -981,26 +1140,35 @@ class SignalingClient {
         // stale departure isn't announced, to avoid tearing down otherwise
         // still-healthy WebRTC connections over a brief signaling hiccup).
         const alreadyKnown = this.state.peers.some((p) => p.id === msg.id);
-        const role = msg.role === "moderator" ? "moderator" : undefined;
-        const userId = typeof msg.userId === "string" ? msg.userId : undefined;
-        const isGuest = Boolean(msg.isGuest);
-        const flags = Array.isArray(msg.flags) ? (msg.flags as string[]) : undefined;
-        const nameColor = typeof msg.nameColor === "string" ? msg.nameColor : null;
+        // The server sends the same shape here as it does in room-state's peer
+        // list (its peerSummary), so this takes the whole thing rather than
+        // naming the fields it wants. Listing them is what let the two drift:
+        // `app` and `mobileApp` were added to the summary and not here, and
+        // the result was an app icon that appeared or not depending on who
+        // arrived first.
+        //
+        // `type` is dropped because it is the envelope, not the peer. Nothing
+        // else needs excluding: a joining peer's sharing/mic/files are reset
+        // server-side immediately before the broadcast, so the values that
+        // arrive are the empty ones this used to hard-code.
+        const joined: PeerInfo & { type?: string } = { ...(msg as unknown as PeerInfo) };
+        delete joined.type;
+        // They are back. Whatever the resettle timer would have done about
+        // them, it must not do it now — and because this peer is already in
+        // the list (carried over), the merge below changes nothing visible
+        // and useRoomSoundEffects sees no arrival to chime for.
+        this.provisionalPeerIds.delete(joined.id);
         this.setState({
           peers: alreadyKnown
-            ? this.state.peers.map((p) =>
-                p.id === msg.id
-                  ? { ...p, name: msg.name as string, sharing: false, mic: false, role, userId, isGuest, flags, nameColor }
-                  : p
-              )
-            : [
-                ...this.state.peers,
-                { id: msg.id as string, name: msg.name as string, sharing: false, mic: false, role, userId, isGuest, flags, nameColor },
-              ],
+            ? this.state.peers.map((p) => (p.id === joined.id ? { ...p, ...joined } : p))
+            : [...this.state.peers, joined],
         });
         break;
       }
       case "peer-left":
+        // An explicit departure is an answer, so it stops this peer being
+        // pruned a second time when the resettle timer fires.
+        if (typeof msg.id === "string") this.provisionalPeerIds.delete(msg.id);
         this.clearTyping(msg.id as string);
         this.setState({ peers: this.state.peers.filter((p) => p.id !== msg.id) });
         this.signalListeners.forEach((l) => l(msg.id as string, { kind: "peer-left" }));
@@ -1464,8 +1632,7 @@ class SignalingClient {
       nameError: null,
       joinError: null,
       joinErrorKind: null,
-      captchaChallenge: false,
-      captchaChallengeError: null,
+      deviceConflict: null,
     });
     const wasOpen = this.ws && this.ws.readyState === WebSocket.OPEN;
     this.ensureSocket();
@@ -1500,62 +1667,158 @@ class SignalingClient {
     this.setState({
       joinError: null,
       joinErrorKind: null,
-      captchaChallenge: false,
-      captchaChallengeError: null,
     });
     if (this.state.name) void this.performJoin(room);
   }
 
-  // Fetches a fresh captcha token (single-use — see lib/recaptcha.ts) and
+  /**
+   * The peer list to adopt from a room-state.
+   *
+   * A *fresh* join — first arrival, or a switch to a different room — takes
+   * the server's list verbatim: there is nothing to carry over, and anything
+   * we still held belongs to a room we just left.
+   *
+   * A *rejoin* into the room we were already in is the interesting one, and
+   * it is where a server restart lands. The list that comes back is
+   * everybody who has reconnected so far, which moments after a restart is
+   * close to nobody — while the peers it omits are still on screen and still
+   * audible, because their WebRTC connections never dropped. So they are kept
+   * and marked provisional, and the timer below decides which of them were
+   * genuinely gone. See PEER_RESETTLE_MS.
+   */
+  private peersForRoomState(room: string, serverPeers: PeerInfo[]): PeerInfo[] {
+    this.clearResettleTimer();
+    const rejoining = this.state.room === room && this.state.peers.length > 0;
+    if (!rejoining) {
+      this.provisionalPeerIds.clear();
+      return serverPeers;
+    }
+    const announced = new Set(serverPeers.map((p) => p.id));
+    const carried = this.state.peers.filter((p) => !announced.has(p.id));
+    this.provisionalPeerIds = new Set(carried.map((p) => p.id));
+    if (this.provisionalPeerIds.size === 0) return serverPeers;
+    this.resettleTimer = setTimeout(() => {
+      this.resettleTimer = null;
+      // The room may have changed while this was pending — pruning then would
+      // be deciding the fate of peers in a room nobody is looking at.
+      if (this.state.room !== room) {
+        this.provisionalPeerIds.clear();
+        return;
+      }
+      const stale = this.provisionalPeerIds;
+      this.provisionalPeerIds = new Set();
+      if (stale.size === 0) return;
+      this.setState({ peers: this.state.peers.filter((p) => !stale.has(p.id)) });
+      // A wholesale change to the peer list decided by this client rather than
+      // announced by the server, which is the one case nothing downstream
+      // would otherwise hear about — there is no "peer-left" for somebody the
+      // server forgot across its own restart. Re-firing the room-joined
+      // listeners is how that reconciliation already works: useRoomMedia tears
+      // down the connections of anyone now missing (on its own further grace,
+      // re-checked against the room as it is *then*), and the other two
+      // subscribers simply re-assert state they had already asserted.
+      //
+      // Without this the list would be right and the media wrong: a peer who
+      // genuinely left during the restart would vanish from the participants
+      // while their tile and PeerConnection lingered as a ghost, which is the
+      // exact failure useRoomMedia's prune exists to prevent.
+      this.roomJoinedListeners.forEach((l) => l());
+    }, PEER_RESETTLE_MS);
+    // Server first, so anybody it did mention keeps its authoritative entry.
+    return [...serverPeers, ...carried];
+  }
+
+  private clearResettleTimer() {
+    if (this.resettleTimer === null) return;
+    clearTimeout(this.resettleTimer);
+    this.resettleTimer = null;
+  }
+
+  /**
+   * Records (or clears) the fact that this browser passed the captcha, in
+   * memory and on disk together so the two can never drift.
+   */
+  private markCaptchaVerified(at: number | null = Date.now()) {
+    this.captchaVerifiedAt = at;
+    writeStoredCaptchaVerifiedAt(at);
+  }
+
+  // Fetches a fresh captcha token (single-use — see lib/turnstile.ts) and
   // sends the actual "join". Split out from joinRoom() so both the public
   // entry point and the "captcha-required" retry path (see handleMessage) go
   // through the exact same token-fetch-then-send flow.
-  private async performJoin(room: string, challengeToken?: string) {
+  //
+  // Note that the await below can now last as long as a *person* does: if
+  // Cloudflare decides this join needs a challenge, getCaptchaToken puts one
+  // on screen and resolves only once it is solved. That is fine here — the UI
+  // is already showing "Entrando..." and the challenge is on top of it — but
+  // it is why nothing in this method treats slowness as failure.
+  private async performJoin(room: string, confirmDevice = false) {
     // Verified recently (see room-state above) — the server remembers this
     // address passed too (see its captchaVerifiedIps) and won't ask again
-    // within the same window, so skip fetching a token it will just ignore.
-    // Worth skipping rather than fetching-and-discarding: v3 shows nobody
-    // anything, but it is still a round trip to Google in front of a join.
+    // within the same window, so skip minting a token it will just ignore.
+    // Worth skipping rather than minting-and-discarding: it is a round trip to
+    // Cloudflare in front of a join, and on an unlucky one, a challenge.
     const stillFresh =
       this.captchaVerifiedAt !== null &&
       Date.now() - this.captchaVerifiedAt < CAPTCHA_REVERIFY_INTERVAL_MS;
-    // A challenge token replaces the invisible one rather than joining it:
-    // the only reason somebody is holding one is that v3 already said no, so
-    // sending both would just hand the server the refusal again.
-    const captchaToken =
-      challengeToken || stillFresh ? null : await getCaptchaToken("join_room");
+    const turnstileToken = stillFresh ? null : await getCaptchaToken("join_room");
     // Bail if the desired room or our identity changed while the token
     // fetch was in flight (room switch, logout, disconnect) — sending a
     // stale join here would either land in the wrong room or get rejected
     // anyway since the socket/name it was meant for is gone.
     if (this.desiredRoom !== room || !this.state.name) return;
-    this.rawSend({ type: "join", room, captchaToken, challengeToken: challengeToken ?? null });
+    this.lastJoinSentToken = turnstileToken !== null;
+    // `turnstileToken` rather than the old `captchaToken` field: that one used
+    // to carry a reCAPTCHA token, and the server has to be able to tell the
+    // two apart to keep a tab that was open across the migration working.
+    // True either because the person just answered the question, or because
+    // this tab answered it for this room earlier and is only here again
+    // through a reconnect (see confirmedDeviceRooms). Never true by default:
+    // the server asks once per join, so sending it unprompted would silently
+    // skip a question that exists precisely to be surprising.
+    const confirmed = confirmDevice || this.confirmedDeviceRooms.has(room);
+    this.rawSend({ type: "join", room, turnstileToken, confirmDevice: confirmed });
   }
 
   /**
-   * Resumes a join with a challenge somebody just solved (see
-   * components/CaptchaChallengeModal). The token is single-use, so this is
-   * the only place it is ever sent.
+   * Answers "yes, let me in anyway" to the other-device question.
+   *
+   * Nothing is disconnected by this: the devices already in the room stay
+   * exactly as they are, and this one joins alongside them. Everyone's name
+   * picks up a "(1)"/"(2)" the moment there is more than one to tell apart —
+   * see lib/displayName.ts.
    */
-  submitCaptchaChallenge(token: string) {
-    if (!this.desiredRoom || !token) return;
-    this.setState({ captchaChallengeError: null });
-    void this.performJoin(this.desiredRoom, token);
+  confirmDeviceJoin() {
+    const room = this.desiredRoom;
+    if (!room || !this.state.deviceConflict) return;
+    // Remembered before the join rather than after it lands: the reconnect
+    // this protects against can happen during the join itself.
+    this.confirmedDeviceRooms.add(room);
+    writeConfirmedDeviceRooms(this.confirmedDeviceRooms);
+    this.setState({ deviceConflict: null });
+    this.joinRetryCount = 0;
+    void this.performJoin(room, true);
   }
 
   /**
-   * Gives up on the challenge. The join genuinely has failed at this point,
-   * so it becomes an ordinary join error with the retry screen behind it —
-   * closing the modal into a room that never loads would be worse than
-   * saying so.
+   * Answers "no". The join genuinely has not happened, so this becomes an
+   * ordinary join error with the retry screen behind it — dropping the
+   * question into a room that never loads would be worse than saying so.
    */
-  dismissCaptchaChallenge() {
+  dismissDeviceJoin() {
+    // Saying no also withdraws any earlier yes for this room — otherwise a
+    // later attempt would walk straight past the question on the strength of
+    // a decision that was just reversed.
+    if (this.desiredRoom) {
+      this.confirmedDeviceRooms.delete(this.desiredRoom);
+      writeConfirmedDeviceRooms(this.confirmedDeviceRooms);
+    }
     this.desiredRoom = null;
     this.setState({
-      captchaChallenge: false,
-      captchaChallengeError: null,
-      joinError: "Verificação de segurança não concluída.",
-      joinErrorKind: "captcha",
+      deviceConflict: null,
+      joinError: "Você continua conectado nesta sala no outro dispositivo.",
+      joinErrorKind: "generic",
     });
   }
 
@@ -1588,16 +1851,23 @@ class SignalingClient {
     this.desiredRoom = null;
     this.rawSend({ type: "leave" });
     this.clearAllTyping();
+    // Nothing left to resettle: the peers it was holding open belong to the
+    // room being left.
+    this.clearResettleTimer();
+    this.provisionalPeerIds.clear();
     this.setState({
       room: null,
+      // Both are room-scoped, exactly as the server's ClientInfo.deviceNo is:
+      // carrying either into the next room would label somebody against a set
+      // of devices that is no longer there.
+      selfDevice: null,
+      deviceConflict: null,
       peers: [],
       chatMessages: [],
       videoSources: [],
       music: null,
       joinError: null,
       joinErrorKind: null,
-      captchaChallenge: false,
-      captchaChallengeError: null,
       // The room's rules leave with the room — carrying them into the next
       // one would gate the wrong controls until its "room-state" lands.
       roomCreated: false,

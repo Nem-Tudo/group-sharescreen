@@ -58,6 +58,7 @@ const SMART_QUALITY_KEY = "sharescreen:smartQuality";
 const MIC_DEVICE_ID_KEY = "sharescreen:micDeviceId";
 const SPEAKER_DEVICE_ID_KEY = "sharescreen:speakerDeviceId";
 const CAMERA_DEVICE_ID_KEY = "sharescreen:cameraDeviceId";
+const CAMERA_FACING_KEY = "sharescreen:cameraFacing";
 
 function getStoredBoolean(key: string, fallback: boolean): boolean {
   if (typeof window === "undefined") return fallback;
@@ -340,4 +341,43 @@ export function getStoredCameraDeviceId(): string | null {
 }
 export function setStoredCameraDeviceId(value: string | null) {
   setStoredString(CAMERA_DEVICE_ID_KEY, value);
+}
+
+/**
+ * Which way the phone's camera points, for the flip button.
+ *
+ * A separate preference from the camera *device id* above, and deliberately
+ * so. A device id is a specific lens on a specific machine: it does not
+ * survive a different phone, it is meaningless on a desktop, and on Android
+ * the ids are opaque strings whose labels ("camera2 0, facing back") are only
+ * readable after permission has been granted — so a flip button built on them
+ * would be guessing at which entry is the back one, and guessing wrong on the
+ * phones that expose three.
+ *
+ * `facingMode` is the constraint the browser resolves itself, on any device,
+ * with no enumeration and no labels. So the flip button sets this and clears
+ * the device id (see setCameraFacing in useRoomMedia): picking a lens by hand
+ * and flipping front-to-back are two different intentions, and the last one
+ * expressed is the one that should hold.
+ */
+export type CameraFacing = "user" | "environment";
+
+export function getStoredCameraFacing(): CameraFacing {
+  if (typeof window === "undefined") return "user";
+  try {
+    return window.localStorage.getItem(CAMERA_FACING_KEY) === "environment"
+      ? "environment"
+      : "user";
+  } catch {
+    return "user";
+  }
+}
+
+export function setStoredCameraFacing(facing: CameraFacing) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(CAMERA_FACING_KEY, facing);
+  } catch {
+    // ignored - localStorage may be unavailable (private mode, quota, etc.)
+  }
 }

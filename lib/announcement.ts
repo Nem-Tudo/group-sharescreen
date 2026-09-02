@@ -3,7 +3,7 @@
 // so both sides agree on the shape and the color→CSS mapping never drifts
 // between the admin's preview and what real visitors actually see.
 
-import { isDesktopApp } from "./desktop";
+import { isDesktopApp, isMobileApp } from "./desktop";
 
 export type AnnouncementColor = "green" | "red" | "blue";
 export type AnnouncementButtonAction = "open-new-tab" | "open-same-tab" | "reload";
@@ -17,11 +17,11 @@ export type AnnouncementSound = "always" | "live-only" | "off";
 // Which kinds of client a banner is meant for. Mirrors
 // server/signaling.ts's AnnouncementDevice.
 //
-// "mobile-app" has no client that reports it yet — there is no native mobile
-// build. It is defined, selectable and stored anyway so the day one ships,
-// the only change needed is in currentAnnouncementDevice() below. Until
-// then, ticking or unticking it changes nothing for anybody, which is the
-// honest behaviour rather than a hidden one.
+// "mobile-app" is the Android shell (see lib/capacitorBridge.ts), reported by
+// currentAnnouncementDevice() below. It was defined and selectable for a long
+// time before anything reported it, on the reasoning that the day a native
+// build shipped the only change needed would be in that function — which is
+// how it turned out.
 export type AnnouncementDevice =
   | "desktop-browser"
   | "desktop-app"
@@ -166,7 +166,7 @@ export function clearStoredPersistentAnnouncement() {
 // True for a phone or tablet. UA-first rather than a viewport width, because
 // this has to answer "what kind of machine is this" and not "how wide is the
 // window" — a half-width browser on a desktop is still a desktop.
-function isMobileDevice(): boolean {
+export function isMobileDevice(): boolean {
   if (typeof navigator === "undefined") return false;
   const ua = navigator.userAgent;
   if (/android|iphone|ipod|ipad|windows phone/i.test(ua)) return true;
@@ -179,10 +179,9 @@ function isMobileDevice(): boolean {
 /**
  * Which of the four buckets this client falls into.
  *
- * The one place to change when a native mobile app exists: it would expose
- * its own bridge the way the desktop shell does (see lib/desktop.ts), and
- * the mobile branch below would ask for it instead of always answering
- * "mobile-browser".
+ * Both shells expose the same bridge (see lib/desktop.ts) and are told apart
+ * by its `platform` — so the mobile branch asks the same question the desktop
+ * one does, rather than assuming a phone is always a browser.
  *
  * Note that an installed PWA is deliberately *not* "mobile-app": it is the
  * same website in a chrome-less window, indistinguishable to everything else
@@ -190,7 +189,7 @@ function isMobileDevice(): boolean {
  * silently targeting people who never installed anything of the sort.
  */
 export function currentAnnouncementDevice(): AnnouncementDevice {
-  if (isMobileDevice()) return "mobile-browser";
+  if (isMobileDevice()) return isMobileApp() ? "mobile-app" : "mobile-browser";
   return isDesktopApp() ? "desktop-app" : "desktop-browser";
 }
 

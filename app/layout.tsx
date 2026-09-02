@@ -14,7 +14,7 @@ import "./globals.css";
 import SupressErrors from "./middlewares/SupressErrors";
 
 const UMAMI_WEBSITE_ID = process.env.NEXT_PUBLIC_UMAMI_WEBSITE_ID;
-const RECAPTCHA_SITE_KEY = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
 const SITE_URL = "https://golive.nemtudo.me";
 const SITE_NAME = "GoLive";
@@ -210,14 +210,20 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             strategy="afterInteractive"
           />
         )}
-        {RECAPTCHA_SITE_KEY && (
-          // ?render=<site key> is what makes this reCAPTCHA v3 rather than v2:
-          // the script sets up a single invisible assessment for the page and
-          // exposes grecaptcha.execute(), instead of looking for a container to
-          // draw a checkbox into. Nothing is ever rendered and nobody is ever
-          // challenged — see lib/recaptcha.ts.
+        {TURNSTILE_SITE_KEY && (
+          // Loaded here rather than on demand purely for latency: the first
+          // thing most people do is join a room, and that is captcha-gated, so
+          // fetching this at the same time as the page saves a round trip in
+          // front of the button they are about to press. lib/turnstile.ts
+          // injects the same tag itself if it is somehow not here yet, which is
+          // what keeps that file usable from anywhere.
+          //
+          // ?render=explicit stops the script hunting the document for
+          // containers to draw into: every widget in this app is created on
+          // demand, one per gated action, and is invisible unless Cloudflare
+          // decides that person needs to interact — see lib/turnstile.ts.
           <Script
-            src={`https://www.google.com/recaptcha/api.js?render=${RECAPTCHA_SITE_KEY}`}
+            src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"
             strategy="afterInteractive"
           />
         )}

@@ -137,32 +137,26 @@ export default function TermosPage() {
             </li>
             <li>Banimento de contas e de endereços IP, temporário ou permanente;</li>
             <li>
-              Verificação anti-bot invisível (Google reCAPTCHA v3) nas ações sensíveis — criar
-              conta, entrar na conta e entrar/criar uma sala. Não há desafio de imagens nem
-              qualquer interação: o Google atribui uma pontuação de confiança e o servidor decide.
-              Navegar pelo site, ver a lista de salas ou o mapa não passam por essa verificação.
+              Verificação anti-bot (Cloudflare Turnstile) nas ações sensíveis — criar conta,
+              entrar na conta e entrar/criar uma sala. Na maioria das vezes ela é invisível e
+              nada é pedido a você; só quando a Cloudflare fica em dúvida aparece uma confirmação
+              rápida na tela. Navegar pelo site, ver a lista de salas ou o mapa não passam por
+              essa verificação.
             </li>
           </ul>
           <p className={pClass}>
-            Este site é protegido pelo reCAPTCHA. Aplicam-se a{" "}
+            Essa verificação é feita pelo Cloudflare Turnstile, que recebe seu endereço IP e
+            sinais técnicos do navegador para distinguir pessoas de robôs. A Cloudflare declara
+            não usar esses dados para publicidade ou rastreamento entre sites — veja a{" "}
             <a
               className={linkClass}
-              href="https://policies.google.com/privacy"
+              href="https://www.cloudflare.com/privacypolicy/"
               target="_blank"
               rel="noopener noreferrer"
             >
-              Política de Privacidade
-            </a>{" "}
-            e os{" "}
-            <a
-              className={linkClass}
-              href="https://policies.google.com/terms"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Termos de Serviço
-            </a>{" "}
-            do Google.
+              Política de Privacidade da Cloudflare
+            </a>
+            .
           </p>
           <p className={pClass}>
             Contas ou IPs podem ser suspensos ou banidos a qualquer momento, a critério da

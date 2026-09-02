@@ -11,6 +11,9 @@ import {
   getStoredMicOn,
   getStoredNoiseSuppressionOn,
   getStoredCameraDeviceId,
+  getStoredCameraFacing,
+  setStoredCameraFacing,
+  type CameraFacing,
   getStoredShareResolution,
   setStoredShareResolution,
   getStoredShareFps,
@@ -1912,10 +1915,18 @@ function hasCameraCapture() {
 // Which physical camera to open. `exact` rather than `ideal` on purpose: an
 // ignored deviceId would leave someone broadcasting a camera other than the
 // one their picker shows as selected, and on a phone it would also defeat
-// picking the rear lens. Nothing chosen means "let the browser decide",
-// which is the front-facing one.
-function cameraSourceConstraints(deviceId: string | null): MediaTrackConstraints {
-  return deviceId ? { deviceId: { exact: deviceId } } : { facingMode: "user" };
+// picking the rear lens.
+//
+// With nothing picked by hand, the *facing* preference decides (see
+// mediaPreferences' CameraFacing) — which is what the phone's flip button
+// sets. `ideal` there, not `exact`: a laptop with one webcam has no
+// environment-facing camera at all, and an exact constraint would fail the
+// capture outright rather than opening the only camera there is.
+function cameraSourceConstraints(
+  deviceId: string | null,
+  facing: CameraFacing
+): MediaTrackConstraints {
+  return deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: facing } };
 }
 
 // A picked camera can simply be gone by the time it is opened — unplugged,
@@ -1932,16 +1943,20 @@ function isMissingDeviceError(err: unknown): boolean {
 
 async function captureCamera(
   video: MediaTrackConstraints,
-  deviceId: string | null
+  deviceId: string | null,
+  facing: CameraFacing
 ): Promise<MediaStream> {
   try {
     return await navigator.mediaDevices.getUserMedia({
-      video: { ...video, ...cameraSourceConstraints(deviceId) },
+      video: { ...video, ...cameraSourceConstraints(deviceId, facing) },
     });
   } catch (err) {
     if (!deviceId || !isMissingDeviceError(err)) throw err;
+    // The picked lens is gone. Falling back to the facing preference rather
+    // than to nothing keeps a phone that was on its rear camera on the rear
+    // camera, instead of quietly turning itself around.
     return navigator.mediaDevices.getUserMedia({
-      video: { ...video, ...cameraSourceConstraints(null) },
+      video: { ...video, ...cameraSourceConstraints(null, facing) },
     });
   }
 }
@@ -2152,6 +2167,14 @@ export function useRoomMedia(room: string) {
   const [cameraDeviceId, setCameraDeviceIdState] = useState<string | null>(() =>
     getStoredCameraDeviceId()
   );
+  // Which way the camera points when no specific lens is picked — the phone's
+  // flip button (see setCameraFacing below). Same ref-mirrors-state pattern
+  // and for the same reason: the capture closure runs once per start and
+  // would otherwise hold whichever value was current when it was created.
+  const cameraFacingRef = useRef<CameraFacing>(getStoredCameraFacing());
+  const [cameraFacing, setCameraFacingState] = useState<CameraFacing>(() =>
+    getStoredCameraFacing()
+  );
 
   const screen = useBroadcastChannel(
     "screen",
@@ -2169,7 +2192,7 @@ export function useRoomMedia(room: string) {
         frameRate: { ideal: shareFpsRef.current },
       };
       if (source === "camera") {
-        return captureCamera(videoConstraints, cameraDeviceIdRef.current);
+        return captureCamera(videoConstraints, cameraDeviceIdRef.current, cameraFacingRef.current);
       }
       // The Android app: a real screen capture, just not through
       // getDisplayMedia (which does not exist there — see
@@ -2298,7 +2321,8 @@ export function useRoomMedia(room: string) {
           height: { ideal: dims.height },
           frameRate: { ideal: shareFpsRef.current },
         },
-        cameraDeviceIdRef.current
+        cameraDeviceIdRef.current,
+        cameraFacingRef.current
       );
     },
     () => hasCameraCapture(),
@@ -2337,6 +2361,38 @@ export function useRoomMedia(room: string) {
   // broadcast the old one. The screen channel is restarted too, but only
   // when it is itself running off the camera (the mobile fallback);
   // switching cameras must not interrupt an actual screen share.
+  // Flips between the front and rear camera. The phone's version of the
+  // picker below, and deliberately not built on it: on Android the lens ids
+  // are opaque and their labels only readable after permission, so a flip
+  // built on that list would be guessing which entry is the back one — and
+  // guessing wrong on the phones that expose three.
+  //
+  // Clears the picked device id, which is the point rather than a side
+  // effect: picking a specific lens and asking for "the other way round" are
+  // two different intentions, and an `exact` deviceId left in place would win
+  // over the facing constraint and make the button do nothing at all.
+  const setCameraFacing = useCallback(
+    (facing: CameraFacing) => {
+      cameraFacingRef.current = facing;
+      setCameraFacingState(facing);
+      setStoredCameraFacing(facing);
+      cameraDeviceIdRef.current = null;
+      setCameraDeviceIdState(null);
+      setStoredCameraDeviceId(null);
+      // Same restart-to-apply as setCameraDevice below — a live capture keeps
+      // sending the old lens until it is reopened.
+      if (camera.active) {
+        camera.stop();
+        camera.start();
+      }
+      if (screen.active && screen.source === "camera") {
+        screen.stop();
+        screen.start();
+      }
+    },
+    [camera, screen]
+  );
+
   const setCameraDevice = useCallback(
     (deviceId: string | null) => {
       cameraDeviceIdRef.current = deviceId;
@@ -2741,6 +2797,8 @@ export function useRoomMedia(room: string) {
     cameraShareError: camera.error,
     cameraDeviceId,
     setCameraDevice,
+    cameraFacing,
+    setCameraFacing,
     stoppedPeers: screen.stoppedPeers,
     resumingPeers: screen.resumingPeers,
     stopWatchingPeer: screen.stopWatchingPeer,

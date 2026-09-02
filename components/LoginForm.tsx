@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "@/lib/AuthContext";
 import { trackEvent } from "@/lib/analytics";
-import { CaptchaChallengeRequiredError } from "@/lib/turnstile";
-import { CaptchaChallengeModal } from "./CaptchaChallengeModal";
+import { prewarmCaptcha } from "@/lib/turnstile";
 import { OAuthButtons } from "./OAuthButtons";
 import { CompleteOAuthSignupForm } from "./CompleteOAuthSignupForm";
 import type { OAuthResult } from "@/lib/oauthApi";
@@ -44,52 +43,35 @@ export function LoginForm({
   const [password, setPassword] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  // Open when the server refused the invisible reCAPTCHA check but offered a
-  // challenge instead of just saying no - see CaptchaChallengeRequiredError.
-  // Without this the refusal reached the form as a bare "Usuario ou senha
-  // invalidos.", which is both wrong and unactionable: the password was fine,
-  // and there was nothing on screen to do about what actually failed.
-  const [challenge, setChallenge] = useState(false);
-  const [challengeError, setChallengeError] = useState<string | null>(null);
   const [oauthTicket, setOAuthTicket] = useState<
     Extract<OAuthResult, { kind: "ticket" }> | null
   >(null);
 
-  // `challengeToken` is present only on the retry that follows a solved
-  // challenge; the first attempt always goes through the invisible check.
-  async function submitLogin(challengeToken?: string) {
+  // Mint the captcha token while this form is being filled in, not when it is
+  // submitted. Turnstile does its work when its widget renders, so asking for
+  // a token at submit time puts a second or two between the button and
+  // anything happening; the seconds somebody spends typing a password are free.
+  useEffect(() => {
+    prewarmCaptcha("login");
+  }, []);
+
+  // No captcha branch here any more: login() mints a Turnstile token on the
+  // way out, and Cloudflare shows this person a challenge itself if it wants
+  // one, before the request is sent. A refusal that reaches the catch is
+  // therefore an ordinary error — and, notably, no longer arrives disguised as
+  // "Usuário ou senha inválidos." when the password was in fact fine.
+  async function submitLogin() {
     setSubmitting(true);
     setFormError(null);
-    // Cleared before every attempt so the modal can tell a fresh refusal from
-    // the one it is already showing (it compares `error` by value).
-    setChallengeError(null);
     try {
-      await login(username.trim(), password, challengeToken);
+      await login(username.trim(), password);
       trackEvent("account_login");
-      setChallenge(false);
       onSuccess?.();
     } catch (err) {
-      if (err instanceof CaptchaChallengeRequiredError) {
-        setChallenge(true);
-        // Nothing to say on the way in - the challenge itself explains what to
-        // do, and the reason only means anything once an answer was refused.
-        if (challengeToken) setChallengeError(err.message);
-        return;
-      }
-      setChallenge(false);
       setFormError(err instanceof Error ? err.message : "Usuário ou senha inválidos.");
     } finally {
       setSubmitting(false);
     }
-  }
-
-  // Giving up on the challenge. The login has genuinely failed at this point,
-  // so it says so under the form rather than leaving a form that looks
-  // untouched next to a password that was never accepted.
-  function cancelChallenge() {
-    setChallenge(false);
-    setChallengeError(null);
-    setFormError("Verificação de segurança não concluída. Tente entrar de novo.");
   }
 
   function handleSubmit(e: FormEvent) {
@@ -164,18 +146,6 @@ export function LoginForm({
           of its own, and forms can't nest. Renders nothing when no provider
           is configured. */}
       <OAuthButtons onSuccess={onSuccess} onTicket={onTicket ?? setOAuthTicket} />
-      {/* Fixed-position and full-screen, so it sits above whichever surface
-          this form was rendered into - the home page, the account menu's
-          dropdown, or WatchRoom's account modal. */}
-      {challenge && (
-        <CaptchaChallengeModal
-          error={challengeError}
-          action="login"
-          submittingLabel="Entrando..."
-          onToken={(token) => void submitLogin(token)}
-          onCancel={cancelChallenge}
-        />
-      )}
     </div>
   );
 }

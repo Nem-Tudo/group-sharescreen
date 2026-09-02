@@ -10,7 +10,11 @@ import {
   CameraIcon,
   HeadphonesOffIcon,
 } from "./icons";
-import { MdOutlineDesktopWindows, MdOutlineOndemandVideo } from "react-icons/md";
+import {
+  MdOutlineDesktopWindows,
+  MdOutlineOndemandVideo,
+  MdOutlineSmartphone,
+} from "react-icons/md";
 import { FaCrown } from "react-icons/fa";
 import { VolumeSlider } from "./VolumeSlider";
 import { DisplayUserName } from "./DisplayUserName";
@@ -22,6 +26,7 @@ export function ParticipantRow({
   isSelf = false,
   isGuest = false,
   userId,
+  onOpenProfile,
   micOn,
   micsMuted = false,
   sharing,
@@ -39,6 +44,7 @@ export function ParticipantRow({
   isOwner = false,
   isAdmin = false,
   isApp = false,
+  isMobileApp = false,
   renderMenu,
   onContextMenu,
 }: {
@@ -49,6 +55,11 @@ export function ParticipantRow({
   // viewable profile when the peer isn't a guest. Undefined for a peer sent
   // by an older server version that doesn't include it yet, same as isGuest.
   userId?: string;
+  // Open this person's profile without leaving the page. Given by the room,
+  // which renders it as a dialog over everything (see UserProfileDialog);
+  // where it is absent — the admin console, or any caller that has nowhere to
+  // put a dialog — the name stays the ordinary link to /user/[id] it was.
+  onOpenProfile?: (userId: string) => void;
   micOn: boolean;
   // They silenced everyone else's mic for themselves ("silenciar microfones").
   // Nothing about what they transmit — see PeerInfo.micsMuted.
@@ -91,6 +102,10 @@ export function ParticipantRow({
   // thing. False for anyone on the web, and for a peer sent by a server that
   // predates the field.
   isApp?: boolean;
+  // On the Android app. Mutually exclusive with isApp in practice (the server
+  // derives both from one platform value), but written as one branch so a
+  // client that somehow received both shows one icon rather than two.
+  isMobileApp?: boolean;
   // Right click opens the room's actions for this person (see
   // MemberActionsModal). Omitted where there are none to offer — for yourself,
   // and for anyone when this viewer does not run the room — so the browser's
@@ -162,7 +177,24 @@ export function ParticipantRow({
       }`}
     >
       <span className="flex min-w-0 items-baseline gap-1">
-        {canOpenProfile ? (
+        {canOpenProfile && onOpenProfile ? (
+          // A button, not a styled link: this goes nowhere, and marking it up
+          // as navigation would promise a middle-click and a "copy link
+          // address" that do not exist. The link below is still the right
+          // element for the case that really is navigation.
+          <button
+            type="button"
+            onClick={(e) => {
+              // The row itself may carry the moderation menu (see hasMenu) —
+              // opening a profile must not also open that.
+              e.stopPropagation();
+              onOpenProfile(userId as string);
+            }}
+            className="min-w-0 cursor-pointer text-left hover:underline"
+          >
+            {nameElement}
+          </button>
+        ) : canOpenProfile ? (
           <Link href={`/user/${userId}`} target="_blank" className="min-w-0 hover:underline">
             {nameElement}
           </Link>
@@ -184,12 +216,23 @@ export function ParticipantRow({
             </Tooltip>
           )
         )}
-        {isApp && (
-          <Tooltip content={`${name} está usando o aplicativo do GoLive`}>
+        {isApp ? (
+          <Tooltip content={`${name} está usando o aplicativo do GoLive no PC`}>
             <span className="flex shrink-0 items-center self-center">
               <MdOutlineDesktopWindows className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
             </span>
           </Tooltip>
+        ) : (
+          isMobileApp && (
+            <Tooltip content={`${name} está usando o aplicativo do GoLive no celular`}>
+              <span className="flex shrink-0 items-center self-center">
+                {/* Same size and colour as the desktop one on purpose: they
+                    are the same fact about a person, and a different colour
+                    would read as a different kind of thing. */}
+                <MdOutlineSmartphone className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
+              </span>
+            </Tooltip>
+          )
         )}
         {isSelf && <span className="shrink-0 text-xs font-normal text-zinc-500">(você)</span>}
       </span>
