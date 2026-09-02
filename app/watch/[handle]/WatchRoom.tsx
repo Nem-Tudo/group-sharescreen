@@ -81,6 +81,7 @@ import { PartnerCard } from "@/components/PartnerCard";
 import { SupportersTooltipContent } from "@/components/SupportersTooltip";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { CreateAccountForm } from "@/components/CreateAccountForm";
+import { RoomSkeleton } from "@/components/RoomSkeleton";
 import { prewarmCaptcha } from "@/lib/turnstile";
 import { RoomAccountCard } from "@/components/RoomAccountCard";
 import { LoginForm } from "@/components/LoginForm";
@@ -1555,21 +1556,19 @@ export function WatchRoom({ handle }: { handle: string }) {
     );
   }
 
+  // Still resolving who this person is — a stored guest name, or an account
+  // token on its way through /auth/me. The room's own shape stands in for it
+  // (see components/RoomSkeleton) rather than a spinner on an empty page,
+  // because what follows this is the room itself: drawing its layout now
+  // means the only thing that changes when it lands is the content inside it.
   if (restoring) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 text-center">
-        {false && <>
-
-          <h2 style={{ color: "#ff2828", maxWidth: "500px", fontSize: "1.3rem" }}>Site fora do ar momentâneamente!!</h2>
-          <h2 style={{ color: "#ff6767", maxWidth: "500px" }}>A API foi reiniciar pra atualizar e não consegue mais ligar por ter mais de 2000 pessoas tentando reconectar.</h2>
-          <h2 style={{ color: "#ff6767", maxWidth: "500px" }}>Eu tô programando um sistema de balanceamento de carga. Aguentaí que já volta</h2>
-          <h2 style={{ color: "#ff6767", maxWidth: "500px" }}>Deve voltar em uns 10 minutos</h2>
-          <h2 style={{ color: "#67c7ff", maxWidth: "500px" }}>Para atualizações/sugestões/etc entre no meu Discord: <Link style={{ color: "#00ff00" }} href={"https://go.nemtudo.me/golive-nemtudodiscord"} target="_blank">discord.gg/nemtudo</Link></h2>
-          <h2 style={{ color: "#67c7ff", maxWidth: "500px" }}>Me segue no Twitter tbm, sempre posto update e projeto por lá <Link style={{ color: "#00ff00" }} href={"https://go.nemtudo.me/golive-nemtudo-twitter"} target="_blank">x.com/NemTudo_</Link></h2>
-        </>
-        }
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-white/20 border-t-white/80" />
-      </div>
+      <>
+        <RoomSkeleton />
+        <p className="sr-only" role="status">
+          Entrando na sala...
+        </p>
+      </>
     );
   }
 
@@ -1831,10 +1830,12 @@ export function WatchRoom({ handle }: { handle: string }) {
   // joined when it isn't yet.
   if (!state.room) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 text-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-zinc-300 border-t-zinc-600 dark:border-zinc-700 dark:border-t-zinc-300" />
-        <p className="text-zinc-600 dark:text-zinc-400">Entrando na sala...</p>
-      </div>
+      <>
+        <RoomSkeleton />
+        <p className="sr-only" role="status">
+          Entrando na sala...
+        </p>
+      </>
     );
   }
 
