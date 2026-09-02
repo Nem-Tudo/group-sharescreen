@@ -25,6 +25,7 @@ import {
   prepareChatImage,
 } from "@/lib/chatImage";
 import { DisplayUserName } from "@/components/DisplayUserName";
+import { withDeviceSuffix } from "@/lib/displayName";
 import { Popover, Tooltip } from "@/components/Tooltip";
 import { NotificationBell } from "@/components/NotificationBell";
 import { MdClose, MdOutlineImage } from "react-icons/md";
@@ -49,6 +50,8 @@ type ChatAttachment = {
 export type ChatPeer = {
   id: string;
   name: string;
+  userId?: string;
+  device?: number;
   isGuest?: boolean;
   flags?: string[];
   nameColor?: string | null;
@@ -130,6 +133,7 @@ export function ChatPanel({
   selfId,
   selfName,
   peers = [],
+  deviceCounts,
   onSend,
   onSendGif,
   onSendImages,
@@ -152,6 +156,12 @@ export function ChatPanel({
   selfName?: string | null;
   // Participants in the room used for autocomplete and mention resolution.
   peers?: ChatPeer[];
+  // How many devices each identity has in the room right now (see
+  // lib/displayName.ts's countDevicesByOwner). Passed in rather than counted
+  // from `peers` here, because `peers` deliberately excludes this client and
+  // the count has to include it — otherwise your own second device would be
+  // the one thing in the room that never says which one it is.
+  deviceCounts: Map<string, number>;
   // Omitted for a read-only viewer (the admin moderation view) — hides the
   // input form instead of sending into a room the viewer isn't a member of.
   onSend?: (text: string) => void;
@@ -793,7 +803,7 @@ export function ChatPanel({
                   {!grouped && (
                     <div className="flex items-baseline gap-1.5">
                       <DisplayUserName
-                        name={m.name}
+                        name={withDeviceSuffix(m.name, m.userId, m.device, deviceCounts)}
                         isGuest={m.isGuest}
                         verified={m.flags?.includes("VERIFIED")}
                         color={m.nameColor}
@@ -945,7 +955,7 @@ export function ChatPanel({
                     }`}
                   >
                     <DisplayUserName
-                      name={peer.name}
+                      name={withDeviceSuffix(peer.name, peer.userId, peer.device, deviceCounts)}
                       isGuest={peer.isGuest}
                       verified={peer.flags?.includes("VERIFIED")}
                       color={peer.nameColor}

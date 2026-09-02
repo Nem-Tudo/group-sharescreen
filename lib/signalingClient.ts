@@ -59,6 +59,12 @@ export type RoomBan = {
 export type PeerInfo = {
   id: string;
   name: string;
+  // Which of this person's devices in the room this connection is, 1..3 (see
+  // the server's ClientInfo.deviceNo). Undefined from a server that predates
+  // it, and — importantly — never rendered on its own: the "(2)" only appears
+  // while `userId` has more than one device present, so somebody alone in the
+  // room is never labelled. See lib/displayName.ts.
+  device?: number;
   sharing: boolean;
   // Which of the two video channels the peer is broadcasting — `sharing` is
   // just the two OR-ed together. null when the peer's client never reported
@@ -208,6 +214,12 @@ export type ChatMessage = {
   id: string;
   from: string;
   name: string;
+  // Who sent it and from which of their devices — see PeerInfo.userId and
+  // PeerInfo.device. Captured per-message at send time (the server's "chat"
+  // handler), so history keeps saying which device said what. Absent on
+  // anything sent before this existed, which reads as "no suffix".
+  userId?: string;
+  device?: number;
   // See PeerInfo.isGuest's doc comment — captured per-message at send time
   // (see server/signaling.ts's "chat" handler), same as `name`.
   isGuest?: boolean;
@@ -246,6 +258,15 @@ export type SignalingState = {
   // what says whether this viewer is the one allowed to steer it. The
   // connection id above changes on every reconnect and can't answer that.
   selfUserId: string | null;
+  // This connection's own device number (see PeerInfo.device). Separate from
+  // the peer list because this client is not in its own peer list, and the
+  // participant row for "you" needs the same "(2)" everybody else sees.
+  selfDevice: number | null;
+  // Set when the server refused a join *pending a decision*: this account is
+  // already in the room on another device. Not an error — the join is
+  // waiting, not failed, and answering yes does not disconnect anything —
+  // which is why it is its own field rather than a joinErrorKind.
+  deviceConflict: { devices: number; maxDevices: number } | null;
   name: string | null;
   nameError: string | null;
   account: RegisteredAccount | null;
@@ -346,7 +367,7 @@ export type SignalingState = {
   //   "generic" — everything else (a code-less private handle, a rate limit,
   //               or an unrecognised reason from a newer/older server):
   //               retry, home and support, but no misleading rename box.
-  joinErrorKind: "name" | "full" | "banned" | "captcha" | "generic" | null;
+  joinErrorKind: "name" | "full" | "banned" | "captcha" | "device-limit" | "generic" | null;
   // There used to be a `captchaChallenge` pair here, driving a modal this
   // client opened when the server said the invisible check had refused the
   // join but a challenge was available. Turnstile owns that step now: it
@@ -432,6 +453,8 @@ const initialState: SignalingState = {
   status: "idle",
   selfId: null,
   selfUserId: null,
+  selfDevice: null,
+  deviceConflict: null,
   name: null,
   nameError: null,
   account: null,
@@ -571,6 +594,41 @@ function getClientId(): string | null {
   }
 }
 
+// Rooms this tab has already answered the other-device question for.
+//
+// Without this the question comes back on every reconnect, which is not a
+// rare event: a phone changing networks, a laptop waking, a deploy dropping
+// every socket at once. Each of those re-registers and re-joins, the other
+// device is still sitting there, and the server — which has no memory of a
+// decision, only of who is present — asks again. Being asked to confirm
+// something you confirmed thirty seconds ago reads as the app having lost
+// track, and after a deploy it would ask everybody at once.
+//
+// sessionStorage, so it is scoped to exactly one tab and survives exactly one
+// thing: a reload of that tab. A genuinely new tab is a genuinely new device
+// and gets asked, which is the whole point of the question.
+const DEVICE_CONFIRMED_STORAGE_KEY = "sharescreen:deviceConfirmedRooms";
+
+function readConfirmedDeviceRooms(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = window.sessionStorage.getItem(DEVICE_CONFIRMED_STORAGE_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    return new Set(Array.isArray(parsed) ? parsed.filter((r): r is string => typeof r === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeConfirmedDeviceRooms(rooms: Set<string>): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(DEVICE_CONFIRMED_STORAGE_KEY, JSON.stringify([...rooms]));
+  } catch {
+    // ignored - sessionStorage may be unavailable (private mode, quota, etc.)
+  }
+}
+
 function setClientId(id: string) {
   if (typeof window === "undefined") return;
   try {
@@ -637,6 +695,9 @@ class SignalingClient {
   // real browser work, and it was the difference between joining instantly and
   // waiting seconds for permission nobody was going to ask for.
   private captchaVerifiedAt: number | null = readStoredCaptchaVerifiedAt();
+  // See readConfirmedDeviceRooms — which rooms this tab has already said
+  // "yes, let me in anyway" for.
+  private confirmedDeviceRooms: Set<string> = readConfirmedDeviceRooms();
   // Whether the join now in flight actually carried a token. Read only by the
   // "captcha-required" handler: a refusal for "missing" means something very
   // different depending on this. Having sent nothing on purpose (the window
@@ -893,6 +954,10 @@ class SignalingClient {
       // register-error since, unlike that one, our name registration itself
       // was fine; only entering *this* room failed.
       case "join-error": {
+        // Kept before it is cleared: the other-device branch below is a
+        // question, not a refusal, and answering it has to resume the join
+        // for *this* room rather than for whatever desiredRoom became.
+        const refusedRoom = this.desiredRoom;
         this.desiredRoom = null;
         // The server tags each refusal with a `reason` (see its join handler);
         // the booleans are the older signal an out-of-date server still sends,
@@ -900,6 +965,23 @@ class SignalingClient {
         // unrecognised is "generic" — a real failure with honest controls,
         // never the rename box, which was the whole bug.
         const reason = typeof msg.reason === "string" ? msg.reason : "";
+        // Already in this room on another device, and the server is asking
+        // rather than refusing. Handled before everything below because it is
+        // not a failure: desiredRoom is deliberately put *back*, so answering
+        // yes resumes the join that is still pending rather than starting a
+        // new one, exactly as the captcha challenge used to.
+        if (reason === "other-device") {
+          this.desiredRoom = refusedRoom;
+          this.setState({
+            deviceConflict: {
+              devices: typeof msg.devices === "number" ? msg.devices : 1,
+              maxDevices: typeof msg.maxDevices === "number" ? msg.maxDevices : 3,
+            },
+            joinError: null,
+            joinErrorKind: null,
+          });
+          break;
+        }
         const kind: SignalingState["joinErrorKind"] =
           reason === "name-taken"
             ? "name"
@@ -907,10 +989,14 @@ class SignalingClient {
               ? "full"
               : reason === "banned" || msg.banned === true
                 ? "banned"
-                : "generic";
+                : reason === "device-limit"
+                  ? "device-limit"
+                  : "generic";
         this.setState({
           joinError: (msg.message as string) ?? "Não foi possível entrar nesta sala.",
           joinErrorKind: kind,
+          // A refusal ends any pending question about it.
+          deviceConflict: null,
         });
         trackEvent("join_error");
         break;
@@ -928,6 +1014,9 @@ class SignalingClient {
           room: msg.room as string,
           selfId: msg.selfId as string,
           selfUserId: (msg.selfUserId as string | undefined) ?? null,
+          selfDevice: typeof msg.selfDevice === "number" ? msg.selfDevice : null,
+          // We are in; whatever was being asked about getting in is settled.
+          deviceConflict: null,
           joinError: null,
           joinErrorKind: null,
           peers: msg.peers as PeerInfo[],
@@ -1020,6 +1109,7 @@ class SignalingClient {
         const alreadyKnown = this.state.peers.some((p) => p.id === msg.id);
         const role = msg.role === "moderator" ? "moderator" : undefined;
         const userId = typeof msg.userId === "string" ? msg.userId : undefined;
+        const device = typeof msg.device === "number" ? msg.device : undefined;
         const isGuest = Boolean(msg.isGuest);
         const flags = Array.isArray(msg.flags) ? (msg.flags as string[]) : undefined;
         const nameColor = typeof msg.nameColor === "string" ? msg.nameColor : null;
@@ -1027,12 +1117,12 @@ class SignalingClient {
           peers: alreadyKnown
             ? this.state.peers.map((p) =>
                 p.id === msg.id
-                  ? { ...p, name: msg.name as string, sharing: false, mic: false, role, userId, isGuest, flags, nameColor }
+                  ? { ...p, name: msg.name as string, device, sharing: false, mic: false, role, userId, isGuest, flags, nameColor }
                   : p
               )
             : [
                 ...this.state.peers,
-                { id: msg.id as string, name: msg.name as string, sharing: false, mic: false, role, userId, isGuest, flags, nameColor },
+                { id: msg.id as string, name: msg.name as string, device, sharing: false, mic: false, role, userId, isGuest, flags, nameColor },
               ],
         });
         break;
@@ -1501,6 +1591,7 @@ class SignalingClient {
       nameError: null,
       joinError: null,
       joinErrorKind: null,
+      deviceConflict: null,
     });
     const wasOpen = this.ws && this.ws.readyState === WebSocket.OPEN;
     this.ensureSocket();
@@ -1558,7 +1649,7 @@ class SignalingClient {
   // on screen and resolves only once it is solved. That is fine here — the UI
   // is already showing "Entrando..." and the challenge is on top of it — but
   // it is why nothing in this method treats slowness as failure.
-  private async performJoin(room: string) {
+  private async performJoin(room: string, confirmDevice = false) {
     // Verified recently (see room-state above) — the server remembers this
     // address passed too (see its captchaVerifiedIps) and won't ask again
     // within the same window, so skip minting a token it will just ignore.
@@ -1577,7 +1668,54 @@ class SignalingClient {
     // `turnstileToken` rather than the old `captchaToken` field: that one used
     // to carry a reCAPTCHA token, and the server has to be able to tell the
     // two apart to keep a tab that was open across the migration working.
-    this.rawSend({ type: "join", room, turnstileToken });
+    // True either because the person just answered the question, or because
+    // this tab answered it for this room earlier and is only here again
+    // through a reconnect (see confirmedDeviceRooms). Never true by default:
+    // the server asks once per join, so sending it unprompted would silently
+    // skip a question that exists precisely to be surprising.
+    const confirmed = confirmDevice || this.confirmedDeviceRooms.has(room);
+    this.rawSend({ type: "join", room, turnstileToken, confirmDevice: confirmed });
+  }
+
+  /**
+   * Answers "yes, let me in anyway" to the other-device question.
+   *
+   * Nothing is disconnected by this: the devices already in the room stay
+   * exactly as they are, and this one joins alongside them. Everyone's name
+   * picks up a "(1)"/"(2)" the moment there is more than one to tell apart —
+   * see lib/displayName.ts.
+   */
+  confirmDeviceJoin() {
+    const room = this.desiredRoom;
+    if (!room || !this.state.deviceConflict) return;
+    // Remembered before the join rather than after it lands: the reconnect
+    // this protects against can happen during the join itself.
+    this.confirmedDeviceRooms.add(room);
+    writeConfirmedDeviceRooms(this.confirmedDeviceRooms);
+    this.setState({ deviceConflict: null });
+    this.joinRetryCount = 0;
+    void this.performJoin(room, true);
+  }
+
+  /**
+   * Answers "no". The join genuinely has not happened, so this becomes an
+   * ordinary join error with the retry screen behind it — dropping the
+   * question into a room that never loads would be worse than saying so.
+   */
+  dismissDeviceJoin() {
+    // Saying no also withdraws any earlier yes for this room — otherwise a
+    // later attempt would walk straight past the question on the strength of
+    // a decision that was just reversed.
+    if (this.desiredRoom) {
+      this.confirmedDeviceRooms.delete(this.desiredRoom);
+      writeConfirmedDeviceRooms(this.confirmedDeviceRooms);
+    }
+    this.desiredRoom = null;
+    this.setState({
+      deviceConflict: null,
+      joinError: "Você continua conectado nesta sala no outro dispositivo.",
+      joinErrorKind: "generic",
+    });
   }
 
   /**
@@ -1611,6 +1749,11 @@ class SignalingClient {
     this.clearAllTyping();
     this.setState({
       room: null,
+      // Both are room-scoped, exactly as the server's ClientInfo.deviceNo is:
+      // carrying either into the next room would label somebody against a set
+      // of devices that is no longer there.
+      selfDevice: null,
+      deviceConflict: null,
       peers: [],
       chatMessages: [],
       videoSources: [],

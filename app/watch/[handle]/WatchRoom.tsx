@@ -69,6 +69,7 @@ import {
 import { VideoTile, StoppedPeerTile, ResumingPeerTile } from "@/components/VideoTile";
 import { RemoteAudio } from "@/components/RemoteAudio";
 import { ParticipantRow } from "@/components/ParticipantRow";
+import { countDevicesByOwner, withDeviceSuffix } from "@/lib/displayName";
 import { ChatPanel } from "@/components/ChatPanel";
 import { OpenInAppBanner } from "@/components/OpenInAppBanner";
 import { RoomInfoControls } from "@/components/RoomInfoControls";
@@ -1664,6 +1665,63 @@ export function WatchRoom({ handle }: { handle: string }) {
   // never a rename box for someone who is banned or in a full room, which is
   // what the old single screen showed everyone. See joinErrorKind in
   // signalingClient. Home, other rooms and support are always there, because
+  // Already in this room somewhere else. A question, not a failure — which is
+  // why it sits above the joinError screen and looks nothing like it: nothing
+  // has gone wrong, the other device is not being disconnected, and the only
+  // thing missing is an answer. Rendered as a full pre-join screen rather than
+  // a modal for the same reason every other pre-join state is: there is no
+  // room behind it yet to layer anything over.
+  if (state.deviceConflict) {
+    const { devices, maxDevices } = state.deviceConflict;
+    // The count is of the *others* already there, so this one would be the
+    // next. Said out loud because "you can have 3" means nothing without
+    // knowing which number you are about to become.
+    const afterJoining = devices + 1;
+    return (
+      <div className="flex flex-1 items-center justify-center px-4 py-16">
+        <main className="w-full max-w-md rounded-2xl border border-black/10 bg-white p-8 text-center shadow-sm dark:border-white/10 dark:bg-zinc-950">
+          <div
+            aria-hidden
+            className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-zinc-100 text-2xl dark:bg-zinc-900"
+          >
+            {"\u{1F4BB}"}
+          </div>
+          <h1 className="mt-4 text-xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
+            Você está conectado nesta sala com outro dispositivo.
+          </h1>
+          <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+            {devices === 1
+              ? "Entrar aqui não desconecta o outro — vocês dois ficam na sala."
+              : `Entrar aqui não desconecta os outros ${devices} — todos ficam na sala.`}{" "}
+            Na lista e no chat, cada um aparece com um número para dar para
+            diferenciar.
+          </p>
+          <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+            {afterJoining} de {maxDevices} dispositivos.
+          </p>
+
+          <div className="mt-6 flex flex-col gap-2">
+            <button
+              type="button"
+              autoFocus
+              onClick={() => signalingClient.confirmDeviceJoin()}
+              className="rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+            >
+              Entrar mesmo assim
+            </button>
+            <button
+              type="button"
+              onClick={() => signalingClient.dismissDeviceJoin()}
+              className="rounded-lg border border-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+            >
+              Cancelar
+            </button>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   // "this didn't work" should never be a dead end.
   if (state.joinError) {
     const kind = state.joinErrorKind;
@@ -1682,7 +1740,13 @@ export function WatchRoom({ handle }: { handle: string }) {
             ? { icon: "\u{1F6D1}", title: "Você foi banido desta sala", retry: false }
             : kind === "captcha"
               ? { icon: "\u{1F6E1}\uFE0F", title: "Verificação de segurança", retry: true }
-              : { icon: "\u26A0\uFE0F", title: "Não foi possível entrar na sala", retry: true };
+              : kind === "device-limit"
+                ? // Retryable on purpose, unlike a ban: the fix is on another
+                  // screen the person can go and close, and coming back here
+                  // to press a button is the whole of what they then have to
+                  // do. The message already says how many and what to do.
+                  { icon: "\u{1F4BB}", title: "Dispositivos demais nesta sala", retry: true }
+                : { icon: "\u26A0\uFE0F", title: "Não foi possível entrar na sala", retry: true };
 
     return (
       <div className="flex flex-1 items-center justify-center px-4 py-16">
@@ -1844,6 +1908,15 @@ export function WatchRoom({ handle }: { handle: string }) {
   // but must never show up to real participants — filtered out here rather
   // than never added, so this is the one place that has to remember it.
   const visiblePeers = state.peers.filter((p) => p.role !== "moderator");
+  // Built from the peer list *plus this client*, because the peer list never
+  // contains us and our own second device has to be numbered like anybody
+  // else's. Recomputed every render on purpose: the label is a fact about the
+  // room right now, so a device leaving un-numbers the one left behind with no
+  // message from the server. See lib/displayName.ts.
+  const deviceCounts = countDevicesByOwner([
+    ...visiblePeers,
+    { userId: state.selfUserId ?? undefined },
+  ]);
   const peerCount = visiblePeers.length + (state.name ? 1 : 0);
   // A peer showing mic-on doesn't mean their audio is actually reaching us
   // yet — the recvPC for it still has to come up, which right after joining
@@ -3246,7 +3319,7 @@ export function WatchRoom({ handle }: { handle: string }) {
   const participantsList = (
     <ul className="flex flex-col gap-1.5">
       <ParticipantRow
-        name={state.name}
+        name={withDeviceSuffix(state.name, state.selfUserId ?? undefined, state.selfDevice ?? undefined, deviceCounts)}
         isSelf
         isGuest={!state.account}
         userId={account?.id}
@@ -3268,7 +3341,7 @@ export function WatchRoom({ handle }: { handle: string }) {
         return (
           <ParticipantRow
             key={p.id}
-            name={p.name}
+            name={withDeviceSuffix(p.name, p.userId, p.device, deviceCounts)}
             isGuest={p.isGuest}
             userId={p.userId}
             micsMuted={p.micsMuted}
@@ -3414,6 +3487,7 @@ export function WatchRoom({ handle }: { handle: string }) {
           isRoomManager && !isDesktopLayout ? openMemberActionsFromChat : undefined
         }
         peers={visiblePeers}
+        deviceCounts={deviceCounts}
         onSend={(text) => signalingClient.sendChatMessage(text)}
         onSendGif={
           state.account && !gifBlockedReason ? (url) => signalingClient.sendGif(url) : undefined
