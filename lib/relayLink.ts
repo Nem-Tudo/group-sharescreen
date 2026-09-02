@@ -102,7 +102,7 @@ export class RelayLink {
   // first openChild, so no child is ever built against the wrong value.
   // The app-wide default, until the origin's own pick arrives via
   // setChildren — see useRoomMedia's shareProfile.
-  private degradation: DegradationMode = "balanced";
+  private degradation: DegradationMode = "text";
 
   constructor(
     /** Who originally produced this stream — not who handed it to us. */

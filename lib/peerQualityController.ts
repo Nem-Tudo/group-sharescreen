@@ -275,7 +275,7 @@ export class PeerQualityRegistry {
   // above does: this is only ever read in the gap before a share's preset
   // arrives, and a seed that disagreed with the default would make that gap
   // visible as a brief switch of encoder strategy.
-  private degradation: DegradationMode = "balanced";
+  private degradation: DegradationMode = "text";
   private keyPrefix: string;
 
   /**

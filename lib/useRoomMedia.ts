@@ -579,12 +579,12 @@ function useBroadcastChannel(
   }, []);
   const videoQualityRef = useRef(videoQuality);
   const qualityCeilingRef = useRef<QualityTier>(videoQuality?.ceilingTier ?? BEST_TIER);
-  const degradationModeRef = useRef<DegradationMode>(videoQuality?.degradation ?? "balanced");
+  const degradationModeRef = useRef<DegradationMode>(videoQuality?.degradation ?? "text");
   const honorRequestsRef = useRef<boolean>(videoQuality?.honorViewerRequests ?? true);
   useEffect(() => {
     videoQualityRef.current = videoQuality;
     qualityCeilingRef.current = videoQuality?.ceilingTier ?? BEST_TIER;
-    degradationModeRef.current = videoQuality?.degradation ?? "balanced";
+    degradationModeRef.current = videoQuality?.degradation ?? "text";
     honorRequestsRef.current = videoQuality?.honorViewerRequests ?? true;
   }, [videoQuality]);
 
@@ -1544,13 +1544,11 @@ function useBroadcastChannel(
           // older tab still open through a deploy). That falls to the app's
           // default, same as RelayLink's own — "nobody said" and "nobody
           // opened the menu" are the same statement and deserve the same
-          // answer. It used to resolve to "text" because that was the
-          // default at the time; reproducing it now would hand a relayed
-          // viewer the one profile this app no longer picks for anyone.
+          // answer.
           const degradation: DegradationMode =
             data.degradation === "motion" || data.degradation === "balanced"
               ? data.degradation
-              : "balanced";
+              : "text";
           const link = relays.current.ensure(origin, source.stream, source.pc, forceRelayIceRef.current, () => {
             // Our own source died. Tell the broadcaster so it can re-plan
             // rather than keep routing people through a dead branch.
@@ -2051,17 +2049,17 @@ export function useRoomMedia(room: string) {
   // codec ordering all at once, and getting it wrong is the difference
   // between crisp text and a 60fps game that stutters into a slideshow.
   //
-  // "balanced" is the default, and deliberately not "text" any more. A
-  // default is what almost everyone actually gets — most people never open
-  // this menu — so it has to be the setting that is least wrong for content
-  // nobody has described. "text" was the opposite of that: it pins
-  // maintain-resolution and a software VP9 encode, so any shortage of bits or
-  // CPU comes out as discarded frames, and a share people described as "boa
-  // qualidade mas 3 fps" was the setting working exactly as configured.
-  // "balanced" gives up a little of each instead, which is the right answer
-  // when nobody has said which one matters more.
+  // "text" is the default: what is shared here is overwhelmingly a screen
+  // with text on it — a slide, an IDE, a spreadsheet — and unreadable text is
+  // a share that failed at its job, while a few dropped frames is one that
+  // merely looks worse. It pins maintain-resolution and a VP9-first encode
+  // (see peerQualityController and videoCodecPreferences), so a shortage of
+  // bits or CPU comes out as discarded frames rather than mush; anyone
+  // sharing motion has "Equilibrado" and "Vídeo / jogo" one click away in the
+  // same picker. The default fps is 30, which is the ceiling this profile
+  // wants anyway — see setShareProfile's clamp.
   const [shareProfile, setShareProfileState] = useState<DegradationMode>(() =>
-    restoredSetting(getStoredShareProfile(), SHARE_PROFILE_OPTIONS, "balanced")
+    restoredSetting(getStoredShareProfile(), SHARE_PROFILE_OPTIONS, "text")
   );
   const shareResolutionRef = useRef(shareResolution);
   const shareFpsRef = useRef(shareFps);
