@@ -59,6 +59,12 @@ export type Account = {
 /** The subscription as the API reports it — see its accountModels.ts. */
 export type PremiumState = {
   plan: string;
+  /**
+   * How the access was bought. "subscription" renews itself and can be
+   * cancelled; "pix" bought a fixed stretch of days and simply ends. Absent
+   * on rows written before Pix existed, which are all subscriptions.
+   */
+  method?: "subscription" | "pix";
   /** Mercado Pago's own status: "authorized" | "pending" | "paused" | "cancelled". */
   status: string;
   /** When the paid-for period runs out, in epoch ms. */

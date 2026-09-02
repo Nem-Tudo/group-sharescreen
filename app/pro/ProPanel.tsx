@@ -11,7 +11,9 @@ import {
   fetchPremiumPlan,
   fetchPremiumStatus,
   isPremiumActive,
+  startPixPayment,
   startPremiumCheckout,
+  type PixCharge,
   type PremiumPlan,
 } from "@/lib/premiumApi";
 
@@ -82,6 +84,19 @@ export function ProPanel() {
   // already chosen — sending them to another page to find a form is asking
   // them to choose again, on a screen that no longer mentions premium.
   const [accountModal, setAccountModal] = useState<AccountModalMode | null>(null);
+  // The Pix charge waiting to be paid, or null. Held in state rather than
+  // navigated to, because unlike the card checkout this one is paid in
+  // another app entirely — the page's job is to show a code and notice when
+  // the money lands.
+  const [pix, setPix] = useState<PixCharge | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const premium = account?.premium ?? null;
+  const active = isPremiumActive(premium);
+  const cancelled = premium?.status === "cancelled";
+  const viaPix = premium?.method === "pix";
+  /** A Pix code on screen that has not been paid yet. */
+  const pixPending = Boolean(pix) && !active;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -245,6 +260,49 @@ export function ProPanel() {
     if (tab) checkoutTabRef.current = tab;
   }, [checkoutUrl]);
 
+  const handlePix = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    const result = await startPixPayment(email.trim() || undefined);
+    if (!result.ok) {
+      setError(result.error);
+      if (result.needsEmail) setNeedsEmail(true);
+      setBusy(false);
+      return;
+    }
+    setPix(result.charge);
+    setBusy(false);
+  }, [email]);
+
+  // Pix is paid in a banking app, which tells this page nothing. Polling is
+  // the only way it learns — the focus listener above does not fire, because
+  // the person never left this tab; they left this *device's* screen for
+  // another app, or just their phone. Every four seconds while a code is on
+  // screen, and only then.
+  //
+  // Stops the moment the access is live. `pixPending` rather than `pix` alone
+  // is what ends it: clearing the state from an effect when it went active
+  // would be a setState inside an effect, and the render already hides the
+  // code — the branch below only draws it while there is nothing active.
+  useEffect(() => {
+    if (!pixPending) return;
+    const timer = setInterval(() => void syncStatus(true), 4000);
+    return () => clearInterval(timer);
+  }, [pixPending, syncStatus]);
+
+  const handleCopyPix = useCallback(async () => {
+    if (!pix?.qrCode) return;
+    try {
+      await navigator.clipboard.writeText(pix.qrCode);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard denied (an insecure origin, a permission prompt refused).
+      // The code is on screen and selectable, so there is nothing to repair
+      // and nothing worth interrupting them about.
+    }
+  }, [pix]);
+
   const handleCancel = useCallback(async () => {
     setBusy(true);
     setError(null);
@@ -254,9 +312,8 @@ export function ProPanel() {
     setBusy(false);
   }, [refresh]);
 
-  const premium = account?.premium ?? null;
-  const active = isPremiumActive(premium);
-  const cancelled = premium?.status === "cancelled";
+
+
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-10">
@@ -322,11 +379,25 @@ export function ProPanel() {
               ) : active ? (
                 <div className="flex flex-col gap-3">
                   <p className="text-sm text-zinc-700 dark:text-zinc-300">
-                    {cancelled
-                      ? `Assinatura cancelada — seu acesso continua até ${periodEndLabel(premium!.currentPeriodEnd)}.`
-                      : `Assinatura ativa — renova em ${periodEndLabel(premium!.currentPeriodEnd)}.`}
+                    {viaPix
+                      ? // No renewal to mention: this ends, and saying "renova
+                        // em" would promise a charge that is never coming.
+                        `Acesso ativo até ${periodEndLabel(premium!.currentPeriodEnd)}. Pago com Pix, não renova sozinho.`
+                      : cancelled
+                        ? `Assinatura cancelada — seu acesso continua até ${periodEndLabel(premium!.currentPeriodEnd)}.`
+                        : `Assinatura ativa — renova em ${periodEndLabel(premium!.currentPeriodEnd)}.`}
                   </p>
-                  {!cancelled && (
+                  {viaPix && (
+                    <button
+                      type="button"
+                      onClick={handlePix}
+                      disabled={busy}
+                      className="self-start rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                    >
+                      {busy ? "Gerando…" : "Renovar com Pix"}
+                    </button>
+                  )}
+                  {!cancelled && !viaPix && (
                     <button
                       type="button"
                       onClick={handleCancel}
@@ -413,6 +484,57 @@ export function ProPanel() {
                       </span>
                     </label>
                   )}
+                  {pixPending && pix && (
+                    <div className="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900">
+                      <div className="flex items-center gap-2 text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                        <span
+                          aria-hidden
+                          className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent"
+                        />
+                        Aguardando o pagamento
+                      </div>
+                      {pix.qrCodeBase64 && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={`data:image/png;base64,${pix.qrCodeBase64}`}
+                          alt="QR code do Pix"
+                          className="h-48 w-48 self-center rounded-lg bg-white p-2"
+                        />
+                      )}
+                      {pix.qrCode && (
+                        <div className="flex flex-col gap-1.5">
+                          <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                            Ou copie o código Pix:
+                          </span>
+                          {/* Selectable and wrapped rather than truncated: if
+                              the clipboard is unavailable, reading it off the
+                              screen has to still be possible. */}
+                          <code className="max-h-24 overflow-y-auto break-all rounded-md border border-zinc-200 bg-white p-2 text-[11px] leading-snug text-zinc-700 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">
+                            {pix.qrCode}
+                          </code>
+                          <button
+                            type="button"
+                            onClick={handleCopyPix}
+                            className="self-start rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                          >
+                            {copied ? "Copiado!" : "Copiar código"}
+                          </button>
+                        </div>
+                      )}
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                        {pix.amountLabel} por {pix.days} dias de acesso. Esta página libera sozinha
+                        assim que o pagamento cair.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setPix(null)}
+                        className="self-start text-xs font-medium underline-offset-2 hover:underline"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  )}
+
                   {/* Hidden while a checkout is open rather than disabled:
                       pressing it again would create a *second* preapproval at
                       Mercado Pago for a subscription already waiting to be
@@ -426,6 +548,21 @@ export function ProPanel() {
                       className="self-start rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
                     >
                       {busy ? "Abrindo o pagamento…" : `Assinar por ${plan.priceLabel}/mês`}
+                    </button>
+                  )}
+                  {/* The second way to pay, and deliberately worded as a
+                      different product rather than a payment toggle: it buys
+                      days, it does not start anything, and a button that said
+                      only "Pix" would be promising a subscription Pix cannot
+                      hold. */}
+                  {!checkoutUrl && !pixPending && (
+                    <button
+                      type="button"
+                      onClick={handlePix}
+                      disabled={busy || (needsEmail && !email.trim())}
+                      className="self-start rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                    >
+                      {busy ? "Gerando…" : `Pagar 30 dias com Pix — ${plan.priceLabel}`}
                     </button>
                   )}
                 </div>

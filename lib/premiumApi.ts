@@ -95,6 +95,55 @@ export async function startPremiumCheckout(email?: string): Promise<StartCheckou
   }
 }
 
+export type PixCharge = {
+  paymentId: string;
+  /** The copy-and-paste Pix string. */
+  qrCode: string | null;
+  /** The same code as a PNG, base64, for rendering inline. */
+  qrCodeBase64: string | null;
+  /** ISO-8601; after this the code no longer works. */
+  expiresAt: string | null;
+  amountLabel: string;
+  /** How many days of access this charge buys. */
+  days: number;
+};
+
+export type StartPixResult =
+  | { ok: true; charge: PixCharge }
+  | { ok: false; error: string; needsEmail?: boolean };
+
+/**
+ * Creates a Pix charge and returns the code to pay it with.
+ *
+ * Unlike the card path this buys a *fixed stretch of time* rather than
+ * starting a recurring charge — Pix has no standing mandate, so there is
+ * nothing to renew and nothing to cancel. Nothing is granted until Mercado
+ * Pago confirms the money arrived; the QR is an invitation to pay.
+ */
+export async function startPixPayment(email?: string): Promise<StartPixResult> {
+  try {
+    const res = await fetch(`${getSignalingHttpBase()}/premium/pix`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify(email ? { email } : {}),
+    });
+    const data = (await res.json().catch(() => ({}))) as Partial<PixCharge> & {
+      error?: string;
+      needsEmail?: boolean;
+    };
+    if (!res.ok || !data.paymentId) {
+      return {
+        ok: false,
+        error: data.error ?? "Não foi possível gerar o Pix.",
+        needsEmail: data.needsEmail,
+      };
+    }
+    return { ok: true, charge: data as PixCharge };
+  } catch {
+    return { ok: false, error: "Sem conexão com o servidor." };
+  }
+}
+
 /**
  * This account's subscription, re-read from Mercado Pago by the API.
  *
