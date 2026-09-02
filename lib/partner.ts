@@ -35,6 +35,61 @@ export type Partner = {
 
 export type PartnerClickRewardPlacement = "video" | "card" | "both";
 
+export type PartnerCardData = {
+  id?: string;
+  title: string;
+  description: string;
+  imageUrl?: string | null;
+  buttonLabel: string;
+  buttonUrl: string;
+  backgroundColor?: string | null;
+  textColor?: string | null;
+  buttonBackgroundColor?: string | null;
+  buttonTextColor?: string | null;
+  expiresAt?: number | null;
+  rewardVideoUrl?: string | null;
+  rewardPoints?: number | null;
+  clickRewardPoints?: number | null;
+  clickRewardPlacement?: PartnerClickRewardPlacement | null;
+};
+
+export const FALLBACK_PARTNER: PartnerCardData = {
+  title: "Anuncie aqui pra todo mundo!",
+  description:
+    "Esse site é visitado por mais de 50 mil pessoas por dia!\n\nAbra um ticket no meu Discord e vamos combinar um anúncio",
+  buttonLabel: "Abrir ticket no Discord",
+  buttonUrl: "https://go.nemtudo.me/golive-partner-nemtudodiscord",
+  backgroundColor: "#111827",
+  textColor: "#f4f4f5",
+  buttonBackgroundColor: "#5865f2",
+  buttonTextColor: "#ffffff",
+};
+
+export const EXAMPLE_PARTNER: PartnerCardData = {
+  title: "Me segue no Twitter!",
+  description:
+    "Posto updates dos meus projetos, coisas aleatórias, coisas da vida, eventos, etc.\n\nSegue aí gay",
+  buttonLabel: "Sou lindo e vou seguir",
+  imageUrl:
+    "https://cdn.nemtudo.me/f/nemtudo/MjAyNi8wOC8yMC9JTUFHRS8wMl8yOF8wMl9fMTc4NzIwMzY4MjQyNC02NzMxNDIwNTI.webp",
+  buttonUrl: "https://go.nemtudo.me/golive-partner-twitter",
+  backgroundColor: "#000000",
+  textColor: "#ffffff",
+  buttonBackgroundColor: "#ffffff",
+  buttonTextColor: "#000000",
+};
+
+export async function fetchPartner(
+  signal?: AbortSignal,
+  currentId?: string | null
+): Promise<PartnerCardData | null> {
+  const query = currentId ? `?current=${encodeURIComponent(currentId)}` : "";
+  const res = await fetch(`${getSignalingHttpBase()}/partner${query}`, { signal });
+  if (!res.ok) throw new Error(`Falha ao carregar parceiro (status ${res.status})`);
+  const data = (await res.json()) as { partner: PartnerCardData | null };
+  return data.partner;
+}
+
 /** Whether an ad's click reward is offered in this particular spot. Takes the
  *  two fields loosely so callers holding a partially-typed ad (PartnerCard's
  *  own PartnerCardData, where everything reward-related is optional) can ask

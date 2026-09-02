@@ -88,6 +88,17 @@ export interface DesktopBridge {
   checkForUpdate?(): void;
 
   /**
+   * Registers global shortcuts in the desktop shell so hotkeys work even
+   * when another application has focus.
+   */
+  setGlobalShortcuts?(shortcuts: Record<string, string>): void;
+  /**
+   * Subscribes to global shortcut activations from the desktop shell.
+   * Returns an unsubscribe function.
+   */
+  onGlobalShortcut?(callback: (action: string) => void): () => void;
+
+  /**
    * System audio capture with GoLive's own output excluded — the thing that
    * stops a screen share from carrying the room's voices back to the room.
    * See lib/desktopSystemAudio.ts, which is the only thing that should touch

@@ -71,6 +71,11 @@ export const IPC = {
    * invalidated, or it crashed). No more chunks are coming.
    */
   systemAudioEnded: "golive:system-audio:ended",
+
+  /** renderer -> main: register or update global shortcuts map. */
+  shortcutsSet: "golive:shortcuts:set",
+  /** main -> renderer: a registered global shortcut fired. */
+  shortcutsTriggered: "golive:shortcuts:triggered",
 } as const;
 
 /**

@@ -17,6 +17,10 @@ import {
   hasClaimedPartnerRewardLocally,
   markPartnerClickRewardClaimedLocally,
   type PartnerClickRewardPlacement,
+  type PartnerCardData,
+  fetchPartner,
+  FALLBACK_PARTNER,
+  EXAMPLE_PARTNER,
 } from "@/lib/partner";
 import { useAuth } from "@/lib/AuthContext";
 import { useVideoDurationLabel } from "@/lib/useVideoDuration";
@@ -59,88 +63,6 @@ const SMALL_SCREEN_CARD_HEIGHT_FRACTION = 0.33;
 // column instead of the shared drawer.
 const WIDE_LAYOUT_QUERY = "(min-width: 1024px)";
 
-// Naming everything "partner" instead of "ad"/"advertisement" throughout —
-// element ids, class names, API path, etc. — is deliberate: ad blockers
-// filter on those words, and this card would otherwise get silently hidden
-// for a chunk of visitors.
-type PartnerCardData = {
-  // Only present for a real, backend-sourced ad (server/signaling.ts's
-  // publicPartner always includes it) — never on FALLBACK_PARTNER/
-  // EXAMPLE_PARTNER below, which is what tells them apart for view/click
-  // reporting (see the effects below) and expiration.
-  id?: string;
-  title: string;
-  description: string;
-  imageUrl?: string | null;
-  buttonLabel: string;
-  buttonUrl: string;
-  backgroundColor?: string | null;
-  textColor?: string | null;
-  buttonBackgroundColor?: string | null;
-  buttonTextColor?: string | null;
-  // epoch ms; null/absent = never expires. Drives the expiration effect
-  // below, which removes the card the instant this passes without waiting
-  // for a reload or a live update.
-  expiresAt?: number | null;
-  // Watch-to-earn reward (see PartnerRewardModal.tsx) — absent/null on
-  // FALLBACK_PARTNER/EXAMPLE_PARTNER, same as `id`, since neither is a real
-  // ad with points to give out.
-  rewardVideoUrl?: string | null;
-  rewardPoints?: number | null;
-  // Click-to-earn reward (points for clicking the CTA below) — absent/null
-  // on FALLBACK_PARTNER/EXAMPLE_PARTNER for the same reason as the video
-  // reward above. `clickRewardPlacement` decides whether those points are
-  // offered here, in the reward-video popup, or in both.
-  clickRewardPoints?: number | null;
-  clickRewardPlacement?: PartnerClickRewardPlacement | null;
-};
-
-// `currentId` tells the server which ad this slot is showing right now, so a
-// rotation can deliberately land on a *different* one. Sent as a hint, not as
-// an instruction: the server still owns the choice (weights, the "show
-// nothing X% of the time" roll, expiry), and a server that ignores the
-// parameter entirely still behaves exactly as it does today.
-async function fetchPartner(
-  signal?: AbortSignal,
-  currentId?: string | null
-): Promise<PartnerCardData | null> {
-  const query = currentId ? `?current=${encodeURIComponent(currentId)}` : "";
-  const res = await fetch(`${getSignalingHttpBase()}/partner${query}`, { signal });
-  if (!res.ok) throw new Error(`Falha ao carregar parceiro (status ${res.status})`);
-  const data = (await res.json()) as { partner: PartnerCardData | null };
-  return data.partner;
-}
-
-// Shown whenever there's no real partner ad to display — either the site
-// has none active at all, or this request landed on the server's "show
-// nothing X% of the time" roll (see server/signaling.ts's GET /partner) —
-// a house ad for this site's own Discord instead of an empty slot.
-const FALLBACK_PARTNER: PartnerCardData = {
-  title: "Anuncie aqui pra todo mundo!",
-  description: "Esse site é visitado por mais de 50 mil pessoas por dia!\n\nAbra um ticket no meu Discord e vamos combinar um anúncio",
-  buttonLabel: "Abrir ticket no Discord",
-  buttonUrl: "https://go.nemtudo.me/golive-partner-nemtudodiscord",
-  backgroundColor: "#111827",
-  textColor: "#f4f4f5",
-  buttonBackgroundColor: "#5865f2",
-  buttonTextColor: "#ffffff",
-};
-
-// The "ver exemplo de anúncio" button shows this — a real slot advertising
-// NemTudo's own X/Twitter, styled in X's black/white so it visibly reads as
-// a real ad rather than another site UI element.
-const EXAMPLE_PARTNER: PartnerCardData = {
-  title: "Me segue no Twitter!",
-  description: "Posto updates dos meus projetos, coisas aleatórias, coisas da vida, eventos, etc.\n\nSegue aí gay",
-  buttonLabel: "Sou lindo e vou seguir",
-  imageUrl: "https://cdn.nemtudo.me/f/nemtudo/MjAyNi8wOC8yMC9JTUFHRS8wMl8yOF8wMl9fMTc4NzIwMzY4MjQyNC02NzMxNDIwNTI.webp",
-  buttonUrl: "https://go.nemtudo.me/golive-partner-twitter",
-  backgroundColor: "#000000",
-  textColor: "#ffffff",
-  buttonBackgroundColor: "#ffffff",
-  buttonTextColor: "#000000",
-};
-
 // Starting point handed to the customizer — generic placeholders (not a
 // copy of EXAMPLE_PARTNER's Twitter branding) so it reads as "your ad here"
 // rather than nudging everyone toward black-and-white.
@@ -160,10 +82,20 @@ const CUSTOMIZER_STARTING_POINT: AdForm = {
 // floating overlay — deliberately named "partner" everywhere (component,
 // api, props, tracked events) rather than "ad" so it doesn't get swept up by
 // ad-blocker filter lists that key off that word.
-export function PartnerCard() {
+export function PartnerCard({
+  partner: externalPartner,
+  loaded: externalLoaded,
+}: {
+  partner?: PartnerCardData | null;
+  loaded?: boolean;
+} = {}) {
+  const isControlled = externalLoaded !== undefined;
   const signalingState = useSignaling();
-  const [partner, setPartner] = useState<PartnerCardData | null>(null);
-  const [loaded, setLoaded] = useState(false);
+  const [internalPartner, setInternalPartner] = useState<PartnerCardData | null>(null);
+  const [internalLoaded, setInternalLoaded] = useState(false);
+
+  const partner = isControlled ? (externalPartner ?? null) : internalPartner;
+  const loaded = isControlled ? externalLoaded : internalLoaded;
   // Shared with the landing page's own readout instead of polling separately
   // for the same number — see lib/peopleOnline.ts.
   const peopleOnline = usePeopleOnline();
@@ -241,9 +173,11 @@ export function PartnerCard() {
   // this object's identity: a fresh object means the server served the slot
   // again, even if it happened to serve the same ad.
   const applyServedPartner = useCallback((next: PartnerCardData | null) => {
-    setPartner(next);
-    setLoaded(true);
-  }, []);
+    if (!isControlled) {
+      setInternalPartner(next);
+      setInternalLoaded(true);
+    }
+  }, [isControlled]);
 
   // Initial value, over plain HTTP — respects the server's "show nothing
   // X% of the time" roll (see server/signaling.ts's GET /partner and
@@ -251,6 +185,7 @@ export function PartnerCard() {
   // below) always overrides this once one arrives, since that path
   // deliberately never rolls that percentage — see its own comment.
   useEffect(() => {
+    if (isControlled) return;
     const controller = new AbortController();
     fetchPartner(controller.signal)
       .then(applyServedPartner)
@@ -260,7 +195,7 @@ export function PartnerCard() {
         applyServedPartner(null);
       });
     return () => controller.abort();
-  }, [applyServedPartner]);
+  }, [isControlled, applyServedPartner]);
 
   // Read by the rotation timer below. Refs rather than deps so that timer is
   // installed once and never torn down and rebuilt — rebuilding it on every
@@ -285,6 +220,7 @@ export function PartnerCard() {
   // the ad appearing to change *because* they moved away, which reads as the
   // page reacting to them rather than to a clock.
   useEffect(() => {
+    if (isControlled) return;
     const controller = new AbortController();
     const timer = setInterval(() => {
       if (hoveredRef.current || interactingRef.current) return;
@@ -303,7 +239,7 @@ export function PartnerCard() {
       clearInterval(timer);
       controller.abort();
     };
-  }, [applyServedPartner]);
+  }, [isControlled, applyServedPartner]);
 
   // Live updates while this card stays mounted — pushed by the server after
   // every admin create/edit/delete (see broadcastPartnerUpdate), so an
@@ -314,26 +250,27 @@ export function PartnerCard() {
   // — both would otherwise look identical as a bare `partner: null`.
   const lastHandledPartnerSeq = useRef(0);
   useEffect(() => {
+    if (isControlled) return;
     if (signalingState.partnerSeq === 0 || signalingState.partnerSeq === lastHandledPartnerSeq.current) {
       return;
     }
     lastHandledPartnerSeq.current = signalingState.partnerSeq;
     applyServedPartner(signalingState.partner);
-  }, [signalingState.partnerSeq, signalingState.partner, applyServedPartner]);
+  }, [isControlled, signalingState.partnerSeq, signalingState.partner, applyServedPartner]);
 
   // Removes an expired ad the instant it expires, without waiting for a
   // reload or a live update to do it — falls back to the house ad exactly
   // like any other "no partner active" state.
   useEffect(() => {
-    if (!partner?.expiresAt) return;
+    if (isControlled || !partner?.expiresAt) return;
     // Already-expired (remaining <= 0) still goes through setTimeout rather
     // than calling setPartner synchronously right here — deferring it to a
     // callback (even a same-tick one) keeps this a pure "schedule a
     // reaction," not a synchronous state write during the effect itself.
     const remaining = Math.max(0, partner.expiresAt - Date.now());
-    const timer = setTimeout(() => setPartner(null), remaining);
+    const timer = setTimeout(() => setInternalPartner(null), remaining);
     return () => clearTimeout(timer);
-  }, [partner]);
+  }, [isControlled, partner]);
 
   // One impression per serve.
   //
@@ -358,6 +295,7 @@ export function PartnerCard() {
   // be multiplied up into impressions.
   const reportedSessionIds = useRef<Set<string>>(new Set());
   useEffect(() => {
+    if (isControlled) return;
     const serve = partner;
     const id = serve?.id;
     if (!serve || !id) return;
@@ -374,7 +312,7 @@ export function PartnerCard() {
     maybeReport();
     document.addEventListener("visibilitychange", maybeReport);
     return () => document.removeEventListener("visibilitychange", maybeReport);
-  }, [partner]);
+  }, [isControlled, partner]);
 
   // Badge on the reward button — the ad carries no duration field, so it's
   // read off the video itself (see the hook).

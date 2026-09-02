@@ -70,6 +70,23 @@ contextBridge.exposeInMainWorld("golive", {
     ipcRenderer.send(IPC.updateCheck);
   },
 
+  setGlobalShortcuts(shortcuts: unknown): void {
+    if (shortcuts && typeof shortcuts === "object") {
+      ipcRenderer.send(IPC.shortcutsSet, shortcuts);
+    }
+  },
+
+  onGlobalShortcut(callback: unknown): () => void {
+    if (typeof callback !== "function") return () => {};
+    const listener = (_event: unknown, action: unknown) => {
+      if (typeof action === "string") (callback as (a: string) => void)(action);
+    };
+    ipcRenderer.on(IPC.shortcutsTriggered, listener);
+    return () => {
+      ipcRenderer.off(IPC.shortcutsTriggered, listener);
+    };
+  },
+
   // Undefined on every machine that cannot do this — anything but Windows
   // 11, and any build shipped without the helper binary. That absence is
   // the website's feature check (see lib/desktopSystemAudio.ts): a bridge

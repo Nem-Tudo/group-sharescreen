@@ -57,6 +57,8 @@ export function VideoTile({
   isSpotlighted = false,
   onHyperfocus,
   isHyperfocused = false,
+  hasAccount = true,
+  overlayRightOffset = false,
   isMicOn,
   onToggleMic,
   micsMuted,
@@ -113,6 +115,8 @@ export function VideoTile({
   // hyperfocusId/enterHyperfocus.
   onHyperfocus?: () => void;
   isHyperfocused?: boolean;
+  hasAccount?: boolean;
+  overlayRightOffset?: boolean;
   // The page's own mic controls (see WatchRoom's isMicOn/toggleMic and
   // micsMuted/toggleMicsMuted) — normally reachable from the header, but the
   // header is outside the element the Fullscreen API puts on screen when a
@@ -483,8 +487,10 @@ export function VideoTile({
           handleVideoTap), since a touch device has no hover to fall back
           on and a permanent button bar defeats the point of fullscreen. */}
       <div
-        className={`absolute right-2 top-2 flex flex-wrap items-center justify-end gap-2 transition-opacity ${compact ? "hidden" : ""
-          } ${overlayVisibilityClass}`}
+        className={`absolute top-2 flex flex-wrap items-center justify-end gap-2 transition-opacity ${
+          overlayRightOffset ? "right-[50px]" : "right-2"
+        } ${compact ? "hidden" : ""} ${overlayVisibilityClass}`}
+        style={overlayRightOffset ? { right: "50px" } : undefined}
       >
         {isFullscreen && onToggleMic && (
           <Tooltip content={isMicOn ? "Desativar microfone" : "Ativar microfone"}>
@@ -571,16 +577,25 @@ export function VideoTile({
           </Tooltip>
         )}
         {onHyperfocus && (
-          <Tooltip content={`Hiperfoco em ${nameForLabel}. Esconde as outras transmissões`}>
+          <Tooltip
+            content={
+              !hasAccount
+                ? "Utilize uma conta para usar o hiperfoco"
+                : `Hiperfoco em ${nameForLabel}. Esconde as outras transmissões`
+            }
+          >
             <button
               type="button"
               onClick={onHyperfocus}
-              aria-label={`Hiperfoco em ${nameForLabel}`}
+              aria-label={`Hiperfoco em ${nameForLabel}${!hasAccount ? " (requer conta)" : ""}`}
               aria-pressed={isHyperfocused}
-              className={`rounded-full p-2 text-white active:bg-black/80 ${isHyperfocused
-                ? "bg-emerald-600 hover:bg-emerald-700"
-                : "bg-black/60 hover:bg-black/80"
-                }`}
+              className={`rounded-full p-2 text-white transition ${
+                !hasAccount
+                  ? "bg-black/30 opacity-40 hover:bg-black/30 hover:opacity-40 active:bg-black/30"
+                  : isHyperfocused
+                    ? "bg-emerald-600 hover:bg-emerald-700 active:bg-black/80"
+                    : "bg-black/60 hover:bg-black/80 active:bg-black/80"
+              }`}
             >
               <HyperfocusIcon className="h-5 w-5" />
             </button>
@@ -648,11 +663,12 @@ export function StoppedPeerTile({
 }) {
   return (
     <PlaceholderTile fill={fill}>
-      <p className="text-sm text-zinc-300">
-        Você saiu dessa transmissão
-        <br />
-        <span className="text-zinc-500">({label})</span>
-      </p>
+      <div className="flex flex-col items-center justify-center text-center text-sm">
+        <p className="text-zinc-300">Você saiu dessa transmissão</p>
+        <div className="mt-0.5 flex items-center justify-center text-center text-zinc-500">
+          {label}
+        </div>
+      </div>
       <button
         type="button"
         onClick={onResume}

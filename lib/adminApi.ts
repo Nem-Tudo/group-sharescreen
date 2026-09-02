@@ -460,11 +460,13 @@ export type PartnerStats = {
   // CTA clicks from the sidebar card. Anything counted before card and video
   // clicks were split lives here, since that is where the only button was.
   clicks: number;
-  // CTA clicks from inside the reward-video popup. Optional/absent from a
+  // Clicks on that same CTA from inside the reward-video popup. Optional/absent from a
   // server that predates the split — rendered as 0, not as "—", because
   // unlike uniqueViews this one *is* genuinely zero on such a server: no
   // video click was ever counted anywhere.
   clicksByVideo?: number;
+  // How many times people minimized the left sidebar with this ad active.
+  minimizes?: number;
   // Watch-to-earn funnel (see components/PartnerRewardModal.tsx) — all
   // optional/absent for an ad with no reward configured, or from a server
   // that predates this feature. rewardVideoOpens/rewardVideoCompletions are

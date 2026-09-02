@@ -130,7 +130,7 @@ export function LocalMediaPicker({
         </label>
         {!hasAccount && (
           <p className="-mt-1 pl-6 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
-            Conta necessária.
+            Utilize uma conta para controlar exclusivamente.
           </p>
         )}
         <label className="flex items-center gap-2 text-sm">

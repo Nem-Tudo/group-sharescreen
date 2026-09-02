@@ -25,6 +25,7 @@ import {
   app,
   BrowserWindow,
   desktopCapturer,
+  globalShortcut,
   ipcMain,
   session,
   shell,
@@ -791,6 +792,13 @@ if (!gotLock) {
     });
     ipcMain.on(IPC.systemAudioStop, () => stopSystemAudioCapture());
 
+    // Global keyboard shortcuts management
+    ipcMain.on(IPC.shortcutsSet, (_event, shortcuts) => {
+      if (shortcuts && typeof shortcuts === "object") {
+        updateGlobalShortcuts(shortcuts as Record<string, string>);
+      }
+    });
+
     // A launch *from* a deep link on Windows/Linux arrives in this process's
     // own argv rather than through "second-instance". Read before the window
     // is created, not after: handling it afterwards would load the home page
@@ -814,11 +822,28 @@ if (!gotLock) {
     });
   });
 
+  function updateGlobalShortcuts(shortcuts: Record<string, string>) {
+    globalShortcut.unregisterAll();
+    for (const [action, accelerator] of Object.entries(shortcuts)) {
+      if (!accelerator) continue;
+      try {
+        globalShortcut.register(accelerator, () => {
+          mainWindow?.webContents.send(IPC.shortcutsTriggered, action);
+        });
+      } catch {
+        // Ignore accelerators not supported by OS
+      }
+    }
+  }
+
   // The helper is a child process holding an open audio client. Its own
   // stdin watchdog would end it once our pipes close, but doing it here
   // means it stops while WASAPI can still be shut down cleanly, rather than
   // during the process teardown that follows.
-  app.on("will-quit", () => stopSystemAudioCapture());
+  app.on("will-quit", () => {
+    stopSystemAudioCapture();
+    globalShortcut.unregisterAll();
+  });
 
   // macOS convention is that closing the window does not quit the app.
   app.on("window-all-closed", () => {

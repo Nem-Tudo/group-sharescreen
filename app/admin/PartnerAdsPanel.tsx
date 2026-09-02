@@ -380,6 +380,9 @@ export function PartnerAdsPanel() {
                     Cliques totais: <strong>{totalClicks}</strong>
                     {ctr ? ` (${ctr})` : ""}
                   </span>
+                  <span>
+                    Minimizações: <strong>{s.minimizes ?? 0}</strong>
+                  </span>
                   {p.rewardVideoUrl && p.rewardPoints && (
                     <>
                       <span>

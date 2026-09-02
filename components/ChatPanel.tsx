@@ -28,6 +28,7 @@ import { DisplayUserName } from "@/components/DisplayUserName";
 import { Popover, Tooltip } from "@/components/Tooltip";
 import { NotificationBell } from "@/components/NotificationBell";
 import { MdClose, MdOutlineImage } from "react-icons/md";
+import { LuPanelRightClose } from "react-icons/lu";
 import {
   buildMentionsRegex,
   tokenizeMentions,
@@ -143,6 +144,8 @@ export function ChatPanel({
   marginClassName = "mt-4 mb-4",
   renderAuthorMenu,
   onAuthorContextMenu,
+  onCollapse,
+  onRequestAccount,
 }: {
   messages: ChatMessage[];
   selfId: string | null;
@@ -152,6 +155,7 @@ export function ChatPanel({
   selfName?: string | null;
   // Participants in the room used for autocomplete and mention resolution.
   peers?: ChatPeer[];
+  onCollapse?: () => void;
   // Omitted for a read-only viewer (the admin moderation view) — hides the
   // input form instead of sending into a room the viewer isn't a member of.
   onSend?: (text: string) => void;
@@ -218,6 +222,7 @@ export function ChatPanel({
   // Handed a `close`, for the same reason as ParticipantRow's.
   renderAuthorMenu?: (from: string, name: string, close: () => void) => ReactNode;
   onAuthorContextMenu?: (from: string, name: string) => void;
+  onRequestAccount?: () => void;
 }) {
   const [input, setInput] = useState("");
   // Which message's author menu is open, by message id — one at a time, and
@@ -728,6 +733,18 @@ export function ChatPanel({
             </span>
           )}
           <NotificationBell />
+          {onCollapse && (
+            <Tooltip content="Ocultar chat e perfil">
+              <button
+                type="button"
+                onClick={onCollapse}
+                aria-label="Ocultar chat e perfil"
+                className="rounded-lg p-1 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+              >
+                <LuPanelRightClose className="h-4 w-4" />
+              </button>
+            </Tooltip>
+          )}
         </div>
       </div>
 
@@ -1018,13 +1035,12 @@ export function ChatPanel({
               <span className="inline-flex shrink-0">
                 <button
                   type="button"
-                  disabled={!onSendGif}
-                  onClick={() => setPickerOpen((open) => !open)}
+                  onClick={onSendGif ? () => setPickerOpen((open) => !open) : onRequestAccount}
                   aria-label="Adicionar GIF"
                   className={`inline-flex h-8 shrink-0 items-center justify-center rounded-lg border px-2.5 text-xs font-semibold transition ${
                     onSendGif
                       ? "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                      : "cursor-not-allowed border-zinc-200 text-zinc-400 dark:border-zinc-800 dark:text-zinc-600"
+                      : "border-zinc-200 opacity-50 text-zinc-400 dark:border-zinc-800 dark:text-zinc-600"
                   }`}
                 >
                   GIF
@@ -1053,13 +1069,18 @@ export function ChatPanel({
               <span className="inline-flex shrink-0">
                 <button
                   type="button"
-                  disabled={!canAttach}
-                  onClick={() => fileInputRef.current?.click()}
+                  onClick={
+                    !onSendImages
+                      ? onRequestAccount
+                      : canAttach
+                        ? () => fileInputRef.current?.click()
+                        : undefined
+                  }
                   aria-label="Anexar imagem"
                   className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border text-base transition ${
                     canAttach
                       ? "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                      : "cursor-not-allowed border-zinc-200 text-zinc-400 dark:border-zinc-800 dark:text-zinc-600"
+                      : "border-zinc-200 opacity-50 text-zinc-400 dark:border-zinc-800 dark:text-zinc-600"
                   }`}
                 >
                   <MdOutlineImage aria-hidden />

@@ -303,6 +303,8 @@ export function VideoSourceTile({
   isSpotlighted = false,
   onHyperfocus,
   isHyperfocused = false,
+  hasAccount = true,
+  onRequestAccount,
 }: {
   source: VideoSource;
   // Whether this viewer's play/pause/seek is one the room follows — true for
@@ -322,6 +324,7 @@ export function VideoSourceTile({
   // can, a guest cannot (see the server's allowedControlMode). Only ever
   // consulted for the owner's own toggle below.
   canRestrictControl?: boolean;
+  onRequestAccount?: () => void;
   onStateChange: (
     playing: boolean,
     positionSeconds: number,
@@ -362,6 +365,7 @@ export function VideoSourceTile({
   isSpotlighted?: boolean;
   onHyperfocus?: () => void;
   isHyperfocused?: boolean;
+  hasAccount?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -981,22 +985,28 @@ export function VideoSourceTile({
                 source.controlMode === "anyone"
                   ? canRestrictControl
                     ? "Todos podem controlar. Clique para deixar só você"
-                    : "Todos podem controlar. Só quem tem conta pode guardar o controle"
+                    : "Utilize uma conta para restringir o controle"
                   : "Só você controla. Clique para liberar para todos"
               }
             >
               <button
                 type="button"
-                onClick={() =>
-                  signalingClient.setVideoSourceControlMode(
-                    source.id,
-                    source.controlMode === "anyone" ? "owner" : "anyone"
-                  )
+                onClick={
+                  source.controlMode === "anyone" && !canRestrictControl
+                    ? onRequestAccount
+                    : () =>
+                        signalingClient.setVideoSourceControlMode(
+                          source.id,
+                          source.controlMode === "anyone" ? "owner" : "anyone"
+                        )
                 }
-                disabled={source.controlMode === "anyone" && !canRestrictControl}
                 aria-label="Quem pode controlar esse vídeo"
                 aria-pressed={source.controlMode !== "anyone"}
-                className={`rounded-full p-1.5 text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent`}
+                className={`rounded-full p-1.5 text-white transition ${
+                  source.controlMode === "anyone" && !canRestrictControl
+                    ? "opacity-40 hover:bg-transparent"
+                    : "hover:bg-white/10"
+                }`}
               >
                 {source.controlMode === "anyone" ? (
                   <MdLockOpen className="h-4 w-4" />
@@ -1022,14 +1032,24 @@ export function VideoSourceTile({
             </Tooltip>
           )}
           {onHyperfocus && (
-            <Tooltip content="Hiperfoco nesse vídeo. Esconde as outras transmissões">
+            <Tooltip
+              content={
+                !hasAccount
+                  ? "Utilize uma conta para usar o hiperfoco"
+                  : "Hiperfoco nesse vídeo. Esconde as outras transmissões"
+              }
+            >
               <button
                 type="button"
-                onClick={onHyperfocus}
-                aria-label="Hiperfoco nesse vídeo"
+                onClick={!hasAccount ? (onRequestAccount ?? onHyperfocus) : onHyperfocus}
+                aria-label={`Hiperfoco nesse vídeo${!hasAccount ? " (requer conta)" : ""}`}
                 aria-pressed={isHyperfocused}
                 className={`rounded-full p-1.5 text-white transition ${
-                  isHyperfocused ? "bg-emerald-600 hover:bg-emerald-700" : "hover:bg-white/10"
+                  !hasAccount
+                    ? "opacity-40 hover:bg-transparent hover:opacity-40"
+                    : isHyperfocused
+                      ? "bg-emerald-600 hover:bg-emerald-700"
+                      : "hover:bg-white/10"
                 }`}
               >
                 <HyperfocusIcon className="h-4 w-4" />

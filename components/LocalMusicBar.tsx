@@ -29,11 +29,13 @@ import { getStoredMusicVolume, setStoredMusicVolume } from "@/lib/mediaPreferenc
 export function LocalMusicBar({
   slot,
   canRestrictControl,
+  onRequestAccount,
   onStop,
 }: {
   slot: LocalMediaSlot;
   // See LocalMediaControls' prop of the same name.
   canRestrictControl: boolean;
+  onRequestAccount?: () => void;
   onStop: () => void;
 }) {
   const source = localMediaSources[slot];
@@ -49,6 +51,7 @@ export function LocalMusicBar({
         <LocalMediaControls
           slot={slot}
           canRestrictControl={canRestrictControl}
+          onRequestAccount={onRequestAccount}
           onStop={onStop}
         />
       }

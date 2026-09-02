@@ -132,10 +132,25 @@ import {
   MdOutlinePeople,
   MdMusicNote,
   MdCameraswitch,
+  MdOutlineKeyboard,
 } from "react-icons/md";
 import { BsGearFill, BsCoin } from "react-icons/bs";
+import {
+  LuPanelLeftClose,
+  LuPanelLeftOpen,
+  LuPanelRightClose,
+  LuPanelRightOpen,
+} from "react-icons/lu";
 import { BetaMark } from "@/components/BetaMark";
 import { UpdateAppButton } from "@/components/UpdateAppButton";
+import { PartnerMediaTile } from "@/components/PartnerMediaTile";
+import { usePartnerAd } from "@/lib/usePartnerAd";
+import {
+  useGlobalShortcutListener,
+  type ShortcutAction,
+} from "@/lib/keyboardShortcuts";
+import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
+import { ShortcutQuickPopover } from "@/components/ShortcutQuickPopover";
 
 // Mirrors server/signaling.ts's HANDLE_RE — must match exactly, or a name
 // this lets through but the server rejects lands the user in a dead room
@@ -527,6 +542,11 @@ function ShareControls({
   open,
   setOpen,
   quality,
+  onOpenShortcutQuick,
+  quickShortcutAction,
+  onCloseShortcutQuick,
+  onRequestAccount,
+  onOpenAllShortcuts,
 }: {
   screenSharing: boolean;
   cameraSharing: boolean;
@@ -572,6 +592,11 @@ function ShareControls({
     | "meshCapacity"
     | "meshTopology"
   > & { hasAccount: boolean };
+  onOpenShortcutQuick?: (action: ShortcutAction) => void;
+  quickShortcutAction?: ShortcutAction | null;
+  onCloseShortcutQuick?: () => void;
+  onRequestAccount?: () => void;
+  onOpenAllShortcuts?: () => void;
 }) {
   const segment =
     "flex items-center px-3 py-2 text-white transition disabled:cursor-not-allowed disabled:opacity-50";
@@ -619,30 +644,56 @@ function ShareControls({
       </Popover>
       {/* Wrapped so the tooltip still opens while the button is disabled —
           which is the one state where it has something to explain. */}
-      <Tooltip content={screenLabel} wrapperClassName="flex">
-        <button
-          type="button"
-          onClick={onToggleScreen}
-          disabled={!screenSupported || screenBlocked}
-          aria-pressed={screenSharing}
-          aria-label={screenLabel}
-          className={`${segment} ${screenSharing ? live : idle}`}
-        >
-          <ScreenIcon className="h-5 w-5" />
-        </button>
-      </Tooltip>
-      <Tooltip content={cameraLabel} wrapperClassName="flex">
-        <button
-          type="button"
-          onClick={onToggleCamera}
-          disabled={!cameraSupported || cameraBlocked}
-          aria-pressed={cameraSharing}
-          aria-label={cameraLabel}
-          className={`${segment} border-l border-black/15 ${cameraSharing ? live : idle}`}
-        >
-          <CameraIcon className="h-5 w-5" />
-        </button>
-      </Tooltip>
+      <ShortcutQuickPopover
+        action="toggleScreenShare"
+        open={quickShortcutAction === "toggleScreenShare"}
+        onClose={onCloseShortcutQuick ?? (() => {})}
+        hasAccount={quality.hasAccount}
+        onRequestAccount={onRequestAccount ?? (() => {})}
+        onOpenAllShortcuts={onOpenAllShortcuts}
+      >
+        <Tooltip content={screenLabel} wrapperClassName="flex">
+          <button
+            type="button"
+            onClick={onToggleScreen}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              onOpenShortcutQuick?.("toggleScreenShare");
+            }}
+            disabled={!screenSupported || screenBlocked}
+            aria-pressed={screenSharing}
+            aria-label={screenLabel}
+            className={`${segment} ${screenSharing ? live : idle}`}
+          >
+            <ScreenIcon className="h-5 w-5" />
+          </button>
+        </Tooltip>
+      </ShortcutQuickPopover>
+      <ShortcutQuickPopover
+        action="toggleCamera"
+        open={quickShortcutAction === "toggleCamera"}
+        onClose={onCloseShortcutQuick ?? (() => {})}
+        hasAccount={quality.hasAccount}
+        onRequestAccount={onRequestAccount ?? (() => {})}
+        onOpenAllShortcuts={onOpenAllShortcuts}
+      >
+        <Tooltip content={cameraLabel} wrapperClassName="flex">
+          <button
+            type="button"
+            onClick={onToggleCamera}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              onOpenShortcutQuick?.("toggleCamera");
+            }}
+            disabled={!cameraSupported || cameraBlocked}
+            aria-pressed={cameraSharing}
+            aria-label={cameraLabel}
+            className={`${segment} border-l border-black/15 ${cameraSharing ? live : idle}`}
+          >
+            <CameraIcon className="h-5 w-5" />
+          </button>
+        </Tooltip>
+      </ShortcutQuickPopover>
       {/* Only where there is actually a choice to make: on the one-webcam
           laptop that most people are on, a chevron whose menu offers a
           single entry is pure clutter. Enumeration fills in after the first
@@ -1074,6 +1125,170 @@ export function WatchRoom({ handle }: { handle: string }) {
     previousNameRef.current = state.name;
   }, [state.name, renaming]);
 
+  const {
+    ad: activePartnerAd,
+    rawPartner: rawActivePartner,
+    loaded: partnerLoaded,
+  } = usePartnerAd();
+
+  const hasLocalScreen = Boolean(isSharing && localStream);
+  const hasLocalCamera = Boolean(localCameraStream);
+  const hasLocalFiles = LOCAL_MEDIA_SLOTS.some((slot) => fileChannels[slot]?.localStream);
+  const hasRemoteScreens =
+    Object.keys(remoteStreams).length > 0 ||
+    stoppedPeers.size > 0 ||
+    resumingPeers.size > 0;
+  const hasRemoteCameras =
+    Object.keys(remoteCameraStreams).length > 0 ||
+    stoppedCameraPeers.size > 0 ||
+    resumingCameraPeers.size > 0;
+  const hasRemoteFiles = LOCAL_MEDIA_SLOTS.some(
+    (slot) =>
+      Object.keys(fileChannels[slot]?.remoteStreams ?? {}).length > 0 ||
+      fileChannels[slot]?.stoppedPeers.size > 0 ||
+      fileChannels[slot]?.resumingPeers.size > 0
+  );
+  const hasVideoSources = (state.videoSources?.length ?? 0) > 0;
+
+  const hasAnyMedia =
+    hasLocalScreen ||
+    hasLocalCamera ||
+    hasLocalFiles ||
+    hasRemoteScreens ||
+    hasRemoteCameras ||
+    hasRemoteFiles ||
+    hasVideoSources;
+
+  const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem("sharescreen:leftSidebarCollapsed") === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem("sharescreen:rightSidebarCollapsed") === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  const leftSidebarCollapsedRef = useRef(leftSidebarCollapsed);
+  leftSidebarCollapsedRef.current = leftSidebarCollapsed;
+  const rightSidebarCollapsedRef = useRef(rightSidebarCollapsed);
+  rightSidebarCollapsedRef.current = rightSidebarCollapsed;
+
+  const previousHasAnyMediaRef = useRef<boolean | null>(null);
+  const mediaLostAtRef = useRef<number | null>(null);
+  const savedCollapsedBeforeLossRef = useRef<{ left: boolean; right: boolean } | null>(null);
+  const restoreTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (previousHasAnyMediaRef.current === null) {
+      previousHasAnyMediaRef.current = hasAnyMedia;
+      if (!hasAnyMedia) {
+        if (leftSidebarCollapsedRef.current) setLeftSidebarCollapsed(false);
+        if (rightSidebarCollapsedRef.current) setRightSidebarCollapsed(false);
+      }
+      return;
+    }
+
+    const hadMedia = previousHasAnyMediaRef.current;
+    previousHasAnyMediaRef.current = hasAnyMedia;
+
+    if (hadMedia && !hasAnyMedia) {
+      // All media ended: remember if sidebars were collapsed, then reopen both
+      mediaLostAtRef.current = Date.now();
+      savedCollapsedBeforeLossRef.current = {
+        left: leftSidebarCollapsedRef.current,
+        right: rightSidebarCollapsedRef.current,
+      };
+
+      if (leftSidebarCollapsedRef.current) setLeftSidebarCollapsed(false);
+      if (rightSidebarCollapsedRef.current) setRightSidebarCollapsed(false);
+
+      if (restoreTimerRef.current) clearTimeout(restoreTimerRef.current);
+      restoreTimerRef.current = setTimeout(() => {
+        savedCollapsedBeforeLossRef.current = null;
+        mediaLostAtRef.current = null;
+      }, 10_000);
+    } else if (!hadMedia && hasAnyMedia) {
+      // Media returned: if within 10 seconds, restore previous collapsed state
+      if (restoreTimerRef.current) {
+        clearTimeout(restoreTimerRef.current);
+        restoreTimerRef.current = null;
+      }
+
+      const elapsed = mediaLostAtRef.current ? Date.now() - mediaLostAtRef.current : Infinity;
+      if (elapsed <= 10_000 && savedCollapsedBeforeLossRef.current) {
+        const { left, right } = savedCollapsedBeforeLossRef.current;
+        if (left) setLeftSidebarCollapsed(true);
+        if (right) setRightSidebarCollapsed(true);
+      }
+
+      savedCollapsedBeforeLossRef.current = null;
+      mediaLostAtRef.current = null;
+    }
+  }, [hasAnyMedia]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("sharescreen:leftSidebarCollapsed", String(leftSidebarCollapsed));
+    } catch {}
+  }, [leftSidebarCollapsed]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("sharescreen:rightSidebarCollapsed", String(rightSidebarCollapsed));
+    } catch {}
+  }, [rightSidebarCollapsed]);
+
+  const toggleLeftSidebar = useCallback(() => {
+    setLeftSidebarCollapsed((prev) => {
+      // Only allow collapsing when there is at least one media
+      if (!hasAnyMedia && !prev) return prev;
+      const next = !prev;
+      if (next) {
+        if (rawActivePartner?.id) {
+          signalingClient.reportPartnerMinimize(rawActivePartner.id);
+        }
+        trackEvent("partner_ad_minimized", {
+          partnerId: rawActivePartner?.id ?? "fallback",
+          title: activePartnerAd.title,
+        });
+      }
+      trackEvent("left_sidebar_toggle", { collapsed: next });
+      return next;
+    });
+  }, [hasAnyMedia, rawActivePartner, activePartnerAd]);
+
+  const toggleRightSidebar = useCallback(() => {
+    setRightSidebarCollapsed((prev) => {
+      // Only allow collapsing when there is at least one media
+      if (!hasAnyMedia && !prev) return prev;
+      const next = !prev;
+      trackEvent("right_sidebar_toggle", { collapsed: next });
+      return next;
+    });
+  }, [hasAnyMedia]);
+
+  const [visibleCameraError, setVisibleCameraError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!cameraShareError) {
+      setVisibleCameraError(null);
+      return;
+    }
+    setVisibleCameraError(cameraShareError);
+    const timer = setTimeout(() => {
+      setVisibleCameraError(null);
+    }, 10_000);
+    return () => clearTimeout(timer);
+  }, [cameraShareError]);
 
   const [chatWidth, setChatWidth] = useState(() => {
     if (typeof window === "undefined") return DEFAULT_CHAT_WIDTH;
@@ -1294,11 +1509,13 @@ export function WatchRoom({ handle }: { handle: string }) {
   // cascading render.
   useEffect(() => {
     if (hyperfocusId === null) return;
-    if (!isTileGone(hyperfocusId)) return;
-    queueMicrotask(() => setHyperfocusId(null));
+    if (!state.account || isTileGone(hyperfocusId)) {
+      queueMicrotask(() => setHyperfocusId(null));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     hyperfocusId,
+    state.account,
     isSharing,
     localStream,
     localCameraStream,
@@ -1478,6 +1695,69 @@ export function WatchRoom({ handle }: { handle: string }) {
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.permissionDeniedSeq]);
+
+  const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
+  const [quickShortcutAction, setQuickShortcutAction] = useState<ShortcutAction | null>(null);
+
+  useGlobalShortcutListener({
+    enabled: Boolean(state.account),
+    handlers: {
+      toggleDeafen: toggleMicsMuted,
+      toggleMute: handleToggleMic,
+      toggleScreenShare: () => {
+        if (localStream) stopShare();
+        else if (screenShareMode === "display" && !screenBlockedReason) startShare("display");
+      },
+      toggleCamera: () => {
+        if (localCameraStream) stopCameraShare();
+        else if (screenShareMode !== "unsupported" && !cameraBlockedReason) startCameraShare();
+      },
+      toggleMusicPlay: () => {
+        const activeSlot = LOCAL_MEDIA_SLOTS.find((s) => fileChannels[s]?.localStream);
+        if (activeSlot !== undefined) {
+          localMediaSources[activeSlot]?.togglePlay();
+        } else if (state.music) {
+          signalingClient.setMusicState(
+            state.music.id,
+            !state.music.playing,
+            state.music.positionSeconds,
+            state.music.playbackRate,
+            state.music.playlistIndex
+          );
+        }
+      },
+      nextMusic: () => {
+        const activeSlot = LOCAL_MEDIA_SLOTS.find((s) => fileChannels[s]?.localStream);
+        if (activeSlot !== undefined) {
+          localMediaSources[activeSlot]?.next();
+        } else if (state.music?.playlistId) {
+          const nextIdx = (state.music.playlistIndex ?? 0) + 1;
+          signalingClient.setMusicState(
+            state.music.id,
+            state.music.playing,
+            0,
+            state.music.playbackRate,
+            nextIdx
+          );
+        }
+      },
+      previousMusic: () => {
+        const activeSlot = LOCAL_MEDIA_SLOTS.find((s) => fileChannels[s]?.localStream);
+        if (activeSlot !== undefined) {
+          localMediaSources[activeSlot]?.previous();
+        } else if (state.music?.playlistId) {
+          const prevIdx = Math.max(0, (state.music.playlistIndex ?? 0) - 1);
+          signalingClient.setMusicState(
+            state.music.id,
+            state.music.playing,
+            0,
+            state.music.playbackRate,
+            prevIdx
+          );
+        }
+      },
+    },
+  });
 
   function handleNameSubmit(e: FormEvent) {
     e.preventDefault();
@@ -1884,7 +2164,8 @@ export function WatchRoom({ handle }: { handle: string }) {
   // toggleHyperfocus): the room was left showing nothing at all, every other
   // transmission still hidden, and no button anywhere to bring them back.
   // Dropping the focus the moment its target is gone is what un-sticks it.
-  const hyperfocusTargetGone = hyperfocusId !== null && isTileGone(hyperfocusId);
+  const hyperfocusTargetGone =
+    hyperfocusId !== null && (!state.account || isTileGone(hyperfocusId));
   // Used everywhere below instead of the raw state, so this render already
   // behaves as un-focused rather than waiting for the effect that clears it.
   const activeHyperfocusId = hyperfocusTargetGone ? null : hyperfocusId;
@@ -1968,7 +2249,7 @@ export function WatchRoom({ handle }: { handle: string }) {
   const musicBlockedReason = !isRoomManager
     ? "Só o dono e os administradores da sala podem colocar música."
     : !state.account
-      ? "Entre com uma conta do site para colocar música na sala."
+      ? "Utilize uma conta para colocar música na sala."
       : null;
 
   function startLocalMediaShare(slot: LocalMediaSlot) {
@@ -2048,11 +2329,7 @@ export function WatchRoom({ handle }: { handle: string }) {
     if (actions) openPopup("member_actions", { data: actions });
   }
 
-  // A chat message outlives the connection that sent it, so the id on it may
-  // be gone — the name is the fallback, and it is a reliable one: the server
-  // reserves display names per room, so at most one person in the room answers
-  // to it at a time.
-  function chatAuthorPeer(from: string, name: string) {
+  function chatAuthorPeer(from: string, name: string): PeerInfo | null {
     return (
       state.peers.find((p) => p.id === from) ??
       state.peers.find((p) => p.name.toLowerCase() === name.toLowerCase()) ??
@@ -2060,6 +2337,9 @@ export function WatchRoom({ handle }: { handle: string }) {
     );
   }
 
+  // The phone opens member actions from a tap on the message rather than a
+  // right click — it has no right click, and long-press is the browser's text
+  // selection.
   function openMemberActionsFromChat(from: string, name: string) {
     const peer = chatAuthorPeer(from, name);
     if (peer) openMemberActions(peer);
@@ -2155,18 +2435,6 @@ export function WatchRoom({ handle }: { handle: string }) {
   const visibleResumingCameraEntries = activeHyperfocusId ? [] : resumingCameraEntries;
   const visibleStoppedFileEntries = activeHyperfocusId ? [] : stoppedFileEntries;
   const visibleResumingFileEntries = activeHyperfocusId ? [] : resumingFileEntries;
-  const nothingToShow =
-    remoteScreenEntries.length === 0 &&
-    remoteCameraEntries.length === 0 &&
-    remoteFileEntries.length === 0 &&
-    state.videoSources.length === 0 &&
-    stoppedEntries.length === 0 &&
-    resumingEntries.length === 0 &&
-    !isSharing &&
-    // Music slots deliberately excluded: a soundtrack playing is not something
-    // on screen, and the empty pane should still say the room has nothing to
-    // watch while it plays.
-    localFileSlots.length === 0;
   // Every tile the room has on screen, in the order they appear, as
   // descriptors rather than as JSX laid out where it is used. Two reasons:
   //
@@ -2185,7 +2453,7 @@ export function WatchRoom({ handle }: { handle: string }) {
     // tile its own 16:9 card, which is what a grid cell wants. `compact` says
     // the box is a filmstrip thumbnail, so drop the controls and shrink the
     // name — tile kinds with nothing to drop simply ignore it. See VideoTile.
-    render: (fill: boolean, compact?: boolean) => ReactNode;
+    render: (fill: boolean, compact?: boolean, overlayRightOffset?: boolean) => ReactNode;
   };
   const tiles: RoomTile[] = [];
 
@@ -2193,7 +2461,7 @@ export function WatchRoom({ handle }: { handle: string }) {
     const id = tileId("screen", SELF_TILE_OWNER);
     tiles.push({
       id,
-      render: (fill, compact) => (
+      render: (fill, compact, overlayRightOffset) => (
         <VideoTile
           stream={localStream}
           label="Você"
@@ -2208,6 +2476,8 @@ export function WatchRoom({ handle }: { handle: string }) {
           isSpotlighted={spotlightId === id}
           onHyperfocus={() => toggleHyperfocus(id)}
           isHyperfocused={activeHyperfocusId === id}
+          hasAccount={Boolean(state.account)}
+          overlayRightOffset={overlayRightOffset}
           isMicOn={isMicOn}
           onToggleMic={toggleMic}
           micsMuted={micsMuted}
@@ -2221,7 +2491,7 @@ export function WatchRoom({ handle }: { handle: string }) {
     const id = tileId("camera", SELF_TILE_OWNER);
     tiles.push({
       id,
-      render: (fill, compact) => (
+      render: (fill, compact, overlayRightOffset) => (
         <VideoTile
           stream={localCameraStream}
           label="Você"
@@ -2236,6 +2506,8 @@ export function WatchRoom({ handle }: { handle: string }) {
           isSpotlighted={spotlightId === id}
           onHyperfocus={() => toggleHyperfocus(id)}
           isHyperfocused={activeHyperfocusId === id}
+          hasAccount={Boolean(state.account)}
+          overlayRightOffset={overlayRightOffset}
           isMicOn={isMicOn}
           onToggleMic={toggleMic}
           micsMuted={micsMuted}
@@ -2258,7 +2530,7 @@ export function WatchRoom({ handle }: { handle: string }) {
     const id = tileId("file", `${slot}:${SELF_TILE_OWNER}`);
     tiles.push({
       id,
-      render: (fill, compact) => (
+      render: (fill, compact, overlayRightOffset) => (
         <VideoTile
           stream={stream}
           label={name}
@@ -2269,6 +2541,7 @@ export function WatchRoom({ handle }: { handle: string }) {
             <LocalMediaControls
               slot={slot}
               canRestrictControl={Boolean(state.account)}
+              onRequestAccount={() => setAccountModal("create")}
               onStop={() => fileChannels[slot].stop()}
             />
           }
@@ -2282,6 +2555,8 @@ export function WatchRoom({ handle }: { handle: string }) {
           isSpotlighted={spotlightId === id}
           onHyperfocus={() => toggleHyperfocus(id)}
           isHyperfocused={activeHyperfocusId === id}
+          hasAccount={Boolean(state.account)}
+          overlayRightOffset={overlayRightOffset}
           isMicOn={isMicOn}
           onToggleMic={toggleMic}
           micsMuted={micsMuted}
@@ -2301,7 +2576,7 @@ export function WatchRoom({ handle }: { handle: string }) {
     const id = tileId("file", `${slot}:${peerId}`);
     tiles.push({
       id,
-      render: (fill, compact) => (
+      render: (fill, compact, overlayRightOffset) => (
         <VideoTile
           stream={stream}
           label={shared?.name ?? `arquivo de ${peer?.name ?? "alguém"}`}
@@ -2347,6 +2622,8 @@ export function WatchRoom({ handle }: { handle: string }) {
           isSpotlighted={spotlightId === id}
           onHyperfocus={() => toggleHyperfocus(id)}
           isHyperfocused={activeHyperfocusId === id}
+          hasAccount={Boolean(state.account)}
+          overlayRightOffset={overlayRightOffset}
           isMicOn={isMicOn}
           onToggleMic={toggleMic}
           micsMuted={micsMuted}
@@ -2390,6 +2667,7 @@ export function WatchRoom({ handle }: { handle: string }) {
           // added it regardless of who's allowed to drive it.
           isOwner={state.selfUserId !== null && videoSource.addedById === state.selfUserId}
           canRestrictControl={Boolean(state.account)}
+          onRequestAccount={() => setAccountModal("create")}
           label={`${videoSource.addedByName} adicionou`}
           fill={fill}
           onStateChange={(playing, positionSeconds, playbackRate, playlistIndex) =>
@@ -2407,6 +2685,7 @@ export function WatchRoom({ handle }: { handle: string }) {
           isSpotlighted={spotlightId === id}
           onHyperfocus={() => toggleHyperfocus(id)}
           isHyperfocused={activeHyperfocusId === id}
+          hasAccount={Boolean(state.account)}
         />
       ),
     });
@@ -2439,7 +2718,7 @@ export function WatchRoom({ handle }: { handle: string }) {
     const id = tileId("screen", peerId);
     tiles.push({
       id,
-      render: (fill, compact) => (
+      render: (fill, compact, overlayRightOffset) => (
         <VideoTile
           stream={stream}
           label={
@@ -2464,6 +2743,8 @@ export function WatchRoom({ handle }: { handle: string }) {
           isSpotlighted={spotlightId === id}
           onHyperfocus={() => toggleHyperfocus(id)}
           isHyperfocused={activeHyperfocusId === id}
+          hasAccount={Boolean(state.account)}
+          overlayRightOffset={overlayRightOffset}
           isMicOn={isMicOn}
           onToggleMic={toggleMic}
           micsMuted={micsMuted}
@@ -2479,7 +2760,7 @@ export function WatchRoom({ handle }: { handle: string }) {
     const id = tileId("camera", peerId);
     tiles.push({
       id,
-      render: (fill, compact) => (
+      render: (fill, compact, overlayRightOffset) => (
         <VideoTile
           stream={stream}
           label={
@@ -2504,6 +2785,8 @@ export function WatchRoom({ handle }: { handle: string }) {
           isSpotlighted={spotlightId === id}
           onHyperfocus={() => toggleHyperfocus(id)}
           isHyperfocused={activeHyperfocusId === id}
+          hasAccount={Boolean(state.account)}
+          overlayRightOffset={overlayRightOffset}
           isMicOn={isMicOn}
           onToggleMic={toggleMic}
           micsMuted={micsMuted}
@@ -2573,8 +2856,34 @@ export function WatchRoom({ handle }: { handle: string }) {
     });
   }
 
+  const realMediaTileCount = tiles.length;
+  const isFocusMode = spotlightId !== null && tiles.some((t) => t.id === spotlightId);
+
+  // When the left sidebar (participants and ad card) is collapsed and not in hyperfocus:
+  // - In focus mode (spotlight): ad is shown in the thumbnail strip
+  // - In normal grid mode: ad is ONLY shown when there are 3 or more media sources transmitting
+  if (
+    leftSidebarCollapsed &&
+    isWideLayout &&
+    !activeHyperfocusId &&
+    (isFocusMode || realMediaTileCount >= 3)
+  ) {
+    const adId = "sponsored-partner-tile";
+    tiles.push({
+      id: adId,
+      render: (fill, compact) => (
+        <PartnerMediaTile
+          partner={activePartnerAd}
+          fill={fill}
+          compact={compact}
+        />
+      ),
+    });
+  }
+
   const tileCount = tiles.length;
   const isSingleTile = tileCount === 1;
+  const nothingToShow = tileCount === 0;
 
   // "Focar", resolved. Derived rather than read straight off `spotlightId`
   // for the same reason activeHyperfocusId is: whatever was focused can stop
@@ -2671,6 +2980,10 @@ export function WatchRoom({ handle }: { handle: string }) {
   // The tile's own hyperfocus button is the only entry/exit point (see
   // VideoTile's isHyperfocused green state) — no separate banner/button.
   function toggleHyperfocus(id: string) {
+    if (!state.account) {
+      setAccountModal("create");
+      return;
+    }
     if (activeHyperfocusId === id) exitHyperfocus();
     else enterHyperfocus(id);
   }
@@ -2763,6 +3076,18 @@ export function WatchRoom({ handle }: { handle: string }) {
       >
         Reportar bug
       </a>
+
+      <button
+        type="button"
+        onClick={() => {
+          closeMenu();
+          setShortcutsModalOpen(true);
+        }}
+        className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900"
+      >
+        <MdOutlineKeyboard className="h-4 w-4 shrink-0 text-zinc-500 dark:text-zinc-400" />
+        Atalhos de teclado
+      </button>
 
       <div className="my-2 border-t border-zinc-200 dark:border-zinc-800" />
 
@@ -3018,30 +3343,43 @@ export function WatchRoom({ handle }: { handle: string }) {
             <ChevronDownIcon className="h-3.5 w-3.5" />
           </button>
         </Popover>
-        <MicUsageHint
-          open={micHintOpen}
-          onDismiss={closeMicHint}
-          onEnableMic={enableMicFromHint}
-          tooltip={
-            isMicOn
-              ? "Desativar microfone"
-              : (micBlockedReason ?? "Ativar microfone")
-          }
-          wrapperClassName="flex"
+        <ShortcutQuickPopover
+          action="toggleMute"
+          open={quickShortcutAction === "toggleMute"}
+          onClose={() => setQuickShortcutAction(null)}
+          hasAccount={Boolean(state.account)}
+          onRequestAccount={() => setAccountModal("create")}
+          onOpenAllShortcuts={() => setShortcutsModalOpen(true)}
         >
-          <button
-            type="button"
-            onClick={handleToggleMic}
-            // Only turning it *on* is blocked — see ShareControls'
-            // screenBlockedReason for the same reasoning.
-            disabled={!isMicOn && Boolean(micBlockedReason)}
-            aria-label={isMicOn ? "Desativar microfone" : "Ativar microfone"}
-            className={`rounded-r-lg p-2 text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${isMicOn ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700"
-              }`}
+          <MicUsageHint
+            open={micHintOpen}
+            onDismiss={closeMicHint}
+            onEnableMic={enableMicFromHint}
+            tooltip={
+              isMicOn
+                ? "Desativar microfone"
+                : (micBlockedReason ?? "Ativar microfone")
+            }
+            wrapperClassName="flex"
           >
-            {isMicOn ? <MicIcon className="h-5 w-5" /> : <MicOffIcon className="h-5 w-5" />}
-          </button>
-        </MicUsageHint>
+            <button
+              type="button"
+              onClick={handleToggleMic}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setQuickShortcutAction("toggleMute");
+              }}
+              // Only turning it *on* is blocked — see ShareControls'
+              // screenBlockedReason for the same reasoning.
+              disabled={!isMicOn && Boolean(micBlockedReason)}
+              aria-label={isMicOn ? "Desativar microfone" : "Ativar microfone"}
+              className={`rounded-r-lg p-2 text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${isMicOn ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700"
+                }`}
+            >
+              {isMicOn ? <MicIcon className="h-5 w-5" /> : <MicOffIcon className="h-5 w-5" />}
+            </button>
+          </MicUsageHint>
+        </ShortcutQuickPopover>
       </div>
 
       <div className="flex items-stretch">
@@ -3086,21 +3424,34 @@ export function WatchRoom({ handle }: { handle: string }) {
             </button>
           </Popover>
         )}
-        <Tooltip content={micsMuted ? "Reativar microfones" : "Silenciar microfones"}>
-          <button
-            type="button"
-            onClick={toggleMicsMuted}
-            aria-label={micsMuted ? "Reativar microfones" : "Silenciar microfones"}
-            className={`p-2 text-white transition ${canSelectSpeaker ? "rounded-r-lg" : "rounded-lg"} ${micsMuted ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"
-              }`}
-          >
-            {micsMuted ? (
-              <HeadphonesOffIcon className="h-5 w-5" />
-            ) : (
-              <HeadphonesIcon className="h-5 w-5" />
-            )}
-          </button>
-        </Tooltip>
+        <ShortcutQuickPopover
+          action="toggleDeafen"
+          open={quickShortcutAction === "toggleDeafen"}
+          onClose={() => setQuickShortcutAction(null)}
+          hasAccount={Boolean(state.account)}
+          onRequestAccount={() => setAccountModal("create")}
+          onOpenAllShortcuts={() => setShortcutsModalOpen(true)}
+        >
+          <Tooltip content={micsMuted ? "Reativar microfones" : "Silenciar microfones"}>
+            <button
+              type="button"
+              onClick={toggleMicsMuted}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setQuickShortcutAction("toggleDeafen");
+              }}
+              aria-label={micsMuted ? "Reativar microfones" : "Silenciar microfones"}
+              className={`p-2 text-white transition ${canSelectSpeaker ? "rounded-r-lg" : "rounded-lg"} ${micsMuted ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"
+                }`}
+            >
+              {micsMuted ? (
+                <HeadphonesOffIcon className="h-5 w-5" />
+              ) : (
+                <HeadphonesIcon className="h-5 w-5" />
+              )}
+            </button>
+          </Tooltip>
+        </ShortcutQuickPopover>
       </div>
 
       {/* A rule between "what everyone hears" and "what everyone sees" —
@@ -3127,6 +3478,11 @@ export function WatchRoom({ handle }: { handle: string }) {
           open={shareQualityOpen}
           setOpen={setShareQualityOpen}
           quality={qualityControlsProps}
+          onOpenShortcutQuick={(action) => setQuickShortcutAction(action)}
+          quickShortcutAction={quickShortcutAction}
+          onCloseShortcutQuick={() => setQuickShortcutAction(null)}
+          onRequestAccount={() => setAccountModal("create")}
+          onOpenAllShortcuts={() => setShortcutsModalOpen(true)}
         />
       </div>
     </>
@@ -3224,25 +3580,40 @@ export function WatchRoom({ handle }: { handle: string }) {
           how much room is left is the whole reason a limit is visible at all.
           Turns amber on the last slot and red when full, so "quase cheia" is
           something you notice rather than something you work out. */}
-      <Tooltip
-        content={
-          state.roomMemberLimit
-            ? `${peerCount} de ${state.roomMemberLimit} pessoas — o limite da sala`
-            : undefined
-        }
-      >
-        <span
-          className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${
-            state.roomMemberLimit && peerCount >= state.roomMemberLimit
-              ? "bg-red-200 text-red-800 dark:bg-red-950 dark:text-red-300"
-              : state.roomMemberLimit && peerCount >= state.roomMemberLimit - 1
-                ? "bg-amber-200 text-amber-900 dark:bg-amber-950 dark:text-amber-300"
-                : "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-          }`}
+      <div className="flex items-center gap-1.5">
+        <Tooltip
+          content={
+            state.roomMemberLimit
+              ? `${peerCount} de ${state.roomMemberLimit} pessoas — o limite da sala`
+              : undefined
+          }
         >
-          {state.roomMemberLimit ? `${peerCount}/${state.roomMemberLimit}` : peerCount}
-        </span>
-      </Tooltip>
+          <span
+            className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${
+              state.roomMemberLimit && peerCount >= state.roomMemberLimit
+                ? "bg-red-200 text-red-800 dark:bg-red-950 dark:text-red-300"
+                : state.roomMemberLimit && peerCount >= state.roomMemberLimit - 1
+                  ? "bg-amber-200 text-amber-900 dark:bg-amber-950 dark:text-amber-300"
+                  : "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+            }`}
+          >
+            {state.roomMemberLimit ? `${peerCount}/${state.roomMemberLimit}` : peerCount}
+          </span>
+        </Tooltip>
+
+        {isWideLayout && hasAnyMedia && (
+          <Tooltip content="Ocultar participantes e anúncio">
+            <button
+              type="button"
+              onClick={toggleLeftSidebar}
+              aria-label="Ocultar participantes e anúncio"
+              className="rounded-lg p-1 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+            >
+              <LuPanelLeftClose className="h-4 w-4" />
+            </button>
+          </Tooltip>
+        )}
+      </div>
     </div>
   );
 
@@ -3432,6 +3803,8 @@ export function WatchRoom({ handle }: { handle: string }) {
         sendDisabledReason={chatBlockedReason}
         gifDisabledReason={gifBlockedReason}
         imageDisabledReason={imageBlockedReason}
+        onCollapse={isWideLayout && hasAnyMedia ? toggleRightSidebar : undefined}
+        onRequestAccount={() => setAccountModal("create")}
         // Fills whatever box it is given, in both layouts: its own column
         // from lg up, the sheet the bottom bar raises below that. No margins
         // of its own in either: on desktop it now starts flush with the top
@@ -3823,6 +4196,7 @@ export function WatchRoom({ handle }: { handle: string }) {
           key={slot}
           slot={slot}
           canRestrictControl={Boolean(state.account)}
+          onRequestAccount={() => setAccountModal("create")}
           onStop={() => fileChannels[slot].stop()}
         />
       ))}
@@ -3917,10 +4291,18 @@ export function WatchRoom({ handle }: { handle: string }) {
           {micError}
         </p>
       )}
-      {cameraShareError && (
-        <p className="bg-red-50 px-4 py-2 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">
-          {cameraShareError}
-        </p>
+      {visibleCameraError && (
+        <div className="flex items-center justify-between gap-3 bg-red-50 px-4 py-2 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">
+          <p>{visibleCameraError}</p>
+          <button
+            type="button"
+            onClick={() => setVisibleCameraError(null)}
+            aria-label="Fechar aviso"
+            className="shrink-0 text-lg leading-none opacity-70 transition hover:opacity-100"
+          >
+            ×
+          </button>
+        </div>
       )}
 
       {Object.entries(remoteMicStreams).map(([peerId, stream]) => {
@@ -3947,7 +4329,7 @@ export function WatchRoom({ handle }: { handle: string }) {
 
             The ad card lives here (below the list) rather than in the chat
             column, so chat gets the full column to itself. */}
-        {isWideLayout && (
+        {isWideLayout && !leftSidebarCollapsed && (
           <aside className="flex h-full w-64 shrink-0 flex-col gap-3 2xl:w-72">
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
               <div className="shrink-0 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
@@ -3958,11 +4340,44 @@ export function WatchRoom({ handle }: { handle: string }) {
                   beside up to five status icons. */}
               <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-2">{participantsList}</div>
             </div>
-            <PartnerCard />
+            <PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />
           </aside>
         )}
 
-        <main className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-2 lg:p-0">
+        <main className="relative flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-2 lg:p-0">
+          {/* Floating expand buttons when sidebars are collapsed on wide screens */}
+          {isWideLayout && leftSidebarCollapsed && (
+            <div className="absolute left-2 top-2 z-20">
+              <Tooltip content="Mostrar participantes" placement="right">
+                <button
+                  type="button"
+                  onClick={toggleLeftSidebar}
+                  aria-label="Mostrar participantes"
+                  className="flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-zinc-700 shadow-md backdrop-blur-xs transition hover:bg-white hover:text-zinc-950 dark:border-zinc-700 dark:bg-zinc-900/95 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-white"
+                >
+                  <LuPanelLeftOpen className="h-4 w-4" />
+                  {/* <span className="hidden sm:inline">Participantes</span> */}
+                </button>
+              </Tooltip>
+            </div>
+          )}
+
+          {isWideLayout && rightSidebarCollapsed && (
+            <div className="absolute right-2 top-2 z-20">
+              <Tooltip content="Mostrar chat e perfil" placement="left">
+                <button
+                  type="button"
+                  onClick={toggleRightSidebar}
+                  aria-label="Mostrar chat e perfil"
+                  className="flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-zinc-700 shadow-md backdrop-blur-xs transition hover:bg-white hover:text-zinc-950 dark:border-zinc-700 dark:bg-zinc-900/95 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-white"
+                >
+                  <LuPanelRightOpen className="h-4 w-4" />
+                  {/* <span className="hidden sm:inline">Chat</span> */}
+                </button>
+              </Tooltip>
+            </div>
+          )}
+
           {nothingToShow ? (
             // Wrapped the same way the tile grid is: `main` doesn't scroll,
             // so the one thing in it that has a minimum height of its own
@@ -4080,7 +4495,9 @@ export function WatchRoom({ handle }: { handle: string }) {
                         height to fill: `h-full` against a box sized by its own
                         content is circular, and the tile is the side that
                         gives up and collapses. */}
-                    <div className="min-h-0 flex-1">{stageTile.render(true)}</div>
+                    <div className="min-h-0 flex-1">
+                      {stageTile.render(true, false, isWideLayout && rightSidebarCollapsed)}
+                    </div>
                     {stripTiles.length > 0 && (
                       /* Scrolls sideways rather than wrapping onto a second
                          row: the whole point of the strip is to cost the stage
@@ -4095,20 +4512,17 @@ export function WatchRoom({ handle }: { handle: string }) {
                             >
                               {tile.render(true, true)}
                               {/* One transparent target over the whole
-                                  thumbnail, rather than asking someone to find
-                                  a 24px "focar" button on a 200px tile — and
-                                  it works the same over a YouTube iframe or a
-                                  "você saiu dessa transmissão" placeholder,
-                                  neither of which has a focus button at all.
-                                  It sits above the compact tile, whose own
-                                  controls are hidden, so nothing interactive
-                                  ends up buried underneath it. */}
-                              <button
-                                type="button"
-                                onClick={() => setSpotlightId(tile.id)}
-                                aria-label="Destacar esta transmissão"
-                                className="absolute inset-0 z-10 cursor-pointer rounded-xl ring-emerald-500 transition hover:ring-2 focus-visible:ring-2 focus-visible:outline-none"
-                              />
+                                  thumbnail to focus it — except for the sponsored
+                                  ad, where clicking the compact tile acts directly
+                                  as an action click to open the sponsor link. */}
+                              {tile.id !== "sponsored-partner-tile" && (
+                                <button
+                                  type="button"
+                                  onClick={() => setSpotlightId(tile.id)}
+                                  aria-label="Destacar esta transmissão"
+                                  className="absolute inset-0 z-10 cursor-pointer rounded-xl ring-emerald-500 transition hover:ring-2 focus-visible:ring-2 focus-visible:outline-none"
+                                />
+                              )}
                             </div>
                           ))}
                         </div>
@@ -4127,9 +4541,27 @@ export function WatchRoom({ handle }: { handle: string }) {
                     {/* Fragments rather than wrapper divs: the tile itself has
                         to be the grid item, or its `aspect-video` would size a
                         box inside a stretched cell instead of the cell. */}
-                    {tiles.map((tile) => (
-                      <Fragment key={tile.id}>{tile.render(isSingleTile)}</Fragment>
-                    ))}
+                    {tiles.map((tile, index) => {
+                      const shouldOffsetRight =
+                        isWideLayout &&
+                        rightSidebarCollapsed &&
+                        (isSingleTile ||
+                          (tileCount === 2 && index === 1) ||
+                          (tileCount > 2 &&
+                            (index + 1) % tileGridCols === 0 &&
+                            index < tileGridCols));
+                      return (
+                        <Fragment key={tile.id}>
+                          {isSingleTile && tile.id === "sponsored-partner-tile" ? (
+                            <div className="flex h-full w-full items-center justify-center p-4">
+                              {tile.render(true, false, shouldOffsetRight)}
+                            </div>
+                          ) : (
+                            tile.render(isSingleTile, false, shouldOffsetRight)
+                          )}
+                        </Fragment>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -4142,7 +4574,7 @@ export function WatchRoom({ handle }: { handle: string }) {
             else in here but the owner/admin "Gerenciar sala" button, so
             chatSection's flex-1 (see its heightClassName) still has
             practically the whole column to fill. */}
-        {isWideLayout && (
+        {isWideLayout && !rightSidebarCollapsed && (
           <aside
             ref={chatAsideRef}
             className="relative flex h-full shrink-0 flex-col"
@@ -4185,7 +4617,7 @@ export function WatchRoom({ handle }: { handle: string }) {
                 slim line (see PartnerCard) — small enough to leave on screen,
                 one tap from the whole card. Above the sheet rather than below
                 it, so the sheet always comes up off the bar that opened it. */}
-            <PartnerCard />
+            <PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />
 
             {mobilePanel && (
               <section
@@ -4234,45 +4666,71 @@ export function WatchRoom({ handle }: { handle: string }) {
                 scrolls, never moves. */}
             <nav className="flex shrink-0 items-center gap-1 border-t border-zinc-200 bg-white px-2 py-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] dark:border-zinc-800 dark:bg-zinc-950">
               <div className="flex min-w-0 flex-1 items-center gap-1">
-                <MicUsageHint
-                  open={micHintOpen}
-                  onDismiss={closeMicHint}
-                  onEnableMic={enableMicFromHint}
-                  tooltip={isMicOn ? "Desativar microfone" : (micBlockedReason ?? "Ativar microfone")}
-                  wrapperClassName={DOCK_SLOT}
+                <ShortcutQuickPopover
+                  action="toggleMute"
+                  open={quickShortcutAction === "toggleMute"}
+                  onClose={() => setQuickShortcutAction(null)}
+                  hasAccount={Boolean(state.account)}
+                  onRequestAccount={() => setAccountModal("create")}
+                  onOpenAllShortcuts={() => setShortcutsModalOpen(true)}
                 >
-                  <button
-                    type="button"
-                    onClick={handleToggleMic}
-                    // Only turning it *on* is blocked — same rule as the
-                    // desktop control, see ShareControls.
-                    disabled={!isMicOn && Boolean(micBlockedReason)}
-                    aria-pressed={isMicOn}
-                    aria-label={isMicOn ? "Desativar microfone" : "Ativar microfone"}
-                    className={`${DOCK_BUTTON} ${isMicOn ? DOCK_ON : DOCK_OFF}`}
+                  <MicUsageHint
+                    open={micHintOpen}
+                    onDismiss={closeMicHint}
+                    onEnableMic={enableMicFromHint}
+                    tooltip={isMicOn ? "Desativar microfone" : (micBlockedReason ?? "Ativar microfone")}
+                    wrapperClassName={DOCK_SLOT}
                   >
-                    {isMicOn ? <MicIcon className="h-5 w-5" /> : <MicOffIcon className="h-5 w-5" />}
-                  </button>
-                </MicUsageHint>
+                    <button
+                      type="button"
+                      onClick={handleToggleMic}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setQuickShortcutAction("toggleMute");
+                      }}
+                      // Only turning it *on* is blocked — same rule as the
+                      // desktop control, see ShareControls.
+                      disabled={!isMicOn && Boolean(micBlockedReason)}
+                      aria-pressed={isMicOn}
+                      aria-label={isMicOn ? "Desativar microfone" : "Ativar microfone"}
+                      className={`${DOCK_BUTTON} ${isMicOn ? DOCK_ON : DOCK_OFF}`}
+                    >
+                      {isMicOn ? <MicIcon className="h-5 w-5" /> : <MicOffIcon className="h-5 w-5" />}
+                    </button>
+                  </MicUsageHint>
+                </ShortcutQuickPopover>
 
-                <Tooltip
-                  content={micsMuted ? "Reativar microfones" : "Silenciar microfones"}
-                  wrapperClassName={DOCK_SLOT}
+                <ShortcutQuickPopover
+                  action="toggleDeafen"
+                  open={quickShortcutAction === "toggleDeafen"}
+                  onClose={() => setQuickShortcutAction(null)}
+                  hasAccount={Boolean(state.account)}
+                  onRequestAccount={() => setAccountModal("create")}
+                  onOpenAllShortcuts={() => setShortcutsModalOpen(true)}
                 >
-                  <button
-                    type="button"
-                    onClick={toggleMicsMuted}
-                    aria-pressed={!micsMuted}
-                    aria-label={micsMuted ? "Reativar microfones" : "Silenciar microfones"}
-                    className={`${DOCK_BUTTON} ${micsMuted ? DOCK_OFF : DOCK_ON}`}
+                  <Tooltip
+                    content={micsMuted ? "Reativar microfones" : "Silenciar microfones"}
+                    wrapperClassName={DOCK_SLOT}
                   >
-                    {micsMuted ? (
-                      <HeadphonesOffIcon className="h-5 w-5" />
-                    ) : (
-                      <HeadphonesIcon className="h-5 w-5" />
-                    )}
-                  </button>
-                </Tooltip>
+                    <button
+                      type="button"
+                      onClick={toggleMicsMuted}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setQuickShortcutAction("toggleDeafen");
+                      }}
+                      aria-pressed={!micsMuted}
+                      aria-label={micsMuted ? "Reativar microfones" : "Silenciar microfones"}
+                      className={`${DOCK_BUTTON} ${micsMuted ? DOCK_OFF : DOCK_ON}`}
+                    >
+                      {micsMuted ? (
+                        <HeadphonesOffIcon className="h-5 w-5" />
+                      ) : (
+                        <HeadphonesIcon className="h-5 w-5" />
+                      )}
+                    </button>
+                  </Tooltip>
+                </ShortcutQuickPopover>
 
                 {/* Screen capture doesn't exist in a phone browser at all
                     (see useScreenShareMode), and a bar this narrow has no
@@ -4280,25 +4738,38 @@ export function WatchRoom({ handle }: { handle: string }) {
                     can't work. The desktop header keeps its disabled copy,
                     where there is space for the tooltip. */}
                 {screenShareMode === "display" && (
-                  <Tooltip
-                    content={
-                      localStream
-                        ? "Parar de compartilhar a tela"
-                        : (screenBlockedReason ?? "Compartilhar tela")
-                    }
-                    wrapperClassName={DOCK_SLOT}
+                  <ShortcutQuickPopover
+                    action="toggleScreenShare"
+                    open={quickShortcutAction === "toggleScreenShare"}
+                    onClose={() => setQuickShortcutAction(null)}
+                    hasAccount={Boolean(state.account)}
+                    onRequestAccount={() => setAccountModal("create")}
+                    onOpenAllShortcuts={() => setShortcutsModalOpen(true)}
                   >
-                    <button
-                      type="button"
-                      onClick={() => (localStream ? stopShare() : startShare("display"))}
-                      disabled={!localStream && Boolean(screenBlockedReason)}
-                      aria-pressed={Boolean(localStream)}
-                      aria-label={localStream ? "Parar de compartilhar a tela" : "Compartilhar tela"}
-                      className={`${DOCK_BUTTON} ${localStream ? DOCK_LIVE : DOCK_ON}`}
+                    <Tooltip
+                      content={
+                        localStream
+                          ? "Parar de compartilhar a tela"
+                          : (screenBlockedReason ?? "Compartilhar tela")
+                      }
+                      wrapperClassName={DOCK_SLOT}
                     >
-                      <ScreenIcon className="h-5 w-5" />
-                    </button>
-                  </Tooltip>
+                      <button
+                        type="button"
+                        onClick={() => (localStream ? stopShare() : startShare("display"))}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setQuickShortcutAction("toggleScreenShare");
+                        }}
+                        disabled={!localStream && Boolean(screenBlockedReason)}
+                        aria-pressed={Boolean(localStream)}
+                        aria-label={localStream ? "Parar de compartilhar a tela" : "Compartilhar tela"}
+                        className={`${DOCK_BUTTON} ${localStream ? DOCK_LIVE : DOCK_ON}`}
+                      >
+                        <ScreenIcon className="h-5 w-5" />
+                      </button>
+                    </Tooltip>
+                  </ShortcutQuickPopover>
                 )}
 
                 {screenShareMode !== "unsupported" && (
@@ -4315,27 +4786,40 @@ export function WatchRoom({ handle }: { handle: string }) {
                   // already restarts a live camera onto the new one, so this
                   // works mid-call and before starting alike.
                   <div className={`${DOCK_SLOT} items-stretch gap-px`}>
-                    <Tooltip
-                      content={
-                        localCameraStream
-                          ? "Parar câmera"
-                          : (cameraBlockedReason ?? "Compartilhar câmera")
-                      }
-                      wrapperClassName="flex min-w-0 flex-1"
+                    <ShortcutQuickPopover
+                      action="toggleCamera"
+                      open={quickShortcutAction === "toggleCamera"}
+                      onClose={() => setQuickShortcutAction(null)}
+                      hasAccount={Boolean(state.account)}
+                      onRequestAccount={() => setAccountModal("create")}
+                      onOpenAllShortcuts={() => setShortcutsModalOpen(true)}
                     >
-                      <button
-                        type="button"
-                        onClick={() => (localCameraStream ? stopCameraShare() : startCameraShare())}
-                        disabled={!localCameraStream && Boolean(cameraBlockedReason)}
-                        aria-pressed={Boolean(localCameraStream)}
-                        aria-label={localCameraStream ? "Parar câmera" : "Compartilhar câmera"}
-                        className={`${DOCK_BUTTON} ${
-                          cameraDevices.length > 1 ? "rounded-r-none" : ""
-                        } ${localCameraStream ? DOCK_LIVE : DOCK_ON}`}
+                      <Tooltip
+                        content={
+                          localCameraStream
+                            ? "Parar câmera"
+                            : (cameraBlockedReason ?? "Compartilhar câmera")
+                        }
+                        wrapperClassName="flex min-w-0 flex-1"
                       >
-                        <CameraIcon className="h-5 w-5" />
-                      </button>
-                    </Tooltip>
+                        <button
+                          type="button"
+                          onClick={() => (localCameraStream ? stopCameraShare() : startCameraShare())}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            setQuickShortcutAction("toggleCamera");
+                          }}
+                          disabled={!localCameraStream && Boolean(cameraBlockedReason)}
+                          aria-pressed={Boolean(localCameraStream)}
+                          aria-label={localCameraStream ? "Parar câmera" : "Compartilhar câmera"}
+                          className={`${DOCK_BUTTON} ${
+                            cameraDevices.length > 1 ? "rounded-r-none" : ""
+                          } ${localCameraStream ? DOCK_LIVE : DOCK_ON}`}
+                        >
+                          <CameraIcon className="h-5 w-5" />
+                        </button>
+                      </Tooltip>
+                    </ShortcutQuickPopover>
                     {cameraDevices.length > 1 && (
                       <Tooltip content={nextCameraLabel} wrapperClassName="flex">
                         <button
@@ -4440,6 +4924,13 @@ export function WatchRoom({ handle }: { handle: string }) {
           </div>
         </div>
       )}
+
+      <KeyboardShortcutsModal
+        open={shortcutsModalOpen}
+        onClose={() => setShortcutsModalOpen(false)}
+        hasAccount={Boolean(state.account)}
+        onRequestAccount={() => setAccountModal("create")}
+      />
     </div>
   );
 }

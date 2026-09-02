@@ -52,6 +52,7 @@ const REMOTE_TICK_MS = 500;
 export function LocalMediaControls({
   slot,
   canRestrictControl,
+  onRequestAccount,
   onStop,
 }: {
   slot: LocalMediaSlot;
@@ -59,6 +60,7 @@ export function LocalMediaControls({
   // account can claim it, a guest cannot (see the server's allowedControlMode,
   // which forces a guest's files open however they are announced).
   canRestrictControl: boolean;
+  onRequestAccount?: () => void;
   // Taking it off the room. Only offered to whoever is playing it: for anyone
   // else "controlar" means play/pause/skip, never ending someone's broadcast.
   onStop: () => void;
@@ -114,6 +116,7 @@ export function LocalMediaControls({
         state.mode === "music" ? "Só você e a administração da sala" : "Só você"
       }
       canRestrictControl={canRestrictControl}
+      onRequestAccount={onRequestAccount}
       onControlModeChange={(next) => source.setControlMode(next)}
       volume={volume}
       onVolumeChange={(next) => {
@@ -207,13 +210,12 @@ function Transport({
   controlMode,
   restrictedLabel = "Só você",
   canRestrictControl = false,
+  onRequestAccount,
   onControlModeChange,
   volume,
   onVolumeChange,
 }: {
   title: string;
-  // The full queue when it is knowable (our own file), null for someone
-  // else's — the count is then all there is to show.
   queue: string[] | null;
   index: number;
   count?: number;
@@ -227,18 +229,12 @@ function Transport({
   listOpen: boolean;
   setListOpen: (updater: (open: boolean) => boolean) => void;
   onAction: (request: LocalMediaAction) => void;
-  // Everything stays on screen and stops responding — the readouts are the
-  // point of showing it to someone who cannot drive it.
   disabled?: boolean;
-  // All of these are omitted for a viewer: ending the broadcast, who may drive
-  // it, and this device's own monitoring volume belong to whoever is playing
-  // it.
   onStop?: () => void;
   controlMode?: "owner" | "anyone";
-  // What the restricted mode narrows to, which depends on what this file is —
-  // see LocalMediaControlMode.
   restrictedLabel?: string;
   canRestrictControl?: boolean;
+  onRequestAccount?: () => void;
   onControlModeChange?: (next: "owner" | "anyone") => void;
   volume?: number;
   onVolumeChange?: (value: number) => void;
@@ -380,11 +376,15 @@ function Transport({
                 controlMode === "anyone"
                   ? canRestrictControl
                     ? `Todos podem controlar. Clique para deixar ${restrictedLabel.toLowerCase()}`
-                    : "Todos podem controlar. Só quem tem conta pode guardar o controle"
+                    : "Utilize uma conta para restringir o controle"
                   : `${restrictedLabel} controla. Clique para liberar para todos`
               }
               disabled={controlMode === "anyone" && !canRestrictControl}
-              onClick={() => onControlModeChange(controlMode === "anyone" ? "owner" : "anyone")}
+              onClick={
+                controlMode === "anyone" && !canRestrictControl
+                  ? () => onRequestAccount?.()
+                  : () => onControlModeChange(controlMode === "anyone" ? "owner" : "anyone")
+              }
             >
               {controlMode === "anyone" ? (
                 <MdLockOpen className="h-4 w-4" />
@@ -427,9 +427,12 @@ function ControlButton({
       <button
         type="button"
         onClick={onClick}
-        disabled={disabled}
         aria-label={label}
-        className={`flex h-7 w-7 items-center justify-center rounded-md transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent ${className}`}
+        className={`flex h-7 w-7 items-center justify-center rounded-md transition ${
+          disabled
+            ? "opacity-40 hover:bg-transparent"
+            : "hover:bg-white/20"
+        } ${className}`}
       >
         {children}
       </button>

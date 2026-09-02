@@ -1878,6 +1878,12 @@ class SignalingClient {
   reportPartnerRewardVideoCompleted(id: string) {
     this.rawSend({ type: "partner-reward-video-completed", id });
   }
+
+  // Sent when a visitor minimizes the left sidebar (participants/ad),
+  // transforming the ad into a sponsored media tile in the stream grid.
+  reportPartnerMinimize(id: string) {
+    this.rawSend({ type: "partner-minimize", id });
+  }
 }
 
 export const signalingClient = new SignalingClient();
