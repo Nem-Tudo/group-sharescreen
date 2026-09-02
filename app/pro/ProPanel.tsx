@@ -37,7 +37,8 @@ import {
 // simply not listed, which is the right behaviour for a client that predates
 // a perk the server already grants.
 const FEATURE_LABELS: Partial<Record<Feature, string>> = {
-  quality_2160p: "Transmita em 4K (2160p)",
+  verified_badge: "Seja verificado e ganhe um selo de autenticidade",
+  quality_2160p: "Transmita em até 4K (2160p)",
   quality_1440p: "Transmita em 2K (1440p)",
   fps_120: "Até 120 quadros por segundo",
   bitrate_maximo: "Bitrate máximo (~16 Mbps)",

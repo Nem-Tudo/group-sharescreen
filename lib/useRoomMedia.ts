@@ -257,7 +257,7 @@ export const SHARE_RESOLUTION_OPTIONS: {
   { value: "576p", label: "576p" },
   { value: "720p", label: "720p" },
   { value: "1080p", label: "Full HD (1080p)" },
-  { value: "1440p", label: "2K (1440p)", feature: "quality_1440p" },
+  { value: "1440p", label: "2K (1440p)", feature: "quality_2160p" },
   { value: "2160p", label: "4K (2160p)", feature: "quality_2160p" },
 ];
 
