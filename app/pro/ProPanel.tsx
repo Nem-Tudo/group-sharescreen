@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MdCheck, MdLock } from "react-icons/md";
+import { PixIcon } from "@/components/icons";
 import { useAuth } from "@/lib/AuthContext";
 import { AccountModal, type AccountModalMode } from "@/components/AccountModal";
 import { getDesktopBridge } from "@/lib/desktop";
@@ -392,9 +393,10 @@ export function ProPanel() {
                       type="button"
                       onClick={handlePix}
                       disabled={busy}
-                      className="self-start rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                      className="flex items-center gap-2 self-start rounded-lg bg-[#32BCAD] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#2ba99b] disabled:opacity-60"
                     >
-                      {busy ? "Gerando…" : "Renovar com Pix"}
+                      <PixIcon className="h-4 w-4 shrink-0" />
+                      {busy ? "Gerando…" : `Renovar — ${plan.pixPriceLabel}`}
                     </button>
                   )}
                   {!cancelled && !viaPix && (
@@ -487,11 +489,12 @@ export function ProPanel() {
                   {pixPending && pix && (
                     <div className="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900">
                       <div className="flex items-center gap-2 text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                        <PixIcon className="h-4 w-4 shrink-0 text-[#32BCAD]" />
+                        Aguardando o pagamento
                         <span
                           aria-hidden
                           className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent"
                         />
-                        Aguardando o pagamento
                       </div>
                       {pix.qrCodeBase64 && (
                         // eslint-disable-next-line @next/next/no-img-element
@@ -535,35 +538,43 @@ export function ProPanel() {
                     </div>
                   )}
 
-                  {/* Hidden while a checkout is open rather than disabled:
-                      pressing it again would create a *second* preapproval at
-                      Mercado Pago for a subscription already waiting to be
-                      paid, and "reabrir janela" above is what somebody who
-                      lost the window actually wants. */}
-                  {!checkoutUrl && (
-                    <button
-                      type="button"
-                      onClick={handleSubscribe}
-                      disabled={busy || (needsEmail && !email.trim())}
-                      className="self-start rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
-                    >
-                      {busy ? "Abrindo o pagamento…" : `Assinar por ${plan.priceLabel}/mês`}
-                    </button>
-                  )}
-                  {/* The second way to pay, and deliberately worded as a
-                      different product rather than a payment toggle: it buys
-                      days, it does not start anything, and a button that said
-                      only "Pix" would be promising a subscription Pix cannot
-                      hold. */}
+                  {/* Both ways to pay, side by side and equal in weight —
+                      they are two products, not a default and an alternative:
+                      one starts a renewal, the other buys days. Wrapping
+                      rather than a fixed row, because the two labels carry
+                      prices and stop fitting one line on a phone.
+
+                      Hidden while a checkout is open rather than disabled:
+                      pressing "assinar" again would create a *second*
+                      preapproval at Mercado Pago for a subscription already
+                      waiting to be paid, and "reabrir janela" above is what
+                      somebody who lost the window actually wants. */}
                   {!checkoutUrl && !pixPending && (
-                    <button
-                      type="button"
-                      onClick={handlePix}
-                      disabled={busy || (needsEmail && !email.trim())}
-                      className="self-start rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
-                    >
-                      {busy ? "Gerando…" : `Pagar 30 dias com Pix — ${plan.priceLabel}`}
-                    </button>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={handleSubscribe}
+                        disabled={busy || (needsEmail && !email.trim())}
+                        className="rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+                      >
+                        {busy ? "Abrindo o pagamento…" : `Assinar por ${plan.priceLabel}/mês`}
+                      </button>
+                      {/* Pix's own teal rather than the page's neutral: it is
+                          the colour people recognise the method by, and it is
+                          doing the work the word alone would otherwise have to.
+                          Labelled with days, not with "Pix" alone — a button
+                          that said only "Pix" would be promising a
+                          subscription Pix cannot hold. */}
+                      <button
+                        type="button"
+                        onClick={handlePix}
+                        disabled={busy || (needsEmail && !email.trim())}
+                        className="flex items-center gap-2 rounded-lg bg-[#32BCAD] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#2ba99b] disabled:opacity-60"
+                      >
+                        <PixIcon className="h-4 w-4 shrink-0" />
+                        {busy ? "Gerando…" : `${plan.pixPriceLabel} por 30 dias`}
+                      </button>
+                    </div>
                   )}
                 </div>
               )}

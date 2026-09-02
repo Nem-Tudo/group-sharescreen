@@ -19,6 +19,13 @@ export type PremiumPlan = {
   priceCents: number;
   /** "R$ 4,99" — formatted by the API so every surface agrees on it. */
   priceLabel: string;
+  /**
+   * What one Pix charge costs. Equal to the monthly price unless the plan
+   * document sets it apart (see the API's pixPriceCents), so a caller can
+   * always render it without checking whether the two differ.
+   */
+  pixPriceCents: number;
+  pixPriceLabel: string;
   currency: string;
   frequency: number;
   frequencyType: string;

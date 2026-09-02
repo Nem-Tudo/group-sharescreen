@@ -612,6 +612,25 @@ export function VerifiedBadgeIcon({ className }: IconProps) {
   );
 }
 
+// The Pix mark: a diamond built from four arrowheads meeting at the centre.
+//
+// Drawn here rather than shipped as an asset so it inherits `currentColor`
+// and scales with the button it sits in, like every other icon in this file.
+// It is a stylised rendition, not the Banco Central's official artwork — if
+// exact brand compliance ever matters (a partnership, a press kit), replace
+// the paths with the official SVG rather than nudging these.
+export function PixIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 32 32" fill="currentColor" className={className} aria-hidden="true">
+      {/* The four arrowheads, one per corner of the diamond. Each is drawn
+          from the centre outward, so they meet cleanly without overlapping. */}
+      <path d="M9.6 9.1 6.2 12.5a5 5 0 0 0 0 7.1l3.4 3.4 4.2-4.2a2.6 2.6 0 0 1 3.7 0l4.2 4.2 3.4-3.4a5 5 0 0 0 0-7.1l-3.4-3.4-4.2 4.2a2.6 2.6 0 0 1-3.7 0z" opacity="0.35" />
+      <path d="M12.5 6.2a5 5 0 0 1 7.1 0l3.2 3.2-3.5 3.5a2.6 2.6 0 0 1-3.7 0l-3.5-3.5z" />
+      <path d="M12.5 25.9a5 5 0 0 0 7.1 0l3.2-3.2-3.5-3.5a2.6 2.6 0 0 0-3.7 0l-3.5 3.5z" />
+    </svg>
+  );
+}
+
 export function HeartIcon({ className }: IconProps) {
   return (
     <svg
