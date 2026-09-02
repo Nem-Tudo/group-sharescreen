@@ -95,5 +95,5 @@ const nextConfig: NextConfig = {
     ];
   },
 };
-
+//deploy 1
 export default nextConfig;
