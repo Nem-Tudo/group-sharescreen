@@ -16,6 +16,7 @@ import { getBrowserFingerprint } from "./fingerprint";
 import { BUILD_VERSION } from "./buildVersion";
 import { currentAnnouncementDevice } from "./announcement";
 import { getStoredGuestToken, setStoredGuestToken } from "./guestToken";
+import { getInstallId } from "./installId";
 import { isUserMentionedInMessage } from "./chatMentions";
 import { showNotification } from "./notifications";
 
@@ -945,6 +946,7 @@ class SignalingClient {
             token: guestToken,
             fingerprint: getBrowserFingerprint(),
             device: currentAnnouncementDevice(),
+            installId: getInstallId(),
             version: BUILD_VERSION,
           });
         }
@@ -1550,6 +1552,11 @@ class SignalingClient {
       token: this.desiredToken,
       fingerprint: getBrowserFingerprint(),
       device: currentAnnouncementDevice(),
+      // Null in a browser: this is only minted inside the desktop/Android
+      // shells, and it is what lets the API count installations rather than
+      // the connections a gauge already covers (see lib/installId.ts and the
+      // API's appInstallStore.ts).
+      installId: getInstallId(),
       // The route this tab is on, so the server has it from the first
       // moment rather than only after the next navigation (see reportPath).
       path: this.currentPath ?? undefined,
