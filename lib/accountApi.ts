@@ -33,6 +33,20 @@ export type Account = {
   callSeconds?: number;
   micSeconds?: number;
   shareSeconds?: number;
+  // The paid subscription, or null. Present so the account page can show when
+  // it renews and offer to cancel — nothing gates on this, see `features`.
+  premium?: PremiumState | null;
+  // Every entitlement this account holds right now, resolved by the API from
+  // the subscription's real state (see its server/entitlements.ts). This is
+  // the only thing the UI ever checks: it is a list rather than a `premium`
+  // boolean so a new perk is understood by a client that predates it, and it
+  // is computed server-side so nothing here decides who is paying.
+  //
+  // Absent on a response from an older API, which reads as "no extras" — the
+  // same safe-default rule as points above, and the right direction: an
+  // option that stays locked is a support question, one that unlocks by
+  // accident is a refund.
+  features?: string[];
   createdAt: number;
   updatedAt: number;
 };
@@ -42,6 +56,26 @@ export type Account = {
 // still has a password. Kept as plain strings (not the OAuthProviderId union
 // in oauthApi.ts) so this module stays at the bottom of the import graph —
 // oauthApi imports *from* here.
+/** The subscription as the API reports it — see its accountModels.ts. */
+export type PremiumState = {
+  plan: string;
+  /**
+   * How the access was bought. "subscription" renews itself and can be
+   * cancelled; "pix" bought a fixed stretch of days and simply ends. Absent
+   * on rows written before Pix existed, which are all subscriptions.
+   */
+  method?: "subscription" | "pix";
+  /** Mercado Pago's own status: "authorized" | "pending" | "paused" | "cancelled". */
+  status: string;
+  /** When the paid-for period runs out, in epoch ms. */
+  currentPeriodEnd: number;
+  provider: string;
+  providerRef: string;
+  lastPaymentId: string | null;
+  cancelledAt: number | null;
+  updatedAt: number;
+};
+
 export type AccountConnections = { providers: string[]; hasPassword: boolean };
 
 const TOKEN_STORAGE_KEY = "sharescreen:accountToken";

@@ -177,4 +177,30 @@ const insertEnd = applyMentionInsertion("Olá @", 5, 4, "Maria Clara");
 assert.equal(insertEnd.newText, "Olá @Maria Clara ");
 assert.equal(insertEnd.newCursorPos, 17);
 
+// 7. Broadcast mentions (@todos and @everyone)
+import { isBroadcastMention, containsBroadcastMention } from "./chatMentions";
+
+assert.ok(isBroadcastMention("todos"));
+assert.ok(isBroadcastMention("Todos"));
+assert.ok(isBroadcastMention("everyone"));
+assert.ok(isBroadcastMention("EVERYONE"));
+assert.ok(!isBroadcastMention("João"));
+
+assert.ok(containsBroadcastMention("Olá @todos!"));
+assert.ok(containsBroadcastMention("Atenção @everyone"));
+assert.ok(containsBroadcastMention("@TODOS venham cá"));
+assert.ok(!containsBroadcastMention("email@todos.com"));
+assert.ok(!containsBroadcastMention("nem todos vieram"));
+
+// isUserMentionedInMessage triggers for anyone when @todos or @everyone is present
+assert.ok(isUserMentionedInMessage("Atenção @todos!", "QualquerPessoa", names));
+assert.ok(isUserMentionedInMessage("Hey @everyone!", "OutroNome", names));
+
+// Alias matching in filterMentionCandidates
+const broadcastCandidate = [{ id: "todos", name: "todos", aliases: ["everyone"] }];
+assert.equal(filterMentionCandidates(broadcastCandidate, "everyone").length, 1);
+assert.equal(filterMentionCandidates(broadcastCandidate, "ev").length, 1);
+assert.equal(filterMentionCandidates(broadcastCandidate, "todos").length, 1);
+
 console.log("chatMentions: ok");
+

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { AdsterraBanner } from "@/components/AdsterraBanner";
 
 export const metadata: Metadata = {
   title: "Termos de Uso e Privacidade",
@@ -266,6 +267,8 @@ export default function TermosPage() {
         <p className="mt-10 text-xs text-zinc-400 dark:text-zinc-600">
           Última atualização: 23 de agosto de 2026.
         </p>
+
+        <AdsterraBanner className="mt-10" />
       </main>
     </div>
   );

@@ -81,11 +81,24 @@ export function tokenizeMentions(text: string, mentionRegex: RegExp | null): Men
   return tokens.length > 0 ? tokens : [{ type: "text", value: text }];
 }
 
-// Checks if a specific user (selfName) is among the parsed mentions in a message,
+export const BROADCAST_MENTIONS = ["todos", "everyone"] as const;
+
+export function isBroadcastMention(name: string): boolean {
+  const norm = normalizeSearch(name);
+  return norm === "todos" || norm === "everyone";
+}
+
+export function containsBroadcastMention(text: string): boolean {
+  if (!text) return false;
+  const regex = /(?:(?<=^|[\s(\[{<"']))@(todos|everyone)(?=$|[^\p{L}\p{N}_])/gui;
+  return regex.test(text);
+}
+
+// Checks if a specific user (selfName) is directly mentioned by name,
 // taking into account all known room participant names so that mentioning
-// a longer compound name (e.g. "@João Silva") does not falsely notify a
+// a longer compound name (e.g. "@João Silva") does not falsely match a
 // shorter prefix name (e.g. "João").
-export function isUserMentionedInMessage(
+export function isUserDirectlyMentioned(
   text: string,
   selfName: string | null | undefined,
   allKnownNames: string[] = []
@@ -101,6 +114,23 @@ export function isUserMentionedInMessage(
   const normSelf = normalizeSearch(trimmed);
 
   return tokens.some((t) => t.type === "mention" && normalizeSearch(t.name) === normSelf);
+}
+
+// Checks if a specific user (selfName) is among the parsed mentions in a message.
+// Also triggers if a broadcast mention (@todos or @everyone) is present in the message.
+export function isUserMentionedInMessage(
+  text: string,
+  selfName: string | null | undefined,
+  allKnownNames: string[] = []
+): boolean {
+  if (!text) return false;
+
+  // Broadcast mentions (@todos, @everyone) notify everyone in the room
+  if (containsBroadcastMention(text)) {
+    return true;
+  }
+
+  return isUserDirectlyMentioned(text, selfName, allKnownNames);
 }
 
 export interface MentionTriggerInfo {
@@ -154,7 +184,7 @@ export function getMentionTriggerInfo(text: string, cursorPos: number): MentionT
 
 // Filters and ranks a candidate list of room participants according to the
 // typed mention query.
-export function filterMentionCandidates<T extends { name: string }>(
+export function filterMentionCandidates<T extends { name: string; aliases?: string[] }>(
   candidates: T[],
   query: string
 ): T[] {
@@ -181,9 +211,14 @@ export function filterMentionCandidates<T extends { name: string }>(
     } else if (normName.startsWith(normQuery)) {
       scored.push({ candidate, score: 2 });
     } else if (
+      candidate.aliases?.some((alias) => normalizeSearch(alias).startsWith(normQuery))
+    ) {
+      scored.push({ candidate, score: 2 });
+    } else if (
       // Checks if any individual word in a multi-word name starts with query
       normName.split(/\s+/).some((word) => word.startsWith(normQuery)) ||
-      normName.includes(normQuery)
+      normName.includes(normQuery) ||
+      candidate.aliases?.some((alias) => normalizeSearch(alias).includes(normQuery))
     ) {
       scored.push({ candidate, score: 1 });
     }

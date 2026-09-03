@@ -385,6 +385,27 @@ export async function setAntiSpamEnabled(enabled: boolean): Promise<boolean> {
   return data.enabled;
 }
 
+// The Adsterra kill switch (see the API's adsConfig.ts). Reading it needs no
+// admin rights — it is the same value every visitor's page already fetches to
+// decide whether to render a slot — so this goes to the public route rather
+// than minting an admin-only mirror of it. Writing it is admin-only, and the
+// API pushes the new value down every open socket before answering.
+export async function fetchAdsterraEnabled(): Promise<boolean> {
+  const res = await fetch(`${getSignalingHttpBase()}/ads/config`);
+  if (!res.ok) throw new Error("Não foi possível ler a configuração de anúncios.");
+  const data = (await res.json()) as { adsterraEnabled?: unknown };
+  return data.adsterraEnabled !== false;
+}
+
+export async function setAdsterraEnabled(enabled: boolean): Promise<boolean> {
+  const data = await adminFetch<{ adsterraEnabled: boolean }>("/admin/ads/config", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ adsterraEnabled: enabled }),
+  });
+  return data.adsterraEnabled;
+}
+
 // Supporters list shown in the "Apoiar projeto" hover card (see
 // components/SupportersTooltip.tsx) — same whole-list-replace shape as
 // banned words, no per-item id.

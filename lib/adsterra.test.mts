@@ -1,0 +1,152 @@
+import assert from "node:assert/strict";
+import {
+  DEFAULT_BANNER_DOMAIN,
+  adFrameUrl,
+  bannerDocument,
+  nativeDocument,
+  parseAdFrameMessage,
+  parseBanner,
+  parseNative,
+} from "./adsterra";
+
+// A slot is configured or it is not — a half-configured one is a hole in the
+// layout that Adsterra will never fill.
+assert.equal(parseBanner(undefined, "728", "90", undefined), null);
+assert.equal(parseBanner("abc", undefined, "90", undefined), null);
+assert.equal(parseBanner("abc", "728", undefined, undefined), null);
+assert.equal(parseBanner("abc", "nao-e-numero", "90", undefined), null);
+assert.equal(parseBanner("abc", "0", "90", undefined), null);
+assert.equal(parseBanner("abc", "-728", "90", undefined), null);
+
+const banner = parseBanner("chave123", "728", "90", undefined);
+assert.ok(banner);
+assert.equal(banner.width, 728);
+assert.equal(banner.height, 90);
+assert.equal(banner.domain, DEFAULT_BANNER_DOMAIN);
+assert.equal(parseBanner("k", "1", "1", "outro.host")?.domain, "outro.host");
+
+// The banner document has to carry Adsterra's snippet exactly: the global
+// they read, and a script tag pointing at the key's invoke.js.
+const bannerDoc = bannerDocument(banner);
+assert.match(bannerDoc, /window\.atOptions = /);
+assert.match(bannerDoc, /"key":"chave123"/);
+assert.match(bannerDoc, /"format":"iframe"/);
+assert.match(bannerDoc, /"width":728/);
+assert.match(bannerDoc, /"height":90/);
+assert.ok(bannerDoc.includes(`https://${DEFAULT_BANNER_DOMAIN}/chave123/invoke.js`));
+
+// The one that would fail silently in production: a srcdoc document has an
+// opaque origin, so a protocol-relative URL has no scheme to inherit. Every
+// shape Adsterra hands out must come back absolute and https.
+assert.ok(
+  bannerDocument({ ...banner, domain: "//www.exemplo.com" }).includes(
+    "https://www.exemplo.com/chave123/invoke.js"
+  )
+);
+assert.ok(
+  bannerDocument({ ...banner, domain: "https://www.exemplo.com" }).includes(
+    "https://www.exemplo.com/chave123/invoke.js"
+  )
+);
+
+// The native container id is derived from the key in the script path, so
+// nobody has to keep two halves of one value in step.
+assert.equal(parseNative(undefined, undefined), null);
+const native = parseNative("//pl123.exemplo.com/abc123def/invoke.js", undefined);
+assert.ok(native);
+assert.equal(native.containerId, "container-abc123def");
+assert.equal(
+  parseNative("//pl123.exemplo.com/abc/invoke.js", "container-manual")?.containerId,
+  "container-manual"
+);
+// A src with a query string still names its key.
+assert.equal(
+  parseNative("//pl1.exemplo.com/xyz789/invoke.js?v=2", undefined)?.containerId,
+  "container-xyz789"
+);
+
+const nativeDoc = nativeDocument(native);
+assert.ok(nativeDoc.includes('<div id="container-abc123def">'));
+assert.ok(nativeDoc.includes("https://pl123.exemplo.com/abc123def/invoke.js"));
+// The height channel: without it the slot is stuck at its placeholder size,
+// because the parent cannot measure across an opaque origin.
+assert.match(nativeDoc, /type: "height"/);
+
+// Both documents have to be able to say "nothing was drawn here", which is
+// what puts the room's own ad back when a blocker is in the way. The inline
+// onerror is the load-bearing half: a script that fails to load fires its
+// error while the parser is still blocked on it, before any listener this
+// document adds later could exist.
+for (const doc of [bannerDoc, nativeDoc]) {
+  assert.ok(doc.includes('onerror="window.__adsterraBlocked=1"'));
+  assert.match(doc, /tell\(false, "blocked"\)/);
+  assert.match(doc, /tell\(false, "empty"\)/);
+  assert.match(doc, /getBoundingClientRect/);
+}
+
+// The two formats paint at different moments and must not share a deadline:
+// the banner appends a sized iframe at once, the native builds nothing until
+// its own ad request returns. One budget for both is what made a native ad
+// that was still loading get thrown away as if it had failed.
+assert.ok(bannerDoc.includes("Date.now() + 4000"));
+assert.ok(nativeDoc.includes("Date.now() + 12000"));
+
+// The vendor's own snippet puts the script before the container div; matching
+// it removes one difference from the thing that is known to work.
+assert.ok(
+  nativeDoc.indexOf("invoke.js") < nativeDoc.indexOf('<div id="container-'),
+  "o script tem de vir antes do container"
+);
+
+// The parser is what stands between a slot and anything else on the page that
+// can post a message — extensions, other frames, the ad's own creative.
+assert.equal(parseAdFrameMessage(null), null);
+assert.equal(parseAdFrameMessage("ola"), null);
+assert.equal(parseAdFrameMessage({ type: "status", filled: true }), null, "sem source");
+assert.equal(parseAdFrameMessage({ source: "outro", type: "status", filled: true }), null);
+assert.equal(parseAdFrameMessage({ source: "adsterra", type: "status" }), null, "filled ausente");
+assert.equal(
+  parseAdFrameMessage({ source: "adsterra", type: "status", filled: "sim" }),
+  null,
+  "filled tem de ser boolean"
+);
+assert.deepEqual(
+  parseAdFrameMessage({ source: "adsterra", type: "status", filled: false, reason: "blocked" }),
+  { type: "status", filled: false, reason: "blocked" }
+);
+// "empty" means this unit had nothing to serve; "blocked" means the browser
+// refused the request. Only the second is true of every slot on the page, and
+// collapsing them is how one empty native hid a banner that was working.
+assert.deepEqual(
+  parseAdFrameMessage({ source: "adsterra", type: "status", filled: false, reason: "empty" }),
+  { type: "status", filled: false, reason: "empty" }
+);
+// An unknown reason degrades to "no reason given" rather than being believed.
+assert.deepEqual(
+  parseAdFrameMessage({ source: "adsterra", type: "status", filled: true, reason: "seiLa" }),
+  { type: "status", filled: true, reason: null }
+);
+assert.deepEqual(parseAdFrameMessage({ source: "adsterra", type: "height", height: 320 }), {
+  type: "height",
+  height: 320,
+});
+// Uma altura que nao e numero real viraria um estilo que ninguem enxerga
+// atras: NaN colapsa o slot, Infinity engole a pagina.
+for (const height of [Number.NaN, Number.POSITIVE_INFINITY, -10, "320"]) {
+  assert.equal(parseAdFrameMessage({ source: "adsterra", type: "height", height }), null);
+}
+
+// The document is loaded from a URL on this site, not as srcdoc — an opaque
+// origin is what stopped the ad from filling at all. The route only ever
+// accepts a slot name; nothing from a request reaches the HTML.
+assert.equal(adFrameUrl("desktop"), "/ads/frame?slot=desktop");
+assert.equal(adFrameUrl("mobile"), "/ads/frame?slot=mobile");
+assert.equal(adFrameUrl("native"), "/ads/frame?slot=native");
+
+// Adsterra decides whether to serve by checking the referrer against the
+// publisher's registered domains, so losing it means an empty slot.
+for (const doc of [bannerDoc, nativeDoc]) {
+  assert.ok(doc.includes('<meta name="referrer" content="origin">'));
+}
+
+console.log("adsterra: ok");

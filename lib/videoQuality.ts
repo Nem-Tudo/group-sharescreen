@@ -286,7 +286,7 @@ const CEILING_HEADROOM = 1.5;
 export function encoderCeilingKbps(tier: QualityTier, dialCeilingKbps: number): number {
   const base = tierSpec(tier).baseKbps;
   // This tier's share of a top-tier stream, so the dial scales down the
-  // ladder instead of handing a thumbnail-sized tier a 16 Mbps allowance.
+  // ladder instead of handing a thumbnail-sized tier a 32 Mbps allowance.
   const share = base / TIERS[0].baseKbps;
   const generous = Math.max(base * CEILING_HEADROOM, dialCeilingKbps * share);
   return Math.round(Math.min(dialCeilingKbps, generous));

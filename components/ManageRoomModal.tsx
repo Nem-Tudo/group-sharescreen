@@ -31,6 +31,7 @@ import { WorldMap } from "./WorldMap";
 import { usePublicRoomMarkers } from "@/lib/usePublicRoomMarkers";
 import { MicIcon, ScreenIcon, CameraIcon } from "./icons";
 import Link from "next/link";
+import { hasVerifiedBadge } from "@/lib/entitlements";
 
 // The room-level switches, in the order they're shown. Each label is phrased
 // as what it *permits*, so it reads true when the toggle is on — and the note
@@ -306,7 +307,7 @@ export function ManageRoomModal({
                         <DisplayUserName
                           name={live?.name || admin.name || "Participante"}
                           isGuest={live?.isGuest}
-                          verified={live?.flags?.includes("VERIFIED")}
+                          verified={hasVerifiedBadge(live?.flags)}
                           color={live?.nameColor}
                           className="truncate font-medium"
                         />
@@ -350,7 +351,7 @@ export function ManageRoomModal({
                       <DisplayUserName
                         name={peer.name}
                         isGuest={peer.isGuest}
-                        verified={peer.flags?.includes("VERIFIED")}
+                        verified={hasVerifiedBadge(peer?.flags)}
                         color={peer.nameColor}
                         className="truncate font-medium"
                       />

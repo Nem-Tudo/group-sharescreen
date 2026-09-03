@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { trackEvent, trackDownloadClick } from "@/lib/analytics";
 import { DownloadIcon, ShareIcon } from "@/components/icons";
 import { Tooltip } from "@/components/Tooltip";
+import { isIosDevice, isStandaloneDisplay } from "@/lib/browserEnv";
 import { isDesktopApp } from "@/lib/desktop";
 import { detectDownloadPlatform, type DownloadPlatform } from "@/lib/downloadTargets";
 
@@ -19,21 +20,6 @@ type BeforeInstallPromptEvent = Event & {
 };
 
 const DISMISSED_STORAGE_KEY = "sharescreen:installPromptDismissed";
-
-function isStandalone(): boolean {
-  if (typeof window === "undefined") return false;
-  // iOS Safari never fires/matches the standard media query — it exposes
-  // its own `navigator.standalone` instead.
-  return (
-    window.matchMedia?.("(display-mode: standalone)").matches === true ||
-    (window.navigator as unknown as { standalone?: boolean }).standalone === true
-  );
-}
-
-function isIos(): boolean {
-  if (typeof navigator === "undefined") return false;
-  return /iphone|ipad|ipod/i.test(navigator.userAgent);
-}
 
 const LABEL: Record<DownloadPlatform, string> = {
   win: "Baixar para Windows",
@@ -71,7 +57,7 @@ export function InstallAppButton() {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    if (isStandalone()) return;
+    if (isStandaloneDisplay()) return;
     // Inside the Electron build already — offering to install it would be
     // offering something the person is looking at.
     if (isDesktopApp()) return;
@@ -98,7 +84,7 @@ export function InstallAppButton() {
       return () => clearTimeout(id);
     }
 
-    if (isIos()) {
+    if (isIosDevice()) {
       // Deferred one tick via setTimeout (imperceptible) rather than
       // calling setState synchronously in the effect body — matches
       // AnnouncementBanner.tsx's identical "reveal something after checking

@@ -21,6 +21,7 @@ import {
   isObsPeer,
   type RoomPermissionKey,
   type PeerInfo,
+  type ChatReplyTo,
 } from "@/lib/signalingClient";
 import { useSignaling, useHasStoredName } from "@/lib/useSignaling";
 import { useAuth } from "@/lib/AuthContext";
@@ -94,7 +95,12 @@ import { LocalMusicBar, RemoteMusicBar } from "@/components/LocalMusicBar";
 import { MemberActionsMenu, type MemberActions } from "@/components/MemberActionsModal";
 import { isDesktopApp, isMobileApp, armSavedShareSource } from "@/lib/desktop";
 import { PartnerCard } from "@/components/PartnerCard";
-import { SupportersTooltipContent } from "@/components/SupportersTooltip";
+import { QualitySelect } from "@/components/QualitySelect";
+import { AdsterraBanner } from "@/components/AdsterraBanner";
+import { AdsterraNative } from "@/components/AdsterraNative";
+import { useAdRotation } from "@/lib/useAdRotation";
+import { useAdsterraBlocked } from "@/lib/adsterraFill";
+import { useAdsterraAvailable } from "@/lib/useAdsAllowed";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { CreateAccountForm } from "@/components/CreateAccountForm";
 import { RoomSkeleton } from "@/components/RoomSkeleton";
@@ -102,7 +108,6 @@ import { MobileQualitySheet, type MobileQualityChoice } from "@/components/Mobil
 import { UserProfileDialog } from "@/components/UserProfileDialog";
 import { prewarmCaptcha } from "@/lib/turnstile";
 import { RoomAccountCard } from "@/components/RoomAccountCard";
-import { LoginForm } from "@/components/LoginForm";
 import { VideoSourceTile } from "@/components/VideoSourceTile";
 import {
   videoSourceVolumeKey,
@@ -164,6 +169,8 @@ import {
 } from "react-icons/lu";
 import { BetaMark } from "@/components/BetaMark";
 import { UpdateAppButton } from "@/components/UpdateAppButton";
+import { AccountModal } from "@/components/AccountModal";
+import { GUEST_FEATURES, hasFeature } from "@/lib/entitlements";
 import { PartnerMediaTile } from "@/components/PartnerMediaTile";
 import { usePartnerAd } from "@/lib/usePartnerAd";
 import {
@@ -173,6 +180,7 @@ import {
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
 import { ObsBrowserSourceModal } from "@/components/ObsBrowserSourceModal";
 import { ShortcutQuickPopover } from "@/components/ShortcutQuickPopover";
+import { hasVerifiedBadge } from "@/lib/entitlements";
 
 // Mirrors server/signaling.ts's HANDLE_RE — must match exactly, or a name
 // this lets through but the server rejects lands the user in a dead room
@@ -349,7 +357,7 @@ function QualityControls({
   setShareResolution,
   shareBitrate,
   setShareBitrate,
-  hasAccount,
+  features,
   isSharing,
   meshCapacity,
   meshTopology,
@@ -368,7 +376,7 @@ function QualityControls({
   | "isSharing"
   | "meshCapacity"
   | "meshTopology"
-> & { hasAccount: boolean }) {
+> & { features: readonly string[] }) {
   return (
     <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
       <div className="flex flex-col gap-3">
@@ -431,71 +439,29 @@ function QualityControls({
           )}
         </div>
 
-        <div>
-          <label
-            htmlFor="share-resolution"
-            className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400"
-          >
-            Resolução
-          </label>
-          <select
-            id="share-resolution"
-            value={shareResolution}
-            onChange={(e) => setShareResolution(e.target.value as typeof shareResolution)}
-            className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-          >
-            {SHARE_RESOLUTION_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value} disabled={opt.accountOnly && !hasAccount}>
-                {opt.label}
-                {opt.accountOnly && !hasAccount ? " (conta necessária)" : ""}
-              </option>
-            ))}
-          </select>
-        </div>
+        <QualitySelect
+          label="Resolução"
+          value={shareResolution}
+          options={SHARE_RESOLUTION_OPTIONS}
+          features={features}
+          onChange={setShareResolution}
+        />
 
-        <div>
-          <label
-            htmlFor="share-fps"
-            className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400"
-          >
-            Taxa de quadros
-          </label>
-          <select
-            id="share-fps"
-            value={shareFps}
-            onChange={(e) => setShareFps(Number(e.target.value) as typeof shareFps)}
-            className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-          >
-            {SHARE_FPS_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value} disabled={opt.accountOnly && !hasAccount}>
-                {opt.label}
-                {opt.accountOnly && !hasAccount ? " (conta necessária)" : ""}
-              </option>
-            ))}
-          </select>
-        </div>
+        <QualitySelect
+          label="Taxa de quadros"
+          value={shareFps}
+          options={SHARE_FPS_OPTIONS}
+          features={features}
+          onChange={setShareFps}
+        />
 
-        <div>
-          <label
-            htmlFor="share-bitrate"
-            className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400"
-          >
-            Bitrate
-          </label>
-          <select
-            id="share-bitrate"
-            value={shareBitrate}
-            onChange={(e) => setShareBitrate(e.target.value as typeof shareBitrate)}
-            className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-          >
-            {SHARE_BITRATE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value} disabled={opt.accountOnly && !hasAccount}>
-                {opt.label}
-                {opt.accountOnly && !hasAccount ? " (conta necessária)" : ""}
-              </option>
-            ))}
-          </select>
-        </div>
+        <QualitySelect
+          label="Bitrate"
+          value={shareBitrate}
+          options={SHARE_BITRATE_OPTIONS}
+          features={features}
+          onChange={setShareBitrate}
+        />
 
         {/* Live measurements, shown only while actually transmitting. This is
             what the quality decisions are made from — surfacing it turns "the
@@ -625,7 +591,7 @@ function ShareControls({
     | "isSharing"
     | "meshCapacity"
     | "meshTopology"
-  > & { hasAccount: boolean };
+  > & { hasAccount: boolean; features: readonly string[] };
   onOpenShortcutQuick?: (action: ShortcutAction) => void;
   quickShortcutAction?: ShortcutAction | null;
   onCloseShortcutQuick?: () => void;
@@ -1330,11 +1296,33 @@ export function WatchRoom({ handle }: { handle: string }) {
     previousNameRef.current = state.name;
   }, [state.name, renaming]);
 
+  // The room has one ad square and two advertisers for it, so they take
+  // turns — a minute each (see useAdRotation). Which Adsterra unit is in play
+  // depends on the layout: the wide sidebar is 256px, where only the fluid
+  // native format is worth anything, and below lg the slot is a strip beside
+  // the partner card, which is a fixed banner.
+  const adsterraFormat = isWideLayout ? "native" : "banner";
+  // An ad blocker ends the arrangement: the slot goes back to being the
+  // partner's alone, exactly as it was before Adsterra was added here. Worth
+  // being explicit about, because the alternative is the failure mode this
+  // whole check exists to avoid — the room's own paying ad disappearing for a
+  // minute at a time to make room for a blank rectangle.
+  //
+  // Learned rather than guessed: the first Adsterra turn reports whether
+  // anything was actually drawn (see fillProbeScript), and a blocker that
+  // refuses the request outright is caught in milliseconds by the script
+  // tag's own onerror, so in practice the slot never visibly empties.
+  const adsterraBlocked = useAdsterraBlocked();
+  const adsterraReady = useAdsterraAvailable(adsterraFormat) && !adsterraBlocked;
+  const showAdsterra = useAdRotation(adsterraReady);
+
   const {
     ad: activePartnerAd,
     rawPartner: rawActivePartner,
     loaded: partnerLoaded,
-  } = usePartnerAd();
+    // Told when it is off screen, so it stops counting impressions for an ad
+    // nobody can see and defers its rotation to a minute it owns.
+  } = usePartnerAd({ visible: !showAdsterra });
 
   const hasLocalScreen = Boolean(isSharing && localStream);
   const hasLocalCamera = Boolean(localCameraStream);
@@ -1767,29 +1755,34 @@ export function WatchRoom({ handle }: { handle: string }) {
   const gifBlockedReason = roomBlockReason("gif", "o envio de GIFs");
   const imageBlockedReason = roomBlockReason("image", "o envio de imagens");
 
-  // 2K, 120fps and the "máximo" bitrate need an account, and the pickers
-  // enforce that by disabling those options (see the `accountOnly` flag on
-  // each SHARE_*_OPTIONS). Now that the dials survive a reload, that is no
-  // longer the only way one can be selected: somebody who picked 2K while
-  // signed in and came back as a guest would have it restored straight past
-  // the disabled option, because localStorage does not know who is holding
-  // the browser.
+  // The top dial positions are gated (see each SHARE_*_OPTIONS' `feature`),
+  // and the pickers enforce that by disabling those options. Now that the
+  // dials survive a reload, that is no longer the only way one can be
+  // selected: somebody who picked 4K while subscribed and came back after the
+  // subscription lapsed would have it restored straight past the disabled
+  // option, because localStorage does not know who is holding the browser —
+  // or what they are still paying for.
   //
-  // So the entitlement is re-checked once account status is actually known,
-  // rather than at restore time — at restore time it is not: the account
-  // resolves a moment later, and downgrading against a not-yet-resolved
-  // `null` would demote the very people who are entitled to it.
+  // So the entitlement is re-checked once it is actually known, rather than
+  // at restore time — at restore time it is not: the account resolves a
+  // moment later, and downgrading against a not-yet-resolved `null` would
+  // demote the very people who are entitled to it.
+  //
+  // Checked against the resolved feature list rather than "is there an
+  // account", which is what makes this keep working as perks are added: a
+  // future paid option needs nothing here, because the option already knows
+  // which feature it needs and this only asks whether that feature is held.
   useEffect(() => {
-    if (!mounted || resolvingAccount || state.account) return;
-    if (SHARE_RESOLUTION_OPTIONS.find((o) => o.value === shareResolution)?.accountOnly) {
-      setShareResolution("1080p");
-    }
-    if (SHARE_FPS_OPTIONS.find((o) => o.value === shareFps)?.accountOnly) setShareFps(30);
-    if (SHARE_BITRATE_OPTIONS.find((o) => o.value === shareBitrate)?.accountOnly) {
-      setShareBitrate("high");
-    }
+    if (!mounted || resolvingAccount) return;
+    const features = account?.features ?? GUEST_FEATURES;
+    const resolution = SHARE_RESOLUTION_OPTIONS.find((o) => o.value === shareResolution);
+    if (!hasFeature(resolution?.feature, features)) setShareResolution("1080p");
+    const fps = SHARE_FPS_OPTIONS.find((o) => o.value === shareFps);
+    if (!hasFeature(fps?.feature, features)) setShareFps(30);
+    const bitrate = SHARE_BITRATE_OPTIONS.find((o) => o.value === shareBitrate);
+    if (!hasFeature(bitrate?.feature, features)) setShareBitrate("high");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mounted, resolvingAccount, state.account, shareResolution, shareFps, shareBitrate]);
+  }, [mounted, resolvingAccount, account, shareResolution, shareFps, shareBitrate]);
 
   // A permission can be turned off while someone is already using it — and
   // the mic in particular auto-starts from a stored preference the moment a
@@ -2744,7 +2737,7 @@ export function WatchRoom({ handle }: { handle: string }) {
       userId: peer.userId,
       name: peer.name,
       isGuest: peer.isGuest,
-      verified: peer.flags?.includes("VERIFIED"),
+      verified: hasVerifiedBadge(peer?.flags),
       nameColor: peer.nameColor,
       canKick: allowed,
       canBan: allowed,
@@ -3177,7 +3170,7 @@ export function WatchRoom({ handle }: { handle: string }) {
             <DisplayUserName
               name={peer?.name ?? "Alguém"}
               isGuest={peer?.isGuest}
-              verified={peer?.flags?.includes("VERIFIED")}
+              verified={hasVerifiedBadge(peer?.flags)}
               color={peer?.nameColor}
             />
           }
@@ -3222,7 +3215,7 @@ export function WatchRoom({ handle }: { handle: string }) {
             <DisplayUserName
               name={peer?.name ?? "Alguém"}
               isGuest={peer?.isGuest}
-              verified={peer?.flags?.includes("VERIFIED")}
+              verified={hasVerifiedBadge(peer?.flags)}
               color={peer?.nameColor}
             />
           }
@@ -3485,6 +3478,13 @@ export function WatchRoom({ handle }: { handle: string }) {
     shareBitrate,
     setShareBitrate,
     hasAccount: Boolean(state.account),
+    // The resolved entitlement list from the API (see the account's
+    // `features`), not something derived here: what premium includes is the
+    // server's answer, and this end only renders it. Falls back to the guest
+    // list while auth is still resolving, which is the safe direction — an
+    // option that appears a moment later is better than one that is offered
+    // and then taken away.
+    features: account?.features ?? GUEST_FEATURES,
     isSharing,
     meshCapacity,
     meshTopology,
@@ -3807,8 +3807,8 @@ export function WatchRoom({ handle }: { handle: string }) {
   // The mic toggle, mute-mics toggle, and share/camera controls — kept
   // prominent since they're used mid-call, not just once at setup, unlike
   // everything else in "Mais opções" above. Rendered in the header's single
-  // control row, alongside "Compartilhar sala"/"Trocar de sala" and
-  // "Apoiar projeto".
+  // control row, alongside "Compartilhar sala"/"Trocar de sala" and the
+  // "Pro" button.
   const mainControls = (
     <>
       <div className="flex items-stretch">
@@ -4181,7 +4181,7 @@ export function WatchRoom({ handle }: { handle: string }) {
         isAdmin={isRoomAdmin}
         isApp={mounted && isDesktopApp() && !isMobileApp()}
         isMobileApp={mounted && isMobileApp()}
-        verified={state.account?.flags?.includes("VERIFIED")}
+        verified={hasVerifiedBadge(state.account?.flags)}
         nameColor={account?.equippedNameColor}
         micOn={isMicOn}
         sharing={isSharing}
@@ -4218,7 +4218,7 @@ export function WatchRoom({ handle }: { handle: string }) {
             isAdmin={state.roomAdmins.some((a) => a.id === p.userId)}
             isApp={p.app}
             isMobileApp={p.mobileApp}
-            verified={p.flags?.includes("VERIFIED")}
+            verified={hasVerifiedBadge(p?.flags)}
             nameColor={p.nameColor}
             micOn={p.mic}
             sharing={p.sharing}
@@ -4313,7 +4313,8 @@ export function WatchRoom({ handle }: { handle: string }) {
   // is why this answers instead of throwing.
   async function handleSendChatImages(
     text: string,
-    images: string[]
+    images: string[],
+    replyTo?: ChatReplyTo | null
   ): Promise<{ ok: boolean; error?: string }> {
     const token = getAccountToken();
     if (!token) return { ok: false, error: "Entre com uma conta para enviar imagens." };
@@ -4325,6 +4326,7 @@ export function WatchRoom({ handle }: { handle: string }) {
       token,
       text,
       images,
+      replyTo,
     });
     return result.ok ? { ok: true } : { ok: false, error: result.error };
   }
@@ -4345,9 +4347,9 @@ export function WatchRoom({ handle }: { handle: string }) {
         peers={visiblePeers}
         deviceCounts={deviceCounts}
         onOpenProfile={setProfileUserId}
-        onSend={(text) => signalingClient.sendChatMessage(text)}
+        onSend={(text, replyTo) => signalingClient.sendChatMessage(text, replyTo)}
         onSendGif={
-          state.account && !gifBlockedReason ? (url) => signalingClient.sendGif(url) : undefined
+          state.account && !gifBlockedReason ? (url, replyTo) => signalingClient.sendGif(url, replyTo) : undefined
         }
         onSendImages={
           state.account && !imageBlockedReason ? handleSendChatImages : undefined
@@ -4673,25 +4675,24 @@ export function WatchRoom({ handle }: { handle: string }) {
                 </Tooltip>
               )
             )}
-            <Tooltip content={<SupportersTooltipContent />} placement="bottom" interactive>
-              <a
-                href="https://livepix.gg/nemtudo"
+            {/* Was "Apoiar projeto", a link to LivePix. The badge it already
+                carried is now what the subscription grants, so the button
+                points at the thing that sells it instead of at a donation
+                page — see app/pro. */}
+            <Tooltip content="GoLive Pro — Seja Verificado, transmita em 4K e 120fps" placement="bottom">
+              <Link
+                href="/pro"
                 target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => trackEvent("support_project_clicked")}
-                className="flex shrink-0 items-center gap-1.5 rounded-lg border border-pink-300 px-2 py-2 text-sm font-medium text-pink-600 transition hover:bg-pink-50 dark:border-pink-800 dark:text-pink-400 dark:hover:bg-pink-950/40 2xl:px-3"
+                onClick={() => trackEvent("pro_button_clicked")}
+                className="flex shrink-0 items-center gap-1.5 rounded-lg border border-blue-300 px-2 py-2 text-sm font-medium text-blue-600 transition hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-950/40 2xl:px-3"
               >
-                {/* The verified badge rather than a heart: the badge is what
-                    supporting actually gets you now (see
-                    SupportersTooltipContent), so the button shows the thing
-                    instead of a generic affection icon. */}
-                {/* Blue rather than the button's pink: this is the same
-                    badge that appears next to a verified name (see
-                    DisplayUserName, which uses the same colour), and it only
-                    reads as that badge if it keeps its own. */}
+                {/* Blue rather than inheriting the label's colour: this is the
+                    same badge that appears next to a verified name (see
+                    DisplayUserName), and it only reads as that badge if it
+                    keeps its own. */}
                 <VerifiedBadgeIcon className="h-5 w-5 shrink-0 text-blue-500" />
-                <span className="hidden sm:inline lg:hidden 2xl:inline">Apoiar projeto</span>
-              </a>
+                <span className="hidden sm:inline lg:hidden 2xl:inline">Pro</span>
+              </Link>
             </Tooltip>
 
             <Popover
@@ -4951,7 +4952,17 @@ export function WatchRoom({ handle }: { handle: string }) {
                   beside up to five status icons. */}
               <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-2">{participantsList}</div>
             </div>
-            <PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />
+            {/* One at a time, not both: two ads stacked in a 256px column
+                read as a page made of advertising. The partner holds the
+                first minute because it is the ad this room sold itself.
+                Swapped rather than hidden, so each turn is a fresh Adsterra
+                creative — the partner's own state survives regardless, since
+                it lives in usePartnerAd above and not in this card. */}
+            {showAdsterra ? (
+              <AdsterraNative className="shrink-0" label={false} />
+            ) : (
+              <PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />
+            )}
           </aside>
         )}
 
@@ -5223,12 +5234,24 @@ export function WatchRoom({ handle }: { handle: string }) {
             tab strip floating under the video. */}
         {!isWideLayout && (
           <>
-            {/* Out here rather than inside a sheet: it is the ad that pays
-                for the room, and below lg it collapses itself to a single
-                slim line (see PartnerCard) — small enough to leave on screen,
-                one tap from the whole card. Above the sheet rather than below
-                it, so the sheet always comes up off the bar that opened it. */}
-            <PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />
+            {/* Out here rather than inside a sheet: this is the ad that pays
+                for the room, and below lg the partner card collapses itself
+                to a single slim line (see PartnerCard) — small enough to
+                leave on screen, one tap from the whole card. Above the sheet
+                rather than below it, so the sheet always comes up off the bar
+                that opened it.
+
+                Below lg the room is a fixed-height shell, which makes this
+                band the one slot on the site that costs somebody video area
+                rather than page — and that is exactly why the two advertisers
+                take turns here instead of stacking. A 320x50 is what the
+                budget affords on the Adsterra minute; see
+                NEXT_PUBLIC_ADSTERRA_BANNER_MOBILE_KEY. */}
+            {showAdsterra ? (
+              <AdsterraBanner className="shrink-0" />
+            ) : (
+              <PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />
+            )}
 
             {mobilePanel && (
               <section
@@ -5506,35 +5529,11 @@ export function WatchRoom({ handle }: { handle: string }) {
         )}
       </div>
 
-      {accountModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          onClick={() => setAccountModal(null)}
-        >
-          <div
-            className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-black/10 bg-white p-8 shadow-xl dark:border-white/10 dark:bg-zinc-950"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="text-xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-              {accountModal === "login" ? "Entrar na conta" : "Criar conta"}
-            </h2>
-            {accountModal === "login" ? (
-              <LoginForm
-                onCancel={() => setAccountModal(null)}
-                onSuccess={() => setAccountModal(null)}
-                onSwitchToCreate={() => setAccountModal("create")}
-              />
-            ) : (
-              <CreateAccountForm
-                initialDisplayName={state.name ?? ""}
-                onCancel={() => setAccountModal(null)}
-                onSuccess={() => setAccountModal(null)}
-                onSwitchToLogin={() => setAccountModal("login")}
-              />
-            )}
-          </div>
-        </div>
-      )}
+      <AccountModal
+        mode={accountModal}
+        onModeChange={setAccountModal}
+        initialDisplayName={state.name ?? ""}
+      />
 
       <KeyboardShortcutsModal
         open={shortcutsModalOpen}
