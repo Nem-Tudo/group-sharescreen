@@ -10,6 +10,7 @@ import { Popover } from "@/components/Tooltip";
 import { CreateAccountForm } from "@/components/CreateAccountForm";
 import { LoginForm } from "@/components/LoginForm";
 import { CompleteOAuthSignupForm } from "@/components/CompleteOAuthSignupForm";
+import Link from "next/link";
 import { AccountConnections } from "@/components/AccountConnections";
 import type { OAuthResult } from "@/lib/oauthApi";
 
@@ -170,6 +171,14 @@ export function AccountMenu() {
           <div className="border-t border-black/5 pt-1 dark:border-white/5">
             {isAccount ? (
               <>
+                {/* Above the connections, which are a setting about this
+                    account; this is a place to go. A row here rather than in
+                    the site header's nav: the header is where the *site's*
+                    pages live, and a friends list is only ever about the
+                    person already signed in. */}
+                <Link href="/amigos" onClick={close} className={itemClass}>
+                  Amigos
+                </Link>
                 {/* Brings its own collapsible section, so it sits in the
                     panel as one row until someone opens it. */}
                 <div className="px-1 pb-1">

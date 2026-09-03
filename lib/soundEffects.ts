@@ -183,6 +183,20 @@ export function playHangUpSound() {
   ]);
 }
 
+/**
+ * Something arrived in the bell (see components/SocialNotifier).
+ *
+ * Two rising notes, softer and rounder than the mention chime: a friend
+ * request is not urgent and should not sound like being called out by name in
+ * a room you are already in.
+ */
+export function playFriendRequestSound() {
+  playNotes([
+    { freq: 523, start: 0, duration: 0.1, gain: 0.12 },
+    { freq: 784, start: 0.09, duration: 0.2, gain: 0.12 },
+  ]);
+}
+
 // Used for site-wide "top" warnings/announcements (see AnnouncementBanner).
 export function playWarningSound() {
   playNotes([

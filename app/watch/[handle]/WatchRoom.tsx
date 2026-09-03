@@ -95,6 +95,7 @@ import { LocalMusicBar, RemoteMusicBar } from "@/components/LocalMusicBar";
 import { MemberActionsMenu, type MemberActions } from "@/components/MemberActionsModal";
 import { isDesktopApp, isMobileApp, armSavedShareSource } from "@/lib/desktop";
 import { OpenInAppBanner } from "@/components/OpenInAppBanner";
+import { NotificationInboxBell } from "@/components/NotificationInboxBell";
 import { PartnerCard } from "@/components/PartnerCard";
 import { QualitySelect } from "@/components/QualitySelect";
 import { AdsterraBanner } from "@/components/AdsterraBanner";
@@ -4732,6 +4733,11 @@ export function WatchRoom({ handle }: { handle: string }) {
                 <span className="hidden sm:inline lg:hidden 2xl:inline">Pro</span>
               </Link>
             </Tooltip>
+
+            {/* Immediately left of "mais opções": the two are the only
+                controls in this row that open a panel, and this is the one
+                that can be asking for attention. */}
+            <NotificationInboxBell />
 
             <Popover
               open={isDesktopLayout && menuOpen}

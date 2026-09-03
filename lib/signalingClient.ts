@@ -365,6 +365,13 @@ export type SignalingState = {
   // not having asked yet.
   adsterraEnabled: boolean | null;
   adsConfigSeq: number;
+  // Bumped whenever anything about this account's friends or blocks changes,
+  // from any device (see the API's socialRoutes notifyPair). A counter, not
+  // the graph itself: the change is always "something moved, re-read it", and
+  // shipping a patch instead would mean two copies of the graph that can
+  // disagree — which for "are we friends?" is the one thing that must not
+  // happen. See lib/useSocialGraph.ts.
+  socialSeq: number;
   // "Apoiar projeto" hover list (see SupportersTooltip.tsx) — same
   // fetch-over-HTTP-then-live-update shape as partner above, minus the
   // "null means nothing to show" ambiguity: an empty array already means
@@ -511,6 +518,7 @@ const initialState: SignalingState = {
   partnerSeq: 0,
   adsterraEnabled: null,
   adsConfigSeq: 0,
+  socialSeq: 0,
   supporters: [],
   supportersSeq: 0,
   desktopUpdateSeq: 0,
@@ -1500,6 +1508,9 @@ class SignalingClient {
           partner: (msg.partner as Partner | null) ?? null,
           partnerSeq: this.state.partnerSeq + 1,
         });
+        break;
+      case "social-update":
+        this.setState({ socialSeq: this.state.socialSeq + 1 });
         break;
       case "ads-config":
         this.setState({

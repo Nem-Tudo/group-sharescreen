@@ -6,6 +6,7 @@ import { FaDiscord } from "react-icons/fa";
 import { MdMonitor, MdOutlineMap } from "react-icons/md";
 import { GlobeIcon, VerifiedBadgeIcon } from "@/components/icons";
 import { AccountMenu } from "@/components/AccountMenu";
+import { NotificationInboxBell } from "@/components/NotificationInboxBell";
 import { ThemeMenuButton } from "@/components/ThemeToggle";
 import { UpdateAppButton } from "@/components/UpdateAppButton";
 
@@ -144,6 +145,10 @@ export function SiteHeader() {
           {/* Claro / escuro / sistema. Right of the links and left of the
               account, because it is a setting about the site rather than
               another place in it. */}
+          {/* Left of the theme and the account, which are both settings about
+              you; this is the one control in the row that has something to
+              *tell* you. */}
+          <NotificationInboxBell />
           <ThemeMenuButton />
           {/* Renders nothing until there is a name to show, so the bar looks
               the same on a first visit as it always did. */}

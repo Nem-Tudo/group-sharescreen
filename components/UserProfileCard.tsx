@@ -6,6 +6,7 @@ import { fetchUserProfile, formatDuration, type UserProfile } from "@/lib/userPr
 import { VerifiedBadgeIcon, MicIcon, ScreenIcon } from "@/components/icons";
 import { BsCoin, BsClock } from "react-icons/bs";
 import { hasVerifiedBadge } from "@/lib/entitlements";
+import { SocialActions } from "@/components/SocialActions";
 
 // A person's public profile, as a self-contained card.
 //
@@ -228,6 +229,15 @@ function ProfileContent({
             seconds={account.shareSeconds ?? 0}
           />
         </div>
+
+        {/* Adding and blocking live on the profile because that is where you
+            land after clicking a name anywhere else — the room's participant
+            list, a chat message, the header. See components/SocialActions. */}
+        <SocialActions
+          userId={account.id}
+          displayName={account.displayName}
+          className="mt-5"
+        />
 
         <p className="mt-5 text-xs text-zinc-400 dark:text-zinc-600">No GoLive desde {memberSince}.</p>
       </div>
