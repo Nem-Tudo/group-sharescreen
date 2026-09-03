@@ -345,6 +345,9 @@ export function ChatPanel({
     requestAnimationFrame(() => {
       if (textareaRef.current) {
         textareaRef.current.focus();
+        try {
+          textareaRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        } catch {}
       }
     });
   }
@@ -818,7 +821,7 @@ export function ChatPanel({
   return (
     <div
       className={`${marginClassName} flex ${heightClassName} flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950`}
-      style={{ minHeight: "245px" }}
+      style={{ minHeight: "180px" }}
     >
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
         <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Chat</h2>
@@ -916,25 +919,6 @@ export function ChatPanel({
                       : ""
                   }`}
                 >
-                  {/* Floating quick action bar on hover (Discord style) */}
-                  {onSend && (
-                    <div className="absolute -top-3 right-2 z-10 hidden items-center rounded-md border border-zinc-200 bg-white p-0.5 shadow-sm group-hover:flex dark:border-zinc-800 dark:bg-zinc-900">
-                      <Tooltip content="Responder">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            startReply(m);
-                          }}
-                          aria-label="Responder"
-                          className="cursor-pointer rounded p-1 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-                        >
-                          <MdReply className="h-3.5 w-3.5" />
-                        </button>
-                      </Tooltip>
-                    </div>
-                  )}
-
                   {/* Quoted reply header (Discord style) */}
                   {m.replyTo && (
                     <div
@@ -975,84 +959,120 @@ export function ChatPanel({
                     </div>
                   )}
                   {!grouped && (
-                    <div className="flex items-baseline gap-1.5">
-                      {/* Clickable only for a real account: a guest has no
-                          profile to open, and `userId` is absent on messages
-                          from before it was sent at all. Both keep the plain
-                          name rather than a control that would 404. */}
-                      {onOpenProfile && m.userId && !m.isGuest ? (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            // The message row may itself open the moderation
-                            // menu on click — see hasMenu below.
-                            e.stopPropagation();
-                            onOpenProfile(m.userId as string);
-                          }}
-                          className="min-w-0 cursor-pointer text-left"
-                        >
+                    <div className="flex items-center justify-between gap-1.5">
+                      <div className="flex min-w-0 items-baseline gap-1.5">
+                        {/* Clickable only for a real account: a guest has no
+                            profile to open, and `userId` is absent on messages
+                            from before it was sent at all. Both keep the plain
+                            name rather than a control that would 404. */}
+                        {onOpenProfile && m.userId && !m.isGuest ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              // The message row may itself open the moderation
+                              // menu on click — see hasMenu below.
+                              e.stopPropagation();
+                              onOpenProfile(m.userId as string);
+                            }}
+                            className="min-w-0 cursor-pointer text-left"
+                          >
+                            <DisplayUserName
+                              name={withDeviceSuffix(m.name, m.userId, m.device, deviceCounts)}
+                              isGuest={m.isGuest}
+                              verified={hasVerifiedBadge(m?.flags)}
+                              color={m.nameColor}
+                              className={"min-w-0 font-medium text-zinc-700 hover:underline dark:text-zinc-300"}
+                            />
+                          </button>
+                        ) : (
                           <DisplayUserName
                             name={withDeviceSuffix(m.name, m.userId, m.device, deviceCounts)}
                             isGuest={m.isGuest}
                             verified={hasVerifiedBadge(m?.flags)}
                             color={m.nameColor}
-                            className={"min-w-0 font-medium text-zinc-700 hover:underline dark:text-zinc-300"}
+                            className={"min-w-0 font-medium text-zinc-700 dark:text-zinc-300"}
                           />
+                        )}
+                        <span className="shrink-0 text-xs text-zinc-400 tabular-nums dark:text-zinc-600">
+                          {formatTime(m.ts)}
+                        </span>
+                      </div>
+                      {onSend && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startReply(m);
+                          }}
+                          aria-label={`Responder a ${m.name}`}
+                          title="Responder"
+                          className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-400 transition hover:bg-zinc-200/70 hover:text-zinc-800 active:scale-95 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                        >
+                          <MdReply className="h-3.5 w-3.5" />
+                          <span className="text-[11px] font-medium">Responder</span>
                         </button>
-                      ) : (
-                        <DisplayUserName
-                          name={withDeviceSuffix(m.name, m.userId, m.device, deviceCounts)}
-                          isGuest={m.isGuest}
-                          verified={hasVerifiedBadge(m?.flags)}
-                          color={m.nameColor}
-                          className={"min-w-0 font-medium text-zinc-700 dark:text-zinc-300"}
-                        />
                       )}
-                      <span className="shrink-0 text-xs text-zinc-400 tabular-nums dark:text-zinc-600">
-                        {formatTime(m.ts)}
-                      </span>
                     </div>
                   )}
-                  {m.kind === "gif" && m.url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={m.url} alt="GIF" className="mt-1 max-h-40 max-w-full rounded-md" />
-                  ) : (
-                    <>
-                      {/* Text and pictures are no longer either/or: a message
-                          can be a caption with its pictures under it. Empty
-                          text draws nothing rather than an empty line. */}
-                      {m.text.trim() && (
-                        <p className="break-words text-zinc-800 dark:text-zinc-200">
-                          {linkifyText(m.text, mentionRegex)}
-                        </p>
+                  <div className={grouped ? "flex items-start justify-between gap-1.5" : ""}>
+                    <div className={grouped ? "min-w-0 flex-1" : ""}>
+                      {m.kind === "gif" && m.url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={m.url} alt="GIF" className="mt-1 max-h-40 max-w-full rounded-md" />
+                      ) : (
+                        <>
+                          {/* Text and pictures are no longer either/or: a message
+                              can be a caption with its pictures under it. Empty
+                              text draws nothing rather than an empty line. */}
+                          {m.text.trim() && (
+                            <p className="break-words text-zinc-800 dark:text-zinc-200">
+                              {linkifyText(m.text, mentionRegex)}
+                            </p>
+                          )}
+                          {messageImages(m).length > 0 && (
+                            <div className="mt-1 flex flex-wrap gap-1.5">
+                              {messageImages(m).map((url, index) => (
+                                // Wrapped in a link because the log shows these
+                                // small: the thumbnail is for following the
+                                // conversation, the tab is for actually looking
+                                // at what was sent.
+                                <a
+                                  key={`${m.id}-img-${index}`}
+                                  href={url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-block"
+                                >
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    src={url}
+                                    alt="Imagem enviada no chat"
+                                    loading="lazy"
+                                    className="max-h-56 max-w-full rounded-md border border-zinc-200 transition hover:opacity-90 dark:border-zinc-800"
+                                  />
+                                </a>
+                              ))}
+                            </div>
+                          )}
+                        </>
                       )}
-                      {messageImages(m).length > 0 && (
-                        <div className="mt-1 flex flex-wrap gap-1.5">
-                          {messageImages(m).map((url, index) => (
-                            // Wrapped in a link because the log shows these
-                            // small: the thumbnail is for following the
-                            // conversation, the tab is for actually looking
-                            // at what was sent.
-                            <a
-                              key={`${m.id}-img-${index}`}
-                              href={url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-block"
-                            >
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src={url}
-                                alt="Imagem enviada no chat"
-                                loading="lazy"
-                                className="max-h-56 max-w-full rounded-md border border-zinc-200 transition hover:opacity-90 dark:border-zinc-800"
-                              />
-                            </a>
-                          ))}
-                        </div>
-                      )}
-                    </>
-                  )}
+                    </div>
+                    {grouped && onSend && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          startReply(m);
+                        }}
+                        aria-label={`Responder a ${m.name}`}
+                        title="Responder"
+                        className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-400 transition hover:bg-zinc-200/70 hover:text-zinc-800 active:scale-95 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                      >
+                        <MdReply className="h-3.5 w-3.5" />
+                        <span className="text-[11px] font-medium">Responder</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               );
 
@@ -1206,9 +1226,9 @@ export function ChatPanel({
                   type="button"
                   onClick={cancelReply}
                   aria-label="Cancelar resposta"
-                  className="cursor-pointer rounded-md p-0.5 text-zinc-400 transition hover:bg-zinc-200 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                  className="cursor-pointer rounded-md p-1 text-zinc-400 transition hover:bg-zinc-200 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
                 >
-                  <MdClose className="h-3.5 w-3.5" />
+                  <MdClose className="h-4 w-4" />
                 </button>
               </Tooltip>
             </div>
@@ -1344,7 +1364,7 @@ export function ChatPanel({
                     ? "Escreva algo junto (opcional)..."
                     : "Digite uma mensagem...")
               }
-              className="min-h-8 min-w-0 flex-1 resize-none rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-sm leading-5 text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-white/10"
+              className="min-h-8 min-w-0 flex-1 resize-none rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-base sm:text-sm leading-5 text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-white/10"
             />
             <button
               type="submit"
