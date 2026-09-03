@@ -149,10 +149,10 @@ type SignalData = {
 // list is computed there (see the API's entitlements.ts) and this end only
 // ever reads it.
 export type ShareResolution = "2160p" | "1440p" | "1080p" | "720p" | "576p";
-export type ShareFps = 15 | 24 | 30 | 60 | 120;
+export type ShareFps = 15 | 24 | 30 | 60 | 120 | 240;
 // "maximo" is gated — see SHARE_BITRATE_OPTIONS' `feature` key and the doc
 // comment above ShareResolution/ShareFps for the same pattern.
-export type ShareBitrate = "low" | "medium" | "high" | "ultra" | "maximo";
+export type ShareBitrate = "low" | "medium" | "high" | "ultra" | "maximo" | "extremo";
 
 type QualityPreset = {
   width: number;
@@ -211,6 +211,7 @@ const BITRATE_CEILING_KBPS: Record<ShareBitrate, number> = {
   high: 4000,
   ultra: 8000,
   maximo: 16000,
+  extremo: 32000,
 };
 
 // The best tier the resolution + fps dials allow. Reusing the tile-size
@@ -267,6 +268,14 @@ export const SHARE_FPS_OPTIONS: { value: ShareFps; label: string; feature?: Feat
   { value: 30, label: "30 fps" },
   { value: 60, label: "60 fps" },
   { value: 120, label: "120 fps", feature: "fps_120" },
+  // Gated by the same key as 120 rather than a new one, matching what the
+  // resolution list above already does with quality_2160p for both 1440p and
+  // 2160p: these keys name a *rung on the ladder*, not a literal ceiling, and
+  // both of these are the same rung — anyone who may send 120 may send 240.
+  // A separate fps_240 would buy nothing today and would need a second line
+  // on /pro saying almost the same thing. It is worth adding the day a plan
+  // wants one without the other.
+  { value: 240, label: "240 fps", feature: "fps_120" },
 ];
 
 // Beside the other three because it is the same kind of thing and now has
@@ -289,6 +298,11 @@ export const SHARE_BITRATE_OPTIONS: { value: ShareBitrate; label: string; featur
   { value: "high", label: "Bitrate alto (~4 Mbps)" },
   { value: "ultra", label: "Bitrate ultra (~8 Mbps)" },
   { value: "maximo", label: "Bitrate máximo (~16 Mbps)", feature: "bitrate_maximo" },
+  // Same key as "máximo" above, for the same reason 240 fps shares fps_120:
+  // both are the paid rung, and anyone allowed 16 Mbps is allowed 32. Kept as
+  // a separate step rather than raising "máximo" because 32 Mbps is a lot of
+  // upload to spend by accident — somebody should have to reach for it.
+  { value: "extremo", label: "Bitrate extremo (~32 Mbps)", feature: "bitrate_maximo" },
 ];
 
 /**

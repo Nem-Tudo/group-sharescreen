@@ -15,6 +15,12 @@ export type PremiumPlan = {
   id: string;
   title: string;
   description: string;
+  /**
+   * Which mark goes beside the name — resolved through
+   * components/planIcons.tsx, never rendered raw. Always a string: the API
+   * falls back to its default rather than sending an absent field.
+   */
+  iconId: string;
   /** Integer centavos, straight from the plan document. */
   priceCents: number;
   /** "R$ 4,99" — formatted by the API so every surface agrees on it. */

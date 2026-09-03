@@ -56,3 +56,10 @@ export const SM_BREAKPOINT_QUERY = "(min-width: 40rem)";
 // both and hiding one with CSS would still mount the hidden copy's hooks
 // (device pickers, ChatPanel's own state) twice for nothing.
 export const LG_BREAKPOINT_QUERY = "(min-width: 64rem)";
+
+// "This machine has a mouse." Not a width: a desktop browser at half the
+// screen is still a desktop, and a tablet held in landscape is still touch.
+// Used to decide between a native <select> and a custom listbox — the native
+// one opens the OS picker on a phone, which is genuinely better there and is
+// the reason the custom one is not simply used everywhere.
+export const FINE_POINTER_QUERY = "(hover: hover) and (pointer: fine)";

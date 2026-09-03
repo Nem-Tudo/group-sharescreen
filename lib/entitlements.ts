@@ -1,5 +1,7 @@
 "use client";
 
+import { DEFAULT_PLAN_ICON_ID, PLAN_ICONS } from "@/components/planIcons";
+
 // The client's half of the entitlement table — the mirror of the API's
 // server/entitlements.ts.
 //
@@ -61,20 +63,55 @@ export function hasVerifiedBadge(flags: readonly string[] | undefined | null): b
   return flags.includes("VERIFIED") || flags.includes("PRO");
 }
 
-/** What to put next to a locked option, or null when it isn't locked. */
-export function lockLabel(feature: Feature | undefined, features: readonly string[]): string | null {
+/**
+ * Which tier an option needs and this account has not got, or null when it is
+ * not locked at all.
+ *
+ * The one place that decides "is this gated, and by what" — the three
+ * renderings below (and QualitySelect's markup) all ask this rather than
+ * re-testing `FEATURE_TIERS` themselves, so a picker cannot end up disagreeing
+ * with the label beside it.
+ */
+export function lockTier(
+  feature: Feature | undefined,
+  features: readonly string[]
+): FeatureTier | null {
   if (!feature) return null;
   if (features.includes(feature)) return null;
-  return FEATURE_TIERS[feature] === "premium" ? " (Pro)" : " (conta necessária)";
+  return FEATURE_TIERS[feature];
+}
+
+/** What the missing tier is called, in words. Null when nothing is missing. */
+export function lockName(
+  feature: Feature | undefined,
+  features: readonly string[]
+): string | null {
+  const tier = lockTier(feature, features);
+  if (!tier) return null;
+  return tier === "premium" ? "Pro" : "conta necessária";
 }
 
 /**
- * Whether `feature` is unlocked for the account whose feature list this is.
+ * The same thing written for a native `<option>`, which may hold text and
+ * nothing else — so the badge has to be the registry's glyph rather than the
+ * component (see components/planIcons.tsx).
  *
- * Takes the list rather than the account so a caller with only the list — the
- * quality picker, say — does not have to reach for auth context it otherwise
- * has no use for. `undefined` means the option is not gated at all.
+ * Ordered to match the custom listbox beside it: the label, then the tier,
+ * then the mark. Two pickers for one setting that put the same three things
+ * in two different orders is how somebody ends up thinking they are two
+ * different settings.
  */
+export function lockLabel(
+  feature: Feature | undefined,
+  features: readonly string[]
+): string | null {
+  const tier = lockTier(feature, features);
+  if (!tier) return null;
+  const name = tier === "premium" ? "Pro" : "conta necessária";
+  const mark = tier === "premium" ? ` ${PLAN_ICONS[DEFAULT_PLAN_ICON_ID].glyph}` : "";
+  return ` ${name}${mark}`;
+}
+
 export function hasFeature(feature: Feature | undefined, features: readonly string[]): boolean {
   if (!feature) return true;
   return features.includes(feature);

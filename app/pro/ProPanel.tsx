@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MdCheck, MdLock } from "react-icons/md";
 import { PixIcon } from "@/components/icons";
+import { planIcon } from "@/components/planIcons";
 import { useAuth } from "@/lib/AuthContext";
 import { AccountModal, type AccountModalMode } from "@/components/AccountModal";
 import { PixChargeModal } from "@/components/PixChargeModal";
@@ -45,8 +46,8 @@ const FEATURE_LABELS: Partial<Record<Feature, string>> = {
   verified_badge: "Seja verificado e ganhe um selo de autenticidade",
   quality_2160p: "Transmita em até 4K (2160p)",
   quality_1440p: "Transmita em 2K (1440p)",
-  fps_120: "Até 120 quadros por segundo",
-  bitrate_maximo: "Bitrate máximo (~16 Mbps)",
+  fps_120: "Até 240 quadros por segundo",
+  bitrate_maximo: "Bitrate de até 32 Mbps",
   no_ads: "Navegue sem anúncios",
 };
 
@@ -144,6 +145,15 @@ export function ProPanel() {
   // renewal confirmed the instant its QR appeared — which is precisely how
   // the old inline block managed to render nothing at all for a renewal.
   const [pixBaselineEnd, setPixBaselineEnd] = useState(0);
+
+  // Resolved before the plan loads too — planIcon falls back to the default
+  // mark, so the heading never renders a hole while the request is in flight.
+  //
+  // The component comes straight off the registry rather than being wrapped
+  // in one declared here: a component built during render is a new type on
+  // every render, which throws away whatever state it held.
+  const mark = planIcon(plan?.iconId);
+  const PlanMark = mark.Icon;
 
   const premium = account?.premium ?? null;
   const active = isPremiumActive(premium);
@@ -374,8 +384,13 @@ export function ProPanel() {
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-10">
-      <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
+      <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
         GoLive Pro
+        {/* The plan's own mark, chosen by its `iconId` in the database (see
+            components/planIcons.tsx). Rendered from the plan rather than
+            hardcoded here for the same reason the price is read from it: the
+            product's identity is a row, not a literal in a page. */}
+        <PlanMark className={`h-6 w-6 shrink-0 ${mark.className}`} />
       </h1>
       <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
         {plan?.description ?? "Mais qualidade na sua transmissão."}
@@ -407,6 +422,12 @@ export function ProPanel() {
                     className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300"
                   >
                     <MdCheck className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-500" />
+                    {/* The badge perk shows the badge. Between the tick and
+                        the words rather than replacing the tick: the tick is
+                        the list's bullet and every row keeps one. */}
+                    {feature === "verified_badge" && (
+                      <PlanMark className={`-mr-0.5 h-4 w-4 shrink-0 ${mark.className}`} />
+                    )}
                     {label}
                   </li>
                 );

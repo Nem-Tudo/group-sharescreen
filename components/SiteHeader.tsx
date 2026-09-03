@@ -46,6 +46,12 @@ const SECONDARY = [
     short: "Pro",
     Icon: VerifiedBadgeIcon,
     iconClassName: "text-blue-500",
+    // The one row that keeps its mark and its name at every width. The others
+    // drop their icon below `sm` and shorten their label below `lg`, which is
+    // how four links fit on a phone — but this one *is* the badge plus the
+    // word, and a badge that disappears on small screens is a product people
+    // only find out exists on a desktop.
+    alwaysVisible: true,
   },
   { href: "/app", label: "App para PC", target: "", short: "App", Icon: MdMonitor },
   { href: "/discord-bot", label: "Bot para Discord", target: "", short: "Bot", Icon: FaDiscord },
@@ -100,7 +106,7 @@ export function SiteHeader() {
         </nav>
 
         <nav className="ml-auto flex items-center gap-0.5 sm:gap-1">
-          {SECONDARY.map(({ href, label, short, target, Icon, iconClassName }) => {
+          {SECONDARY.map(({ href, label, short, target, Icon, iconClassName, alwaysVisible }) => {
             const active = pathname === href;
             return (
               <Link
@@ -115,10 +121,23 @@ export function SiteHeader() {
                   }`}
               >
                 {Icon && (
-                  <Icon className={`hidden h-4 w-4 shrink-0 sm:inline ${iconClassName ?? ""}`} />
+                  <Icon
+                    className={`h-4 w-4 shrink-0 ${alwaysVisible ? "inline" : "hidden sm:inline"} ${
+                      iconClassName ?? ""
+                    }`}
+                  />
                 )}
-                <span className="hidden lg:inline">{label}</span>
-                <span className="lg:hidden">{short}</span>
+                {alwaysVisible ? (
+                  // One span, not the label/short pair: swapping between two
+                  // strings at a breakpoint is exactly the "changes on a small
+                  // screen" this row is meant not to do.
+                  <span>{label}</span>
+                ) : (
+                  <>
+                    <span className="hidden lg:inline">{label}</span>
+                    <span className="lg:hidden">{short}</span>
+                  </>
+                )}
               </Link>
             );
           })}

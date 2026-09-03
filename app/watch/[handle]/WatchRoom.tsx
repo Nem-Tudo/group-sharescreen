@@ -92,6 +92,7 @@ import { LocalMusicBar, RemoteMusicBar } from "@/components/LocalMusicBar";
 import { MemberActionsMenu, type MemberActions } from "@/components/MemberActionsModal";
 import { isDesktopApp, isMobileApp, armSavedShareSource } from "@/lib/desktop";
 import { PartnerCard } from "@/components/PartnerCard";
+import { QualitySelect } from "@/components/QualitySelect";
 import { AdsterraBanner } from "@/components/AdsterraBanner";
 import { AdsterraNative } from "@/components/AdsterraNative";
 import { useAdRotation } from "@/lib/useAdRotation";
@@ -165,7 +166,7 @@ import {
 import { BetaMark } from "@/components/BetaMark";
 import { UpdateAppButton } from "@/components/UpdateAppButton";
 import { AccountModal } from "@/components/AccountModal";
-import { GUEST_FEATURES, hasFeature, lockLabel } from "@/lib/entitlements";
+import { GUEST_FEATURES, hasFeature } from "@/lib/entitlements";
 import { PartnerMediaTile } from "@/components/PartnerMediaTile";
 import { usePartnerAd } from "@/lib/usePartnerAd";
 import {
@@ -433,71 +434,29 @@ function QualityControls({
           )}
         </div>
 
-        <div>
-          <label
-            htmlFor="share-resolution"
-            className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400"
-          >
-            Resolução
-          </label>
-          <select
-            id="share-resolution"
-            value={shareResolution}
-            onChange={(e) => setShareResolution(e.target.value as typeof shareResolution)}
-            className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-          >
-            {SHARE_RESOLUTION_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value} disabled={!hasFeature(opt.feature, features)}>
-                {opt.label}
-                {lockLabel(opt.feature, features) ?? ""}
-              </option>
-            ))}
-          </select>
-        </div>
+        <QualitySelect
+          label="Resolução"
+          value={shareResolution}
+          options={SHARE_RESOLUTION_OPTIONS}
+          features={features}
+          onChange={setShareResolution}
+        />
 
-        <div>
-          <label
-            htmlFor="share-fps"
-            className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400"
-          >
-            Taxa de quadros
-          </label>
-          <select
-            id="share-fps"
-            value={shareFps}
-            onChange={(e) => setShareFps(Number(e.target.value) as typeof shareFps)}
-            className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-          >
-            {SHARE_FPS_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value} disabled={!hasFeature(opt.feature, features)}>
-                {opt.label}
-                {lockLabel(opt.feature, features) ?? ""}
-              </option>
-            ))}
-          </select>
-        </div>
+        <QualitySelect
+          label="Taxa de quadros"
+          value={shareFps}
+          options={SHARE_FPS_OPTIONS}
+          features={features}
+          onChange={setShareFps}
+        />
 
-        <div>
-          <label
-            htmlFor="share-bitrate"
-            className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400"
-          >
-            Bitrate
-          </label>
-          <select
-            id="share-bitrate"
-            value={shareBitrate}
-            onChange={(e) => setShareBitrate(e.target.value as typeof shareBitrate)}
-            className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-          >
-            {SHARE_BITRATE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value} disabled={!hasFeature(opt.feature, features)}>
-                {opt.label}
-                {lockLabel(opt.feature, features) ?? ""}
-              </option>
-            ))}
-          </select>
-        </div>
+        <QualitySelect
+          label="Bitrate"
+          value={shareBitrate}
+          options={SHARE_BITRATE_OPTIONS}
+          features={features}
+          onChange={setShareBitrate}
+        />
 
         {/* Live measurements, shown only while actually transmitting. This is
             what the quality decisions are made from — surfacing it turns "the
