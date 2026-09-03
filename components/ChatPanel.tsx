@@ -1009,7 +1009,7 @@ export function ChatPanel({
                           className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-400 transition hover:bg-zinc-200/70 hover:text-zinc-800 active:scale-95 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
                         >
                           <MdReply className="h-3.5 w-3.5" />
-                          <span className="text-[11px] font-medium">Responder</span>
+                          <span className="text-[11px] font-medium sm:hidden">Responder</span>
                         </button>
                       )}
                     </div>
@@ -1069,7 +1069,7 @@ export function ChatPanel({
                         className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-400 transition hover:bg-zinc-200/70 hover:text-zinc-800 active:scale-95 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
                       >
                         <MdReply className="h-3.5 w-3.5" />
-                        <span className="text-[11px] font-medium">Responder</span>
+                        <span className="text-[11px] font-medium sm:hidden">Responder</span>
                       </button>
                     )}
                   </div>
