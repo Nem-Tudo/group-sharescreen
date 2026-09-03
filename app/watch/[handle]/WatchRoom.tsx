@@ -19,6 +19,7 @@ import {
   signalingClient,
   type RoomPermissionKey,
   type PeerInfo,
+  type ChatReplyTo,
 } from "@/lib/signalingClient";
 import { useSignaling, useHasStoredName } from "@/lib/useSignaling";
 import { useAuth } from "@/lib/AuthContext";
@@ -4128,7 +4129,8 @@ export function WatchRoom({ handle }: { handle: string }) {
   // is why this answers instead of throwing.
   async function handleSendChatImages(
     text: string,
-    images: string[]
+    images: string[],
+    replyTo?: ChatReplyTo | null
   ): Promise<{ ok: boolean; error?: string }> {
     const token = getAccountToken();
     if (!token) return { ok: false, error: "Entre com uma conta para enviar imagens." };
@@ -4140,6 +4142,7 @@ export function WatchRoom({ handle }: { handle: string }) {
       token,
       text,
       images,
+      replyTo,
     });
     return result.ok ? { ok: true } : { ok: false, error: result.error };
   }
@@ -4160,9 +4163,9 @@ export function WatchRoom({ handle }: { handle: string }) {
         peers={visiblePeers}
         deviceCounts={deviceCounts}
         onOpenProfile={setProfileUserId}
-        onSend={(text) => signalingClient.sendChatMessage(text)}
+        onSend={(text, replyTo) => signalingClient.sendChatMessage(text, replyTo)}
         onSendGif={
-          state.account && !gifBlockedReason ? (url) => signalingClient.sendGif(url) : undefined
+          state.account && !gifBlockedReason ? (url, replyTo) => signalingClient.sendGif(url, replyTo) : undefined
         }
         onSendImages={
           state.account && !imageBlockedReason ? handleSendChatImages : undefined
