@@ -1,6 +1,7 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import { AD_FILL_TIMEOUT_MS } from "@/lib/adsterra";
 
 // Whether Adsterra is reaching this browser at all.
 //
@@ -59,4 +60,42 @@ function getSnapshot(): boolean {
  */
 export function useAdsterraBlocked(): boolean {
   return useSyncExternalStore(subscribe, getSnapshot, () => false);
+}
+
+/**
+ * How long the page waits for a frame to say anything at all.
+ *
+ * The probe inside the document answers within AD_FILL_TIMEOUT_MS of running;
+ * this is that plus room for the document itself to be fetched and parsed.
+ */
+const AD_FRAME_TIMEOUT_MS = AD_FILL_TIMEOUT_MS + 2000;
+
+/**
+ * Catches the failure the in-document probe cannot report: the document never
+ * loading.
+ *
+ * A blocked script still runs our probe, which is what says "nothing filled".
+ * A blocked *frame* runs nothing — the slot would sit there empty forever, and
+ * in the room it would keep taking its turn from the partner every other
+ * minute. So the page keeps its own clock: no word by the deadline is the
+ * same answer as an empty one.
+ *
+ * Returns the callback a slot calls when a real verdict arrives, which is
+ * what stops this from overruling it.
+ */
+export function useAdFrameWatchdog(active: boolean): () => void {
+  const settledRef = useRef(false);
+
+  useEffect(() => {
+    if (!active) return;
+    settledRef.current = false;
+    const timer = setTimeout(() => {
+      if (!settledRef.current) reportAdsterraFill(false);
+    }, AD_FRAME_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [active]);
+
+  return useCallback(() => {
+    settledRef.current = true;
+  }, []);
 }

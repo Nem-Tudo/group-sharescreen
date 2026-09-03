@@ -1,31 +1,43 @@
 
-// The Adsterra slots, and the one decision that makes them safe to have.
+// The Adsterra slots, and the two decisions that shape them.
 //
-// Both formats are third-party scripts, and the banner one is worse than
-// that: it reads a *global* `atOptions` and paints itself with
-// `document.write`. Neither survives contact with React — document.write
-// after load replaces the whole document, and a global read at script-load
-// time means two banners on a page race for the same variable.
+// **Why an iframe at all.** Not because of `document.write` — their invoke.js
+// does not use it (checked, not assumed: it builds elements and appends
+// them). It is because the banner format reads a *global*, `atOptions`, at
+// script-load time: two banners on one page would race for one variable, and
+// the second would silently render the first one's unit. A document each
+// removes the shared name. It also keeps an ad script that misbehaves away
+// from the app's own DOM.
 //
-// So neither runs on this page. Every slot is an `<iframe srcdoc>` holding
-// exactly the snippet Adsterra hands out, and that solves three things at
-// once: document.write writes into a fresh document where it is legal, the
-// global belongs to one slot each, and — the part that actually matters —
-// the iframe is sandboxed *without* `allow-same-origin`, so it runs on an
-// opaque origin and cannot reach this site's localStorage. That storage holds
-// the account's JWT (see accountApi.ts's getAccountToken), and an ad network's
-// script running same-origin would be able to read it. Nothing about the
-// revenue is worth that.
+// **Why the iframe is same-origin.** This started out sandboxed onto an
+// opaque origin, to keep an ad network away from the account's JWT in
+// localStorage (see accountApi.ts). That was airtight and it did not work: on
+// an opaque origin `localStorage` *throws*, cookies are refused, and
+// `document.referrer` is empty — and their script wants all three, the last
+// one to prove the page is a domain the publisher registered. The slot
+// loaded, filled with nothing, and removed itself.
 //
-// The honest cost of the choice, so it is not a surprise later: some ad
-// scripts touch `localStorage` unguarded, which *throws* on an opaque origin.
-// If fill rate comes back at zero, this sandbox is the first suspect — see
-// IFRAME_SANDBOX below.
+// So the frame is served from a real URL on this site (see
+// app/ads/frame/route.ts) instead. The script gets the origin, the cookies
+// and the referrer it needs, and this is the same exposure the vendor's own
+// snippet has — theirs runs directly in the page. What is still withheld is
+// `allow-top-navigation`: the frame cannot redirect the whole site out from
+// under somebody, which is the abuse this format is actually known for.
+//
+// The honest residue: an ad script running same-origin can read this site's
+// localStorage, JWT included. The way to close that without losing fill is to
+// serve this route from a *different* hostname that Adsterra also has on
+// file — a subdomain would do it — which is a DNS and dashboard change rather
+// than a code one.
 
 /**
- * What the iframe is allowed to do.
+ * What the ad frame is allowed to do.
  *
  *   allow-scripts .......... the ad is a script; without it nothing happens.
+ *   allow-same-origin ...... storage, cookies and a referrer. Without it the
+ *                            script throws on its first localStorage read and
+ *                            the ad server sees an unregistered blank
+ *                            referrer — see the header.
  *   allow-popups ........... a click on an ad opens a new tab.
  *   allow-popups-to-escape-sandbox
  *                           ... that tab is an ordinary tab rather than
@@ -33,11 +45,12 @@
  *                               the advertiser's page work.
  *   allow-forms ............ some creatives are forms.
  *
- * Deliberately absent: `allow-same-origin`. See the header — adding it hands
- * an ad network this origin, including the auth token in localStorage.
+ * Deliberately absent: `allow-top-navigation`. A frame that can move the top
+ * window is a frame that can replace the room somebody is in with an
+ * advertiser's page, and no ad is worth that.
  */
 export const IFRAME_SANDBOX =
-  "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms";
+  "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms";
 
 /**
  * Forces an absolute https URL.
@@ -195,14 +208,18 @@ function fillProbeScript(): string {
 }
 
 /**
- * The document a banner slot runs in.
+ * The document a banner slot runs in, served at /ads/frame.
  *
  * This is Adsterra's snippet verbatim, plus a reset so the creative sits
  * flush against the iframe's edges. `atOptions` is assigned rather than
  * declared with const/let on purpose: their invoke.js reads it off the global
  * object, and a block-scoped binding would be invisible to it.
  */
-export function bannerSrcDoc(banner: AdsterraBanner): string {
+export function bannerDocument(banner: AdsterraBanner): string {
+  // The referrer meta is not decoration: Adsterra decides whether to serve by
+  // checking it against the domains on the publisher's account. "origin"
+  // sends exactly `https://golive.nemtudo.me/` and never a path, which is
+  // both what they need and the least this can leak.
   const options = JSON.stringify({
     key: banner.key,
     format: "iframe",
@@ -211,6 +228,7 @@ export function bannerSrcDoc(banner: AdsterraBanner): string {
     params: {},
   });
   return `<!doctype html><html><head><meta charset="utf-8">
+<meta name="referrer" content="origin">
 <style>html,body{margin:0;padding:0;overflow:hidden;background:transparent}</style>
 </head><body>
 <script type="text/javascript">window.atOptions = ${options};</script>
@@ -220,7 +238,8 @@ ${fillProbeScript()}
 }
 
 /**
- * The document a native slot runs in, plus the height it reports back.
+ * The document a native slot runs in, served at /ads/frame, plus the
+ * height it reports back.
  *
  * A native banner has no fixed size — it is a grid of cards whose height
  * depends on how many the script decides to draw. The parent cannot measure
@@ -229,8 +248,9 @@ ${fillProbeScript()}
  * `postMessage` is the one channel that still works in both directions, and
  * the parent checks the message's shape before believing it.
  */
-export function nativeSrcDoc(native: AdsterraNative): string {
+export function nativeDocument(native: AdsterraNative): string {
   return `<!doctype html><html><head><meta charset="utf-8">
+<meta name="referrer" content="origin">
 <style>html,body{margin:0;padding:0;background:transparent}</style>
 </head><body>
 <div id="${native.containerId}"></div>
@@ -259,6 +279,28 @@ ${fillProbeScript()}
 })();
 </script>
 </body></html>`;
+}
+
+
+/** Which unit a frame request is for. The only input the route accepts. */
+export type AdSlot = "desktop" | "mobile" | "native";
+
+/**
+ * Where a slot's document lives.
+ *
+ * A path on this site, not a data: or blob: URL, and that is the whole point:
+ * those carry an opaque origin too, so they would land back on the failure
+ * this route exists to escape.
+ */
+export function adFrameUrl(slot: AdSlot): string {
+  return `/ads/frame?slot=${slot}`;
+}
+
+/** The unit a slot name refers to, or null when it is not configured. */
+export function bannerForSlot(slot: AdSlot): AdsterraBanner | null {
+  if (slot === "desktop") return DESKTOP_BANNER;
+  if (slot === "mobile") return MOBILE_BANNER;
+  return null;
 }
 
 /** What an ad frame is allowed to say to the page that hosts it. */

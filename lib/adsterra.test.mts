@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import {
   DEFAULT_BANNER_DOMAIN,
-  bannerSrcDoc,
-  nativeSrcDoc,
+  adFrameUrl,
+  bannerDocument,
+  nativeDocument,
   parseAdFrameMessage,
   parseBanner,
   parseNative,
@@ -26,7 +27,7 @@ assert.equal(parseBanner("k", "1", "1", "outro.host")?.domain, "outro.host");
 
 // The banner document has to carry Adsterra's snippet exactly: the global
 // they read, and a script tag pointing at the key's invoke.js.
-const bannerDoc = bannerSrcDoc(banner);
+const bannerDoc = bannerDocument(banner);
 assert.match(bannerDoc, /window\.atOptions = /);
 assert.match(bannerDoc, /"key":"chave123"/);
 assert.match(bannerDoc, /"format":"iframe"/);
@@ -38,12 +39,12 @@ assert.ok(bannerDoc.includes(`https://${DEFAULT_BANNER_DOMAIN}/chave123/invoke.j
 // opaque origin, so a protocol-relative URL has no scheme to inherit. Every
 // shape Adsterra hands out must come back absolute and https.
 assert.ok(
-  bannerSrcDoc({ ...banner, domain: "//www.exemplo.com" }).includes(
+  bannerDocument({ ...banner, domain: "//www.exemplo.com" }).includes(
     "https://www.exemplo.com/chave123/invoke.js"
   )
 );
 assert.ok(
-  bannerSrcDoc({ ...banner, domain: "https://www.exemplo.com" }).includes(
+  bannerDocument({ ...banner, domain: "https://www.exemplo.com" }).includes(
     "https://www.exemplo.com/chave123/invoke.js"
   )
 );
@@ -64,7 +65,7 @@ assert.equal(
   "container-xyz789"
 );
 
-const nativeDoc = nativeSrcDoc(native);
+const nativeDoc = nativeDocument(native);
 assert.ok(nativeDoc.includes('<div id="container-abc123def">'));
 assert.ok(nativeDoc.includes("https://pl123.exemplo.com/abc123def/invoke.js"));
 // The height channel: without it the slot is stuck at its placeholder size,
@@ -106,6 +107,19 @@ assert.deepEqual(parseAdFrameMessage({ source: "adsterra", type: "height", heigh
 // atras: NaN colapsa o slot, Infinity engole a pagina.
 for (const height of [Number.NaN, Number.POSITIVE_INFINITY, -10, "320"]) {
   assert.equal(parseAdFrameMessage({ source: "adsterra", type: "height", height }), null);
+}
+
+// The document is loaded from a URL on this site, not as srcdoc — an opaque
+// origin is what stopped the ad from filling at all. The route only ever
+// accepts a slot name; nothing from a request reaches the HTML.
+assert.equal(adFrameUrl("desktop"), "/ads/frame?slot=desktop");
+assert.equal(adFrameUrl("mobile"), "/ads/frame?slot=mobile");
+assert.equal(adFrameUrl("native"), "/ads/frame?slot=native");
+
+// Adsterra decides whether to serve by checking the referrer against the
+// publisher's registered domains, so losing it means an empty slot.
+for (const doc of [bannerDoc, nativeDoc]) {
+  assert.ok(doc.includes('<meta name="referrer" content="origin">'));
 }
 
 console.log("adsterra: ok");

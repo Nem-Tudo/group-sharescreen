@@ -4,10 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import {
   IFRAME_SANDBOX,
   NATIVE_BANNER,
-  nativeSrcDoc,
+  adFrameUrl,
   parseAdFrameMessage,
 } from "@/lib/adsterra";
-import { reportAdsterraFill, useAdsterraBlocked } from "@/lib/adsterraFill";
+import {
+  reportAdsterraFill,
+  useAdFrameWatchdog,
+  useAdsterraBlocked,
+} from "@/lib/adsterraFill";
 import { useAdsAllowed } from "@/lib/useAdsAllowed";
 
 // The Adsterra native banner — a row of "recommended" cards that takes the
@@ -46,17 +50,18 @@ export function AdsterraNative({
 
   const rendering = allowed && !blocked && NATIVE_BANNER !== null;
 
+  const markSettled = useAdFrameWatchdog(rendering);
+
   useEffect(() => {
     if (!rendering) return;
     function onMessage(event: MessageEvent) {
-      // The origin is opaque ("null") by design, so it cannot be checked —
-      // the frame's own window is the identity that is checkable, and it is
-      // the stronger check anyway: it rejects every other frame on the page
-      // regardless of where it came from.
+      // See AdsterraBanner: matched on the frame's own window, which stays
+      // the strict test now that the document is same-origin.
       if (!frameRef.current || event.source !== frameRef.current.contentWindow) return;
       const message = parseAdFrameMessage(event.data);
       if (!message) return;
       if (message.type === "status") {
+        markSettled();
         reportAdsterraFill(message.filled);
         return;
       }
@@ -64,7 +69,7 @@ export function AdsterraNative({
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [rendering]);
+  }, [rendering, markSettled]);
 
   if (!rendering || !NATIVE_BANNER) return null;
 
@@ -78,10 +83,11 @@ export function AdsterraNative({
       <iframe
         ref={frameRef}
         title="Publicidade"
-        srcDoc={nativeSrcDoc(NATIVE_BANNER)}
+        // See AdsterraBanner: a real URL, not srcDoc, so the script has an
+        // origin to work in.
+        src={adFrameUrl("native")}
         sandbox={IFRAME_SANDBOX}
         scrolling="no"
-        loading="lazy"
         referrerPolicy="no-referrer-when-downgrade"
         // Transitioned because the height lands in steps as the cards' images
         // load, and three instant jumps read as the page glitching.
