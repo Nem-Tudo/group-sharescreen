@@ -17,7 +17,7 @@ import { BUILD_VERSION } from "./buildVersion";
 import { currentAnnouncementDevice } from "./announcement";
 import { getStoredGuestToken, setStoredGuestToken } from "./guestToken";
 import { getInstallId } from "./installId";
-import { isUserMentionedInMessage } from "./chatMentions";
+import { isUserMentionedInMessage, containsBroadcastMention } from "./chatMentions";
 import { showNotification } from "./notifications";
 
 // `role: "moderator"` marks a moderator silently watching for moderation
@@ -216,6 +216,14 @@ function parseRoomAdmins(raw: unknown): RoomAdmin[] {
 }
 
 
+export type ChatReplyTo = {
+  id: string;
+  name: string;
+  text?: string;
+  kind?: "text" | "gif" | "image";
+  images?: string[];
+};
+
 export type ChatMessage = {
   id: string;
   from: string;
@@ -246,6 +254,7 @@ export type ChatMessage = {
   // message from before this existed, where a lone picture arrives as
   // kind "image" with a single `url` instead.
   images?: string[];
+  replyTo?: ChatReplyTo | null;
   ts: number;
 };
 
@@ -1469,6 +1478,21 @@ class SignalingClient {
         this.setState({ chatBlockedMessage: (msg.message as string) ?? "Mensagem bloqueada." });
         break;
       case "chat-message": {
+        let replyTo: ChatReplyTo | undefined = undefined;
+        if (msg.replyTo && typeof msg.replyTo === "object") {
+          const r = msg.replyTo as Record<string, unknown>;
+          if (typeof r.id === "string" && typeof r.name === "string") {
+            replyTo = {
+              id: r.id,
+              name: r.name,
+              text: typeof r.text === "string" ? r.text : "",
+              kind: r.kind === "gif" || r.kind === "image" ? r.kind : "text",
+              images: Array.isArray(r.images)
+                ? (r.images as unknown[]).filter((u): u is string => typeof u === "string")
+                : undefined,
+            };
+          }
+        }
         const chatMessage: ChatMessage = {
           id: msg.id as string,
           from: msg.from as string,
@@ -1482,6 +1506,7 @@ class SignalingClient {
           images: Array.isArray(msg.images)
             ? (msg.images as unknown[]).filter((u): u is string => typeof u === "string")
             : undefined,
+          replyTo,
           ts: msg.ts as number,
         };
         const next = [...this.state.chatMessages, chatMessage];
@@ -1517,10 +1542,17 @@ class SignalingClient {
     const selfName = this.state.name;
     if (!selfName) return;
 
+    const isReplyToMe =
+      Boolean(message.replyTo) &&
+      message.replyTo?.name.trim().toLowerCase() === selfName.trim().toLowerCase();
+
     // The same full participant list ChatPanel uses, so "@João" cannot falsely
     // notify a "João Silva" (or vice-versa) — see isUserMentionedInMessage.
     const knownNames = this.state.peers.map((p) => p.name).filter((n): n is string => Boolean(n));
-    if (!isUserMentionedInMessage(message.text, selfName, knownNames)) return;
+    const isBroadcast = containsBroadcastMention(message.text);
+    const isDirectMention = isUserMentionedInMessage(message.text, selfName, knownNames);
+
+    if (!isDirectMention && !isReplyToMe) return;
 
     // A mention with no words of its own (just "@me", or an image/GIF) still
     // deserves a sensible body.
@@ -1530,10 +1562,20 @@ class SignalingClient {
         ? "enviou um GIF"
         : message.images && message.images.length > 0
           ? "enviou uma imagem"
-          : "mencionou você");
+          : isReplyToMe
+            ? "respondeu à sua mensagem"
+            : isBroadcast
+              ? "mencionou todos"
+              : "mencionou você");
+
+    const title = isReplyToMe
+      ? `${message.name} respondeu você`
+      : isBroadcast
+        ? `${message.name} mencionou todos`
+        : `${message.name} mencionou você`;
 
     void showNotification({
-      title: `${message.name} mencionou você`,
+      title,
       body,
       // One room's mentions collapse into a single toast rather than stacking.
       tag: `mention:${this.desiredRoom ?? "room"}`,
@@ -2107,17 +2149,17 @@ class SignalingClient {
     this.rawSend({ type: "signal", to, data });
   }
 
-  sendChatMessage(text: string) {
+  sendChatMessage(text: string, replyTo?: ChatReplyTo | null) {
     const trimmed = text.trim();
     if (!trimmed) return;
     this.setState({ chatBlockedMessage: null });
-    this.rawSend({ type: "chat", text: trimmed });
+    this.rawSend({ type: "chat", text: trimmed, replyTo: replyTo ?? undefined });
   }
 
-  sendGif(url: string) {
+  sendGif(url: string, replyTo?: ChatReplyTo | null) {
     const trimmed = url.trim();
     if (!trimmed) return;
-    this.rawSend({ type: "chat", kind: "gif", url: trimmed });
+    this.rawSend({ type: "chat", kind: "gif", url: trimmed, replyTo: replyTo ?? undefined });
   }
 
   // Real engagement signals for the admin panel's live announcement stats

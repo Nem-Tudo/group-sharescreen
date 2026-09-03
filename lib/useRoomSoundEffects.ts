@@ -14,6 +14,7 @@ import {
   playShareStartSound,
   playShareStopSound,
 } from "./soundEffects";
+import { containsBroadcastMention } from "./chatMentions";
 
 // Plays a sound whenever another peer joins/leaves the room, starts/stops
 // sharing, or mentions this user in chat. Deliberately scoped to *other*
@@ -102,11 +103,13 @@ export function useRoomSoundEffects(state: SignalingState) {
     if (!state.name || newMessages.length === 0) return;
 
     const mentionToken = `@${state.name}`.toLowerCase();
+    const selfLower = state.name.toLowerCase();
     const mentioned = newMessages.some(
       (m) =>
         m.from !== state.selfId &&
-        m.kind !== "gif" &&
-        m.text.toLowerCase().includes(mentionToken)
+        ((m.kind !== "gif" &&
+          (m.text.toLowerCase().includes(mentionToken) || containsBroadcastMention(m.text))) ||
+          (Boolean(m.replyTo) && m.replyTo?.name.trim().toLowerCase() === selfLower))
     );
     if (mentioned) playMentionSound();
   }, [state.chatMessages, state.name, state.selfId]);

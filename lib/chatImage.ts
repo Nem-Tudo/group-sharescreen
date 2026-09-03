@@ -1,6 +1,7 @@
 "use client";
 
 import { getSignalingHttpBase } from "./roomsApi";
+import type { ChatReplyTo } from "./signalingClient";
 
 // Everything here is about getting a picture *to our API*. The upload to the
 // CDN happens there and only there (see the API's server/uploadToCDN.ts):
@@ -164,16 +165,17 @@ export async function sendChatImages(params: {
   token: string;
   text: string;
   images: string[];
+  replyTo?: ChatReplyTo | null;
   signal?: AbortSignal;
 }): Promise<SendChatImagesResult> {
-  const { handle, clientId, token, text, images, signal } = params;
+  const { handle, clientId, token, text, images, replyTo, signal } = params;
   try {
     const res = await fetch(
       `${getSignalingHttpBase()}/rooms/${encodeURIComponent(handle)}/chat/images`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ clientId, text, images }),
+        body: JSON.stringify({ clientId, text, images, replyTo: replyTo ?? undefined }),
         signal,
       }
     );

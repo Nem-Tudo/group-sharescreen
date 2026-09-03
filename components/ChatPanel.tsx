@@ -13,7 +13,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
-import type { ChatMessage } from "@/lib/signalingClient";
+import type { ChatMessage, ChatReplyTo } from "@/lib/signalingClient";
 import type { GifResult } from "@/app/api/giphy/search/route";
 import { GifPicker } from "@/components/GifPicker";
 import {
@@ -28,7 +28,7 @@ import { DisplayUserName } from "@/components/DisplayUserName";
 import { withDeviceSuffix } from "@/lib/displayName";
 import { Popover, Tooltip } from "@/components/Tooltip";
 import { NotificationBell } from "@/components/NotificationBell";
-import { MdClose, MdOutlineImage } from "react-icons/md";
+import { MdClose, MdOutlineImage, MdReply } from "react-icons/md";
 import { LuPanelRightClose } from "react-icons/lu";
 import {
   buildMentionsRegex,
@@ -58,6 +58,9 @@ export type ChatPeer = {
   flags?: string[];
   nameColor?: string | null;
   role?: string;
+  isBroadcast?: boolean;
+  description?: string;
+  aliases?: string[];
 };
 
 function formatTime(ts: number): string {
@@ -174,8 +177,8 @@ export function ChatPanel({
   onOpenProfile?: (userId: string) => void;
   // Omitted for a read-only viewer (the admin moderation view) — hides the
   // input form instead of sending into a room the viewer isn't a member of.
-  onSend?: (text: string) => void;
-  onSendGif?: (url: string) => void;
+  onSend?: (text: string, replyTo?: ChatReplyTo | null) => void;
+  onSendGif?: (url: string, replyTo?: ChatReplyTo | null) => void;
   // Sends one message made of whatever was typed plus the pictures sitting
   // in the tray, as `data:` URLs already downscaled by this component. Used
   // *instead of* onSend whenever there is at least one attachment, because
@@ -187,7 +190,11 @@ export function ChatPanel({
   // on a failure the composer keeps the text and the attachments, so the
   // retry is one more click rather than picking three files again. Omitted
   // the same way onSendGif is, which is what disables the button.
-  onSendImages?: (text: string, images: string[]) => Promise<{ ok: boolean; error?: string }>;
+  onSendImages?: (
+    text: string,
+    images: string[],
+    replyTo?: ChatReplyTo | null
+  ) => Promise<{ ok: boolean; error?: string }>;
   // Fired at most twice per typing burst — true on the first keystroke,
   // false after TYPING_IDLE_MS of inactivity or on send — not on every
   // change. Omitted (like onSend) for a read-only viewer.
@@ -320,6 +327,54 @@ export function ChatPanel({
   // way down was to drag the scrollbar the whole way.
   const pendingBelow = atBottom ? 0 : Math.max(0, messages.length - readCount);
 
+  // Active message being replied to (Discord style)
+  const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
+  // Temporarily highlighted message when clicking on a reply reference
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    };
+  }, []);
+
+  function startReply(message: ChatMessage) {
+    setReplyingTo(message);
+    requestAnimationFrame(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+      }
+    });
+  }
+
+  function cancelReply() {
+    setReplyingTo(null);
+  }
+
+  function scrollToMessage(targetId: string) {
+    const el = document.getElementById(`chat-msg-${targetId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      setHighlightedMessageId(targetId);
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+      highlightTimerRef.current = setTimeout(() => {
+        setHighlightedMessageId(null);
+      }, 1600);
+    }
+  }
+
+  function getReplyToPayload(): ChatReplyTo | null {
+    if (!replyingTo) return null;
+    return {
+      id: replyingTo.id,
+      name: replyingTo.name,
+      text: replyingTo.text ? replyingTo.text.slice(0, 200) : "",
+      kind: replyingTo.kind,
+      images: replyingTo.images && replyingTo.images.length > 0 ? replyingTo.images : undefined,
+    };
+  }
+
   // Keeps the newest message in view as they arrive, without fighting the
   // user if they've scrolled up to read older ones. Scrolling here fires the
   // handler below, which is what puts `atBottom` back in step.
@@ -361,6 +416,8 @@ export function ChatPanel({
   // used to construct mention tokenizers and match valid mentions accurately.
   const allKnownNames = useMemo(() => {
     const names = new Set<string>();
+    names.add("todos");
+    names.add("everyone");
     for (const p of peers) {
       if (p.name?.trim()) names.add(p.name.trim());
     }
@@ -374,8 +431,18 @@ export function ChatPanel({
   const mentionRegex = useMemo(() => buildMentionsRegex(allKnownNames), [allKnownNames]);
 
   // Deduplicated candidate list of participants currently in the room for
-  // the autocomplete popup.
+  // the autocomplete popup, prepended with broadcast options.
   const roomParticipants = useMemo(() => {
+    const broadcastOptions: ChatPeer[] = [
+      {
+        id: "__mention_todos__",
+        name: "todos",
+        aliases: ["everyone"],
+        isBroadcast: true,
+        description: "Mencionar todos na chamada",
+      },
+    ];
+
     const map = new Map<string, ChatPeer>();
     for (const p of peers) {
       if (p.name?.trim()) {
@@ -397,7 +464,7 @@ export function ChatPanel({
         map.set(key, { id: selfId ?? "self", name: selfName.trim() });
       }
     }
-    return Array.from(map.values());
+    return [...broadcastOptions, ...Array.from(map.values())];
   }, [peers, selfName, selfId]);
 
   // Filtered and ranked autocomplete candidates based on user input after "@"
@@ -490,6 +557,7 @@ export function ChatPanel({
   // didn't go.
   function clearComposer() {
     setInput("");
+    setReplyingTo(null);
     setMentionMenuOpen(false);
     setMentionStartIndex(null);
     setMentionQuery("");
@@ -513,12 +581,14 @@ export function ChatPanel({
     // Read before the await, because the box is cleared optimistically below
     // and would otherwise be empty by the time the request is built.
     const text = input.trim();
+    const replyPayload = getReplyToPayload();
     setImageError(null);
     setSendingImages(true);
     try {
       const result = await onSendImages(
         text,
-        ready.map((entry) => entry.dataUrl as string)
+        ready.map((entry) => entry.dataUrl as string),
+        replyPayload
       );
       if (result.ok) {
         setAttachments([]);
@@ -541,7 +611,8 @@ export function ChatPanel({
       return;
     }
     if (!input.trim() || !onSend) return;
-    onSend(input);
+    const replyPayload = getReplyToPayload();
+    onSend(input, replyPayload);
     clearComposer();
   }
 
@@ -593,6 +664,12 @@ export function ChatPanel({
         setMentionMenuOpen(false);
         return;
       }
+    }
+
+    if (e.key === "Escape" && replyingTo) {
+      e.preventDefault();
+      setReplyingTo(null);
+      return;
     }
 
     if (e.key === "Enter" && !e.shiftKey) {
@@ -647,7 +724,9 @@ export function ChatPanel({
 
   function handleGifSelect(gif: GifResult) {
     setPickerOpen(false);
-    onSendGif?.(gif.url);
+    const replyPayload = getReplyToPayload();
+    onSendGif?.(gif.url, replyPayload);
+    setReplyingTo(null);
   }
 
   // Puts files in the tray. Nothing is uploaded here — that happens on send.
@@ -781,18 +860,25 @@ export function ChatPanel({
               const isSelf = m.from === selfId;
               const isMention =
                 !isSelf &&
-                Boolean(selfName) &&
-                m.kind !== "gif" &&
+                typeof selfName === "string" &&
                 m.kind !== "image" &&
                 isUserMentionedInMessage(m.text, selfName, allKnownNames);
+              const isReplyToMe =
+                !isSelf &&
+                typeof selfName === "string" &&
+                m.replyTo?.name.trim().toLowerCase() === selfName.trim().toLowerCase();
+              const isMentionToMe = isMention || isReplyToMe;
+              const isHighlighted = highlightedMessageId === m.id;
+
               // Someone typing three lines in a row is one person saying one
               // thing — repeating their name and the same clock time above
-              // each line spent three quarters of a narrow column restating
               // what the line before already said. A continuation just
               // indents under the name that's already there; the gap above a
               // new speaker is what separates them now.
+              // Replies always show their author and spine (matching Discord).
               const previous = messages[i - 1];
               const grouped =
+                !m.replyTo &&
                 Boolean(previous) &&
                 previous.from === m.from &&
                 previous.name === m.name &&
@@ -801,6 +887,7 @@ export function ChatPanel({
               const row = (
                 <div
                   key={m.id}
+                  id={`chat-msg-${m.id}`}
                   // Right click anywhere on somebody's message opens the room's
                   // actions for them — the same menu the participant list
                   // offers, reachable from where you actually noticed them.
@@ -814,15 +901,78 @@ export function ChatPanel({
                       : undefined
                   }
                   title={hasMenu ? "Clique com o botão direito para ver as ações" : undefined}
-                  className={`-mx-1.5 rounded-md px-1.5 text-sm ${grouped ? "pb-0.5" : "mt-2.5 pb-0.5 first:mt-0"
-                    } ${isMention ? "bg-yellow-200 py-1 dark:bg-blue-500/25" : ""} ${
-                      // Same affordance as a participant row, for the same
-                      // reason — the actions hang off the message's author.
-                      hasMenu
-                        ? "cursor-pointer transition hover:bg-zinc-100 dark:hover:bg-zinc-900"
-                        : ""
-                    }`}
+                  className={`group relative -mx-1.5 rounded-lg px-2 text-sm transition-colors duration-150 ${
+                    grouped ? "pb-0.5" : "mt-2.5 pb-0.5 first:mt-0"
+                  } ${
+                    isHighlighted
+                      ? "bg-zinc-200/70 ring-1 ring-zinc-400/60 dark:bg-zinc-800 dark:ring-zinc-600"
+                      : isMentionToMe
+                        ? "bg-blue-100/70 py-1 dark:bg-blue-500/25"
+                        : "hover:bg-zinc-100/80 dark:hover:bg-zinc-900/70"
+                  } ${
+                    hasMenu
+                      ? "cursor-pointer"
+                      : ""
+                  }`}
                 >
+                  {/* Floating quick action bar on hover (Discord style) */}
+                  {onSend && (
+                    <div className="absolute -top-3 right-2 z-10 hidden items-center rounded-md border border-zinc-200 bg-white p-0.5 shadow-sm group-hover:flex dark:border-zinc-800 dark:bg-zinc-900">
+                      <Tooltip content="Responder">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startReply(m);
+                          }}
+                          aria-label="Responder"
+                          className="cursor-pointer rounded p-1 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                        >
+                          <MdReply className="h-3.5 w-3.5" />
+                        </button>
+                      </Tooltip>
+                    </div>
+                  )}
+
+                  {/* Quoted reply header (Discord style) */}
+                  {m.replyTo && (
+                    <div
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        scrollToMessage(m.replyTo!.id);
+                      }}
+                      className="group/reply mb-1 flex max-w-full cursor-pointer items-center gap-1.5 text-xs text-zinc-500 select-none hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
+                      title="Clique para ir para a mensagem original"
+                    >
+                      <div className="flex items-center text-zinc-400 dark:text-zinc-600">
+                        <svg
+                          className="h-3.5 w-3.5 shrink-0 text-zinc-300 dark:text-zinc-600"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M 4 19 V 9 A 5 5 0 0 1 9 4 H 20" />
+                        </svg>
+                      </div>
+                      <span className="font-medium text-zinc-700 group-hover/reply:underline group-hover/reply:text-zinc-900 dark:text-zinc-300 dark:group-hover/reply:text-white">
+                        @{m.replyTo.name}
+                      </span>
+                      <span className="truncate text-zinc-400 group-hover/reply:text-zinc-600 dark:text-zinc-500 dark:group-hover/reply:text-zinc-300">
+                        {m.replyTo.text ? (
+                          m.replyTo.text
+                        ) : m.replyTo.kind === "gif" ? (
+                          <span className="italic">[GIF]</span>
+                        ) : (m.replyTo.images && m.replyTo.images.length > 0) || m.replyTo.kind === "image" ? (
+                          <span className="italic">[Imagem]</span>
+                        ) : (
+                          <span className="italic">[Mensagem]</span>
+                        )}
+                      </span>
+                    </div>
+                  )}
                   {!grouped && (
                     <div className="flex items-baseline gap-1.5">
                       {/* Clickable only for a real account: a guest has no
@@ -1002,19 +1152,64 @@ export function ChatPanel({
                         : "text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800/50"
                     }`}
                   >
-                    <DisplayUserName
-                      name={withDeviceSuffix(peer.name, peer.userId, peer.device, deviceCounts)}
-                      isGuest={peer.isGuest}
-                      verified={hasVerifiedBadge(peer?.flags)}
-                      color={peer.nameColor}
-                      className="truncate"
-                    />
+                    {peer.isBroadcast ? (
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                          @{peer.name}
+                        </span>
+                        <span className="truncate text-[11px] text-zinc-400 dark:text-zinc-500">
+                          {peer.description ?? "Mencionar todos"}
+                        </span>
+                      </div>
+                    ) : (
+                      <DisplayUserName
+                        name={withDeviceSuffix(peer.name, peer.userId, peer.device, deviceCounts)}
+                        isGuest={peer.isGuest}
+                        verified={hasVerifiedBadge(peer?.flags)}
+                        color={peer.nameColor}
+                        className="truncate"
+                      />
+                    )}
                     <span className="shrink-0 text-[10px] text-zinc-400 dark:text-zinc-500 font-mono">
                       Tab ↵
                     </span>
                   </button>
                 );
               })}
+            </div>
+          )}
+
+          {/* Discord-style reply banner */}
+          {replyingTo && (
+            <div className="-mx-2 -mt-2 flex items-center justify-between border-b border-zinc-200 bg-zinc-50 px-3 py-1.5 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
+              <div className="flex min-w-0 items-center gap-1.5">
+                <MdReply className="h-4 w-4 shrink-0 text-zinc-400 dark:text-zinc-500" />
+                <span className="shrink-0 text-zinc-500 dark:text-zinc-400">
+                  Respondendo a{" "}
+                  <span className="font-semibold text-zinc-800 dark:text-zinc-200">
+                    @{replyingTo.name}
+                  </span>
+                </span>
+                <span className="truncate text-zinc-400 dark:text-zinc-500">
+                  {replyingTo.text
+                    ? replyingTo.text
+                    : replyingTo.kind === "gif"
+                      ? "[GIF]"
+                      : replyingTo.images?.length
+                        ? "[Imagem]"
+                        : ""}
+                </span>
+              </div>
+              <Tooltip content="Cancelar resposta (Esc)">
+                <button
+                  type="button"
+                  onClick={cancelReply}
+                  aria-label="Cancelar resposta"
+                  className="cursor-pointer rounded-md p-0.5 text-zinc-400 transition hover:bg-zinc-200 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                >
+                  <MdClose className="h-3.5 w-3.5" />
+                </button>
+              </Tooltip>
             </div>
           )}
 
@@ -1142,9 +1337,11 @@ export function ChatPanel({
               disabled={Boolean(sendDisabledReason) || sendingImages}
               placeholder={
                 sendDisabledReason ??
-                (attachments.length > 0
-                  ? "Escreva algo junto (opcional)..."
-                  : "Digite uma mensagem...")
+                (replyingTo
+                  ? `Responder a @${replyingTo.name}...`
+                  : attachments.length > 0
+                    ? "Escreva algo junto (opcional)..."
+                    : "Digite uma mensagem...")
               }
               className="min-h-8 min-w-0 flex-1 resize-none rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-sm leading-5 text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-white/10"
             />
