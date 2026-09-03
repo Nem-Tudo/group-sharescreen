@@ -151,41 +151,57 @@ export const NATIVE_BANNER = parseNative(
 export const AD_MESSAGE_SOURCE = "adsterra";
 
 /**
- * How long a slot waits for something to be drawn before calling itself
- * blocked.
+ * How long a slot waits for something to be drawn before giving up on it.
  *
- * Only ever reached by the quiet failure. The loud one — an ad blocker
- * refusing the request outright — fires the script tag's `onerror` in
- * milliseconds, so the verdict there is effectively instant. This budget is
- * for the other kind: a blocker that answers with a neutered stub, so the
- * script "loads" fine and simply never paints. Long enough not to libel a
- * merely slow ad server, short enough that nobody sits looking at a hole.
+ * Two numbers, because the two formats paint at completely different moments
+ * and one budget for both is what made the native unit look broken:
+ *
+ *   - the banner is `format: iframe`. Its invoke.js appends a sized <iframe>
+ *     the moment it runs, so there is a box to find almost immediately —
+ *     before the ad inside it has even loaded.
+ *   - the native builds nothing until its own ad request comes back. A 46KB
+ *     script, a request, then images. Three and a half seconds routinely ran
+ *     out first, and the slot removed an ad that was still on its way.
+ *
+ * Neither number is the ad-blocker path. A blocker refuses the request, which
+ * fires the tag's onerror in milliseconds — see fillProbeScript.
  */
-export const AD_FILL_TIMEOUT_MS = 3500;
+export const BANNER_FILL_TIMEOUT_MS = 4000;
+export const NATIVE_FILL_TIMEOUT_MS = 12000;
 
 /**
  * The half of an ad document that watches whether an ad turned up.
  *
- * Answering "did this fill?" cannot be done from outside: the frame has an
- * opaque origin precisely so the page cannot read into it, so the frame has
- * to say. And it cannot answer by trusting the script tag either — a blocker
- * that serves an empty stub produces a perfectly successful load with nothing
- * behind it. So the test is the only one that means anything: did a box with
- * real size get drawn.
+ * Answering "did this fill?" cannot be done from outside: the frame is a
+ * document of its own, and the page has no business reaching into it. So the
+ * frame says. And it cannot answer by trusting the script tag either — a
+ * blocker that serves an empty stub produces a perfectly successful load with
+ * nothing behind it. The test is the only one that means anything: did a box
+ * with real size get drawn.
+ *
+ * The `reason` is the part worth getting right. "blocked" means the request
+ * was refused, which is a fact about the *browser* and true for every slot on
+ * the page. "empty" means the script ran and served nothing, which is a fact
+ * about this *unit* alone — an ad network with no inventory for a native slot
+ * right now still has a banner to serve, and reporting the two the same way
+ * is how one empty native took the working banner down with it.
  *
  * `onerror` on the tag itself is set as an inline attribute rather than
  * attached here, and that is load-bearing: a classic script that fails to
  * load dispatches its error while the parser is still blocked on it, which is
  * before this script exists to listen.
  */
-function fillProbeScript(): string {
+function fillProbeScript(timeoutMs: number): string {
   return `<script>
 (function () {
   var done = false;
-  function tell(filled) {
+  function tell(filled, reason) {
     if (done) return;
     done = true;
-    parent.postMessage({ source: "${AD_MESSAGE_SOURCE}", type: "status", filled: filled }, "*");
+    parent.postMessage(
+      { source: "${AD_MESSAGE_SOURCE}", type: "status", filled: filled, reason: reason },
+      "*"
+    );
   }
   function painted() {
     var nodes = document.body.querySelectorAll("iframe,img,a,div,ins,span,canvas");
@@ -197,11 +213,11 @@ function fillProbeScript(): string {
     }
     return false;
   }
-  var deadline = Date.now() + ${AD_FILL_TIMEOUT_MS};
+  var deadline = Date.now() + ${timeoutMs};
   var timer = setInterval(function () {
-    if (window.__adsterraBlocked) { clearInterval(timer); tell(false); return; }
-    if (painted()) { clearInterval(timer); tell(true); return; }
-    if (Date.now() > deadline) { clearInterval(timer); tell(false); }
+    if (window.__adsterraBlocked) { clearInterval(timer); tell(false, "blocked"); return; }
+    if (painted()) { clearInterval(timer); tell(true, null); return; }
+    if (Date.now() > deadline) { clearInterval(timer); tell(false, "empty"); }
   }, 150);
 })();
 </script>`;
@@ -233,7 +249,7 @@ export function bannerDocument(banner: AdsterraBanner): string {
 </head><body>
 <script type="text/javascript">window.atOptions = ${options};</script>
 <script type="text/javascript" src="${absoluteUrl(`${banner.domain}/${banner.key}/invoke.js`)}" onerror="window.__adsterraBlocked=1"></script>
-${fillProbeScript()}
+${fillProbeScript(BANNER_FILL_TIMEOUT_MS)}
 </body></html>`;
 }
 
@@ -253,9 +269,9 @@ export function nativeDocument(native: AdsterraNative): string {
 <meta name="referrer" content="origin">
 <style>html,body{margin:0;padding:0;background:transparent}</style>
 </head><body>
-<div id="${native.containerId}"></div>
 <script async data-cfasync="false" src="${absoluteUrl(native.src)}" onerror="window.__adsterraBlocked=1"></script>
-${fillProbeScript()}
+<div id="${native.containerId}"></div>
+${fillProbeScript(NATIVE_FILL_TIMEOUT_MS)}
 <script>
 (function () {
   var last = 0;
@@ -305,7 +321,7 @@ export function bannerForSlot(slot: AdSlot): AdsterraBanner | null {
 
 /** What an ad frame is allowed to say to the page that hosts it. */
 export type AdFrameMessage =
-  | { type: "status"; filled: boolean }
+  | { type: "status"; filled: boolean; reason: "blocked" | "empty" | null }
   | { type: "height"; height: number };
 
 /**
@@ -319,10 +335,18 @@ export type AdFrameMessage =
  */
 export function parseAdFrameMessage(data: unknown): AdFrameMessage | null {
   if (!data || typeof data !== "object") return null;
-  const message = data as { source?: unknown; type?: unknown; filled?: unknown; height?: unknown };
+  const message = data as {
+    source?: unknown;
+    type?: unknown;
+    filled?: unknown;
+    reason?: unknown;
+    height?: unknown;
+  };
   if (message.source !== AD_MESSAGE_SOURCE) return null;
   if (message.type === "status" && typeof message.filled === "boolean") {
-    return { type: "status", filled: message.filled };
+    const reason =
+      message.reason === "blocked" || message.reason === "empty" ? message.reason : null;
+    return { type: "status", filled: message.filled, reason };
   }
   if (message.type === "height" && typeof message.height === "number") {
     // A height that is not a real number would become a style nobody can see

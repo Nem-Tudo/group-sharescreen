@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
-import { AD_FILL_TIMEOUT_MS } from "@/lib/adsterra";
+
 
 // Whether Adsterra is reaching this browser at all.
 //
@@ -63,27 +63,20 @@ export function useAdsterraBlocked(): boolean {
 }
 
 /**
- * How long the page waits for a frame to say anything at all.
- *
- * The probe inside the document answers within AD_FILL_TIMEOUT_MS of running;
- * this is that plus room for the document itself to be fetched and parsed.
- */
-const AD_FRAME_TIMEOUT_MS = AD_FILL_TIMEOUT_MS + 2000;
-
-/**
  * Catches the failure the in-document probe cannot report: the document never
  * loading.
  *
- * A blocked script still runs our probe, which is what says "nothing filled".
- * A blocked *frame* runs nothing — the slot would sit there empty forever, and
- * in the room it would keep taking its turn from the partner every other
- * minute. So the page keeps its own clock: no word by the deadline is the
- * same answer as an empty one.
+ * A blocked script still runs our probe, which is what reports an empty slot.
+ * A blocked *frame* runs nothing at all — total silence — and the slot would
+ * sit there forever, taking its turn from the room's own ad every other
+ * minute. So the page keeps its own clock, and reads silence for what it is:
+ * not "this unit had no ad", but "this document never arrived", which is the
+ * browser refusing Adsterra and therefore true for every slot on the page.
  *
  * Returns the callback a slot calls when a real verdict arrives, which is
  * what stops this from overruling it.
  */
-export function useAdFrameWatchdog(active: boolean): () => void {
+export function useAdFrameWatchdog(active: boolean, timeoutMs: number): () => void {
   const settledRef = useRef(false);
 
   useEffect(() => {
@@ -91,9 +84,9 @@ export function useAdFrameWatchdog(active: boolean): () => void {
     settledRef.current = false;
     const timer = setTimeout(() => {
       if (!settledRef.current) reportAdsterraFill(false);
-    }, AD_FRAME_TIMEOUT_MS);
+    }, timeoutMs);
     return () => clearTimeout(timer);
-  }, [active]);
+  }, [active, timeoutMs]);
 
   return useCallback(() => {
     settledRef.current = true;

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   IFRAME_SANDBOX,
   NATIVE_BANNER,
+  NATIVE_FILL_TIMEOUT_MS,
   adFrameUrl,
   parseAdFrameMessage,
 } from "@/lib/adsterra";
@@ -27,6 +28,18 @@ import { useAdsAllowed } from "@/lib/useAdsAllowed";
 const INITIAL_HEIGHT = 260;
 
 /**
+ * How long the placeholder holds its space before folding away.
+ *
+ * The native unit can legitimately take ten seconds to paint — a big script,
+ * then its own ad request, then images — and reserving 260px for all of it is
+ * how a page ends up with a white rectangle sitting in it. So the space is
+ * offered briefly and then withdrawn, while the frame keeps loading in a box
+ * of no height: an ad that turns up late still gets shown, and one that never
+ * turns up was never taking up room.
+ */
+const PLACEHOLDER_GRACE_MS = 3000;
+
+/**
  * A ceiling, because the height arrives from inside an ad. A creative that
  * reports 40000px — through a bug or otherwise — would otherwise be handed
  * the whole page.
@@ -46,11 +59,16 @@ export function AdsterraNative({
   // an ad blocker is a fact about the browser and not about this unit.
   const blocked = useAdsterraBlocked();
   const frameRef = useRef<HTMLIFrameElement | null>(null);
-  const [height, setHeight] = useState(INITIAL_HEIGHT);
+  // null until the frame reports one. Distinguishing "not yet" from a number
+  // is what lets the placeholder below know it is still a placeholder.
+  const [height, setHeight] = useState<number | null>(null);
+  const [placeholderExpired, setPlaceholderExpired] = useState(false);
+  // See AdsterraBanner: an empty response hides this slot and nothing else.
+  const [empty, setEmpty] = useState(false);
 
-  const rendering = allowed && !blocked && NATIVE_BANNER !== null;
+  const rendering = allowed && !blocked && !empty && NATIVE_BANNER !== null;
 
-  const markSettled = useAdFrameWatchdog(rendering);
+  const markSettled = useAdFrameWatchdog(rendering, NATIVE_FILL_TIMEOUT_MS + 3000);
 
   useEffect(() => {
     if (!rendering) return;
@@ -62,7 +80,9 @@ export function AdsterraNative({
       if (!message) return;
       if (message.type === "status") {
         markSettled();
-        reportAdsterraFill(message.filled);
+        if (message.reason === "blocked") reportAdsterraFill(false);
+        else if (message.filled) reportAdsterraFill(true);
+        else setEmpty(true);
         return;
       }
       setHeight(Math.min(Math.round(message.height), MAX_HEIGHT));
@@ -71,11 +91,24 @@ export function AdsterraNative({
     return () => window.removeEventListener("message", onMessage);
   }, [rendering, markSettled]);
 
+  useEffect(() => {
+    if (!rendering) return;
+    const timer = setTimeout(() => setPlaceholderExpired(true), PLACEHOLDER_GRACE_MS);
+    return () => clearTimeout(timer);
+  }, [rendering]);
+
   if (!rendering || !NATIVE_BANNER) return null;
+
+  // A real height once the ad has one; the placeholder until the grace period
+  // runs out; nothing after that.
+  const boxHeight = height ?? (placeholderExpired ? 0 : INITIAL_HEIGHT);
 
   return (
     <div className={`flex w-full flex-col gap-1 ${className}`}>
-      {label && (
+      {/* The label goes with the ad, not with the space where one might
+          appear — an "Publicidade" caption over an empty box is worse than
+          no caption. */}
+      {label && height !== null && (
         <span className="text-[10px] uppercase tracking-wide text-zinc-400 dark:text-zinc-600">
           Publicidade
         </span>
@@ -91,7 +124,7 @@ export function AdsterraNative({
         referrerPolicy="no-referrer-when-downgrade"
         // Transitioned because the height lands in steps as the cards' images
         // load, and three instant jumps read as the page glitching.
-        style={{ height }}
+        style={{ height: boxHeight }}
         className="w-full border-0 transition-[height] duration-200"
       />
     </div>

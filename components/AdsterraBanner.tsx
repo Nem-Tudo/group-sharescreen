@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SM_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 import {
   DESKTOP_BANNER,
   IFRAME_SANDBOX,
   MOBILE_BANNER,
+  BANNER_FILL_TIMEOUT_MS,
   adFrameUrl,
   parseAdFrameMessage,
   type AdsterraBanner as BannerUnit,
@@ -41,6 +42,11 @@ export function AdsterraBanner({
   const blocked = useAdsterraBlocked();
   const wide = useMediaQuery(SM_BREAKPOINT_QUERY);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
+  // This unit specifically had nothing to serve. Kept local rather than told
+  // to the shared store: it says nothing about whether Adsterra can reach
+  // this browser, and treating it as if it did would take down every other
+  // slot on the page over one empty response.
+  const [empty, setEmpty] = useState(false);
 
   // The wide unit above `sm`, the phone one below, and each falls back to the
   // other when only one is configured — a deployment with a single key should
@@ -51,9 +57,9 @@ export function AdsterraBanner({
   const useDesktopUnit = wide ? DESKTOP_BANNER !== null : MOBILE_BANNER === null;
   const unit: BannerUnit | null = useDesktopUnit ? DESKTOP_BANNER : MOBILE_BANNER;
 
-  const rendering = allowed && !blocked && unit !== null;
+  const rendering = allowed && !blocked && !empty && unit !== null;
 
-  const markSettled = useAdFrameWatchdog(rendering);
+  const markSettled = useAdFrameWatchdog(rendering, BANNER_FILL_TIMEOUT_MS + 3000);
 
   useEffect(() => {
     if (!rendering) return;
@@ -64,10 +70,13 @@ export function AdsterraBanner({
       // means "this slot's frame and nothing else".
       if (!frameRef.current || event.source !== frameRef.current.contentWindow) return;
       const message = parseAdFrameMessage(event.data);
-      if (message?.type === "status") {
-        markSettled();
-        reportAdsterraFill(message.filled);
-      }
+      if (message?.type !== "status") return;
+      markSettled();
+      // Only a refused request is a fact about the browser. An empty
+      // response is a fact about this unit, and hides just this slot.
+      if (message.reason === "blocked") reportAdsterraFill(false);
+      else if (message.filled) reportAdsterraFill(true);
+      else setEmpty(true);
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);

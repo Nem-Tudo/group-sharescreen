@@ -79,9 +79,24 @@ assert.match(nativeDoc, /type: "height"/);
 // document adds later could exist.
 for (const doc of [bannerDoc, nativeDoc]) {
   assert.ok(doc.includes('onerror="window.__adsterraBlocked=1"'));
-  assert.match(doc, /type: "status", filled: filled/);
+  assert.match(doc, /tell\(false, "blocked"\)/);
+  assert.match(doc, /tell\(false, "empty"\)/);
   assert.match(doc, /getBoundingClientRect/);
 }
+
+// The two formats paint at different moments and must not share a deadline:
+// the banner appends a sized iframe at once, the native builds nothing until
+// its own ad request returns. One budget for both is what made a native ad
+// that was still loading get thrown away as if it had failed.
+assert.ok(bannerDoc.includes("Date.now() + 4000"));
+assert.ok(nativeDoc.includes("Date.now() + 12000"));
+
+// The vendor's own snippet puts the script before the container div; matching
+// it removes one difference from the thing that is known to work.
+assert.ok(
+  nativeDoc.indexOf("invoke.js") < nativeDoc.indexOf('<div id="container-'),
+  "o script tem de vir antes do container"
+);
 
 // The parser is what stands between a slot and anything else on the page that
 // can post a message — extensions, other frames, the ad's own creative.
@@ -95,10 +110,22 @@ assert.equal(
   null,
   "filled tem de ser boolean"
 );
-assert.deepEqual(parseAdFrameMessage({ source: "adsterra", type: "status", filled: false }), {
-  type: "status",
-  filled: false,
-});
+assert.deepEqual(
+  parseAdFrameMessage({ source: "adsterra", type: "status", filled: false, reason: "blocked" }),
+  { type: "status", filled: false, reason: "blocked" }
+);
+// "empty" means this unit had nothing to serve; "blocked" means the browser
+// refused the request. Only the second is true of every slot on the page, and
+// collapsing them is how one empty native hid a banner that was working.
+assert.deepEqual(
+  parseAdFrameMessage({ source: "adsterra", type: "status", filled: false, reason: "empty" }),
+  { type: "status", filled: false, reason: "empty" }
+);
+// An unknown reason degrades to "no reason given" rather than being believed.
+assert.deepEqual(
+  parseAdFrameMessage({ source: "adsterra", type: "status", filled: true, reason: "seiLa" }),
+  { type: "status", filled: true, reason: null }
+);
 assert.deepEqual(parseAdFrameMessage({ source: "adsterra", type: "height", height: 320 }), {
   type: "height",
   height: 320,
