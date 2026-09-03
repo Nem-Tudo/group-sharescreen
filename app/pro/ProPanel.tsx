@@ -411,6 +411,23 @@ export function ProPanel() {
                   </li>
                 );
               })}
+              {/* Listed here rather than through `features` because that list
+                  is the entitlement table — things the server decides an
+                  account may *do* — and points are not a permission, they are
+                  a payout. The numbers still come from the API (see the plan
+                  route) so they cannot drift from what is actually credited. */}
+              {plan.purchasePoints > 0 && (
+                <li className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                  <MdCheck className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-500" />
+                  {plan.purchasePoints} pontos na hora, a cada pagamento
+                </li>
+              )}
+              {plan.dailyPoints > 0 && (
+                <li className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                  <MdCheck className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-500" />
+                  Mais {plan.dailyPoints} pontos por dia de assinatura
+                </li>
+              )}
             </ul>
 
             <div className="mt-6">

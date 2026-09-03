@@ -30,6 +30,10 @@ export type PremiumPlan = {
   frequency: number;
   frequencyType: string;
   features: string[];
+  /** Points credited the moment a charge is approved — every charge. */
+  purchasePoints: number;
+  /** Points credited per whole day the subscription stays active. */
+  dailyPoints: number;
   /**
    * Whether a checkout can be started at all. False when an admin has taken
    * the plan off sale *or* when the deployment has no payment credentials —
