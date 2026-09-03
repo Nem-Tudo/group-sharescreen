@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { MdNotificationsNone, MdPersonAdd } from "react-icons/md";
+import { MdChatBubbleOutline, MdNotificationsNone, MdPersonAdd } from "react-icons/md";
 import { FriendRequestsModal } from "@/components/FriendRequestsModal";
+import { openDirectMessages } from "@/lib/dmWindow";
 import { Popover } from "@/components/Tooltip";
 import {
   clearNotifications,
@@ -46,7 +47,11 @@ function Item({
       }`}
     >
       <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300">
-        <MdPersonAdd className="h-4 w-4" />
+        {notification.kind === "dm" ? (
+          <MdChatBubbleOutline className="h-4 w-4" />
+        ) : (
+          <MdPersonAdd className="h-4 w-4" />
+        )}
       </span>
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-medium text-zinc-900 dark:text-zinc-100">
@@ -108,6 +113,7 @@ export function NotificationInboxBell({ className = "" }: { className?: string }
                   onOpen={(notification) => {
                     setOpen(false);
                     if (notification.kind === "friend-request") setRequestsOpen(true);
+                    else if (notification.kind === "dm") openDirectMessages(notification.userId);
                   }}
                 />
               ))}

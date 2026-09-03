@@ -281,6 +281,32 @@ export type RegisteredAccount = {
   flags: string[];
 };
 
+/**
+ * A private message as it crosses the socket. Mirrors the API's DirectMessage
+ * (see its dmStore.ts) — kept structural rather than imported from lib/dmApi
+ * so this file stays free of feature modules that import *it*.
+ */
+export type DirectMessageWire = {
+  id: string;
+  from: string;
+  to: string;
+  text: string;
+  kind?: "text" | "gif" | "image";
+  url?: string;
+  images?: string[];
+  replyTo?: {
+    id: string;
+    name: string;
+    text?: string;
+    kind?: "text" | "gif" | "image";
+    images?: string[];
+  } | null;
+  ts: number;
+};
+
+/** How many delivered messages the buffer above keeps. */
+const RECENT_DM_LIMIT = 100;
+
 export type SignalingState = {
   status: SignalingStatus;
   selfId: string | null;
@@ -372,6 +398,30 @@ export type SignalingState = {
   // disagree — which for "are we friends?" is the one thing that must not
   // happen. See lib/useSocialGraph.ts.
   socialSeq: number;
+  // The last direct message this connection was handed, and a counter beside
+  // it. Same shape and same reason as `partner`/`partnerSeq`: the message is
+  // the payload, the counter is what tells "a new one arrived" apart from
+  // "this is still the one from before" — two identical messages sent twice
+  // are indistinguishable otherwise.
+  //
+  // Deliberately one message and not a list: the conversation itself lives in
+  // the database and is read over HTTP. This is the nudge, not the store.
+  lastDm: {
+    message: DirectMessageWire;
+    /** Who sent it, so a notification can name them without another request. */
+    fromUser: { id: string; username: string; displayName: string; flags: string[] } | null;
+  } | null;
+  dmSeq: number;
+  // The last few messages this connection was handed, newest last. A short
+  // ring rather than just `lastDm`, because a component that renders the
+  // thread has to be able to *derive* what to show: with one slot, two
+  // messages arriving between two renders means the first is gone before
+  // anything could read it. Capped because this is a delivery buffer, not the
+  // conversation — that lives in the database and is read over HTTP.
+  recentDms: DirectMessageWire[];
+  // Bumped when this account marks a conversation read somewhere else, so a
+  // badge cleared on one device stops nagging on the others.
+  dmReadSeq: number;
   // "Apoiar projeto" hover list (see SupportersTooltip.tsx) — same
   // fetch-over-HTTP-then-live-update shape as partner above, minus the
   // "null means nothing to show" ambiguity: an empty array already means
@@ -519,6 +569,10 @@ const initialState: SignalingState = {
   adsterraEnabled: null,
   adsConfigSeq: 0,
   socialSeq: 0,
+  lastDm: null,
+  dmSeq: 0,
+  recentDms: [],
+  dmReadSeq: 0,
   supporters: [],
   supportersSeq: 0,
   desktopUpdateSeq: 0,
@@ -1508,6 +1562,26 @@ class SignalingClient {
           partner: (msg.partner as Partner | null) ?? null,
           partnerSeq: this.state.partnerSeq + 1,
         });
+        break;
+      case "dm":
+        this.setState({
+          lastDm: msg.message
+            ? {
+                message: msg.message as NonNullable<SignalingState["lastDm"]>["message"],
+                fromUser: (msg.fromUser as NonNullable<SignalingState["lastDm"]>["fromUser"]) ?? null,
+              }
+            : null,
+          recentDms: msg.message
+            ? [
+                ...this.state.recentDms,
+                msg.message as SignalingState["recentDms"][number],
+              ].slice(-RECENT_DM_LIMIT)
+            : this.state.recentDms,
+          dmSeq: this.state.dmSeq + 1,
+        });
+        break;
+      case "dm-read":
+        this.setState({ dmReadSeq: this.state.dmReadSeq + 1 });
         break;
       case "social-update":
         this.setState({ socialSeq: this.state.socialSeq + 1 });

@@ -237,6 +237,9 @@ function ProfileContent({
           userId={account.id}
           displayName={account.displayName}
           className="mt-5"
+          // Same callback the profile links use: opening the conversation
+          // window is leaving this card, so the dialog holding it closes.
+          onLeave={onNavigate}
         />
 
         <p className="mt-5 text-xs text-zinc-400 dark:text-zinc-600">No GoLive desde {memberSince}.</p>

@@ -7,6 +7,8 @@ import { InstallAppButton } from "@/components/InstallAppButton";
 import { AuthProvider } from "@/lib/AuthContext";
 import { PresenceReporter } from "@/components/PresenceReporter";
 import { SocialNotifier } from "@/components/SocialNotifier";
+import { DmNotifier } from "@/components/DmNotifier";
+import { DirectMessagesHost } from "@/components/DirectMessagesHost";
 import { NtPopups } from "@/components/NtPopups";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import { CHUNK_RECOVERY_SCRIPT } from "@/lib/chunkRecovery";
@@ -201,6 +203,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                   a bell that only filled up inside a room would be empty
                   exactly when somebody opens it. */}
               <SocialNotifier />
+              <DmNotifier />
+              {/* The one conversation window on the page — see its own comment. */}
+              <DirectMessagesHost />
               <AnnouncementBanner />
               {children}
               <InstallAppButton />

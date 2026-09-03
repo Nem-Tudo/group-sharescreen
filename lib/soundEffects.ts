@@ -197,6 +197,20 @@ export function playFriendRequestSound() {
   ]);
 }
 
+/**
+ * A private message arrived.
+ *
+ * Deliberately not the mention chime: being named in a room you are already
+ * in is an interruption of something you are doing, while a DM is somebody
+ * knocking. Two soft notes a tone apart, quieter than either.
+ */
+export function playDirectMessageSound() {
+  playNotes([
+    { freq: 700, start: 0, duration: 0.08, gain: 0.1 },
+    { freq: 880, start: 0.07, duration: 0.14, gain: 0.1 },
+  ]);
+}
+
 // Used for site-wide "top" warnings/announcements (see AnnouncementBanner).
 export function playWarningSound() {
   playNotes([

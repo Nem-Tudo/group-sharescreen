@@ -12,6 +12,7 @@ import { LoginForm } from "@/components/LoginForm";
 import { CompleteOAuthSignupForm } from "@/components/CompleteOAuthSignupForm";
 import Link from "next/link";
 import { AccountConnections } from "@/components/AccountConnections";
+import { openDirectMessages } from "@/lib/dmWindow";
 import type { OAuthResult } from "@/lib/oauthApi";
 
 // Who you are, and everything you can do about it, in the header.
@@ -176,6 +177,16 @@ export function AccountMenu() {
                     the site header's nav: the header is where the *site's*
                     pages live, and a friends list is only ever about the
                     person already signed in. */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    close();
+                    openDirectMessages();
+                  }}
+                  className={itemClass}
+                >
+                  Mensagens
+                </button>
                 <Link href="/amigos" onClick={close} className={itemClass}>
                   Amigos
                 </Link>

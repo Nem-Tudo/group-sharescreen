@@ -1,7 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { MdBlock, MdCheck, MdClose, MdPersonAdd, MdPersonRemove } from "react-icons/md";
+import {
+  MdBlock,
+  MdChatBubbleOutline,
+  MdCheck,
+  MdClose,
+  MdPersonAdd,
+  MdPersonRemove,
+} from "react-icons/md";
 import { useAuth } from "@/lib/AuthContext";
 import {
   acceptFriend,
@@ -10,6 +17,7 @@ import {
   removeFriend,
   unblockUser,
 } from "@/lib/socialApi";
+import { openDirectMessages } from "@/lib/dmWindow";
 import { relationshipWith, useSocialGraph } from "@/lib/useSocialGraph";
 
 // The friend/block controls for one person, wherever that person is shown.
@@ -27,10 +35,20 @@ export function SocialActions({
   userId,
   displayName,
   className = "",
+  onLeave,
 }: {
   userId: string;
   displayName: string;
   className?: string;
+  /**
+   * Called when something here replaces this card with another surface.
+   *
+   * Only "mensagem" does that today: it opens the conversation window, and
+   * inside a room that window would otherwise land *behind* the profile
+   * dialog that launched it. The dialog closing is part of the action, not a
+   * detail the caller should have to arrange.
+   */
+  onLeave?: () => void;
 }) {
   const { account } = useAuth();
   const { graph, refresh } = useSocialGraph();
@@ -72,6 +90,21 @@ export function SocialActions({
           </button>
         ) : (
           <>
+            {/* Messaging does not wait on a friendship — blocking is what
+                says "not from you" (see the API's dmRoutes). Opens the window
+                rather than navigating, so this works from inside a room. */}
+            <button
+              type="button"
+              onClick={() => {
+                onLeave?.();
+                openDirectMessages(userId);
+              }}
+              className={`${buttonBase} border border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900`}
+            >
+              <MdChatBubbleOutline className="h-4 w-4 shrink-0" />
+              Mensagem
+            </button>
+
             {relationship === "none" && (
               <button
                 type="button"

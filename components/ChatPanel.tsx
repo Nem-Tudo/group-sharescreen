@@ -15,6 +15,7 @@ import {
 } from "react";
 import type { ChatMessage, ChatReplyTo } from "@/lib/signalingClient";
 import type { GifResult } from "@/app/api/giphy/search/route";
+import { MdSend } from "react-icons/md";
 import { GifPicker } from "@/components/GifPicker";
 import {
   CHAT_IMAGE_ACCEPT,
@@ -1348,15 +1349,17 @@ export function ChatPanel({
             <button
               type="submit"
               disabled={!canSend}
-              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-zinc-950 px-3 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+              aria-label="Enviar"
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-950 text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
             >
-              {sendingImages && (
+              {sendingImages ? (
                 <span
                   aria-hidden
-                  className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"
+                  className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
                 />
+              ) : (
+                <MdSend className="h-4 w-4" />
               )}
-              Enviar
             </button>
           </div>
         </form>

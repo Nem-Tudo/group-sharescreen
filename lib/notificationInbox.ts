@@ -21,7 +21,7 @@ const STORAGE_KEY = "sharescreen:notifications";
 /** Beyond this the oldest are dropped. A bell is not an archive. */
 const MAX_ITEMS = 50;
 
-export type NotificationKind = "friend-request" | "friend-accepted";
+export type NotificationKind = "friend-request" | "friend-accepted" | "dm";
 
 export interface InboxNotification {
   /** Names the thing, not the moment — see the header on dedup. */
@@ -31,6 +31,8 @@ export interface InboxNotification {
   body?: string;
   /** Where clicking it goes. */
   href?: string;
+  /** The other person, when the notification is about one. */
+  userId?: string;
   ts: number;
   read: boolean;
 }
@@ -82,6 +84,32 @@ export function pushNotification(
   persist();
   emit();
   return true;
+}
+
+/**
+ * Adds, or refreshes the one already there.
+ *
+ * For the streams where the *thing* is a person rather than an event: five
+ * messages from one person is one row in a bell, carrying the newest line,
+ * not five rows carrying a conversation. Marks it unread again, because a new
+ * message in a thread already listed is still new.
+ *
+ * Returns whether the row was created, for callers that treat the first
+ * arrival differently from the rest.
+ */
+export function upsertNotification(
+  notification: Omit<InboxNotification, "read" | "ts"> & { ts?: number }
+): boolean {
+  hydrate();
+  const ts = notification.ts ?? Date.now();
+  const existing = items.find((item) => item.id === notification.id);
+  items = [
+    { ...notification, ts, read: false },
+    ...items.filter((item) => item.id !== notification.id),
+  ].slice(0, MAX_ITEMS);
+  persist();
+  emit();
+  return !existing;
 }
 
 /** Drops one by id — for something that stopped being true. */
