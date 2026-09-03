@@ -9,6 +9,7 @@ import { useSignaling } from "@/lib/useSignaling";
 import { trackEvent } from "@/lib/analytics";
 import { Tooltip } from "@/components/Tooltip";
 import { VerifiedBadgeIcon, ObsSourceIcon } from "@/components/icons";
+import { BetaMark } from "@/components/BetaMark";
 import { hasVerifiedBadge } from "@/lib/entitlements";
 
 // Who you are, at the foot of the room's chat column (see WatchRoom, from lg
@@ -199,6 +200,7 @@ export function RoomAccountCard({
             <div className="flex items-center gap-2">
               <ObsSourceIcon className="h-4 w-4 shrink-0" />
               <span className="font-semibold">Modo Streamer</span>
+              <span className="text-[10px] font-bold"><BetaMark /></span>
             </div>
             <div className="flex items-center gap-1.5">
               <span

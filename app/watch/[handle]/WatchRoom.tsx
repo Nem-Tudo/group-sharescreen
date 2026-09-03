@@ -892,24 +892,17 @@ const MAX_CHAT_WIDTH = 720;
 // every one of them is wrapped by its tooltip: a disabled button fires no
 // pointer events, and the disabled state is exactly when the tooltip has
 // something to say (see Tooltip's wrapperClassName).
-const DOCK_SLOT = "flex min-w-0 flex-1";
-// Split so the one control that shares its slot can opt out of the minimum
-// width. `min-w-10` is right for a button alone in a slot — it stops a very
-// narrow phone squeezing a tap target below 40px — and wrong for one paired
-// with the camera switch, where the floor plus the switch's fixed 28px add up
-// to more than a `flex-1` slot has on a narrow screen. The pair then
-// overflowed instead of shrinking, which is what put the switch on top of the
-// camera button.
+const DOCK_SLOT = "flex min-w-0 flex-1 items-center justify-center";
 const DOCK_BUTTON_BASE =
-  "flex h-11 w-full items-center justify-center rounded-xl text-white transition disabled:cursor-not-allowed disabled:opacity-50";
-const DOCK_BUTTON = `${DOCK_BUTTON_BASE} min-w-8 sm:min-w-10`;
+  "flex h-11 w-full items-center justify-center rounded-xl text-white transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50";
+const DOCK_BUTTON = `${DOCK_BUTTON_BASE}`;
 const DOCK_ON = "bg-emerald-600 active:bg-emerald-700";
 const DOCK_OFF = "bg-red-600 active:bg-red-700";
 // Same red as DOCK_OFF, named apart because it means the opposite thing: not
 // "this is switched off" but "this is on the air".
 const DOCK_LIVE = "bg-red-600 active:bg-red-700";
 const DOCK_TAB =
-  "flex h-11 min-w-10 sm:min-w-12 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl px-1.5 sm:px-2 transition";
+  "flex h-11 w-11 sm:w-12 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl transition active:scale-95";
 const DOCK_TAB_ACTIVE = "bg-zinc-950 text-white dark:bg-zinc-50 dark:text-zinc-950";
 const DOCK_TAB_IDLE =
   "text-zinc-600 active:bg-zinc-100 dark:text-zinc-400 dark:active:bg-zinc-900";
@@ -1227,6 +1220,121 @@ export function WatchRoom({ handle }: { handle: string }) {
     } else if (deltaY < -25) {
       // Swiped down by more than 25px -> close extra menu
       setMobileExtraMenuOpen(false);
+    }
+  }
+
+  // Permite fechar o painel mobile (Chat e Pessoas) puxando para baixo
+  const mobilePanelRef = useRef<HTMLElement | null>(null);
+  const panelTouchStartY = useRef<number | null>(null);
+  const panelTouchStartX = useRef<number | null>(null);
+  const panelTouchStartTime = useRef<number>(0);
+  const panelIsDragging = useRef<boolean>(false);
+  const panelScrollElement = useRef<HTMLElement | null>(null);
+
+  function handlePanelTouchStart(e: React.TouchEvent) {
+    const touch = e.touches[0];
+    panelTouchStartY.current = touch.clientY;
+    panelTouchStartX.current = touch.clientX;
+    panelTouchStartTime.current = Date.now();
+    panelIsDragging.current = false;
+
+    const section = mobilePanelRef.current;
+    if (!section) return;
+
+    const target = e.target as HTMLElement | null;
+    const isGrabHandle = Boolean(target?.closest("[data-panel-grab-handle]"));
+
+    if (isGrabHandle) {
+      panelScrollElement.current = null;
+      panelIsDragging.current = true;
+      section.style.transition = "none";
+      return;
+    }
+
+    // Se o toque foi no conteúdo, acha o container de scroll mais próximo
+    let cur = target;
+    let scrollable: HTMLElement | null = null;
+    while (cur && cur !== section) {
+      const overflowY = window.getComputedStyle(cur).overflowY;
+      if ((overflowY === "auto" || overflowY === "scroll") && cur.scrollHeight > cur.clientHeight) {
+        scrollable = cur;
+        break;
+      }
+      cur = cur.parentElement;
+    }
+    panelScrollElement.current = scrollable;
+  }
+
+  function handlePanelTouchMove(e: React.TouchEvent) {
+    if (panelTouchStartY.current === null || panelTouchStartX.current === null) return;
+    const section = mobilePanelRef.current;
+    if (!section) return;
+
+    const touch = e.touches[0];
+    const deltaY = touch.clientY - panelTouchStartY.current;
+    const deltaX = touch.clientX - panelTouchStartX.current;
+
+    // Se estiver subindo ou neutro
+    if (deltaY <= 0) {
+      if (panelIsDragging.current) {
+        section.style.transform = "translateY(0px)";
+        panelIsDragging.current = false;
+      }
+      return;
+    }
+
+    // Se estiver dentro de um elemento rolável que ainda tem scroll acima, deixa rolar normal
+    if (panelScrollElement.current && panelScrollElement.current.scrollTop > 0) {
+      return;
+    }
+
+    // Se o movimento for mais horizontal do que vertical, ignora
+    if (!panelIsDragging.current && Math.abs(deltaY) < Math.abs(deltaX)) {
+      return;
+    }
+
+    panelIsDragging.current = true;
+    section.style.transition = "none";
+    section.style.transform = `translateY(${Math.max(0, deltaY)}px)`;
+  }
+
+  function handlePanelTouchEnd(e: React.TouchEvent) {
+    if (panelTouchStartY.current === null) return;
+    const section = mobilePanelRef.current;
+    const touch = e.changedTouches[0];
+    const deltaY = touch.clientY - panelTouchStartY.current;
+    const duration = Math.max(1, Date.now() - panelTouchStartTime.current);
+    const velocity = deltaY / duration;
+
+    panelTouchStartY.current = null;
+    panelTouchStartX.current = null;
+    panelScrollElement.current = null;
+
+    if (!section) return;
+
+    // Fecha se arrastou mais de 60px para baixo OU swipe rápido (>25px com velocidade > 0.35)
+    const shouldClose = panelIsDragging.current && (deltaY > 60 || (velocity > 0.35 && deltaY > 25));
+    panelIsDragging.current = false;
+
+    if (shouldClose) {
+      section.style.transition = "transform 0.18s ease-out";
+      section.style.transform = "translateY(100%)";
+      setTimeout(() => {
+        setMobilePanel(null);
+        if (section) {
+          section.style.transform = "";
+          section.style.transition = "";
+        }
+      }, 180);
+    } else {
+      section.style.transition = "transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)";
+      section.style.transform = "translateY(0px)";
+      setTimeout(() => {
+        if (section) {
+          section.style.transform = "";
+          section.style.transition = "";
+        }
+      }, 200);
     }
   }
 
@@ -3588,32 +3696,6 @@ export function WatchRoom({ handle }: { handle: string }) {
         {linkCopied ? "Link copiado!" : "Compartilhar sala"}
       </button>
 
-      {canUseStreamerMode && (
-        <button
-          type="button"
-          onClick={toggleStreamerMode}
-          className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-sm font-medium transition ${
-            streamerMode
-              ? "border-purple-500/60 bg-purple-50 text-purple-700 dark:border-purple-800 dark:bg-purple-950/30 dark:text-purple-300"
-              : "border-zinc-200 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-900"
-          }`}
-        >
-          <div className="flex items-center gap-2">
-            <ObsSourceIcon className="h-4 w-4 text-purple-600 dark:text-purple-400" />
-            <span>Modo Streamer</span>
-          </div>
-          <span
-            className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-              streamerMode
-                ? "bg-purple-600 text-white"
-                : "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
-            }`}
-          >
-            {streamerMode ? "Ativado" : "Desativado"}
-          </span>
-        </button>
-      )}
-
       <a
         href="https://discord.gg/nemtudo"
         target="_blank"
@@ -5329,24 +5411,30 @@ export function WatchRoom({ handle }: { handle: string }) {
 
             {mobilePanel && (
               <section
+                ref={mobilePanelRef}
+                onTouchStart={handlePanelTouchStart}
+                onTouchMove={handlePanelTouchMove}
+                onTouchEnd={handlePanelTouchEnd}
+                onTouchCancel={handlePanelTouchEnd}
                 // Mounted only while open, which is also what keeps the chat
                 // opening on the newest message: ChatPanel jumps to the
                 // bottom of the log on mount (see its initializedRef), and a
                 // panel kept alive behind `display: none` cannot scroll
                 // itself, so it would come back holding whatever position it
                 // had when it was put away.
-                className="flex h-[55dvh] min-h-72 shrink-0 flex-col border-t border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950"
+                className="flex h-[55dvh] min-h-72 shrink-0 flex-col border-t border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 will-change-transform"
               >
                 {/* The usual sheet grab bar, and a second way out: a sheet
                     whose only exit is the control that opened it is the kind
                     of thing people get stuck inside. */}
                 <button
                   type="button"
+                  data-panel-grab-handle
                   onClick={() => setMobilePanel(null)}
                   aria-label="Fechar"
-                  className="flex w-full shrink-0 justify-center py-2"
+                  className="group flex w-full shrink-0 cursor-pointer flex-col items-center justify-center py-2.5 touch-none select-none"
                 >
-                  <span className="h-1 w-10 rounded-full bg-zinc-300 dark:bg-zinc-700" />
+                  <span className="h-1.5 w-12 rounded-full bg-zinc-300 transition-colors group-hover:bg-zinc-400 group-active:bg-zinc-500 dark:bg-zinc-700 dark:group-hover:bg-zinc-600 dark:group-active:bg-zinc-500" />
                 </button>
 
                 {mobilePanel === "participants" ? (
@@ -5409,14 +5497,22 @@ export function WatchRoom({ handle }: { handle: string }) {
                       }}
                       disabled={Boolean(videoSourceBlockedReason)}
                       aria-label="Adicionar fonte de vídeo"
-                      className="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-zinc-200 bg-white p-2 text-zinc-700 shadow-sm transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200"
+                      className="flex h-[4.75rem] flex-col items-center justify-center gap-1.5 rounded-xl border border-zinc-200 bg-white p-2 text-zinc-700 shadow-sm transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200"
                     >
                       <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600 dark:bg-emerald-950/70 dark:text-emerald-400">
                         <MdOutlineOndemandVideo className="h-5 w-5" />
                       </div>
-                      <span className="text-center text-[11px] font-semibold leading-tight">
-                        Vídeo
-                      </span>
+                      <div className="flex flex-col items-center">
+                        <div className="flex items-center gap-1">
+                          <span className="text-center text-[11px] font-semibold leading-tight">
+                            Vídeo
+                          </span>
+                          <span className="text-[9px] font-bold leading-none"><BetaMark /></span>
+                        </div>
+                        <span className="text-[9px] font-medium leading-none text-zinc-400 dark:text-zinc-500 mt-0.5">
+                          Mídia
+                        </span>
+                      </div>
                     </button>
 
                     {/* [musica] */}
@@ -5428,14 +5524,22 @@ export function WatchRoom({ handle }: { handle: string }) {
                       }}
                       disabled={!canManageMusic}
                       aria-label={state.music || myMusicSlot ? "Trocar a música da sala" : "Colocar música na sala"}
-                      className="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-zinc-200 bg-white p-2 text-zinc-700 shadow-sm transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200"
+                      className="flex h-[4.75rem] flex-col items-center justify-center gap-1.5 rounded-xl border border-zinc-200 bg-white p-2 text-zinc-700 shadow-sm transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200"
                     >
                       <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600 dark:bg-emerald-950/70 dark:text-emerald-400">
                         <MdMusicNote className="h-5 w-5" />
                       </div>
-                      <span className="text-center text-[11px] font-semibold leading-tight">
-                        {state.music || myMusicSlot ? "Trocar Música" : "Música"}
-                      </span>
+                      <div className="flex flex-col items-center">
+                        <div className="flex items-center gap-1">
+                          <span className="text-center text-[11px] font-semibold leading-tight">
+                            Música
+                          </span>
+                          <span className="text-[9px] font-bold leading-none"><BetaMark /></span>
+                        </div>
+                        <span className="text-[9px] font-medium leading-none text-zinc-400 dark:text-zinc-500 mt-0.5">
+                          {state.music || myMusicSlot ? "Tocando" : "Parado"}
+                        </span>
+                      </div>
                     </button>
 
                     {/* [stream] */}
@@ -5449,7 +5553,7 @@ export function WatchRoom({ handle }: { handle: string }) {
                         toggleStreamerMode();
                       }}
                       aria-label={streamerMode ? "Desativar modo streamer" : "Ativar modo streamer"}
-                      className={`flex flex-col items-center justify-center gap-1.5 rounded-xl border p-2 shadow-sm transition active:scale-95 ${
+                      className={`flex h-[4.75rem] flex-col items-center justify-center gap-1.5 rounded-xl border p-2 shadow-sm transition active:scale-95 ${
                         streamerMode
                           ? "border-purple-500/60 bg-purple-50 text-purple-700 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300"
                           : "border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200"
@@ -5465,9 +5569,12 @@ export function WatchRoom({ handle }: { handle: string }) {
                         <ObsSourceIcon className="h-5 w-5" />
                       </div>
                       <div className="flex flex-col items-center">
-                        <span className="text-center text-[11px] font-semibold leading-tight">
-                          Stream
-                        </span>
+                        <div className="flex items-center gap-1">
+                          <span className="text-center text-[11px] font-semibold leading-tight">
+                            Stream
+                          </span>
+                          <span className="text-[9px] font-bold leading-none"><BetaMark /></span>
+                        </div>
                         <span
                           className={`text-[9px] font-bold leading-none mt-0.5 ${
                             streamerMode ? "text-purple-600 dark:text-purple-400" : "text-zinc-400 dark:text-zinc-500"
@@ -5482,80 +5589,54 @@ export function WatchRoom({ handle }: { handle: string }) {
               )}
 
               {/* Layout da barra de baixo: [mic] [escutar] [camera] [tela] [sair] | Chat Pessoas */}
-              <nav className="flex shrink-0 items-center gap-1 px-2 py-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))]">
-                <div className="flex min-w-0 flex-1 items-center gap-1">
+              <nav className="flex shrink-0 items-center gap-1 px-1.5 py-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))]">
+                {/* 5 botões de chamada rigorosamente do mesmo tamanho: mic, mute, camera, tela, sair */}
+                <div className="flex flex-1 min-w-0 items-center gap-1">
                   {/* 1. [mic] */}
-                  <ShortcutQuickPopover
-                    action="toggleMute"
-                    open={quickShortcutAction === "toggleMute"}
-                    onClose={() => setQuickShortcutAction(null)}
-                    hasAccount={Boolean(state.account)}
-                    onRequestAccount={() => setAccountModal("create")}
-                    onOpenAllShortcuts={() => setShortcutsModalOpen(true)}
+                  <MicUsageHint
+                    open={micHintOpen}
+                    onDismiss={closeMicHint}
+                    onEnableMic={enableMicFromHint}
+                    tooltip={isMicOn ? "Desativar microfone" : (micBlockedReason ?? "Ativar microfone")}
+                    wrapperClassName={DOCK_SLOT}
                   >
-                    <MicUsageHint
-                      open={micHintOpen}
-                      onDismiss={closeMicHint}
-                      onEnableMic={enableMicFromHint}
-                      tooltip={isMicOn ? "Desativar microfone" : (micBlockedReason ?? "Ativar microfone")}
-                      wrapperClassName={DOCK_SLOT}
+                    <button
+                      type="button"
+                      onClick={handleToggleMic}
+                      disabled={!isMicOn && Boolean(micBlockedReason)}
+                      aria-pressed={isMicOn}
+                      aria-label={isMicOn ? "Desativar microfone" : "Ativar microfone"}
+                      className={`${DOCK_BUTTON} ${isMicOn ? DOCK_ON : DOCK_OFF}`}
                     >
-                      <button
-                        type="button"
-                        onClick={handleToggleMic}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          setQuickShortcutAction("toggleMute");
-                        }}
-                        disabled={!isMicOn && Boolean(micBlockedReason)}
-                        aria-pressed={isMicOn}
-                        aria-label={isMicOn ? "Desativar microfone" : "Ativar microfone"}
-                        className={`${DOCK_BUTTON} ${isMicOn ? DOCK_ON : DOCK_OFF}`}
-                      >
-                        {isMicOn ? <MicIcon className="h-5 w-5" /> : <MicOffIcon className="h-5 w-5" />}
-                      </button>
-                    </MicUsageHint>
-                  </ShortcutQuickPopover>
+                      {isMicOn ? <MicIcon className="h-5 w-5" /> : <MicOffIcon className="h-5 w-5" />}
+                    </button>
+                  </MicUsageHint>
 
                   {/* 2. [escutar] */}
-                  <ShortcutQuickPopover
-                    action="toggleDeafen"
-                    open={quickShortcutAction === "toggleDeafen"}
-                    onClose={() => setQuickShortcutAction(null)}
-                    hasAccount={Boolean(state.account)}
-                    onRequestAccount={() => setAccountModal("create")}
-                    onOpenAllShortcuts={() => setShortcutsModalOpen(true)}
+                  <Tooltip
+                    content={micsMuted ? "Reativar microfones" : "Silenciar microfones"}
+                    wrapperClassName={DOCK_SLOT}
                   >
-                    <Tooltip
-                      content={micsMuted ? "Reativar microfones" : "Silenciar microfones"}
-                      wrapperClassName={DOCK_SLOT}
+                    <button
+                      type="button"
+                      onClick={toggleMicsMuted}
+                      aria-pressed={!micsMuted}
+                      aria-label={micsMuted ? "Reativar microfones" : "Silenciar microfones"}
+                      className={`${DOCK_BUTTON} ${micsMuted ? DOCK_OFF : DOCK_ON}`}
                     >
-                      <button
-                        type="button"
-                        onClick={toggleMicsMuted}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          setQuickShortcutAction("toggleDeafen");
-                        }}
-                        aria-pressed={!micsMuted}
-                        aria-label={micsMuted ? "Reativar microfones" : "Silenciar microfones"}
-                        className={`${DOCK_BUTTON} ${micsMuted ? DOCK_OFF : DOCK_ON}`}
-                      >
-                        {micsMuted ? (
-                          <HeadphonesOffIcon className="h-5 w-5" />
-                        ) : (
-                          <HeadphonesIcon className="h-5 w-5" />
-                        )}
-                      </button>
-                    </Tooltip>
-                  </ShortcutQuickPopover>
+                      {micsMuted ? (
+                        <HeadphonesOffIcon className="h-5 w-5" />
+                      ) : (
+                        <HeadphonesIcon className="h-5 w-5" />
+                      )}
+                    </button>
+                  </Tooltip>
 
-                  {/* 3. [camera] */}
+                  {/* 3. [camera] do mesmo tamanho dos demais, e ao lado o pequeno junto para virar */}
                   {screenShareMode !== "unsupported" && (
                     <div
-                      className={`flex min-w-0 items-stretch gap-px ${
-                        canSwitchCamera ? "flex-[1.4]" : "flex-1"
-                      }`}
+                      className="flex min-w-0 items-stretch"
+                      style={{ flex: canSwitchCamera ? "1 1 1.5rem" : "1 1 0%" }}
                     >
                       <Tooltip
                         content={
@@ -5563,7 +5644,7 @@ export function WatchRoom({ handle }: { handle: string }) {
                             ? "Parar câmera"
                             : (cameraBlockedReason ?? "Compartilhar câmera")
                         }
-                        wrapperClassName="flex min-w-0 flex-1"
+                        wrapperClassName="flex min-w-0 flex-1 items-center justify-center"
                       >
                         <button
                           type="button"
@@ -5572,19 +5653,20 @@ export function WatchRoom({ handle }: { handle: string }) {
                           aria-pressed={Boolean(localCameraStream)}
                           aria-label={localCameraStream ? "Parar câmera" : "Compartilhar câmera"}
                           className={`${DOCK_BUTTON_BASE} ${
-                            canSwitchCamera ? "rounded-r-none" : "min-w-8"
+                            canSwitchCamera ? "rounded-r-none" : ""
                           } ${localCameraStream ? DOCK_LIVE : DOCK_ON}`}
                         >
                           <CameraIcon className="h-5 w-5" />
                         </button>
                       </Tooltip>
                       {canSwitchCamera && (
-                        <Tooltip content={switchCameraLabel} wrapperClassName="flex">
+                        <Tooltip content={switchCameraLabel} wrapperClassName="flex shrink-0">
                           <button
                             type="button"
                             onClick={switchCamera}
+                            disabled={!localCameraStream && Boolean(cameraBlockedReason)}
                             aria-label={switchCameraLabel}
-                            className={`flex h-11 w-6 shrink-0 items-center justify-center rounded-r-xl text-white transition ${
+                            className={`flex h-11 w-6 shrink-0 items-center justify-center rounded-r-xl border-l border-white/20 text-white transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 ${
                               localCameraStream ? DOCK_LIVE : DOCK_ON
                             }`}
                           >
@@ -5596,50 +5678,37 @@ export function WatchRoom({ handle }: { handle: string }) {
                   )}
 
                   {/* 4. [tela] */}
-                  <ShortcutQuickPopover
-                    action="toggleScreenShare"
-                    open={quickShortcutAction === "toggleScreenShare"}
-                    onClose={() => setQuickShortcutAction(null)}
-                    hasAccount={Boolean(state.account)}
-                    onRequestAccount={() => setAccountModal("create")}
-                    onOpenAllShortcuts={() => setShortcutsModalOpen(true)}
+                  <Tooltip
+                    content={
+                      screenShareMode !== "display"
+                        ? "Compartilhamento de tela não suportado neste navegador"
+                        : localStream
+                          ? "Parar de compartilhar a tela"
+                          : (screenBlockedReason ?? "Compartilhar tela")
+                    }
+                    wrapperClassName={DOCK_SLOT}
                   >
-                    <Tooltip
-                      content={
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (screenShareMode !== "display") return;
+                        if (localStream) stopShare();
+                        else startShare("display");
+                      }}
+                      disabled={screenShareMode !== "display" || (!localStream && Boolean(screenBlockedReason))}
+                      aria-pressed={Boolean(localStream)}
+                      aria-label={localStream ? "Parar de compartilhar a tela" : "Compartilhar tela"}
+                      className={`${DOCK_BUTTON} ${
                         screenShareMode !== "display"
-                          ? "Compartilhamento de tela não suportado neste navegador"
+                          ? "bg-zinc-200 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-600"
                           : localStream
-                            ? "Parar de compartilhar a tela"
-                            : (screenBlockedReason ?? "Compartilhar tela")
-                      }
-                      wrapperClassName={DOCK_SLOT}
+                            ? DOCK_LIVE
+                            : DOCK_ON
+                      }`}
                     >
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (screenShareMode !== "display") return;
-                          if (localStream) stopShare();
-                          else startShare("display");
-                        }}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          setQuickShortcutAction("toggleScreenShare");
-                        }}
-                        disabled={screenShareMode !== "display" || (!localStream && Boolean(screenBlockedReason))}
-                        aria-pressed={Boolean(localStream)}
-                        aria-label={localStream ? "Parar de compartilhar a tela" : "Compartilhar tela"}
-                        className={`${DOCK_BUTTON} ${
-                          screenShareMode !== "display"
-                            ? "bg-zinc-200 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-600"
-                            : localStream
-                              ? DOCK_LIVE
-                              : DOCK_ON
-                        }`}
-                      >
-                        <ScreenIcon className="h-5 w-5" />
-                      </button>
-                    </Tooltip>
-                  </ShortcutQuickPopover>
+                      <ScreenIcon className="h-5 w-5" />
+                    </button>
+                  </Tooltip>
 
                   {/* 5. [sair] */}
                   <Tooltip content="Sair da chamada" wrapperClassName={DOCK_SLOT}>
@@ -5658,38 +5727,42 @@ export function WatchRoom({ handle }: { handle: string }) {
                 </div>
 
                 {/* Divisor | */}
-                <span className="mx-0.5 h-8 w-px shrink-0 bg-zinc-200 dark:bg-zinc-800" />
+                <span className="mx-0.5 sm:mx-1 h-8 w-px shrink-0 bg-zinc-200 dark:bg-zinc-800" />
 
-                {/* Chat */}
-                <button
-                  type="button"
-                  onClick={() => toggleMobilePanel("chat")}
-                  aria-pressed={mobilePanel === "chat"}
-                  className={`${DOCK_TAB} ${mobilePanel === "chat" ? DOCK_TAB_ACTIVE : DOCK_TAB_IDLE}`}
-                >
-                  <span className="relative">
-                    <MdOutlineChat className="h-5 w-5" />
-                    {unreadChatCount > 0 && (
-                      <span className="absolute -right-2 -top-1.5 min-w-4 rounded-full bg-red-600 px-1 text-center text-[10px] font-bold leading-4 text-white">
-                        {unreadChatCount > 9 ? "9+" : unreadChatCount}
+                {/* 6. Chat e 7. Pessoas */}
+                <div className="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => toggleMobilePanel("chat")}
+                    aria-pressed={mobilePanel === "chat"}
+                    className={`${DOCK_TAB} ${mobilePanel === "chat" ? DOCK_TAB_ACTIVE : DOCK_TAB_IDLE}`}
+                  >
+                    <span className="relative">
+                      <MdOutlineChat className="h-5 w-5" />
+                      {unreadChatCount > 0 && (
+                        <span className="absolute -right-2 -top-1.5 min-w-4 rounded-full bg-red-600 px-1 text-center text-[10px] font-bold leading-4 text-white">
+                          {unreadChatCount > 9 ? "9+" : unreadChatCount}
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-[10px] font-medium leading-none truncate max-w-full">Chat</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => toggleMobilePanel("participants")}
+                    aria-pressed={mobilePanel === "participants"}
+                    className={`${DOCK_TAB} ${mobilePanel === "participants" ? DOCK_TAB_ACTIVE : DOCK_TAB_IDLE}`}
+                  >
+                    <span className="relative">
+                      <MdOutlinePeople className="h-5 w-5" />
+                      <span className="absolute -right-2.5 -top-1.5 min-w-4 rounded-full bg-zinc-600 dark:bg-zinc-700 px-1 text-center text-[10px] font-bold leading-4 text-white">
+                        {peerCount}
                       </span>
-                    )}
-                  </span>
-                  <span className="text-[10px] font-medium leading-none">Chat</span>
-                </button>
-
-                {/* Pessoas */}
-                <button
-                  type="button"
-                  onClick={() => toggleMobilePanel("participants")}
-                  aria-pressed={mobilePanel === "participants"}
-                  className={`${DOCK_TAB} ${mobilePanel === "participants" ? DOCK_TAB_ACTIVE : DOCK_TAB_IDLE}`}
-                >
-                  <MdOutlinePeople className="h-5 w-5" />
-                  <span className="text-[10px] font-medium leading-none">
-                    Pessoas ({state.roomMemberLimit ? `${peerCount}/${state.roomMemberLimit}` : peerCount})
-                  </span>
-                </button>
+                    </span>
+                    <span className="text-[10px] font-medium leading-none truncate max-w-full">Pessoas</span>
+                  </button>
+                </div>
               </nav>
             </div>
           </>
