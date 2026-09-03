@@ -20,6 +20,7 @@ import {
 } from "react-icons/md";
 import {
   signalingClient,
+  isObsPeer,
   type RoomPermissionKey,
   type PeerInfo,
   type RoomLocation,
@@ -130,7 +131,7 @@ export function ManageRoomModal({
   // the promotion on.
   const promotablePeers = state.peers.filter(
     (p): p is PeerInfo & { userId: string } =>
-      p.role !== "moderator" && Boolean(p.userId) && p.userId !== state.roomOwnerId
+      p.role !== "moderator" && !isObsPeer(p) && Boolean(p.userId) && p.userId !== state.roomOwnerId
   );
 
   // Asked for rather than pushed on join: most managers never open this, and
@@ -528,7 +529,7 @@ export function ManageRoomModal({
           </p>
           <p className="text-xs text-zinc-500 dark:text-zinc-400">
             Agora: <span className="font-medium text-zinc-700 dark:text-zinc-300">
-              {state.peers.filter((p) => p.role !== "moderator").length + 1}
+              {state.peers.filter((p) => p.role !== "moderator" && !isObsPeer(p)).length + 1}
             </span>{" "}
             na sala.
           </p>

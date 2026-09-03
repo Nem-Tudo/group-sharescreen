@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { FocusIcon, HyperfocusIcon, FullscreenIcon, FullscreenExitIcon, EyeOffIcon } from "@/components/icons";
+import { FocusIcon, HyperfocusIcon, FullscreenIcon, FullscreenExitIcon, EyeOffIcon, ObsSourceIcon } from "@/components/icons";
 import { Tooltip } from "@/components/Tooltip";
 import { VolumeSlider } from "@/components/VolumeSlider";
 import { MdClose, MdSettings, MdLock, MdLockOpen } from "react-icons/md";
@@ -304,6 +304,8 @@ export function VideoSourceTile({
   onHyperfocus,
   isHyperfocused = false,
   hasAccount = true,
+  onObsSource,
+  isObsActive = false,
   onRequestAccount,
 }: {
   source: VideoSource;
@@ -366,6 +368,8 @@ export function VideoSourceTile({
   onHyperfocus?: () => void;
   isHyperfocused?: boolean;
   hasAccount?: boolean;
+  onObsSource?: () => void;
+  isObsActive?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -930,6 +934,19 @@ export function VideoSourceTile({
           >
             {source.kind}
           </span>
+          {isObsActive && (
+            <span
+              title="Este vídeo está ativo em transmissão externa"
+              className="flex items-center gap-1 rounded-full border border-purple-400/40 bg-purple-950/80 px-1.5 py-0.5 text-[10px] font-semibold text-purple-200 shadow-sm"
+            >
+              <span className="relative flex h-2 w-2 shrink-0 items-center justify-center">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-purple-400 opacity-75" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-purple-400" />
+              </span>
+              <ObsSourceIcon className="h-3 w-3 shrink-0 text-purple-300" />
+              <span className="hidden sm:inline">Transmissão</span>
+            </span>
+          )}
         </span>
 
         <span className="flex shrink-0 items-center gap-1">
@@ -1053,6 +1070,32 @@ export function VideoSourceTile({
                 }`}
               >
                 <HyperfocusIcon className="h-4 w-4" />
+              </button>
+            </Tooltip>
+          )}
+          {onObsSource && (
+            <Tooltip
+              content={
+                isObsActive
+                  ? "Este vídeo está sendo compartilhado no OBS (Clique para ver/copiar o link)"
+                  : !hasAccount
+                  ? "Utilize uma conta para exportar para o OBS"
+                  : "Copiar link do OBS para esse vídeo"
+              }
+            >
+              <button
+                type="button"
+                onClick={!hasAccount ? (onRequestAccount ?? onObsSource) : onObsSource}
+                aria-label={`Copiar link do OBS para esse vídeo${!hasAccount ? " (requer conta)" : ""}`}
+                className={`rounded-full p-1.5 text-white transition ${
+                  isObsActive
+                    ? "bg-purple-600 hover:bg-purple-700 active:bg-purple-800 ring-2 ring-purple-400/60 shadow-lg"
+                    : !hasAccount
+                    ? "opacity-40 hover:bg-transparent hover:opacity-40"
+                    : "hover:bg-white/10"
+                }`}
+              >
+                <ObsSourceIcon className="h-4 w-4" />
               </button>
             </Tooltip>
           )}

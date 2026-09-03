@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { usePathname } from "next/navigation";
 import { useSignaling } from "@/lib/useSignaling";
 import { signalingClient } from "@/lib/signalingClient";
 import { AnnouncementBar } from "./AnnouncementBar";
@@ -200,6 +201,8 @@ export function AnnouncementBanner() {
     return () => document.removeEventListener("visibilitychange", maybeReportView);
   }, [announcement, deliveryKey, willShow]);
 
+  const pathname = usePathname();
+  if (pathname?.startsWith("/obs")) return null;
   if (!willShow || !announcement) return null;
 
   return (

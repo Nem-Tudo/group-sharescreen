@@ -16,6 +16,7 @@ import {
   MicOffIcon,
   HeadphonesIcon,
   HeadphonesOffIcon,
+  ObsSourceIcon,
 } from "@/components/icons";
 import { VolumeSlider } from "@/components/VolumeSlider";
 import { Tooltip } from "@/components/Tooltip";
@@ -63,6 +64,8 @@ export function VideoTile({
   onHyperfocus,
   isHyperfocused = false,
   hasAccount = true,
+  onObsSource,
+  isObsActive = false,
   overlayRightOffset = false,
   isMicOn,
   onToggleMic,
@@ -126,6 +129,8 @@ export function VideoTile({
   onHyperfocus?: () => void;
   isHyperfocused?: boolean;
   hasAccount?: boolean;
+  onObsSource?: () => void;
+  isObsActive?: boolean;
   overlayRightOffset?: boolean;
   // The page's own mic controls (see WatchRoom's isMicOn/toggleMic and
   // micsMuted/toggleMicsMuted) — normally reachable from the header, but the
@@ -527,6 +532,19 @@ export function VideoTile({
             {badge}
           </span>
         )}
+        {isObsActive && !compact && (
+          <span
+            title="Esta transmissão está ativa externamente"
+            className="flex items-center gap-1.5 rounded-full border border-purple-400/40 bg-purple-950/80 px-2 py-0.5 text-xs font-semibold text-purple-200 shadow-sm"
+          >
+            <span className="relative flex h-2 w-2 shrink-0 items-center justify-center">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-purple-400 opacity-75" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-purple-400" />
+            </span>
+            <ObsSourceIcon className="h-3 w-3 shrink-0 text-purple-300" />
+            <span className="hidden sm:inline">Transmissão ativa</span>
+          </span>
+        )}
       </div>
       {/* Outside fullscreen: hidden until hovered, so a busy grid isn't
           wall-to-wall buttons — but always shown on a touch device, which
@@ -651,6 +669,32 @@ export function VideoTile({
               }`}
             >
               <HyperfocusIcon className="h-5 w-5" />
+            </button>
+          </Tooltip>
+        )}
+        {onObsSource && (
+          <Tooltip
+            content={
+              isObsActive
+                ? `Esta transmissão está sendo compartilhada no OBS (Clique para ver/copiar o link)`
+                : !hasAccount
+                ? "Utilize uma conta para exportar para o OBS"
+                : `Copiar link do OBS para ${nameForLabel}`
+            }
+          >
+            <button
+              type="button"
+              onClick={onObsSource}
+              aria-label={`Copiar link do OBS para ${nameForLabel}${!hasAccount ? " (requer conta)" : ""}`}
+              className={`rounded-full p-2 text-white transition ${
+                isObsActive
+                  ? "bg-purple-600 hover:bg-purple-700 active:bg-purple-800 ring-2 ring-purple-400/60 shadow-lg"
+                  : !hasAccount
+                  ? "bg-black/30 opacity-40 hover:bg-black/30 hover:opacity-40 active:bg-black/30"
+                  : "bg-black/60 hover:bg-black/80 active:bg-black/80"
+              }`}
+            >
+              <ObsSourceIcon className="h-5 w-5" />
             </button>
           </Tooltip>
         )}

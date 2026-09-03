@@ -625,3 +625,24 @@ export function HeartIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+// OBS / Browser Source icon — a broadcast/stream-out glyph: a rectangle
+// (the source frame) with an arrow pointing out of it (the export action).
+export function ObsSourceIcon({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <circle cx="12" cy="12" r="3" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="6" />
+    </svg>
+  );
+}

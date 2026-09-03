@@ -8,7 +8,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { useSignaling } from "@/lib/useSignaling";
 import { trackEvent } from "@/lib/analytics";
 import { Tooltip } from "@/components/Tooltip";
-import { VerifiedBadgeIcon } from "@/components/icons";
+import { VerifiedBadgeIcon, ObsSourceIcon } from "@/components/icons";
 
 // Who you are, at the foot of the room's chat column (see WatchRoom, from lg
 // up). It used to be a chip wedged into the header between "Compartilhar
@@ -34,12 +34,18 @@ import { VerifiedBadgeIcon } from "@/components/icons";
 export function RoomAccountCard({
   onCreateAccount,
   onOpenProfile,
+  canUseStreamerMode,
+  streamerMode,
+  onToggleStreamerMode,
 }: {
   onCreateAccount: () => void;
   // Open your own profile in the room's dialog. Absent where there is no
   // dialog to open it in, which keeps the new-tab link as the fallback rather
   // than making the card unclickable.
   onOpenProfile?: (userId: string) => void;
+  canUseStreamerMode?: boolean;
+  streamerMode?: boolean;
+  onToggleStreamerMode?: () => void;
 }) {
   const state = useSignaling();
   const { account, points } = useAuth();
@@ -168,6 +174,51 @@ export function RoomAccountCard({
           </div>
         </Tooltip>
       </div>
+
+      {/* Streamer Mode button for room managers with an account */}
+      {canUseStreamerMode && onToggleStreamerMode && (
+        <Tooltip
+          content={
+            streamerMode
+              ? "Modo Streamer ativo: código da sala oculto e transmissão OBS liberada (clique para desativar)"
+              : "Ativar Modo Streamer: esconde o código da sala e libera transmissão para o OBS (apenas para você)"
+          }
+          placement="top"
+        >
+          <button
+            type="button"
+            onClick={onToggleStreamerMode}
+            aria-label={streamerMode ? "Desativar Modo Streamer" : "Ativar Modo Streamer"}
+            className={`mt-2 flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs font-medium transition [@media(max-height:52rem)]:mt-1.5 [@media(max-height:52rem)]:py-1.5 ${
+              streamerMode
+                ? "border-purple-500 bg-purple-600 text-white shadow-sm shadow-purple-500/25 hover:bg-purple-700"
+                : "border-zinc-200 bg-zinc-50 text-zinc-700 hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700 dark:border-zinc-800 dark:bg-zinc-900/70 dark:text-zinc-300 dark:hover:border-purple-700 dark:hover:bg-purple-950/40 dark:hover:text-purple-300"
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <ObsSourceIcon className="h-4 w-4 shrink-0" />
+              <span className="font-semibold">Modo Streamer</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span
+                className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                  streamerMode
+                    ? "bg-white/20 text-white"
+                    : "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+                }`}
+              >
+                {streamerMode ? "Ativo" : "Desativado"}
+              </span>
+              {streamerMode && (
+                <span className="relative flex h-2 w-2 shrink-0">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-white" />
+                </span>
+              )}
+            </div>
+          </button>
+        </Tooltip>
+      )}
 
       {/* Guests only. The offer belongs next to the thing it protects — the
           points right above it, which this browser is the only copy of. */}

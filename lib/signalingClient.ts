@@ -99,7 +99,8 @@ export type PeerInfo = {
   // somebody who cannot hear you is the one thing that list can save you
   // from. Undefined from a server that predates it, read as false.
   micsMuted?: boolean;
-  role?: "moderator";
+  role?: "moderator" | "obs";
+  obsTarget?: string;
   // Stable per-account/per-guest identity (see server/signaling.ts's
   // stableUserId) — unlike `id`, which is reissued on every reconnect, this
   // stays the same across reloads for the same person. Undefined only for a
@@ -163,6 +164,21 @@ export const DEFAULT_ROOM_PERMISSIONS: RoomPermissions = {
   gif: true,
   image: true,
 };
+
+/**
+ * Returns true if a peer is an OBS Browser Source connection (role === "obs" or name starts with OBS).
+ * OBS peers must never appear as room participants, headcount, chat mentions, etc.
+ */
+export function isObsPeer(
+  p: { role?: string; name?: string; obsTarget?: string } | null | undefined
+): boolean {
+  if (!p) return false;
+  if (p.role === "obs") return true;
+  if (p.obsTarget) return true;
+  if (!p.name) return false;
+  const trimmed = p.name.trim();
+  return /^(?:OBS|Stream|Viewer|Fonte|Captura)(?:[:-]|\s|$)/i.test(trimmed);
+}
 
 // Someone the owner promoted to help run the room. `id` is a stable
 // per-account/per-guest id (the same thing PeerInfo.userId carries), and
@@ -373,7 +389,7 @@ export type SignalingState = {
   //   "generic" — everything else (a code-less private handle, a rate limit,
   //               or an unrecognised reason from a newer/older server):
   //               retry, home and support, but no misleading rename box.
-  joinErrorKind: "name" | "full" | "banned" | "captcha" | "device-limit" | "generic" | null;
+  joinErrorKind: "name" | "full" | "banned" | "captcha" | "device-limit" | "obs-unauthorized" | "streamer-mode-disabled" | "rate-limited" | "generic" | null;
   // There used to be a `captchaChallenge` pair here, driving a modal this
   // client opened when the server said the invisible check had refused the
   // join but a challenge was available. Turnstile owns that step now: it
@@ -690,6 +706,17 @@ class SignalingClient {
   // the original register() call did.
   private desiredToken: string | null = null;
   private desiredRoom: string | null = null;
+  private isObsSourceJoin = false;
+  private obsSourceToken: string | null = null;
+  private obsTarget: string | null = null;
+  private pendingObsTokenRequests = new Map<
+    string,
+    {
+      resolve: (token: string) => void;
+      reject: (err: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
   // Last reported state of each video channel — see setSharing, which merges
   // into this rather than overwriting, so one channel's update never claims
   // anything about the other.
@@ -726,6 +753,7 @@ class SignalingClient {
   // See readConfirmedDeviceRooms — which rooms this tab has already said
   // "yes, let me in anyway" for.
   private confirmedDeviceRooms: Set<string> = readConfirmedDeviceRooms();
+  private streamerMode: boolean = false;
   // Peers carried over a reconnect that the server has not re-announced yet
   // (see PEER_RESETTLE_MS). Emptied as each one is confirmed by a
   // "peer-joined"; whatever is left when the timer fires genuinely went away
@@ -1050,7 +1078,13 @@ class SignalingClient {
                 ? "banned"
                 : reason === "device-limit"
                   ? "device-limit"
-                  : "generic";
+                  : reason === "obs-unauthorized"
+                    ? "obs-unauthorized"
+                    : reason === "streamer-mode-disabled"
+                      ? "streamer-mode-disabled"
+                      : reason === "rate-limited"
+                        ? "rate-limited"
+                        : "generic";
         this.setState({
           joinError: (msg.message as string) ?? "Não foi possível entrar nesta sala.",
           joinErrorKind: kind,
@@ -1258,6 +1292,21 @@ class SignalingClient {
           roomCategory: typeof msg.category === "string" ? msg.category : null,
         });
         break;
+      case "obs-token-created": {
+        const reqId = typeof msg.requestId === "string" ? msg.requestId : "";
+        const pending = this.pendingObsTokenRequests.get(reqId);
+        if (!pending) break;
+        clearTimeout(pending.timer);
+        this.pendingObsTokenRequests.delete(reqId);
+        if (msg.error) {
+          pending.reject(new Error(String(msg.error)));
+        } else if (typeof msg.token === "string" && msg.token) {
+          pending.resolve(msg.token);
+        } else {
+          pending.reject(new Error("Token de OBS inválido retornado pelo servidor."));
+        }
+        break;
+      }
       // An action this room doesn't allow us. The server already refused it;
       // this exists so the client can undo whatever it optimistically started
       // on its own (a mic that's already capturing, a share already picked)
@@ -1687,8 +1736,34 @@ class SignalingClient {
     this.setState({ ...initialState });
   }
 
-  joinRoom(room: string) {
+  createObsToken(room: string, target = ""): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const requestId = Math.random().toString(36).slice(2, 11);
+      const timer = setTimeout(() => {
+        this.pendingObsTokenRequests.delete(requestId);
+        reject(new Error("Tempo esgotado ao gerar o token de OBS."));
+      }, 7000);
+
+      this.pendingObsTokenRequests.set(requestId, { resolve, reject, timer });
+      this.rawSend({
+        type: "obs-token-create",
+        room,
+        target,
+        requestId,
+      });
+    });
+  }
+
+  joinRoom(
+    room: string,
+    isObsSource = false,
+    obsToken?: string | null,
+    obsTarget?: string | null
+  ) {
     this.desiredRoom = room;
+    this.isObsSourceJoin = isObsSource;
+    this.obsSourceToken = obsToken ?? null;
+    this.obsTarget = obsTarget ?? null;
     this.joinRetryCount = 0;
     // Whoever is calling this is trying again on purpose, and the most likely
     // thing they changed since the last attempt is the extension that blocked
@@ -1809,7 +1884,20 @@ class SignalingClient {
     // the server asks once per join, so sending it unprompted would silently
     // skip a question that exists precisely to be surprising.
     const confirmed = confirmDevice || this.confirmedDeviceRooms.has(room);
-    this.rawSend({ type: "join", room, turnstileToken, confirmDevice: confirmed });
+    this.rawSend({
+      type: "join",
+      room,
+      turnstileToken,
+      confirmDevice: confirmed,
+      streamerMode: this.streamerMode,
+      ...(this.isObsSourceJoin
+        ? {
+            isObsSource: true,
+            obsToken: this.obsSourceToken,
+            obsTarget: this.obsTarget,
+          }
+        : {}),
+    });
   }
 
   /**
@@ -1880,6 +1968,9 @@ class SignalingClient {
 
   leaveRoom() {
     this.desiredRoom = null;
+    this.isObsSourceJoin = false;
+    this.obsSourceToken = null;
+    this.obsTarget = null;
     this.rawSend({ type: "leave" });
     this.clearAllTyping();
     // Nothing left to resettle: the peers it was holding open belong to the
@@ -2101,6 +2192,11 @@ class SignalingClient {
   // its doc comment for when true/false actually get sent.
   setTyping(typing: boolean) {
     this.rawSend({ type: "typing", typing });
+  }
+
+  setStreamerMode(enabled: boolean) {
+    this.streamerMode = enabled;
+    this.rawSend({ type: "streamer-mode", enabled });
   }
 
   sendSignal(to: string, data: unknown) {

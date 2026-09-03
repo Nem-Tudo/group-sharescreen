@@ -4,6 +4,7 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type Dispatch,
@@ -17,6 +18,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   signalingClient,
+  isObsPeer,
   type RoomPermissionKey,
   type PeerInfo,
 } from "@/lib/signalingClient";
@@ -34,6 +36,7 @@ import {
 } from "@/lib/useRoomMedia";
 import { trackEvent } from "@/lib/analytics";
 import { copyText } from "@/lib/clipboard";
+import { createObsSecurityToken } from "@/lib/obsToken";
 import {
   toRoomHandle,
   isPrivateRoomHandle,
@@ -134,6 +137,7 @@ import {
   FocusIcon,
   ScreenIcon,
   CameraIcon,
+  ObsSourceIcon,
 } from "@/components/icons";
 import { Tooltip, Popover } from "@/components/Tooltip";
 import { ThemeSegmented } from "@/components/ThemeToggle";
@@ -167,6 +171,7 @@ import {
   type ShortcutAction,
 } from "@/lib/keyboardShortcuts";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
+import { ObsBrowserSourceModal } from "@/components/ObsBrowserSourceModal";
 import { ShortcutQuickPopover } from "@/components/ShortcutQuickPopover";
 
 // Mirrors server/signaling.ts's HANDLE_RE — must match exactly, or a name
@@ -1897,6 +1902,135 @@ export function WatchRoom({ handle }: { handle: string }) {
   }, [state.permissionDeniedSeq]);
 
   const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
+  const [obsModalUrl, setObsModalUrl] = useState<string | null>(null);
+
+  // Active OBS Browser Source streams tracked in this room
+  const [activeObsSignals, setActiveObsSignals] = useState<
+    Map<string, { target: string; lastSeen: number }>
+  >(new Map());
+
+  useEffect(() => {
+    const unsub = signalingClient.onSignal((from, data) => {
+      if (
+        data &&
+        typeof data === "object" &&
+        (data as Record<string, unknown>).type === "obs-stream-active" &&
+        typeof (data as Record<string, unknown>).target === "string"
+      ) {
+        const target = (data as Record<string, unknown>).target as string;
+        setActiveObsSignals((prev) => {
+          const next = new Map(prev);
+          next.set(from, { target, lastSeen: Date.now() });
+          return next;
+        });
+      }
+    });
+    return () => {
+      unsub();
+    };
+  }, []);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setActiveObsSignals((prev) => {
+        const now = Date.now();
+        let changed = false;
+        const next = new Map(prev);
+        const livePeerIds = new Set(state.peers.map((p) => p.id));
+        for (const [peerId, entry] of next) {
+          if (!livePeerIds.has(peerId) || now - entry.lastSeen > 30000) {
+            next.delete(peerId);
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    }, 10000);
+    return () => clearInterval(timer);
+  }, [state.peers]);
+
+  const obsActiveTargets = useMemo(() => {
+    const targets = new Set<string>();
+    for (const entry of activeObsSignals.values()) {
+      targets.add(entry.target);
+    }
+    for (const peer of state.peers) {
+      if (isObsPeer(peer) && peer.obsTarget) {
+        targets.add(peer.obsTarget);
+      }
+    }
+    return targets;
+  }, [activeObsSignals, state.peers]);
+
+  const isTargetObsActive = useCallback(
+    (tileIdentifier: string) => {
+      if (obsActiveTargets.has(tileIdentifier)) return true;
+      if (tileIdentifier.endsWith(`:${SELF_TILE_OWNER}`)) {
+        const prefix = tileIdentifier.slice(0, -SELF_TILE_OWNER.length);
+        if (state.selfId && obsActiveTargets.has(prefix + state.selfId)) return true;
+        if (state.selfUserId && obsActiveTargets.has(prefix + state.selfUserId)) return true;
+      }
+      for (const target of obsActiveTargets) {
+        if (target.endsWith(tileIdentifier) || tileIdentifier.endsWith(target)) return true;
+      }
+      return false;
+    },
+    [obsActiveTargets, state.selfId, state.selfUserId]
+  );
+
+  const [streamerMode, setStreamerMode] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem("golive_streamer_mode") === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleStreamerMode = useCallback(() => {
+    setStreamerMode((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("golive_streamer_mode", String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  const canUseStreamerMode = Boolean(isRoomManager && state.account);
+  const canUseObsSource = Boolean(canUseStreamerMode && streamerMode);
+
+  useEffect(() => {
+    if (state.room) {
+      signalingClient.setStreamerMode(streamerMode);
+    }
+  }, [streamerMode, state.room]);
+
+  const handleObsSource = useCallback(
+    async (id: string) => {
+      if (!state.account) {
+        setAccountModal("create");
+        return;
+      }
+      if (!canUseObsSource || !state.selfUserId) {
+        return;
+      }
+      const authorId = state.selfUserId;
+      const authorName = state.account.username || state.name || "Administrador";
+      let exportId = id;
+      if (id.endsWith(`:${SELF_TILE_OWNER}`)) {
+        const selfIdentifier = state.selfUserId ?? state.selfId;
+        if (selfIdentifier) {
+          exportId = id.slice(0, -SELF_TILE_OWNER.length) + selfIdentifier;
+        }
+      }
+      const token = await createObsSecurityToken(handle, exportId, authorId, authorName);
+      const url = `${window.location.origin}/obs/${encodeURIComponent(handle)}/${encodeURIComponent(exportId)}?token=${encodeURIComponent(token)}`;
+      await copyText(url);
+      setObsModalUrl(url);
+    },
+    [handle, state.account, canUseObsSource, state.selfUserId, state.selfId]
+  );
   const [quickShortcutAction, setQuickShortcutAction] = useState<ShortcutAction | null>(null);
 
   useGlobalShortcutListener({
@@ -2322,7 +2456,7 @@ export function WatchRoom({ handle }: { handle: string }) {
       <div className="flex flex-1 items-center justify-center px-4 py-16">
         <main className="w-full max-w-md rounded-2xl border border-black/10 bg-white p-8 shadow-sm dark:border-white/10 dark:bg-zinc-950">
           <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-            Entrar na sala {handle}
+            Entrar na sala {privateRoomParts ? privateRoomParts.name : handle}
           </h1>
           <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
             Escolha um nome para entrar nesta sala.
@@ -2391,7 +2525,9 @@ export function WatchRoom({ handle }: { handle: string }) {
   // same peer list so their WebRTC connections get set up transparently,
   // but must never show up to real participants — filtered out here rather
   // than never added, so this is the one place that has to remember it.
-  const visiblePeers = state.peers.filter((p) => p.role !== "moderator");
+  const visiblePeers = state.peers.filter(
+    (p) => p.role !== "moderator" && !isObsPeer(p)
+  );
   // Built from the peer list *plus this client*, because the peer list never
   // contains us and our own second device has to be numbered like anybody
   // else's. Recomputed every render on purpose: the label is a fact about the
@@ -2780,6 +2916,8 @@ export function WatchRoom({ handle }: { handle: string }) {
           onNativePip={(ratio) => void enterNativePip(id, ratio)}
           isHyperfocused={activeHyperfocusId === id}
           hasAccount={Boolean(state.account)}
+          onObsSource={canUseObsSource ? () => void handleObsSource(id) : undefined}
+          isObsActive={isTargetObsActive(id)}
           overlayRightOffset={overlayRightOffset}
           isMicOn={isMicOn}
           onToggleMic={toggleMic}
@@ -2811,6 +2949,8 @@ export function WatchRoom({ handle }: { handle: string }) {
           onNativePip={(ratio) => void enterNativePip(id, ratio)}
           isHyperfocused={activeHyperfocusId === id}
           hasAccount={Boolean(state.account)}
+          onObsSource={canUseObsSource ? () => void handleObsSource(id) : undefined}
+          isObsActive={isTargetObsActive(id)}
           overlayRightOffset={overlayRightOffset}
           isMicOn={isMicOn}
           onToggleMic={toggleMic}
@@ -2861,6 +3001,8 @@ export function WatchRoom({ handle }: { handle: string }) {
           onNativePip={(ratio) => void enterNativePip(id, ratio)}
           isHyperfocused={activeHyperfocusId === id}
           hasAccount={Boolean(state.account)}
+          onObsSource={canUseObsSource ? () => void handleObsSource(id) : undefined}
+          isObsActive={isTargetObsActive(id)}
           overlayRightOffset={overlayRightOffset}
           isMicOn={isMicOn}
           onToggleMic={toggleMic}
@@ -2929,6 +3071,8 @@ export function WatchRoom({ handle }: { handle: string }) {
           onNativePip={(ratio) => void enterNativePip(id, ratio)}
           isHyperfocused={activeHyperfocusId === id}
           hasAccount={Boolean(state.account)}
+          onObsSource={canUseObsSource ? () => void handleObsSource(id) : undefined}
+          isObsActive={isTargetObsActive(id)}
           overlayRightOffset={overlayRightOffset}
           isMicOn={isMicOn}
           onToggleMic={toggleMic}
@@ -2992,6 +3136,8 @@ export function WatchRoom({ handle }: { handle: string }) {
           onHyperfocus={() => toggleHyperfocus(id)}
           isHyperfocused={activeHyperfocusId === id}
           hasAccount={Boolean(state.account)}
+          onObsSource={canUseObsSource ? () => void handleObsSource(id) : undefined}
+          isObsActive={isTargetObsActive(id)}
         />
       ),
     });
@@ -3051,6 +3197,8 @@ export function WatchRoom({ handle }: { handle: string }) {
           onNativePip={(ratio) => void enterNativePip(id, ratio)}
           isHyperfocused={activeHyperfocusId === id}
           hasAccount={Boolean(state.account)}
+          onObsSource={canUseObsSource ? () => void handleObsSource(id) : undefined}
+          isObsActive={isTargetObsActive(id)}
           overlayRightOffset={overlayRightOffset}
           isMicOn={isMicOn}
           onToggleMic={toggleMic}
@@ -3094,6 +3242,8 @@ export function WatchRoom({ handle }: { handle: string }) {
           onNativePip={(ratio) => void enterNativePip(id, ratio)}
           isHyperfocused={activeHyperfocusId === id}
           hasAccount={Boolean(state.account)}
+          onObsSource={canUseObsSource ? () => void handleObsSource(id) : undefined}
+          isObsActive={isTargetObsActive(id)}
           overlayRightOffset={overlayRightOffset}
           isMicOn={isMicOn}
           onToggleMic={toggleMic}
@@ -3399,6 +3549,32 @@ export function WatchRoom({ handle }: { handle: string }) {
         {linkCopied ? <CheckIcon className="h-4 w-4" /> : <LinkIcon className="h-4 w-4" />}
         {linkCopied ? "Link copiado!" : "Compartilhar sala"}
       </button>
+
+      {canUseStreamerMode && (
+        <button
+          type="button"
+          onClick={toggleStreamerMode}
+          className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-sm font-medium transition ${
+            streamerMode
+              ? "border-purple-500/60 bg-purple-50 text-purple-700 dark:border-purple-800 dark:bg-purple-950/30 dark:text-purple-300"
+              : "border-zinc-200 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-900"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <ObsSourceIcon className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+            <span>Modo Streamer</span>
+          </div>
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+              streamerMode
+                ? "bg-purple-600 text-white"
+                : "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+            }`}
+          >
+            {streamerMode ? "Ativado" : "Desativado"}
+          </span>
+        </button>
+      )}
 
       <a
         href="https://discord.gg/nemtudo"
@@ -3950,6 +4126,28 @@ export function WatchRoom({ handle }: { handle: string }) {
           </span>
         </Tooltip>
 
+        {obsActiveTargets.size > 0 && (
+          <Tooltip
+            content={
+              obsActiveTargets.size === 1
+                ? "1 transmissão externa ativa"
+                : `${obsActiveTargets.size} transmissões externas ativas`
+            }
+          >
+            <span
+              className="inline-flex items-center gap-1 rounded-full border border-purple-400/40 bg-purple-950/80 px-1.5 py-0.5 text-xs font-semibold text-purple-200 shadow-sm transition-all"
+              aria-label="Transmissão externa ativa"
+            >
+              <span className="relative flex h-2 w-2 shrink-0 items-center justify-center">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-purple-400 opacity-75" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-purple-400" />
+              </span>
+              <ObsSourceIcon className="h-3.5 w-3.5 shrink-0 text-purple-300" />
+              <span className="hidden 2xl:inline">Transmissão</span>
+            </span>
+          </Tooltip>
+        )}
+
         {isWideLayout && hasAnyMedia && (
           <Tooltip content="Ocultar participantes">
             <button
@@ -4185,6 +4383,9 @@ export function WatchRoom({ handle }: { handle: string }) {
       <RoomAccountCard
         onCreateAccount={() => setAccountModal("create")}
         onOpenProfile={setProfileUserId}
+        canUseStreamerMode={canUseStreamerMode}
+        streamerMode={streamerMode}
+        onToggleStreamerMode={toggleStreamerMode}
       />
     </>
   );
@@ -4252,15 +4453,31 @@ export function WatchRoom({ handle }: { handle: string }) {
                   reads out loud to let a friend in, and picking it out of
                   "priv-familia-123456" by eye is needless work. The tooltip
                   still carries the raw handle for anyone who wants it. */}
-              <Tooltip content={handle} placement="bottom">
+              <Tooltip
+                content={
+                  streamerMode
+                    ? (privateRoomParts ? `${privateRoomParts.name} (código oculto no Modo Streamer)` : "Modo Streamer ativo")
+                    : handle
+                }
+                placement="bottom"
+              >
                 <h1 className="truncate text-base font-semibold text-zinc-950 dark:text-zinc-50 sm:text-lg">
-                  {privateRoomParts ? privateRoomParts.name : handle}
+                  {privateRoomParts ? privateRoomParts.name : (streamerMode && isPrivateRoomHandle(handle) ? "Sala Privada" : handle)}
                 </h1>
               </Tooltip>
               {privateRoomParts && (
-                <span className="shrink-0 rounded-full bg-zinc-200 px-2.5 py-1 font-mono text-xs font-medium tracking-wider text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
-                  {privateRoomParts.code}
-                </span>
+                <Tooltip
+                  content={
+                    streamerMode
+                      ? "Código oculto pelo Modo Streamer"
+                      : "Código da sala privada"
+                  }
+                  placement="bottom"
+                >
+                  <span className="shrink-0 rounded-full bg-zinc-200 px-2.5 py-1 font-mono text-xs font-medium tracking-wider text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                    {streamerMode ? "••••••" : privateRoomParts.code}
+                  </span>
+                </Tooltip>
               )}
               {/* A dot at every width, the word only where there's room for
                   it. Public-or-private is the single most load-bearing fact
@@ -5324,6 +5541,12 @@ export function WatchRoom({ handle }: { handle: string }) {
         onClose={() => setShortcutsModalOpen(false)}
         hasAccount={Boolean(state.account)}
         onRequestAccount={() => setAccountModal("create")}
+      />
+
+      <ObsBrowserSourceModal
+        open={Boolean(obsModalUrl)}
+        url={obsModalUrl ?? ""}
+        onClose={() => setObsModalUrl(null)}
       />
     </div>
   );
