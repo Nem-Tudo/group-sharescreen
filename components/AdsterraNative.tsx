@@ -27,17 +27,15 @@ import { useAdsAllowed } from "@/lib/useAdsAllowed";
 /** Before the ad has said anything. Roughly one row of cards. */
 const INITIAL_HEIGHT = 260;
 
-/**
- * How long the placeholder holds its space before folding away.
- *
- * The native unit can legitimately take ten seconds to paint — a big script,
- * then its own ad request, then images — and reserving 260px for all of it is
- * how a page ends up with a white rectangle sitting in it. So the space is
- * offered briefly and then withdrawn, while the frame keeps loading in a box
- * of no height: an ad that turns up late still gets shown, and one that never
- * turns up was never taking up room.
- */
-const PLACEHOLDER_GRACE_MS = 3000;
+// There used to be a "fold the placeholder away after three seconds" here, to
+// avoid holding a white rectangle open while the ad loaded. It was removed
+// because it was breaking the thing it was decorating: collapsing the iframe
+// to zero height gives the widget inside a viewport of no height to lay out
+// in — and this unit measures the space it has (its own config carries
+// `increaseBannerSize` and it reads clientHeight) — so the ad that was still
+// deciding decided on nothing. The reserved space is the lesser cost: it is
+// the size the ad is about to be, and a slot that turns out empty removes
+// itself entirely a few seconds later.
 
 /**
  * A ceiling, because the height arrives from inside an ad. A creative that
@@ -62,7 +60,6 @@ export function AdsterraNative({
   // null until the frame reports one. Distinguishing "not yet" from a number
   // is what lets the placeholder below know it is still a placeholder.
   const [height, setHeight] = useState<number | null>(null);
-  const [placeholderExpired, setPlaceholderExpired] = useState(false);
   // See AdsterraBanner: an empty response hides this slot and nothing else.
   const [empty, setEmpty] = useState(false);
 
@@ -91,17 +88,10 @@ export function AdsterraNative({
     return () => window.removeEventListener("message", onMessage);
   }, [rendering, markSettled]);
 
-  useEffect(() => {
-    if (!rendering) return;
-    const timer = setTimeout(() => setPlaceholderExpired(true), PLACEHOLDER_GRACE_MS);
-    return () => clearTimeout(timer);
-  }, [rendering]);
-
   if (!rendering || !NATIVE_BANNER) return null;
 
-  // A real height once the ad has one; the placeholder until the grace period
-  // runs out; nothing after that.
-  const boxHeight = height ?? (placeholderExpired ? 0 : INITIAL_HEIGHT);
+  // The ad's real height once it reports one, and the placeholder until then.
+  const boxHeight = height ?? INITIAL_HEIGHT;
 
   return (
     <div className={`flex w-full flex-col gap-1 ${className}`}>

@@ -265,6 +265,7 @@ ${fillProbeScript(BANNER_FILL_TIMEOUT_MS)}
  * the parent checks the message's shape before believing it.
  */
 export function nativeDocument(native: AdsterraNative): string {
+  const timeoutMs = NATIVE_FILL_TIMEOUT_MS;
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta name="referrer" content="origin">
 <style>html,body{margin:0;padding:0;background:transparent}</style>
@@ -284,13 +285,26 @@ ${fillProbeScript(NATIVE_FILL_TIMEOUT_MS)}
     last = height;
     parent.postMessage({ source: "${AD_MESSAGE_SOURCE}", type: "height", height: height }, "*");
   }
-  if (window.ResizeObserver) new ResizeObserver(report).observe(document.documentElement);
+  if (window.ResizeObserver) {
+    var observer = new ResizeObserver(report);
+    // Both, because either one alone misses a case: <html> is stretched to
+    // the viewport by the frame, so it does not always grow with content,
+    // and <body> is what the widget actually fills.
+    observer.observe(document.documentElement);
+    observer.observe(document.body);
+  }
   // A fallback for the first paints, because the script is async and may not
   // have drawn anything by the time the observer is attached.
+  //
+  // Kept alive past the fill deadline on purpose. It used to stop after ten
+  // seconds while the slot waited twelve, so an ad that arrived in between
+  // was judged to have filled and then never reported a height — the slot
+  // stayed at zero and the ad was there, invisible.
   var ticks = 0;
+  var maxTicks = ${Math.ceil((timeoutMs + 5000) / 500)};
   var timer = setInterval(function () {
     report();
-    if (++ticks > 20) clearInterval(timer);
+    if (++ticks > maxTicks) clearInterval(timer);
   }, 500);
 })();
 </script>
