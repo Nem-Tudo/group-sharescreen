@@ -20,7 +20,13 @@
 // and the server does not is never granted. Both directions fail safe, which
 // is what lets the two lists drift for a deploy without anything breaking.
 
-export type Feature = "quality_1440p" | "quality_2160p" | "fps_120" | "bitrate_maximo" | "verified_badge";
+export type Feature =
+  | "quality_1440p"
+  | "quality_2160p"
+  | "fps_120"
+  | "bitrate_maximo"
+  | "verified_badge"
+  | "no_ads";
 
 export type FeatureTier = "free" | "account" | "premium";
 
@@ -30,7 +36,8 @@ export const FEATURE_TIERS: Record<Feature, FeatureTier> = {
   bitrate_maximo: "premium",
   quality_2160p: "premium",
   fps_120: "premium",
-  verified_badge: "premium"
+  verified_badge: "premium",
+  no_ads: "premium",
 };
 
 /**
