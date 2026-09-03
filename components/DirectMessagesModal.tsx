@@ -193,18 +193,16 @@ export function DirectMessagesModal({
   if (!open) return null;
 
   async function send(payload: Parameters<typeof sendDirectMessage>[1]) {
-    if (!activeId || sending) return;
+    if (!activeId) return;
     setSending(true);
+
+    setDraft("");
+    setAttachments([]);
+    setReplyingTo(null);
+
     setError(null);
     const result = await sendDirectMessage(activeId, { ...payload, replyTo: replyingTo });
     if (!result.ok) setError(result.error);
-    else {
-      // Cleared only on success, so a refused message is still there to fix
-      // rather than gone with an error beside an empty box.
-      setDraft("");
-      setAttachments([]);
-      setReplyingTo(null);
-    }
     setSending(false);
   }
 
@@ -337,11 +335,10 @@ export function DirectMessagesModal({
                           />
                         )}
                         <span
-                          className={`max-w-[80%] rounded-2xl px-3 py-1.5 text-sm ${
-                            mine
-                              ? "bg-zinc-950 text-white dark:bg-zinc-50 dark:text-zinc-950"
-                              : "bg-zinc-100 text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100"
-                          }`}
+                          className={`max-w-[80%] rounded-2xl px-3 py-1.5 text-sm ${mine
+                            ? "bg-zinc-950 text-white dark:bg-zinc-50 dark:text-zinc-950"
+                            : "bg-zinc-100 text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100"
+                            }`}
                         >
                           {message.replyTo && (
                             // A snapshot taken when the reply was sent, not a
@@ -349,9 +346,8 @@ export function DirectMessagesModal({
                             // it said even when the original is far outside
                             // the loaded page.
                             <span
-                              className={`mb-1 block border-l-2 pl-2 text-xs opacity-70 ${
-                                mine ? "border-white/40" : "border-zinc-400"
-                              }`}
+                              className={`mb-1 block border-l-2 pl-2 text-xs opacity-70 ${mine ? "border-white/40" : "border-zinc-400"
+                                }`}
                             >
                               <span className="block font-medium">@{message.replyTo.name}</span>
                               <span className="line-clamp-2 break-words">
@@ -385,9 +381,8 @@ export function DirectMessagesModal({
                             <span className="whitespace-pre-wrap break-words">{message.text}</span>
                           )}
                           <span
-                            className={`mt-0.5 block text-[10px] ${
-                              mine ? "text-white/60 dark:text-zinc-950/60" : "text-zinc-400"
-                            }`}
+                            className={`mt-0.5 block text-[10px] ${mine ? "text-white/60 dark:text-zinc-950/60" : "text-zinc-400"
+                              }`}
                           >
                             {timeLabel(message.ts)}
                           </span>
@@ -527,18 +522,11 @@ export function DirectMessagesModal({
               />
               <button
                 type="submit"
-                disabled={(!draft.trim() && attachments.length === 0) || sending}
+                disabled={(!draft.trim() && attachments.length === 0)}
                 aria-label="Enviar"
                 className="shrink-0 rounded-lg bg-zinc-950 p-2 text-white transition hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
               >
-                {sending ? (
-                  <span
-                    aria-hidden
-                    className="block h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent"
-                  />
-                ) : (
-                  <MdSend className="h-5 w-5" />
-                )}
+                <MdSend className="h-5 w-5" />
               </button>
             </form>
             {error && <p className="px-3 pb-2 text-xs text-red-500">{error}</p>}
