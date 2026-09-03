@@ -7,6 +7,7 @@ import { signalingClient, getStoredName } from "@/lib/signalingClient";
 import { useSignaling, useHasStoredName } from "@/lib/useSignaling";
 import { trackEvent } from "@/lib/analytics";
 import {
+  roomHandleFromInput,
   toRoomHandle,
   isPrivateRoomHandle,
   generateRoomCode,
@@ -286,7 +287,13 @@ export default function Home() {
 
   async function handleRoomSubmit(e: FormEvent) {
     e.preventDefault();
-    const trimmed = roomInput.trim();
+    // A pasted link is unwrapped back into the room it names before anything
+    // else looks at it (see roomHandleFromInput). Anything that is not one of
+    // our links comes back untouched, so every path below is unchanged for
+    // everything that used to reach it — the link is simply another way to
+    // write the same handle, which is what people already have in their hands
+    // after somebody shares a room in a group chat.
+    const trimmed = roomHandleFromInput(roomInput);
     setRoomError(null);
 
     if (roomMode === "private-create") {
@@ -647,9 +654,17 @@ export default function Home() {
                 autoFocus
                 value={roomInput}
                 onChange={(e) => setRoomInput(e.target.value)}
-                maxLength={roomMode === "private-create" ? MAX_PRIVATE_ROOM_NAME_LENGTH : 32}
+                // Long enough to hold a pasted link on the two modes that
+                // accept one. At 32 a URL was silently cut mid-paste, which
+                // is the worst way for this to fail: the field looks filled
+                // in and the error talks about invalid characters.
+                maxLength={
+                  roomMode === "private-create" ? MAX_PRIVATE_ROOM_NAME_LENGTH : 200
+                }
                 placeholder={
-                  roomMode === "private-join" ? "Ex: familia-123456" : "Ex: reuniao-time"
+                  roomMode === "private-join"
+                    ? "Ex: familia-123456 (ou link)"
+                    : "Ex: reuniao-time (ou link)"
                 }
                 className={inputClass}
               />

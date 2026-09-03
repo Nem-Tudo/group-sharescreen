@@ -13,6 +13,74 @@ export function toRoomHandle(rawHandle: string, isPrivate: boolean): string {
   return isPrivate ? `${PRIVATE_ROOM_PREFIX}${rawHandle}` : rawHandle;
 }
 
+/**
+ * Hosts whose links name a room, and where in the path the name sits.
+ *
+ * Two shapes because there are two links in circulation: the canonical one
+ * the room's own address bar shows, and the short one meant to be read out
+ * loud or typed from a phone screen.
+ */
+const ROOM_LINK_HOSTS: Record<string, { prefix?: string }> = {
+  "golive.nemtudo.me": { prefix: "watch" },
+  "g.nemtudo.me": {},
+};
+
+/**
+ * The room somebody meant, from whatever they pasted.
+ *
+ * Written to be *unsurprising* rather than clever: anything this does not
+ * recognise as one of our links comes back exactly as it went in, so the
+ * validation and the error messages downstream are unchanged for every input
+ * that used to reach them. The only behaviour that is new is that a link now
+ * works where only a bare handle did.
+ *
+ * Nobody should have to know that "the part after /watch/" is the bit to
+ * copy. The link is what gets pasted into a group chat, so the link is what
+ * gets pasted back in here.
+ */
+export function roomHandleFromInput(raw: string): string {
+  const trimmed = raw.trim();
+  // A handle is letters, digits, "-" and "_" (see HANDLE_RE) — none of which
+  // is a dot or a slash. Anything without one of those cannot be a link, and
+  // is left alone rather than run through a URL parser that would only ever
+  // hand it straight back.
+  if (!trimmed || !/[./]/.test(trimmed)) return trimmed;
+
+  // A pasted link often arrives bare ("g.nemtudo.me/sala"). The scheme is
+  // added rather than required, because URL refuses to parse without one and
+  // that is the most common way the link is actually shared.
+  const candidate = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+
+  let url: URL;
+  try {
+    url = new URL(candidate);
+  } catch {
+    return trimmed;
+  }
+
+  const host = url.hostname.toLowerCase().replace(/^www\./, "");
+  const shape = ROOM_LINK_HOSTS[host];
+  if (!shape) return trimmed;
+
+  let segments: string[];
+  try {
+    // Decoded because a room name reaches the address bar percent-encoded and
+    // has to come back out as the name. Guarded because a malformed escape
+    // throws, and a bad paste should not be an exception.
+    segments = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+  } catch {
+    return trimmed;
+  }
+
+  if (shape.prefix) {
+    // Exactly "/watch/<sala>" — any other path on that host is some other
+    // page, and guessing a room out of it would send somebody somewhere they
+    // never asked to go.
+    return segments[0] === shape.prefix && segments[1] ? segments[1] : trimmed;
+  }
+  return segments.length === 1 && segments[0] ? segments[0] : trimmed;
+}
+
 export function isPrivateRoomHandle(handle: string): boolean {
   return handle.startsWith(PRIVATE_ROOM_PREFIX);
 }

@@ -8,7 +8,7 @@
 // API routes gets nothing from a bundled static copy), so this module's only
 // job is filling in `window.golive` with the exact contract lib/desktop.ts
 // already defines. Everything downstream — startOAuthLogin's branch on
-// getDesktopBridge(), OpenInAppBanner, UpdateAppButton's optional-chained
+// getDesktopBridge(), RoomAppGate, UpdateAppButton's optional-chained
 // calls — already treats "a golive bridge exists" as the one thing that
 // matters, so none of it needed to change for a second shell to plug into it.
 //

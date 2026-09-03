@@ -87,13 +87,13 @@ import { isMobileDevice } from "@/lib/announcement";
 import { enterAndroidPip, onAndroidPipModeChange } from "@/lib/androidPictureInPicture";
 import type { CameraFacing } from "@/lib/mediaPreferences";
 import { ChatPanel } from "@/components/ChatPanel";
-import { OpenInAppBanner } from "@/components/OpenInAppBanner";
 import { RoomInfoControls } from "@/components/RoomInfoControls";
 import { MusicBar } from "@/components/MusicBar";
 import { LocalMediaControls, RemoteMediaControls } from "@/components/LocalMediaControls";
 import { LocalMusicBar, RemoteMusicBar } from "@/components/LocalMusicBar";
 import { MemberActionsMenu, type MemberActions } from "@/components/MemberActionsModal";
 import { isDesktopApp, isMobileApp, armSavedShareSource } from "@/lib/desktop";
+import { OpenInAppBanner } from "@/components/OpenInAppBanner";
 import { PartnerCard } from "@/components/PartnerCard";
 import { QualitySelect } from "@/components/QualitySelect";
 import { AdsterraBanner } from "@/components/AdsterraBanner";
@@ -1018,7 +1018,7 @@ export function WatchRoom({ handle }: { handle: string }) {
   // the other, so neither entry point is a dead end.
   const [accountModal, setAccountModal] = useState<"login" | "create" | null>(null);
   // "Sempre abrir salas no aplicativo" — the same preference the
-  // OpenInAppBanner sets, surfaced here so it can be turned back off. Read
+  // RoomAppGate sets, surfaced here so it can be turned back off. Read
   // through the mounted gate below rather than a lazy initializer, because
   // whether we are *inside* the app is a client-only fact and rendering the
   // row differently on the server would hydrate into a mismatch.
@@ -3675,15 +3675,20 @@ export function WatchRoom({ handle }: { handle: string }) {
         activeIcon={<EyeIcon className="h-4 w-4" />}
         inactiveIcon={<EyeOffIcon className="h-4 w-4" />}
       />
-      {/* Only outside the desktop app: inside it, "always open in the app"
-          is a preference about something already true. Gated on `mounted`
-          too, since isDesktopApp() reads a client-only global. */}
+      {/* Only outside the desktop app: inside it, asking whether to use the
+          app is a question about something already true. Gated on `mounted`
+          too, since isDesktopApp() reads a client-only global.
+
+          The stored value doubles as "this browser has the app" — RoomAppGate
+          sets it the first time a handoff demonstrably worked, and this row is
+          how somebody turns the asking off again, or on if they installed the
+          app without ever using the banner. */}
       {mounted && !isDesktopApp() && (
         <MenuToggleRow
-          label="Sempre abrir salas no aplicativo"
+          label="Perguntar antes de abrir salas"
           active={openRoomsInApp}
           onToggle={toggleOpenRoomsInApp}
-          hint="Abre links de sala no aplicativo do GoLive em vez do navegador. Precisa do aplicativo instalado."
+          hint="Ao abrir um link de sala, pergunta se você quer usar o aplicativo antes de entrar pelo navegador. Liga sozinho quando você abre uma sala no app."
           activeIcon={<MdOutlineDesktopWindows className="h-4 w-4" />}
           inactiveIcon={<MdOutlineDesktopWindows className="h-4 w-4 opacity-50" />}
         />
@@ -4407,8 +4412,10 @@ export function WatchRoom({ handle }: { handle: string }) {
     >
       {/* Above the header so it reads as a property of the page rather than
           of the room's controls. Renders nothing inside the app itself, and
-          nothing for anyone who has already answered. */}
-      <OpenInAppBanner handle={handle} />
+          nothing for anyone who has already answered — or whose installation
+          is already known, since RoomAppGate then asks before the room is
+          joined at all. */}
+      <OpenInAppBanner />
       {/* One bar, three zones from lg up: where you are on the left, what
           you do in the call in the middle, who you are (and everything about
           the page) on the right.

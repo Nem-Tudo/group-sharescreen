@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { RoomAppGate } from "@/components/RoomAppGate";
 import { WatchRoom } from "./WatchRoom";
 
 export async function generateMetadata(
@@ -17,5 +18,13 @@ export async function generateMetadata(
 
 export default async function WatchPage(props: PageProps<"/watch/[handle]">) {
   const { handle } = await props.params;
-  return <WatchRoom handle={handle} />;
+  // The gate wraps the room rather than living inside it, and that placement
+  // is the feature: WatchRoom connects, registers a name and turns on a
+  // microphone as soon as it mounts, so the only way to offer the app
+  // *before* joining is to not mount it yet. See components/RoomAppGate.tsx.
+  return (
+    <RoomAppGate handle={handle}>
+      <WatchRoom handle={handle} />
+    </RoomAppGate>
+  );
 }

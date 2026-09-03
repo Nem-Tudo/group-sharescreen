@@ -26,7 +26,17 @@ export function trackEvent(name: string, data?: Record<string, unknown>) {
 // A union rather than a loose string, and required at every call site, so a
 // fifth surface added later cannot quietly land untracked or invent a
 // spelling that splits the metric in two.
-export type DownloadSource = "home" | "room-banner" | "install-prompt" | "app-page";
+// "room-gate" is the screen shown before a room is joined (see
+// components/RoomAppGate.tsx). Its own value rather than reusing
+// "room-banner": the banner asked *inside* a room somebody had already
+// entered, so merging them would blur the one thing the change was meant
+// to move — whether the offer arrives before or after the join.
+export type DownloadSource =
+  | "home"
+  | "room-banner"
+  | "room-gate"
+  | "install-prompt"
+  | "app-page";
 
 export function trackDownloadClick(source: DownloadSource, platform: string) {
   trackEvent("download_app_clicked", { source, platform });

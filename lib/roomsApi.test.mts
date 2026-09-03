@@ -16,6 +16,7 @@ import {
   isPrivateRoomHandle,
   ROOM_CODE_LENGTH,
   MAX_PRIVATE_ROOM_NAME_LENGTH,
+  roomHandleFromInput,
 } from "./roomsApi";
 
 // Mirrors the server's HANDLE_RE — the whole point of the length cap below.
@@ -72,3 +73,53 @@ assert.equal(splitPrivateRoomHandle("priv-familia-abcdef"), null);
 assert.equal(splitPrivateRoomHandle("priv-sala-2024"), null);
 
 console.log("roomsApi: ok");
+
+// ─── roomHandleFromInput ──────────────────────────────────────────────────
+//
+// The rule that matters most: anything unrecognised comes back untouched, so
+// every input that used to reach the validation downstream still does.
+assert.equal(roomHandleFromInput("reuniao-time"), "reuniao-time");
+assert.equal(roomHandleFromInput("  reuniao-time  "), "reuniao-time");
+assert.equal(roomHandleFromInput(""), "");
+assert.equal(roomHandleFromInput("priv-familia-123456"), "priv-familia-123456");
+
+// The canonical link, in the shapes it actually gets pasted in.
+assert.equal(roomHandleFromInput("https://golive.nemtudo.me/watch/reuniao-time"), "reuniao-time");
+assert.equal(roomHandleFromInput("http://golive.nemtudo.me/watch/reuniao-time"), "reuniao-time");
+assert.equal(roomHandleFromInput("golive.nemtudo.me/watch/reuniao-time"), "reuniao-time");
+assert.equal(roomHandleFromInput("https://www.golive.nemtudo.me/watch/reuniao-time"), "reuniao-time");
+assert.equal(
+  roomHandleFromInput("https://golive.nemtudo.me/watch/priv-familia-123456?x=1#y"),
+  "priv-familia-123456"
+);
+assert.equal(roomHandleFromInput("https://golive.nemtudo.me/watch/sala/"), "sala");
+
+// The short link, where the room is the whole path.
+assert.equal(roomHandleFromInput("https://g.nemtudo.me/reuniao-time"), "reuniao-time");
+assert.equal(roomHandleFromInput("g.nemtudo.me/reuniao-time"), "reuniao-time");
+
+// A room name that reached the address bar encoded has to come back decoded.
+assert.equal(roomHandleFromInput("https://g.nemtudo.me/sala%2Dteste"), "sala-teste");
+
+// Other pages on our own host are not rooms — guessing one out of /pro would
+// send somebody somewhere they never asked to go.
+assert.equal(
+  roomHandleFromInput("https://golive.nemtudo.me/pro"),
+  "https://golive.nemtudo.me/pro"
+);
+assert.equal(
+  roomHandleFromInput("https://golive.nemtudo.me/watch"),
+  "https://golive.nemtudo.me/watch"
+);
+// Nor is a deeper path on the short host, which only ever names one segment.
+assert.equal(roomHandleFromInput("https://g.nemtudo.me/a/b"), "https://g.nemtudo.me/a/b");
+// Somebody else's link is somebody else's.
+assert.equal(
+  roomHandleFromInput("https://exemplo.com/watch/sala"),
+  "https://exemplo.com/watch/sala"
+);
+// A malformed escape throws inside decodeURIComponent; a bad paste is not an
+// exception.
+assert.equal(roomHandleFromInput("https://g.nemtudo.me/%E0%A4%A"), "https://g.nemtudo.me/%E0%A4%A");
+
+console.log("roomHandleFromInput: ok");

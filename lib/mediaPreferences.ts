@@ -32,7 +32,12 @@ const AUTO_JOIN_KEY = "sharescreen:autoJoin";
 // to wait out the double-click window before acting. Turning this off is what
 // makes that click instant for someone who focuses with the button instead.
 const DOUBLE_CLICK_FOCUS_KEY = "sharescreen:doubleClickFocus";
-// "Sempre abrir salas no aplicativo" — see components/OpenInAppBanner.
+// "This browser has the desktop app" — set by components/RoomAppGate the
+// first time a handoff demonstrably worked (the tab actually lost the
+// screen), and read by the same gate to decide whether to ask *before*
+// joining a room. The name predates that meaning: it used to be "always
+// open rooms in the app", which is a fair reading of the same fact and is
+// why an already-stored value carries over cleanly.
 const OPEN_IN_APP_KEY = "sharescreen:openRoomsInApp";
 const OPEN_IN_APP_DISMISSED_KEY = "sharescreen:openInAppDismissed";
 // The screen-share dials: resolution, frame rate, bitrate, content profile
