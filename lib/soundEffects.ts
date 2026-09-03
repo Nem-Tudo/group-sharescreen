@@ -166,6 +166,23 @@ export function playUndeafenSound() {
   ]);
 }
 
+/**
+ * You hung up.
+ *
+ * Deliberately not playLeaveSound, which announces *somebody else* leaving:
+ * this is the heavier event of the two and the one you caused, so it falls
+ * further and ends lower — three steps down, triangle, like a handset going
+ * back on the cradle. Mistaking "I left" for "someone left" is the one
+ * confusion these two must not allow.
+ */
+export function playHangUpSound() {
+  playNotes([
+    { freq: 587, start: 0, duration: 0.09, gain: 0.14, type: "triangle" },
+    { freq: 440, start: 0.08, duration: 0.1, gain: 0.14, type: "triangle" },
+    { freq: 294, start: 0.17, duration: 0.26, gain: 0.14, type: "triangle" },
+  ]);
+}
+
 // Used for site-wide "top" warnings/announcements (see AnnouncementBanner).
 export function playWarningSound() {
   playNotes([

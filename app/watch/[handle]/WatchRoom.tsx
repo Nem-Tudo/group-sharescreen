@@ -58,6 +58,7 @@ import {
   playUndeafenSound,
   playShareStartSound,
   playShareStopSound,
+  playHangUpSound,
 } from "@/lib/soundEffects";
 import { qualityNegotiator } from "@/lib/qualityNegotiation";
 import { TURN_CONFIGURED } from "@/lib/iceConfig";
@@ -155,6 +156,7 @@ import {
   MdLogin,
   MdOutlineChat,
   MdOutlinePeople,
+  MdCallEnd,
   MdMusicNote,
   MdCameraswitch,
   MdFlipCameraAndroid,
@@ -3521,7 +3523,12 @@ export function WatchRoom({ handle }: { handle: string }) {
           room that has neither and who couldn't set one anyway — the
           component renders nothing in that case, and a heading over nothing
           is worse than no heading. */}
-      {!isWideLayout && (isRoomManager || state.roomDescription || state.roomCategory) && (
+      {/* Never in a private room: a category is what puts a room on the public
+          list, and a blurb is what it is advertised with — neither means
+          anything for a room that is only reachable by its link. */}
+      {!isWideLayout &&
+        !isPrivateRoomHandle(handle) &&
+        (isRoomManager || state.roomDescription || state.roomCategory) && (
         <div className="mb-1">
           <p className="mb-1.5 px-1 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
             Sobre a sala
@@ -4520,7 +4527,8 @@ export function WatchRoom({ handle }: { handle: string }) {
                 changed about as often. It moves into "Mais opções" (see
                 menuItems), which is where the rest of the once-per-visit
                 controls already are. */}
-            {isWideLayout && (
+            {/* Public rooms only — see the same gate on the phone copy above. */}
+            {isWideLayout && !isPrivateRoomHandle(handle) && (
               <RoomInfoControls
                 description={state.roomDescription}
                 category={state.roomCategory}
@@ -4598,6 +4606,29 @@ export function WatchRoom({ handle }: { handle: string }) {
                 >
                   <MdMusicNote className="h-5 w-5 shrink-0" />
                   <span className="hidden 2xl:inline"><BetaMark /></span>
+                </button>
+              </Tooltip>
+
+              {/* Leaving. Red and last in the row for the same reason every
+                  call app puts it there: it is the one control here that ends
+                  the thing, and it must never be next to something pressed by
+                  reflex. Navigating home is what actually disconnects —
+                  unmounting this component is what calls leaveRoom(). */}
+              <Tooltip content="Sair da chamada">
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Before navigating, not after: router.push is a client
+                    // transition so the AudioContext survives it, but the
+                    // button is about to be unmounted and there is no reason
+                    // to race that.
+                    playHangUpSound();
+                    router.push("/");
+                  }}
+                  aria-label="Sair da chamada"
+                  className="flex items-center rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-700"
+                >
+                  <MdCallEnd className="h-5 w-5 shrink-0" />
                 </button>
               </Tooltip>
             </div>
