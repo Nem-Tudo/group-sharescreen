@@ -341,6 +341,14 @@ export type SignalingState = {
   // said null" — both look identical as a bare `partner: null` otherwise.
   partner: Partner | null;
   partnerSeq: number;
+  // Whether the Adsterra slots are switched on (see the API's /ads/config and
+  // the admin panel's AdsterraPanel). Same fetch-over-HTTP-then-live-update
+  // shape as `partner` above, and the same reason for the counter: null here
+  // means "nothing has told us yet, keep whatever HTTP said" rather than
+  // "off", which matters because turning ads off has to look different from
+  // not having asked yet.
+  adsterraEnabled: boolean | null;
+  adsConfigSeq: number;
   // "Apoiar projeto" hover list (see SupportersTooltip.tsx) — same
   // fetch-over-HTTP-then-live-update shape as partner above, minus the
   // "null means nothing to show" ambiguity: an empty array already means
@@ -485,6 +493,8 @@ const initialState: SignalingState = {
   announcementSeq: 0,
   partner: null,
   partnerSeq: 0,
+  adsterraEnabled: null,
+  adsConfigSeq: 0,
   supporters: [],
   supportersSeq: 0,
   desktopUpdateSeq: 0,
@@ -1440,6 +1450,13 @@ class SignalingClient {
         this.setState({
           partner: (msg.partner as Partner | null) ?? null,
           partnerSeq: this.state.partnerSeq + 1,
+        });
+        break;
+      case "ads-config":
+        this.setState({
+          adsterraEnabled:
+            typeof msg.adsterraEnabled === "boolean" ? msg.adsterraEnabled : null,
+          adsConfigSeq: this.state.adsConfigSeq + 1,
         });
         break;
       case "supporters":

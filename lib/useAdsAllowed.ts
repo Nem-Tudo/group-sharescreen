@@ -4,6 +4,7 @@ import { useSyncExternalStore } from "react";
 import { useAuth } from "@/lib/AuthContext";
 import { isDesktopApp, isMobileApp } from "@/lib/desktop";
 import { DESKTOP_BANNER, MOBILE_BANNER, NATIVE_BANNER } from "@/lib/adsterra";
+import { useAdsterraEnabled } from "@/lib/useAdsterraEnabled";
 
 // "Is this running in the browser yet?", without a setState in an effect.
 // The server snapshot is false and the client one is true, so the first
@@ -27,6 +28,9 @@ function useHydrated(): boolean {
  *
  *   - the deployment configured no slots, which is the default and makes the
  *     whole feature inert;
+ *   - an admin switched the network off from the admin panel. Live, so a slot
+ *     empties on every open tab the moment the button is pressed — see
+ *     useAdsterraEnabled;
  *   - the account pays (the `no_ads` entitlement, resolved server-side like
  *     every other one — see the API's entitlements.ts). Not decided from the
  *     subscription's fields here: the client's job is to ask what an account
@@ -44,8 +48,10 @@ function useHydrated(): boolean {
 export function useAdsAllowed(): boolean {
   const { account, loading } = useAuth();
   const hydrated = useHydrated();
+  const switchedOn = useAdsterraEnabled();
 
   if (!hydrated || loading) return false;
+  if (!switchedOn) return false;
   if (!DESKTOP_BANNER && !MOBILE_BANNER && !NATIVE_BANNER) return false;
   if (isDesktopApp() || isMobileApp()) return false;
   return !account?.features?.includes("no_ads");
