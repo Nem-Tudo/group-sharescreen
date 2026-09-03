@@ -8,6 +8,7 @@ import { ThemeMenuButton } from "@/components/ThemeToggle";
 import { UpdateAppButton } from "@/components/UpdateAppButton";
 import { CameraIcon, MicIcon, ScreenIcon, VideoSourceIcon } from "@/components/icons";
 import { roomCategory } from "@/lib/roomCategories";
+import { AdsterraNative } from "@/components/AdsterraNative";
 
 const POLL_INTERVAL_MS = 8000;
 
@@ -269,6 +270,10 @@ export function RoomsPageClient() {
               );
             })}
           </ul>
+          {/* After the list, never between the rows: a native unit is built to
+              look like the content around it, and one dropped inside a list of
+              rooms would read as a room. */}
+          <AdsterraNative className="mt-8" />
         </div>
       </div>
     </div>

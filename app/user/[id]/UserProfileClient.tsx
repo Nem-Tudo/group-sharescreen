@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { UserProfileCard } from "@/components/UserProfileCard";
+import { AdsterraNative } from "@/components/AdsterraNative";
 
 // The standalone profile page. Everything that is actually *the profile* now
 // lives in components/UserProfileCard, which the room's dialog renders too —
@@ -21,6 +22,7 @@ export function UserProfileClient({ id }: { id: string }) {
         <div className="mt-4">
           <UserProfileCard id={id} />
         </div>
+        <AdsterraNative className="mt-8" />
       </main>
     </div>
   );

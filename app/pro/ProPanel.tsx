@@ -47,6 +47,7 @@ const FEATURE_LABELS: Partial<Record<Feature, string>> = {
   quality_1440p: "Transmita em 2K (1440p)",
   fps_120: "Até 120 quadros por segundo",
   bitrate_maximo: "Bitrate máximo (~16 Mbps)",
+  no_ads: "Navegue sem anúncios",
 };
 
 function periodEndLabel(timestamp: number): string {

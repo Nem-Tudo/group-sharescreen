@@ -92,6 +92,11 @@ import { LocalMusicBar, RemoteMusicBar } from "@/components/LocalMusicBar";
 import { MemberActionsMenu, type MemberActions } from "@/components/MemberActionsModal";
 import { isDesktopApp, isMobileApp, armSavedShareSource } from "@/lib/desktop";
 import { PartnerCard } from "@/components/PartnerCard";
+import { AdsterraBanner } from "@/components/AdsterraBanner";
+import { AdsterraNative } from "@/components/AdsterraNative";
+import { useAdRotation } from "@/lib/useAdRotation";
+import { useAdsterraBlocked } from "@/lib/adsterraFill";
+import { useAdsterraAvailable } from "@/lib/useAdsAllowed";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { CreateAccountForm } from "@/components/CreateAccountForm";
 import { RoomSkeleton } from "@/components/RoomSkeleton";
@@ -1327,11 +1332,33 @@ export function WatchRoom({ handle }: { handle: string }) {
     previousNameRef.current = state.name;
   }, [state.name, renaming]);
 
+  // The room has one ad square and two advertisers for it, so they take
+  // turns — a minute each (see useAdRotation). Which Adsterra unit is in play
+  // depends on the layout: the wide sidebar is 256px, where only the fluid
+  // native format is worth anything, and below lg the slot is a strip beside
+  // the partner card, which is a fixed banner.
+  const adsterraFormat = isWideLayout ? "native" : "banner";
+  // An ad blocker ends the arrangement: the slot goes back to being the
+  // partner's alone, exactly as it was before Adsterra was added here. Worth
+  // being explicit about, because the alternative is the failure mode this
+  // whole check exists to avoid — the room's own paying ad disappearing for a
+  // minute at a time to make room for a blank rectangle.
+  //
+  // Learned rather than guessed: the first Adsterra turn reports whether
+  // anything was actually drawn (see fillProbeScript), and a blocker that
+  // refuses the request outright is caught in milliseconds by the script
+  // tag's own onerror, so in practice the slot never visibly empties.
+  const adsterraBlocked = useAdsterraBlocked();
+  const adsterraReady = useAdsterraAvailable(adsterraFormat) && !adsterraBlocked;
+  const showAdsterra = useAdRotation(adsterraReady);
+
   const {
     ad: activePartnerAd,
     rawPartner: rawActivePartner,
     loaded: partnerLoaded,
-  } = usePartnerAd();
+    // Told when it is off screen, so it stops counting impressions for an ad
+    // nobody can see and defers its rotation to a minute it owns.
+  } = usePartnerAd({ visible: !showAdsterra });
 
   const hasLocalScreen = Boolean(isSharing && localStream);
   const hasLocalCamera = Boolean(localCameraStream);
@@ -4749,7 +4776,17 @@ export function WatchRoom({ handle }: { handle: string }) {
                   beside up to five status icons. */}
               <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-2">{participantsList}</div>
             </div>
-            <PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />
+            {/* One at a time, not both: two ads stacked in a 256px column
+                read as a page made of advertising. The partner holds the
+                first minute because it is the ad this room sold itself.
+                Swapped rather than hidden, so each turn is a fresh Adsterra
+                creative — the partner's own state survives regardless, since
+                it lives in usePartnerAd above and not in this card. */}
+            {showAdsterra ? (
+              <AdsterraNative className="shrink-0" label={false} />
+            ) : (
+              <PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />
+            )}
           </aside>
         )}
 
@@ -5021,12 +5058,24 @@ export function WatchRoom({ handle }: { handle: string }) {
             tab strip floating under the video. */}
         {!isWideLayout && (
           <>
-            {/* Out here rather than inside a sheet: it is the ad that pays
-                for the room, and below lg it collapses itself to a single
-                slim line (see PartnerCard) — small enough to leave on screen,
-                one tap from the whole card. Above the sheet rather than below
-                it, so the sheet always comes up off the bar that opened it. */}
-            <PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />
+            {/* Out here rather than inside a sheet: this is the ad that pays
+                for the room, and below lg the partner card collapses itself
+                to a single slim line (see PartnerCard) — small enough to
+                leave on screen, one tap from the whole card. Above the sheet
+                rather than below it, so the sheet always comes up off the bar
+                that opened it.
+
+                Below lg the room is a fixed-height shell, which makes this
+                band the one slot on the site that costs somebody video area
+                rather than page — and that is exactly why the two advertisers
+                take turns here instead of stacking. A 320x50 is what the
+                budget affords on the Adsterra minute; see
+                NEXT_PUBLIC_ADSTERRA_BANNER_MOBILE_KEY. */}
+            {showAdsterra ? (
+              <AdsterraBanner className="shrink-0" />
+            ) : (
+              <PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />
+            )}
 
             {mobilePanel && (
               <section

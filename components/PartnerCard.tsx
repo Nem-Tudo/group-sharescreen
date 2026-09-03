@@ -32,7 +32,12 @@ const STATS_DASHBOARD_URL = process.env.NEXT_PUBLIC_STATS_DASHBOARD_URL;
 // ad that changes while someone is still reading it is worse than no rotation
 // at all, and a room is often open for hours, so this is about not showing
 // the same thing for the whole session rather than about churn.
-const ROTATE_INTERVAL_MS = 5 * 60 * 1000;
+//
+// Kept in step with usePartnerAd's constant of the same name — that is the
+// one the room actually runs on (it renders this card *controlled*, so every
+// timer in this file sits idle there), and two rotation intervals that
+// disagree would be a bug nobody sees until the card is used on its own.
+const ROTATE_INTERVAL_MS = 3 * 60 * 1000;
 
 // How long "Resgatado!" stays in the CTA after a click reward is collected,
 // before the button goes back to its ordinary label.
@@ -199,7 +204,7 @@ export function PartnerCard({
 
   // Read by the rotation timer below. Refs rather than deps so that timer is
   // installed once and never torn down and rebuilt — rebuilding it on every
-  // hover or state change would restart its five-minute countdown each time,
+  // hover or state change would restart its three-minute countdown each time,
   // which in a card the mouse passes over regularly means it never fires.
   const hoveredRef = useRef(false);
   const currentIdRef = useRef<string | null>(null);
@@ -215,7 +220,7 @@ export function PartnerCard({
   }, [showingExample, showingHouseAd, customizerOpen, statsOpen]);
 
   // Rotation. Skipped — not deferred — whenever the person is on the card:
-  // the next tick five minutes later tries again. Retrying the instant the
+  // the next tick three minutes later tries again. Retrying the instant the
   // mouse leaves would technically honour the interval better, at the cost of
   // the ad appearing to change *because* they moved away, which reads as the
   // page reacting to them rather than to a clock.
@@ -283,7 +288,7 @@ export function PartnerCard({
   // makes rotation countable: this used to remember which ids it had already
   // reported for the whole session, so an ad shown again an hour later was
   // silently not counted — fine when a slot was filled once per page load,
-  // wrong now that it refills every five minutes. Identity also still absorbs
+  // wrong now that it refills every few minutes. Identity also still absorbs
   // a double-invoked effect in development, since that re-runs with the same
   // object.
   const reportedServeRef = useRef<PartnerCardData | null>(null);
