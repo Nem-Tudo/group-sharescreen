@@ -3669,7 +3669,7 @@ export function WatchRoom({ handle }: { handle: string }) {
         disabled={isMicOn && !noiseSuppressionAvailable}
         hint={
           isMicOn && !noiseSuppressionAvailable
-            ? "Supressão de ruído indisponível neste navegador"
+            ? "Supressão de ruído indisponível nesta configuração de áudio"
             : undefined
         }
         activeIcon={<NoiseSuppressionIcon className="h-4 w-4" />}

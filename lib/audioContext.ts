@@ -39,6 +39,23 @@
 // so a call with six people talking could take out the audio graph itself.
 // One context, many nodes, is what Web Audio is designed for.
 
+// The rate the context is asked to run at, and the only rate RNNoise can
+// be fed (see rnnoise.ts, and the "Assumes sample rate to be 48kHz" on the
+// library node itself).
+//
+// Left unspecified, a context takes the sample rate of the *output* device —
+// 44.1 kHz on a great deal of onboard hardware, and 16 kHz or 8 kHz on a
+// Bluetooth headset switched into hands-free mode. RNNoise checks none of
+// that: it slices fixed 480-sample frames whatever the rate, so at anything
+// but 48 kHz it mis-reads the signal and its voice detector gates away what
+// it no longer recognises as speech. The person is transmitting, their
+// microphone is the one they picked, and nobody hears them — and because the
+// rate came from the speaker, changing microphone never helped.
+//
+// Asking for it here fixes that for everyone the browser grants it to.
+// rnnoise.ts still checks, for the ones it does not.
+export const RNNOISE_SAMPLE_RATE = 48000;
+
 const GESTURE_EVENTS = ["pointerdown", "touchend", "keydown"] as const;
 
 let sharedContext: AudioContext | null = null;
@@ -90,14 +107,24 @@ export function getSharedAudioContext(): AudioContext | null {
     return null;
   }
   try {
-    sharedContext = new Ctor();
+    sharedContext = new Ctor({ sampleRate: RNNOISE_SAMPLE_RATE });
   } catch {
-    // Construction genuinely throws — most famously past Chrome's
-    // concurrent-context cap. Remembered so every later caller falls back
-    // cleanly (element volume, no analyser) instead of throwing again from
-    // inside a React effect.
-    constructionFailed = true;
-    return null;
+    // Two very different failures land here: a browser refusing this
+    // particular rate, and construction failing for a reason that has
+    // nothing to do with it (Chrome's concurrent-context cap being the
+    // famous one). Retrying without the option is what tells them apart —
+    // hardware that will not take 48 kHz still gets a working context at
+    // whatever rate it prefers, and rnnoise.ts declines to build its graph
+    // on that context rather than feeding RNNoise a rate it mis-reads.
+    try {
+      sharedContext = new Ctor();
+    } catch {
+      // Genuinely no context to be had. Remembered so every later caller
+      // falls back cleanly (element volume, no analyser) instead of
+      // throwing again from inside a React effect.
+      constructionFailed = true;
+      return null;
+    }
   }
   // iOS in particular re-suspends on interruptions (a call, the screen
   // locking), so this isn't only about the first resume.

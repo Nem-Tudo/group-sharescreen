@@ -4,7 +4,11 @@
 // (and its `class ... extends AudioWorkletNode` at module scope, see below)
 // into the server bundle.
 import type { RnnoiseWorkletNode, loadRnnoise as LoadRnnoiseFn } from "@sapphi-red/web-noise-suppressor";
-import { getSharedAudioContext, ensureSharedAudioContextRunning } from "./audioContext";
+import {
+  getSharedAudioContext,
+  ensureSharedAudioContextRunning,
+  RNNOISE_SAMPLE_RATE,
+} from "./audioContext";
 
 // Static assets copied from node_modules/@sapphi-red/web-noise-suppressor/dist
 // into public/rnnoise — served as plain files so this works regardless of
@@ -58,6 +62,41 @@ export type MicCaptureResult = {
   graph: MicNoiseGraph | null;
 };
 
+// Mono is asked for rather than assumed. RNNoise processes a single channel
+// (maxChannels below), and an AudioWorkletNode left on its default
+// channelCountMode hands a stereo input straight through as stereo — two
+// channels of which only the first is ever written, the second staying
+// digital silence. Anyone whose voice arrives on the right channel (a mic in
+// input 2 of an interface, VoiceMeeter, VB-Cable) broadcast nothing at all.
+// This is only a request, so the graph is pinned to mono as well.
+function micConstraints(deviceId?: string | null): MediaTrackConstraints {
+  return deviceId ? { channelCount: 1, deviceId: { exact: deviceId } } : { channelCount: 1 };
+}
+
+// The picked input is gone — unplugged since it was chosen, or its id
+// rotated out from under the stored preference. Browsers report that as
+// OverconstrainedError/NotFoundError, which the caller's catch turns into
+// "verifique a permissão do navegador": a message about something that was
+// never the problem.
+function isMissingDeviceError(err: unknown): boolean {
+  const name = (err as { name?: string } | null | undefined)?.name;
+  return name === "OverconstrainedError" || name === "NotFoundError";
+}
+
+// Opens the raw capture, falling back to the default input when the chosen
+// one has gone missing — the same trade captureCamera makes in useRoomMedia,
+// for the same reason: a working microphone beats an error about permissions
+// that were never denied. The stored choice is deliberately left alone, so
+// the next start tries that device again once it is back.
+async function captureRawMic(deviceId?: string | null): Promise<MediaStream> {
+  try {
+    return await navigator.mediaDevices.getUserMedia({ audio: micConstraints(deviceId) });
+  } catch (err) {
+    if (!deviceId || !isMissingDeviceError(err)) throw err;
+    return navigator.mediaDevices.getUserMedia({ audio: micConstraints(null) });
+  }
+}
+
 // Captures the mic and routes it through an RNNoise AudioWorklet before
 // returning it, so background noise is suppressed for everyone else in the
 // room. Falls back to the raw, unprocessed capture if RNNoise can't be set
@@ -69,9 +108,7 @@ export async function captureNoiseSuppressedMic(
   // param existed.
   deviceId?: string | null
 ): Promise<MicCaptureResult> {
-  const rawStream = await navigator.mediaDevices.getUserMedia({
-    audio: deviceId ? { deviceId: { exact: deviceId } } : true,
-  });
+  const rawStream = await captureRawMic(deviceId);
 
   if (typeof window === "undefined" || typeof AudioWorkletNode === "undefined") {
     return { stream: rawStream, graph: null };
@@ -95,6 +132,20 @@ export async function captureNoiseSuppressedMic(
     return { stream: rawStream, graph: null };
   }
 
+  // RNNoise is hard-wired to 48 kHz — its worklet slices fixed 480-sample
+  // frames and the library node is documented "Assumes sample rate to be
+  // 48kHz" — and nothing in it checks. At any other rate it does not fail;
+  // it mis-reads the signal and its voice detector gates away what it no
+  // longer recognises as speech, which at 16 kHz (a Bluetooth headset in
+  // hands-free mode) is silence in all but name. audioContext.ts asks for
+  // 48 kHz precisely so this holds, but a browser is free to refuse and hand
+  // back the output device's own rate instead. On that context the raw
+  // capture is broadcast unprocessed and the caller greys out the toggle,
+  // exactly as it does when the worklet cannot load at all.
+  if (audioCtx.sampleRate !== RNNOISE_SAMPLE_RATE) {
+    return { stream: rawStream, graph: null };
+  }
+
   try {
     // Dynamic: this package's classes do `extends AudioWorkletNode` at
     // module scope, which throws a bare ReferenceError if evaluated on the
@@ -110,8 +161,19 @@ export async function captureNoiseSuppressedMic(
 
     const source = audioCtx.createMediaStreamSource(rawStream);
     const destination = audioCtx.createMediaStreamDestination();
-    // RNNoise only ever processes mono; the mic capture above is mono too.
     const rnnoiseNode = new RnnoiseWorkletNode(audioCtx, { maxChannels: 1, wasmBinary });
+    // RNNoise only ever processes mono, so both ends of the graph say so
+    // rather than trusting the capture to be mono (see micConstraints — the
+    // constraint is a request a browser may ignore). "explicit" down-mixes a
+    // stereo input to one channel, so a voice on either side survives;
+    // "max", the default, would pass two channels through and leave the
+    // second one silent. The destination is pinned too, which covers the
+    // bypass path below, where the capture reaches it without passing
+    // through the node at all.
+    rnnoiseNode.channelCount = 1;
+    rnnoiseNode.channelCountMode = "explicit";
+    destination.channelCount = 1;
+    destination.channelCountMode = "explicit";
 
     if (suppressionEnabled) {
       source.connect(rnnoiseNode);
