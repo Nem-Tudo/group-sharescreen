@@ -113,3 +113,27 @@ export function isObsClient(): boolean {
   return false;
 }
 
+/**
+ * Checks if the current environment is an actual broadcasting software like
+ * OBS Studio, Streamlabs, vMix, etc. (via window APIs or User-Agent).
+ * Returns false for normal web browsers (Chrome, Firefox, Safari, Edge) even on /obs routes.
+ */
+export function isBroadcastSoftware(): boolean {
+  if (typeof window === "undefined") return false;
+
+  const win = window as unknown as {
+    obsstudio?: unknown;
+    streamlabs?: unknown;
+  };
+  if (Boolean(win.obsstudio) || Boolean(win.streamlabs)) {
+    return true;
+  }
+
+  const ua = window.navigator?.userAgent || "";
+  if (/OBS|Streamlabs|vMix|XSplit|PrismLive|TwitchStudio|Wirecast/i.test(ua)) {
+    return true;
+  }
+
+  return false;
+}
+

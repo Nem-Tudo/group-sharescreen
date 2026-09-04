@@ -1235,7 +1235,7 @@ class SignalingClient {
         if (this.isObsSourceJoin || isObsClient()) {
           this.desiredRoom = null;
           this.setState({
-            joinError: (msg.message as string) ?? "Acesso OBS bloqueado por verificação.",
+            joinError: (msg.message as string) ?? "Acesso de transmissão bloqueado por verificação.",
             joinErrorKind: "captcha",
           });
           break;
@@ -1393,7 +1393,7 @@ class SignalingClient {
         } else if (typeof msg.token === "string" && msg.token) {
           pending.resolve(msg.token);
         } else {
-          pending.reject(new Error("Token de OBS inválido retornado pelo servidor."));
+          pending.reject(new Error("Token de transmissão inválido retornado pelo servidor."));
         }
         break;
       }
@@ -1894,7 +1894,7 @@ class SignalingClient {
       const requestId = Math.random().toString(36).slice(2, 11);
       const timer = setTimeout(() => {
         this.pendingObsTokenRequests.delete(requestId);
-        reject(new Error("Tempo esgotado ao gerar o token de OBS."));
+        reject(new Error("Tempo esgotado ao gerar o token de transmissão."));
       }, 7000);
 
       this.pendingObsTokenRequests.set(requestId, { resolve, reject, timer });

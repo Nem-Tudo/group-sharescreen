@@ -35,7 +35,7 @@ export function ObsBrowserSourceModal({
         <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
           <span className="flex items-center gap-2 text-base font-semibold text-zinc-900 dark:text-white">
             <ObsSourceIcon className="h-5 w-5" />
-            Browser Source para OBS
+            Link de Transmissão (Browser Source)
           </span>
           <button
             type="button"
@@ -72,9 +72,8 @@ export function ObsBrowserSourceModal({
                 1
               </span>
               <span>
-                No OBS, clique em <strong>+</strong> na lista de{" "}
-                <strong>Fontes</strong> (Sources) e selecione{" "}
-                <strong>&quot;Navegador&quot;</strong> (Browser).
+                Abra este link diretamente no <strong>navegador web</strong> ou adicione como{" "}
+                <strong>&quot;Navegador&quot; (Browser Source)</strong> em seu programa de transmissão (OBS, Streamlabs, etc.).
               </span>
             </li>
             <li className="flex gap-3">
@@ -82,7 +81,7 @@ export function ObsBrowserSourceModal({
                 2
               </span>
               <span>
-                Cole o link copiado no campo <strong>&quot;URL&quot;</strong>.
+                Cole o link copiado na barra de endereços ou no campo <strong>&quot;URL&quot;</strong> da fonte.
               </span>
             </li>
             <li className="flex gap-3">
@@ -99,8 +98,7 @@ export function ObsBrowserSourceModal({
                 4
               </span>
               <span>
-                Clique em <strong>&quot;OK&quot;</strong> — a transmissão aparecerá
-                na sua cena do OBS.
+                A transmissão aparecerá diretamente na tela do navegador ou na cena de transmissão.
               </span>
             </li>
           </ol>

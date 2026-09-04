@@ -36,7 +36,7 @@ export function ObsRoomDashboard({ handle }: { handle: string }) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const defaultObsName = useMemo(
-    () => `OBS-Painel-${Math.floor(100 + Math.random() * 900)}`,
+    () => `Stream-Painel-${Math.floor(100 + Math.random() * 900)}`,
     []
   );
 
@@ -171,7 +171,7 @@ export function ObsRoomDashboard({ handle }: { handle: string }) {
             <div>
               <h1 className="flex items-center gap-2 text-xl font-bold">
                 <ObsSourceIcon className="h-6 w-6 text-emerald-400" />
-                Fontes OBS da Sala
+                Fontes de Transmissão da Sala
               </h1>
               <p className="text-sm text-zinc-400">
                 Sala: <span className="font-semibold text-zinc-200">{handle}</span>
@@ -190,7 +190,7 @@ export function ObsRoomDashboard({ handle }: { handle: string }) {
         {/* Tutorial Card */}
         <div className="mb-8 rounded-2xl border border-white/10 bg-zinc-900/80 p-5 backdrop-blur-sm">
           <h2 className="mb-3 font-semibold text-zinc-100">
-            Como adicionar uma transmissão individual no OBS:
+            Como abrir ou adicionar uma transmissão:
           </h2>
           <ol className="space-y-2 text-sm text-zinc-300">
             <li className="flex items-start gap-2">
@@ -198,8 +198,7 @@ export function ObsRoomDashboard({ handle }: { handle: string }) {
                 1
               </span>
               <span>
-                No OBS Studio, vá em <strong>Fontes (Sources)</strong> &rarr; clique em{" "}
-                <strong>+</strong> &rarr; <strong>Navegador (Browser)</strong>.
+                Abra diretamente em qualquer <strong>navegador web</strong> ou, no software de transmissão (OBS, Streamlabs, vMix), adicione uma fonte <strong>Navegador (Browser Source)</strong>.
               </span>
             </li>
             <li className="flex items-start gap-2">
@@ -284,7 +283,7 @@ export function ObsRoomDashboard({ handle }: { handle: string }) {
                         ) : (
                           <>
                             <MdContentCopy className="h-4 w-4" />
-                            Copiar link OBS
+                            Copiar link
                           </>
                         )}
                       </button>

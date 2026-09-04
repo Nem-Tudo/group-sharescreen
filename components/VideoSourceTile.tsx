@@ -1077,16 +1077,16 @@ export function VideoSourceTile({
             <Tooltip
               content={
                 isObsActive
-                  ? "Este vídeo está sendo compartilhado no OBS (Clique para ver/copiar o link)"
+                  ? "Este vídeo está sendo compartilhado externamente (Clique para ver/copiar o link)"
                   : !hasAccount
-                  ? "Utilize uma conta para exportar para o OBS"
-                  : "Copiar link do OBS para esse vídeo"
+                  ? "Utilize uma conta para exportar a transmissão"
+                  : "Copiar link de transmissão para esse vídeo"
               }
             >
               <button
                 type="button"
                 onClick={!hasAccount ? (onRequestAccount ?? onObsSource) : onObsSource}
-                aria-label={`Copiar link do OBS para esse vídeo${!hasAccount ? " (requer conta)" : ""}`}
+                aria-label={`Copiar link de transmissão para esse vídeo${!hasAccount ? " (requer conta)" : ""}`}
                 className={`rounded-full p-1.5 text-white transition ${
                   isObsActive
                     ? "bg-purple-600 hover:bg-purple-700 active:bg-purple-800 ring-2 ring-purple-400/60 shadow-lg"

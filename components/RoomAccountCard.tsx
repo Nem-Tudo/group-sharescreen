@@ -182,8 +182,8 @@ export function RoomAccountCard({
         <Tooltip
           content={
             streamerMode
-              ? "Modo Streamer ativo: código da sala oculto e transmissão OBS liberada (clique para desativar)"
-              : "Ativar Modo Streamer: esconde o código da sala e libera transmissão para o OBS (apenas para você)"
+              ? "Modo Streamer ativo: código da sala oculto e transmissão externa liberada (clique para desativar)"
+              : "Ativar Modo Streamer: esconde o código da sala e libera transmissão externa (apenas para você)"
           }
           placement="top"
         >
