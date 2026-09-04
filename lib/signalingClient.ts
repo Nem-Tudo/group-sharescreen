@@ -19,6 +19,7 @@ import { getStoredGuestToken, setStoredGuestToken } from "./guestToken";
 import { getInstallId } from "./installId";
 import { isUserMentionedInMessage, containsBroadcastMention } from "./chatMentions";
 import { showNotification } from "./notifications";
+import { isObsClient } from "./browserEnv";
 
 // `role: "moderator"` marks a moderator silently watching for moderation
 // (see server/signaling.ts's "admin-join") — present in the peer list so
@@ -1231,6 +1232,14 @@ class SignalingClient {
       // the last of those.
       case "captcha-required": {
         if (!this.desiredRoom) break;
+        if (this.isObsSourceJoin || isObsClient()) {
+          this.desiredRoom = null;
+          this.setState({
+            joinError: (msg.message as string) ?? "Acesso de transmissão bloqueado por verificação.",
+            joinErrorKind: "captcha",
+          });
+          break;
+        }
         // The server just contradicted whatever this client believed about
         // being verified, so drop that belief before retrying — otherwise
         // performJoin's freshness check short-circuits, sends a null token
@@ -1384,7 +1393,7 @@ class SignalingClient {
         } else if (typeof msg.token === "string" && msg.token) {
           pending.resolve(msg.token);
         } else {
-          pending.reject(new Error("Token de OBS inválido retornado pelo servidor."));
+          pending.reject(new Error("Token de transmissão inválido retornado pelo servidor."));
         }
         break;
       }
@@ -1885,7 +1894,7 @@ class SignalingClient {
       const requestId = Math.random().toString(36).slice(2, 11);
       const timer = setTimeout(() => {
         this.pendingObsTokenRequests.delete(requestId);
-        reject(new Error("Tempo esgotado ao gerar o token de OBS."));
+        reject(new Error("Tempo esgotado ao gerar o token de transmissão."));
       }, 7000);
 
       this.pendingObsTokenRequests.set(requestId, { resolve, reject, timer });
@@ -2009,10 +2018,12 @@ class SignalingClient {
     // within the same window, so skip minting a token it will just ignore.
     // Worth skipping rather than minting-and-discarding: it is a round trip to
     // Cloudflare in front of a join, and on an unlucky one, a challenge.
+    // OBS sources also bypass captcha completely so no challenge appears on stream.
+    const isObs = Boolean(this.isObsSourceJoin || isObsClient());
     const stillFresh =
       this.captchaVerifiedAt !== null &&
       Date.now() - this.captchaVerifiedAt < CAPTCHA_REVERIFY_INTERVAL_MS;
-    const turnstileToken = stillFresh ? null : await getCaptchaToken("join_room");
+    const turnstileToken = isObs || stillFresh ? null : await getCaptchaToken("join_room");
     // Bail if the desired room or our identity changed while the token
     // fetch was in flight (room switch, logout, disconnect) — sending a
     // stale join here would either land in the wrong room or get rejected

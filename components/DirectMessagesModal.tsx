@@ -67,7 +67,7 @@ function ReplyButton({
           ...(message.images ? { images: message.images } : {}),
         })
       }
-      className="shrink-0 rounded p-1 text-zinc-400 opacity-0 transition group-hover:opacity-100 hover:bg-zinc-100 hover:text-zinc-700 focus:opacity-100 dark:hover:bg-zinc-900 dark:hover:text-zinc-200"
+      className="shrink-0 rounded p-1 text-zinc-400 opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100 hover:bg-zinc-100 hover:text-zinc-700 focus:opacity-100 dark:hover:bg-zinc-900 dark:hover:text-zinc-200"
     >
       <MdReply className="h-3.5 w-3.5" />
     </button>

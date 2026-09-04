@@ -6,8 +6,8 @@ export async function generateMetadata(
 ): Promise<Metadata> {
   const { handle } = await props.params;
   return {
-    title: `Fontes OBS · Sala ${handle}`,
-    description: `Exportar transmissões da sala ${handle} para o OBS Studio.`,
+    title: `Fontes de Transmissão · Sala ${handle}`,
+    description: `Exportar transmissões da sala ${handle} para navegadores ou softwares de transmissão.`,
     robots: { index: false, follow: false },
   };
 }

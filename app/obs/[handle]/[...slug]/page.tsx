@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { ObsViewer } from "./ObsViewer";
 
 export const metadata: Metadata = {
-  title: "GoLive · OBS Source",
+  title: "GoLive · Fonte de Transmissão",
   robots: { index: false, follow: false },
 };
 

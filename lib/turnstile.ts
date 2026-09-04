@@ -44,6 +44,8 @@
 // anybody (and so refuses the people it is unsure about, which is the failure
 // mode this migration existed to remove), and "Invisible" hides the widget
 // even when it needs interaction.
+import { isObsClient } from "./browserEnv";
+
 const SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
 /**
@@ -108,8 +110,10 @@ declare global {
  * The server decides this independently (it holds the secret key), and both
  * halves have to be configured for anyone to be verified — this one only stops
  * the client trying to mint a token it has no key for.
+ * OBS accesses never run captcha checks and never display Turnstile banners.
  */
 export function isCaptchaConfigured(): boolean {
+  if (isObsClient()) return false;
   return Boolean(SITE_KEY);
 }
 
@@ -145,6 +149,7 @@ export function resetCaptchaScriptCache(): void {
 let scriptPromise: Promise<TurnstileApi | null> | null = null;
 
 function loadScript(): Promise<TurnstileApi | null> {
+  if (isObsClient()) return Promise.resolve(null);
   if (window.turnstile?.render) {
     scriptUnavailable = false;
     return Promise.resolve(window.turnstile);
@@ -233,11 +238,28 @@ let setChromeVisible: ((visible: boolean) => void) | null = null;
 // out from under the second.
 let interactiveCount = 0;
 
+if (typeof window !== "undefined") {
+  window.addEventListener("obsStudioInit", () => {
+    if (overlay) {
+      try {
+        overlay.remove();
+      } catch {
+        // Ignored
+      }
+      overlay = null;
+      overlayHost = null;
+    }
+  });
+}
+
 function isDarkTheme(): boolean {
   return document.documentElement.getAttribute("data-theme") === "dark";
 }
 
 function ensureOverlay(): HTMLDivElement {
+  if (isObsClient()) {
+    return document.createElement("div");
+  }
   if (overlayHost) return overlayHost;
 
   // Inline styles, not Tailwind classes: these elements are created at runtime
@@ -265,6 +287,10 @@ function ensureOverlay(): HTMLDivElement {
   document.body.appendChild(overlay);
 
   setChromeVisible = (visible: boolean) => {
+    if (isObsClient()) {
+      if (overlay) overlay.style.display = "none";
+      return;
+    }
     const dark = isDarkTheme();
     overlay!.style.cssText = visible
       ? [
@@ -321,6 +347,7 @@ function ensureOverlay(): HTMLDivElement {
 }
 
 function showChrome() {
+  if (isObsClient()) return;
   interactiveCount += 1;
   setChromeVisible?.(true);
 }
@@ -370,6 +397,12 @@ type InflightMint = {
 const inflight = new Map<CaptchaAction, InflightMint>();
 
 function mintToken(action: CaptchaAction): InflightMint {
+  if (isObsClient()) {
+    return {
+      promise: Promise.resolve(null),
+      markHot: () => {},
+    };
+  }
   let hot = false;
   let showing = false;
 
@@ -495,7 +528,7 @@ function ensureMint(action: CaptchaAction): InflightMint {
  * wherever it becomes certain, which is far too late to help.
  */
 export function prewarmCaptcha(action: CaptchaAction): void {
-  if (!SITE_KEY || typeof window === "undefined") return;
+  if (!SITE_KEY || typeof window === "undefined" || isObsClient()) return;
   const cached = cache.get(action);
   if (cached && Date.now() - cached.mintedAt < TOKEN_REUSE_MS) return;
   if (inflight.has(action)) return;
@@ -523,7 +556,7 @@ export function prewarmCaptcha(action: CaptchaAction): void {
  * it from the cache on the way out.
  */
 export async function getCaptchaToken(action: CaptchaAction): Promise<string | null> {
-  if (!SITE_KEY || typeof window === "undefined") return null;
+  if (!SITE_KEY || typeof window === "undefined" || isObsClient()) return null;
   // Serialized per action, because a token is single-use and two callers that
   // arrived together would otherwise both be handed the *same* one — the
   // second request then failing verification as a duplicate, which looks to
