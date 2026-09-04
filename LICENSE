@@ -1,0 +1,72 @@
+# Fork Attribution Open Source License (FAOSL) 1.0
+
+Copyright (c) 2026 Nem Tudo
+
+## 1. Permission
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to use,
+copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, subject to the conditions below.
+
+## 2. Fork Identification
+
+Any distributed version of the Software that has been modified from the
+original version must clearly and prominently identify itself as a fork,
+modified version, or derivative work of the original Software.
+
+The identification must make clear that the modified version is not the
+official version of the original Software.
+
+Acceptable examples include:
+
+* "Fork of GO Live"
+* "Modified version of Go Live"
+* "Based on Go Live"
+* "Unofficial fork of Go Live"
+
+The identification must not be removed, hidden, or presented in a manner
+reasonably likely to cause users to believe that the modified version is the
+official version of the original Software.
+
+## 3. Preservation of Copyright and License Notices
+
+The copyright notice, this license, and existing attribution notices included
+with the original Software must be preserved in copies and substantial
+portions of the Software.
+
+## 4. Source Code
+
+When distributing modified versions of the Software, the distributor must
+make the corresponding source code available under the terms of this license.
+
+## 5. No Endorsement
+
+Modification, redistribution, or use of the Software does not grant the right
+to imply endorsement, sponsorship, or official affiliation with the original
+author or project.
+
+## 6. Trademark
+
+This license does not grant permission to use the names, logos, trademarks,
+service marks, or other branding of the original project except as necessary
+to comply with Section 2.
+
+The original project may publish a separate trademark policy governing use of
+its name and branding.
+
+## 7. Disclaimer
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR
+OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE
+OF THE SOFTWARE.
+
+## 8. Acceptance
+
+By exercising any rights granted under this license, the recipient agrees to
+comply with the conditions of this license.
