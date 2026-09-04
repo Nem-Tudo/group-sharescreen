@@ -8,6 +8,17 @@
  */
 
 /*
+ * OBS Studio / Browser Source: hide any Cloudflare Turnstile captcha banners/iframes
+ */
+html[data-obs="true"] iframe[src*="challenges.cloudflare.com"],
+html[data-obs="true"] [id*="cf-turnstile"],
+html[data-obs="true"] div:has(> iframe[src*="challenges.cloudflare.com"]) {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/*
  * A way out of a page that never finished hydrating.
  *
  * Everything this app can normally offer as a recovery — a retry button, a

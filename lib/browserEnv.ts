@@ -39,3 +39,77 @@ export function isStandaloneDisplay(): boolean {
     (window.navigator as unknown as { standalone?: boolean }).standalone === true
   );
 }
+
+let obsDetected = false;
+
+if (typeof window !== "undefined") {
+  window.addEventListener("obsStudioInit", () => {
+    obsDetected = true;
+    try {
+      document.documentElement.setAttribute("data-obs", "true");
+    } catch {}
+  });
+}
+
+/**
+ * Checks if the current environment is OBS Studio, Streamlabs, or similar
+ * broadcasting software (e.g. Browser Source), or accessing via the OBS route.
+ */
+export function isObsClient(): boolean {
+  if (obsDetected) return true;
+  if (typeof window === "undefined") return false;
+
+  // 1. Check for OBS Studio & Streamlabs injected APIs
+  const win = window as unknown as {
+    obsstudio?: unknown;
+    streamlabs?: unknown;
+  };
+  if (Boolean(win.obsstudio) || Boolean(win.streamlabs)) {
+    obsDetected = true;
+    try {
+      document.documentElement.setAttribute("data-obs", "true");
+    } catch {}
+    return true;
+  }
+
+  // 2. Check for broadcast software in User-Agent
+  const ua = window.navigator?.userAgent || "";
+  if (/OBS|Streamlabs|vMix|XSplit|PrismLive|TwitchStudio|Wirecast/i.test(ua)) {
+    obsDetected = true;
+    try {
+      document.documentElement.setAttribute("data-obs", "true");
+    } catch {}
+    return true;
+  }
+
+  // 3. Check if accessing the dedicated /obs route or test parameters
+  if (typeof window.location !== "undefined") {
+    if (window.location.pathname?.startsWith("/obs")) {
+      obsDetected = true;
+      try {
+        document.documentElement.setAttribute("data-obs", "true");
+      } catch {}
+      return true;
+    }
+    try {
+      const searchParams = new URLSearchParams(window.location.search);
+      if (
+        searchParams.get("preview") === "true" ||
+        searchParams.get("isObs") === "true" ||
+        searchParams.get("obs") === "true" ||
+        searchParams.get("obs") === "1"
+      ) {
+        obsDetected = true;
+        try {
+          document.documentElement.setAttribute("data-obs", "true");
+        } catch {}
+        return true;
+      }
+    } catch {
+      // ignored
+    }
+  }
+
+  return false;
+}
+

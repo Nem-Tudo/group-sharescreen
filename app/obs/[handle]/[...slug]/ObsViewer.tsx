@@ -8,6 +8,7 @@ import { signalingClient } from "@/lib/signalingClient";
 import { VideoSourceTile } from "@/components/VideoSourceTile";
 import { ObsSourceIcon } from "@/components/icons";
 import { verifyObsSecurityToken, type ObsTokenPayload } from "@/lib/obsToken";
+import { isObsClient } from "@/lib/browserEnv";
 
 export function normalizeSlugToTile(slug: string[]): {
   kind: "screen" | "camera" | "file" | "video-source";
@@ -55,32 +56,7 @@ export function normalizeSlugToTile(slug: string[]): {
 }
 
 function checkIsBroadcastClient(): boolean {
-  if (typeof window === "undefined") return false;
-
-  // 1. Check for OBS Studio & Streamlabs injected APIs
-  const win = window as unknown as {
-    obsstudio?: unknown;
-    streamlabs?: unknown;
-  };
-  if (Boolean(win.obsstudio) || Boolean(win.streamlabs)) {
-    return true;
-  }
-
-  // 2. Check for broadcast software in User-Agent
-  const ua = window.navigator.userAgent || "";
-  if (/OBS|Streamlabs|vMix|XSplit|PrismLive|TwitchStudio|Wirecast/i.test(ua)) {
-    return true;
-  }
-
-  // 3. Optional override param for developer testing
-  try {
-    const searchParams = new URLSearchParams(window.location.search);
-    if (searchParams.get("preview") === "true") return true;
-  } catch {
-    // ignored
-  }
-
-  return false;
+  return isObsClient();
 }
 
 export function ObsViewer({

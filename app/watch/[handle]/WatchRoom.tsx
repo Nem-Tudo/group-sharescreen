@@ -1189,20 +1189,50 @@ export function WatchRoom({ handle }: { handle: string }) {
   const [mobileExtraMenuOpen, setMobileExtraMenuOpen] = useState(false);
   const mobileDrawerTouchStartY = useRef<number | null>(null);
 
+  // Permite fechar o painel mobile (Chat e Pessoas) puxando para baixo
+  const mobilePanelRef = useRef<HTMLElement | null>(null);
+  const panelClosingRef = useRef<boolean>(false);
+
+  function closeMobilePanel(callback?: () => void) {
+    if (panelClosingRef.current) return;
+    const section = mobilePanelRef.current;
+    if (!section) {
+      setMobilePanel(null);
+      callback?.();
+      return;
+    }
+    panelClosingRef.current = true;
+    section.style.transition = "transform 0.18s ease-out";
+    section.style.transform = "translateY(100%)";
+    setTimeout(() => {
+      setMobilePanel(null);
+      panelClosingRef.current = false;
+      if (section) {
+        section.style.transform = "";
+        section.style.transition = "";
+      }
+      callback?.();
+    }, 180);
+  }
+
   // The bottom bar's two panel buttons are toggles: tapping the sheet that's
   // already up puts it away again, which is the gesture people try first and
   // the only way back to a full-screen video.
   function toggleMobilePanel(panel: MobilePanel) {
     setMobileExtraMenuOpen(false);
-    setMobilePanel((current) => (current === panel ? null : panel));
+    if (mobilePanel === panel) {
+      closeMobilePanel();
+    } else {
+      panelClosingRef.current = false;
+      setMobilePanel(panel);
+    }
   }
 
   function toggleMobileExtraMenu() {
-    setMobileExtraMenuOpen((prev) => {
-      const next = !prev;
-      if (next) setMobilePanel(null);
-      return next;
-    });
+    if (!mobileExtraMenuOpen && mobilePanel) {
+      closeMobilePanel();
+    }
+    setMobileExtraMenuOpen((prev) => !prev);
   }
 
   function handleDrawerTouchStart(e: React.TouchEvent) {
@@ -1215,16 +1245,13 @@ export function WatchRoom({ handle }: { handle: string }) {
     mobileDrawerTouchStartY.current = null;
     // Swiped up by more than 25px -> open extra menu
     if (deltaY > 25) {
+      if (mobilePanel) closeMobilePanel();
       setMobileExtraMenuOpen(true);
-      setMobilePanel(null);
     } else if (deltaY < -25) {
       // Swiped down by more than 25px -> close extra menu
       setMobileExtraMenuOpen(false);
     }
   }
-
-  // Permite fechar o painel mobile (Chat e Pessoas) puxando para baixo
-  const mobilePanelRef = useRef<HTMLElement | null>(null);
   const panelTouchStartY = useRef<number | null>(null);
   const panelTouchStartX = useRef<number | null>(null);
   const panelTouchStartTime = useRef<number>(0);
@@ -1317,15 +1344,7 @@ export function WatchRoom({ handle }: { handle: string }) {
     panelIsDragging.current = false;
 
     if (shouldClose) {
-      section.style.transition = "transform 0.18s ease-out";
-      section.style.transform = "translateY(100%)";
-      setTimeout(() => {
-        setMobilePanel(null);
-        if (section) {
-          section.style.transform = "";
-          section.style.transition = "";
-        }
-      }, 180);
+      closeMobilePanel();
     } else {
       section.style.transition = "transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)";
       section.style.transform = "translateY(0px)";
@@ -5422,7 +5441,7 @@ export function WatchRoom({ handle }: { handle: string }) {
                 // panel kept alive behind `display: none` cannot scroll
                 // itself, so it would come back holding whatever position it
                 // had when it was put away.
-                className="flex h-[55dvh] min-h-72 shrink-0 flex-col border-t border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 will-change-transform"
+                className="relative z-10 flex h-[55dvh] min-h-72 shrink-0 flex-col border-t border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 will-change-transform"
               >
                 {/* The usual sheet grab bar, and a second way out: a sheet
                     whose only exit is the control that opened it is the kind
@@ -5430,7 +5449,7 @@ export function WatchRoom({ handle }: { handle: string }) {
                 <button
                   type="button"
                   data-panel-grab-handle
-                  onClick={() => setMobilePanel(null)}
+                  onClick={() => closeMobilePanel()}
                   aria-label="Fechar"
                   className="group flex w-full shrink-0 cursor-pointer flex-col items-center justify-center py-2.5 touch-none select-none"
                 >
@@ -5449,7 +5468,7 @@ export function WatchRoom({ handle }: { handle: string }) {
             )}
 
             {(state.status === "connecting" || state.status === "closed") && (
-              <p className="flex shrink-0 items-center justify-center gap-1.5 border-t border-amber-200 bg-amber-50 py-1 text-xs font-medium text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-500">
+              <p className="relative z-20 flex shrink-0 items-center justify-center gap-1.5 border-t border-amber-200 bg-amber-50 py-1 text-xs font-medium text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-500">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
                 Conectando...
               </p>
@@ -5461,7 +5480,7 @@ export function WatchRoom({ handle }: { handle: string }) {
                 *over* it on the right. One row, thumb-sized targets, never
                 scrolls, never moves. */}
             <div
-              className="flex shrink-0 flex-col border-t border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950"
+              className="relative z-20 flex shrink-0 flex-col border-t border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950"
               onTouchStart={handleDrawerTouchStart}
               onTouchEnd={handleDrawerTouchEnd}
             >
