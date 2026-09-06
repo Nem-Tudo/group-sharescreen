@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { SM_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 import {
   DESKTOP_BANNER,
@@ -25,40 +25,25 @@ import { useAdsAllowed } from "@/lib/useAdsAllowed";
 
 export function AdsterraBanner({
   className = "",
-  /**
-   * A label above the slot. Off by default: it is worth having where an ad
-   * sits among the site's own content and could be mistaken for it, and noise
-   * where the slot is obviously an ad.
-   */
   label = false,
   slot,
+  fallback = null,
+  onEmpty,
 }: {
   className?: string;
   label?: boolean;
   slot?: "desktop" | "mobile" | "room";
+  fallback?: ReactNode;
+  onEmpty?: () => void;
 }) {
   const allowed = useAdsAllowed();
-  // Once anything has established that Adsterra cannot get through, this slot
-  // stops rendering rather than holding a box open around nothing. That is
-  // what puts the room's own ad back (see WatchRoom) and what keeps a page
-  // with an ad blocker from showing a 728x90 hole where a banner was meant
-  // to be.
   const blocked = useAdsterraBlocked();
   const wide = useMediaQuery(SM_BREAKPOINT_QUERY);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
-  // This unit specifically had nothing to serve. Kept local rather than told
-  // to the shared store: it says nothing about whether Adsterra can reach
-  // this browser, and treating it as if it did would take down every other
-  // slot on the page over one empty response.
   const [empty, setEmpty] = useState(false);
+  const [isLoaded, setIsLoaded] = useState(false);
   const [renderedSize, setRenderedSize] = useState<{ width: number; height: number } | null>(null);
 
-  // The wide unit above `sm`, the phone one below, and each falls back to the
-  // other when only one is configured — a deployment with a single key should
-  // show it rather than show nothing half the time. useMediaQuery reports
-  // false until the first client paint, so the phone unit is the one that
-  // renders first, which is the right way round: it is the smaller hole to
-  // leave in a layout that is about to reflow.
   const useDesktopUnit = wide ? DESKTOP_BANNER !== null : MOBILE_BANNER === null;
   const isRoom = slot === "room";
   const unit: BannerUnit | null = isRoom
@@ -68,15 +53,26 @@ export function AdsterraBanner({
 
   const rendering = allowed && !blocked && !empty && unit !== null;
 
-  const markSettled = useAdFrameWatchdog(rendering, BANNER_FILL_TIMEOUT_MS + 3000);
+  const handleTimeout = () => {
+    setEmpty(true);
+    onEmpty?.();
+  };
+
+  const markSettled = useAdFrameWatchdog(rendering, BANNER_FILL_TIMEOUT_MS + 3000, handleTimeout);
+
+  // If empty (e.g. temporary no-fill), schedule a retry after 60s
+  useEffect(() => {
+    if (!empty) return;
+    const retryTimer = setTimeout(() => {
+      setEmpty(false);
+      setIsLoaded(false);
+    }, 60000);
+    return () => clearTimeout(retryTimer);
+  }, [empty]);
 
   useEffect(() => {
     if (!rendering) return;
     function onMessage(event: MessageEvent) {
-      // Matched on the frame's own window rather than the event's origin.
-      // Same-origin now, so an origin check would pass for every frame and
-      // every script on this page; the window identity is the one test that
-      // means "this slot's frame and nothing else".
       if (!frameRef.current || event.source !== frameRef.current.contentWindow) return;
       const message = parseAdFrameMessage(event.data);
       if (!message) return;
@@ -89,17 +85,23 @@ export function AdsterraBanner({
       if (message.width && message.height) {
         setRenderedSize({ width: message.width, height: message.height });
       }
-      // Only a refused request is a fact about the browser. An empty
-      // response is a fact about this unit, and hides just this slot.
-      if (message.reason === "blocked") reportAdsterraFill(false);
-      else if (message.filled) reportAdsterraFill(true);
-      else setEmpty(true);
+      if (message.reason === "blocked") {
+        reportAdsterraFill(false, "blocked");
+      } else if (message.filled) {
+        reportAdsterraFill(true);
+        setIsLoaded(true);
+      } else {
+        setEmpty(true);
+        onEmpty?.();
+      }
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [rendering, markSettled]);
+  }, [rendering, markSettled, onEmpty]);
 
-  if (!rendering || !unit) return null;
+  if (!rendering || !unit) {
+    return fallback ? <>{fallback}</> : null;
+  }
 
   const displayWidth = renderedSize ? renderedSize.width : unit.width;
   const displayHeight = renderedSize ? renderedSize.height : unit.height;
@@ -111,31 +113,32 @@ export function AdsterraBanner({
           Publicidade
         </span>
       )}
-      {/* Sized on the wrapper as well as the iframe so the space is reserved
-          before the ad paints. An ad that arrives and pushes the page down
-          under somebody's thumb is the single most annoying thing a slot like
-          this can do. */}
       <div
         style={{ width: displayWidth, height: displayHeight }}
-        className="max-w-full overflow-hidden transition-[width,height] duration-200"
+        className="relative max-w-full overflow-hidden rounded-xl bg-zinc-100/60 dark:bg-zinc-900/60 transition-[width,height] duration-200"
       >
+        {!isLoaded && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-400/80 dark:text-zinc-500/80 animate-pulse">
+              Publicidade
+            </span>
+          </div>
+        )}
         <iframe
           ref={frameRef}
-          // Remounts when the unit changes, so the desktop/phone switch
-          // actually fetches the other slot's document instead of resizing
-          // the box around the one already loaded.
           key={`${unit.key}-${unit.width}x${unit.height}`}
           title="Publicidade"
-          // A URL on this site rather than srcDoc — that is what gives the ad
-          // script an origin, its cookies and a referrer Adsterra recognises.
-          // See lib/adsterra.ts's header for what happened without it.
           src={adFrameUrl(frameSlot)}
           sandbox={IFRAME_SANDBOX}
           width={displayWidth}
           height={displayHeight}
           scrolling="no"
           referrerPolicy="no-referrer-when-downgrade"
-          className="block max-w-full border-0"
+          allowTransparency={true}
+          style={{ backgroundColor: "transparent" }}
+          className={`block max-w-full border-0 transition-opacity duration-300 ${
+            isLoaded ? "opacity-100" : "opacity-0 pointer-events-none"
+          }`}
         />
       </div>
     </div>

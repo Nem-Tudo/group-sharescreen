@@ -67,6 +67,18 @@ import {
   stopSystemAudioCapture,
 } from "./systemAudio";
 
+// Hardware and Windows occlusion fixes:
+// 1. CalculateNativeWinOcclusion: Windows 11 reports native window occlusion when entering F11/fullscreen,
+//    which causes Chromium to suspend compositor rendering and freeze WebRTC video.
+// 2. disable-backgrounding-occluded-windows: Prevents renderer throttling when occluded.
+// 3. disable-renderer-backgrounding: Prevents Windows 11 EcoQoS/efficiency mode throttling.
+// 4. disable-direct-composition-video-overlays: DirectComposition hardware video overlays (MPO)
+//    freeze and drop frames on Windows 11 when toggling fullscreen/F11 on AMD/Intel/Nvidia GPUs.
+app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
+app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
+app.commandLine.appendSwitch("disable-renderer-backgrounding");
+app.commandLine.appendSwitch("disable-direct-composition-video-overlays");
+
 // Where the UI comes from. Overridable so `npm run electron:dev` can point at
 // a local `next dev` without a rebuild.
 const APP_URL = process.env.GOLIVE_APP_URL || "https://golive.nemtudo.me";
@@ -812,6 +824,23 @@ function createWindow(initialUrl: string = APP_URL) {
   mainWindow.once("ready-to-show", () => mainWindow?.show());
   mainWindow.on("closed", () => {
     mainWindow = null;
+  });
+
+  // Explicit F11 handler to toggle fullscreen smoothly without conflicts
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    if (input.type === "keyDown" && (input.key === "F11" || input.code === "F11")) {
+      event.preventDefault();
+      const nextFullscreen = !mainWindow?.isFullScreen();
+      mainWindow?.setFullScreen(nextFullscreen);
+    }
+  });
+
+  mainWindow.on("enter-full-screen", () => {
+    mainWindow?.webContents.send(IPC.windowFullscreenChange, true);
+  });
+
+  mainWindow.on("leave-full-screen", () => {
+    mainWindow?.webContents.send(IPC.windowFullscreenChange, false);
   });
 
   // Third-party links (Discord, the terms page, a shared YouTube URL) open

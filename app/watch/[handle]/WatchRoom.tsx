@@ -5141,9 +5141,17 @@ export function WatchRoom({ handle }: { handle: string }) {
                 hidden, so each turn is a fresh creative. */}
             {showAdsterra ? (
               adsterraFormat === "native" ? (
-                <AdsterraNative className="shrink-0" label={false} />
+                <AdsterraNative
+                  className="shrink-0"
+                  label={false}
+                  fallback={<PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />}
+                />
               ) : (
-                <AdsterraBanner slot="room" className="shrink-0" />
+                <AdsterraBanner
+                  slot="room"
+                  className="shrink-0"
+                  fallback={<PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />}
+                />
               )
             ) : (
               <PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />
@@ -5433,7 +5441,11 @@ export function WatchRoom({ handle }: { handle: string }) {
                 budget affords on the Adsterra minute; see
                 NEXT_PUBLIC_ADSTERRA_BANNER_MOBILE_KEY. */}
             {showAdsterra ? (
-              <AdsterraBanner slot="room" className="shrink-0" />
+              <AdsterraBanner
+                slot="room"
+                className="shrink-0"
+                fallback={<PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />}
+              />
             ) : (
               <PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />
             )}

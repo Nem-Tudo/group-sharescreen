@@ -27,6 +27,7 @@ import {
   isAndroidPipAvailable,
   refreshAndroidPipSupport,
 } from "@/lib/androidPictureInPicture";
+import { getDesktopBridge } from "@/lib/desktop";
 
 function noopSubscribe() {
   return () => { };
@@ -235,17 +236,29 @@ export function VideoTile({
     if (!video) return;
 
     function onRecoverPlayback() {
-      if (video && video.paused && !onTogglePlay && stream) {
-        video.play().catch(() => {});
+      if (video && !onTogglePlay && stream) {
+        if (video.paused) {
+          video.play().catch(() => {});
+        }
+        requestAnimationFrame(() => {
+          if (video && video.paused && !onTogglePlay && stream) {
+            video.play().catch(() => {});
+          }
+        });
       }
     }
 
     window.addEventListener("resize", onRecoverPlayback);
     document.addEventListener("fullscreenchange", onRecoverPlayback);
+    const bridge = getDesktopBridge();
+    const unsubDesktop = bridge?.onWindowFullscreenChange?.(() => {
+      onRecoverPlayback();
+    });
 
     return () => {
       window.removeEventListener("resize", onRecoverPlayback);
       document.removeEventListener("fullscreenchange", onRecoverPlayback);
+      unsubDesktop?.();
     };
   }, [onTogglePlay, stream]);
 

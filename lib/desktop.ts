@@ -115,6 +115,11 @@ export interface DesktopBridge {
    * Returns an unsubscribe function.
    */
   onGlobalShortcut?(callback: (action: string) => void): () => void;
+  /**
+   * Subscribes to desktop window fullscreen change events (e.g. F11).
+   * Returns an unsubscribe function.
+   */
+  onWindowFullscreenChange?(callback: (isFullscreen: boolean) => void): () => void;
 
   /**
    * System audio capture with GoLive's own output excluded — the thing that

@@ -173,7 +173,7 @@ export const AD_MESSAGE_SOURCE = "adsterra";
  * Neither number is the ad-blocker path. A blocker refuses the request, which
  * fires the tag's onerror in milliseconds — see fillProbeScript.
  */
-export const BANNER_FILL_TIMEOUT_MS = 4000;
+export const BANNER_FILL_TIMEOUT_MS = 12000;
 export const NATIVE_FILL_TIMEOUT_MS = 12000;
 
 /**
@@ -221,13 +221,22 @@ function fillProbeScript(timeoutMs: number): string {
     var nodes = document.body.querySelectorAll("iframe,img,a,div,ins,span,canvas");
     var maxW = 0;
     var maxH = 0;
+    var foundIframe = null;
     for (var i = 0; i < nodes.length; i++) {
-      var box = nodes[i].getBoundingClientRect();
+      var node = nodes[i];
+      if (node.tagName === "IFRAME") {
+        foundIframe = node;
+        try {
+          node.style.background = "transparent";
+          node.setAttribute("allowtransparency", "true");
+        } catch (e) {}
+      }
+      var box = node.getBoundingClientRect();
       if (box.width > maxW) maxW = box.width;
       if (box.height > maxH) maxH = box.height;
     }
     if (maxW > 1 && maxH > 1) {
-      return { width: Math.round(maxW), height: Math.round(maxH) };
+      return { width: Math.round(maxW), height: Math.round(maxH), iframe: foundIframe };
     }
     return null;
   }
@@ -236,6 +245,26 @@ function fillProbeScript(timeoutMs: number): string {
     if (window.__adsterraBlocked) { clearInterval(timer); tell(false, "blocked"); return; }
     var sz = measureSize();
     if (sz) {
+      if (sz.iframe && !sz.iframe.__adsterraLoaded) {
+        var ifr = sz.iframe;
+        ifr.__adsterraLoaded = true;
+        try {
+          ifr.style.background = "transparent";
+          ifr.setAttribute("allowtransparency", "true");
+        } catch (e) {}
+        var onIframeReady = function () {
+          clearInterval(timer);
+          tell(true, null, sz);
+          parent.postMessage({ source: "${AD_MESSAGE_SOURCE}", type: "size", width: sz.width, height: sz.height }, "*");
+        };
+        ifr.addEventListener("load", onIframeReady, { once: true });
+        ifr.addEventListener("error", function () {
+          clearInterval(timer);
+          tell(false, "empty");
+        }, { once: true });
+        setTimeout(onIframeReady, 1200);
+        return;
+      }
       clearInterval(timer);
       tell(true, null, sz);
       parent.postMessage({ source: "${AD_MESSAGE_SOURCE}", type: "size", width: sz.width, height: sz.height }, "*");
@@ -269,7 +298,7 @@ export function bannerDocument(banner: AdsterraBanner): string {
   });
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta name="referrer" content="origin">
-<style>html,body{margin:0;padding:0;overflow:hidden;background:transparent}</style>
+<style>html,body{margin:0;padding:0;overflow:hidden;background:transparent !important}iframe{background:transparent !important;border:0 !important}</style>
 </head><body>
 <script type="text/javascript">window.atOptions = ${options};</script>
 <script type="text/javascript" src="${absoluteUrl(`${banner.domain}/${banner.key}/invoke.js`)}" onerror="window.__adsterraBlocked=1"></script>
@@ -292,7 +321,7 @@ export function nativeDocument(native: AdsterraNative): string {
   const timeoutMs = NATIVE_FILL_TIMEOUT_MS;
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta name="referrer" content="origin">
-<style>html,body{margin:0;padding:0;background:transparent}</style>
+<style>html,body{margin:0;padding:0;background:transparent !important}iframe{background:transparent !important;border:0 !important}</style>
 </head><body>
 <script async data-cfasync="false" src="${absoluteUrl(native.src)}" onerror="window.__adsterraBlocked=1"></script>
 <div id="${native.containerId}"></div>
