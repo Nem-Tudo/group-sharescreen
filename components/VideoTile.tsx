@@ -221,8 +221,33 @@ export function VideoTile({
   // Attaching the stream to the element stays an effect: that genuinely is a
   // side effect on a DOM node.
   useEffect(() => {
-    if (videoRef.current) videoRef.current.srcObject = stream;
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream;
+      if (stream) {
+        videoRef.current.play().catch(() => {});
+      }
+    }
   }, [stream]);
+
+  // Keep WebRTC stream rendering and alive during F11/window resize transitions
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    function onRecoverPlayback() {
+      if (video && video.paused && !onTogglePlay && stream) {
+        video.play().catch(() => {});
+      }
+    }
+
+    window.addEventListener("resize", onRecoverPlayback);
+    document.addEventListener("fullscreenchange", onRecoverPlayback);
+
+    return () => {
+      window.removeEventListener("resize", onRecoverPlayback);
+      document.removeEventListener("fullscreenchange", onRecoverPlayback);
+    };
+  }, [onTogglePlay, stream]);
 
   useGainedAudio(videoRef, stream, volume ?? internalVolume, isMuted);
 
@@ -477,8 +502,15 @@ export function VideoTile({
         onLoadedMetadata={() => setIsVideoLoading(false)}
         onCanPlay={() => setIsVideoLoading(false)}
         onPlaying={() => setIsVideoLoading(false)}
+        onPause={(e) => {
+          // Keep live WebRTC stream playing if browser pauses it during F11 / window resize
+          if (!onTogglePlay && stream) {
+            e.currentTarget.play().catch(() => {});
+          }
+        }}
         onClick={handleVideoTap}
         onDoubleClick={handleVideoDoubleTap}
+        style={{ transform: "translateZ(0)", willChange: "transform" }}
         className={`h-full w-full object-contain bg-black ${
           onTogglePlay && !isFullscreen ? "cursor-pointer" : ""
         }`}
