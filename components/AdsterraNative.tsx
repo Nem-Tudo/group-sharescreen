@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   IFRAME_SANDBOX,
   NATIVE_BANNER,
@@ -17,106 +17,110 @@ import { useAdsAllowed } from "@/lib/useAdsAllowed";
 
 // The Adsterra native banner — a row of "recommended" cards that takes the
 // width it is given and whatever height its contents need.
-//
-// Same sandboxed iframe as the fixed banner (see lib/adsterra.ts), with the
-// one extra problem that follows from it: the parent cannot measure a
-// document on an opaque origin, so the slot has no idea how tall to be. The
-// iframe measures itself and posts the number out; everything below is about
-// believing that number only when it is worth believing.
 
-/** Before the ad has said anything. Roughly one row of cards. */
 const INITIAL_HEIGHT = 260;
-
-// There used to be a "fold the placeholder away after three seconds" here, to
-// avoid holding a white rectangle open while the ad loaded. It was removed
-// because it was breaking the thing it was decorating: collapsing the iframe
-// to zero height gives the widget inside a viewport of no height to lay out
-// in — and this unit measures the space it has (its own config carries
-// `increaseBannerSize` and it reads clientHeight) — so the ad that was still
-// deciding decided on nothing. The reserved space is the lesser cost: it is
-// the size the ad is about to be, and a slot that turns out empty removes
-// itself entirely a few seconds later.
-
-/**
- * A ceiling, because the height arrives from inside an ad. A creative that
- * reports 40000px — through a bug or otherwise — would otherwise be handed
- * the whole page.
- */
 const MAX_HEIGHT = 1200;
 
 export function AdsterraNative({
   className = "",
   label = true,
+  fallback = null,
+  onEmpty,
 }: {
   className?: string;
-  /** Defaults on here: a native ad is *designed* to look like site content. */
   label?: boolean;
+  fallback?: ReactNode;
+  onEmpty?: () => void;
 }) {
   const allowed = useAdsAllowed();
-  // See AdsterraBanner: one refusal anywhere takes every slot down, because
-  // an ad blocker is a fact about the browser and not about this unit.
   const blocked = useAdsterraBlocked();
   const frameRef = useRef<HTMLIFrameElement | null>(null);
-  // null until the frame reports one. Distinguishing "not yet" from a number
-  // is what lets the placeholder below know it is still a placeholder.
   const [height, setHeight] = useState<number | null>(null);
-  // See AdsterraBanner: an empty response hides this slot and nothing else.
   const [empty, setEmpty] = useState(false);
+  const [isLoaded, setIsLoaded] = useState(false);
 
   const rendering = allowed && !blocked && !empty && NATIVE_BANNER !== null;
 
-  const markSettled = useAdFrameWatchdog(rendering, NATIVE_FILL_TIMEOUT_MS + 3000);
+  const handleTimeout = () => {
+    setEmpty(true);
+    onEmpty?.();
+  };
+
+  const markSettled = useAdFrameWatchdog(rendering, NATIVE_FILL_TIMEOUT_MS + 3000, handleTimeout);
+
+  // If empty (e.g. temporary no-fill), schedule a retry after 60s
+  useEffect(() => {
+    if (!empty) return;
+    const retryTimer = setTimeout(() => {
+      setEmpty(false);
+      setIsLoaded(false);
+    }, 60000);
+    return () => clearTimeout(retryTimer);
+  }, [empty]);
 
   useEffect(() => {
     if (!rendering) return;
     function onMessage(event: MessageEvent) {
-      // See AdsterraBanner: matched on the frame's own window, which stays
-      // the strict test now that the document is same-origin.
       if (!frameRef.current || event.source !== frameRef.current.contentWindow) return;
       const message = parseAdFrameMessage(event.data);
       if (!message) return;
       if (message.type === "status") {
         markSettled();
-        if (message.reason === "blocked") reportAdsterraFill(false);
-        else if (message.filled) reportAdsterraFill(true);
-        else setEmpty(true);
+        if (message.reason === "blocked") {
+          reportAdsterraFill(false, "blocked");
+        } else if (message.filled) {
+          reportAdsterraFill(true);
+          setIsLoaded(true);
+        } else {
+          setEmpty(true);
+          onEmpty?.();
+        }
         return;
       }
       setHeight(Math.min(Math.round(message.height), MAX_HEIGHT));
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [rendering, markSettled]);
+  }, [rendering, markSettled, onEmpty]);
 
-  if (!rendering || !NATIVE_BANNER) return null;
+  if (!rendering || !NATIVE_BANNER) {
+    return fallback ? <>{fallback}</> : null;
+  }
 
-  // The ad's real height once it reports one, and the placeholder until then.
   const boxHeight = height ?? INITIAL_HEIGHT;
 
   return (
     <div className={`flex w-full flex-col gap-1 ${className}`}>
-      {/* The label goes with the ad, not with the space where one might
-          appear — an "Publicidade" caption over an empty box is worse than
-          no caption. */}
       {label && height !== null && (
         <span className="text-[10px] uppercase tracking-wide text-zinc-400 dark:text-zinc-600">
           Publicidade
         </span>
       )}
-      <iframe
-        ref={frameRef}
-        title="Publicidade"
-        // See AdsterraBanner: a real URL, not srcDoc, so the script has an
-        // origin to work in.
-        src={adFrameUrl("native")}
-        sandbox={IFRAME_SANDBOX}
-        scrolling="no"
-        referrerPolicy="no-referrer-when-downgrade"
-        // Transitioned because the height lands in steps as the cards' images
-        // load, and three instant jumps read as the page glitching.
+      <div
         style={{ height: boxHeight }}
-        className="w-full border-0 transition-[height] duration-200"
-      />
+        className="relative w-full overflow-hidden rounded-xl bg-zinc-100/60 dark:bg-zinc-900/60 transition-[height] duration-200"
+      >
+        {!isLoaded && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-400/80 dark:text-zinc-500/80 animate-pulse">
+              Publicidade
+            </span>
+          </div>
+        )}
+        <iframe
+          ref={frameRef}
+          title="Publicidade"
+          src={adFrameUrl("native")}
+          sandbox={IFRAME_SANDBOX}
+          scrolling="no"
+          referrerPolicy="no-referrer-when-downgrade"
+          allowTransparency={true}
+          style={{ height: boxHeight, backgroundColor: "transparent" }}
+          className={`w-full border-0 transition-opacity duration-300 ${
+            isLoaded ? "opacity-100" : "opacity-0 pointer-events-none"
+          }`}
+        />
+      </div>
     </div>
   );
 }

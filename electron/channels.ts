@@ -96,6 +96,8 @@ export const IPC = {
    * screen. A one-shot: main clears it on the first request that reads it.
    */
   shareUseSaved: "golive:share:use-saved",
+  /** main -> renderer: the desktop window entered or exited fullscreen mode. */
+  windowFullscreenChange: "golive:window:fullscreen-change",
 } as const;
 
 /**

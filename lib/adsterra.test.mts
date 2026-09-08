@@ -88,7 +88,7 @@ for (const doc of [bannerDoc, nativeDoc]) {
 // the banner appends a sized iframe at once, the native builds nothing until
 // its own ad request returns. One budget for both is what made a native ad
 // that was still loading get thrown away as if it had failed.
-assert.ok(bannerDoc.includes("Date.now() + 4000"));
+assert.ok(bannerDoc.includes("Date.now() + 12000"));
 assert.ok(nativeDoc.includes("Date.now() + 12000"));
 
 // The vendor's own snippet puts the script before the container div; matching

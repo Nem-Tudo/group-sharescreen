@@ -108,6 +108,19 @@ contextBridge.exposeInMainWorld("golive", {
     };
   },
 
+  onWindowFullscreenChange(callback: unknown): () => void {
+    if (typeof callback !== "function") return () => {};
+    const listener = (_event: unknown, isFullscreen: unknown) => {
+      if (typeof isFullscreen === "boolean") {
+        (callback as (f: boolean) => void)(isFullscreen);
+      }
+    };
+    ipcRenderer.on(IPC.windowFullscreenChange, listener);
+    return () => {
+      ipcRenderer.off(IPC.windowFullscreenChange, listener);
+    };
+  },
+
   // Undefined on every machine that cannot do this — anything but Windows
   // 11, and any build shipped without the helper binary. That absence is
   // the website's feature check (see lib/desktopSystemAudio.ts): a bridge

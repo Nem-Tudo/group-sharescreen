@@ -612,12 +612,12 @@ function useBroadcastChannel(
   }, []);
   const videoQualityRef = useRef(videoQuality);
   const qualityCeilingRef = useRef<QualityTier>(videoQuality?.ceilingTier ?? BEST_TIER);
-  const degradationModeRef = useRef<DegradationMode>(videoQuality?.degradation ?? "text");
+  const degradationModeRef = useRef<DegradationMode>(videoQuality?.degradation ?? "balanced");
   const honorRequestsRef = useRef<boolean>(videoQuality?.honorViewerRequests ?? true);
   useEffect(() => {
     videoQualityRef.current = videoQuality;
     qualityCeilingRef.current = videoQuality?.ceilingTier ?? BEST_TIER;
-    degradationModeRef.current = videoQuality?.degradation ?? "text";
+    degradationModeRef.current = videoQuality?.degradation ?? "balanced";
     honorRequestsRef.current = videoQuality?.honorViewerRequests ?? true;
   }, [videoQuality]);
 
@@ -2092,7 +2092,7 @@ export function useRoomMedia(room: string) {
   // same picker. The default fps is 30, which is the ceiling this profile
   // wants anyway — see setShareProfile's clamp.
   const [shareProfile, setShareProfileState] = useState<DegradationMode>(() =>
-    restoredSetting(getStoredShareProfile(), SHARE_PROFILE_OPTIONS, "text")
+    restoredSetting(getStoredShareProfile(), SHARE_PROFILE_OPTIONS, "balanced")
   );
   const shareResolutionRef = useRef(shareResolution);
   const shareFpsRef = useRef(shareFps);

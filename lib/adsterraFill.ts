@@ -25,17 +25,20 @@ const listeners = new Set<() => void>();
 
 /**
  * What a slot found out. `filled` means a box with real size was drawn, never
- * merely that a script loaded — see fillProbeScript in adsterra.ts, and note
- * that a blocker answering with an empty stub produces a perfectly successful
- * load with nothing behind it.
+ * merely that a script loaded — see fillProbeScript in adsterra.ts.
  *
- * The last verdict wins rather than latching: one unlucky empty response
- * should not be final, and a slot that fills after another was refused is
- * the more recent truth.
+ * An ad blocker is a property of the browser and marks blocked = true.
+ * An empty unit (no ad inventory) is specific to that unit and does NOT
+ * poison the global blocked state for the whole page.
  */
-export function reportAdsterraFill(filled: boolean): void {
-  if (blocked === !filled) return;
-  blocked = !filled;
+export function reportAdsterraFill(filled: boolean, reason?: "blocked" | "empty" | null): void {
+  // If not filled, only mark globally blocked if reason is explicitly "blocked" (e.g. adblocker script refusal)
+  if (!filled && reason !== "blocked") {
+    return;
+  }
+  const nextBlocked = !filled;
+  if (blocked === nextBlocked) return;
+  blocked = nextBlocked;
   for (const listener of listeners) listener();
 }
 
@@ -66,27 +69,26 @@ export function useAdsterraBlocked(): boolean {
  * Catches the failure the in-document probe cannot report: the document never
  * loading.
  *
- * A blocked script still runs our probe, which is what reports an empty slot.
- * A blocked *frame* runs nothing at all — total silence — and the slot would
- * sit there forever, taking its turn from the room's own ad every other
- * minute. So the page keeps its own clock, and reads silence for what it is:
- * not "this unit had no ad", but "this document never arrived", which is the
- * browser refusing Adsterra and therefore true for every slot on the page.
- *
- * Returns the callback a slot calls when a real verdict arrives, which is
- * what stops this from overruling it.
+ * Calls onTimeout when the frame fails to settle in time so the slot can
+ * handle fallback locally without poisoning other slots.
  */
-export function useAdFrameWatchdog(active: boolean, timeoutMs: number): () => void {
+export function useAdFrameWatchdog(
+  active: boolean,
+  timeoutMs: number,
+  onTimeout?: () => void
+): () => void {
   const settledRef = useRef(false);
 
   useEffect(() => {
     if (!active) return;
     settledRef.current = false;
     const timer = setTimeout(() => {
-      if (!settledRef.current) reportAdsterraFill(false);
+      if (!settledRef.current) {
+        onTimeout?.();
+      }
     }, timeoutMs);
     return () => clearTimeout(timer);
-  }, [active, timeoutMs]);
+  }, [active, timeoutMs, onTimeout]);
 
   return useCallback(() => {
     settledRef.current = true;
