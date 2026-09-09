@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
+import { StatusBanner } from "@/components/StatusBanner";
 import { AnnouncementBanner } from "@/components/AnnouncementBanner";
 import { CapacitorBridge } from "@/components/CapacitorBridge";
 import { InstallAppButton } from "@/components/InstallAppButton";
@@ -223,6 +224,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
               <PushRegistrar />
               {/* GoLive Pro subscription modal */}
               <ProModalHost />
+              {/* Above the announcement bar: this one says why nothing is
+                  working, and the admin's message of the day is only worth
+                  reading after that. See StatusBanner — it renders nothing
+                  unless the status feed reports an outage. */}
+              <StatusBanner />
               <AnnouncementBanner />
               {children}
               <InstallAppButton />
