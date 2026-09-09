@@ -92,7 +92,6 @@ export function FriendRequestsModal({ open, onClose }: { open: boolean; onClose:
                     <PresenceDot
                       presence={presence[user.id] ?? null}
                       size={8}
-                      ringClassName="ring-white dark:ring-zinc-950"
                     />
                     <DisplayUserName
                       name={user.displayName}

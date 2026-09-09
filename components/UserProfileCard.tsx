@@ -996,7 +996,6 @@ function ProfileContent({
         <PresenceDot
           presence={presence}
           size={18}
-          ringClassName="ring-white dark:ring-zinc-950"
           // Parked on the avatar box's bottom-right corner, in the row's
           // coordinates: px-5 (20px) + w-24 (96px) puts that corner at 116px,
           // less half the dot; the sm: pair is the same sum with px-6 and w-28.

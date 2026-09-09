@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { PresenceDot } from "@/components/PresenceDot";
+import { PresenceDot, type PresenceSurface } from "@/components/PresenceDot";
 import { usePresence } from "@/lib/presence";
 import type { PresenceInfo } from "@/lib/signalingClient";
 
@@ -63,7 +63,7 @@ export function UserAvatar({
   userId,
   isGuest,
   presence,
-  presenceRingClassName,
+  presenceSurface,
 }: {
   src?: string | null;
   name: string;
@@ -80,8 +80,9 @@ export function UserAvatar({
    *  room's participant list, where being listed *is* being connected (see
    *  lib/presence.ts's peerPresence). Takes precedence over `userId`. */
   presence?: PresenceInfo | null;
-  /** The surface the dot sits on, when it is not the page background. */
-  presenceRingClassName?: string;
+  /** What is behind the avatar, so the indicator's outline matches it (see
+   *  PresenceDot's SURFACES). */
+  presenceSurface?: PresenceSurface;
 }) {
   const shown = src || DEFAULT_AVATAR_PATH;
   const [failed, setFailed] = useState(false);
@@ -113,7 +114,7 @@ export function UserAvatar({
         <PresenceDot
           presence={shownPresence}
           size={Math.max(8, Math.round(size * 0.32))}
-          ringClassName={presenceRingClassName}
+          surface={presenceSurface}
           className="absolute right-0 bottom-0"
         />
       </span>

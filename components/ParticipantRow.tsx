@@ -207,12 +207,8 @@ export function ParticipantRow({
           size={22}
           presence={presence}
           // The row's own background, not the page's — your own row is
-          // tinted, and a white ring on it would read as a hole.
-          presenceRingClassName={
-            isSelf
-              ? "ring-zinc-100 dark:ring-zinc-900"
-              : "ring-white dark:ring-zinc-950"
-          }
+          // tinted, and a white outline on it would read as a hole.
+          presenceSurface={isSelf ? "raised" : "page"}
         />
         {canOpenDialog && onOpenProfile ? (
           // A button, not a styled link: this goes nowhere, and marking it up

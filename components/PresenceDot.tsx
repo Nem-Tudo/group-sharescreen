@@ -19,9 +19,10 @@ import type { PresenceInfo, PresenceState } from "@/lib/signalingClient";
 // the size of a dot instead of the size of a button, which matters because it
 // is mostly seen hanging off the corner of a 22-pixel avatar.
 //
-// The plain dot keeps its surface-coloured ring; the glyph gets none. A ring
-// exists to hold a solid circle apart from whatever is behind it, and a
-// monitor already has an outline of its own.
+// Both wear an outline in the colour of whatever is behind them (see
+// SURFACES): a ring around the dot, a stroke around the glyph. The indicator
+// hangs off the corner of a photograph, and without it a yellow monitor over a
+// yellow avatar is not an indicator.
 //
 // Both halves are also written out in the title and the accessible name (see
 // presenceLabel): an indicator that differs from its neighbour only by hue, or
@@ -42,25 +43,49 @@ const GLYPHS = {
   mobile: MdSmartphone,
 };
 
+// What the indicator is sitting on, so it can be outlined in that colour: a
+// ring around the dot, and a stroke around the glyph's own silhouette. Both
+// exist for one reason — the indicator hangs off the corner of a photograph,
+// and a coloured shape straight on top of a photograph is a shape that
+// sometimes disappears.
+//
+// Named surfaces rather than a class name passed in by the caller, because
+// Tailwind only emits classes it can *see*: a string assembled at runtime
+// ("ring-" + something, or ringClassName with the prefix swapped) produces
+// exactly the CSS that does not exist. Every literal a caller can ask for is
+// therefore written out here.
+const SURFACES = {
+  /** The page, and any card sitting flat on it. */
+  page: { ring: "ring-white dark:ring-zinc-950", stroke: "stroke-white dark:stroke-zinc-950" },
+  /** A row tinted to stand out from its list — the participant list's own row. */
+  raised: {
+    ring: "ring-zinc-100 dark:ring-zinc-900",
+    stroke: "stroke-zinc-100 dark:stroke-zinc-900",
+  },
+  /** A modal or popover, which sits a step lighter than the page in the dark. */
+  dialog: { ring: "ring-white dark:ring-zinc-900", stroke: "stroke-white dark:stroke-zinc-900" },
+};
+
+export type PresenceSurface = keyof typeof SURFACES;
+
 export function PresenceDot({
   presence,
   size = 10,
-  /** Classes for the ring that separates the dot from whatever is behind it —
-   *  pass the surface it actually sits on when that is not the page. Only the
-   *  plain dot takes a ring; a glyph is its own silhouette. */
-  ringClassName = "ring-white dark:ring-zinc-950",
+  /** What is behind the indicator, so its outline can match. */
+  surface = "page",
   className = "",
 }: {
   presence: PresenceInfo | null;
   /** The plain dot's diameter. A glyph is drawn slightly larger, since the same
    *  number of pixels carries a filled circle further than a monitor. */
   size?: number;
-  ringClassName?: string;
+  surface?: PresenceSurface;
   className?: string;
 }) {
   if (!presence || presence.state === "offline") return null;
   const label = presenceLabel(presence);
   const color = COLORS[presence.state];
+  const ground = SURFACES[surface];
   const Glyph = presence.device ? GLYPHS[presence.device] : null;
 
   if (Glyph) {
@@ -70,8 +95,14 @@ export function PresenceDot({
         role="img"
         aria-label={label}
         title={label}
-        style={{ width: box, height: box }}
-        className={`shrink-0 ${color.glyph} ${className}`}
+        // paint-order puts the stroke *under* the fill, so the outline grows
+        // outwards into the background instead of eating the icon it is
+        // supposed to be protecting. The width is in the icon's own 24-unit
+        // viewBox, so it scales with the glyph rather than needing a value per
+        // call site.
+        style={{ width: box, height: box, paintOrder: "stroke" }}
+        strokeWidth={2.5}
+        className={`shrink-0 ${color.glyph} ${ground.stroke} ${className}`}
       />
     );
   }
@@ -82,7 +113,7 @@ export function PresenceDot({
       aria-label={label}
       title={label}
       style={{ width: size, height: size }}
-      className={`inline-block shrink-0 rounded-full ring-2 ${color.dot} ${ringClassName} ${className}`}
+      className={`inline-block shrink-0 rounded-full ring-2 ${color.dot} ${ground.ring} ${className}`}
     />
   );
 }

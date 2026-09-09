@@ -41,7 +41,7 @@ function Row({
     <li className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950">
       <Link href={`/user/${user.username}`} className="min-w-0 flex-1 hover:underline">
         <span className="flex min-w-0 items-center gap-1.5">
-          <PresenceDot presence={presence} size={8} ringClassName="ring-white dark:ring-zinc-950" />
+          <PresenceDot presence={presence} size={8} />
           <DisplayUserName
             name={user.displayName}
             verified={verifiedBadge(user.flags)}

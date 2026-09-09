@@ -443,7 +443,7 @@ export function CallHost() {
               name={other.displayName}
               size={80}
               userId={other.id}
-              presenceRingClassName="ring-white dark:ring-zinc-900"
+              presenceSurface="dialog"
               // Only the incoming ring pulses. The caller's own screen is a
               // status, not a summons.
               className={isIncoming ? "animate-pulse" : ""}

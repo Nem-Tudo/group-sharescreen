@@ -316,7 +316,6 @@ export function DirectMessagesModal({
                           <PresenceDot
                             presence={presence[conversation.user.id] ?? null}
                             size={8}
-                            ringClassName="ring-white dark:ring-zinc-950"
                           />
                           <DisplayUserName
                             name={conversation.user.displayName}
