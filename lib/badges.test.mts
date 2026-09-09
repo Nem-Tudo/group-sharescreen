@@ -47,15 +47,64 @@ assert.ok(contributorBadges.some((b) => b.id === "contributor"), "User with CONT
 const mobileBetaBadges = getUserBadges({ username: "mobile_user", flags: ["BETA_MOBILE"] });
 assert.ok(mobileBetaBadges.some((b) => b.id === "beta_mobile"), "User with BETA_MOBILE flag should receive mobile beta badge");
 
-// 4. Pro badge assignment (not a flag, via premium or feature or PRO flag)
+// 4. The Pro badge follows the *entitlement*, not the subscription record.
+//
+// Both accepted sources are things the API derives while the subscription is
+// actually paying: it publishes the PRO flag only then (and never stores it),
+// and verified_badge sits on the premium rung of the same ladder.
 const proFlagBadges = getUserBadges({ username: "pro_user", flags: ["PRO"] });
 assert.ok(proFlagBadges.some((b) => b.id === "pro"), "User with PRO flag should receive pro badge");
 
-const proPremiumBadges = getUserBadges({ username: "premium_user", premium: { active: true } });
-assert.ok(proPremiumBadges.some((b) => b.id === "pro"), "User with premium object should receive pro badge");
-
 const proFeatureBadges = getUserBadges({ username: "feature_user", features: ["verified_badge"] });
 assert.ok(proFeatureBadges.some((b) => b.id === "pro"), "User with verified_badge feature should receive pro badge");
+
+// The presence of a `premium` object is NOT one of those sources, and this is
+// the assertion that used to say the opposite. The API keeps sending `premium`
+// after a subscription ends — the account page needs it to render the state
+// and offer to resubscribe — so treating the object as truthy handed the badge
+// to everybody who had ever paid, permanently.
+//
+// The three shapes below are real ones taken from accounts that are not
+// entitled: a Pix purchase whose paid stretch ran out, a cancelled card
+// subscription past its period, and a charge that was created and never paid.
+const expiredPix = {
+  plan: "premium", method: "pix", status: "cancelled",
+  currentPeriodEnd: Date.now() - 7 * 24 * 60 * 60 * 1000,
+};
+const lapsedCard = {
+  plan: "premium", method: "card", status: "cancelled",
+  currentPeriodEnd: Date.now() - 30 * 24 * 60 * 60 * 1000,
+};
+const neverPaid = {
+  plan: "premium", method: "pix", status: "pending",
+  currentPeriodEnd: 0,
+};
+for (const [label, premium] of [
+  ["expired pix", expiredPix],
+  ["lapsed card", lapsedCard],
+  ["never paid", neverPaid],
+] as const) {
+  const badges = getUserBadges({ username: "ex_subscriber", premium });
+  assert.ok(
+    !badges.some((b) => b.id === "pro"),
+    `An account whose subscription is over (${label}) must not keep the pro badge`
+  );
+}
+
+// And the record being present must not gate away a badge somebody did earn.
+const stillBetaTester = getUserBadges({
+  username: "harukai33",
+  flags: ["BETA_TESTER", "BETA_MOBILE"],
+  premium: expiredPix,
+});
+assert.ok(
+  stillBetaTester.some((b) => b.id === "beta_tester"),
+  "A lapsed subscriber keeps the badges that are actually theirs"
+);
+assert.ok(
+  !stillBetaTester.some((b) => b.id === "pro"),
+  "A lapsed subscriber does not keep the pro badge"
+);
 
 // 5. Beta Tester is a flag, not a date this file works out for itself.
 //

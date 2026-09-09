@@ -222,9 +222,23 @@ function userHasBadge(
   isOwner?: boolean
 ): boolean {
   const flags = account.flags ?? [];
+  // Whether the subscription is *paying*, which is not the same question as
+  // whether the account has a subscription record.
+  //
+  // This used to also accept `Boolean(account.premium)`, and that was the bug:
+  // the API sends `premium` for the account page to render "renova em ..." and
+  // offer to cancel, so it stays on the wire long after a subscription lapses
+  // — cancelled, expired, or a Pix charge whose period ended. Any of those is
+  // a truthy object, so everyone who had ever subscribed kept the badge
+  // forever.
+  //
+  // Both survivors are already the resolved answer rather than raw state. The
+  // API derives "PRO" only while the subscription is entitled and never stores
+  // it (see its entitlements.ts), and `verified_badge` sits on the premium
+  // rung of the same ladder, so it appears in `features` under exactly the
+  // same condition. Neither can outlive the thing it describes.
   const isPro =
     flags.includes("PRO") ||
-    Boolean(account.premium) ||
     Boolean(account.features?.includes("verified_badge"));
 
   // Plan requirement check
