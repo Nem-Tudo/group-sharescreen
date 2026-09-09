@@ -24,13 +24,21 @@ export type CallResult =
   | { ok: true; call: CallWire }
   | { ok: false; error: string };
 
-/** Starts ringing somebody. */
-export async function startCall(userId: string): Promise<CallResult> {
+/**
+ * Starts ringing somebody.
+ *
+ * `room` turns the call into an invitation: instead of minting an empty room
+ * for the two of them, answering walks the other person into the room named
+ * here — which is what "chamar para esta sala" is. The server refuses it
+ * unless the caller is actually standing in that room, so this is a request
+ * and not a claim.
+ */
+export async function startCall(userId: string, room?: string): Promise<CallResult> {
   try {
     const res = await fetch(`${getSignalingHttpBase()}/calls`, {
       method: "POST",
       headers: { ...authHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ to: userId }),
+      body: JSON.stringify({ to: userId, ...(room ? { room } : {}) }),
     });
     const data = (await res.json().catch(() => ({}))) as { call?: CallWire; error?: string };
     if (!res.ok || !data.call) {

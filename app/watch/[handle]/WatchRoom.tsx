@@ -111,6 +111,7 @@ import { LoginForm } from "@/components/LoginForm";
 import { RoomSkeleton } from "@/components/RoomSkeleton";
 import { MobileQualitySheet, type MobileQualityChoice } from "@/components/MobileQualitySheet";
 import { UserProfileDialog } from "@/components/UserProfileDialog";
+import { InviteToRoomModal } from "@/components/InviteToRoomModal";
 import { prewarmCaptcha } from "@/lib/turnstile";
 import { RoomAccountCard } from "@/components/RoomAccountCard";
 import { openProModal } from "@/lib/proModal";
@@ -169,6 +170,7 @@ import {
   MdFlipCameraAndroid,
   MdOutlineKeyboard,
   MdKeyboardArrowUp,
+  MdPersonAddAlt1,
 } from "react-icons/md";
 import { BsGearFill, BsCoin } from "react-icons/bs";
 import {
@@ -1427,6 +1429,7 @@ export function WatchRoom({ handle }: { handle: string }) {
   // are in — which is if anything truer on a phone, where the alternative was
   // a second tab to find your way back out of.
   const [profileUserId, setProfileUserId] = useState<string | null>(null);
+  const [inviting, setInviting] = useState(false);
   // Android tells us when the floating window opens *and* when it closes —
   // the second one is what matters, since the person closing it or tapping
   // back into the app is not something this side could otherwise detect, and
@@ -4375,6 +4378,28 @@ export function WatchRoom({ handle }: { handle: string }) {
         <h2 className="truncate text-sm font-semibold text-zinc-700 dark:text-zinc-300">
           Participantes
         </h2>
+        {/* Beside the heading rather than in the room's own controls: this is
+            an action on *this list* — it is how somebody gets added to it —
+            and a person looking for "quem está aqui, e quem falta" is looking
+            here.
+
+            Accounts only, and quietly absent otherwise: a call has to ring
+            something that outlives a browser session, so a guest has nobody to
+            ring and nobody to be rung by (see the API's callRoutes). The room
+            link still works for everyone, which is what this is a shortcut
+            for. */}
+        {account && (
+          <Tooltip content="Chamar um amigo para esta sala">
+            <button
+              type="button"
+              onClick={() => setInviting(true)}
+              aria-label="Chamar um amigo para esta sala"
+              className="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-emerald-600/40 text-emerald-700 transition hover:bg-emerald-50 dark:border-emerald-500/40 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
+            >
+              <MdPersonAddAlt1 className="h-3.5 w-3.5" />
+            </button>
+          </Tooltip>
+        )}
         {connectingAudioPeers && (
           <Tooltip content="Conectando o áudio de quem está com o microfone ligado">
             <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-500">
@@ -5244,6 +5269,24 @@ export function WatchRoom({ handle }: { handle: string }) {
       {/* Asked at the moment a phone starts transmitting, and nowhere else —
           see MobileQualitySheet for why this is a question rather than a
           setting on this one platform. */}
+      {inviting && (
+        <InviteToRoomModal
+          roomHandle={handle}
+          // Everyone the room can see, by account id — the peers plus you.
+          // Live, so somebody who walks in while this is open stops being
+          // offered as somebody to call.
+          presentUserIds={
+            new Set(
+              [
+                ...visiblePeers.map((peer) => peer.userId),
+                account?.id,
+              ].filter((id): id is string => Boolean(id))
+            )
+          }
+          onClose={() => setInviting(false)}
+        />
+      )}
+
       {profileUserId && (
         <UserProfileDialog
           userId={profileUserId}

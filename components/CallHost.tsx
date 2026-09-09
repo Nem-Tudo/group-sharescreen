@@ -12,6 +12,8 @@ import { upsertNotification } from "@/lib/notificationInbox";
 import { getDesktopBridge } from "@/lib/desktop";
 import { startRingtone, stopRingtone } from "@/lib/soundEffects";
 import { DEFAULT_AVATAR_PATH, UserAvatar } from "@/components/UserAvatar";
+import { isCallRoomHandle } from "@/lib/roomsApi";
+import { recentRoomPresentation } from "@/lib/recentRooms";
 
 // The ringing screen — both directions of it.
 //
@@ -401,6 +403,19 @@ export function CallHost() {
   if (!call && !noticeText && !declined) return null;
 
   const isIncoming = incomingCall !== null;
+  // Whether this ring ends in a room that already exists — somebody pulling
+  // you into where they are — rather than in one minted for the two of you.
+  //
+  // Derived from the handle instead of a flag on the wire: a generated call
+  // room has a shape nothing else has (see the API's makeCallRoomHandle and
+  // isCallRoomHandle), so anything that is *not* one is a real room with a
+  // name somebody chose. Worth saying out loud on the card, because walking
+  // into a room with five people in it is a different decision from answering
+  // a call.
+  const invitedRoom =
+    call && !isCallRoomHandle(call.roomHandle)
+      ? recentRoomPresentation(call.roomHandle).name
+      : null;
   // Narrowed rather than asserted. The guard above lets `call` through as null
   // whenever there is a notice to show — which is every decline, every
   // "ninguém atendeu", every refusal — and the non-null assertion that used to
@@ -453,7 +468,11 @@ export function CallHost() {
                 {other.displayName}
               </p>
               <p className="truncate text-sm text-zinc-500 dark:text-zinc-400">
-                {isIncoming ? "está te ligando…" : "chamando…"}
+                {isIncoming
+                  ? invitedRoom
+                    ? `está te chamando para a sala ${invitedRoom}`
+                    : "está te ligando…"
+                  : "chamando…"}
               </p>
               {/* Only ever shown while somebody really is waiting behind this
                   one. Not a control: the call in front has to be answered or

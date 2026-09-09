@@ -99,10 +99,19 @@ export function PresenceDot({
         // outwards into the background instead of eating the icon it is
         // supposed to be protecting. The width is in the icon's own 24-unit
         // viewBox, so it scales with the glyph rather than needing a value per
-        // call site.
+        // call site, and round joins keep the monitor's corners from throwing
+        // spikes at this size.
         style={{ width: box, height: box, paintOrder: "stroke" }}
-        strokeWidth={2.5}
-        className={`shrink-0 ${color.glyph} ${ground.stroke} ${className}`}
+        strokeWidth={2}
+        strokeLinejoin="round"
+        // Every Material icon opens with an invisible bounding box —
+        // `<path fill="none" d="M0 0h24v24H0z"/>` — and a stroke applied to
+        // the whole SVG paints *that* too, which is a square drawn around the
+        // icon. `fill:none` hides its fill and says nothing about its stroke.
+        // The selector picks it out precisely: the real glyph path carries no
+        // fill attribute at all (it inherits currentColor from the svg), so
+        // `path[fill]` is exactly the bounding box and nothing else.
+        className={`shrink-0 [&>path[fill]]:stroke-none ${color.glyph} ${ground.stroke} ${className}`}
       />
     );
   }
