@@ -9,8 +9,8 @@ import { NextResponse } from "next/server";
 //      is refused before the body is ever read. Nothing on that host has to
 //      change for this to work — the request is made from here instead.
 //   2. Volume. Every open tab asks once a minute; going through this handler
-//      means one upstream read per REVALIDATE_SECONDS for the whole site,
-//      however many people are looking.
+//      means one upstream read per CACHE_MS for the whole site, however
+//      many people are looking.
 //
 // Read at request time from the environment rather than baked in, so the feed
 // can be pointed somewhere else (a mirror, a local file server while testing)
@@ -21,7 +21,7 @@ const STATUS_URL = process.env.STATUS_URL || "https://bin.nemtudo.me/raw/golive-
 // minute so the two do not beat against each other and turn a 60s poll into a
 // 120s worst case — an outage notice that takes two minutes to appear is one
 // people read after they have already given up.
-const REVALIDATE_SECONDS = 20;
+const CACHE_MS = 20_000;
 
 // Ceiling on the upstream read. This endpoint sits in front of a banner that
 // says the site is broken; it must never itself be the slow thing on a page.
@@ -68,28 +68,65 @@ function parseStatus(raw: unknown): SiteStatus {
   return { apiError: true, message: message.slice(0, 300), button };
 }
 
-export async function GET() {
-  let status = OK;
+// The answer, and when it was read. Kept here rather than in Next's fetch
+// cache (`next: { revalidate }`) on purpose: that cache refreshes a stale
+// entry in the background with a fetch of its own, and that fetch is not the
+// one written below — Next drops the `signal` when revalidating (see
+// `doOriginalFetch` in next/dist/server/lib/patch-fetch.js), so the read runs
+// under undici's 10s connect default instead of our ceiling, outside this
+// module's try/catch, and its failure is printed straight to the console by
+// the framework. With the upstream host unreachable that is a stack trace
+// every 20s that no code here can catch. Holding the value ourselves keeps
+// every read on the path below, where a dead host is already an expected
+// answer.
+let cached: { at: number; status: SiteStatus } | null = null;
+let inFlight: Promise<void> | null = null;
+
+/** One upstream read. Never rejects; null means "could not ask". */
+async function readUpstream(): Promise<SiteStatus | null> {
   try {
     const res = await fetch(STATUS_URL, {
       signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-      next: { revalidate: REVALIDATE_SECONDS },
+      cache: "no-store",
     });
-    if (res.ok) {
-      // Parsed by hand rather than with res.json(): the upstream serves this
-      // as text/plain, and the file is hand-edited — a trailing comma left
-      // behind at 3am must not throw out of this handler.
-      const text = await res.text();
-      status = parseStatus(JSON.parse(text));
-    }
+    if (!res.ok) return null;
+    // Parsed by hand rather than with res.json(): the upstream serves this as
+    // text/plain, and the file is hand-edited — a trailing comma left behind
+    // at 3am must not throw out of this handler.
+    const text = await res.text();
+    return parseStatus(JSON.parse(text));
   } catch {
-    // Unreachable, slow, or unparseable all mean the same thing here: we do
-    // not know of an outage. Saying nothing is the only safe direction — this
-    // banner cannot be closed, so painting one on a guess would be a red bar
-    // over a working site that nobody can get rid of.
+    // Unreachable, slow, or unparseable all mean the same thing here: we did
+    // not get an answer. Which is not the same as "there is no outage" — see
+    // below for what gets served instead.
+    return null;
   }
+}
 
-  return NextResponse.json(status, {
+function refresh(): Promise<void> {
+  inFlight ??= readUpstream()
+    .then((fresh) => {
+      // A failed read keeps the last answer we did get rather than clearing
+      // it: the upstream going quiet is not evidence that the site came back,
+      // and dropping the banner mid-outage is the one direction that misleads
+      // people. The timestamp moves either way, so a dead host is retried on
+      // the same 20s cadence instead of on every request.
+      cached = { at: Date.now(), status: fresh ?? cached?.status ?? OK };
+    })
+    .finally(() => {
+      inFlight = null;
+    });
+  return inFlight;
+}
+
+export async function GET() {
+  // Stale answers are served while the refresh runs behind them. This
+  // endpoint sits in front of a banner that says the site is broken; once
+  // warm it must never make anyone wait on a third party to find that out.
+  if (!cached) await refresh();
+  else if (Date.now() - cached.at >= CACHE_MS) void refresh();
+
+  return NextResponse.json(cached?.status ?? OK, {
     // The client is the one on a clock (see useSiteStatus). Letting a browser
     // or a CDN hold this would put an arbitrary second cache in front of a
     // number that already has one, on the far side of this handler.
