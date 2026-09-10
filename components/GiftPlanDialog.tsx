@@ -107,8 +107,8 @@ function PersonRow({ user, onSelect }: { user: SocialUser; onSelect: () => void 
  * One code, with the button that matters.
  *
  * Copying the whole link rather than the code alone: the code is not the thing
- * anybody wants to send, and a friend who receives eight characters with no
- * address has been given a puzzle.
+ * anybody wants to send, and a friend who receives two dozen characters with
+ * no address has been given a puzzle.
  */
 function CodeRow({ code, label }: { code: string; label?: string }) {
   const [copied, setCopied] = useState(false);
@@ -131,7 +131,14 @@ function CodeRow({ code, label }: { code: string; label?: string }) {
     <div className="flex flex-col gap-1.5">
       {label && <span className="text-xs text-zinc-500 dark:text-zinc-400">{label}</span>}
       <div className="flex items-center gap-2">
-        <code className="min-w-0 flex-1 truncate rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-2 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
+        {/* Truncated while it is only a label, and whole once it is the
+            fallback: `shown` means the clipboard refused, and a link somebody
+            has to read off the screen and retype cannot be cut off. */}
+        <code
+          className={`min-w-0 flex-1 rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-2 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 ${
+            shown ? "break-all leading-snug" : "truncate"
+          }`}
+        >
           {shown ? giftLink(code) : `/gift/${code}`}
         </code>
         <button

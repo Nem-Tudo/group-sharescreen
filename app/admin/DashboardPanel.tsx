@@ -6,6 +6,7 @@ import { AnnouncementPanel } from "./AnnouncementPanel";
 import { PartnerAdsPanel } from "./PartnerAdsPanel";
 import { AdsterraPanel } from "./AdsterraPanel";
 import { GrantPremiumPanel } from "./GrantPremiumPanel";
+import { GiftPanel } from "./GiftPanel";
 import { AccountFlagsPanel } from "./AccountFlagsPanel";
 import { AccountPointsPanel } from "./AccountPointsPanel";
 import { AutoFlagsPanel } from "./AutoFlagsPanel";
@@ -67,6 +68,9 @@ export const ADMIN_SECTIONS: AdminSection[] = [
             editing flags are the errands, the rules panel is the one you set
             up once and revisit rarely. */}
         <GrantPremiumPanel />
+        {/* Directly under it: the same decision — which plan, how long —
+            asked when there is nobody to aim it at yet. */}
+        <GiftPanel />
         <AccountFlagsPanel />
         <AccountPointsPanel />
         <AutoFlagsPanel />

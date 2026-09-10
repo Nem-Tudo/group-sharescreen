@@ -739,6 +739,31 @@ export async function revokePremiumGrant(userId: string): Promise<void> {
   await adminFetch(`/admin/premium/grant/${encodeURIComponent(userId)}`, { method: "DELETE" });
 }
 
+/** One comped gift link, as the panel that made it shows it. */
+export interface AdminGift {
+  giftId: string;
+  code: string;
+  days: number;
+  planId: string;
+  planTitle: string;
+}
+
+/**
+ * Mints a gift link nobody paid for.
+ *
+ * Unaddressed on purpose — handing a plan to a named account is grantPremium
+ * above, which needs no link and no redemption. This is for the case that one
+ * cannot serve: a prize or a giveaway, where who ends up with it is decided
+ * after the fact, possibly by somebody who has no account yet.
+ */
+export async function createAdminGift(planId: string, days: number): Promise<AdminGift> {
+  return adminFetch<AdminGift>("/admin/premium/gift", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ planId, days }),
+  });
+}
+
 // ─── Registro de ações ────────────────────────────────────────────────────
 
 export interface AdminLogEntry {
