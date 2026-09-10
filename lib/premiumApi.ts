@@ -240,6 +240,82 @@ export async function startPixPayment(
   }
 }
 
+export type GiftCharge = PixCharge & {
+  /** The API's id for the gift, which is what its status is polled by. */
+  giftId: string;
+};
+
+export type StartGiftResult =
+  | { ok: true; charge: GiftCharge }
+  | { ok: false; error: string; needsEmail?: boolean };
+
+/**
+ * Buys a plan for somebody else, and returns the Pix code to pay it with.
+ *
+ * Pix only, and that is the API's shape rather than an omission here: a card
+ * buys a *recurring mandate* on whoever pays, which is not a thing anybody
+ * means by "presentear" — see the API's premiumRoutes.
+ *
+ * Note what is not a parameter, same as everywhere else in this file: the
+ * price. The plan and the cycle are selectors, the money is read from the plan
+ * document by the server, and the recipient is validated there too — a client
+ * cannot gift a cheaper plan by asking for one.
+ */
+export async function startGiftPix(options: {
+  toUserId: string;
+  planId: string;
+  cycle: BillingCycle;
+  email?: string;
+}): Promise<StartGiftResult> {
+  try {
+    const res = await fetch(`${getSignalingHttpBase()}/premium/gift/pix`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        toUserId: options.toUserId,
+        planId: options.planId,
+        cycle: options.cycle,
+        ...(options.email ? { email: options.email } : {}),
+      }),
+    });
+    const data = (await res.json().catch(() => ({}))) as Partial<GiftCharge> & {
+      error?: string;
+      needsEmail?: boolean;
+    };
+    if (!res.ok || !data.paymentId || !data.giftId) {
+      return {
+        ok: false,
+        error: data.error ?? "Não foi possível gerar o Pix do presente.",
+        needsEmail: data.needsEmail,
+      };
+    }
+    return { ok: true, charge: data as GiftCharge };
+  } catch {
+    return { ok: false, error: "Sem conexão com o servidor." };
+  }
+}
+
+/**
+ * Whether a gift has landed yet.
+ *
+ * Its own call rather than a reading of /premium/status, because a gift
+ * deliberately changes nothing about the buyer's account — the days go to
+ * somebody else, and the buyer's screen has no other way to know they arrived.
+ */
+export async function fetchGiftStatus(
+  giftId: string
+): Promise<{ status: "pending" | "delivered"; deliveredAt: number | null } | null> {
+  try {
+    const res = await fetch(`${getSignalingHttpBase()}/premium/gift/${encodeURIComponent(giftId)}`, {
+      headers: authHeaders(),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as { status: "pending" | "delivered"; deliveredAt: number | null };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * This account's subscription, re-read from Mercado Pago by the API.
  *

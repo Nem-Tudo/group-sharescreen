@@ -40,6 +40,15 @@ type PixChargeModalProps = {
   paid: boolean;
   /** Formatted end of the paid period, for the confirmation copy. */
   paidUntilLabel?: string | null;
+  /**
+   * The whole confirmation sentence, when the default one would be wrong.
+   *
+   * The default speaks to the buyer about their own access, which is true of
+   * every charge but one: a gift's days go to somebody else, and telling the
+   * person who paid that *their* access is now open would be false (see
+   * GiftPlanDialog).
+   */
+  paidMessage?: string | null;
   /** A new charge is being created right now. */
   busy?: boolean;
   /** Asks for a fresh code, after this one expires. */
@@ -64,6 +73,7 @@ function PixChargeDialog({
   charge,
   paid,
   paidUntilLabel,
+  paidMessage,
   busy,
   onRegenerate,
   onCheckNow,
@@ -146,9 +156,10 @@ function PixChargeDialog({
           <div className="flex flex-col items-center gap-3 px-5 py-8 text-center">
             <MdCheckCircle className="h-12 w-12 text-emerald-500" />
             <p className="text-sm text-zinc-600 dark:text-zinc-400">
-              {paidUntilLabel
-                ? `Tudo certo. Seu acesso Pro está liberado até ${paidUntilLabel}.`
-                : "Tudo certo. Seu acesso Pro já está liberado."}
+              {paidMessage ??
+                (paidUntilLabel
+                  ? `Tudo certo. Seu acesso Pro está liberado até ${paidUntilLabel}.`
+                  : "Tudo certo. Seu acesso Pro já está liberado.")}
             </p>
             <button
               type="button"

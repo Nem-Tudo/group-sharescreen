@@ -2,12 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
 import { FaDiscord } from "react-icons/fa";
-import { MdMonitor, MdOutlineMap } from "react-icons/md";
-import { GlobeIcon, VerifiedBadgeIcon } from "@/components/icons";
+import { MdCardGiftcard, MdMonitor, MdOutlineMap } from "react-icons/md";
+import { GlobeIcon, GoldVerifiedBadgeIcon, VerifiedBadgeIcon } from "@/components/icons";
 import { AccountMenu } from "@/components/AccountMenu";
+import { GiftPlanDialog } from "@/components/GiftPlanDialog";
 import { NotificationInboxBell } from "@/components/NotificationInboxBell";
 import { UpdateAppButton } from "@/components/UpdateAppButton";
+import { useAuth } from "@/lib/AuthContext";
 
 // The site's top bar: everything GoLive offers besides the room form itself,
 // in one place, on every page that isn't a room.
@@ -34,31 +37,120 @@ function SquareIcon() {
   return <img style={{ width: "20px" }} src={"https://cdn.squarecloud.app/assets/logo.svg"} />
 }
 
-const SECONDARY = [
-  { href: "https://go.nemtudo.me/square-link", target: "_blank", label: "Square Cloud", short: "Square", Icon: SquareIcon },
-  // The same blue badge that marks a verified name (see DisplayUserName) —
-  // it keeps its own colour rather than inheriting the row's grey, because it
-  // only reads as *that* badge if it looks like it everywhere.
+/** One entry in the right-hand group: a link, or a button when it opens something. */
+type SecondaryItem = {
+  /** Stable across the Pro row's three states, which is what keeps React from
+   *  remounting it — see proItem below. */
+  key: string;
+  href?: string;
+  onClick?: () => void;
+  target?: string;
+  label: string;
+  short: string;
+  Icon?: React.ComponentType<{ className?: string }>;
+  iconClassName?: string;
+  /** Keeps its mark at every width, where the others drop theirs below `sm`. */
+  alwaysVisible?: boolean;
+  /** Gone on a phone — not shrunk, not iconified. See SECONDARY. */
+  desktopOnly?: boolean;
+};
+
+const SECONDARY: SecondaryItem[] = [
+  // The sponsor, and the one row a phone does not get at all.
+  //
+  // Every other entry here shortens: the icon goes below `sm`, the label goes
+  // below `lg`. That works for a destination somebody might be looking for —
+  // "App", "Bot" — and not for this one, which is an outbound link to another
+  // company. Shrunk to a bare logo it is an unlabelled image next to the
+  // account menu, competing for the narrowest part of the bar with the things
+  // the site is actually for.
   {
-    href: "/pro",
-    label: "Pro",
-    target: "",
-    short: "Pro",
-    Icon: VerifiedBadgeIcon,
-    iconClassName: "text-blue-500",
-    // The one row that keeps its mark and its name at every width. The others
-    // drop their icon below `sm` and shorten their label below `lg`, which is
-    // how four links fit on a phone — but this one *is* the badge plus the
-    // word, and a badge that disappears on small screens is a product people
-    // only find out exists on a desktop.
-    alwaysVisible: true,
+    key: "square",
+    href: "https://go.nemtudo.me/square-link",
+    target: "_blank",
+    label: "Square Cloud",
+    short: "Square",
+    Icon: SquareIcon,
+    desktopOnly: true,
   },
-  { href: "/app", label: "App para PC", target: "", short: "App", Icon: MdMonitor },
-  { href: "/discord-bot", label: "Bot para Discord", target: "", short: "Bot", Icon: FaDiscord },
+  { key: "app", href: "/app", label: "App para PC", target: "", short: "App", Icon: MdMonitor },
+  {
+    key: "bot",
+    href: "/discord-bot",
+    label: "Bot para Discord",
+    target: "",
+    short: "Bot",
+    Icon: FaDiscord,
+  },
 ];
 
 export function SiteHeader() {
   const pathname = usePathname();
+  const { account } = useAuth();
+  const [gifting, setGifting] = useState(false);
+
+  // The premium row, which is three different offers wearing one slot.
+  //
+  // The slot has always sold whatever the reader has not got, and until now
+  // that was only ever "Pro" — which is the wrong thing to keep advertising to
+  // somebody who already pays for it, and the *only* thing a subscriber saw of
+  // the plan above theirs. So it climbs with them:
+  //
+  //   no plan  → "Pro", the blue badge. What the site sells.
+  //   Pro      → "Pro Max", in that plan's own gold mark (see planIcons), and
+  //              pointing at /pro already opened on it — a reader who has Pro
+  //              should not have to find the picker to see what is above it.
+  //   Pro Max  → "Presentear Pro". There is nothing left to sell them, and the
+  //              one thing they can still buy is a plan for somebody else.
+  //
+  // Read from `flags` rather than from `features`: the question here is which
+  // *plan* somebody holds, not what they may do, and the two flags are exactly
+  // that answer (see the API's entitlements.ts — PRO_MAX carries PRO too,
+  // which is why it is tested first).
+  const flags = account?.flags ?? [];
+  const proItem: SecondaryItem = flags.includes("PRO_MAX")
+    ? {
+        key: "pro",
+        onClick: () => setGifting(true),
+        label: "Presentear Pro",
+        // The only row whose two labels differ in *words* rather than in
+        // length. It has to: "Presentear Pro" beside an account menu is most
+        // of a phone's bar, and the verb alone is the half that says what
+        // happens.
+        short: "Presentear",
+        Icon: MdCardGiftcard,
+        iconClassName: "text-emerald-500",
+        alwaysVisible: true,
+      }
+    : flags.includes("PRO")
+      ? {
+          key: "pro",
+          href: "/pro?plano=premium_max",
+          target: "",
+          label: "Pro Max",
+          short: "Pro Max",
+          // The plan's own mark, which carries its colour in its gradients and
+          // therefore takes no colour class of its own.
+          Icon: GoldVerifiedBadgeIcon,
+          alwaysVisible: true,
+        }
+      : {
+          key: "pro",
+          href: "/pro",
+          target: "",
+          label: "Pro",
+          short: "Pro",
+          // The same blue badge that marks a verified name (see
+          // DisplayUserName) — it keeps its own colour rather than inheriting
+          // the row's grey, because it only reads as *that* badge if it looks
+          // like it everywhere.
+          Icon: VerifiedBadgeIcon,
+          iconClassName: "text-blue-500",
+          alwaysVisible: true,
+        };
+
+  // Ahead of the app and the bot, where "Pro" has always sat.
+  const secondary: SecondaryItem[] = [SECONDARY[0], proItem, ...SECONDARY.slice(1)];
 
   return (
     // Sticky and translucent: on the long marketing pages the way back to the
@@ -106,39 +198,60 @@ export function SiteHeader() {
         </nav>
 
         <nav className="ml-auto flex items-center gap-0.5 sm:gap-1">
-          {SECONDARY.map(({ href, label, short, target, Icon, iconClassName, alwaysVisible }) => {
-            const active = pathname === href;
-            return (
+          {secondary.map((item) => {
+            const { key, href, onClick, label, short, target, Icon, iconClassName } = item;
+            const active = Boolean(href) && pathname === href;
+            // One display utility, chosen here rather than layered: "hidden"
+            // and "inline-flex" both set `display`, and which of two classes
+            // in the same attribute wins is decided by the order Tailwind
+            // happened to emit them in — not by the order they are written.
+            const display = item.desktopOnly ? "hidden sm:inline-flex" : "inline-flex";
+            const className = `${display} items-center gap-1.5 rounded-lg px-1.5 py-1.5 text-sm transition sm:px-2.5 ${
+              active
+              ? "font-medium text-zinc-950 dark:text-zinc-50"
+              : "text-zinc-500 hover:bg-zinc-200/60 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
+              }`;
+            const inner = (
+              <>
+                {Icon && (
+                  <Icon
+                    className={`h-4 w-4 shrink-0 ${
+                      item.alwaysVisible ? "inline" : "hidden sm:inline"
+                    } ${iconClassName ?? ""}`}
+                  />
+                )}
+                {/* Two full labels do not fit a phone, so the label shortens
+                    below `lg` rather than disappearing. Most rows write the
+                    same word twice and nothing swaps; see the Pro row for the
+                    one that does. */}
+                <span className="hidden lg:inline">{label}</span>
+                <span className="lg:hidden">{short}</span>
+              </>
+            );
+            // A button when it opens something here, a link when it goes
+            // somewhere. Marking the first as navigation would promise a
+            // middle-click and an address to copy that do not exist.
+            return href ? (
               <Link
-                key={href}
+                key={key}
                 href={href}
                 aria-current={active ? "page" : undefined}
                 title={label}
                 target={target}
-                className={`inline-flex items-center gap-1.5 rounded-lg px-1.5 py-1.5 text-sm transition sm:px-2.5 ${active
-                  ? "font-medium text-zinc-950 dark:text-zinc-50"
-                  : "text-zinc-500 hover:bg-zinc-200/60 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
-                  }`}
+                className={className}
               >
-                {Icon && (
-                  <Icon
-                    className={`h-4 w-4 shrink-0 ${alwaysVisible ? "inline" : "hidden sm:inline"} ${
-                      iconClassName ?? ""
-                    }`}
-                  />
-                )}
-                {alwaysVisible ? (
-                  // One span, not the label/short pair: swapping between two
-                  // strings at a breakpoint is exactly the "changes on a small
-                  // screen" this row is meant not to do.
-                  <span>{label}</span>
-                ) : (
-                  <>
-                    <span className="hidden lg:inline">{label}</span>
-                    <span className="lg:hidden">{short}</span>
-                  </>
-                )}
+                {inner}
               </Link>
+            ) : (
+              <button
+                key={key}
+                type="button"
+                onClick={onClick}
+                title={label}
+                className={`${className} cursor-pointer`}
+              >
+                {inner}
+              </button>
             );
           })}
           {/* Left of the account, which is the other control in the row about
@@ -161,6 +274,11 @@ export function SiteHeader() {
           <UpdateAppButton />
         </nav>
       </div>
+
+      {/* Fixed to the viewport, so where it sits in the tree only decides who
+          owns its state — and that is this bar, which is where it is opened
+          from. Mounted only while open, so each present starts empty. */}
+      {gifting && <GiftPlanDialog onClose={() => setGifting(false)} />}
     </header>
   );
 }

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import {
   MdCallMissed,
+  MdCardGiftcard,
   MdChatBubbleOutline,
   MdNotificationsNone,
   MdPersonAdd,
@@ -59,6 +60,10 @@ function Item({
           // The one row here that is red. A missed call is the only thing in
           // this list somebody was actively waiting on an answer to.
           <MdCallMissed className="h-4 w-4 text-red-500" />
+        ) : notification.kind === "gift" ? (
+          // The only good news in the list, and coloured like it — this is
+          // somebody having spent money on the person reading it.
+          <MdCardGiftcard className="h-4 w-4 text-emerald-500" />
         ) : (
           <MdPersonAdd className="h-4 w-4" />
         )}

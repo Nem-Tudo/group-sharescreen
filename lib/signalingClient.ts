@@ -155,6 +155,21 @@ export type PeerInfo = {
   presenceDevice?: PresenceDevice | null;
 };
 
+/**
+ * A plan bought for this account by somebody else (see the API's deliverGift).
+ *
+ * Everything here is for the sentence shown in the bell. What the account may
+ * now *do* is never read from this message — it is re-read from the account
+ * itself, which is the only thing entitled to say so.
+ */
+export type PremiumGiftEvent = {
+  giftId: string;
+  /** Who paid, when the API named them. */
+  fromId: string | null;
+  planTitle: string;
+  days: number;
+};
+
 /** The colour of the indicator beside a person's name (see lib/presence.ts and
  *  the API's presence sweep): green, blue, yellow, none. "offline" is a real
  *  value on the wire — it is the answer to a question that was asked, as
@@ -472,6 +487,14 @@ export type SignalingState = {
   // disagree — which for "are we friends?" is the one thing that must not
   // happen. See lib/useSocialGraph.ts.
   socialSeq: number;
+  // The last plan somebody bought for this account, and a counter beside it —
+  // same shape and same reason as `lastDm`/`dmSeq`: the payload is what to
+  // say, the counter is what tells a new present apart from the one already
+  // on screen. Sent by the API the moment the money lands (see its
+  // deliverGift), which is the only chance this tab has to hear about a
+  // change to its own account that it did not make. See GiftNotifier.
+  lastGift: PremiumGiftEvent | null;
+  giftSeq: number;
   // Presence of the accounts this tab asked about, by account id (see
   // watchPresence). Only ever holds ids somebody subscribed to — this is a
   // cache of answers, not a directory of the site.
@@ -700,6 +723,8 @@ const initialState: SignalingState = {
   adsterraEnabled: null,
   adsConfigSeq: 0,
   socialSeq: 0,
+  lastGift: null,
+  giftSeq: 0,
   presence: {},
   presenceSeq: 0,
   lastDm: null,
@@ -1841,6 +1866,20 @@ class SignalingClient {
       }
       case "social-update":
         this.setState({ socialSeq: this.state.socialSeq + 1 });
+        break;
+      // A plan somebody bought for this account. Only ever an announcement:
+      // what was actually granted lives on the account, and the notifier this
+      // drives re-reads it rather than believing these numbers.
+      case "premium-gift":
+        this.setState({
+          lastGift: {
+            giftId: String(msg.giftId ?? ""),
+            fromId: typeof msg.fromId === "string" ? msg.fromId : null,
+            planTitle: typeof msg.planTitle === "string" ? msg.planTitle : "Pro",
+            days: typeof msg.days === "number" ? msg.days : 0,
+          },
+          giftSeq: this.state.giftSeq + 1,
+        });
         break;
       // A presence snapshot (the answer to a watch) or a delta (the sweep
       // noticing somebody moved). Merged rather than replaced — the two are

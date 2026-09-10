@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { MdCheck, MdClose, MdLock } from "react-icons/md";
+import { MdCardGiftcard, MdCheck, MdClose, MdLock } from "react-icons/md";
 import Link from "next/link";
 import { BsCoin, BsStars } from "react-icons/bs";
 // No wrapperClassName: Tippy then attaches straight to the <li>, keeping the
@@ -14,6 +14,7 @@ import type { BillingCycle } from "@/lib/premiumApi";
 import { useAuth } from "@/lib/AuthContext";
 import { AccountModal, type AccountModalMode } from "@/components/AccountModal";
 import { PixChargeModal } from "@/components/PixChargeModal";
+import { GiftPlanDialog } from "@/components/GiftPlanDialog";
 import { isIosDevice, isStandaloneDisplay } from "@/lib/browserEnv";
 import { getDesktopBridge } from "@/lib/desktop";
 import { type Feature } from "@/lib/entitlements";
@@ -139,7 +140,27 @@ export function ProPanel({
   const [earlySupporterOpen] = useState(() => Date.now() < EARLY_SUPPORTER_CUTOFF_MS);
   const [cycle, setCycle] = useState<BillingCycle>("monthly");
   const [plans, setPlans] = useState<PremiumPlan[]>([]);
-  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
+  // Which plan the page opens on, when whatever linked here named one:
+  // /pro?plano=premium_max is where the header sends somebody who already has
+  // Pro, and landing them on the cheapest plan would be answering "what is
+  // above what I pay for?" with the thing they already bought.
+  //
+  // Read from the URL once, in an initializer, rather than through
+  // useSearchParams: this component also renders inside a dialog (see
+  // ProModal) where there is no route to read, and that hook would pull a
+  // Suspense boundary into a page with no other reason for one. It costs
+  // nothing at hydration because `plans` is empty on the first render either
+  // way — the markup below is the "Carregando o plano…" line until the list
+  // lands, so the server and the client agree about what is on screen.
+  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return new URLSearchParams(window.location.search).get("plano");
+  });
+  // "Presentear" open, or not. Held here rather than in the branches below so
+  // it can be offered from every state the page has — including the one with
+  // nothing left to sell, which is precisely where buying for somebody else is
+  // the only purchase left.
+  const [gifting, setGifting] = useState(false);
   // Derived, not stored. Keeping a second copy of the chosen plan in state
   // would need an effect to follow the list, and the whole page below reads
   // `plan` — one of the two would eventually be a render behind the other.
@@ -936,6 +957,22 @@ export function ProPanel({
               )}
             </div>
 
+            {/* Outside the branches above, and deliberately: buying this for
+                somebody else is possible whether the reader has no plan, this
+                plan, or the other one — and the one state that has nothing
+                else to offer (a card already charging for this exact plan) is
+                the state where it is the only purchase left. */}
+            {account && (
+              <button
+                type="button"
+                onClick={() => setGifting(true)}
+                className="mt-4 flex cursor-pointer items-center gap-2 text-sm font-medium text-zinc-600 underline-offset-2 transition hover:underline dark:text-zinc-400"
+              >
+                <MdCardGiftcard className="h-4 w-4 shrink-0 text-emerald-500" />
+                Presentear alguém com um plano
+              </button>
+            )}
+
             {error && (
               <p className="mt-3 text-sm text-red-600 dark:text-red-400" role="alert">
                 {error}
@@ -964,6 +1001,13 @@ export function ProPanel({
         onCheckNow={() => void syncStatus(true)}
         onClose={() => setPix(null)}
       />
+
+      {/* Opened on whichever plan is on screen: somebody who has just read
+          this card is presenting *this*, and making them choose it again in
+          the dialog would be asking the same question twice. */}
+      {gifting && (
+        <GiftPlanDialog initialPlanId={plan?.id} onClose={() => setGifting(false)} />
+      )}
 
       <p className="mt-4 text-xs text-zinc-400 dark:text-zinc-500">
         O pagamento é processado pelo Mercado Pago. A cobrança é mensal e pode ser cancelada a

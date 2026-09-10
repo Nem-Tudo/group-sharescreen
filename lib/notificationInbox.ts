@@ -25,7 +25,8 @@ export type NotificationKind =
   | "friend-request"
   | "friend-accepted"
   | "dm"
-  | "call-missed";
+  | "call-missed"
+  | "gift";
 
 export interface InboxNotification {
   /** Names the thing, not the moment — see the header on dedup. */
