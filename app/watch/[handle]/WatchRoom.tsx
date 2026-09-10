@@ -128,6 +128,7 @@ import {
   type LocalMediaSlot,
 } from "@/lib/localMediaSource";
 import { MIN_MIC_GAIN, MAX_MIC_GAIN, DEFAULT_MIC_GAIN } from "@/lib/rnnoise";
+import { planTileGrid } from "@/lib/tileGrid";
 import useNtPopups from "ntpopups";
 import {
   MicIcon,
@@ -325,6 +326,12 @@ function MicGainRow({
     </div>
   );
 }
+
+// The gap between tiles in the wide-layout grid, in px. Has to be a number
+// here as well as a class on the grid (`sm:gap-3`) because planTileGrid
+// subtracts it from the pane before dividing up what's left — a plan made
+// against the wrong gap is a grid that overflows by exactly that much.
+const TILE_GRID_GAP = 12;
 
 // How long after joining the mic nudge below appears.
 const MIC_HINT_DELAY_MS = 2500;
@@ -1743,6 +1750,30 @@ export function WatchRoom({ handle }: { handle: string }) {
   // however far that guess was off the moment a drag started, and drifted
   // again whenever the layout's padding changed.
   const chatAsideRef = useRef<HTMLElement>(null);
+
+  // The box the tile grid lives in, measured. planTileGrid needs the pane's
+  // real shape — how many tiles fit best across is a question about width
+  // *and* height, and neither is knowable from a breakpoint: this pane
+  // changes size when either sidebar collapses, when the chat column is
+  // dragged, and when the window resizes, none of which cross a breakpoint.
+  //
+  // The content box, so a scrollbar appearing (which only happens once the
+  // tiles have hit their floor) doesn't feed its own width back in.
+  const [videoPaneSize, setVideoPaneSize] = useState({ width: 0, height: 0 });
+  const videoPaneRef = useCallback((node: HTMLDivElement | null) => {
+    if (!node) return;
+    const observer = new ResizeObserver((entries) => {
+      const box = entries[0]?.contentRect;
+      if (!box) return;
+      setVideoPaneSize((prev) =>
+        prev.width === box.width && prev.height === box.height
+          ? prev
+          : { width: box.width, height: box.height }
+      );
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     localStorage.setItem("chat-panel-width", String(chatWidth));
@@ -3716,27 +3747,37 @@ export function WatchRoom({ handle }: { handle: string }) {
   // more of them in view at once.
   const mobileGridCols = tileCount <= 2 ? "grid-cols-1" : "grid-cols-2";
   // From lg up the video pane is a fixed box rather than a page that grows,
-  // so the grid is shaped to fill it instead of being left to a static
-  // column count that runs off the bottom: roughly square, at most four
-  // across.
+  // so the grid is shaped to the box it has: planTileGrid measures the pane
+  // and returns the arrangement that makes the tiles largest, which is what
+  // decides both how many go across and how wide each one is (see
+  // lib/tileGrid.ts for why that beats a lookup on the tile count).
   //
-  // Rows have a floor, so a room with a dozen transmissions still shows
-  // readable tiles and scrolls for the rest — past a point, scrolling beats
-  // shrinking. Applied as an inline style rather than classes because the
-  // count is a number, not one of a handful of breakpoints, and only from lg
-  // up (isWideLayout): below that the responsive classes on the grid still
+  // Applied as an inline style rather than classes because the answer is a
+  // measurement, not one of a handful of breakpoints, and only from lg up
+  // (isWideLayout): below that the responsive classes on the grid still
   // decide, and this is `undefined`. Nothing here has to know about "Focar"
-  // any more — that has a layout of its own now instead of a 2x2 span
-  // borrowed from this one.
-  const tileGridCols = tileCount <= 1 ? 1 : tileCount <= 4 ? 2 : tileCount <= 9 ? 3 : 4;
-  const tileGridRows = Math.max(1, Math.ceil(tileCount / tileGridCols));
-  const tileGridStyle =
+  // — that has a layout of its own now instead of a 2x2 span borrowed from
+  // this one.
+  const tileGridPlan =
     isWideLayout && !isSingleTile
-      ? {
-        gridTemplateColumns: `repeat(${tileGridCols}, minmax(0, 1fr))`,
-        gridTemplateRows: `repeat(${tileGridRows}, minmax(11rem, 1fr))`,
-      }
-      : undefined;
+      ? planTileGrid(tileCount, videoPaneSize.width, videoPaneSize.height, TILE_GRID_GAP)
+      : null;
+  // Still needed by shouldOffsetRight below, which asks "is this tile in the
+  // top row" to keep it clear of the floating "mostrar chat" button.
+  const tileGridCols = tileGridPlan?.cols ?? (tileCount <= 4 ? 2 : tileCount <= 9 ? 3 : 4);
+  // Columns are exactly one tile wide and rows are only as tall as a tile,
+  // so the grid ends up the size of its contents and is then centred in the
+  // pane. That is what closes the band of dead pane that used to open up
+  // between the rows: with `1fr` rows the slack was divided *among* them,
+  // under each tile, instead of ending up once around the whole block.
+  const tileGridStyle = tileGridPlan
+    ? {
+      gridTemplateColumns: `repeat(${tileGridPlan.cols}, ${tileGridPlan.tileWidth}px)`,
+      gridAutoRows: "auto",
+      justifyContent: "center",
+      alignContent: "center",
+    }
+    : undefined;
 
   // The actual add — link parsing/validation lives in AddVideoSourceModal
   // itself now (see components/AddVideoSourceModal.tsx), which only calls
@@ -5561,7 +5602,7 @@ export function WatchRoom({ handle }: { handle: string }) {
               {/* Nothing scrolls the page: from lg up `main` is a
                   fixed-height pane, so whichever layout is on below scrolls
                   inside this box or not at all. */}
-              <div className="min-h-0 flex-1 overflow-y-auto">
+              <div ref={videoPaneRef} className="min-h-0 flex-1 overflow-y-auto">
                 {stageTile ? (
                   /* "Focar": a stage with the rest of the room as a strip of
                      thumbnails under it.
@@ -5631,14 +5672,17 @@ export function WatchRoom({ handle }: { handle: string }) {
                         to be the grid item, or its `aspect-video` would size a
                         box inside a stretched cell instead of the cell. */}
                     {tiles.map((tile, index) => {
+                      // The tile in the top-right corner, which is where the
+                      // floating "mostrar chat" button sits. One rule for
+                      // every count now: with the arrangement measured
+                      // rather than looked up, two tiles are as often one
+                      // column as two, and "index 1" stopped meaning
+                      // "top right" the moment they could be stacked.
                       const shouldOffsetRight =
                         isWideLayout &&
                         rightSidebarCollapsed &&
                         (isSingleTile ||
-                          (tileCount === 2 && index === 1) ||
-                          (tileCount > 2 &&
-                            (index + 1) % tileGridCols === 0 &&
-                            index < tileGridCols));
+                          ((index + 1) % tileGridCols === 0 && index < tileGridCols));
                       return (
                         <Fragment key={tile.id}>
                           {isSingleTile && tile.id === "sponsored-partner-tile" ? (
