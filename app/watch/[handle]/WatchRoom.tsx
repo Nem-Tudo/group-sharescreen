@@ -2036,12 +2036,14 @@ export function WatchRoom({ handle }: { handle: string }) {
   function canUseRoomPermission(key: RoomPermissionKey): boolean {
     return state.roomPermissions[key] || isRoomManager;
   }
-  // Repainting the room is two questions at once, and both have to be yes:
-  // a plan (Pro Max, a fact about the account) and the room's own switch
-  // (which managers are never subject to, like every other one). The server
-  // checks both again — see its "room-theme-set".
-  const canSetRoomTheme =
-    hasFeature("room_theme_set", account?.features ?? []) && canUseRoomPermission("theme");
+  // Repainting the room is two questions at once, and they are kept apart
+  // because the button says something different about each: a plan (Pro Max, a
+  // fact about the account) and the room's own switch (which managers are
+  // never subject to, like every other one). The server checks both again —
+  // see its "room-theme-set".
+  const hasThemePlan = hasFeature("room_theme_set", account?.features ?? []);
+  const roomAllowsTheme = canUseRoomPermission("theme");
+  const canSetRoomTheme = hasThemePlan && roomAllowsTheme;
   // Populated only for the ones this viewer is actually blocked on, so a
   // control can use `?? undefined` and get its ordinary label back.
   function roomBlockReason(key: RoomPermissionKey, what: string): string | null {
@@ -4744,8 +4746,14 @@ export function WatchRoom({ handle }: { handle: string }) {
   // two buttons of setup sitting on top of the conversation.
   const roomManageRow = (
     <>
-      {(isRoomManager || state.roomLocation) && (
-        <div className="mb-2 flex items-center gap-2">
+      {/* Always drawn now, where it used to appear only for somebody who runs
+          the room or for a room that is on the map. The theme button is for
+          everyone, so the row it lives in has to be — and what is *in* it is
+          decided per button below. With the other two absent it is one control
+          filling the width, which is the shape a single button should have
+          rather than a third of a row with a gap where its neighbours were. */}
+      <div className="mb-2 flex items-center gap-2">
+        {(isRoomManager || state.roomLocation) && (
           <Tooltip content={roomLocationTooltip} wrapperClassName="flex flex-1">
             <button
               type="button"
@@ -4764,39 +4772,63 @@ export function WatchRoom({ handle }: { handle: string }) {
               {state.roomLocation || !isRoomManager ? "Local no mapa" : "Definir no mapa"}
             </button>
           </Tooltip>
-          {/* Repainting the room, for the people who can.
-              Shown to Pro Max only — and to a manager whatever the room's own
-              switch says, since managers are never subject to it (the server
-              decides both; this only decides what to draw). Somebody without
-              the plan is shown nothing rather than a locked button: unlike a
-              quality picker, where the locked option is the pitch, this one
-              would be a control in a live call that exists to say no. */}
-          {canSetRoomTheme && (
-            <button
-              type="button"
-              onClick={() =>
-                void openPopup("room_theme", {
-                  data: { currentThemeId: state.roomTheme ?? null },
-                })
+        )}
+        {/* Repainting the room. Shown to everybody, including the people who
+            cannot do it — a control nobody can see is a feature nobody finds
+            out exists, which is the same rule the room's quality pickers
+            follow for their own locked options.
+            What differs is what it says on hover and what pressing it does.
+            Without the plan it is a way *to* the plan, which is the one
+            useful thing a refusal can be; with the plan but with the room's
+            switch off it is genuinely dead, and says so rather than opening
+            a picker whose every choice the server would reject. */}
+        <Tooltip
+          content={
+            !hasThemePlan
+              ? "Só quem tem Pro Max pode trocar o tema da sala."
+              : !roomAllowsTheme
+                ? "A administração desativou a troca de tema para os participantes."
+                : "Muda o tema para todo mundo na sala"
+          }
+          wrapperClassName="flex flex-1"
+        >
+          <button
+            type="button"
+            // Dead only when the room said no. Without the plan it still
+            // does something worth doing.
+            disabled={hasThemePlan && !roomAllowsTheme}
+            onClick={() => {
+              if (!hasThemePlan) {
+                // The modal rather than the page: this is a live call, and
+                // following a link to read a price would end it.
+                openProModal("premium_max");
+                return;
               }
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
-            >
-              <MdPalette className="h-4 w-4 shrink-0" />
-              {roomTheme.fromRoom ? "Trocar tema" : "Tema da sala"}
-            </button>
-          )}
-          {isRoomManager && (
-            <button
-              type="button"
-              onClick={openManageRoomPopup}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
-            >
-              <BsGearFill className="h-3.5 w-3.5 shrink-0" />
-              Gerenciar sala
-            </button>
-          )}
-        </div>
-      )}
+              void openPopup("room_theme", {
+                data: { currentThemeId: state.roomTheme ?? null },
+              });
+            }}
+            className={`flex w-full items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
+              canSetRoomTheme
+                ? "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                : "border-zinc-300 text-zinc-500 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900"
+            }`}
+          >
+            <MdPalette className="h-4 w-4 shrink-0" />
+            {roomTheme.fromRoom ? "Trocar tema" : "Tema da sala"}
+          </button>
+        </Tooltip>
+        {isRoomManager && (
+          <button
+            type="button"
+            onClick={openManageRoomPopup}
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+          >
+            <BsGearFill className="h-3.5 w-3.5 shrink-0" />
+            Gerenciar sala
+          </button>
+        )}
+      </div>
     </>
   );
 
