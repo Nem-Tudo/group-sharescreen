@@ -9,7 +9,9 @@ import {
   isRoomThemeOptedOutServer,
   isThemePreviewActive,
   isThemePreviewActiveServer,
+  getThemeSeq,
   subscribeRoomThemeOptOut,
+  subscribeThemeChanged,
   subscribeThemePreview,
   type RoomTheme,
 } from "./roomThemes";
@@ -58,11 +60,19 @@ export function useRoomTheme(roomThemeId: string | null | undefined): RoomThemeS
   // gets to choose for you, and what you chose for yourself still stands.
   const fromRoomId = optedOut ? null : roomThemeId;
   const wanted = roomThemeId === undefined ? undefined : fromRoomId ?? mine;
-  // Tagged with the id it answers, which is what lets "no theme" be *derived*
-  // rather than stored: without the tag, clearing a theme would mean writing
-  // state from inside an effect, and the answer for "nothing to wear" is
-  // already knowable from `wanted` alone.
-  const [loaded, setLoaded] = useState<{ id: string; theme: RoomTheme | null } | null>(null);
+  // Bumped whenever a theme is saved or deleted anywhere in this tab (see
+  // roomThemes' notifyThemeChanged). It is part of what a cached answer is an
+  // answer *to*: the same id after an edit is a different palette.
+  const seq = useSyncExternalStore(subscribeThemeChanged, getThemeSeq, () => 0);
+  // Tagged with the id it answers and the edit it answers at, which is what
+  // lets "no theme" be *derived* rather than stored: without the tag, clearing
+  // a theme would mean writing state from inside an effect, and the answer for
+  // "nothing to wear" is already knowable from `wanted` alone.
+  const [loaded, setLoaded] = useState<{
+    id: string;
+    seq: number;
+    theme: RoomTheme | null;
+  } | null>(null);
   // Whether the editor is showing something right now — a boolean, not the
   // colours. See roomThemes' preview channel: the colours are painted there
   // so that dragging one does not re-render the room around this hook.
@@ -86,7 +96,9 @@ export function useRoomTheme(roomThemeId: string | null | undefined): RoomThemeS
     }
     // Already in hand — including from before a preview covered it, which is
     // the case that makes closing the editor restore instead of re-fetch.
-    if (loaded?.id === wanted) {
+    // Unless the theme was edited since, in which case what is in hand is the
+    // version the author just replaced.
+    if (loaded?.id === wanted && loaded.seq === seq) {
       applyRoomTheme(loaded.theme?.spec ?? null);
       return;
     }
@@ -97,11 +109,11 @@ export function useRoomTheme(roomThemeId: string | null | undefined): RoomThemeS
       // out from under a room — resolves to nothing rather than to an error.
       // The room falls back to the site's look, which is the right failure for
       // something whose only job is to be a colour.
-      setLoaded({ id: wanted, theme });
+      setLoaded({ id: wanted, seq, theme });
       applyRoomTheme(theme?.spec ?? null);
     });
     return () => controller.abort();
-  }, [wanted, previewing, loaded]);
+  }, [wanted, previewing, loaded, seq]);
 
   // Taken off when this leaves the screen, whatever the reason — navigating
   // out of the room, or the room ending. The theme is written onto the
@@ -114,6 +126,6 @@ export function useRoomTheme(roomThemeId: string | null | undefined): RoomThemeS
   // Only the answer to the question currently being asked. A reply that
   // landed for the previous room, or for the theme worn before this one, is
   // not an answer about this one.
-  const theme = wanted && loaded?.id === wanted ? loaded.theme : null;
+  const theme = wanted && loaded?.id === wanted && loaded.seq === seq ? loaded.theme : null;
   return { theme, fromRoom: Boolean(theme && fromRoomId) };
 }

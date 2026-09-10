@@ -16,6 +16,8 @@ import {
   deleteTheme,
   isDarkTheme,
   isHexColor,
+  completeSpec,
+  notifyThemeChanged,
   colorAlpha,
   colorBase,
   withAlpha,
@@ -248,7 +250,13 @@ export function ThemeEditorDialog({
 
   const [name, setName] = useState(existing?.name ?? "");
   const [description, setDescription] = useState(existing?.description ?? "");
-  const [spec, setSpec] = useState<RoomThemeSpec>(existing?.spec ?? DEFAULT_THEME_SPEC);
+  // Completed on the way in. The theme being edited may have been written
+  // before a slot existed, and the fields below read every slot by name — one
+  // missing colour is a crash on `undefined.trim()`, which is exactly how this
+  // was found.
+  const [spec, setSpec] = useState<RoomThemeSpec>(
+    existing ? completeSpec(existing.spec) : DEFAULT_THEME_SPEC
+  );
   // `startPublished` forces the tick on, whether the theme is new or not: the
   // hub's "Publicar" tab opens an existing private theme through this door,
   // and landing on it with the box already ticked is the difference between
@@ -370,6 +378,10 @@ export function ThemeEditorDialog({
       setError(result.error);
       return;
     }
+    // Before closing, so that when the preview drops a moment later the room
+    // knows the copy it is holding is out of date. Without it the room repaints
+    // from what it fetched on join — the version this save just replaced.
+    notifyThemeChanged();
     data?.onSaved?.();
     closePopup(true);
   }
@@ -386,6 +398,9 @@ export function ThemeEditorDialog({
       setError("Não foi possível apagar.");
       return;
     }
+    // Same signal for the same reason: a room wearing a theme that no longer
+    // exists should fall back now, not on the next reload.
+    notifyThemeChanged();
     data?.onSaved?.();
     closePopup(true);
   }
@@ -466,8 +481,18 @@ export function ThemeEditorDialog({
               className="rounded-lg border px-3 py-2"
               style={{ background: spec.palette.raised, borderColor: spec.palette.border }}
             >
-              <span className="text-xs" style={{ color: spec.palette.text }}>
+              {/* The three text steps on the surface they are actually read on,
+                  one under the other. Judging "is the quiet one quiet enough,
+                  and still legible?" is a comparison, and a comparison needs
+                  the other two next to it. */}
+              <span className="block text-xs" style={{ color: spec.palette.text }}>
                 Um controle elevado, com texto por cima.
+              </span>
+              <span className="block text-xs" style={{ color: spec.palette.textSoft }}>
+                @usuário · texto secundário
+              </span>
+              <span className="block text-[11px]" style={{ color: spec.palette.muted }}>
+                Ninguém está transmitindo ainda
               </span>
             </div>
             <div

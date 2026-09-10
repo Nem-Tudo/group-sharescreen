@@ -29,6 +29,10 @@ export interface RoomThemePalette {
   border: string;
   input: string;
   text: string;
+  /** Usernames, labels, the second line of a row. */
+  textSoft: string;
+  /** Hints, timestamps, "ninguém está transmitindo ainda". */
+  muted: string;
 }
 
 export interface RoomThemeBackground {
@@ -112,7 +116,19 @@ export interface RoomTheme {
   updatedAt: number;
 }
 
-export const PALETTE_KEYS = ["page", "surface", "raised", "border", "input", "text"] as const;
+// The order the editor lists them in, which is loudest-to-quietest for the
+// three text steps: they are read as a set, and a list that interleaved them
+// with surfaces would make "is this quiet enough?" a scrolling question.
+export const PALETTE_KEYS = [
+  "page",
+  "surface",
+  "raised",
+  "border",
+  "input",
+  "text",
+  "textSoft",
+  "muted",
+] as const;
 
 /** The band a paid theme's price has to fall in. Mirrors the API's roomTheme.ts. */
 export const MIN_THEME_PRICE = 100;
@@ -128,6 +144,8 @@ export const PALETTE_LABELS: Record<keyof RoomThemePalette, { label: string; hin
   border: { label: "Borda", hint: "Linhas e divisórias" },
   input: { label: "Campo", hint: "Caixas de texto e preenchimentos discretos" },
   text: { label: "Texto", hint: "O texto principal" },
+  textSoft: { label: "Texto secundário", hint: "@usuário, rótulos, segunda linha" },
+  muted: { label: "Texto discreto", hint: "Dicas, horários, avisos vazios" },
 };
 
 /** The look a room has when nobody chose anything — the site's own dark. */
@@ -139,6 +157,8 @@ export const DEFAULT_THEME_SPEC: RoomThemeSpec = {
     border: "#313139",
     input: "#43434d",
     text: "#e9e9ec",
+    textSoft: "#a1a1aa",
+    muted: "#71717a",
   },
   accent: "#6366f1",
   accentText: "#ffffff",
@@ -151,12 +171,27 @@ export const DEFAULT_THEME_SPEC: RoomThemeSpec = {
 // that saves and then will not load.
 const HEX_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 
-export function isHexColor(value: string): boolean {
-  return HEX_RE.test(value.trim());
+/**
+ * Whether this is a colour at all.
+ *
+ * Takes `unknown` rather than `string`, and that is not defensive noise: a
+ * palette arrives over the network from an API that may be older than this
+ * build, and a slot it has never heard of comes back undefined. TypeScript
+ * says string; the wire says whatever it says.
+ */
+export function isHexColor(value: unknown): boolean {
+  return typeof value === "string" && HEX_RE.test(value.trim());
 }
 
-/** `#rrggbb` from any accepted form, so a picker always has six digits. */
+/**
+ * `#rrggbb` from any accepted form, so a picker always has six digits.
+ *
+ * Anything that is not a colour becomes black rather than a fragment: the one
+ * caller that can be handed rubbish is a colour picker, and `"#"` is a value it
+ * would try to parse and then behave strangely about.
+ */
 export function colorBase(value: string): string {
+  if (!isHexColor(value)) return "#000000";
   const clean = value.trim().replace("#", "");
   if (clean.length === 3) {
     return `#${clean
@@ -174,7 +209,7 @@ export function colorBase(value: string): string {
  * opacity sliders existed says, and it is the right reading: they were opaque.
  */
 export function colorAlpha(value: string): number {
-  const clean = value.trim().replace("#", "");
+  const clean = (value ?? "").trim().replace("#", "");
   if (clean.length !== 8) return 1;
   const alpha = Number.parseInt(clean.slice(6, 8), 16);
   return Number.isFinite(alpha) ? alpha / 255 : 1;
@@ -226,6 +261,38 @@ export function luminance(hex: string): number {
   );
 }
 
+/** How much of `text` the quieter steps keep when a theme names neither. */
+const SOFT_FALLBACK_ALPHA = 0.72;
+const MUTED_FALLBACK_ALPHA = 0.55;
+
+/**
+ * A spec with every slot filled, whatever arrived.
+ *
+ * The API fills these in too (see its roomTheme.ts, which is where the rule
+ * belongs), so on a current deployment this changes nothing. It exists for the
+ * two moments the client is on its own: a build newer than the API it is
+ * talking to, and a theme read from a cache written before a slot existed.
+ *
+ * A missing text step becomes the text colour faded, which is both the
+ * compatible answer and the right one — quiet text in the theme's own hue
+ * rather than a grey that belongs to no theme at all.
+ */
+export function completeSpec(spec: RoomThemeSpec): RoomThemeSpec {
+  const palette = spec.palette ?? DEFAULT_THEME_SPEC.palette;
+  const text = isHexColor(palette.text) ? palette.text : DEFAULT_THEME_SPEC.palette.text;
+  return {
+    ...spec,
+    palette: {
+      ...DEFAULT_THEME_SPEC.palette,
+      ...palette,
+      textSoft: isHexColor(palette.textSoft)
+        ? palette.textSoft
+        : withAlpha(text, SOFT_FALLBACK_ALPHA),
+      muted: isHexColor(palette.muted) ? palette.muted : withAlpha(text, MUTED_FALLBACK_ALPHA),
+    },
+  };
+}
+
 export function isDarkTheme(spec: RoomThemeSpec): boolean {
   return luminance(spec.palette.page) < 0.5;
 }
@@ -240,7 +307,11 @@ export function isDarkTheme(spec: RoomThemeSpec): boolean {
  * a colour the theme deliberately does not own — the greens, reds and ambers
  * that mean something (recording, an error, a warning) keep meaning it.
  */
-function tokensFor(spec: RoomThemeSpec): Record<string, string> {
+function tokensFor(input: RoomThemeSpec): Record<string, string> {
+  // Completed here rather than trusted: this is the last stop before the
+  // values become CSS, and `--color-zinc-400: undefined` is a room with
+  // Tailwind's grey text on somebody's pink surface.
+  const spec = completeSpec(input);
   const { palette } = spec;
   const dark = isDarkTheme(spec);
   // With a picture behind the room, the page itself has to get out of the
@@ -292,6 +363,18 @@ function tokensFor(spec: RoomThemeSpec): Record<string, string> {
         // surface colour written on it.
         "--color-zinc-50": palette.text,
         "--color-zinc-100": palette.text,
+        // The two quieter steps. Between them these are most of the words in a
+        // room — `dark:text-zinc-300` and `dark:text-zinc-400` alone are 66 of
+        // the room's text classes — and until now the theme did not own either,
+        // so a coloured room kept Tailwind's greys and lost them against its
+        // own surfaces.
+        // 200 rides with the soft step because it is the primary button's
+        // hover: the fill goes text → textSoft, which is a step quieter rather
+        // than a different colour.
+        "--color-zinc-200": palette.textSoft,
+        "--color-zinc-300": palette.textSoft,
+        "--color-zinc-400": palette.muted,
+        "--color-zinc-500": palette.muted,
       }
     : {
         ...shared,
@@ -305,6 +388,14 @@ function tokensFor(spec: RoomThemeSpec): Record<string, string> {
         // white.
         "--color-zinc-950": palette.text,
         "--color-zinc-900": palette.text,
+        // And the mirror of the quiet steps. 800 rides with the soft one for
+        // the same reason 200 does in dark mode: it is the primary button's
+        // hover fill.
+        "--color-zinc-800": palette.textSoft,
+        "--color-zinc-700": palette.textSoft,
+        "--color-zinc-600": palette.muted,
+        "--color-zinc-500": palette.muted,
+        "--color-zinc-400": palette.muted,
       };
 }
 
@@ -384,6 +475,40 @@ export function applyRoomTheme(spec: RoomThemeSpec | null): void {
   if (root.getAttribute("data-room-theme") !== mark) root.setAttribute("data-room-theme", mark);
   const mode = isDarkTheme(spec) ? "dark" : "light";
   if (root.getAttribute("data-theme") !== mode) root.setAttribute("data-theme", mode);
+}
+
+// ─── "A theme was edited" ─────────────────────────────────────────────────
+//
+// The room reads a theme once, on join, and holds on to it — which is right
+// almost always: a palette does not change while somebody is in a call.
+//
+// It changes in exactly one case, and it is the case that matters most. Its
+// author edits it, from inside the very room that is wearing it. Without this
+// signal the editor closes, the preview drops, and useRoomTheme repaints from
+// the copy it fetched on join — so the room goes back to the *old* version and
+// the save looks like it did nothing.
+//
+// A counter rather than the new spec: what changed is "the row behind this id
+// is not what you have", and the answer is to ask again. Pushing the palette
+// through here would be a second way for a theme to arrive, and the two would
+// eventually disagree about which is current.
+
+let themeSeq = 0;
+const themeListeners = new Set<() => void>();
+
+/** Says that some theme's contents changed. Called after a save or a delete. */
+export function notifyThemeChanged(): void {
+  themeSeq += 1;
+  for (const listener of themeListeners) listener();
+}
+
+export function getThemeSeq(): number {
+  return themeSeq;
+}
+
+export function subscribeThemeChanged(listener: () => void): () => void {
+  themeListeners.add(listener);
+  return () => themeListeners.delete(listener);
 }
 
 // ─── "Never the room's theme" ─────────────────────────────────────────────

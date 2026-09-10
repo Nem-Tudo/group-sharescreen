@@ -38,7 +38,7 @@ const TABS: { id: TabId; label: string; feature?: Feature }[] = [
   // where it deliberately has no name).
   { id: "workshop", label: "Descobrir" },
   { id: "create", label: "Criar tema", feature: "room_theme" },
-  { id: "publish", label: "Publicar", feature: "room_theme_publish" },
+  { id: "publish", label: "Publicar tema", feature: "room_theme_publish" },
 ];
 
 /**
