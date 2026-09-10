@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ogImage } from "@/lib/seo";
 import Image from "next/image";
 import Link from "next/link";
 import { FaDiscord, FaGithub } from "react-icons/fa";
@@ -33,6 +34,14 @@ const TITLE = "Bot do GoLive para Discord — sala de transmissão automática e
 const DESCRIPTION =
   "Adicione o bot do GoLive ao seu servidor e cada call ganha uma sala de transmissão de tela automática: o link aparece no status do canal e no chat da call. Grátis, funciona de cara e é ajustável por /config.";
 
+// Its own card rather than the root's, so this link is not the home page's
+// picture with a different sentence under it. See lib/seo.ts.
+const OG_IMAGE = ogImage({
+  title: "GoLive no seu Discord",
+  subtitle: "Crie salas e chame o pessoal sem sair da conversa.",
+  badge: "Bot para Discord",
+});
+
 export const metadata: Metadata = {
   title: TITLE,
   description: DESCRIPTION,
@@ -52,11 +61,13 @@ export const metadata: Metadata = {
     url: `${SITE_URL}/discord-bot`,
     title: TITLE,
     description: DESCRIPTION,
+    images: [{ url: OG_IMAGE, width: 1200, height: 630, alt: TITLE }],
   },
   twitter: {
     card: "summary_large_image",
     title: TITLE,
     description: DESCRIPTION,
+    images: [OG_IMAGE],
   },
   robots: { index: true, follow: true },
 };

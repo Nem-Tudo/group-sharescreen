@@ -1,10 +1,19 @@
 import type { Metadata } from "next";
+import { ogImage } from "@/lib/seo";
 import { SiteHeader } from "@/components/SiteHeader";
 import { BadgesPanel } from "./BadgesPanel";
 
 const TITLE = "Badges do GoLive — o que cada uma significa";
 const DESCRIPTION =
   "Todas as badges do GoLive e como cada uma é conquistada: staff, bug hunter, contribuidor, beta tester, apoiador inicial e as que vêm com o plano Pro.";
+
+// Its own card rather than the root's, so this link is not the home page's
+// picture with a different sentence under it. See lib/seo.ts.
+const OG_IMAGE = ogImage({
+  title: "Badges do GoLive",
+  subtitle: "O que cada uma significa e como conseguir.",
+  badge: "Badges",
+});
 
 export const metadata: Metadata = {
   title: TITLE,
@@ -17,6 +26,7 @@ export const metadata: Metadata = {
     url: "/badges",
     title: TITLE,
     description: DESCRIPTION,
+    images: [{ url: OG_IMAGE, width: 1200, height: 630, alt: TITLE }],
   },
   twitter: { card: "summary_large_image", title: TITLE, description: DESCRIPTION },
 };

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ogImage } from "@/lib/seo";
 import Link from "next/link";
 import { AdsterraBanner } from "@/components/AdsterraBanner";
 import { FaApple, FaGithub, FaLinux, FaWindows } from "react-icons/fa";
@@ -46,6 +47,14 @@ const TITLE = "Baixar o app do GoLive para PC — Windows, macOS e Linux";
 const DESCRIPTION =
   "O GoLive como aplicativo: leve na máquina, sem overlay nem serviço em segundo plano, e com o áudio da transmissão escolhido app por app — tire o Spotify, tire o WhatsApp, mande só o que você quer. Grátis para Windows, macOS e Linux.";
 
+// Its own card rather than the root's, so this link is not the home page's
+// picture with a different sentence under it. See lib/seo.ts.
+const OG_IMAGE = ogImage({
+  title: "O GoLive no seu PC",
+  subtitle: "Leve, sem overlay, e você escolhe quais sons saem da máquina.",
+  badge: "App para PC",
+});
+
 export const metadata: Metadata = {
   title: TITLE,
   description: DESCRIPTION,
@@ -67,11 +76,13 @@ export const metadata: Metadata = {
     url: `${SITE_URL}/app`,
     title: TITLE,
     description: DESCRIPTION,
+    images: [{ url: OG_IMAGE, width: 1200, height: 630, alt: TITLE }],
   },
   twitter: {
     card: "summary_large_image",
     title: TITLE,
     description: DESCRIPTION,
+    images: [OG_IMAGE],
   },
   robots: { index: true, follow: true },
 };
