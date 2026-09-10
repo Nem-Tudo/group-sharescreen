@@ -145,6 +145,7 @@ import {
   SpeakerIcon,
   SpeakerMuteIcon,
   MoreIcon,
+  GoldVerifiedBadgeIcon,
   VerifiedBadgeIcon,
   ChevronDownIcon,
   EyeIcon,
@@ -175,6 +176,7 @@ import {
   MdOutlineKeyboard,
   MdKeyboardArrowUp,
   MdPersonAddAlt1,
+  MdCardGiftcard,
 } from "react-icons/md";
 import { BsGearFill, BsCoin } from "react-icons/bs";
 import {
@@ -2058,6 +2060,69 @@ export function WatchRoom({ handle }: { handle: string }) {
   // never subject to, like every other one). The server checks both again —
   // see its "room-theme-set".
   const hasThemePlan = hasFeature("room_theme_set", account?.features ?? []);
+
+  // The premium button, which is three different offers wearing one slot.
+  //
+  // The same climb the site header makes (see SiteHeader's proItem), for the
+  // same reason: a button that keeps selling "Pro" to somebody who already
+  // pays for it is advertising the one thing they cannot buy, and it used to
+  // be the only place a subscriber ever saw the plan above theirs.
+  //
+  //   no plan  → "Pro", the blue badge.
+  //   Pro      → "Pro Max", in that plan's own gold mark.
+  //   Pro Max  → "Presentear". Nothing left to sell them; the one thing they
+  //              can still buy is a plan for somebody else.
+  //
+  // Read from `flags` rather than `features` — the question is which *plan*
+  // somebody holds, not what they may do — and PRO_MAX is tested first
+  // because it carries PRO with it.
+  //
+  // What differs from the header is only the door: nothing here navigates.
+  // Following a link out of a room tears down the call, which is the whole
+  // reason openProModal exists (see lib/proModal), and the gift dialog opens
+  // as a popup over the room rather than as a page.
+  const planFlags = account?.flags ?? [];
+  const proButton = planFlags.includes("PRO_MAX")
+    ? {
+        label: "Presentear",
+        tooltip: "Presentear alguém com o GoLive Pro",
+        ariaLabel: "Presentear Pro",
+        Icon: MdCardGiftcard,
+        // Carries its own colour, like the badges below: green is what the
+        // gift control is everywhere else on the site.
+        iconClassName: "text-emerald-500",
+        className:
+          "border-emerald-300 text-emerald-600 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-950/40",
+        onPress: () => void openPopup("gift_plan", { data: {} }),
+      }
+    : planFlags.includes("PRO")
+      ? {
+          label: "Pro Max",
+          tooltip: "GoLive Pro Max — temas, presentes e todo o resto do Pro",
+          ariaLabel: "GoLive Pro Max",
+          // The plan's own mark, which carries its colour in its gradients and
+          // therefore takes no colour class of its own.
+          Icon: GoldVerifiedBadgeIcon,
+          iconClassName: "",
+          className:
+            "border-amber-300 text-amber-600 hover:bg-amber-50 dark:border-amber-800 dark:text-amber-400 dark:hover:bg-amber-950/40",
+          // Opened straight onto the card it is about: somebody who already
+          // has Pro should not have to find the picker to see what is above it.
+          onPress: () => openProModal("premium_max"),
+        }
+      : {
+          label: "Pro",
+          tooltip: "GoLive Pro — Seja Verificado, transmita em 4K/120fps e muito mais!",
+          ariaLabel: "GoLive Pro",
+          // Blue rather than inheriting the label's colour: this is the same
+          // badge that appears next to a verified name (see DisplayUserName),
+          // and it only reads as that badge if it keeps its own.
+          Icon: VerifiedBadgeIcon,
+          iconClassName: "text-blue-500",
+          className:
+            "border-blue-300 text-blue-600 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-950/40",
+          onPress: () => openProModal(),
+        };
   const roomAllowsTheme = canUseRoomPermission("theme");
   const canSetRoomTheme = hasThemePlan && roomAllowsTheme;
   // Populated only for the ones this viewer is actually blocked on, so a
@@ -5308,23 +5373,27 @@ export function WatchRoom({ handle }: { handle: string }) {
             {/* Was "Apoiar projeto", a link to LivePix. The badge it already
                 carried is now what the subscription grants, so the button
                 points at the thing that sells it instead of at a donation
-                page — see app/pro. */}
-            <Tooltip content="GoLive Pro — Seja Verificado, transmita em 4K/120fps e muito mais!" placement="bottom">
+                page — see app/pro. What it offers climbs with the reader's own
+                plan; the three states are decided in `proButton` above. */}
+            <Tooltip content={proButton.tooltip} placement="bottom">
               <button
                 type="button"
                 onClick={() => {
-                  trackEvent("pro_button_clicked");
-                  openProModal();
+                  // Still one event, with which of the three was on screen —
+                  // "the premium button was pressed" is the question, and
+                  // three separate names would only have to be added back up.
+                  trackEvent("pro_button_clicked", { offer: proButton.label });
+                  proButton.onPress();
                 }}
-                aria-label="GoLive Pro"
-                className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-blue-300 px-2 py-2 text-sm font-medium text-blue-600 transition hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-950/40 2xl:px-3"
+                aria-label={proButton.ariaLabel}
+                className={`flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border px-2 py-2 text-sm font-medium transition 2xl:px-3 ${proButton.className}`}
               >
-                {/* Blue rather than inheriting the label's colour: this is the
-                    same badge that appears next to a verified name (see
-                    DisplayUserName), and it only reads as that badge if it
-                    keeps its own. */}
-                <VerifiedBadgeIcon className="h-5 w-5 shrink-0 text-blue-500" />
-                <span className="hidden sm:inline lg:hidden 2xl:inline">Pro</span>
+                <proButton.Icon
+                  className={`h-5 w-5 shrink-0 ${proButton.iconClassName}`}
+                />
+                <span className="hidden sm:inline lg:hidden 2xl:inline">
+                  {proButton.label}
+                </span>
               </button>
             </Tooltip>
 
