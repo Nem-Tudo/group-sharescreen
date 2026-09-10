@@ -1,13 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useEffect, useState } from "react";
 import { MdCardGiftcard, MdCheckCircle, MdClose, MdContentCopy, MdSearch } from "react-icons/md";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { UserAvatar } from "@/components/UserAvatar";
 import { PixIcon } from "@/components/icons";
 import { planIcon } from "@/components/planIcons";
-import { PixChargeModal } from "@/components/PixChargeModal";
+import { PixChargeContent } from "@/components/PixChargeModal";
 import { useAuth } from "@/lib/AuthContext";
 import { verifiedBadge } from "@/lib/entitlements";
 import { searchPeople, type SocialUser } from "@/lib/socialApi";
@@ -43,13 +42,29 @@ import {
 // ever, for a benefit held by another account — with the recipient holding the
 // only reason to end it and no way to. One charge, a fixed stretch of days, is
 // what a present actually is.
+//
+// An ntpopups popup, registered as "gift_plan" in NtPopups.tsx and opened by
+// name — so this file draws a card and nothing else. The library owns the
+// backdrop, the centring, the escape key, the animation and, crucially, where
+// in the document the thing is mounted.
+//
+// That last one is why it is worth being one at all. Both callers sit inside
+// an element with a `backdrop-filter` on it — the translucent site header, and
+// /pro when it is itself a dialog — and a backdrop-filter makes its element a
+// containing block for fixed descendants. Rendered in place, "fixed inset-0"
+// stopped meaning the viewport and started meaning the header: the dark
+// backdrop covered a 56-pixel strip and the page behind it stayed lit. Opening
+// by name is the version of that fix that cannot be reintroduced by a third
+// caller who does not know the rule.
+//
+// The Pix code is a *step*, not a second window: it replaces this card rather
+// than floating over it (see PixChargeContent, which is the same screen /pro
+// shows in a dialog of its own). A popup that opens an overlay of its own is
+// the stacking problem above, one layer up.
 
 const SEARCH_DEBOUNCE_MS = 300;
 /** How often the buyer's screen asks whether the money landed. */
 const POLL_MS = 4000;
-
-/** There is nothing to subscribe to — see the portal note in the component. */
-const subscribeNothing = () => () => {};
 
 /** The address a code travels as. Matches app/gift/[code]/page.tsx. */
 function giftLink(code: string): string {
@@ -136,19 +151,25 @@ function CodeRow({ code, label }: { code: string; label?: string }) {
   );
 }
 
+export type GiftPlanPopupData = {
+  /** Which plan to open on. The caller usually knows — see ProPanel. */
+  initialPlanId?: string;
+};
+
 /**
- * Mounted only while open, like AddFriendDialog and for the same reason:
- * unmounting is what throws away the chosen person, the search and the code on
- * screen, so reopening is a fresh present rather than the last one's leftovers.
+ * Mounted only while open, like every other popup here and for the same
+ * reason: unmounting is what throws away the chosen person, the search and the
+ * code on screen, so reopening is a fresh present rather than the last one's
+ * leftovers.
  */
 export function GiftPlanDialog({
-  onClose,
-  initialPlanId,
+  closePopup,
+  data,
 }: {
-  onClose: () => void;
-  /** Which plan to open on. The caller usually knows — see SiteHeader. */
-  initialPlanId?: string;
+  closePopup: (hasAction?: boolean) => void;
+  data?: GiftPlanPopupData;
 }) {
+  const initialPlanId = data?.initialPlanId;
   const { account } = useAuth();
   const { graph } = useSocialGraph();
   // Which shape of present. The link is the default: it is the one that works
@@ -179,11 +200,6 @@ export function GiftPlanDialog({
   // at all: a link is shown once, and without somewhere to read it again a
   // closed tab is money gone.
   const [myGifts, setMyGifts] = useState<PurchasedGift[]>([]);
-  // Whether there is a document to portal into. False on the server, true from
-  // the first client render — the same guard UserProfileDialog and ProModal
-  // use, through the store rather than an effect so hydration has one answer
-  // instead of two.
-  const onClient = useSyncExternalStore(subscribeNothing, () => true, () => false);
 
   // Derived rather than stored, so the picker cannot end up naming a plan the
   // list no longer has.
@@ -195,14 +211,6 @@ export function GiftPlanDialog({
   const addressed = mode === "person" ? recipient : null;
   const ready = mode === "link" || Boolean(addressed);
   const unclaimed = myGifts.filter((gift) => gift.code && gift.status === "paid");
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -277,37 +285,47 @@ export function GiftPlanDialog({
     setBusy(false);
   }
 
-  if (!onClient) return null;
-
-  // Rendered into the body rather than where it was opened from, and this is
-  // load-bearing rather than tidiness.
-  //
-  // Both callers sit inside an element with a `backdrop-filter` on it: the
-  // site header is translucent and blurs what scrolls under it, and /pro can
-  // itself be a dialog over a blurred page (see SiteHeader and ProModal). A
-  // backdrop-filter makes its element a *containing block for fixed
-  // descendants* — so `fixed inset-0` below stopped meaning "the viewport" and
-  // started meaning "the header", and the dark backdrop covered a 56-pixel
-  // strip at the top of the screen while the page behind stayed lit. The same
-  // rule applies to the z-index: `z-30` on the header is a stacking context,
-  // and nothing inside it can rise above anything outside.
-  //
-  // The portal is the fix for both at once, because it takes this subtree out
-  // of that element entirely — the Pix code screen below included, which is
-  // fixed for the same reasons and was being clipped by the same rule.
-  return createPortal(
-    <>
-      <div
-        className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-4 pt-[8vh] backdrop-blur-sm"
-        onClick={onClose}
-      >
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Presentear um plano"
-          onClick={(e) => e.stopPropagation()}
-          className="flex max-h-[84vh] w-full max-w-md flex-col overflow-y-auto rounded-2xl border border-black/10 bg-white p-6 shadow-xl dark:border-white/10 dark:bg-zinc-950"
-        >
+  return (
+    // The card, and only the card: no backdrop, no positioning, no portal —
+    // the library owns all three (see the header). Its own background and
+    // width, exactly as the other popups in this app declare theirs.
+    <div className="flex w-96 max-w-[calc(100vw-1rem)] flex-col bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">
+      {charge ? (
+        // The Pix step, in place of the form rather than over it. Keyed by the
+        // payment so a second code starts with its own clock and its own
+        // "copiado" — see PixChargeContent.
+        <PixChargeContent
+          key={charge.paymentId}
+          charge={charge}
+          paid={settled}
+          paidMessage={
+            addressed
+              ? `Presente entregue! ${addressed.displayName} já está com o ${plan?.title ?? "plano"}.`
+              : "Pagamento confirmado. Agora é só mandar o link para quem vai ganhar."
+          }
+          paidExtra={
+            // The link, at the one moment the buyer is certainly looking. It
+            // is also in the list on the form behind this step, which is what
+            // makes closing the popup survivable.
+            !addressed && charge.code ? (
+              <div className="w-full text-left">
+                <CodeRow code={charge.code} />
+              </div>
+            ) : null
+          }
+          busy={busy}
+          onRegenerate={() => void pay()}
+          onCheckNow={() => void check()}
+          onClose={() => {
+            // A delivered present is a finished errand, so the popup goes with
+            // it — unless there is a link to hand over, in which case going
+            // back to the form is what puts it somewhere it can be read again.
+            if (settled && addressed) closePopup(true);
+            else setCharge(null);
+          }}
+        />
+      ) : (
+        <div className="flex max-h-[80vh] flex-col overflow-y-auto p-5">
           <div className="flex items-start justify-between gap-3">
             <div>
               <h2 className="flex items-center gap-1.5 text-lg font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
@@ -320,7 +338,7 @@ export function GiftPlanDialog({
             </div>
             <button
               type="button"
-              onClick={onClose}
+              onClick={() => closePopup(false)}
               aria-label="Fechar"
               className="rounded-lg p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-900 dark:hover:text-zinc-200"
             >
@@ -560,41 +578,7 @@ export function GiftPlanDialog({
             </div>
           )}
         </div>
-      </div>
-
-      {/* The same code screen the subscription uses, with the one sentence
-          that would be false here replaced: the days are not the buyer's. */}
-      <PixChargeModal
-        charge={charge}
-        paid={settled}
-        paidMessage={
-          addressed
-            ? `Presente entregue! ${addressed.displayName} já está com o ${plan?.title ?? "plano"}.`
-            : "Pagamento confirmado. Agora é só mandar o link para quem vai ganhar."
-        }
-        paidExtra={
-          // The link, at the one moment the buyer is certainly looking. It is
-          // also in the list behind this dialog, which is what makes closing
-          // this window survivable.
-          !addressed && charge?.code ? (
-            <div className="w-full text-left">
-              <CodeRow code={charge.code} />
-            </div>
-          ) : null
-        }
-        busy={busy}
-        onRegenerate={() => void pay()}
-        onCheckNow={() => void check()}
-        onClose={() => {
-          setCharge(null);
-          // A delivered present is a finished errand: closing the code screen
-          // closes the dialog behind it too — unless there is a link to hand
-          // over, in which case the dialog behind is where it can be read
-          // again, and shutting it would be taking it away.
-          if (settled && addressed) onClose();
-        }}
-      />
-    </>,
-    document.body
+      )}
+    </div>
   );
 }

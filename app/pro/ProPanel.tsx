@@ -14,7 +14,7 @@ import type { BillingCycle } from "@/lib/premiumApi";
 import { useAuth } from "@/lib/AuthContext";
 import { AccountModal, type AccountModalMode } from "@/components/AccountModal";
 import { PixChargeModal } from "@/components/PixChargeModal";
-import { GiftPlanDialog } from "@/components/GiftPlanDialog";
+import useNtPopups from "ntpopups";
 import { isIosDevice, isStandaloneDisplay } from "@/lib/browserEnv";
 import { getDesktopBridge } from "@/lib/desktop";
 import { type Feature } from "@/lib/entitlements";
@@ -156,11 +156,11 @@ export function ProPanel({
     if (typeof window === "undefined") return null;
     return new URLSearchParams(window.location.search).get("plano");
   });
-  // "Presentear" open, or not. Held here rather than in the branches below so
-  // it can be offered from every state the page has — including the one with
-  // nothing left to sell, which is precisely where buying for somebody else is
-  // the only purchase left.
-  const [gifting, setGifting] = useState(false);
+  // "Presentear" is a popup owned by the library rather than markup on this
+  // page, which is what lets it be offered from every state below — and what
+  // keeps it working when this panel is itself inside a dialog (see ProModal,
+  // whose blur would otherwise trap a dialog rendered in here).
+  const { openPopup } = useNtPopups();
   // Derived, not stored. Keeping a second copy of the chosen plan in state
   // would need an effect to follow the list, and the whole page below reads
   // `plan` — one of the two would eventually be a render behind the other.
@@ -965,7 +965,9 @@ export function ProPanel({
             {account && (
               <button
                 type="button"
-                onClick={() => setGifting(true)}
+                onClick={() =>
+                  void openPopup("gift_plan", { data: { initialPlanId: plan?.id } })
+                }
                 className="mt-4 flex cursor-pointer items-center gap-2 text-sm font-medium text-zinc-600 underline-offset-2 transition hover:underline dark:text-zinc-400"
               >
                 <MdCardGiftcard className="h-4 w-4 shrink-0 text-emerald-500" />
@@ -1001,13 +1003,6 @@ export function ProPanel({
         onCheckNow={() => void syncStatus(true)}
         onClose={() => setPix(null)}
       />
-
-      {/* Opened on whichever plan is on screen: somebody who has just read
-          this card is presenting *this*, and making them choose it again in
-          the dialog would be asking the same question twice. */}
-      {gifting && (
-        <GiftPlanDialog initialPlanId={plan?.id} onClose={() => setGifting(false)} />
-      )}
 
       <p className="mt-4 text-xs text-zinc-400 dark:text-zinc-500">
         O pagamento é processado pelo Mercado Pago. A cobrança é mensal e pode ser cancelada a

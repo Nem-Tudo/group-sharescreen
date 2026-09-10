@@ -211,6 +211,14 @@ body {
    single-class rule regardless of which stylesheet loads first. */
 html .ntpopups-main {
   --ntpopups-bg-overlay: rgba(0, 0, 0, 0.6);
+  /* Above this app's own layers. The library ships 15 and renders its overlay
+     in place rather than through a portal, so it sits in the same stacking
+     context as everything else on the page — and the site header is `z-30`.
+     At 15 a popup opened *from* that header (see the "Presentear" row in
+     SiteHeader) was painted behind the bar that opened it. 60 clears the
+     app's dialog layer (`z-50`) and deliberately stays under the incoming-call
+     ring at `z-[100]`: a popup must never bury a phone that is ringing. */
+  --ntpopups-z-index: 60;
 }
 
 /* The reward-video popup's call-to-action, once the video has played through

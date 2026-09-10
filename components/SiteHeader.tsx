@@ -2,12 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
 import { FaDiscord } from "react-icons/fa";
 import { MdCardGiftcard, MdMonitor, MdOutlineMap } from "react-icons/md";
 import { GlobeIcon, GoldVerifiedBadgeIcon, VerifiedBadgeIcon } from "@/components/icons";
+import useNtPopups from "ntpopups";
 import { AccountMenu } from "@/components/AccountMenu";
-import { GiftPlanDialog } from "@/components/GiftPlanDialog";
 import { NotificationInboxBell } from "@/components/NotificationInboxBell";
 import { UpdateAppButton } from "@/components/UpdateAppButton";
 import { useAuth } from "@/lib/AuthContext";
@@ -87,7 +86,7 @@ const SECONDARY: SecondaryItem[] = [
 export function SiteHeader() {
   const pathname = usePathname();
   const { account } = useAuth();
-  const [gifting, setGifting] = useState(false);
+  const { openPopup } = useNtPopups();
 
   // The premium row, which is three different offers wearing one slot.
   //
@@ -111,7 +110,10 @@ export function SiteHeader() {
   const proItem: SecondaryItem = flags.includes("PRO_MAX")
     ? {
         key: "pro",
-        onClick: () => setGifting(true),
+        // By name rather than as markup here: the bar is translucent, and a
+        // dialog rendered inside a `backdrop-filter` is a dialog whose backdrop
+        // covers the bar instead of the page (see GiftPlanDialog).
+        onClick: () => void openPopup("gift_plan", { data: {} }),
         label: "Presentear Pro",
         // The only row whose two labels differ in *words* rather than in
         // length. It has to: "Presentear Pro" beside an account menu is most
@@ -274,11 +276,6 @@ export function SiteHeader() {
           <UpdateAppButton />
         </nav>
       </div>
-
-      {/* Fixed to the viewport, so where it sits in the tree only decides who
-          owns its state — and that is this bar, which is where it is opened
-          from. Mounted only while open, so each present starts empty. */}
-      {gifting && <GiftPlanDialog onClose={() => setGifting(false)} />}
     </header>
   );
 }
