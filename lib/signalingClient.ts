@@ -1206,7 +1206,26 @@ class SignalingClient {
 
   private scheduleReconnect() {
     if (this.reconnectTimer || (!this.desiredName && !this.wantsConnection)) return;
-    const delay = Math.min(1000 * 2 ** this.reconnectAttempts, 10000);
+    // Jittered, and the jitter matters more than the backoff does.
+    //
+    // The reconnect that actually needs handling is not one client losing its
+    // wifi — it is a server restart, which drops every socket in the same
+    // millisecond. A purely exponential delay leaves that entire population
+    // retrying in lockstep, at +1s, then +2s, then +4s: one narrow spike per
+    // step rather than a stream. The API is clustered, and a spike lands
+    // wherever the round-robin happens to be pointing at that instant, which
+    // during a restart is whichever workers finished booting first. Because
+    // these sockets are long-lived, that placement is not corrected later —
+    // round-robin only ever places *new* connections — so one synchronised
+    // spike is worth hours of a cluster carrying twice the load on half its
+    // workers.
+    //
+    // Half the window rather than the whole of it (i.e. [d/2, d) instead of
+    // [0, d)): full jitter would let the first attempt fire almost
+    // immediately, which for the ordinary case — the one client whose
+    // connection blipped — means retrying before the network has come back.
+    const ceiling = Math.min(1000 * 2 ** this.reconnectAttempts, 10000);
+    const delay = ceiling / 2 + Math.random() * (ceiling / 2);
     this.reconnectAttempts += 1;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
