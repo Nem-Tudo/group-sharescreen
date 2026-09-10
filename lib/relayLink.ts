@@ -22,7 +22,11 @@
 
 import { signalingClient } from "./signalingClient";
 import { iceConfigFor } from "./iceConfig";
-import { PeerQualityRegistry, type DegradationMode } from "./peerQualityController";
+import {
+  PeerQualityRegistry,
+  contentHintForDegradation,
+  type DegradationMode,
+} from "./peerQualityController";
 import { applyVideoCodecPreferences } from "./videoCodecPreferences";
 import { tierSpec, type QualityTier } from "./videoQuality";
 
@@ -142,15 +146,28 @@ export class RelayLink {
   /**
    * Reconciles our children against a fresh assignment from the root, and
    * updates what content this actually is — see the `degradation` field.
-   * Applied to every already-open child's live sender immediately (a
-   * setParameters call, same as any other tier/ceiling change — see
-   * PeerQualityController.setDegradation); a *new* codec preference only
-   * ever takes effect on a fresh transceiver, so it only reaches children
-   * opened after this call, exactly like the root's own openSendPC.
+   * Applied to every already-open child's live sender immediately: its
+   * degradationPreference (a setParameters call, same as any other
+   * tier/ceiling change — see PeerQualityController.setDegradation) and the
+   * contentHint on the track being re-encoded, which is shared by all of
+   * them. A *new* codec preference only ever takes effect on a fresh
+   * transceiver, so that one alone still reaches only children opened after
+   * this call, exactly like the root's own openSendPC.
    */
   setChildren(assignment: RelayChild[], degradation: DegradationMode) {
     this.degradation = degradation;
     this.quality.setDegradation(degradation);
+    // The hint is a property of the track we are re-encoding, so it applies
+    // to every child at once and, unlike the codec preference, needs no
+    // renegotiation to change. It was only ever set in openChild, so a
+    // profile switch mid-share reached a relay's degradationPreference and
+    // stopped there: its children kept being encoded under the hint of
+    // whatever profile was current when they connected. Half a profile is
+    // arguably worse than none — "motion" degradation with a "text" hint is a
+    // combination nobody picked.
+    for (const track of this.stream.getVideoTracks()) {
+      track.contentHint = contentHintForDegradation(degradation);
+    }
     const wanted = new Map(assignment.map((c) => [c.id, c.tier]));
     for (const id of [...this.children.keys()]) {
       // Dropped from the assignment means the root moved them, not that their
@@ -256,12 +273,7 @@ export class RelayLink {
         // rather than the soft, frame-first one "motion" produced. What still
         // separates balanced from text is degradationPreference, not the hint.
         // Only genuine motion content ("motion") keeps the motion hint.
-        track.contentHint =
-          this.degradation === "text"
-            ? "text"
-            : this.degradation === "balanced"
-              ? "detail"
-              : "motion";
+        track.contentHint = contentHintForDegradation(this.degradation);
         const transceivers = pc.getTransceivers();
         const transceiver = transceivers.find((t) => t.sender === sender);
         if (transceiver) applyVideoCodecPreferences(transceiver, this.degradation);

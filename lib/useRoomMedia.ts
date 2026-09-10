@@ -47,11 +47,19 @@ import {
   type LocalMediaSlot,
   type LocalMediaAction,
 } from "./localMediaSource";
-import { PeerQualityRegistry, type DegradationMode } from "./peerQualityController";
+import {
+  PeerQualityRegistry,
+  contentHintForDegradation,
+  type DegradationMode,
+} from "./peerQualityController";
 import { qualityNegotiator, type QualityChannel } from "./qualityNegotiation";
 import { useMeshCapacity, useMeshTopology, type PeerCapacity } from "./useMeshTopology";
 import { RelayManager, RELAY_ENABLED, type RelayChild } from "./relayLink";
-import { applyVideoCodecPreferences } from "./videoCodecPreferences";
+import {
+  applyVideoCodecPreferences,
+  videoCodecOrder,
+  type VideoCodecOrder,
+} from "./videoCodecPreferences";
 import { setPreferredAudioSink } from "./audioContext";
 import { startExcludedSystemAudio, prewarmExcludedSystemAudio } from "./desktopSystemAudio";
 import { captureAndroidScreen, isAndroidScreenCaptureAvailable } from "./androidScreenCapture";
@@ -457,6 +465,44 @@ function useLocalFileChannel(
   );
 }
 
+// The capture's own hint to the encoder about what it is looking at. Unlike
+// the codec ordering it is a plain property of the track, so it can be
+// corrected on a live share — which is the whole reason it lives here instead
+// of inline in start(): the mid-share profile switch has to be able to
+// recompute it, and the two must not be able to disagree about what a given
+// profile means.
+//
+// The previous code hardcoded "detail" for every screen share. That is
+// correct for code and documents, but for a 60fps game or video it is
+// actively harmful: combined with maintain-resolution it tells the encoder to
+// protect sharpness and throw away frames, so a share advertised as 60fps
+// degrades into a slideshow under any load. Worse, "detail" is reported to
+// interact badly with VP9 specifically (see analise/codec-diagnostico.html,
+// which measures this on real content).
+function contentHintFor(
+  channel: Channel,
+  source: ShareSource | undefined,
+  mode: DegradationMode
+): "motion" | "detail" | "text" {
+  // Camera is always motion. The "screen" channel is not always a screen: on
+  // a phone, which has no getDisplayMedia, "compartilhar tela" captures the
+  // camera instead (see getScreenShareMode). Hinting "text" at a webcam tells
+  // the encoder to protect sharpness and throw frames away, which is exactly
+  // backwards for a moving picture — so the source, not the channel name,
+  // decides.
+  // A file is moving pictures too, whatever the "compartilhar tela" dial is
+  // set to — same reasoning — and so is everything else that is not a real
+  // screen share.
+  if (channel !== "screen" || source === "camera") return "motion";
+  // On a real screen share the profile chooses the hint. The table lives in
+  // peerQualityController next to DEGRADATION_PREFERENCE, because a relay
+  // needs exactly the same answer for the track it re-encodes and two copies
+  // of it would drift. The VP9-vs-"detail" caveat above does not reach
+  // balanced — it encodes with H264 (see videoCodecPreferences), where
+  // "detail" behaves.
+  return contentHintForDegradation(mode);
+}
+
 function useBroadcastChannel(
   channel: Channel,
   room: string,
@@ -600,6 +646,9 @@ function useBroadcastChannel(
   // long as that relay stayed in the room. Remembering who we last spoke to is
   // what lets applyRelayPlan tell them it is over.
   const activeRelays = useRef<Set<string>>(new Set());
+  // The assignment each of those relays was last given, kept so it can be
+  // re-sent without a fresh planning pass — see resendRelayProfile.
+  const servingRelayChildren = useRef<Map<string, RelayChild[]>>(new Map());
   // Viewers to keep serving directly for a while, whatever the plan says —
   // see RELAY_OPT_OUT_MS. Written when the cascade visibly fails somebody: a
   // relay-nack, or a "resume" from a viewer's own stuck-tile watchdog.
@@ -770,6 +819,22 @@ function useBroadcastChannel(
     });
   }, [clearStopped, armResumeWatchdog]);
   const videoQualityRef = useRef(videoQuality);
+  // What was last actually asked of the capture, so the mid-share effect
+  // below can tell a resolution/fps change from a change to some other part
+  // of the preset. Null while nothing is being captured.
+  const appliedConstraints = useRef<{ width: number; height: number; frameRate: number } | null>(
+    null
+  );
+  // Which of the two codec orderings the currently-open senders were
+  // negotiated with, and the source this share is capturing — both read by
+  // that same effect, which runs outside start()'s closure. Null while
+  // inactive.
+  const codecOrderRef = useRef<VideoCodecOrder | null>(null);
+  // The profile the senders and relays below were last told about. Seeded
+  // from the preset so that the effect's first run, which happens before
+  // anything is being shared, is not mistaken for a switch.
+  const lastDegradationRef = useRef<DegradationMode>(videoQuality?.degradation ?? "text");
+  const sourceRef = useRef<ShareSource | undefined>(undefined);
   const qualityCeilingRef = useRef<QualityTier>(videoQuality?.ceilingTier ?? BEST_TIER);
   const degradationModeRef = useRef<DegradationMode>(videoQuality?.degradation ?? "text");
   const honorRequestsRef = useRef<boolean>(videoQuality?.honorViewerRequests ?? true);
@@ -1318,6 +1383,7 @@ function useBroadcastChannel(
         });
       }
       activeRelays.current = new Set(serving.keys());
+      servingRelayChildren.current = serving;
 
       // Someone a relay has taken over: drop our direct connection to them.
       // Telling them first is what stops the handover looking like a failure:
@@ -1353,6 +1419,44 @@ function useBroadcastChannel(
     [channel, closeSendPC, isRelayOptedOut]
   );
 
+  // Tells every relay currently serving for us what content this is, without
+  // changing who they serve. A relay-assign is a relay's only source for that
+  // (see RelayLink.setChildren), and it is only ever sent by a planning pass
+  // — so switching profile mid-share left every viewer behind a relay on
+  // whatever profile happened to be current when the topology was last
+  // computed, which in a settled room is indefinitely.
+  //
+  // The last plan is a cache, and the topology also moves *outside* a
+  // planning pass: a relay-nack takes children back immediately and opts them
+  // out of being relayed again for a while. Re-sending the cache verbatim
+  // would hand a relay back the very child it just said it could not serve,
+  // which is the flap relayOptOut exists to prevent — so every child is
+  // re-checked against the live routing on the way out, and the cache is
+  // narrowed to what survived. That is also why a relay left with nothing is
+  // skipped rather than sent an empty list: an empty list is a complete
+  // instruction to release everybody (see applyRelayPlan), and this function
+  // is not entitled to make that decision.
+  const resendRelayProfile = useCallback(() => {
+    if (!RELAY_ENABLED) return;
+    const stillServing = new Map<string, RelayChild[]>();
+    for (const [relayId, children] of servingRelayChildren.current) {
+      const live = children.filter(
+        (child) => relayedAway.current.has(child.id) && !isRelayOptedOut(child.id)
+      );
+      if (live.length === 0) continue;
+      stillServing.set(relayId, live);
+      signalingClient.sendSignal(relayId, {
+        channel,
+        role: "broadcaster",
+        kind: "relay-assign",
+        originId: signalingClient.state.selfId ?? undefined,
+        children: live,
+        degradation: degradationModeRef.current,
+      });
+    }
+    servingRelayChildren.current = stillServing;
+  }, [channel, isRelayOptedOut]);
+
   // Lets the broadcaster change resolution/fps/bitrate mid-share to react to
   // a room bogging down, instead of having to stop and restart the whole
   // capture. Skipped while inactive — a change picked before starting is
@@ -1361,13 +1465,60 @@ function useBroadcastChannel(
   useEffect(() => {
     if (!videoQuality || !activeRef.current || !localStreamRef.current) return;
     const track = localStreamRef.current.getVideoTracks()[0];
-    track
-      ?.applyConstraints({
-        width: { ideal: videoQuality.width },
-        height: { ideal: videoQuality.height },
-        frameRate: { ideal: videoQuality.frameRate },
-      })
-      .catch(() => {});
+
+    // Only when the capture's own dimensions actually moved. This used to run
+    // on any change to the preset object at all, and the preset also carries
+    // the content profile — so picking "Vídeo / jogo" mid-share reconfigured
+    // a perfectly good capture with the identical width, height and frame
+    // rate it already had. That is not free: applyConstraints asks the OS
+    // capturer to reconfigure a live surface, and the rejection is swallowed
+    // here, so a capture left wedged by one reported nothing at all. What the
+    // room saw was a share that simply stopped arriving.
+    const wanted = {
+      width: videoQuality.width,
+      height: videoQuality.height,
+      frameRate: videoQuality.frameRate,
+    };
+    const applied = appliedConstraints.current;
+    const dimensionsChanged =
+      !applied ||
+      applied.width !== wanted.width ||
+      applied.height !== wanted.height ||
+      applied.frameRate !== wanted.frameRate;
+    if (track && dimensionsChanged) {
+      appliedConstraints.current = wanted;
+      track
+        .applyConstraints({
+          width: { ideal: wanted.width },
+          height: { ideal: wanted.height },
+          frameRate: { ideal: wanted.frameRate },
+        })
+        .catch(() => {
+          // Nothing was applied, so the record above cannot stand: left as
+          // it is, the comparison matches on every later run and the retry
+          // never happens. Cleared rather than restored to the previous
+          // value, because after two quick changes that previous value may
+          // be another failed attempt rather than what the capture is
+          // actually running at — and null, meaning "unknown", is the one
+          // answer that is never wrong here: it costs one redundant
+          // applyConstraints on the next change and buys back the guarantee
+          // that a failure is always retried. The identity check is what
+          // keeps a late failure from clearing a later attempt's record, or
+          // writing anything at all over a share that has since stopped.
+          if (appliedConstraints.current === wanted) appliedConstraints.current = null;
+        });
+    }
+
+    // The hint is a plain property of the track, so — unlike the codec
+    // ordering below — switching profile can correct it in place, and it has
+    // to: it is half of what a profile means to the encoder. Frozen at
+    // whatever start() picked, a share switched to "Vídeo / jogo" went on
+    // telling the encoder to protect sharpness and drop frames, which is the
+    // one thing that profile exists to stop it doing.
+    if (track) {
+      const hint = contentHintFor(channel, sourceRef.current, videoQuality.degradation);
+      if (track.contentHint !== hint) track.contentHint = hint;
+    }
 
     const captureHeight = track?.getSettings().height ?? videoQuality.height;
     qualityRegistry.current.setCaptureHeight(captureHeight);
@@ -1385,7 +1536,55 @@ function useBroadcastChannel(
       if (!controller) continue;
       controller.setTier(tierForPeer(peerId));
     }
-  }, [videoQuality, tierForPeer]);
+
+    // Viewers we do not serve directly are behind a relay, and a relay only
+    // learns what it is re-encoding from an assignment message.
+    if (lastDegradationRef.current !== videoQuality.degradation) {
+      lastDegradationRef.current = videoQuality.degradation;
+      resendRelayProfile();
+    }
+
+    // The codec ordering is the one part of a profile that cannot be changed
+    // on a connection that already exists: setCodecPreferences applies to a
+    // transceiver at negotiation time, so every sender opened before the
+    // switch keeps the ordering the *old* profile asked for. That is not
+    // cosmetic. "text" puts VP9 first, which on ordinary hardware means a
+    // software encode; leaving a 60fps game on it is exactly the stutter the
+    // person switched profile to get rid of, and it is a large part of why
+    // switching appeared to do nothing until the whole share was stopped and
+    // started again.
+    //
+    // So renegotiate — but only when the switch actually crossed between the
+    // two orderings (text ↔ everything else, see videoCodecOrder), so that
+    // moving a dial the codec does not care about, or going balanced →
+    // motion, costs nothing. Closing and reopening is a path this hook
+    // already runs on every relay handover, and the viewer side handles the
+    // fresh offer by rebuilding its recvPC (see the offer branch in
+    // onSignal). Staggered like any other burst of connections. It is the
+    // same rebuild the person was doing by hand, minus a second capture
+    // prompt and without losing the capture.
+    //
+    // A relay's own children are deliberately not rebuilt: the same codec
+    // caveat applies to them, spelled out on RelayLink.setChildren, and
+    // tearing down a whole subtree from here would cost far more than it
+    // buys.
+    const codecOrder = videoCodecOrder(videoQuality.degradation);
+    if (codecOrderRef.current !== null && codecOrderRef.current !== codecOrder) {
+      const peerIds = [...sendPCs.current.keys()];
+      for (const peerId of peerIds) closeSendPC(peerId);
+      openSendPCsStaggered(peerIds);
+      trackEvent(`${eventPrefix}_profile_renegotiate`);
+    }
+    codecOrderRef.current = codecOrder;
+  }, [
+    videoQuality,
+    tierForPeer,
+    channel,
+    eventPrefix,
+    closeSendPC,
+    openSendPCsStaggered,
+    resendRelayProfile,
+  ]);
 
   // The captured height is read once, when a sendPC opens, and is what every
   // scaleResolutionDownBy in this channel is computed from (see
@@ -1415,6 +1614,9 @@ function useBroadcastChannel(
     localStreamRef.current?.getTracks().forEach((t) => t.stop());
     localStreamRef.current = null;
     setLocalStream(null);
+    appliedConstraints.current = null;
+    codecOrderRef.current = null;
+    sourceRef.current = undefined;
     setSource(undefined);
     qualityRegistry.current.clear();
     requestedTiers.current.clear();
@@ -1447,6 +1649,7 @@ function useBroadcastChannel(
     // down the subtree beneath them.
     relayedAway.current.clear();
     activeRelays.current.clear();
+    servingRelayChildren.current = new Map();
     relayOptOut.current.clear();
     // Each channel only ever reports its *own* half: `setSharing` merges the
     // pair (see signalingClient.setSharing). Before that merge existed this
@@ -1471,50 +1674,26 @@ function useBroadcastChannel(
       const stream = await capture(requestedSource);
       // contentHint steers the encoder's whole strategy, and the right value
       // depends entirely on what is being shared — which is why this is a
-      // user-facing choice rather than a constant.
-      //
-      // The previous code hardcoded "detail" for every screen share. That is
-      // correct for code and documents, but for a 60fps game or video it is
-      // actively harmful: combined with maintain-resolution it tells the
-      // encoder to protect sharpness and throw away frames, so a share
-      // advertised as 60fps degrades into a slideshow under any load. Worse,
-      // "detail" is reported to interact badly with VP9 specifically (see
-      // analise/codec-diagnostico.html, which measures this on real content).
-      // Camera is always motion.
-      // The "screen" channel is not always a screen: on a phone, which has no
-      // getDisplayMedia, "compartilhar tela" captures the camera instead (see
-      // getScreenShareMode). Hinting "text" at a webcam tells the encoder to
-      // protect sharpness and throw frames away, which is exactly backwards for
-      // a moving picture — so the source, not the channel name, decides.
-      const capturingCamera = channel === "camera" || requestedSource === "camera";
-      // A file is moving pictures, whatever the "compartilhar tela" dial is
-      // set to — same reasoning as the camera above: "text" tells the encoder
-      // to protect sharpness and drop frames, which turns a film into a
-      // slideshow the moment anything gets tight.
-      const capturingMotion = capturingCamera || channel.startsWith("file");
-      // On a real screen share the profile chooses the hint, and both quality
-      // profiles bias the encoder toward spatial detail — the difference
-      // between them lives in degradationPreference (text holds resolution
-      // absolutely; balanced sheds a little of each), not here. Balanced used
-      // to share "motion" with the game/video profile, which is exactly what
-      // made it look soft: "motion" tells the encoder to spend its bits on
-      // frames and let sharpness go. "detail" is what makes balanced actually
-      // keep the picture it advertises. The VP9-vs-"detail" caveat above does
-      // not reach it — balanced encodes with H264 (see videoCodecPreferences),
-      // where "detail" behaves. Motion, camera and files stay "motion".
-      const screenShare = !capturingMotion && channel === "screen";
-      const hint = !screenShare
-        ? "motion"
-        : degradationModeRef.current === "text"
-          ? "text"
-          : degradationModeRef.current === "balanced"
-            ? "detail"
-            : "motion";
+      // user-facing choice rather than a constant. See contentHintFor, which
+      // the mid-share profile switch shares with this.
+      const hint = contentHintFor(channel, requestedSource, degradationModeRef.current);
       stream.getVideoTracks().forEach((track) => {
         track.contentHint = hint;
       });
       localStreamRef.current = stream;
       activeRef.current = true;
+      // Everything the mid-share quality effect needs to know about what this
+      // capture was built with, so that it can tell what a later change to
+      // the preset actually changed. `capture` was just handed exactly these
+      // constraints, so recording them here is what stops that effect from
+      // re-applying them to a live capture for no reason.
+      const preset = videoQualityRef.current;
+      appliedConstraints.current = preset
+        ? { width: preset.width, height: preset.height, frameRate: preset.frameRate }
+        : null;
+      codecOrderRef.current = videoCodecOrder(degradationModeRef.current);
+      lastDegradationRef.current = degradationModeRef.current;
+      sourceRef.current = requestedSource;
       setLocalStream(stream);
       setActive(true);
       setSource(requestedSource);

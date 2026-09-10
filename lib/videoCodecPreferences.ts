@@ -22,16 +22,30 @@ import type { DegradationMode } from "./peerQualityController";
 // encode support, which matters enormously here: a relay or a busy
 // broadcaster encoding several streams at once lives or dies on whether the
 // GPU can take that work off the main thread.
+
+// Which of the two orderings a profile takes. Only "text" gets the VP9-first
+// branch; "balanced" deliberately shares the motion ordering, since it is
+// asking to hold quality *and* frame rate and a software VP9 encode is
+// precisely what makes holding both impossible on ordinary hardware.
+//
+// Exported because a codec preference is the one part of a profile that
+// cannot be changed on a connection that is already negotiated, so a
+// mid-share profile switch has to know whether the switch actually crossed
+// between the two orderings before it decides to renegotiate anything (see
+// useRoomMedia). Asking this module rather than re-deriving the split is what
+// keeps the two from drifting apart.
+export type VideoCodecOrder = "text" | "motion";
+
+export function videoCodecOrder(mode: DegradationMode): VideoCodecOrder {
+  return mode === "text" ? "text" : "motion";
+}
+
 export function applyVideoCodecPreferences(transceiver: RTCRtpTransceiver, mode: DegradationMode) {
   if (typeof RTCRtpSender.getCapabilities !== "function") return;
   const capabilities = RTCRtpSender.getCapabilities("video");
   if (!capabilities?.codecs) return;
-  // Only "text" takes the VP9-first branch. "balanced" deliberately shares
-  // the motion ordering: it is asking to hold quality *and* frame rate, and
-  // a software VP9 encode is precisely what makes holding both impossible on
-  // ordinary hardware.
   const order =
-    mode === "text"
+    videoCodecOrder(mode) === "text"
       ? ["video/VP9", "video/AV1", "video/H264", "video/VP8"]
       : ["video/H264", "video/AV1", "video/VP9", "video/VP8"];
   const sorted = [...capabilities.codecs].sort((a, b) => {
