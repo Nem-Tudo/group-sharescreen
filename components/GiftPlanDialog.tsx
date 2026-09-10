@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import { MdCardGiftcard, MdCheckCircle, MdClose, MdContentCopy, MdSearch } from "react-icons/md";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -46,6 +47,9 @@ import {
 const SEARCH_DEBOUNCE_MS = 300;
 /** How often the buyer's screen asks whether the money landed. */
 const POLL_MS = 4000;
+
+/** There is nothing to subscribe to — see the portal note in the component. */
+const subscribeNothing = () => () => {};
 
 /** The address a code travels as. Matches app/gift/[code]/page.tsx. */
 function giftLink(code: string): string {
@@ -175,6 +179,11 @@ export function GiftPlanDialog({
   // at all: a link is shown once, and without somewhere to read it again a
   // closed tab is money gone.
   const [myGifts, setMyGifts] = useState<PurchasedGift[]>([]);
+  // Whether there is a document to portal into. False on the server, true from
+  // the first client render — the same guard UserProfileDialog and ProModal
+  // use, through the store rather than an effect so hydration has one answer
+  // instead of two.
+  const onClient = useSyncExternalStore(subscribeNothing, () => true, () => false);
 
   // Derived rather than stored, so the picker cannot end up naming a plan the
   // list no longer has.
@@ -268,10 +277,28 @@ export function GiftPlanDialog({
     setBusy(false);
   }
 
-  return (
+  if (!onClient) return null;
+
+  // Rendered into the body rather than where it was opened from, and this is
+  // load-bearing rather than tidiness.
+  //
+  // Both callers sit inside an element with a `backdrop-filter` on it: the
+  // site header is translucent and blurs what scrolls under it, and /pro can
+  // itself be a dialog over a blurred page (see SiteHeader and ProModal). A
+  // backdrop-filter makes its element a *containing block for fixed
+  // descendants* — so `fixed inset-0` below stopped meaning "the viewport" and
+  // started meaning "the header", and the dark backdrop covered a 56-pixel
+  // strip at the top of the screen while the page behind stayed lit. The same
+  // rule applies to the z-index: `z-30` on the header is a stacking context,
+  // and nothing inside it can rise above anything outside.
+  //
+  // The portal is the fix for both at once, because it takes this subtree out
+  // of that element entirely — the Pix code screen below included, which is
+  // fixed for the same reasons and was being clipped by the same rule.
+  return createPortal(
     <>
       <div
-        className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 pt-[8vh]"
+        className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-4 pt-[8vh] backdrop-blur-sm"
         onClick={onClose}
       >
         <div
@@ -567,6 +594,7 @@ export function GiftPlanDialog({
           if (settled && addressed) onClose();
         }}
       />
-    </>
+    </>,
+    document.body
   );
 }
