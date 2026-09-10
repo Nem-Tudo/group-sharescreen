@@ -1245,6 +1245,18 @@ class SignalingClient {
         break;
       case "register-error":
         this.clearRegisterAck();
+        // A refusal the server itself calls temporary — it is starting up and
+        // could not read the account behind this token yet (see its register
+        // handler). Everything below would throw the session away over it:
+        // the name is cleared from storage and the token is dropped, so a
+        // server that was merely not ready turns into a logout the person has
+        // to notice and undo. Keeping both is what lets the ordinary reconnect
+        // register properly a moment later.
+        if (msg.retryable) {
+          this.setState({ nameError: msg.message as string });
+          trackEvent("name_register_retryable");
+          break;
+        }
         this.setState({ nameError: msg.message as string });
         // If we already had a confirmed name, this was a rename attempt —
         // fall back to it instead of abandoning an otherwise-working

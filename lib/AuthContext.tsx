@@ -87,16 +87,24 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-// How long after an unanswered /auth/me before trying once more — see the
-// resolve effect below. Long enough to outlast the blip that caused it, short
-// enough that a signed-in session comes back while the person is still looking
-// at the page.
-const ME_RETRY_DELAY_MS = 4000;
+// When to re-ask after an unanswered /auth/me — see the resolve effect below.
+//
+// A schedule rather than a single delay, and it climbs: the first entries
+// catch an ordinary network blip while the person is still looking at the
+// page, and the later ones are there to outlast an API restart, which takes
+// tens of seconds to open its port because it loads every store first. Adds up
+// to about a minute, after which the page settles into a guest session rather
+// than retrying forever.
+const ME_RETRY_DELAYS_MS = [2000, 4000, 8000, 15000, 30000];
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const accountToken = useAccountToken();
   const guestToken = useGuestToken();
   const [account, setAccount] = useState<Account | null>(null);
+  // Whether a /auth/me that failed for a reason unrelated to the token is
+  // still going to be tried again. See the resolve effect and the register
+  // effect below, which are the only two things that care.
+  const [meRetrying, setMeRetrying] = useState(false);
   // Guest points, tagged with the identity they were fetched for. Only ever
   // meaningful while signed out — an account's points come from /auth/me with
   // the rest of it. Kept here rather than in whatever component shows it so a
@@ -136,32 +144,71 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     // A rejection here is a request that never got an answer — a timeout (see
-    // fetchMe's own ceiling), a dropped connection, a captive portal. It says
-    // nothing about the token, so the account is not discarded; but the app
-    // cannot wait on it either, because every page gates its start-up on this
-    // resolving and a page that never resolves is one the user cannot use.
+    // fetchMe's own ceiling), a dropped connection, a captive portal, or an
+    // API that is not listening yet. It says nothing about the token, so the
+    // account is not discarded; but the app cannot wait on it either, because
+    // every page gates its start-up on this resolving and a page that never
+    // resolves is one the user cannot use.
     //
-    // So: unblock immediately, then try once more in the background. A blip on
-    // a slow link resolves into a signed-in session a few seconds late instead
-    // of a session silently demoted to guest until the next reload.
-    const failed = () => {
-      setResolvedToken(accountToken);
+    // So: unblock immediately, then keep asking in the background until the
+    // answer arrives or the schedule runs out.
+    //
+    // It used to ask exactly once more, four seconds later, and that is the
+    // bug this now exists to fix. A restarting API is unreachable for far
+    // longer than four seconds — it does not open its port until every store
+    // has loaded, which is tens of seconds with a real account list — so both
+    // attempts landed while it was still starting, the retry gave up, and the
+    // session sat demoted until somebody reloaded the page. Reloading during
+    // that window just repeated the same two failures, which is exactly what
+    // it looked like from the outside: signed in, then suddenly a guest
+    // wearing your last name, then signed in again once the server came up.
+    //
+    // The schedule below outlasts an ordinary restart. It is bounded rather
+    // than endless because a genuinely unreachable API is a page the person
+    // should be allowed to use as a guest, eventually.
+    let attempt = 0;
+    const scheduleRetry = () => {
+      if (cancelled) return;
+      if (attempt >= ME_RETRY_DELAYS_MS.length) {
+        // Out of attempts: stop claiming the account might still resolve, so
+        // the register effect can fall back to a guest identity.
+        setMeRetrying(false);
+        return;
+      }
+      const delay = ME_RETRY_DELAYS_MS[attempt]!;
+      attempt += 1;
       retryTimer = setTimeout(() => {
         retryTimer = null;
         fetchMe()
           .then((me) => {
-            // Only worth applying if it actually found the account: by now the
-            // UI has already settled into its signed-out shape, and replacing
-            // that with another "no account" would be a re-render saying
-            // nothing.
-            if (!cancelled && me) apply(me);
+            if (cancelled) return;
+            if (me) {
+              // Found it. Applying also ends the hold below.
+              setMeRetrying(false);
+              apply(me);
+              return;
+            }
+            // A definite "no account" (fetchMe only returns null for a 401 or
+            // 403, which is the server saying the token itself is bad). No
+            // point asking again.
+            setMeRetrying(false);
           })
           .catch(() => {
-            // Two failures is enough to stop asking. The user still has a
-            // working page, and any deliberate action — a reload, a login —
-            // starts this over.
+            // Still no answer — same class of failure as the first one.
+            scheduleRetry();
           });
-      }, ME_RETRY_DELAY_MS);
+      }, delay);
+    };
+
+    const failed = () => {
+      // Unblocks the page: `loading` is derived from this, and everything
+      // gates on it.
+      setResolvedToken(accountToken);
+      // Says "this token has not been ruled out yet". The register effect
+      // below reads it to hold off on announcing a guest identity while an
+      // account is still on the table — see the comment there.
+      setMeRetrying(true);
+      scheduleRetry();
     };
 
     fetchMe()
@@ -313,6 +360,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signalingClient.register(resolvedAccount.displayName, accountToken);
       return;
     }
+    // An account token that has not resolved *yet* is not a guest.
+    //
+    // Registering the stored name here while the retry is still in flight is
+    // what put somebody's own last-used name on screen as a guest during an
+    // API restart: the token was fine, the lookup had simply not succeeded
+    // yet. Waiting costs a few seconds of no identity — the page is already
+    // unblocked — and the retry either resolves the account or clears this,
+    // at which point the fallback below runs exactly as it used to.
+    if (meRetrying) return;
     const storedName = getStoredName();
     // Nothing to register *with*: a token that didn't resolve to an account
     // (a /auth/me that timed out — see the retry in the resolve effect) and
@@ -328,7 +384,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (registeredForTokenRef.current === key) return;
     registeredForTokenRef.current = key;
     signalingClient.register(storedName);
-  }, [accountToken, loading, resolvedAccount]);
+  }, [accountToken, loading, resolvedAccount, meRetrying]);
 
   // Ask for the signaling identity again, from scratch.
   //

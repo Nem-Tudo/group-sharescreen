@@ -344,12 +344,25 @@ export async function fetchMe(): Promise<{
     clearTimeout(timeout);
   }
   if (!res.ok) {
-    // Deliberately only for an answer we actually got. A timeout or a network
-    // failure throws above and never reaches here, which matters: those say
-    // nothing about whether the token is good, and discarding it would log
-    // someone out for a bad minute of connectivity.
-    setAccountToken(null);
-    return null;
+    // Only the two answers that are actually *about the token* discard it.
+    //
+    // This used to be every non-OK status, and the reasoning above was right
+    // as far as it went — a timeout says nothing about the token, so it must
+    // not log anyone out — but "we got an answer" is not the same test as
+    // "the answer said the token is bad". A 503 from a server still starting
+    // up, a 502 from a proxy, a 429 from the rate limiter: none of those know
+    // anything about this token either, and treating them as a verdict is
+    // what logged everybody out while the API was booting and brought them
+    // back as guests carrying their last name.
+    //
+    // So those throw instead, joining the timeout on the path that keeps the
+    // token and retries a few seconds later (see AuthContext's resolve
+    // effect) — which is where they belonged all along.
+    if (res.status === 401 || res.status === 403) {
+      setAccountToken(null);
+      return null;
+    }
+    throw new Error(`auth/me indisponível (${res.status})`);
   }
   const data = (await res.json()) as { account: Account; connections?: AccountConnections };
   return {
