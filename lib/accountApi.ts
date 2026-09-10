@@ -37,6 +37,16 @@ export type Account = {
   profileTheme?: { from: string; to: string; angle: number } | null;
   /** The YouTube song on this profile, stored as its id. Same gate. */
   profileSong?: { videoId: string; title: string; volume?: number } | null;
+  /**
+   * The room theme this account wears, by id (see lib/roomThemes.ts), or null
+   * for the site's own look.
+   *
+   * Deliberately *not* gated on the plan, unlike the three fields above it:
+   * making a theme is what Pro buys, wearing one somebody published is free to
+   * any account, and a lapsed plan should not strip the look off a reader of
+   * the workshop.
+   */
+  roomThemeId?: string | null;
   // Cumulative seconds, tracked automatically by the signaling server —
   // never hand-edited. Absent on an older API response, same "reads as 0"
   // fallback as points.

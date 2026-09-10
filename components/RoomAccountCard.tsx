@@ -3,7 +3,7 @@
 import Link from "next/link";
 import useNtPopups from "ntpopups";
 import { BsCoin, BsShop } from "react-icons/bs";
-import { MdLogin } from "react-icons/md";
+import { MdLogin, MdPalette } from "react-icons/md";
 import { useAuth } from "@/lib/AuthContext";
 import { useSignaling } from "@/lib/useSignaling";
 import { trackEvent } from "@/lib/analytics";
@@ -146,6 +146,29 @@ export function RoomAccountCard({
             {identity}
           </div>
         )}
+
+        {/* Themes, from inside a room — which is the only place they are worth
+            judging. The editor behind this previews onto the room itself (see
+            ThemeEditorDialog), so every colour is read against the real chat,
+            the real dock and the real video tiles instead of against a drawing
+            of them.
+            Beside the shop because they are the same errand seen twice: both
+            are "change how this looks", and somebody reaching for one has
+            usually just thought about the other.
+            Shown to everybody, including guests. It used to be Pro-only, which
+            was the wrong gate on the wrong thing — wearing a theme somebody
+            published is free to any account, and the two paid doors behind it
+            explain themselves (see ThemeHubDialog). */}
+        <Tooltip content="Temas" placement="top">
+          <button
+            type="button"
+            onClick={() => openPopup("theme_hub", { data: {} })}
+            aria-label="Temas"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-zinc-200 text-zinc-600 transition hover:bg-zinc-100 [@media(max-height:52rem)]:h-7 [@media(max-height:52rem)]:w-7 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-900"
+          >
+            <MdPalette className="h-4 w-4 shrink-0 [@media(max-height:52rem)]:h-3.5 [@media(max-height:52rem)]:w-3.5" />
+          </button>
+        </Tooltip>
 
         {/* Beside the identity block rather than its own row, so it never
             competes with the points chip's own wrap behavior — see the

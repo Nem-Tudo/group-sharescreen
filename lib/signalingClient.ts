@@ -197,7 +197,8 @@ export type RoomPermissionKey =
   | "videoSource"
   | "chat"
   | "gif"
-  | "image";
+  | "image"
+  | "theme";
 
 export type RoomPermissions = Record<RoomPermissionKey, boolean>;
 
@@ -212,6 +213,7 @@ export const DEFAULT_ROOM_PERMISSIONS: RoomPermissions = {
   chat: true,
   gif: true,
   image: true,
+  theme: true,
 };
 
 /**
@@ -655,6 +657,14 @@ export type SignalingState = {
   // room is listed.
   roomDescription: string;
   roomCategory: string | null;
+  // The theme everybody in this room sees, by id (see lib/roomThemes.ts), or
+  // null for whatever each person is wearing themselves.
+  //
+  // Undefined is a third state and a meaningful one: it means the room has
+  // not said yet. Without it a join would paint this account's own theme for
+  // a moment and then replace it with the room's, which is a visible flash of
+  // the wrong colours on every entry.
+  roomTheme: string | null | undefined;
   // The last action this room refused us (see the server's
   // "room-permission-denied"). Carried alongside a counter because the
   // *event* is what matters — being refused the mic twice in a row is two
@@ -752,6 +762,7 @@ const initialState: SignalingState = {
   roomLocation: null,
   roomDescription: "",
   roomCategory: null,
+  roomTheme: undefined,
   permissionDenied: null,
   permissionDeniedSeq: 0,
   guestBroadcastLimit: null,
@@ -1402,6 +1413,7 @@ class SignalingClient {
           roomLocation: parseRoomLocation(msg.location),
           roomDescription: typeof msg.description === "string" ? msg.description : "",
           roomCategory: typeof msg.category === "string" ? msg.category : null,
+          roomTheme: typeof msg.theme === "string" && msg.theme ? msg.theme : null,
           // A refusal from the room we just left says nothing about this one.
           permissionDenied: null,
         });
@@ -1577,6 +1589,7 @@ class SignalingClient {
           roomLocation: parseRoomLocation(msg.location),
           roomDescription: typeof msg.description === "string" ? msg.description : "",
           roomCategory: typeof msg.category === "string" ? msg.category : null,
+          roomTheme: typeof msg.theme === "string" && msg.theme ? msg.theme : null,
         });
         break;
       case "obs-token-created": {
@@ -2570,6 +2583,7 @@ class SignalingClient {
       roomLocation: null,
       roomDescription: "",
       roomCategory: null,
+  roomTheme: undefined,
       permissionDenied: null,
     });
   }
@@ -2610,6 +2624,17 @@ class SignalingClient {
   // versa. Owner/admin only, enforced server-side.
   setRoomInfo(info: { description?: string; category?: string | null }) {
     this.rawSend({ type: "room-info-set", ...info });
+  }
+
+  // Repaints the room for everybody in it, or hands it back to whatever each
+  // person is wearing with null.
+  //
+  // Pro Max only, and subject to the room's own `theme` switch — both enforced
+  // server-side (see the "room-theme-set" handler), which is why nothing here
+  // checks either. Only the id travels: the palette lives in one row, so an
+  // author editing their theme reaches this room on its next load.
+  setRoomTheme(themeId: string | null) {
+    this.rawSend({ type: "room-theme-set", theme: themeId });
   }
 
   // Dismisses the "this room doesn't allow that" notice — a one-shot warning,

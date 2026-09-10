@@ -7,9 +7,19 @@ import { usePathname, useRouter } from "next/navigation";
 // so any trigger in the app (room header, quality picker, user profile, etc.)
 // can open the modal without prop drilling.
 
-type ModalState = { open: boolean };
+type ModalState = {
+  open: boolean;
+  /**
+   * Which plan to open on, when the thing that opened it knows.
+   *
+   * A lock that says "Disponível no Pro Max" and then opens on the Pro card is
+   * the same confusion the header's own Pro row was fixed for: the reader has
+   * to find the picker to see the thing they just clicked about.
+   */
+  planId: string | null;
+};
 
-let state: ModalState = { open: false };
+let state: ModalState = { open: false, planId: null };
 const listeners = new Set<() => void>();
 
 function set(next: ModalState) {
@@ -17,18 +27,18 @@ function set(next: ModalState) {
   for (const listener of listeners) listener();
 }
 
-/** Opens the GoLive Pro modal. */
-export function openProModal(): void {
-  set({ open: true });
+/** Opens the GoLive Pro modal, on `planId` when one is named. */
+export function openProModal(planId?: string | null): void {
+  set({ open: true, planId: planId ?? null });
 }
 
 /** Closes the GoLive Pro modal. */
 export function closeProModal(): void {
   if (!state.open) return;
-  set({ open: false });
+  set({ open: false, planId: null });
 }
 
-const SERVER_STATE: ModalState = { open: false };
+const SERVER_STATE: ModalState = { open: false, planId: null };
 
 export function useProModal(): ModalState {
   return useSyncExternalStore(
@@ -55,14 +65,16 @@ export function useProModal(): ModalState {
  * The room is the only place with that constraint, so the room is the only
  * place that gets the modal.
  */
-export function useOpenPro(): () => void {
+export function useOpenPro(): (planId?: string | null) => void {
   const pathname = usePathname();
   const router = useRouter();
-  return () => {
+  return (planId?: string | null) => {
     if (pathname?.startsWith("/watch/")) {
-      openProModal();
+      openProModal(planId);
       return;
     }
-    router.push("/pro");
+    // The page reads the same thing off the query string (see ProPanel), so a
+    // plan named here survives whichever of the two answers this gives.
+    router.push(planId ? `/pro?plano=${encodeURIComponent(planId)}` : "/pro");
   };
 }

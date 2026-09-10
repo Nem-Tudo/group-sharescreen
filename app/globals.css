@@ -204,6 +204,94 @@ body {
   padding: 0;
 }
 
+/* A room theme's background picture (see lib/roomThemes.ts).
+   Two fixed layers on <html>, drawn only while a theme with an image is worn:
+
+     ::before — the picture, blurred by however much the theme asked for and
+       scaled a touch past the edges, because a blur samples past its own
+       boundary and an unscaled layer shows a soft frame around the screen.
+     ::after  — the dim, in the theme's *own* page colour rather than black, so
+       a light theme with a photo behind it stays a light theme.
+
+   Both sit behind everything. They can be seen at all because the theme sets
+   the page token to `transparent` when there is a picture, which is what stops
+   the room's own full-viewport background from covering them. */
+html[data-room-theme="image"],
+html[data-room-theme="gradient"] {
+  background-color: var(--room-page-solid, #101014);
+}
+
+html[data-room-theme="image"] body,
+html[data-room-theme="gradient"] body {
+  background: transparent;
+}
+
+html[data-room-theme="image"]::before,
+html[data-room-theme="image"]::after,
+html[data-room-theme="gradient"]::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* A theme's gradient, on the one surface in a room that carries almost no
+   text directly: everything readable sits on a panel one step above it.
+   Fixed like the picture layer, so it spans the viewport rather than
+   scrolling with a chat column. */
+html[data-room-theme="gradient"]::before {
+  background-image: var(--room-gradient);
+}
+
+html[data-room-theme="image"]::before {
+  background-image: var(--room-background-image);
+  background-size: cover;
+  background-position: center;
+  filter: blur(var(--room-background-blur, 0px));
+  transform: scale(1.08);
+}
+
+html[data-room-theme="image"]::after {
+  background: var(--room-page-solid, #101014);
+  opacity: var(--room-background-dim, 0);
+}
+
+/* The theme's accent, for the few places in a room that are a deliberate
+   highlight rather than a surface — the active tab of the dock, above all.
+   Falls back to what those places painted before themes existed, so the class
+   is safe on a page with no theme on it. */
+.room-accent {
+  background-color: var(--room-accent, var(--color-zinc-50));
+  color: var(--room-accent-text, var(--color-zinc-950));
+}
+
+/* The colour picker in the theme editor (react-colorful, see
+   components/ThemeEditorDialog). The library ships a fixed 200x200 square and
+   injects its own stylesheet; these four rules only resize it to the dialog's
+   width and round it to match everything else in there. Scoped to the wrapper
+   class so nothing else on the site inherits a picker's dimensions. */
+.theme-picker .react-colorful {
+  width: 100%;
+  height: 9.5rem;
+}
+
+.theme-picker .react-colorful__saturation {
+  border-radius: 0.5rem 0.5rem 0 0;
+}
+
+.theme-picker .react-colorful__hue {
+  height: 1.5rem;
+  border-radius: 0 0 0.5rem 0.5rem;
+}
+
+/* Big enough to grab on a touchscreen, where the default 18px handle sits
+   under a fingertip with nothing visible around it. */
+.theme-picker .react-colorful__pointer {
+  width: 1.35rem;
+  height: 1.35rem;
+}
+
 /* ntPopups (see components/NtPopups.tsx). The library's dark theme paints an
    85%-black backdrop, which blanks out the call behind the partner reward
    video popup — the whole point of that popup being a popup is that the room

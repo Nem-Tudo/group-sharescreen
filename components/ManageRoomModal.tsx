@@ -16,6 +16,7 @@ import {
   MdOutlineChat,
   MdGif,
   MdOutlineImage,
+  MdPalette,
   MdOutlineMap,
 } from "react-icons/md";
 import {
@@ -53,6 +54,12 @@ const PERMISSION_ROWS: {
   { key: "chat", label: "Permitir que todos enviem mensagens no chat", icon: MdOutlineChat },
   { key: "gif", label: "Permitir que todos enviem GIFS", icon: MdGif },
   { key: "image", label: "Permitir que todos enviem imagens", icon: MdOutlineImage },
+  // The one switch here that is also gated on a plan: only Pro Max can change
+  // a room's theme at all (see the server's "room-theme-set"), so turning this
+  // off is the room saying "not even them". Worth knowing when reading a
+  // report that it "does nothing" — for everybody without the plan, it never
+  // did.
+  { key: "theme", label: "Permitir que Pro Max troquem o tema da sala", icon: MdPalette },
 ];
 
 type View = "menu" | "admins" | "permissions" | "location" | "bans" | "limit";

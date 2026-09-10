@@ -163,6 +163,7 @@ import {
   MdOutlineOndemandVideo,
   MdOutlineDesktopWindows,
   MdOutlineMap,
+  MdPalette,
   MdLogin,
   MdOutlineChat,
   MdOutlinePeople,
@@ -196,6 +197,7 @@ import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
 import { ObsBrowserSourceModal } from "@/components/ObsBrowserSourceModal";
 import { ShortcutQuickPopover } from "@/components/ShortcutQuickPopover";
 import { hasVerifiedBadge, verifiedBadge } from "@/lib/entitlements";
+import { useRoomTheme } from "@/lib/useRoomTheme";
 
 // Mirrors server/signaling.ts's HANDLE_RE — must match exactly, or a name
 // this lets through but the server rejects lands the user in a dead room
@@ -974,7 +976,12 @@ const DOCK_OFF = "bg-red-600 active:bg-red-700";
 const DOCK_LIVE = "bg-red-600 active:bg-red-700";
 const DOCK_TAB =
   "flex h-11 w-11 sm:w-12 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl transition active:scale-95";
-const DOCK_TAB_ACTIVE = "bg-zinc-950 text-white dark:bg-zinc-50 dark:text-zinc-950";
+// The one surface in the room that is a deliberate highlight rather than a
+// surface, so it is the one that wears a theme's accent (see globals.css's
+// .room-accent, which falls back to exactly these colours when no theme is
+// on). Everything else in the room is painted by the palette through the zinc
+// tokens and needs no class of its own.
+const DOCK_TAB_ACTIVE = "room-accent";
 const DOCK_TAB_IDLE =
   "text-zinc-600 active:bg-zinc-100 dark:text-zinc-400 dark:active:bg-zinc-900";
 
@@ -982,6 +989,12 @@ export function WatchRoom({ handle }: { handle: string }) {
   const router = useRouter();
   const state = useSignaling();
   useRoomSoundEffects(state);
+  // Paints the room. The room's own theme when it has one, this account's
+  // otherwise — see lib/useRoomTheme, which is where that precedence lives.
+  // It writes CSS variables onto the document, so nothing here has to be
+  // passed a colour: every `bg-zinc-950` and `border-zinc-200` in this file
+  // already reads one.
+  const roomTheme = useRoomTheme(state.roomTheme);
   // Keeps the tab's connection alive longer in the background on Android
   // while actually in a room — see the hook's own doc comment for why (and
   // its limits, especially on iOS).
@@ -2023,6 +2036,12 @@ export function WatchRoom({ handle }: { handle: string }) {
   function canUseRoomPermission(key: RoomPermissionKey): boolean {
     return state.roomPermissions[key] || isRoomManager;
   }
+  // Repainting the room is two questions at once, and both have to be yes:
+  // a plan (Pro Max, a fact about the account) and the room's own switch
+  // (which managers are never subject to, like every other one). The server
+  // checks both again — see its "room-theme-set".
+  const canSetRoomTheme =
+    hasFeature("room_theme_set", account?.features ?? []) && canUseRoomPermission("theme");
   // Populated only for the ones this viewer is actually blocked on, so a
   // control can use `?? undefined` and get its ordinary label back.
   function roomBlockReason(key: RoomPermissionKey, what: string): string | null {
@@ -4745,6 +4764,27 @@ export function WatchRoom({ handle }: { handle: string }) {
               {state.roomLocation || !isRoomManager ? "Local no mapa" : "Definir no mapa"}
             </button>
           </Tooltip>
+          {/* Repainting the room, for the people who can.
+              Shown to Pro Max only — and to a manager whatever the room's own
+              switch says, since managers are never subject to it (the server
+              decides both; this only decides what to draw). Somebody without
+              the plan is shown nothing rather than a locked button: unlike a
+              quality picker, where the locked option is the pitch, this one
+              would be a control in a live call that exists to say no. */}
+          {canSetRoomTheme && (
+            <button
+              type="button"
+              onClick={() =>
+                void openPopup("room_theme", {
+                  data: { currentThemeId: state.roomTheme ?? null },
+                })
+              }
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+            >
+              <MdPalette className="h-4 w-4 shrink-0" />
+              {roomTheme.fromRoom ? "Trocar tema" : "Tema da sala"}
+            </button>
+          )}
           {isRoomManager && (
             <button
               type="button"

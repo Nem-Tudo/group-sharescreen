@@ -33,7 +33,11 @@ export type Feature =
   | "avatar_upload"
   | "banner_upload"
   | "profile_gradient"
-  | "profile_song";
+  | "profile_song"
+  | "room_theme"
+  | "room_theme_publish"
+  | "room_theme_set"
+  | "room_theme_gradient";
 
 export type FeatureTier = "free" | "account" | "premium" | "premium_max";
 
@@ -50,6 +54,10 @@ export const FEATURE_TIERS: Record<Feature, FeatureTier> = {
   banner_upload: "premium_max",
   profile_gradient: "premium_max",
   profile_song: "premium_max",
+  room_theme: "premium",
+  room_theme_publish: "premium_max",
+  room_theme_set: "premium_max",
+  room_theme_gradient: "premium_max",
 };
 
 /**
@@ -112,6 +120,21 @@ export function lockTier(
   return FEATURE_TIERS[feature];
 }
 
+/**
+ * What each rung is called in front of a person.
+ *
+ * "premium_max" had no entry here and fell through to "conta necessária",
+ * which is the one answer that is not merely imprecise but wrong: it tells
+ * somebody who already has an account that an account is what they are
+ * missing. Every rung the ladder can return now names itself.
+ */
+export const TIER_NAMES: Record<FeatureTier, string> = {
+  free: "",
+  account: "conta necessária",
+  premium: "Pro",
+  premium_max: "Pro Max",
+};
+
 /** What the missing tier is called, in words. Null when nothing is missing. */
 export function lockName(
   feature: Feature | undefined,
@@ -119,7 +142,7 @@ export function lockName(
 ): string | null {
   const tier = lockTier(feature, features);
   if (!tier) return null;
-  return tier === "premium" ? "Pro" : "conta necessária";
+  return TIER_NAMES[tier];
 }
 
 /**
@@ -138,8 +161,11 @@ export function lockLabel(
 ): string | null {
   const tier = lockTier(feature, features);
   if (!tier) return null;
-  const name = tier === "premium" ? "Pro" : "conta necessária";
-  const mark = tier === "premium" ? ` ${PLAN_ICONS[DEFAULT_PLAN_ICON_ID].glyph}` : "";
+  const name = TIER_NAMES[tier];
+  // The mark belongs to a paid rung. "conta necessária" is not a product and
+  // wearing a plan's badge would be claiming it is one.
+  const paid = tier === "premium" || tier === "premium_max";
+  const mark = paid ? ` ${PLAN_ICONS[DEFAULT_PLAN_ICON_ID].glyph}` : "";
   return ` ${name}${mark}`;
 }
 

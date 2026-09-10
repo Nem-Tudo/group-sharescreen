@@ -67,6 +67,10 @@ const FEATURE_LABELS: Partial<Record<Feature, string>> = {
   banner_upload: "Envie o seu próprio banner de perfil",
   profile_gradient: "Escolha as cores de fundo do seu perfil",
   profile_song: "Coloque uma música no seu perfil",
+  room_theme: "Crie temas e deixe as salas com a sua cara",
+  room_theme_publish: "Publique seus temas no Descobrir para todo mundo usar",
+  room_theme_set: "Troque o tema de qualquer sala em que você estiver",
+  room_theme_gradient: "Use degradê no fundo dos seus temas",
 };
 
 function periodEndLabel(timestamp: number): string {
@@ -127,9 +131,16 @@ function navigateTab(tab: Window, url: string): boolean {
 
 export function ProPanel({
   isModal = false,
+  initialPlanId,
   onClose,
 }: {
   isModal?: boolean;
+  /**
+   * Which plan to open on, when whatever opened this knows. Beats the URL,
+   * and it has to: inside a room the address bar is the room's, so a modal
+   * has no query string of its own to read.
+   */
+  initialPlanId?: string;
   onClose?: () => void;
 } = {}) {
   const { account, loading: resolvingAccount, refresh } = useAuth();
@@ -153,6 +164,7 @@ export function ProPanel({
   // way — the markup below is the "Carregando o plano…" line until the list
   // lands, so the server and the client agree about what is on screen.
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(() => {
+    if (initialPlanId) return initialPlanId;
     if (typeof window === "undefined") return null;
     return new URLSearchParams(window.location.search).get("plano");
   });

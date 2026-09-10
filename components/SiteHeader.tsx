@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { FaDiscord } from "react-icons/fa";
-import { MdCardGiftcard, MdMonitor, MdOutlineMap } from "react-icons/md";
+import { MdCardGiftcard, MdMonitor, MdOutlineMap, MdPalette } from "react-icons/md";
 import { GlobeIcon, GoldVerifiedBadgeIcon, VerifiedBadgeIcon } from "@/components/icons";
 import useNtPopups from "ntpopups";
 import { AccountMenu } from "@/components/AccountMenu";
@@ -71,6 +71,16 @@ const SECONDARY: SecondaryItem[] = [
     short: "Square",
     Icon: SquareIcon,
     desktopOnly: true,
+  },
+  // Before the app and the bot: it is a place to browse and come back to,
+  // which those two are not — they are read once and installed.
+  {
+    key: "workshop",
+    href: "/workshop",
+    target: "",
+    label: "Temas",
+    short: "Temas",
+    Icon: MdPalette,
   },
   { key: "app", href: "/app", label: "App para PC", target: "", short: "App", Icon: MdMonitor },
   {
