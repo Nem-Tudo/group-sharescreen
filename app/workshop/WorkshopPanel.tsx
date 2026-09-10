@@ -17,6 +17,7 @@ import { DisplayUserName } from "@/components/DisplayUserName";
 import { UserAvatar } from "@/components/UserAvatar";
 import { AccountModal, type AccountModalMode } from "@/components/AccountModal";
 import { UserProfileDialog } from "@/components/UserProfileDialog";
+import { CopyButton } from "@/components/CopyButton";
 import { useAuth } from "@/lib/AuthContext";
 import { hasFeature, verifiedBadge } from "@/lib/entitlements";
 import {
@@ -31,6 +32,7 @@ import {
   gradientCss,
   isDarkTheme,
   likeTheme,
+  themeLink,
   type RoomTheme,
   type WorkshopSort,
 } from "@/lib/roomThemes";
@@ -159,9 +161,15 @@ function ThemeCard({
 
       <div className="min-w-0">
         <p className="flex items-center gap-1.5">
-          <span className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+          {/* The name is the link. It is what people try to click on a card
+              anyway, and until now it was the one thing on here that looked
+              like a title and behaved like plain text. */}
+          <Link
+            href={`/tema/${theme.id}`}
+            className="truncate text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-100"
+          >
             {theme.name}
-          </span>
+          </Link>
           <span className="shrink-0 rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
             {isDarkTheme(theme.spec) ? "escuro" : "claro"}
           </span>
@@ -254,7 +262,7 @@ function ThemeCard({
                 panel has its own address, worth keeping open in a tab while
                 the numbers move. */}
             <Link
-              href={`/tema/${theme.id}`}
+              href={`/tema/${theme.id}/painel`}
               aria-label={`Ver o painel de ${theme.name}`}
               title="Ver o painel do tema"
               className="flex items-center justify-center rounded-lg border border-zinc-300 px-2.5 py-2 text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
@@ -275,8 +283,18 @@ function ThemeCard({
           <MdPeople className="h-4 w-4 shrink-0" />
           {theme.uses}
         </span>
+        {/* Published themes only: a private one has no page for a link to
+            reach, and the API answers 404 to everybody but its author. */}
+        {theme.published && (
+          <CopyButton
+            value={themeLink(theme.id)}
+            label="Copiar link"
+            copiedLabel="Copiado!"
+            className="ml-auto flex items-center gap-1 rounded-lg px-1.5 py-1 text-xs font-medium text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
+          />
+        )}
         {!theme.published && (
-          <span className="ml-auto rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
+          <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
             privado
           </span>
         )}

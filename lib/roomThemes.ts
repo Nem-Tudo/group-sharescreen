@@ -755,6 +755,20 @@ export async function fetchMyThemes(signal?: AbortSignal): Promise<RoomTheme[]> 
 }
 
 /**
+ * A theme's own page — the address a share button hands over.
+ *
+ * Absolute, and read off the browser rather than built from a constant: this
+ * is a link somebody is about to paste somewhere else, so it has to carry the
+ * host they are actually on. Falls back to the path alone on the server, where
+ * there is no host to read and no clipboard to copy to.
+ */
+export function themeLink(id: string): string {
+  const path = `/tema/${encodeURIComponent(id)}`;
+  if (typeof window === "undefined") return path;
+  return `${window.location.origin}${path}`;
+}
+
+/**
  * One theme, by id.
  *
  * The read a room does on join, and the reason an edit reaches everybody: the

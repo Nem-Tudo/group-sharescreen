@@ -14,6 +14,7 @@ import {
 } from "react-icons/md";
 import { BsCoin } from "react-icons/bs";
 import { AccountModal, type AccountModalMode } from "@/components/AccountModal";
+import { CopyButton } from "@/components/CopyButton";
 import { planIcon } from "@/components/planIcons";
 import { useAuth } from "@/lib/AuthContext";
 import { useOpenPro } from "@/lib/proModal";
@@ -25,6 +26,7 @@ import {
   fetchWorkshop,
   isDarkTheme,
   likeTheme,
+  themeLink,
   setWornOverride,
   getWornOverride,
   getWornOverrideServer,
@@ -134,7 +136,7 @@ function ThemeRow({
 }) {
   const { palette, accent } = theme.spec;
   return (
-    <li className="flex items-center gap-2.5 rounded-lg border border-zinc-200 px-2.5 py-2 dark:border-zinc-800">
+    <li className="flex flex-wrap items-center gap-2.5 rounded-lg border border-zinc-200 px-2.5 py-2 dark:border-zinc-800">
       {/* The palette as its own swatch — four colours in the order they sit on
           each other, which says more at this size than any name could. */}
       <span
@@ -171,6 +173,21 @@ function ThemeRow({
           smaller than the row is a heart nobody presses.
           Never on a private theme: liking something with an audience of one is
           a way of finding out it exists (the API refuses it too). */}
+      {/* Icon alone — this row is already carrying a heart, sometimes an
+          "Editar", and a verb, and it opens inside a room on a phone. The one
+          place a share control is genuinely wanted, too: somebody wearing a
+          theme mid-call is exactly who gets asked where they got it, and a
+          link costs them no navigation out of the call to answer.
+          Published only, like the heart: a private theme's page opens for
+          nobody but its author, and a link that 404s is worse than none. */}
+      {theme.published && (
+        <CopyButton
+          value={themeLink(theme.id)}
+          label="Copiar link do tema"
+          compact
+          className="flex shrink-0 items-center rounded-lg px-2 py-1.5 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
+        />
+      )}
       {theme.published && (
         <button
           type="button"
