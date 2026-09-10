@@ -182,6 +182,28 @@ export function planTierOf(planId: string): FeatureTier {
 }
 
 /**
+ * Whether this account has been stopped from making themes.
+ *
+ * A moderation state, not a plan: it sits alongside the entitlement checks
+ * rather than inside them because it answers a different question. `hasFeature`
+ * asks what somebody paid for; this asks whether they are still allowed to use
+ * it. Both have to be true, and they fail with different messages — being sold
+ * a plan you already have is the worst possible answer to "why can't I create
+ * a theme".
+ *
+ * Mirrors the API's isThemeBanned (roomTheme.ts), which is where it is
+ * actually enforced. This copy exists so somebody finds out before spending
+ * twenty minutes on a palette, not to be the check.
+ */
+export function isThemeBanned(flags: readonly string[] | undefined | null): boolean {
+  return Boolean(flags?.includes("THEME_BANNED"));
+}
+
+/** What a banned author is told. Matches the API's wording. */
+export const THEME_BAN_MESSAGE =
+  "Sua conta está impedida de criar ou publicar temas. Fale com a moderação se achar que é engano.";
+
+/**
  * Which rung an account stands on, read from the flags every name already
  * carries. PRO_MAX first, because a Pro Max subscriber carries PRO as well —
  * see verifiedBadge above, which is the same trap.

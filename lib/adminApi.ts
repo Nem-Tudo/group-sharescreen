@@ -722,6 +722,75 @@ export async function setAccountFlags(userId: string, flags: string[]): Promise<
   return data.account.flags;
 }
 
+/** One theme as the moderation panel sees it. */
+export type AdminThemeHit = {
+  id: string;
+  name: string;
+  description: string;
+  published: boolean;
+  price: number;
+  likes: number;
+  uses: number;
+  createdAt: number;
+  authorId: string;
+  authorName: string | null;
+  authorUsername: string | null;
+  authorBanned: boolean;
+  /** Enough to draw the swatch. Typed loosely on purpose — the panel only
+      reads colours out of it, and pinning the palette's shape here would be a
+      second copy of it to keep in step with lib/roomThemes. */
+  spec: { palette?: Record<string, string>; accent?: string } | null;
+};
+
+/** Themes by name, by id, or by who made them. Includes private ones. */
+export async function searchAdminThemes(query: string): Promise<AdminThemeHit[]> {
+  const data = await adminFetch<{ themes: AdminThemeHit[] }>(
+    `/admin/themes?q=${encodeURIComponent(query)}`
+  );
+  return data.themes;
+}
+
+/** Everything one person has made — what a ban decision is made on. */
+export async function fetchAdminThemesByAuthor(authorId: string): Promise<AdminThemeHit[]> {
+  const data = await adminFetch<{ themes: AdminThemeHit[] }>(
+    `/admin/themes/by-author/${encodeURIComponent(authorId)}`
+  );
+  return data.themes;
+}
+
+/**
+ * Deletes a theme, optionally banning its author in the same request.
+ *
+ * One call rather than two because it is one decision — see the API's
+ * adminThemeRoutes. Answers whether the ban actually landed.
+ */
+export async function deleteAdminTheme(
+  themeId: string,
+  banAuthor = false
+): Promise<{ banned: boolean }> {
+  return adminFetch<{ ok: true; banned: boolean }>(
+    `/admin/themes/${encodeURIComponent(themeId)}`,
+    {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ banAuthor }),
+    }
+  );
+}
+
+/** Sets or lifts the theme ban on one account. */
+export async function setThemeBan(userId: string, banned: boolean): Promise<boolean> {
+  const data = await adminFetch<{ banned: boolean }>(
+    `/admin/accounts/${encodeURIComponent(userId)}/theme-ban`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ banned }),
+    }
+  );
+  return data.banned;
+}
+
 export async function fetchAdminPlans(): Promise<AdminPlanOption[]> {
   const data = await adminFetch<{ plans: AdminPlanOption[] }>("/admin/premium/plans");
   return data.plans;

@@ -19,7 +19,12 @@ import { AccountModal, type AccountModalMode } from "@/components/AccountModal";
 import { UserProfileDialog } from "@/components/UserProfileDialog";
 import { CopyButton } from "@/components/CopyButton";
 import { useAuth } from "@/lib/AuthContext";
-import { hasFeature, verifiedBadge } from "@/lib/entitlements";
+import {
+  hasFeature,
+  isThemeBanned,
+  THEME_BAN_MESSAGE,
+  verifiedBadge,
+} from "@/lib/entitlements";
 import {
   applyTheme,
   buyTheme,
@@ -337,7 +342,10 @@ export function WorkshopPanel() {
   // write state synchronously — and so a stale list cannot outlive the account
   // it belonged to.
   const myThemes = account ? mine : [];
-  const canCreate = hasFeature("room_theme", account?.features ?? []);
+  // The ban wins over the plan: somebody stopped by a moderator is not
+  // somebody to sell an upgrade to, and the server refuses either way.
+  const banned = isThemeBanned(account?.flags);
+  const canCreate = hasFeature("room_theme", account?.features ?? []) && !banned;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -465,7 +473,13 @@ export function WorkshopPanel() {
         )}
       </div>
 
-      {!canCreate && (
+      {banned && (
+        <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+          {THEME_BAN_MESSAGE}
+        </p>
+      )}
+
+      {!canCreate && !banned && (
         <p className="mt-4 rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
           Criar seus próprios temas é do{" "}
           <Link href="/pro" className="font-medium underline underline-offset-2">

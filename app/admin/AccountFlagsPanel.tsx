@@ -30,6 +30,9 @@ const KNOWN_FLAGS = [
   "CONTRIBUITOR",
   "BETA_MOBILE",
   "BETA_TESTER",
+  // Editable here like any other, but the panel next door is the place to
+  // set it: that one records who did it and shows the themes it was about.
+  "THEME_BANNED",
 ];
 const RESTRICTED = ["ADMIN", "ADMIN_MASTER"];
 

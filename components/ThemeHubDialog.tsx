@@ -5,6 +5,7 @@ import Link from "next/link";
 import useNtPopups from "ntpopups";
 import {
   MdAdd,
+  MdBlock,
   MdCheck,
   MdFavorite,
   MdFavoriteBorder,
@@ -18,7 +19,14 @@ import { CopyButton } from "@/components/CopyButton";
 import { planIcon } from "@/components/planIcons";
 import { useAuth } from "@/lib/AuthContext";
 import { useOpenPro } from "@/lib/proModal";
-import { lockTier, TIER_NAMES, type Feature, type FeatureTier } from "@/lib/entitlements";
+import {
+  isThemeBanned,
+  lockTier,
+  THEME_BAN_MESSAGE,
+  TIER_NAMES,
+  type Feature,
+  type FeatureTier,
+} from "@/lib/entitlements";
 import {
   applyTheme,
   buyTheme,
@@ -368,6 +376,10 @@ export function ThemeHubDialog({ closePopup }: { closePopup: (hasAction?: boolea
 
   const active = TABS.find((entry) => entry.id === tab) ?? TABS[0];
   const lockedAt = lockTier(active.feature, features);
+  // Checked before the plan lock below, and shown instead of it. Selling the
+  // Pro Max card to somebody a moderator has just stopped from making themes
+  // is the one answer here that is worse than saying nothing.
+  const banned = isThemeBanned(account?.flags) && active.id !== "workshop";
   // Derived rather than cleared on sign-out, so the effect above never writes
   // state synchronously — and a stale list cannot outlive the account it
   // belonged to.
@@ -422,7 +434,19 @@ export function ThemeHubDialog({ closePopup }: { closePopup: (hasAction?: boolea
       </div>
 
       <div className="flex max-h-[60vh] flex-col overflow-y-auto">
-        {lockedAt ? (
+        {banned ? (
+          <div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
+            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-red-500/10">
+              <MdBlock className="h-6 w-6 text-red-500" />
+            </span>
+            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+              Criação de temas bloqueada
+            </p>
+            <p className="max-w-xs text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+              {THEME_BAN_MESSAGE}
+            </p>
+          </div>
+        ) : lockedAt ? (
           <LockedPanel
             tier={lockedAt}
             onLeave={() => closePopup(false)}
