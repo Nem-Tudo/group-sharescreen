@@ -3,7 +3,15 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import useNtPopups from "ntpopups";
-import { MdAdd, MdCheck, MdFavorite, MdFavoriteBorder, MdPalette, MdPeople } from "react-icons/md";
+import {
+  MdAdd,
+  MdCheck,
+  MdFavorite,
+  MdFavoriteBorder,
+  MdOutlineShowChart,
+  MdPalette,
+  MdPeople,
+} from "react-icons/md";
 import { BsCoin } from "react-icons/bs";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -232,13 +240,28 @@ function ThemeCard({
           </button>
         )}
         {onEdit && (
-          <button
-            type="button"
-            onClick={onEdit}
-            className="rounded-lg border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
-          >
-            Editar
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={onEdit}
+              className="rounded-lg border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+            >
+              Editar
+            </button>
+            {/* Only on your own — the API refuses the report to anybody else,
+                and a link that leads to a refusal is worse than no link.
+                A Link rather than a button because it *is* navigation: the
+                panel has its own address, worth keeping open in a tab while
+                the numbers move. */}
+            <Link
+              href={`/tema/${theme.id}`}
+              aria-label={`Ver o painel de ${theme.name}`}
+              title="Ver o painel do tema"
+              className="flex items-center justify-center rounded-lg border border-zinc-300 px-2.5 py-2 text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+            >
+              <MdOutlineShowChart className="h-4 w-4 shrink-0" />
+            </Link>
+          </>
         )}
       </div>
 

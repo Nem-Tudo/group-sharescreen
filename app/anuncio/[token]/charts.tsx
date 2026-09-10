@@ -77,10 +77,22 @@ export function bucketFullLabel(t: number, step: "hour" | "day"): string {
   return step === "hour" ? fullHourLabel.format(t) : fullDayLabel.format(t);
 }
 
-type Series = {
+/**
+ * The least a bucket has to be for these charts to draw it: a point in time.
+ *
+ * Generic rather than tied to the partner report, because the theme dashboard
+ * draws the same shapes from a different set of numbers (see
+ * app/tema/[id]). Everything here only ever reads `t` and whatever `valueOf`
+ * pulls out, so widening the type costs nothing and saves a second copy of a
+ * chart — which is how two pages that should look identical stop looking
+ * identical.
+ */
+export type ChartBucket = { t: number };
+
+type Series<B extends ChartBucket = ChartBucket> = {
   label: string;
   // Which number of each bucket this line draws.
-  valueOf: (bucket: PartnerReportBucket) => number;
+  valueOf: (bucket: B) => number;
   // A `--series-N` custom property name, resolved against .report-viz.
   color: string;
 };
@@ -102,14 +114,14 @@ const PAD_RIGHT = 10;
  * baseline. Two charts side by side, sharing an x-axis and read one at a time,
  * say the true thing.
  */
-export function TimeSeriesChart({
+export function TimeSeriesChart<B extends ChartBucket>({
   buckets,
   series,
   step,
   emptyLabel,
 }: {
-  buckets: PartnerReportBucket[];
-  series: Series;
+  buckets: B[];
+  series: Series<B>;
   step: "hour" | "day";
   emptyLabel: string;
 }) {
