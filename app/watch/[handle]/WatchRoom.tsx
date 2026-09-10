@@ -184,6 +184,7 @@ import {
 import { BetaMark } from "@/components/BetaMark";
 import { UpdateAppButton } from "@/components/UpdateAppButton";
 import { AccountModal } from "@/components/AccountModal";
+import { GuestBroadcastLimitModal } from "@/components/GuestBroadcastLimitModal";
 import { GUEST_FEATURES, hasFeature } from "@/lib/entitlements";
 import { PartnerMediaTile } from "@/components/PartnerMediaTile";
 import { usePartnerAd } from "@/lib/usePartnerAd";
@@ -2183,6 +2184,32 @@ export function WatchRoom({ handle }: { handle: string }) {
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.permissionDeniedSeq]);
+
+  // Out of guest broadcast time. The server has already stopped counting this
+  // client as sharing; what's left is to actually let go of the capture here,
+  // which is the half that frees the camera/screen and takes the browser's
+  // "you are sharing" bar down. Without it the person would be left staring
+  // at a picker that says they're live to a room that can no longer see them.
+  //
+  // Keyed on the counter, and unconditional rather than checking `isSharing`
+  // first: the two channels stop independently, and a stale render of either
+  // flag is not a reason to leave a capture open. Both stops are no-ops when
+  // nothing is running, which is exactly the "turned away before starting"
+  // case.
+  useEffect(() => {
+    if (!state.guestBroadcastLimit) return;
+    stopShare();
+    stopCameraShare();
+    trackEvent("guest_broadcast_limit_reached");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.guestBroadcastLimitSeq]);
+
+  // They took the offer. The notice was a question, registering is the
+  // answer, and leaving it sitting behind the account dialog for them to
+  // dismiss afterwards would be asking it twice.
+  useEffect(() => {
+    if (state.account) signalingClient.clearGuestBroadcastLimit();
+  }, [state.account]);
 
   const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
   const [obsModalUrl, setObsModalUrl] = useState<string | null>(null);
@@ -6128,6 +6155,18 @@ export function WatchRoom({ handle }: { handle: string }) {
         mode={accountModal}
         onModeChange={setAccountModal}
         initialDisplayName={state.name ?? ""}
+      />
+
+      {/* Hidden while the account dialog is up, rather than closed: "Criar
+          conta grátis" opens that one *over* this, and someone who backs out
+          of registering should find the explanation still there instead of
+          having silently spent it. */}
+      <GuestBroadcastLimitModal
+        open={Boolean(state.guestBroadcastLimit) && accountModal === null}
+        ended={state.guestBroadcastLimit?.ended ?? false}
+        limitSeconds={state.guestBroadcastLimit?.limitSeconds ?? 0}
+        onCreateAccount={() => setAccountModal("create")}
+        onClose={() => signalingClient.clearGuestBroadcastLimit()}
       />
 
       <KeyboardShortcutsModal

@@ -640,6 +640,15 @@ export type SignalingState = {
   // started locally before the server had its say.
   permissionDenied: { permission: RoomPermissionKey; message: string } | null;
   permissionDeniedSeq: number;
+  // The two-hour broadcast cap for people without an account, reported by the
+  // server (see its guestBroadcastStore.ts). `ended` says which of the two
+  // moments this is: true when a broadcast that was running was stopped,
+  // false when one was turned away before it started. Counter for the same
+  // reason permissionDeniedSeq has one — it is an event, and being refused
+  // twice is two things to react to. WatchRoom watches it to tear the local
+  // capture down and explain what happened.
+  guestBroadcastLimit: { limitSeconds: number; ended: boolean } | null;
+  guestBroadcastLimitSeq: number;
   // Ids (PeerInfo.id) of peers currently shown as "typing..." in the chat
   // (see ChatPanel.tsx) — purely a live relay (server/signaling.ts's
   // "peer-typing"), nothing persisted or replayed on join. Each entry is
@@ -720,6 +729,8 @@ const initialState: SignalingState = {
   roomCategory: null,
   permissionDenied: null,
   permissionDeniedSeq: 0,
+  guestBroadcastLimit: null,
+  guestBroadcastLimitSeq: 0,
   typingPeerIds: [],
 };
 
@@ -1574,6 +1585,21 @@ class SignalingClient {
                 : "A administração desativou isso para os participantes.",
           },
           permissionDeniedSeq: this.state.permissionDeniedSeq + 1,
+        });
+        break;
+      }
+      // Out of guest broadcast time (the server's guestBroadcastStore.ts).
+      // Not room-scoped like the refusal above and deliberately not cleared
+      // on a room change: it is a fact about this visitor, not about where
+      // they are, and switching rooms is not a way to get more of it.
+      case "guest-broadcast-limit": {
+        const limitSeconds =
+          typeof msg.limitSeconds === "number" && msg.limitSeconds > 0
+            ? msg.limitSeconds
+            : 2 * 60 * 60;
+        this.setState({
+          guestBroadcastLimit: { limitSeconds, ended: msg.ended === true },
+          guestBroadcastLimitSeq: this.state.guestBroadcastLimitSeq + 1,
         });
         break;
       }
@@ -2552,6 +2578,13 @@ class SignalingClient {
   clearPermissionDenied() {
     if (!this.state.permissionDenied) return;
     this.setState({ permissionDenied: null });
+  }
+
+  // Dismisses the guest broadcast-limit dialog. Only the notice goes away —
+  // the limit itself is the server's and is still there on the next try.
+  clearGuestBroadcastLimit() {
+    if (!this.state.guestBroadcastLimit) return;
+    this.setState({ guestBroadcastLimit: null });
   }
 
   // Adds a video source to the room. The URL is parsed server-side (the
