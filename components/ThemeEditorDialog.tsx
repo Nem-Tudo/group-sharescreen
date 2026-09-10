@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { MdClose, MdDelete, MdImage, MdPalette } from "react-icons/md";
 import { HexColorPicker } from "react-colorful";
 import { BsCoin } from "react-icons/bs";
@@ -16,6 +16,9 @@ import {
   deleteTheme,
   isDarkTheme,
   isHexColor,
+  colorAlpha,
+  colorBase,
+  withAlpha,
   gradientCss,
   setThemePreview,
   updateTheme,
@@ -51,7 +54,7 @@ import {
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 
-/** One colour: the swatch that opens the picker, the name, and the hex. */
+/** One colour: the swatch that opens the picker, the name, the hex, the alpha. */
 function ColorField({
   label,
   hint,
@@ -59,6 +62,7 @@ function ColorField({
   open,
   onToggle,
   onChange,
+  alpha = true,
 }: {
   label: string;
   hint?: string;
@@ -67,8 +71,20 @@ function ColorField({
   open: boolean;
   onToggle: () => void;
   onChange: (next: string) => void;
+  /**
+   * Whether this colour may be see-through.
+   *
+   * False for exactly one of them — the page. It is the back of the room;
+   * there is nothing behind it to reveal but the browser's own canvas, which
+   * is not a colour any theme chose. A slider there would be a control that
+   * either does nothing or looks broken.
+   */
+  alpha?: boolean;
 }) {
   const hexId = useId();
+  // The picker and the swatch work in six digits; the alpha rides alongside.
+  const base = colorBase(value);
+  const opacity = colorAlpha(value);
   return (
     // A div, and emphatically not a label around the whole row.
     //
@@ -96,7 +112,15 @@ function ColorField({
               ? "border-zinc-900 dark:border-zinc-100"
               : "border-zinc-300 hover:border-zinc-500 dark:border-zinc-700 dark:hover:border-zinc-500"
           }`}
-          style={{ background: isHexColor(value) ? value : "#000000" }}
+          style={{
+            // The colour over a chequerboard, so a half-transparent swatch and
+            // a dark one are not the same picture. Two gradients rather than an
+            // image file: it is eight lines of CSS and no request.
+            backgroundImage: `linear-gradient(${isHexColor(value) ? value : "#000000"}, ${
+              isHexColor(value) ? value : "#000000"
+            }), conic-gradient(#9ca3af 0 25%, #e5e7eb 0 50%, #9ca3af 0 75%, #e5e7eb 0)`,
+            backgroundSize: "auto, 10px 10px",
+          }}
         />
         {/* Tied to the hex box rather than to nothing: a name that labels no
             control is dead text to a screen reader, and focusing a text field
@@ -133,9 +157,36 @@ function ColorField({
           point: the room being repainted is right there behind this dialog,
           and a picker you can drag across while watching it is the entire
           reason the editor opens inside a room at all. */}
+      {/* Under the picker rather than inside it: react-colorful ships an alpha
+          variant, and it puts the channel in the same square as the hue —
+          which makes "a bit more see-through" a drag somebody has to aim at.
+          A row of its own is one axis and a number beside it. */}
+      {alpha && (
+        <label className="flex items-center gap-2 pl-11 text-[11px] text-zinc-500 dark:text-zinc-500">
+          <span className="w-16 shrink-0">Opacidade</span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={Math.round(opacity * 100)}
+            onChange={(e) => onChange(withAlpha(base, Number(e.target.value) / 100))}
+            aria-label={`Opacidade de ${label}`}
+            className="flex-1"
+          />
+          <span className="w-9 shrink-0 text-right font-mono">
+            {Math.round(opacity * 100)}%
+          </span>
+        </label>
+      )}
+
       {open && (
         <div className="theme-picker pb-1">
-          <HexColorPicker color={isHexColor(value) ? value : "#000000"} onChange={onChange} />
+          {/* Fed the six-digit half. The alpha is the slider's, and a picker
+              handed `#rrggbbaa` would quietly drop it on the first drag. */}
+          <HexColorPicker
+            color={base}
+            onChange={(next) => onChange(withAlpha(next, opacity))}
+          />
         </div>
       )}
     </div>
@@ -233,9 +284,28 @@ export function ThemeEditorDialog({
   // reason at all — saved, cancelled, escape, a click on the backdrop — drops
   // the preview and the room goes back to what it actually wears. Outside a
   // room nothing is listening and this is simply inert.
+  // The picture being previewed is the one on this machine, not the one on the
+  // row — because while a background is being chosen there *is* no row yet.
+  //
+  // This is what "a imagem não aparece nem editando" was: the spec carries
+  // `background.url: ""` until the server uploads the file and answers with an
+  // address, so the preview was painting `url("")` — the layer was there, the
+  // dimming was there, and the picture was nothing. The data URL is a perfectly
+  // good background for the minute or two it takes to decide.
+  // Memoised, and not only to quiet the linter: a fresh object every render
+  // would republish the preview on every keystroke in the *name* field, and
+  // each publish is a repaint of the room behind this dialog.
+  const previewSpec = useMemo(
+    () =>
+      pendingImage && spec.background
+        ? { ...spec, background: { ...spec.background, url: pendingImage } }
+        : spec,
+    [spec, pendingImage]
+  );
+
   useEffect(() => {
-    setThemePreview(spec);
-  }, [spec]);
+    setThemePreview(previewSpec);
+  }, [previewSpec]);
   useEffect(() => {
     return () => setThemePreview(null);
   }, []);
@@ -262,9 +332,10 @@ export function ThemeEditorDialog({
       if (!result) return;
       setError(null);
       setPendingImage(result);
-      // A picture with no blur and no dim behind a room is a room nobody can
-      // read. These are a starting point somebody can turn back to zero, not a
-      // rule — but they are the starting point that works.
+      // A picture at full strength and no blur behind a room is a room nobody
+      // can read. These are a starting point somebody can drag back, not a
+      // rule — but they are the starting point that works: a little blur, and
+      // the picture at just over half opacity.
       setSpec((current) => ({
         ...current,
         background: { url: current.background?.url ?? "", blur: 8, dim: 0.45 },
@@ -413,8 +484,214 @@ export function ThemeEditorDialog({
           A sala vai ficar {dark ? "escura" : "clara"} — decidido pela cor do fundo.
         </p>
 
+        {/* The fundo, and the two things that can go behind it, boxed away
+            from the rest.
+            They belong together because they answer one question — what is at
+            the very back of the room — and they used to be three sections
+            apart, so choosing a page colour and then putting a picture over it
+            meant scrolling past every other colour in the theme to find out
+            the first choice no longer mattered. The other five are surfaces
+            *on* this; they are a different question and read better as a
+            plain list. */}
+        <div className="flex flex-col gap-2.5 rounded-xl border border-zinc-200 p-3 dark:border-zinc-800">
+          <ColorField
+            label={PALETTE_LABELS.page.label}
+            hint={PALETTE_LABELS.page.hint}
+            value={spec.palette.page}
+            open={openField === "page"}
+            onToggle={() => setOpenField((current) => (current === "page" ? null : "page"))}
+            onChange={(next) => setPalette("page", next)}
+            alpha={false}
+          />
+          {/* Nothing else in a theme is offered a gradient: every other
+              surface in a room has text sitting directly on it, and a panel
+              that changes colour under a paragraph is a paragraph with two
+              different contrast ratios. */}
+          <div className="flex flex-col gap-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+            <label className={`flex items-center gap-2 ${canGradient ? "" : "opacity-60"}`}>
+              <input
+                type="checkbox"
+                checked={Boolean(spec.gradient)}
+                disabled={!canGradient}
+                onChange={(e) =>
+                  setSpec((c) => ({
+                    ...c,
+                    // Starting from the page colour itself rather than from
+                    // something arbitrary: a gradient that begins as "no visible
+                    // change" is one somebody drags towards what they want,
+                    // instead of one that repaints the room the instant it is
+                    // ticked.
+                    gradient: e.target.checked ? { to: c.palette.page, angle: 180 } : null,
+                  }))
+                }
+                className="h-4 w-4 shrink-0"
+              />
+              <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                Degradê no fundo
+              </span>
+            </label>
+
+            {/* Outside the label above, deliberately. A <label> forwards a click
+                from anywhere inside it to its own control, so a button in there
+                would tick the checkbox on its way to opening the plan — the same
+                trap the colour rows were fixed for. */}
+            {!canGradient && (
+              <button
+                type="button"
+                onClick={leaveForPro}
+                className="flex cursor-pointer items-center gap-1 self-start rounded-lg text-[11px] font-medium text-zinc-500 underline-offset-2 transition hover:text-zinc-900 hover:underline dark:text-zinc-400 dark:hover:text-zinc-100"
+              >
+                <proMaxMark.Icon className={`h-3.5 w-3.5 shrink-0 ${proMaxMark.className}`} />
+                Disponível no Pro Max
+              </button>
+            )}
+
+            {spec.gradient && (
+              <div className="flex flex-col gap-2.5">
+                <ColorField
+                  label="Fade para"
+                  hint={`Sai de ${spec.palette.page}`}
+                  value={spec.gradient.to}
+                  open={openField === "gradient"}
+                  onToggle={() =>
+                    setOpenField((current) => (current === "gradient" ? null : "gradient"))
+                  }
+                  onChange={(next) =>
+                    setSpec((c) => ({
+                      ...c,
+                      gradient: c.gradient ? { ...c.gradient, to: next } : null,
+                    }))
+                  }
+                />
+                <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+                  <span className="w-20 shrink-0">Direção</span>
+                  <select
+                    value={spec.gradient.angle}
+                    onChange={(e) =>
+                      setSpec((c) => ({
+                        ...c,
+                        gradient: c.gradient
+                          ? { ...c.gradient, angle: Number(e.target.value) }
+                          : null,
+                      }))
+                    }
+                    className="flex-1 rounded-lg border border-zinc-300 px-2 py-1.5 text-xs text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                  >
+                    {GRADIENT_DIRECTIONS.map((direction) => (
+                      <option key={direction.angle} value={direction.angle}>
+                        {direction.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {spec.background && (
+                  <p className="text-[11px] text-zinc-500 dark:text-zinc-500">
+                    A imagem de fundo cobre o degradê — ele volta a aparecer se você removê-la.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+            <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+              Imagem de fundo
+            </span>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/avif"
+              hidden
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) pickImage(file);
+                e.target.value = "";
+              }}
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="flex items-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium transition hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
+              >
+                <MdImage className="h-4 w-4 shrink-0" />
+                {spec.background || pendingImage ? "Trocar imagem" : "Escolher imagem"}
+              </button>
+              {(spec.background || pendingImage) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPendingImage(null);
+                    setSpec((c) => ({ ...c, background: null }));
+                  }}
+                  className="text-xs font-medium text-zinc-500 underline-offset-2 transition hover:underline dark:text-zinc-400"
+                >
+                  Remover
+                </button>
+              )}
+            </div>
+            {spec.background && (
+              <div className="mt-1 flex flex-col gap-2">
+                {/* Both sliders exist for one reason: a photograph behind a room
+                    full of text is unreadable at zero of each, and the amount
+                    needed depends entirely on the picture. */}
+                <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+                  <span className="w-20 shrink-0">Desfoque</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={40}
+                    value={spec.background.blur}
+                    onChange={(e) =>
+                      setSpec((c) => ({
+                        ...c,
+                        background: c.background
+                          ? { ...c.background, blur: Number(e.target.value) }
+                          : null,
+                      }))
+                    }
+                    className="flex-1"
+                  />
+                  <span className="w-10 shrink-0 text-right font-mono">
+                    {spec.background.blur}px
+                  </span>
+                </label>
+                {/* Shown as opacity, stored as its opposite.
+                    What the server keeps is `dim` — how far the picture is
+                    pushed towards the page colour — and that is the honest name
+                    for what the layer does (see globals.css). It is the wrong
+                    name for a *control*: "escurecer 45%" is a number somebody
+                    has to invert in their head to picture the result, and on a
+                    light theme it does not even darken. Opacity is the thing
+                    being chosen; the subtraction happens here, once. */}
+                <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+                  <span className="w-20 shrink-0">Opacidade</span>
+                  <input
+                    type="range"
+                    min={5}
+                    max={100}
+                    value={Math.round((1 - spec.background.dim) * 100)}
+                    onChange={(e) =>
+                      setSpec((c) => ({
+                        ...c,
+                        background: c.background
+                          ? { ...c.background, dim: 1 - Number(e.target.value) / 100 }
+                          : null,
+                      }))
+                    }
+                    className="flex-1"
+                  />
+                  <span className="w-10 shrink-0 text-right font-mono">
+                    {Math.round((1 - spec.background.dim) * 100)}%
+                  </span>
+                </label>
+              </div>
+            )}
+          </div>
+        </div>
+
         <div className="flex flex-col gap-2.5">
-          {PALETTE_KEYS.map((key) => (
+          {PALETTE_KEYS.filter((key) => key !== "page").map((key) => (
             <ColorField
               key={key}
               label={PALETTE_LABELS[key].label}
@@ -443,186 +720,6 @@ export function ThemeEditorDialog({
             }
             onChange={(next) => setSpec((c) => ({ ...c, accentText: next }))}
           />
-        </div>
-
-        {/* Under the palette because it is an extension of one colour rather
-            than a new one: the near end of the gradient *is* `page`, so this
-            reads as "…and it fades into this". Nothing else is offered a
-            gradient — every other surface in a room has text sitting directly
-            on it, and a panel that changes colour under a paragraph is a
-            paragraph with two different contrast ratios. */}
-        <div className="flex flex-col gap-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-          <label className={`flex items-center gap-2 ${canGradient ? "" : "opacity-60"}`}>
-            <input
-              type="checkbox"
-              checked={Boolean(spec.gradient)}
-              disabled={!canGradient}
-              onChange={(e) =>
-                setSpec((c) => ({
-                  ...c,
-                  // Starting from the page colour itself rather than from
-                  // something arbitrary: a gradient that begins as "no visible
-                  // change" is one somebody drags towards what they want,
-                  // instead of one that repaints the room the instant it is
-                  // ticked.
-                  gradient: e.target.checked ? { to: c.palette.page, angle: 180 } : null,
-                }))
-              }
-              className="h-4 w-4 shrink-0"
-            />
-            <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-              Degradê no fundo
-            </span>
-          </label>
-
-          {/* Outside the label above, deliberately. A <label> forwards a click
-              from anywhere inside it to its own control, so a button in there
-              would tick the checkbox on its way to opening the plan — the same
-              trap the colour rows were fixed for. */}
-          {!canGradient && (
-            <button
-              type="button"
-              onClick={leaveForPro}
-              className="flex cursor-pointer items-center gap-1 self-start rounded-lg text-[11px] font-medium text-zinc-500 underline-offset-2 transition hover:text-zinc-900 hover:underline dark:text-zinc-400 dark:hover:text-zinc-100"
-            >
-              <proMaxMark.Icon className={`h-3.5 w-3.5 shrink-0 ${proMaxMark.className}`} />
-              Disponível no Pro Max
-            </button>
-          )}
-
-          {spec.gradient && (
-            <div className="flex flex-col gap-2.5">
-              <ColorField
-                label="Fade para"
-                hint={`Sai de ${spec.palette.page}`}
-                value={spec.gradient.to}
-                open={openField === "gradient"}
-                onToggle={() =>
-                  setOpenField((current) => (current === "gradient" ? null : "gradient"))
-                }
-                onChange={(next) =>
-                  setSpec((c) => ({
-                    ...c,
-                    gradient: c.gradient ? { ...c.gradient, to: next } : null,
-                  }))
-                }
-              />
-              <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
-                <span className="w-20 shrink-0">Direção</span>
-                <select
-                  value={spec.gradient.angle}
-                  onChange={(e) =>
-                    setSpec((c) => ({
-                      ...c,
-                      gradient: c.gradient
-                        ? { ...c.gradient, angle: Number(e.target.value) }
-                        : null,
-                    }))
-                  }
-                  className="flex-1 rounded-lg border border-zinc-300 px-2 py-1.5 text-xs text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-                >
-                  {GRADIENT_DIRECTIONS.map((direction) => (
-                    <option key={direction.angle} value={direction.angle}>
-                      {direction.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {spec.background && (
-                <p className="text-[11px] text-zinc-500 dark:text-zinc-500">
-                  A imagem de fundo cobre o degradê — ele volta a aparecer se você removê-la.
-                </p>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="flex flex-col gap-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-          <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-            Imagem de fundo
-          </span>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/png,image/jpeg,image/webp,image/avif"
-            hidden
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) pickImage(file);
-              e.target.value = "";
-            }}
-          />
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              className="flex items-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium transition hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
-            >
-              <MdImage className="h-4 w-4 shrink-0" />
-              {spec.background || pendingImage ? "Trocar imagem" : "Escolher imagem"}
-            </button>
-            {(spec.background || pendingImage) && (
-              <button
-                type="button"
-                onClick={() => {
-                  setPendingImage(null);
-                  setSpec((c) => ({ ...c, background: null }));
-                }}
-                className="text-xs font-medium text-zinc-500 underline-offset-2 transition hover:underline dark:text-zinc-400"
-              >
-                Remover
-              </button>
-            )}
-          </div>
-          {spec.background && (
-            <div className="mt-1 flex flex-col gap-2">
-              {/* Both sliders exist for one reason: a photograph behind a room
-                  full of text is unreadable at zero of each, and the amount
-                  needed depends entirely on the picture. */}
-              <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
-                <span className="w-20 shrink-0">Desfoque</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={40}
-                  value={spec.background.blur}
-                  onChange={(e) =>
-                    setSpec((c) => ({
-                      ...c,
-                      background: c.background
-                        ? { ...c.background, blur: Number(e.target.value) }
-                        : null,
-                    }))
-                  }
-                  className="flex-1"
-                />
-                <span className="w-10 shrink-0 text-right font-mono">
-                  {spec.background.blur}px
-                </span>
-              </label>
-              <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
-                <span className="w-20 shrink-0">Escurecer</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={95}
-                  value={Math.round(spec.background.dim * 100)}
-                  onChange={(e) =>
-                    setSpec((c) => ({
-                      ...c,
-                      background: c.background
-                        ? { ...c.background, dim: Number(e.target.value) / 100 }
-                        : null,
-                    }))
-                  }
-                  className="flex-1"
-                />
-                <span className="w-10 shrink-0 text-right font-mono">
-                  {Math.round(spec.background.dim * 100)}%
-                </span>
-              </label>
-            </div>
-          )}
         </div>
 
         {/* Publishing is the top plan's. Shown to everybody rather than hidden,

@@ -146,10 +146,54 @@ export const DEFAULT_THEME_SPEC: RoomThemeSpec = {
   background: null,
 };
 
-const HEX_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+// Three, six or eight digits — the eighth pair being alpha. Kept in step with
+// the API's own regex; a colour it accepts and this one refuses is a theme
+// that saves and then will not load.
+const HEX_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 
 export function isHexColor(value: string): boolean {
   return HEX_RE.test(value.trim());
+}
+
+/** `#rrggbb` from any accepted form, so a picker always has six digits. */
+export function colorBase(value: string): string {
+  const clean = value.trim().replace("#", "");
+  if (clean.length === 3) {
+    return `#${clean
+      .split("")
+      .map((c) => c + c)
+      .join("")}`;
+  }
+  return `#${clean.slice(0, 6)}`;
+}
+
+/**
+ * The alpha a colour carries, 0–1. One when it carries none.
+ *
+ * Six digits meaning "fully opaque" is what every theme written before the
+ * opacity sliders existed says, and it is the right reading: they were opaque.
+ */
+export function colorAlpha(value: string): number {
+  const clean = value.trim().replace("#", "");
+  if (clean.length !== 8) return 1;
+  const alpha = Number.parseInt(clean.slice(6, 8), 16);
+  return Number.isFinite(alpha) ? alpha / 255 : 1;
+}
+
+/**
+ * A colour with an alpha attached, or without one when it is fully opaque.
+ *
+ * Dropping the channel at 1 rather than writing "ff" keeps an untouched
+ * palette looking the way it was typed — six digits, the way anybody would
+ * write it down or paste it somewhere else.
+ */
+export function withAlpha(value: string, alpha: number): string {
+  const base = colorBase(value);
+  const clamped = Math.min(1, Math.max(0, alpha));
+  if (clamped >= 1) return base;
+  return `${base}${Math.round(clamped * 255)
+    .toString(16)
+    .padStart(2, "0")}`;
 }
 
 /**
@@ -159,7 +203,9 @@ export function isHexColor(value: string): boolean {
  * disagreeing about it is a room where the text matches the wall.
  */
 export function luminance(hex: string): number {
-  const clean = hex.trim().replace("#", "");
+  // Alpha dropped, same reasoning as the API's copy: this decides which ladder
+  // a theme is painted into, and a translucent page has no honest luminance.
+  const clean = hex.trim().replace("#", "").slice(0, 6);
   const full =
     clean.length === 3
       ? clean
@@ -212,18 +258,32 @@ function tokensFor(spec: RoomThemeSpec): Record<string, string> {
   const gradient = gradientCss(spec);
   const shared = {
     "--background": page,
-    "--room-page-solid": palette.page,
+    // Deliberately stripped of alpha: this is the colour painted *behind*
+    // everything, and a translucent one would let the browser's own canvas
+    // through — which is not a colour the theme chose.
+    "--room-page-solid": colorBase(palette.page),
     "--foreground": palette.text,
     "--room-accent": spec.accent,
     "--room-accent-text": spec.accentText,
     ...(gradient ? { "--room-gradient": gradient } : {}),
   };
+  // Whatever alpha the palette carries goes straight through: how much of what
+  // is behind a panel shows through it is a decision the theme's author makes
+  // per surface (see the opacity slider under every colour in the editor).
+  //
+  // This used to be two constants applied automatically whenever a theme had a
+  // background picture, which was a guess made once for every theme ever
+  // written — right for a dark photograph behind a dark room and wrong for
+  // most other things.
+  const surface = palette.surface;
+  const raised = palette.raised;
+
   return dark
     ? {
         ...shared,
         "--color-black": page,
-        "--color-zinc-950": palette.surface,
-        "--color-zinc-900": palette.raised,
+        "--color-zinc-950": surface,
+        "--color-zinc-900": raised,
         "--color-zinc-800": palette.border,
         "--color-zinc-700": palette.input,
         // In dark mode this is both the body text *and* the fill of a primary
@@ -236,8 +296,8 @@ function tokensFor(spec: RoomThemeSpec): Record<string, string> {
     : {
         ...shared,
         "--color-zinc-50": page,
-        "--color-white": palette.surface,
-        "--color-zinc-100": palette.raised,
+        "--color-white": surface,
+        "--color-zinc-100": raised,
         "--color-zinc-200": palette.border,
         "--color-zinc-300": palette.input,
         // The mirror of the note above: in light mode these are the dark end,
