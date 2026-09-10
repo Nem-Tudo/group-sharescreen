@@ -20,10 +20,14 @@ import { useSignaling } from "@/lib/useSignaling";
 // costs the announcement and nothing else — the plan itself is there either
 // way, which is why nothing below treats this message as evidence of what was
 // granted.
+//
+// Two directions, and they are not symmetric. Receiving one changes what this
+// account may *do*, so it re-reads the account; hearing that a link you paid
+// for was taken changes nothing about you at all, and is purely news.
 
 export function GiftNotifier() {
   const { account, refresh } = useAuth();
-  const { lastGift } = useSignaling();
+  const { lastGift, lastGiftRedeemed } = useSignaling();
 
   useEffect(() => {
     if (!account || !lastGift) return;
@@ -59,6 +63,38 @@ export function GiftNotifier() {
       tag: `gift:${lastGift.giftId}`,
     });
   }, [account, lastGift, refresh]);
+
+  // The other direction: a present this account *paid for* was taken.
+  //
+  // No refresh here, and that is the difference between the two halves of this
+  // file. Nothing about the buyer's own account changed — their plan, their
+  // points and their features are exactly what they were. The only thing that
+  // happened is worth telling them, which is the whole reason the API bothers
+  // to send it.
+  useEffect(() => {
+    if (!account || !lastGiftRedeemed) return;
+
+    const isNew = pushNotification({
+      // Named after the present, so the same message arriving twice — two
+      // tabs, a reconnect — is one line in the bell rather than two.
+      id: `gift-redeemed:${lastGiftRedeemed.giftId}`,
+      kind: "gift",
+      title: `${lastGiftRedeemed.byName} resgatou seu presente!`,
+      body:
+        lastGiftRedeemed.days > 0
+          ? `${lastGiftRedeemed.planTitle} por ${lastGiftRedeemed.days} dias.`
+          : lastGiftRedeemed.planTitle,
+      userId: lastGiftRedeemed.byId ?? undefined,
+    });
+    if (!isNew) return;
+
+    playFriendRequestSound();
+    void showNotification({
+      title: `${lastGiftRedeemed.byName} resgatou seu presente!`,
+      body: `${lastGiftRedeemed.planTitle} já está com quem você presenteou.`,
+      tag: `gift-redeemed:${lastGiftRedeemed.giftId}`,
+    });
+  }, [account, lastGiftRedeemed]);
 
   return null;
 }

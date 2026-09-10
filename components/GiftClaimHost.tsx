@@ -5,7 +5,7 @@ import useNtPopups from "ntpopups";
 
 // Notices that somebody arrived holding a present, and opens it.
 //
-// The code reaches the site as `?presente=` on the home page, put there by the
+// The code reaches the site as `?gift=` on the home page, put there by the
 // redirect at /gift/[code]. Read from `window.location` rather than through
 // useSearchParams, and that is not a preference: this component is mounted at
 // the layout root, and that hook would make every page in the app render on
@@ -22,7 +22,18 @@ import useNtPopups from "ntpopups";
 // present that nags is not one.
 
 /** Where the code travels. Matches the redirect in app/gift/[code]/page.tsx. */
-const PARAM = "presente";
+const PARAM = "gift";
+
+/**
+ * What it used to be called.
+ *
+ * Still read, and still cleared, for as long as it costs two lines: the
+ * parameter normally exists for the instant between the redirect and this
+ * popup opening, but anybody who copied the address bar in that instant — or
+ * shared what they copied — is holding a link with the old name on it, and a
+ * present that silently does nothing is the worst way to find that out.
+ */
+const LEGACY_PARAM = "presente";
 
 export function GiftClaimHost() {
   const { openPopup } = useNtPopups();
@@ -33,7 +44,8 @@ export function GiftClaimHost() {
 
   useEffect(() => {
     if (openedRef.current) return;
-    const found = new URLSearchParams(window.location.search).get(PARAM);
+    const query = new URLSearchParams(window.location.search);
+    const found = query.get(PARAM) ?? query.get(LEGACY_PARAM);
     if (!found) return;
     openedRef.current = true;
 
@@ -46,6 +58,7 @@ export function GiftClaimHost() {
         try {
           const url = new URL(window.location.href);
           url.searchParams.delete(PARAM);
+          url.searchParams.delete(LEGACY_PARAM);
           // replaceState rather than a router navigation: there is nothing to
           // re-render — the popup is already gone — and pushing an entry would
           // put the present back one press of "voltar" away.

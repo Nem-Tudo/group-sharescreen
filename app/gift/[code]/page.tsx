@@ -24,5 +24,5 @@ export const metadata: Metadata = {
 
 export default async function GiftPage(props: PageProps<"/gift/[code]">) {
   const { code } = await props.params;
-  redirect(`/?presente=${encodeURIComponent(code)}`);
+  redirect(`/?gift=${encodeURIComponent(code)}`);
 }

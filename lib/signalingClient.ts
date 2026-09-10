@@ -170,6 +170,24 @@ export type PremiumGiftEvent = {
   days: number;
 };
 
+/**
+ * Somebody redeemed a gift link *this* account paid for (see the API's redeem
+ * route).
+ *
+ * The one moment in the life of a gift link the buyer has no other way of
+ * learning about: they handed over a code and then heard nothing. The
+ * addressed form needs no such message — those days land while the buyer is
+ * still looking at the payment confirmation.
+ */
+export type PremiumGiftRedeemedEvent = {
+  giftId: string;
+  /** Who took it. Named for the sentence, not for anything to act on. */
+  byId: string | null;
+  byName: string;
+  planTitle: string;
+  days: number;
+};
+
 /** The colour of the indicator beside a person's name (see lib/presence.ts and
  *  the API's presence sweep): green, blue, yellow, none. "offline" is a real
  *  value on the wire — it is the answer to a question that was asked, as
@@ -497,6 +515,8 @@ export type SignalingState = {
   // change to its own account that it did not make. See GiftNotifier.
   lastGift: PremiumGiftEvent | null;
   giftSeq: number;
+  /** The last gift of this account's that somebody redeemed. */
+  lastGiftRedeemed: PremiumGiftRedeemedEvent | null;
   // Presence of the accounts this tab asked about, by account id (see
   // watchPresence). Only ever holds ids somebody subscribed to — this is a
   // cache of answers, not a directory of the site.
@@ -735,6 +755,7 @@ const initialState: SignalingState = {
   socialSeq: 0,
   lastGift: null,
   giftSeq: 0,
+  lastGiftRedeemed: null,
   presence: {},
   presenceSeq: 0,
   lastDm: null,
@@ -1883,6 +1904,20 @@ class SignalingClient {
       // A plan somebody bought for this account. Only ever an announcement:
       // what was actually granted lives on the account, and the notifier this
       // drives re-reads it rather than believing these numbers.
+      // Somebody took a present this account bought. Only ever an
+      // announcement: nothing about this account changed, which is exactly why
+      // it needs one.
+      case "premium-gift-redeemed":
+        this.setState({
+          lastGiftRedeemed: {
+            giftId: String(msg.giftId ?? ""),
+            byId: typeof msg.byId === "string" ? msg.byId : null,
+            byName: typeof msg.byName === "string" ? msg.byName : "Alguém",
+            planTitle: typeof msg.planTitle === "string" ? msg.planTitle : "Pro",
+            days: typeof msg.days === "number" ? msg.days : 0,
+          },
+        });
+        break;
       case "premium-gift":
         this.setState({
           lastGift: {
