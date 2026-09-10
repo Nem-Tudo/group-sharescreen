@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { MdCheckCircle, MdClose, MdContentCopy, MdRefresh } from "react-icons/md";
 import { PixIcon } from "@/components/icons";
 import type { PixCharge } from "@/lib/premiumApi";
@@ -49,6 +49,15 @@ type PixChargeModalProps = {
    * GiftPlanDialog).
    */
   paidMessage?: string | null;
+  /**
+   * Anything else the confirmation has to carry.
+   *
+   * There is one caller and one reason: a present bought as a link produces
+   * the link at exactly this moment, and this is the screen the buyer is
+   * looking at when the money lands. Handing it over anywhere else means
+   * handing it over on a screen nobody is on.
+   */
+  paidExtra?: ReactNode;
   /** A new charge is being created right now. */
   busy?: boolean;
   /** Asks for a fresh code, after this one expires. */
@@ -74,6 +83,7 @@ function PixChargeDialog({
   paid,
   paidUntilLabel,
   paidMessage,
+  paidExtra,
   busy,
   onRegenerate,
   onCheckNow,
@@ -161,6 +171,7 @@ function PixChargeDialog({
                   ? `Tudo certo. Seu acesso Pro está liberado até ${paidUntilLabel}.`
                   : "Tudo certo. Seu acesso Pro já está liberado.")}
             </p>
+            {paidExtra}
             <button
               type="button"
               onClick={onClose}

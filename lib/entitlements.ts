@@ -143,6 +143,42 @@ export function lockLabel(
   return ` ${name}${mark}`;
 }
 
+/**
+ * Which rung a plan sells, by id — the mirror of the API's planTier.
+ *
+ * Display only, like everything else in this file: it is what lets a screen
+ * say "you already have more than this" *before* somebody presses a button
+ * that would have been refused (see GiftClaimDialog). The refusal itself is
+ * still the server's, which is the only side that knows what is true.
+ */
+export function planTierOf(planId: string): FeatureTier {
+  return planId === "premium_max" ? "premium_max" : "premium";
+}
+
+/**
+ * Which rung an account stands on, read from the flags every name already
+ * carries. PRO_MAX first, because a Pro Max subscriber carries PRO as well —
+ * see verifiedBadge above, which is the same trap.
+ */
+export function accountTierOf(flags: readonly string[] | undefined | null): FeatureTier {
+  if (!flags) return "free";
+  if (flags.includes("PRO_MAX")) return "premium_max";
+  if (flags.includes("PRO")) return "premium";
+  return "account";
+}
+
+const TIER_RANK: Record<FeatureTier, number> = {
+  free: 0,
+  account: 1,
+  premium: 2,
+  premium_max: 3,
+};
+
+/** Whether `tier` is strictly above `other` — "I already have more than this". */
+export function tierAbove(tier: FeatureTier, other: FeatureTier): boolean {
+  return TIER_RANK[tier] > TIER_RANK[other];
+}
+
 export function hasFeature(feature: Feature | undefined, features: readonly string[]): boolean {
   if (!feature) return true;
   return features.includes(feature);

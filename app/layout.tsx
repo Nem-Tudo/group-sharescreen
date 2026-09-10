@@ -9,6 +9,7 @@ import { AuthProvider } from "@/lib/AuthContext";
 import { PresenceReporter } from "@/components/PresenceReporter";
 import { SocialNotifier } from "@/components/SocialNotifier";
 import { GiftNotifier } from "@/components/GiftNotifier";
+import { GiftClaimHost } from "@/components/GiftClaimHost";
 import { DmNotifier } from "@/components/DmNotifier";
 import { DirectMessagesHost } from "@/components/DirectMessagesHost";
 import { CallHost } from "@/components/CallHost";
@@ -217,6 +218,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                   its owner having done anything — a plan somebody bought
                   them. */}
               <GiftNotifier />
+              {/* Opens the present somebody arrived holding — see /gift/[code],
+                  which redirects here with the code on the URL. */}
+              <GiftClaimHost />
               <DmNotifier />
               {/* The one conversation window on the page — see its own comment. */}
               <DirectMessagesHost />

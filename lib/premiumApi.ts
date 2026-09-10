@@ -243,7 +243,23 @@ export async function startPixPayment(
 export type GiftCharge = PixCharge & {
   /** The API's id for the gift, which is what its status is polled by. */
   giftId: string;
+  /**
+   * The share code, for a gift bought without naming anybody — null when one
+   * was named. It is the present: whoever holds it can redeem it, which is
+   * why it only ever comes back to the account that paid.
+   */
+  code: string | null;
 };
+
+/**
+ * Where a gift stands.
+ *
+ *   "pending"   — the QR is on screen and nobody has paid it.
+ *   "paid"      — the money arrived. For a named gift this never appears; for
+ *                 a code it is the resting state, waiting to be redeemed.
+ *   "delivered" — the days are on somebody's account.
+ */
+export type GiftStatus = "pending" | "paid" | "delivered";
 
 export type StartGiftResult =
   | { ok: true; charge: GiftCharge }
@@ -262,7 +278,12 @@ export type StartGiftResult =
  * cannot gift a cheaper plan by asking for one.
  */
 export async function startGiftPix(options: {
-  toUserId: string;
+  /**
+   * Who gets it, when the buyer named somebody. Left out for a present bought
+   * as a link — the API answers that one with a code instead, and whoever
+   * opens the link decides who the recipient is.
+   */
+  toUserId?: string;
   planId: string;
   cycle: BillingCycle;
   email?: string;
@@ -272,7 +293,7 @@ export async function startGiftPix(options: {
       method: "POST",
       headers: { ...authHeaders(), "Content-Type": "application/json" },
       body: JSON.stringify({
-        toUserId: options.toUserId,
+        ...(options.toUserId ? { toUserId: options.toUserId } : {}),
         planId: options.planId,
         cycle: options.cycle,
         ...(options.email ? { email: options.email } : {}),
@@ -304,15 +325,153 @@ export async function startGiftPix(options: {
  */
 export async function fetchGiftStatus(
   giftId: string
-): Promise<{ status: "pending" | "delivered"; deliveredAt: number | null } | null> {
+): Promise<{ status: GiftStatus; code: string | null; deliveredAt: number | null } | null> {
   try {
     const res = await fetch(`${getSignalingHttpBase()}/premium/gift/${encodeURIComponent(giftId)}`, {
       headers: authHeaders(),
     });
     if (!res.ok) return null;
-    return (await res.json()) as { status: "pending" | "delivered"; deliveredAt: number | null };
+    return (await res.json()) as {
+      status: GiftStatus;
+      code: string | null;
+      deliveredAt: number | null;
+    };
   } catch {
     return null;
+  }
+}
+
+/** One gift this account bought, for the list of them. */
+export type PurchasedGift = {
+  id: string;
+  code: string | null;
+  status: GiftStatus;
+  planId: string;
+  planTitle: string;
+  days: number;
+  /** Who ended up with it, or null while a code is still going spare. */
+  toId: string | null;
+  createdAt: number;
+  deliveredAt: number | null;
+};
+
+/**
+ * The presents this account has bought.
+ *
+ * The reason it exists is narrow and worth stating: a code is handed over once,
+ * on the screen that confirms the payment, and without somewhere to read it
+ * again a closed tab is money gone.
+ */
+export async function fetchMyGifts(signal?: AbortSignal): Promise<PurchasedGift[]> {
+  try {
+    const res = await fetch(`${getSignalingHttpBase()}/premium/gifts`, {
+      headers: authHeaders(),
+      signal,
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as { gifts?: PurchasedGift[] };
+    return Array.isArray(data.gifts) ? data.gifts : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Who sent a present, as the claim screen draws them. */
+export type GiftSender = {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarUrl: string | null;
+  flags: string[];
+  nameColor: string | null;
+};
+
+/** What a share code turns out to be worth. */
+export type GiftCodeInfo = {
+  code: string;
+  status: GiftStatus;
+  planId: string;
+  planTitle: string;
+  planIconId: string;
+  planDescription: string;
+  days: number;
+  createdAt: number;
+  from: GiftSender | null;
+};
+
+/**
+ * What is behind a /gift/<code> link.
+ *
+ * Needs no account, deliberately: whoever follows a present is often not
+ * registered yet, and asking them to sign up before saying what they were
+ * given would be asking them to register for a surprise.
+ */
+export async function fetchGiftByCode(
+  code: string,
+  signal?: AbortSignal
+): Promise<GiftCodeInfo | null> {
+  try {
+    const res = await fetch(
+      `${getSignalingHttpBase()}/premium/gift/code/${encodeURIComponent(code)}`,
+      { signal }
+    );
+    if (!res.ok) return null;
+    return (await res.json()) as GiftCodeInfo;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Why a redemption was refused, when it was.
+ *
+ * A machine-readable reason beside the sentence, because the screen says
+ * something quite different for each — "you already have more than this" is
+ * good news wearing a refusal — and matching on the sentence itself would
+ * break the first time somebody rewords it.
+ */
+export type RedeemFailure =
+  | "not_found"
+  | "redeemed"
+  | "higher_plan"
+  | "card_subscription"
+  | "account_required"
+  | "unknown";
+
+export type RedeemGiftResult =
+  | { ok: true; planId: string; days: number; currentPeriodEnd: number }
+  | { ok: false; error: string; reason: RedeemFailure };
+
+/** Puts a code's days onto the account that is logged in right now. */
+export async function redeemGiftCode(code: string): Promise<RedeemGiftResult> {
+  try {
+    const res = await fetch(
+      `${getSignalingHttpBase()}/premium/gift/code/${encodeURIComponent(code)}/redeem`,
+      { method: "POST", headers: authHeaders() }
+    );
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      planId?: string;
+      days?: number;
+      currentPeriodEnd?: number;
+      error?: string;
+      reason?: RedeemFailure;
+    };
+    if (!res.ok || !data.ok) {
+      return {
+        ok: false,
+        error: data.error ?? "Não foi possível resgatar agora.",
+        reason: data.reason ?? "unknown",
+      };
+    }
+    return {
+      ok: true,
+      planId: data.planId ?? "",
+      days: data.days ?? 0,
+      currentPeriodEnd: data.currentPeriodEnd ?? 0,
+    };
+  } catch {
+    return { ok: false, error: "Sem conexão com o servidor.", reason: "unknown" };
   }
 }
 

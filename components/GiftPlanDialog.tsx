@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { MdCardGiftcard, MdClose, MdSearch } from "react-icons/md";
+import { MdCardGiftcard, MdCheckCircle, MdClose, MdContentCopy, MdSearch } from "react-icons/md";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { UserAvatar } from "@/components/UserAvatar";
 import { PixIcon } from "@/components/icons";
@@ -13,19 +13,28 @@ import { searchPeople, type SocialUser } from "@/lib/socialApi";
 import { useSocialGraph } from "@/lib/useSocialGraph";
 import {
   fetchGiftStatus,
+  fetchMyGifts,
   fetchPremiumPlans,
   startGiftPix,
   type BillingCycle,
   type GiftCharge,
   type PremiumPlan,
+  type PurchasedGift,
 } from "@/lib/premiumApi";
 
 // "Presentear": buy a plan for somebody else.
 //
-// Three questions in one dialog — who, which plan, and pay — in that order,
-// because the first is the only one the person came here already knowing the
-// answer to. The plans are the same documents /pro sells (see the API's
-// premiumPlan.ts), so nothing here quotes a price of its own.
+// Two shapes, and the toggle at the top is the whole difference:
+//
+//   uma pessoa — you name an account at the till, and the days land on it the
+//     moment the money does. Nothing to send, nothing to lose.
+//   um link — you buy it unaddressed and get golive.../gift/<código> back.
+//     Whoever opens that and presses "resgatar" is who gets it.
+//
+// The link exists because most presents are for somebody who is not here yet.
+// "Escolha a conta" has no answer for a friend who has never registered, and
+// that is exactly the person a present is most likely to be for — it is how
+// they arrive.
 //
 // Pix and only Pix, and that is the product rather than a shortcut: the card
 // path is a *preapproval*, a standing monthly mandate on whoever pays. As a
@@ -33,14 +42,16 @@ import {
 // ever, for a benefit held by another account — with the recipient holding the
 // only reason to end it and no way to. One charge, a fixed stretch of days, is
 // what a present actually is.
-//
-// The list of people starts as your friends rather than an empty search box.
-// Somebody who opens this has a person in mind, and that person is nearly
-// always one of the faces already on the home page; the box is for the rest.
 
 const SEARCH_DEBOUNCE_MS = 300;
 /** How often the buyer's screen asks whether the money landed. */
 const POLL_MS = 4000;
+
+/** The address a code travels as. Matches app/gift/[code]/page.tsx. */
+function giftLink(code: string): string {
+  if (typeof window === "undefined") return `/gift/${code}`;
+  return `${window.location.origin}/gift/${code}`;
+}
 
 function PersonRow({ user, onSelect }: { user: SocialUser; onSelect: () => void }) {
   return (
@@ -74,6 +85,54 @@ function PersonRow({ user, onSelect }: { user: SocialUser; onSelect: () => void 
 }
 
 /**
+ * One code, with the button that matters.
+ *
+ * Copying the whole link rather than the code alone: the code is not the thing
+ * anybody wants to send, and a friend who receives eight characters with no
+ * address has been given a puzzle.
+ */
+function CodeRow({ code, label }: { code: string; label?: string }) {
+  const [copied, setCopied] = useState(false);
+  const [shown, setShown] = useState(false);
+
+  const copy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(giftLink(code));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard refused (an insecure origin, a permission denied). Showing
+      // the link is the repair: it is then on screen and selectable, the same
+      // fallback the Pix code uses.
+      setShown(true);
+    }
+  }, [code]);
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      {label && <span className="text-xs text-zinc-500 dark:text-zinc-400">{label}</span>}
+      <div className="flex items-center gap-2">
+        <code className="min-w-0 flex-1 truncate rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-2 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
+          {shown ? giftLink(code) : `/gift/${code}`}
+        </code>
+        <button
+          type="button"
+          onClick={() => void copy()}
+          className="flex shrink-0 items-center gap-1.5 rounded-lg bg-zinc-950 px-3 py-2 text-xs font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+        >
+          {copied ? (
+            <MdCheckCircle className="h-3.5 w-3.5 shrink-0" />
+          ) : (
+            <MdContentCopy className="h-3.5 w-3.5 shrink-0" />
+          )}
+          {copied ? "Copiado" : "Copiar"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Mounted only while open, like AddFriendDialog and for the same reason:
  * unmounting is what throws away the chosen person, the search and the code on
  * screen, so reopening is a fresh present rather than the last one's leftovers.
@@ -88,6 +147,10 @@ export function GiftPlanDialog({
 }) {
   const { account } = useAuth();
   const { graph } = useSocialGraph();
+  // Which shape of present. The link is the default: it is the one that works
+  // for anybody, including the people most presents are meant for — the ones
+  // who do not have an account yet.
+  const [mode, setMode] = useState<"link" | "person">("link");
   const [query, setQuery] = useState("");
   // Tagged with the query that produced it, same as AddFriendDialog: the
   // previous answer stays on screen while the next is in flight, because a
@@ -105,13 +168,24 @@ export function GiftPlanDialog({
   const [needsEmail, setNeedsEmail] = useState(false);
   const [email, setEmail] = useState("");
   const [charge, setCharge] = useState<GiftCharge | null>(null);
-  const [delivered, setDelivered] = useState(false);
+  // The money landed. Not "delivered": a link is paid long before anybody
+  // redeems it, and the buyer's screen is finished at the payment either way.
+  const [settled, setSettled] = useState(false);
+  // Codes bought earlier and never handed over. The reason this list is here
+  // at all: a link is shown once, and without somewhere to read it again a
+  // closed tab is money gone.
+  const [myGifts, setMyGifts] = useState<PurchasedGift[]>([]);
 
   // Derived rather than stored, so the picker cannot end up naming a plan the
   // list no longer has.
   const plan = plans.find((entry) => entry.id === selectedPlanId) ?? plans[0] ?? null;
   const pricing = plan?.cycles?.find((entry) => entry.cycle === cycle) ?? null;
   const mark = planIcon(plan?.iconId);
+  // Everything past the recipient waits on one answer: who is this for. A
+  // link has no such question, so it is ready from the moment it is chosen.
+  const addressed = mode === "person" ? recipient : null;
+  const ready = mode === "link" || Boolean(addressed);
+  const unclaimed = myGifts.filter((gift) => gift.code && gift.status === "paid");
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -124,6 +198,7 @@ export function GiftPlanDialog({
   useEffect(() => {
     const controller = new AbortController();
     void fetchPremiumPlans(controller.signal).then(setPlans);
+    void fetchMyGifts(controller.signal).then(setMyGifts);
     return () => controller.abort();
   }, []);
 
@@ -148,17 +223,21 @@ export function GiftPlanDialog({
   const check = useCallback(async () => {
     if (!charge) return;
     const status = await fetchGiftStatus(charge.giftId);
-    if (status?.status === "delivered") setDelivered(true);
+    if (!status || status.status === "pending") return;
+    setSettled(true);
+    // So the list at the bottom has this code in it the moment the dialog is
+    // reopened, rather than one refresh later.
+    void fetchMyGifts().then(setMyGifts);
   }, [charge]);
 
   // The buyer's own account never changes when a gift is paid — the days go
-  // somewhere else — so there is nothing on this screen that would notice the
-  // money landing except asking. Stops the moment it is delivered.
+  // somewhere else, or nowhere yet — so there is nothing on this screen that
+  // would notice the money landing except asking. Stops once it has.
   useEffect(() => {
-    if (!charge || delivered) return;
+    if (!charge || settled) return;
     const timer = setInterval(() => void check(), POLL_MS);
     return () => clearInterval(timer);
-  }, [charge, delivered, check]);
+  }, [charge, settled, check]);
 
   // Whoever is on screen to choose from: your friends until something is
   // typed, the server's answer after.
@@ -169,17 +248,17 @@ export function GiftPlanDialog({
   const choices = people.filter((user) => user.id !== account?.id);
 
   async function pay() {
-    if (!recipient || !plan || busy) return;
+    if (!plan || busy || !ready) return;
     setBusy(true);
     setError(null);
     const outcome = await startGiftPix({
-      toUserId: recipient.id,
+      ...(addressed ? { toUserId: addressed.id } : {}),
       planId: plan.id,
       cycle,
       email: needsEmail ? email.trim() : undefined,
     });
     if (outcome.ok) {
-      setDelivered(false);
+      setSettled(false);
       setCharge(outcome.charge);
       setNeedsEmail(false);
     } else {
@@ -222,12 +301,37 @@ export function GiftPlanDialog({
             </button>
           </div>
 
-          {/* Who. The chosen person replaces the list rather than sitting above
-              it: with somebody picked, a list of everybody else is an invitation
-              to change an answer that has already been given, and it is one tap
-              to change it anyway. */}
-          {recipient ? (
-            <div className="mt-4 flex items-center gap-2.5 rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-2 dark:border-zinc-800 dark:bg-zinc-900/60">
+          {/* Which shape. Locked once a code exists: the charge already names
+              a shape on the server, and letting this change afterwards would
+              show a purchase that is not the one being paid for. */}
+          <div className="mt-4 inline-flex rounded-xl border border-zinc-200 p-1 dark:border-zinc-800">
+            {(["link", "person"] as const).map((option) => {
+              const chosen = mode === option;
+              return (
+                <button
+                  key={option}
+                  type="button"
+                  disabled={Boolean(charge)}
+                  onClick={() => setMode(option)}
+                  aria-pressed={chosen}
+                  className={`flex-1 rounded-lg px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                    chosen
+                      ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                      : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+                  }`}
+                >
+                  {option === "link" ? "Gerar um link" : "Escolher alguém"}
+                </button>
+              );
+            })}
+          </div>
+
+          {mode === "link" ? (
+            <p className="mt-3 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+              Você recebe um link para mandar por onde quiser. Quem abrir resgata na hora.
+            </p>
+          ) : recipient ? (
+            <div className="mt-3 flex items-center gap-2.5 rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-2 dark:border-zinc-800 dark:bg-zinc-900/60">
               <UserAvatar
                 src={recipient.avatarUrl}
                 name={recipient.displayName}
@@ -247,8 +351,9 @@ export function GiftPlanDialog({
                 </span>
               </span>
               {/* Disabled once a code exists: the charge names this person on
-                  the server, and letting the name on screen change would show a
-                  present being paid for somebody who is not going to get it. */}
+                  the server, and letting the name on screen change would show
+                  a present being paid for somebody who is not going to get
+                  it. */}
               <button
                 type="button"
                 disabled={Boolean(charge)}
@@ -260,7 +365,7 @@ export function GiftPlanDialog({
             </div>
           ) : (
             <>
-              <div className="relative mt-4">
+              <div className="relative mt-3">
                 <MdSearch className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
                 <input
                   value={query}
@@ -287,7 +392,7 @@ export function GiftPlanDialog({
 
           {/* Which plan. Only with something to choose between — a single plan
               needs no picker, exactly as on /pro. */}
-          {recipient && plans.length > 0 && (
+          {ready && plans.length > 0 && (
             <div className="mt-4 flex flex-col gap-3">
               {plans.length > 1 && (
                 <div className="flex flex-wrap gap-2">
@@ -311,7 +416,9 @@ export function GiftPlanDialog({
                           className={`h-4 w-4 shrink-0 ${chosen ? "" : entryMark.className}`}
                         />
                         <span className="min-w-0">
-                          <span className="block truncate text-sm font-semibold">{entry.title}</span>
+                          <span className="block truncate text-sm font-semibold">
+                            {entry.title}
+                          </span>
                           <span className="block text-xs opacity-80">
                             {entry.cycles?.find((c) => c.cycle === cycle)?.pixPriceLabel ??
                               entry.pixPriceLabel}
@@ -367,9 +474,10 @@ export function GiftPlanDialog({
                 </label>
               )}
 
-              {/* Hidden while a code is on screen rather than disabled: pressing
-                  it again would mint a second charge for a present already
-                  waiting to be paid, and the dialog above is where that one is. */}
+              {/* Hidden while a code is on screen rather than disabled:
+                  pressing it again would mint a second charge for a present
+                  already waiting to be paid, and the dialog above is where
+                  that one is. */}
               {!charge && (
                 <button
                   type="button"
@@ -391,8 +499,9 @@ export function GiftPlanDialog({
               {plan && (
                 <p className="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
                   <mark.Icon className={`h-3.5 w-3.5 shrink-0 ${mark.className}`} />
-                  {recipient.displayName} recebe {pricing?.periodDays ?? 30} dias de {plan.title}. Não
-                  renova sozinho e nada é cobrado de novo.
+                  {addressed ? addressed.displayName : "Quem resgatar"} recebe{" "}
+                  {pricing?.periodDays ?? 30} dias de {plan.title}. Não renova sozinho e nada é
+                  cobrado de novo.
                 </p>
               )}
             </div>
@@ -403,6 +512,26 @@ export function GiftPlanDialog({
               {error}
             </p>
           )}
+
+          {/* Codes bought and not yet handed over. Only the ones still going
+              spare: a present somebody already redeemed is a link that does
+              nothing, and a list of those is a list of dead ends. */}
+          {unclaimed.length > 0 && !charge && (
+            <div className="mt-6 border-t border-zinc-200 pt-4 dark:border-zinc-800">
+              <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                Presentes que ainda não foram resgatados
+              </p>
+              <div className="mt-2 flex flex-col gap-3">
+                {unclaimed.map((gift) => (
+                  <CodeRow
+                    key={gift.id}
+                    code={gift.code as string}
+                    label={`${gift.planTitle} · ${gift.days} dias`}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -410,11 +539,21 @@ export function GiftPlanDialog({
           that would be false here replaced: the days are not the buyer's. */}
       <PixChargeModal
         charge={charge}
-        paid={delivered}
+        paid={settled}
         paidMessage={
-          recipient
-            ? `Presente entregue! ${recipient.displayName} já está com o ${plan?.title ?? "plano"}.`
-            : null
+          addressed
+            ? `Presente entregue! ${addressed.displayName} já está com o ${plan?.title ?? "plano"}.`
+            : "Pagamento confirmado. Agora é só mandar o link para quem vai ganhar."
+        }
+        paidExtra={
+          // The link, at the one moment the buyer is certainly looking. It is
+          // also in the list behind this dialog, which is what makes closing
+          // this window survivable.
+          !addressed && charge?.code ? (
+            <div className="w-full text-left">
+              <CodeRow code={charge.code} />
+            </div>
+          ) : null
         }
         busy={busy}
         onRegenerate={() => void pay()}
@@ -422,9 +561,10 @@ export function GiftPlanDialog({
         onClose={() => {
           setCharge(null);
           // A delivered present is a finished errand: closing the code screen
-          // closes the dialog behind it too, rather than dropping somebody
-          // back onto a form for a purchase they have already made.
-          if (delivered) onClose();
+          // closes the dialog behind it too — unless there is a link to hand
+          // over, in which case the dialog behind is where it can be read
+          // again, and shutting it would be taking it away.
+          if (settled && addressed) onClose();
         }}
       />
     </>
