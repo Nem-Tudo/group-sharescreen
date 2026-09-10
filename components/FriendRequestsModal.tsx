@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import { MdCheck, MdClose } from "react-icons/md";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { PresenceDot } from "@/components/PresenceDot";
@@ -16,6 +17,18 @@ import { useSocialGraph } from "@/lib/useSocialGraph";
 // WatchRoom's unmount, which calls leaveRoom). Somebody answering a request
 // mid-conversation should not lose the conversation to do it — the whole
 // interaction is two buttons, and two buttons do not need a page.
+//
+// Rendered into the body, and that part is load-bearing rather than tidiness.
+// It is opened from the notification bell, and one of the two places that bell
+// sits is the site header — which is translucent (`backdrop-blur-md`). A
+// backdrop-filter makes its element a containing block for fixed descendants,
+// so `fixed inset-0` below stopped meaning "the viewport" and started meaning
+// "the header": the dialog was squeezed into a 56-pixel strip at the top of
+// the screen and clipped. The room's own header has no blur, which is why it
+// only ever looked broken on the site pages.
+
+/** Nothing to subscribe to — this only answers "is there a document yet". */
+const subscribeNothing = () => () => {};
 
 export function FriendRequestsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { graph, refresh } = useSocialGraph();
@@ -23,6 +36,10 @@ export function FriendRequestsModal({ open, onClose }: { open: boolean; onClose:
   // below, and the list is what knows who is on screen anyway.
   const presence = usePresenceMap(graph.incoming.map((user) => user.id));
   const [busyId, setBusyId] = useState<string | null>(null);
+  // False on the server, true from the first client render — the same guard
+  // UserProfileDialog and the theme popups use, through the store rather than
+  // an effect so hydration has one answer instead of two.
+  const onClient = useSyncExternalStore(subscribeNothing, () => true, () => false);
 
   useEffect(() => {
     if (!open) return;
@@ -33,7 +50,7 @@ export function FriendRequestsModal({ open, onClose }: { open: boolean; onClose:
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!open || !onClient) return null;
 
   async function run(userId: string, action: () => Promise<unknown>) {
     if (busyId) return;
@@ -46,7 +63,7 @@ export function FriendRequestsModal({ open, onClose }: { open: boolean; onClose:
   const action =
     "flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-50";
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={onClose}
@@ -128,6 +145,7 @@ export function FriendRequestsModal({ open, onClose }: { open: boolean; onClose:
           </ul>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
