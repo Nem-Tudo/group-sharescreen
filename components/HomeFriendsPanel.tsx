@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { MdCall, MdChatBubbleOutline, MdPersonAdd } from "react-icons/md";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -10,6 +10,8 @@ import { Tooltip } from "@/components/Tooltip";
 import { AddFriendDialog } from "@/components/AddFriendDialog";
 import { useAuth } from "@/lib/AuthContext";
 import { verifiedBadge } from "@/lib/entitlements";
+import type { PresenceInfo } from "@/lib/signalingClient";
+import { usePresenceMap } from "@/lib/presence";
 import type { SocialUser } from "@/lib/socialApi";
 import { useSocialGraph } from "@/lib/useSocialGraph";
 import { openDirectMessages } from "@/lib/dmWindow";
@@ -36,6 +38,36 @@ import { startCall } from "@/lib/callsApi";
 // carry is a pointer when somebody is waiting on an answer, because that is
 // the one thing on that page you would want to be told about rather than go
 // looking for.
+
+// Whoever can answer right now, first.
+//
+// The list is capped and scrolls (see the ul below), so the bottom of a long
+// friends list is behind a scroll — and the two buttons on every row are worth
+// exactly as much as the person on the other end being there to hear them.
+// Somebody offline is still callable, and stays on the list; they are just no
+// longer what the panel opens on.
+//
+// Connected is one tier, not three: the dot on each face already separates
+// looking-at-it from another-tab from app-in-the-tray (see PresenceDot), and
+// promoting those to sort keys would mean a friend alt-tabbing rearranges a
+// list somebody is reaching for. All three answer a call, which is what this
+// panel is for, so all three sort the same.
+//
+// "Unknown" — an account whose presence has not arrived yet — sorts with
+// offline rather than ahead of it. Presence lands a moment after the graph
+// does, and the alternative is every friend jumping to the top on load and
+// then falling back one by one.
+function connected(presence: PresenceInfo | undefined): boolean {
+  return presence !== undefined && presence.state !== "offline";
+}
+
+function byPresence(friends: SocialUser[], presence: Record<string, PresenceInfo>): SocialUser[] {
+  // A copy, and a stable sort: whatever order the server sent is what decides
+  // ties, so the list only ever moves when somebody's presence actually moved.
+  return [...friends].sort(
+    (a, b) => Number(connected(presence[b.id])) - Number(connected(presence[a.id]))
+  );
+}
 
 const ICON_ACTION =
   "flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border transition disabled:cursor-not-allowed disabled:opacity-50";
@@ -125,6 +157,13 @@ export function HomeFriendsPanel({ className = "" }: { className?: string }) {
   const [profileUserId, setProfileUserId] = useState<string | null>(null);
   const { account, loading: resolvingAccount } = useAuth();
   const { graph, loading } = useSocialGraph();
+  // Subscribed here rather than per row so the panel holds one subscription
+  // for the whole list — and because the order is the list's decision, which
+  // means the list is what has to know who is around. Each face asks for its
+  // own dot on top of this (UserAvatar does it from `userId`); the interest is
+  // reference-counted, so the two do not fight (see lib/presence).
+  const presence = usePresenceMap(graph.friends.map((user) => user.id));
+  const friends = useMemo(() => byPresence(graph.friends, presence), [graph.friends, presence]);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   // What a call refused, if it refused. "Ligar" changes nothing on this page
@@ -220,7 +259,7 @@ export function HomeFriendsPanel({ className = "" }: { className?: string }) {
         // form, and a list of forty people would decide how tall the whole
         // page is.
         <ul className="mt-3 flex max-h-[26rem] flex-col gap-1.5 overflow-y-auto">
-          {graph.friends.map((user) => (
+          {friends.map((user) => (
             <FriendRow
               key={user.id}
               user={user}
