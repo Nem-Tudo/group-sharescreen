@@ -3126,6 +3126,12 @@ export function WatchRoom({ handle }: { handle: string }) {
       nameColor: peer.nameColor,
       canKick: allowed,
       canBan: allowed,
+      // The owner alone, and never on themselves. Everything else the server
+      // insists on — that they are actually in the room, that the room is not
+      // already full of admins — is left to it (see "room-admin-add"): those
+      // are facts this side would only be guessing at.
+      canPromote: isRoomOwner && !targetIsOwner,
+      isAdmin: targetIsAdmin,
       blockedReason: allowed
         ? null
         : targetIsOwner

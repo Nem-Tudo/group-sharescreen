@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { MdGavel, MdLogout } from "react-icons/md";
+import { FaCrown } from "react-icons/fa";
 import { signalingClient } from "@/lib/signalingClient";
 import { DisplayUserName } from "./DisplayUserName";
 import type { VerifiedTone } from "@/lib/entitlements";
@@ -21,6 +22,15 @@ export type MemberActions = {
   // admins are. Re-checked server-side either way.
   canKick: boolean;
   canBan: boolean;
+  /**
+   * Whether this viewer may make them an administrator, or stop them being
+   * one. The owner alone — an admin who could grow their own ranks is an admin
+   * who can outvote the person whose room it is (see the server's
+   * "room-admin-add", which ignores anybody else).
+   */
+  canPromote: boolean;
+  /** Whether they already are one, which is what the one button says. */
+  isAdmin: boolean;
   // Why they cannot, when they cannot. Shown instead of the buttons, because
   // "the menu opened and did nothing" is the worst of the three outcomes.
   blockedReason?: string | null;
@@ -38,12 +48,28 @@ export type MemberActionsPopupData = MemberActions;
 //     a 360px column has nowhere to hang, and a sheet is the gesture that
 //     platform already uses for exactly this.
 //
-// Two actions for now, and they are different things rather than degrees of
-// one: kicking ends this visit, banning ends every future one. Which is why
-// the second asks again before it happens — it is the one that cannot be
-// undone by the person who did it (only the room's owner lifts a ban).
+// Three actions, and they are different things rather than degrees of one:
+// kicking ends this visit, banning ends every future one, and promoting hands
+// over the room's own controls.
+//
+// Only the ban asks again, and the rule behind that is worth stating because
+// promoting looks like it deserves a confirmation too: the question is not how
+// *big* the action is, it is whether the person doing it can take it back.
+// A ban can only be lifted by the room's owner, from a panel two screens away.
+// An admin is un-made by pressing the same button again.
 export function MemberActionsMenu({
-  actions: { userId, name, isGuest, verified, nameColor, canKick, canBan, blockedReason },
+  actions: {
+    userId,
+    name,
+    isGuest,
+    verified,
+    nameColor,
+    canKick,
+    canBan,
+    canPromote,
+    isAdmin,
+    blockedReason,
+  },
   onDone,
   // The phone's shell has a title bar of its own with a close button; the
   // anchored one is titled by the row it is pointing at.
@@ -77,6 +103,29 @@ export function MemberActionsMenu({
         <p className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">{blockedReason}</p>
       ) : (
         <div className="flex flex-col gap-2">
+          {canPromote && (
+            <button
+              type="button"
+              onClick={() => {
+                if (isAdmin) signalingClient.removeRoomAdmin(userId);
+                else signalingClient.addRoomAdmin(userId);
+                onDone();
+              }}
+              className="flex items-center gap-2.5 rounded-lg border border-amber-300 px-3 py-2.5 text-left transition hover:bg-amber-50 dark:border-amber-900 dark:hover:bg-amber-950/40"
+            >
+              <FaCrown className="h-4 w-4 shrink-0 text-amber-500" />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                  {isAdmin ? "Remover administrador" : "Tornar administrador"}
+                </span>
+                <span className="block text-[11px] text-zinc-500 dark:text-zinc-400">
+                  {isAdmin
+                    ? "Volta a ser um participante comum"
+                    : "Pode expulsar, banir e gerenciar a sala"}
+                </span>
+              </span>
+            </button>
+          )}
           {canKick && (
             <button
               type="button"
