@@ -1,7 +1,11 @@
 "use client";
 
 import { getAccountToken } from "./accountApi";
-import { getSignalingHttpBase } from "./roomsApi";
+import {
+  generateRoomCode,
+  getSignalingHttpBase,
+  toPrivateRoomHandle,
+} from "./roomsApi";
 
 // Room themes: what one is, and how one is put on a screen.
 //
@@ -752,6 +756,45 @@ export async function fetchMyThemes(signal?: AbortSignal): Promise<RoomTheme[]> 
   } catch {
     return [];
   }
+}
+
+// Making a theme happens in a room.
+//
+// The editor previews onto whatever is behind it — the real chat, the real
+// dock, the real video tiles — which is the only way to judge a colour. On the
+// themes page there is nothing behind it but the themes page, so "Criar tema"
+// there used to open an editor previewing onto a grid the theme will never be
+// worn on. This is the fix: the button takes you into a room first, and the
+// editor opens once you are in it.
+//
+// An ordinary private room, deliberately. It is not a sandbox or a special
+// mode — it can be shared, people can join it, it shows up in the recent list
+// like any other. The name is only so its address says what it is for.
+
+/** The name half of the handle. Kept under MAX_PRIVATE_ROOM_NAME_LENGTH. */
+const THEME_ROOM_NAME = "theme-creation";
+
+/**
+ * How the room is told to open the editor.
+ *
+ * A query parameter rather than anything held in this tab, because what
+ * happens in between is a full navigation into a page that mounts from
+ * scratch. The room reads it and then takes it back out of the address bar
+ * (see WatchRoom), so the link somebody copies out of that bar afterwards is
+ * the plain room.
+ */
+export const THEME_EDITOR_PARAM = "theme";
+const THEME_EDITOR_VALUE = "create";
+
+/** A brand new theme-creation room, with the editor asked for. */
+export function themeCreationRoomLink(): string {
+  const handle = toPrivateRoomHandle(THEME_ROOM_NAME, generateRoomCode());
+  return `/watch/${handle}?${THEME_EDITOR_PARAM}=${THEME_EDITOR_VALUE}`;
+}
+
+/** Whether this address bar is asking for the editor. */
+export function wantsThemeEditor(search: string): boolean {
+  return new URLSearchParams(search).get(THEME_EDITOR_PARAM) === THEME_EDITOR_VALUE;
 }
 
 /**

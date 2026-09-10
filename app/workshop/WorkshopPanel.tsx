@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import useNtPopups from "ntpopups";
 import {
   MdAdd,
@@ -37,6 +38,7 @@ import {
   gradientCss,
   isDarkTheme,
   likeTheme,
+  themeCreationRoomLink,
   themeLink,
   type RoomTheme,
   type WorkshopSort,
@@ -311,6 +313,7 @@ function ThemeCard({
 export function WorkshopPanel() {
   const { account, refresh } = useAuth();
   const { openPopup } = useNtPopups();
+  const router = useRouter();
   const [sort, setSort] = useState<WorkshopSort>("popular");
   const [themes, setThemes] = useState<RoomTheme[]>([]);
   const [mine, setMine] = useState<RoomTheme[]>([]);
@@ -376,6 +379,19 @@ export function WorkshopPanel() {
     },
     [openPopup]
   );
+
+  /**
+   * Starts a theme in a room of its own.
+   *
+   * Not a dialog on this page, and that is the whole point: the editor
+   * previews onto whatever is behind it, and behind it here is a grid of other
+   * people's themes. A colour picked against that is a colour picked against
+   * the wrong thing. The room is an ordinary private one — see
+   * themeCreationRoomLink.
+   */
+  const createInRoom = useCallback(() => {
+    router.push(themeCreationRoomLink());
+  }, [router]);
 
   async function buy(theme: RoomTheme) {
     if (!account) {
@@ -464,7 +480,8 @@ export function WorkshopPanel() {
         {canCreate && (
           <button
             type="button"
-            onClick={() => openEditor(null)}
+            onClick={createInRoom}
+            title="Abre uma sala para você ver o tema enquanto monta"
             className="flex shrink-0 items-center gap-1.5 rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
           >
             <MdAdd className="h-4 w-4 shrink-0" />

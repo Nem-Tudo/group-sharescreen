@@ -187,7 +187,7 @@ import { BetaMark } from "@/components/BetaMark";
 import { UpdateAppButton } from "@/components/UpdateAppButton";
 import { AccountModal } from "@/components/AccountModal";
 import { GuestBroadcastLimitModal } from "@/components/GuestBroadcastLimitModal";
-import { GUEST_FEATURES, hasFeature } from "@/lib/entitlements";
+import { GUEST_FEATURES, hasFeature, isThemeBanned } from "@/lib/entitlements";
 import { PartnerMediaTile } from "@/components/PartnerMediaTile";
 import { usePartnerAd } from "@/lib/usePartnerAd";
 import {
@@ -204,6 +204,8 @@ import {
   isRoomThemeOptedOutServer,
   setRoomThemeOptedOut,
   subscribeRoomThemeOptOut,
+  THEME_EDITOR_PARAM,
+  wantsThemeEditor,
 } from "@/lib/roomThemes";
 
 // Mirrors server/signaling.ts's HANDLE_RE — must match exactly, or a name
@@ -2158,6 +2160,37 @@ export function WatchRoom({ handle }: { handle: string }) {
     }, NEW_ROOM_POPUP_DELAY_MS);
     return () => clearTimeout(timer);
   }, [state.roomCreated, privateRoomCannotBeMapped, openPopup]);
+
+  // "Criar tema" on the themes page lands here — an ordinary room, with the
+  // editor already open on it.
+  //
+  // The editor previews onto whatever is behind it, so it needs a room to be
+  // any use; the themes page has no room, so the button brings you to one and
+  // says so in the address (see themeCreationRoomLink). Nothing about this
+  // room is special otherwise.
+  //
+  // Waits for the socket rather than opening on mount: the preview repaints
+  // the page the room is drawing, and starting that before the room has drawn
+  // itself means colouring an empty screen.
+  const themeEditorShown = useRef(false);
+  useEffect(() => {
+    if (state.status !== "open" || themeEditorShown.current) return;
+    if (!wantsThemeEditor(window.location.search)) return;
+    themeEditorShown.current = true;
+    // Taken back out of the address bar straight away. This is a real room
+    // people share, and the link copied out of that bar should be the room —
+    // not an instruction to open an editor on somebody else's screen.
+    const url = new URL(window.location.href);
+    url.searchParams.delete(THEME_EDITOR_PARAM);
+    window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+    // Only for somebody who can actually save one. A guest or a free account
+    // that followed a shared link is simply in a room, which is the truth of
+    // where they are — better than an editor whose save will be refused.
+    if (!hasFeature("room_theme", account?.features ?? []) || isThemeBanned(account?.flags)) {
+      return;
+    }
+    openPopup("theme_editor", { data: {} });
+  }, [state.status, account, openPopup]);
 
   // The one-time "ligue o microfone" nudge (see MicUsageHint above). Its
   // state lives here rather than in the component because the two mic
