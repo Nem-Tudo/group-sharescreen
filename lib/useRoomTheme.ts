@@ -5,8 +5,11 @@ import { useAuth } from "./AuthContext";
 import {
   applyRoomTheme,
   fetchTheme,
+  isRoomThemeOptedOut,
+  isRoomThemeOptedOutServer,
   isThemePreviewActive,
   isThemePreviewActiveServer,
+  subscribeRoomThemeOptOut,
   subscribeThemePreview,
   type RoomTheme,
 } from "./roomThemes";
@@ -43,7 +46,18 @@ export function useRoomTheme(roomThemeId: string | null | undefined): RoomThemeS
   const mine = account?.roomThemeId ?? null;
   // The room's if it has one, otherwise this account's. Undefined until the
   // room answers, which is why the effect below waits rather than applying.
-  const wanted = roomThemeId === undefined ? undefined : roomThemeId ?? mine;
+  // Whether this browser refuses room themes outright. See the opt-out in
+  // roomThemes — it is a viewing preference, kept per browser.
+  const optedOut = useSyncExternalStore(
+    subscribeRoomThemeOptOut,
+    isRoomThemeOptedOut,
+    isRoomThemeOptedOutServer
+  );
+  // The room's if it has one and this browser accepts them, otherwise this
+  // account's. Opting out does not mean "no theme" — it means the room never
+  // gets to choose for you, and what you chose for yourself still stands.
+  const fromRoomId = optedOut ? null : roomThemeId;
+  const wanted = roomThemeId === undefined ? undefined : fromRoomId ?? mine;
   // Tagged with the id it answers, which is what lets "no theme" be *derived*
   // rather than stored: without the tag, clearing a theme would mean writing
   // state from inside an effect, and the answer for "nothing to wear" is
@@ -101,5 +115,5 @@ export function useRoomTheme(roomThemeId: string | null | undefined): RoomThemeS
   // landed for the previous room, or for the theme worn before this one, is
   // not an answer about this one.
   const theme = wanted && loaded?.id === wanted ? loaded.theme : null;
-  return { theme, fromRoom: Boolean(theme && roomThemeId) };
+  return { theme, fromRoom: Boolean(theme && fromRoomId) };
 }

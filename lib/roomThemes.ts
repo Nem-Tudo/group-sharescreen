@@ -326,6 +326,65 @@ export function applyRoomTheme(spec: RoomThemeSpec | null): void {
   if (root.getAttribute("data-theme") !== mode) root.setAttribute("data-theme", mode);
 }
 
+// ─── "Never the room's theme" ─────────────────────────────────────────────
+//
+// A room theme is put on by somebody else and lands on everybody in the room,
+// which is the point of it and also the reason this exists: a look chosen for
+// a group is still a look somebody did not choose, and a person who finds it
+// unreadable — or simply cannot stand it — needs a way out that does not
+// involve leaving the room.
+//
+// Per browser rather than per account, and that is deliberate. It is a
+// *viewing* preference, in the same family as muting notifications and picking
+// light or dark: it belongs to the screen somebody is looking at, not to the
+// identity behind it. Somebody who tolerates room themes on a big monitor and
+// not on a phone is expressing two true things, not contradicting themselves.
+
+const ROOM_THEME_OPT_OUT_KEY = "sharescreen:room-theme-opt-out";
+
+let optedOut: boolean | null = null;
+const optOutListeners = new Set<() => void>();
+
+function readOptOut(): boolean {
+  if (optedOut !== null) return optedOut;
+  try {
+    optedOut = window.localStorage.getItem(ROOM_THEME_OPT_OUT_KEY) === "1";
+  } catch {
+    // Private mode, or storage the browser refused. The permissive answer is
+    // the right default: room themes are the feature, this is the escape.
+    optedOut = false;
+  }
+  return optedOut;
+}
+
+/** Whether this browser refuses room themes. */
+export function isRoomThemeOptedOut(): boolean {
+  if (typeof window === "undefined") return false;
+  return readOptOut();
+}
+
+/** The server has no browser, and therefore no preference. */
+export function isRoomThemeOptedOutServer(): boolean {
+  return false;
+}
+
+export function setRoomThemeOptedOut(next: boolean): void {
+  optedOut = next;
+  try {
+    if (next) window.localStorage.setItem(ROOM_THEME_OPT_OUT_KEY, "1");
+    else window.localStorage.removeItem(ROOM_THEME_OPT_OUT_KEY);
+  } catch {
+    // Kept in memory for this visit either way — a preference that cannot be
+    // written is still a preference for as long as the tab is open.
+  }
+  for (const listener of optOutListeners) listener();
+}
+
+export function subscribeRoomThemeOptOut(listener: () => void): () => void {
+  optOutListeners.add(listener);
+  return () => optOutListeners.delete(listener);
+}
+
 // ─── The live preview ─────────────────────────────────────────────────────
 //
 // The editor opens *inside a room* (see RoomAccountCard, where it sits beside

@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type Dispatch,
   type FormEvent,
   type ReactElement,
@@ -198,6 +199,12 @@ import { ObsBrowserSourceModal } from "@/components/ObsBrowserSourceModal";
 import { ShortcutQuickPopover } from "@/components/ShortcutQuickPopover";
 import { hasVerifiedBadge, verifiedBadge } from "@/lib/entitlements";
 import { useRoomTheme } from "@/lib/useRoomTheme";
+import {
+  isRoomThemeOptedOut,
+  isRoomThemeOptedOutServer,
+  setRoomThemeOptedOut,
+  subscribeRoomThemeOptOut,
+} from "@/lib/roomThemes";
 
 // Mirrors server/signaling.ts's HANDLE_RE — must match exactly, or a name
 // this lets through but the server rejects lands the user in a dead room
@@ -995,6 +1002,13 @@ export function WatchRoom({ handle }: { handle: string }) {
   // passed a colour: every `bg-zinc-950` and `border-zinc-200` in this file
   // already reads one.
   const roomTheme = useRoomTheme(state.roomTheme);
+  // Whether this browser refuses room themes (see the toggle in the menu). Read
+  // here as well as inside the hook, because the row has to draw its own state.
+  const roomThemeOptedOut = useSyncExternalStore(
+    subscribeRoomThemeOptOut,
+    isRoomThemeOptedOut,
+    isRoomThemeOptedOutServer
+  );
   // Keeps the tab's connection alive longer in the background on Android
   // while actually in a room — see the hook's own doc comment for why (and
   // its limits, especially on iOS).
@@ -4036,6 +4050,25 @@ export function WatchRoom({ handle }: { handle: string }) {
         <p className="mb-1.5 text-xs font-semibold text-zinc-500 dark:text-zinc-400">Tema</p>
         <ThemeSegmented />
       </div>
+
+      {/* Directly under the light/dark control, because it is the same
+          question one step further out: that one decides how the site looks to
+          you, this one decides whether a room is allowed to decide for you.
+          Worded as the *permission* rather than as the result — "usar o tema
+          da sala" reads as a thing you are turning off, where "sempre usar o
+          meu" would read as a second theme picker. */}
+      <MenuToggleRow
+        label="Usar o tema da sala"
+        active={!roomThemeOptedOut}
+        onToggle={() => setRoomThemeOptedOut(!roomThemeOptedOut)}
+        activeIcon={<MdPalette className="h-4 w-4" />}
+        inactiveIcon={<MdPalette className="h-4 w-4" />}
+        hint={
+          roomThemeOptedOut
+            ? "As salas nunca vão trocar o seu tema. Vale para este navegador."
+            : "Desligue para nunca ficar com o tema que a sala escolher."
+        }
+      />
 
       <div className="my-2 border-t border-zinc-200 dark:border-zinc-800" />
 
