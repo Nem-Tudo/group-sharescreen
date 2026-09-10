@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import useNtPopups from "ntpopups";
 import { MdAdd, MdCheck, MdFavorite, MdFavoriteBorder, MdPalette, MdPeople } from "react-icons/md";
@@ -14,6 +14,10 @@ import { hasFeature, verifiedBadge } from "@/lib/entitlements";
 import {
   applyTheme,
   buyTheme,
+  setWornOverride,
+  getWornOverride,
+  getWornOverrideServer,
+  subscribeWornOverride,
   fetchMyThemes,
   fetchWorkshop,
   gradientCss,
@@ -279,7 +283,15 @@ export function WorkshopPanel() {
   // move; a local patch would slowly drift away from the truth.
   const [seq, setSeq] = useState(0);
 
-  const worn = account?.roomThemeId ?? null;
+  // The override first, so the button's own label flips on the press rather
+  // than when /auth/me answers. Same store the room reads (see useRoomTheme):
+  // one answer to "what am I wearing", not two that can disagree.
+  const pending = useSyncExternalStore(
+    subscribeWornOverride,
+    getWornOverride,
+    getWornOverrideServer
+  );
+  const worn = pending !== undefined ? pending : account?.roomThemeId ?? null;
   // Derived rather than cleared on sign-out, so the effect above never has to
   // write state synchronously — and so a stale list cannot outlive the account
   // it belonged to.
@@ -340,14 +352,25 @@ export function WorkshopPanel() {
       setAccountModal("create");
       return;
     }
-    setBusyId(theme.id);
     // Taking off the one already on, when the button says "remover".
-    await applyTheme(worn === theme.id ? null : theme.id);
-    // The account is what holds the choice, and the counters moved on the
-    // server — so both are re-read rather than guessed at.
-    refresh();
+    const next = worn === theme.id ? null : theme.id;
+    // Painted first, asked second. The palette is already in this tab (it came
+    // down with the list being looked at), so the room can change on the press
+    // and the server can be told about it afterwards — instead of the person
+    // waiting out a POST, an /auth/me and a /themes/:id in sequence.
+    setWornOverride(next);
+    const ok = await applyTheme(next);
+    if (!ok) {
+      // It did not take. Handing the answer back to the account is the honest
+      // undo: whatever it says is what is really being worn.
+      setWornOverride(undefined);
+      return;
+    }
+    // The account holds the choice and the counters moved, so both are re-read
+    // — but nothing on screen is waiting for either.
+    await refresh();
+    setWornOverride(undefined);
     setSeq((n) => n + 1);
-    setBusyId(null);
   }
 
   async function toggleLike(theme: RoomTheme) {
@@ -355,19 +378,25 @@ export function WorkshopPanel() {
       setAccountModal("create");
       return;
     }
-    setBusyId(theme.id);
-    const result = await likeTheme(theme.id, !theme.liked);
-    if (result) {
-      // Patched in place rather than re-read: the card is under the cursor and
-      // a refetch would reorder the grid beneath it when the sort is by likes.
-      const patch = (list: RoomTheme[]) =>
-        list.map((entry) =>
-          entry.id === theme.id ? { ...entry, liked: result.liked, likes: result.likes } : entry
-        );
-      setThemes(patch);
-      setMine(patch);
-    }
-    setBusyId(null);
+    // Flipped now, confirmed after. A heart is the cheapest possible action
+    // and the one where a spinner is most out of place: the person knows what
+    // they meant, and the server agreeing a moment later changes nothing they
+    // can see. Only a *failure* is worth showing, and that is what the revert
+    // below is.
+    const liked = !theme.liked;
+    const patch = (next: { liked: boolean; likes: number }) => (list: RoomTheme[]) =>
+      list.map((entry) => (entry.id === theme.id ? { ...entry, ...next } : entry));
+
+    const optimistic = { liked, likes: Math.max(0, theme.likes + (liked ? 1 : -1)) };
+    setThemes(patch(optimistic));
+    setMine(patch(optimistic));
+
+    const result = await likeTheme(theme.id, liked);
+    // The server's count, which is the one that includes everybody else's
+    // presses since this page loaded — or the state from before, if it refused.
+    const settled = result ?? { liked: theme.liked, likes: theme.likes };
+    setThemes(patch(settled));
+    setMine(patch(settled));
   }
 
   return (

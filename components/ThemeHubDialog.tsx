@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import useNtPopups from "ntpopups";
 import {
@@ -25,6 +25,10 @@ import {
   fetchWorkshop,
   isDarkTheme,
   likeTheme,
+  setWornOverride,
+  getWornOverride,
+  getWornOverrideServer,
+  subscribeWornOverride,
   type RoomTheme,
 } from "@/lib/roomThemes";
 
@@ -171,7 +175,6 @@ function ThemeRow({
         <button
           type="button"
           onClick={onLike}
-          disabled={busy}
           aria-label={theme.liked ? "Remover curtida" : "Curtir tema"}
           aria-pressed={theme.liked}
           className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-zinc-500 transition hover:bg-zinc-100 hover:text-rose-500 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-900"
@@ -240,7 +243,15 @@ export function ThemeHubDialog({ closePopup }: { closePopup: (hasAction?: boolea
   const [error, setError] = useState<string | null>(null);
 
   const features = account?.features ?? [];
-  const worn = account?.roomThemeId ?? null;
+  // The override first, so the button's own label flips on the press rather
+  // than when /auth/me answers. Same store the room reads (see useRoomTheme):
+  // one answer to "what am I wearing", not two that can disagree.
+  const pending = useSyncExternalStore(
+    subscribeWornOverride,
+    getWornOverride,
+    getWornOverrideServer
+  );
+  const worn = pending !== undefined ? pending : account?.roomThemeId ?? null;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -303,19 +314,19 @@ export function ThemeHubDialog({ closePopup }: { closePopup: (hasAction?: boolea
       setAccountModal("create");
       return;
     }
-    setBusyId(theme.id);
-    const result = await likeTheme(theme.id, !theme.liked);
-    if (result) {
-      // Patched in place rather than re-read: the row is under the cursor, and
-      // re-fetching would reorder a list sorted by popularity beneath it.
-      const patch = (list: RoomTheme[]) =>
-        list.map((entry) =>
-          entry.id === theme.id ? { ...entry, liked: result.liked, likes: result.likes } : entry
-        );
-      setThemes(patch);
-      setMine(patch);
-    }
-    setBusyId(null);
+    // Flipped now, confirmed after — the same reasoning as the workshop's.
+    const liked = !theme.liked;
+    const patch = (next: { liked: boolean; likes: number }) => (list: RoomTheme[]) =>
+      list.map((entry) => (entry.id === theme.id ? { ...entry, ...next } : entry));
+
+    const optimistic = { liked, likes: Math.max(0, theme.likes + (liked ? 1 : -1)) };
+    setThemes(patch(optimistic));
+    setMine(patch(optimistic));
+
+    const result = await likeTheme(theme.id, liked);
+    const settled = result ?? { liked: theme.liked, likes: theme.likes };
+    setThemes(patch(settled));
+    setMine(patch(settled));
   }
 
   async function wear(theme: RoomTheme) {
@@ -323,12 +334,19 @@ export function ThemeHubDialog({ closePopup }: { closePopup: (hasAction?: boolea
       setAccountModal("create");
       return;
     }
-    setBusyId(theme.id);
-    await applyTheme(worn === theme.id ? null : theme.id);
-    // The account holds the choice, and the room reads it — re-reading is what
-    // repaints the room behind this dialog.
-    refresh();
-    setBusyId(null);
+    const next = worn === theme.id ? null : theme.id;
+    // Painted first, asked second — see the same move in the workshop. It
+    // matters more here than anywhere: this dialog is open *over* the room it
+    // is repainting, so the wait was happening in full view of the thing that
+    // was not changing.
+    setWornOverride(next);
+    const ok = await applyTheme(next);
+    if (!ok) {
+      setWornOverride(undefined);
+      return;
+    }
+    await refresh();
+    setWornOverride(undefined);
   }
 
   const active = TABS.find((entry) => entry.id === tab) ?? TABS[0];

@@ -477,6 +477,67 @@ export function applyRoomTheme(spec: RoomThemeSpec | null): void {
   if (root.getAttribute("data-theme") !== mode) root.setAttribute("data-theme", mode);
 }
 
+// ─── Making it instant ────────────────────────────────────────────────────
+//
+// Putting a theme on used to take three round trips before a single colour
+// moved: save the choice, re-read the account to learn the choice, then fetch
+// the palette the choice names. Sequential, so a second of latency was three
+// seconds of a room that had not changed.
+//
+// Two stores fix it, and both are the same idea — the browser already knows
+// the answer, so it should stop asking:
+//
+//   the cache — every theme that has passed through this module is kept. A
+//     person pressing "usar" is pressing it on a card they are looking at, so
+//     the palette is already in hand and there is nothing to fetch.
+//   the override — what this tab has just chosen to wear, before the account
+//     has caught up. The account is still the truth; this is the half-second
+//     before the truth arrives.
+//
+// Neither is allowed to be wrong for long. An edit empties the cache (see
+// notifyThemeChanged below), and the override is dropped by whoever set it as
+// soon as the account agrees.
+
+const themeCache = new Map<string, RoomTheme>();
+
+/** Files away everything a listing or a read turned up. */
+export function rememberThemes(themes: RoomTheme[]): void {
+  for (const theme of themes) themeCache.set(theme.id, theme);
+}
+
+export function getCachedTheme(id: string): RoomTheme | null {
+  return themeCache.get(id) ?? null;
+}
+
+let wornOverride: string | null | undefined;
+const wornListeners = new Set<() => void>();
+
+/**
+ * What this tab is wearing right now, ahead of the account.
+ *
+ * `undefined` means "nothing pending, ask the account". `null` is a real
+ * answer and means "taking it off" — which is why this is three-valued and not
+ * two.
+ */
+export function setWornOverride(id: string | null | undefined): void {
+  if (wornOverride === id) return;
+  wornOverride = id;
+  for (const listener of wornListeners) listener();
+}
+
+export function getWornOverride(): string | null | undefined {
+  return wornOverride;
+}
+
+export function getWornOverrideServer(): undefined {
+  return undefined;
+}
+
+export function subscribeWornOverride(listener: () => void): () => void {
+  wornListeners.add(listener);
+  return () => wornListeners.delete(listener);
+}
+
 // ─── "A theme was edited" ─────────────────────────────────────────────────
 //
 // The room reads a theme once, on join, and holds on to it — which is right
@@ -499,6 +560,10 @@ const themeListeners = new Set<() => void>();
 /** Says that some theme's contents changed. Called after a save or a delete. */
 export function notifyThemeChanged(): void {
   themeSeq += 1;
+  // Emptied rather than patched: the edit that just landed may have been to
+  // any theme, and a cache that keeps one stale entry is worse than one that
+  // costs a few requests to refill.
+  themeCache.clear();
   for (const listener of themeListeners) listener();
 }
 
@@ -664,7 +729,9 @@ export async function fetchWorkshop(
     });
     if (!res.ok) return [];
     const data = (await res.json()) as { themes?: RoomTheme[] };
-    return Array.isArray(data.themes) ? data.themes : [];
+    const themes = Array.isArray(data.themes) ? data.themes : [];
+    rememberThemes(themes);
+    return themes;
   } catch {
     return [];
   }
@@ -679,7 +746,9 @@ export async function fetchMyThemes(signal?: AbortSignal): Promise<RoomTheme[]> 
     });
     if (!res.ok) return [];
     const data = (await res.json()) as { themes?: RoomTheme[] };
-    return Array.isArray(data.themes) ? data.themes : [];
+    const themes = Array.isArray(data.themes) ? data.themes : [];
+    rememberThemes(themes);
+    return themes;
   } catch {
     return [];
   }
@@ -700,6 +769,7 @@ export async function fetchTheme(id: string, signal?: AbortSignal): Promise<Room
     });
     if (!res.ok) return null;
     const data = (await res.json()) as { theme?: RoomTheme };
+    if (data.theme) rememberThemes([data.theme]);
     return data.theme ?? null;
   } catch {
     return null;

@@ -9,10 +9,14 @@ import {
   isRoomThemeOptedOutServer,
   isThemePreviewActive,
   isThemePreviewActiveServer,
+  getCachedTheme,
   getThemeSeq,
+  getWornOverride,
+  getWornOverrideServer,
   subscribeRoomThemeOptOut,
   subscribeThemeChanged,
   subscribeThemePreview,
+  subscribeWornOverride,
   type RoomTheme,
 } from "./roomThemes";
 
@@ -45,7 +49,15 @@ export interface RoomThemeState {
  */
 export function useRoomTheme(roomThemeId: string | null | undefined): RoomThemeState {
   const { account } = useAuth();
-  const mine = account?.roomThemeId ?? null;
+  // What this tab just chose, if the account has not caught up yet. Pressing
+  // "usar tema" writes it (see the workshop and the hub) so the room repaints
+  // now rather than after a round trip to /auth/me and back.
+  const override = useSyncExternalStore(
+    subscribeWornOverride,
+    getWornOverride,
+    getWornOverrideServer
+  );
+  const mine = override !== undefined ? override : account?.roomThemeId ?? null;
   // The room's if it has one, otherwise this account's. Undefined until the
   // room answers, which is why the effect below waits rather than applying.
   // Whether this browser refuses room themes outright. See the opt-out in
@@ -73,6 +85,12 @@ export function useRoomTheme(roomThemeId: string | null | undefined): RoomThemeS
     seq: number;
     theme: RoomTheme | null;
   } | null>(null);
+  // Read here rather than stored: a cached palette is already an answer, and
+  // putting it into state would be a second render to learn what this one
+  // already knows. Consistent across renders because the only thing that
+  // empties the cache also bumps `seq`, which is subscribed — so a render
+  // always follows.
+  const cached = wanted ? getCachedTheme(wanted) : null;
   // Whether the editor is showing something right now — a boolean, not the
   // colours. See roomThemes' preview channel: the colours are painted there
   // so that dragging one does not re-render the room around this hook.
@@ -102,6 +120,19 @@ export function useRoomTheme(roomThemeId: string | null | undefined): RoomThemeS
       applyRoomTheme(loaded.theme?.spec ?? null);
       return;
     }
+    // Already in this tab's hands — the palette came down with whatever list
+    // the person was looking at when they chose it, so there is nothing to ask
+    // for. This is the whole difference between a theme that changes on the
+    // press and one that changes a second later.
+    //
+    // Safe to trust because the cache is emptied the moment anything is edited
+    // (see notifyThemeChanged): a stale entry can only be somebody *else's*
+    // edit, which this room was never going to notice before its next load
+    // anyway.
+    if (cached) {
+      applyRoomTheme(cached.spec);
+      return;
+    }
     const controller = new AbortController();
     void fetchTheme(wanted, controller.signal).then((theme) => {
       if (controller.signal.aborted) return;
@@ -113,7 +144,7 @@ export function useRoomTheme(roomThemeId: string | null | undefined): RoomThemeS
       applyRoomTheme(theme?.spec ?? null);
     });
     return () => controller.abort();
-  }, [wanted, previewing, loaded, seq]);
+  }, [wanted, previewing, loaded, seq, cached]);
 
   // Taken off when this leaves the screen, whatever the reason — navigating
   // out of the room, or the room ending. The theme is written onto the
@@ -126,6 +157,7 @@ export function useRoomTheme(roomThemeId: string | null | undefined): RoomThemeS
   // Only the answer to the question currently being asked. A reply that
   // landed for the previous room, or for the theme worn before this one, is
   // not an answer about this one.
-  const theme = wanted && loaded?.id === wanted && loaded.seq === seq ? loaded.theme : null;
+  const theme =
+    cached ?? (wanted && loaded?.id === wanted && loaded.seq === seq ? loaded.theme : null);
   return { theme, fromRoom: Boolean(theme && fromRoomId) };
 }
