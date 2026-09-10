@@ -101,6 +101,28 @@ export function setStoredMicOn(value: boolean) {
   setStoredBoolean(MIC_ON_KEY, value);
 }
 
+// How loud this device's microphone is sent, as the linear multiplier the
+// mic graph's gain node takes (see rnnoise.ts, whose MIN/MAX/DEFAULT_MIC_GAIN
+// define the range). Per device rather than per account, like the mic and
+// speaker choices: it compensates for *this* microphone being quiet or hot,
+// and carrying it to another machine would be carrying the wrong correction.
+//
+// Returned raw, exactly as SHARE_FPS is and for the reason spelled out
+// there: what is stored is only what was last chosen, and what counts as a
+// valid answer belongs with the code that owns the range. Null means
+// "nothing stored yet", which the caller reads as the default.
+const MIC_GAIN_KEY = "sharescreen:micGain";
+
+export function getStoredMicGain(): number | null {
+  const raw = getStoredString(MIC_GAIN_KEY);
+  if (raw === null) return null;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+export function setStoredMicGain(value: number) {
+  setStoredString(MIC_GAIN_KEY, String(value));
+}
+
 export function getStoredDoubleClickFocus(): boolean {
   return getStoredBoolean(DOUBLE_CLICK_FOCUS_KEY, true);
 }

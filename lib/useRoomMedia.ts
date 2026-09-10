@@ -5,7 +5,15 @@ import { signalingClient } from "./signalingClient";
 import type { Feature } from "./entitlements";
 import { trackEvent } from "./analytics";
 import { iceConfigFor } from "./iceConfig";
-import { captureNoiseSuppressedMic, setGraphSuppressionEnabled, type MicNoiseGraph } from "./rnnoise";
+import {
+  captureNoiseSuppressedMic,
+  setGraphSuppressionEnabled,
+  setGraphInputGain,
+  graphSuppressionAvailable,
+  clampMicGain,
+  DEFAULT_MIC_GAIN,
+  type MicNoiseGraph,
+} from "./rnnoise";
 import {
   getStoredAutoJoin,
   getStoredForceRelayIce,
@@ -26,6 +34,8 @@ import {
   getStoredSmartQuality,
   setStoredSmartQuality,
   getStoredMicDeviceId,
+  getStoredMicGain,
+  setStoredMicGain,
   getStoredSpeakerDeviceId,
   setStoredAutoJoin,
   setStoredForceRelayIce,
@@ -3143,6 +3153,21 @@ export function useRoomMedia(room: string) {
   const micStopRef = useRef<() => void>(() => {});
   const [noiseSuppressionAvailable, setNoiseSuppressionAvailable] = useState(true);
 
+  // The input-volume dial, 0.01-2. Same "ref mirrors state, for the capture
+  // closure" pattern as noiseSuppressionOnRef, and for the same reason: the
+  // start callback runs once per mic start, so a captured `const` would hand
+  // a stale level to a capture started after the slider moved. Clamped on the
+  // way out of storage rather than on the way in — the range belongs to
+  // rnnoise.ts, and a value stored by an older build with a wider one should
+  // land inside today's rather than be treated as no preference at all.
+  const micGainRef = useRef(clampMicGain(getStoredMicGain() ?? DEFAULT_MIC_GAIN));
+  const [micGain, setMicGainState] = useState(() => clampMicGain(getStoredMicGain() ?? DEFAULT_MIC_GAIN));
+  // False once the mic has started without a graph to hang the gain node on
+  // (a suspended/unavailable AudioContext — see captureNoiseSuppressedMic).
+  // The capture is broadcast raw in that state, so the dial does nothing and
+  // the UI says so instead of pretending.
+  const [micGainAvailable, setMicGainAvailable] = useState(true);
+
   // Same "ref mirrors state, for the capture closure" pattern as
   // noiseSuppressionOnRef above — useBroadcastChannel only calls this start
   // callback once per mic start, so a captured `const` would go stale if the
@@ -3177,10 +3202,12 @@ export function useRoomMedia(room: string) {
           // makes the button reflect reality.
           micStopRef.current();
         },
-        micDeviceIdRef.current
+        micDeviceIdRef.current,
+        micGainRef.current
       );
       micGraphRef.current = graph;
-      setNoiseSuppressionAvailable(graph !== null);
+      setNoiseSuppressionAvailable(graphSuppressionAvailable(graph));
+      setMicGainAvailable(graph !== null);
       return stream;
     },
     () => Boolean(navigator.mediaDevices?.getUserMedia),
@@ -3303,6 +3330,18 @@ export function useRoomMedia(room: string) {
     prewarmExcludedSystemAudio();
   }, []);
 
+  // Sets how loud this microphone is sent. Applied to the live graph rather
+  // than by restarting the capture, so — unlike switching input device —
+  // dragging the slider mid-call costs nothing: no gap, no renegotiation,
+  // and the person hears the result on the other end as they move it.
+  const setMicGain = useCallback((value: number) => {
+    const clamped = clampMicGain(value);
+    micGainRef.current = clamped;
+    setMicGainState(clamped);
+    setStoredMicGain(clamped);
+    setGraphInputGain(micGraphRef.current, clamped);
+  }, []);
+
   const toggleNoiseSuppression = useCallback(() => {
     const next = !noiseSuppressionOnRef.current;
     noiseSuppressionOnRef.current = next;
@@ -3379,6 +3418,11 @@ export function useRoomMedia(room: string) {
     micConnectionStates: mic.recvConnectionStates,
     micDeviceId,
     setMicDevice,
+    micGain,
+    setMicGain,
+    // Like noiseSuppressionAvailable, only meaningful once the mic has
+    // actually started.
+    micGainAvailable,
     speakerDeviceId,
     setSpeakerDevice,
 

@@ -127,6 +127,7 @@ import {
   nextFreeLocalMediaSlot,
   type LocalMediaSlot,
 } from "@/lib/localMediaSource";
+import { MIN_MIC_GAIN, MAX_MIC_GAIN, DEFAULT_MIC_GAIN } from "@/lib/rnnoise";
 import useNtPopups from "ntpopups";
 import {
   MicIcon,
@@ -268,6 +269,60 @@ function DeviceMenuOption({
       <span className="truncate">{label}</span>
       {selected && <CheckIcon className="h-4 w-4 shrink-0" />}
     </button>
+  );
+}
+
+// The mic's input-volume dial, at the foot of the input-device picker.
+// It lives there because it is a property of the microphone you just picked
+// — a level that compensates for that device being quiet or hot — and
+// because the picker is where someone goes after being told they can barely
+// be heard.
+//
+// Shown as a percentage rather than in dB: what people are told is "você
+// está muito baixo", not "-6 dB".
+function MicGainRow({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: number;
+  onChange: (value: number) => void;
+  disabled: boolean;
+}) {
+  return (
+    <div className="-mx-1 mt-1 border-t border-zinc-200 px-3 pb-2 pt-2.5 dark:border-zinc-800">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+          <MicIcon className="h-3.5 w-3.5 shrink-0" />
+          Volume do microfone
+        </span>
+        <span className="text-xs font-semibold tabular-nums text-zinc-700 dark:text-zinc-300">
+          {Math.round(value * 100)}%
+        </span>
+      </div>
+      {/* Double click puts it back to exactly 100%. Every slider with a
+          neutral point in the middle of its range needs that: landing on
+          1.00 again by dragging is luck, not aim. */}
+      <input
+        type="range"
+        min={MIN_MIC_GAIN}
+        max={MAX_MIC_GAIN}
+        step="0.01"
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(Number(event.target.value))}
+        onDoubleClick={() => onChange(DEFAULT_MIC_GAIN)}
+        aria-label="Volume do microfone"
+        className="mt-2 h-1.5 w-full cursor-pointer accent-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
+      />
+      <p className="mt-1.5 text-[11px] leading-snug text-zinc-500 dark:text-zinc-500">
+        {disabled
+          ? "Indisponível nesta configuração de áudio"
+          : value > 1
+            ? "Acima de 100% o ruído de fundo também aumenta"
+            : "Clique duas vezes na barra para voltar a 100%"}
+      </p>
+    </div>
   );
 }
 
@@ -991,6 +1046,9 @@ export function WatchRoom({ handle }: { handle: string }) {
     micConnectionStates,
     micDeviceId,
     setMicDevice,
+    micGain,
+    setMicGain,
+    micGainAvailable,
     speakerDeviceId,
     setSpeakerDevice,
     noiseSuppressionOn,
@@ -4125,6 +4183,14 @@ export function WatchRoom({ handle }: { handle: string }) {
                   }}
                 />
               ))}
+              {/* Unlike picking a device, moving this doesn't close the
+                  menu: it is a dial to be adjusted while listening to the
+                  result, not a choice that is over once made. */}
+              <MicGainRow
+                value={micGain}
+                onChange={setMicGain}
+                disabled={isMicOn && !micGainAvailable}
+              />
             </div>
           }
         >
