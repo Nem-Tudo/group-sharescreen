@@ -120,7 +120,30 @@ function ThemeCard({
 }) {
   return (
     <li className="flex flex-col gap-3 rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
-      <ThemePreview theme={theme} />
+      {/* The heart sits on the artwork, which is where the eye already is and
+          the largest target on the card. It used to be a grey text button in
+          the last row, below the buttons — technically present, and in the one
+          place nobody looks at on a card they are deciding about.
+          Over the preview it also needs no colour of its own from the theme:
+          a scrim and white, so it reads on a pale palette and a dark one. */}
+      <div className="relative">
+        <ThemePreview theme={theme} />
+        <button
+          type="button"
+          onClick={onLike}
+          disabled={busy || !theme.published}
+          aria-label={theme.liked ? "Remover curtida" : "Curtir tema"}
+          aria-pressed={theme.liked}
+          className="absolute right-2 top-2 flex items-center gap-1.5 rounded-full bg-black/50 px-2.5 py-1.5 text-xs font-semibold text-white backdrop-blur-sm transition hover:bg-black/70 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {theme.liked ? (
+            <MdFavorite className="h-4 w-4 shrink-0 text-rose-400" />
+          ) : (
+            <MdFavoriteBorder className="h-4 w-4 shrink-0" />
+          )}
+          {theme.likes}
+        </button>
+      </div>
 
       <div className="min-w-0">
         <p className="flex items-center gap-1.5">
@@ -215,24 +238,12 @@ function ThemeCard({
         )}
       </div>
 
-      {/* The two numbers, side by side, because they answer different
-          questions: "how many people liked this" is taste, "how many are
-          wearing it" is use — and a theme can easily be high on one and low on
-          the other. */}
+      {/* What is left here is a statistic rather than a control. The like moved
+          onto the preview above; this line answers the other question — "how
+          many people are actually wearing it" — which is use rather than
+          taste, and which a theme can score high on while scoring low on the
+          other. */}
       <div className="flex items-center gap-3 text-xs text-zinc-500 dark:text-zinc-400">
-        <button
-          type="button"
-          onClick={onLike}
-          disabled={busy || !theme.published}
-          className="flex items-center gap-1 transition hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {theme.liked ? (
-            <MdFavorite className="h-4 w-4 shrink-0 text-rose-500" />
-          ) : (
-            <MdFavoriteBorder className="h-4 w-4 shrink-0" />
-          )}
-          {theme.likes}
-        </button>
         <span className="flex items-center gap-1">
           <MdPeople className="h-4 w-4 shrink-0" />
           {theme.uses}

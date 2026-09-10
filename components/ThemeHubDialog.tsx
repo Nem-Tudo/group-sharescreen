@@ -3,7 +3,15 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import useNtPopups from "ntpopups";
-import { MdAdd, MdCheck, MdPalette, MdPeople, MdPublic } from "react-icons/md";
+import {
+  MdAdd,
+  MdCheck,
+  MdFavorite,
+  MdFavoriteBorder,
+  MdPalette,
+  MdPeople,
+  MdPublic,
+} from "react-icons/md";
 import { BsCoin } from "react-icons/bs";
 import { AccountModal, type AccountModalMode } from "@/components/AccountModal";
 import { planIcon } from "@/components/planIcons";
@@ -16,6 +24,7 @@ import {
   fetchMyThemes,
   fetchWorkshop,
   isDarkTheme,
+  likeTheme,
   type RoomTheme,
 } from "@/lib/roomThemes";
 
@@ -108,6 +117,7 @@ function ThemeRow({
   onWear,
   onEdit,
   onBuy,
+  onLike,
 }: {
   theme: RoomTheme;
   worn: boolean;
@@ -116,6 +126,7 @@ function ThemeRow({
   /** Only for a theme this account wrote. Absent for everybody else's. */
   onEdit?: () => void;
   onBuy: () => void;
+  onLike: () => void;
 }) {
   const { palette, accent } = theme.spec;
   return (
@@ -150,6 +161,29 @@ function ThemeRow({
           )}
         </span>
       </span>
+      {/* Beside the verb, not in the caption above it. This list is the one
+          people scroll while actually in a room wearing these — the shortest
+          path there is to a theme they like — and a heart three points of type
+          smaller than the row is a heart nobody presses.
+          Never on a private theme: liking something with an audience of one is
+          a way of finding out it exists (the API refuses it too). */}
+      {theme.published && (
+        <button
+          type="button"
+          onClick={onLike}
+          disabled={busy}
+          aria-label={theme.liked ? "Remover curtida" : "Curtir tema"}
+          aria-pressed={theme.liked}
+          className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-zinc-500 transition hover:bg-zinc-100 hover:text-rose-500 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-900"
+        >
+          {theme.liked ? (
+            <MdFavorite className="h-4 w-4 shrink-0 text-rose-500" />
+          ) : (
+            <MdFavoriteBorder className="h-4 w-4 shrink-0" />
+          )}
+          {theme.likes}
+        </button>
+      )}
       {onEdit && (
         <button
           type="button"
@@ -264,6 +298,26 @@ export function ThemeHubDialog({ closePopup }: { closePopup: (hasAction?: boolea
     setBusyId(null);
   }
 
+  async function like(theme: RoomTheme) {
+    if (!account) {
+      setAccountModal("create");
+      return;
+    }
+    setBusyId(theme.id);
+    const result = await likeTheme(theme.id, !theme.liked);
+    if (result) {
+      // Patched in place rather than re-read: the row is under the cursor, and
+      // re-fetching would reorder a list sorted by popularity beneath it.
+      const patch = (list: RoomTheme[]) =>
+        list.map((entry) =>
+          entry.id === theme.id ? { ...entry, liked: result.liked, likes: result.likes } : entry
+        );
+      setThemes(patch);
+      setMine(patch);
+    }
+    setBusyId(null);
+  }
+
   async function wear(theme: RoomTheme) {
     if (!account) {
       setAccountModal("create");
@@ -362,6 +416,7 @@ export function ThemeHubDialog({ closePopup }: { closePopup: (hasAction?: boolea
                       busy={busyId === theme.id}
                       onWear={() => void wear(theme)}
                       onBuy={() => void buy(theme)}
+                      onLike={() => void like(theme)}
                       onEdit={() => editTheme(theme)}
                     />
                   ))}
@@ -390,6 +445,7 @@ export function ThemeHubDialog({ closePopup }: { closePopup: (hasAction?: boolea
                     busy={busyId === theme.id}
                     onWear={() => void wear(theme)}
                     onBuy={() => void buy(theme)}
+                    onLike={() => void like(theme)}
                   />
                 ))}
               </ul>
