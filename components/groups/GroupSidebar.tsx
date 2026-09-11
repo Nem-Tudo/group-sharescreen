@@ -7,14 +7,17 @@ import {
   MdCallEnd,
   MdChatBubbleOutline,
   MdCheck,
+  MdHeadsetOff,
   MdLock,
   MdLogout,
   MdMic,
   MdMicOff,
+  MdMusicNote,
   MdPeopleOutline,
   MdPalette,
   MdPersonAdd,
   MdSettings,
+  MdVideocam,
   MdVolumeUp,
 } from "react-icons/md";
 import { Popover, Tooltip } from "@/components/Tooltip";
@@ -26,6 +29,7 @@ import {
   type GroupChannelKind,
   type GroupDetail,
   type GroupNotifyLevel,
+  type GroupVoiceParticipant,
 } from "@/lib/groupsApi";
 import { groupPath } from "@/lib/groupLinks";
 import { useGroupNavigation } from "@/lib/groupNavigation";
@@ -40,8 +44,11 @@ import { useOpenChannelSettings } from "@/components/groups/ChannelSettingsDialo
 import {
   setGroupVoiceSession,
   useGroupVoiceControls,
+  useGroupVoiceLive,
   useGroupVoiceSession,
+  type GroupVoiceLivePerson,
 } from "@/lib/groupVoiceSession";
+import { useSpeaking } from "@/lib/useSpeaking";
 import { playHangUpSound } from "@/lib/soundEffects";
 import { useAuth } from "@/lib/AuthContext";
 import { hasFeature } from "@/lib/entitlements";
@@ -80,6 +87,88 @@ function useOpenSettings(groupId: string) {
 
 // ─── Rooms ───────────────────────────────────────────────────────────────
 
+/**
+ * A person in a room you are not in, as the server described them — in the
+ * same shape as the call's own (GroupVoiceLivePerson), so one row draws both.
+ * Fields an older API does not send read as off; "screen" falls back to
+ * "sharing", which is what the row showed before cameras had their own icon.
+ */
+function fromServerPresence(person: GroupVoiceParticipant): GroupVoiceLivePerson {
+  return {
+    userId: person.userId,
+    name: person.name,
+    avatarUrl: person.avatarUrl,
+    mic: person.mic,
+    deafened: person.deafened ?? false,
+    camera: person.camera ?? false,
+    screen: person.screen ?? person.sharing,
+    micStream: null,
+  };
+}
+
+/**
+ * One person under a voice room: a green ring round their face and their name
+ * in green while they are speaking, like the call's own participant list
+ * (only ever in the room you are in — nobody else's audio reaches
+ * this tab), and what they have on, the way the call's participant list says
+ * it. A closed mic and deafened are two icons, side by side when both are true
+ * — which is the usual case, since deafening closes the mic.
+ */
+function VoicePersonRow({ person }: { person: GroupVoiceLivePerson }) {
+  const speaking = useSpeaking(person.micStream);
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() =>
+          openGroupProfile({
+            id: person.userId,
+            name: person.name,
+            avatarUrl: person.avatarUrl,
+            guest: person.userId.startsWith("guest:"),
+          })
+        }
+        onMouseEnter={() => prefetchUserProfile(person.userId)}
+        title="Ver perfil"
+        className="flex w-full cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
+      >
+        <span
+          className={`flex shrink-0 rounded-full transition-shadow duration-150 ${
+            speaking ? "ring-2 ring-emerald-500" : "ring-0 ring-transparent"
+          }`}
+        >
+          <UserAvatar src={person.avatarUrl} name={person.name} size={18} />
+        </span>
+        <span
+          className={`min-w-0 flex-1 truncate transition-colors duration-150 ${
+            speaking ? "font-medium text-emerald-600 dark:text-emerald-500" : ""
+          }`}
+        >
+          {person.name}
+        </span>
+        {person.screen && (
+          <span className="shrink-0 rounded bg-red-600 px-1 py-px text-[9px] font-bold uppercase text-white">
+            Ao vivo
+          </span>
+        )}
+        {person.camera && (
+          <MdVideocam className="h-3.5 w-3.5 shrink-0 opacity-70" title="Câmera ligada" aria-label="Câmera ligada" />
+        )}
+        {!person.mic && (
+          <MdMicOff
+            className="h-3.5 w-3.5 shrink-0 opacity-60"
+            title="Microfone desligado"
+            aria-label="Microfone desligado"
+          />
+        )}
+        {person.deafened && (
+          <MdHeadsetOff className="h-3.5 w-3.5 shrink-0 opacity-60" title="Ensurdecido" aria-label="Ensurdecido" />
+        )}
+      </button>
+    </li>
+  );
+}
+
 export function GroupRoomsPanel({
   detail,
   activeChannelId,
@@ -94,6 +183,7 @@ export function GroupRoomsPanel({
 }) {
   const navigation = useGroupNavigation();
   const session = useGroupVoiceSession();
+  const live = useGroupVoiceLive();
   const openChannelSettings = useOpenChannelSettings();
   const [addOpen, setAddOpen] = useState(false);
   const [creating, setCreating] = useState<GroupChannelKind | null>(null);
@@ -101,7 +191,7 @@ export function GroupRoomsPanel({
   const [createError, setCreateError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const { group, channels, voice, me } = detail;
+  const { group, channels, voice, voiceRooms: voiceRoomStates, me } = detail;
   const isManager = me.role === "owner" || me.role === "admin";
   const textRooms = channels.filter((c) => c.kind === "text");
   const voiceRooms = channels.filter((c) => c.kind === "voice");
@@ -209,7 +299,13 @@ export function GroupRoomsPanel({
           {voiceRooms.map((channel) => {
             const active = channel.id === activeChannelId;
             const connected = session?.groupId === group.id && session.channelId === channel.id;
-            const people = voice[channel.id] ?? [];
+            // The room you are in is drawn from the call itself (see
+            // lib/groupVoiceSession's GroupVoiceLive) — every change shows
+            // the moment it happens, and it is the only room whose speakers
+            // can be seen. Every other room, from the server's update.
+            const liveRoom = connected && live && live.handle === session?.handle ? live : null;
+            const people = liveRoom ? liveRoom.people : (voice[channel.id] ?? []).map(fromServerPresence);
+            const music = liveRoom ? liveRoom.music : voiceRoomStates?.[channel.id]?.music ?? null;
             // Without "Conectar" the room is still listed, with who is in it,
             // but its header is not a way in (see lib/groupPermissions). The
             // server refuses the join regardless; this only doesn't offer it.
@@ -223,11 +319,18 @@ export function GroupRoomsPanel({
                   <MdVolumeUp className={`h-4 w-4 shrink-0 ${connected ? "text-emerald-600" : "text-zinc-400"}`} />
                 )}
                 <span
-                  className={`min-w-0 flex-1 truncate text-sm font-medium ${
+                  className={`flex min-w-0 flex-1 items-center gap-1 text-sm font-medium ${
                     locked ? "text-zinc-500 dark:text-zinc-400" : "text-zinc-900 dark:text-zinc-100"
                   }`}
                 >
-                  {channel.name}
+                  <span className="truncate">{channel.name}</span>
+                  {music && (
+                    <MdMusicNote
+                      className={`h-3.5 w-3.5 shrink-0 ${music.playing ? "text-emerald-600" : "text-zinc-400"}`}
+                      title={music.playing ? "Música tocando" : "Música pausada"}
+                      aria-label={music.playing ? "Música tocando" : "Música pausada"}
+                    />
+                  )}
                 </span>
                 {connected ? (
                   <span className="shrink-0 rounded-full bg-emerald-600 px-2 py-0.5 text-[11px] font-medium text-white">
@@ -270,33 +373,7 @@ export function GroupRoomsPanel({
                   {people.length > 0 && (
                     <ul className="flex flex-col gap-0.5 border-t border-zinc-100 px-1.5 py-1.5 dark:border-zinc-800/70">
                       {people.map((person) => (
-                        <li key={person.userId}>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              openGroupProfile({
-                                id: person.userId,
-                                name: person.name,
-                                avatarUrl: person.avatarUrl,
-                                guest: person.userId.startsWith("guest:"),
-                              })
-                            }
-                            onMouseEnter={() => prefetchUserProfile(person.userId)}
-                            title="Ver perfil"
-                            className="flex w-full cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
-                          >
-                            <UserAvatar src={person.avatarUrl} name={person.name} size={18} />
-                            <span className="min-w-0 flex-1 truncate">{person.name}</span>
-                            {person.sharing && (
-                              <span className="shrink-0 rounded bg-red-600 px-1 py-px text-[9px] font-bold uppercase text-white">
-                                Ao vivo
-                              </span>
-                            )}
-                            {!person.mic && (
-                              <MdMicOff className="h-3.5 w-3.5 shrink-0 opacity-60" aria-label="Microfone desligado" />
-                            )}
-                          </button>
-                        </li>
+                        <VoicePersonRow key={person.userId} person={person} />
                       ))}
                     </ul>
                   )}

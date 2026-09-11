@@ -43,15 +43,32 @@ export interface GroupChannel {
   mentions: number;
 }
 
+/** Somebody in a group voice room — one entry per person, however many devices. */
 export interface GroupVoiceParticipant {
   userId: string;
   name: string;
   avatarUrl: string | null;
   mic: boolean;
+  /** Transmitting anything at all. */
   sharing: boolean;
+  /** "Silenciar microfones": they cannot hear the room. Absent from an older API. */
+  deafened?: boolean;
+  /** Camera on. Absent from an older API. */
+  camera?: boolean;
+  /** Something other than the camera going out — a screen, a file. Absent from an older API. */
+  screen?: boolean;
 }
 
 export type GroupVoiceMap = Record<string, GroupVoiceParticipant[]>;
+
+/** A live voice room's own state, besides who is in it. */
+export interface GroupVoiceRoomState {
+  /** Music the room put on, or null for none. */
+  music: { playing: boolean } | null;
+}
+
+/** Keyed by room id, and only for rooms that have something to say. */
+export type GroupVoiceRoomMap = Record<string, GroupVoiceRoomState>;
 
 export interface GroupInfo {
   id: string;
@@ -77,6 +94,8 @@ export interface GroupDetail {
   group: GroupInfo;
   channels: GroupChannel[];
   voice: GroupVoiceMap;
+  /** Absent from an older API — read as no room having anything on. */
+  voiceRooms?: GroupVoiceRoomMap;
   me: { id: string; role: GroupRole; notify: GroupNotifyLevel; guest: boolean };
   /** False on an installation without a database — the text rooms are off there. */
   chatAvailable: boolean;
@@ -198,7 +217,12 @@ export const fetchGroup = (groupId: string, signal?: AbortSignal) =>
   request<GroupDetail>("GET", `/groups/${enc(groupId)}`, undefined, signal);
 
 export const fetchGroupVoice = (groupId: string, signal?: AbortSignal) =>
-  request<{ voice: GroupVoiceMap }>("GET", `/groups/${enc(groupId)}/voice`, undefined, signal);
+  request<{ voice: GroupVoiceMap; voiceRooms?: GroupVoiceRoomMap }>(
+    "GET",
+    `/groups/${enc(groupId)}/voice`,
+    undefined,
+    signal
+  );
 
 export const updateGroup = (groupId: string, patch: { name?: string; description?: string }) =>
   request<{ group: GroupInfo }>("PATCH", `/groups/${enc(groupId)}`, patch);

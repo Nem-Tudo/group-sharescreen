@@ -13,6 +13,7 @@ import {
   type GroupSummary,
   type GroupUser,
   type GroupVoiceMap,
+  type GroupVoiceRoomMap,
 } from "./groupsApi";
 
 // Every group this person is in, and the details of the ones they have opened.
@@ -362,7 +363,11 @@ function handleEvent(event: GroupSocketEvent) {
     }
     case "group-voice": {
       if (!groupId) return;
-      patchDetail(groupId, { voice: (event.voice as GroupVoiceMap | undefined) ?? {} });
+      patchDetail(groupId, {
+        voice: (event.voice as GroupVoiceMap | undefined) ?? {},
+        // Absent from an older API: no room has anything on, as far as it says.
+        voiceRooms: (event.voiceRooms as GroupVoiceRoomMap | undefined) ?? {},
+      });
       return;
     }
     case "group-updated": {

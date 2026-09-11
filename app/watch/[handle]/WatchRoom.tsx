@@ -26,7 +26,12 @@ import {
   type ChatReplyTo,
 } from "@/lib/signalingClient";
 import { useSignaling, useHasStoredName } from "@/lib/useSignaling";
-import { setGroupVoiceControls } from "@/lib/groupVoiceSession";
+import {
+  setGroupVoiceControls,
+  setGroupVoiceLive,
+  type GroupVoiceLive,
+  type GroupVoiceLivePerson,
+} from "@/lib/groupVoiceSession";
 import { peerPresence } from "@/lib/presence";
 import { useAuth } from "@/lib/AuthContext";
 import { getAccountToken } from "@/lib/accountApi";
@@ -2058,6 +2063,86 @@ export function WatchRoom({
     if (!inGroup) return;
     return () => setGroupVoiceControls(null);
   }, [inGroup]);
+
+  // In a group, the rooms list outside this room draws the room you are in
+  // from here rather than from the server's group-wide update (see
+  // lib/groupVoiceSession's GroupVoiceLive): a mute, a camera, deafening
+  // yourself all show the moment they happen, and the list gets everybody's
+  // mic audio to light up whoever is speaking. Only once joined — until then
+  // the server's list is the better answer.
+  //
+  // Built from the values it reads rather than from visiblePeers, which is a
+  // fresh array every render: this is published to another part of the page,
+  // and should only be when something in it changed.
+  const joinedGroupRoom = inGroup && state.room === handle;
+  const groupVoiceLive = useMemo((): GroupVoiceLive | null => {
+    if (!joinedGroupRoom) return null;
+    const people = new Map<string, GroupVoiceLivePerson>();
+    const add = (person: GroupVoiceLivePerson) => {
+      const existing = people.get(person.userId);
+      if (!existing) {
+        people.set(person.userId, person);
+        return;
+      }
+      // Several devices are one person, folded as the server folds them.
+      existing.mic ||= person.mic;
+      existing.camera ||= person.camera;
+      existing.screen ||= person.screen;
+      existing.deafened &&= person.deafened;
+      existing.micStream ??= person.micStream;
+    };
+    if (state.selfUserId && state.name) {
+      const camera = Boolean(localCameraStream);
+      add({
+        userId: state.selfUserId,
+        name: state.name,
+        avatarUrl: account?.avatarUrl ?? null,
+        mic: isMicOn,
+        deafened: micsMuted,
+        camera,
+        screen: isSharing && (!camera || Boolean(localStream)),
+        micStream: isMicOn ? localMicStream ?? null : null,
+      });
+    }
+    for (const p of state.peers) {
+      if (p.role === "moderator" || isObsPeer(p)) continue;
+      const camera = p.camera === true;
+      add({
+        userId: p.userId ?? p.id,
+        name: p.name,
+        avatarUrl: p.avatarUrl ?? null,
+        mic: p.mic,
+        deafened: p.micsMuted === true,
+        camera,
+        screen: p.sharing && (!camera || p.screen === true || (p.files?.length ?? 0) > 0),
+        micStream: p.mic ? remoteMicStreams[p.id] ?? null : null,
+      });
+    }
+    return {
+      handle,
+      people: [...people.values()],
+      music: state.music ? { playing: state.music.playing } : null,
+    };
+  }, [
+    joinedGroupRoom,
+    handle,
+    state.selfUserId,
+    state.name,
+    state.peers,
+    state.music,
+    account?.avatarUrl,
+    isMicOn,
+    micsMuted,
+    isSharing,
+    localStream,
+    localCameraStream,
+    localMicStream,
+    remoteMicStreams,
+  ]);
+  useEffect(() => {
+    setGroupVoiceLive(groupVoiceLive);
+  }, [groupVoiceLive]);
+  useEffect(() => () => setGroupVoiceLive(null), []);
 
   // Whether the tile an id points at still has anything to show. The one
   // place that knows how each kind of tile answers that — used both by the

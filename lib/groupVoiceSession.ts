@@ -17,7 +17,9 @@ import { useSyncExternalStore } from "react";
 //     room's admins are the group's, so that screen is hidden there).
 //
 // The room itself also publishes its microphone here (see setGroupVoiceControls)
-// so the dock can offer the mute button without reaching into the room.
+// so the dock can offer the mute button without reaching into the room — and
+// everybody in it as the call sees them (see setGroupVoiceLive), so the rooms
+// list can draw the room you are in from the call rather than from the server.
 
 export interface GroupVoiceSession {
   groupId: string;
@@ -33,8 +35,39 @@ export interface GroupVoiceControls {
   toggleMic: () => void;
 }
 
+/**
+ * Somebody in the connected room, as the call sees them — one entry per
+ * person, however many devices, folded the way the server folds them (see the
+ * API's groupVoiceParticipants).
+ */
+export interface GroupVoiceLivePerson {
+  userId: string;
+  name: string;
+  avatarUrl: string | null;
+  mic: boolean;
+  deafened: boolean;
+  camera: boolean;
+  screen: boolean;
+  /** Their microphone's audio, for telling when they speak. Null while it is off. */
+  micStream: MediaStream | null;
+}
+
+/**
+ * The connected room, live. What the rooms list shows for the room you are in
+ * instead of the server's group-wide update: the call hears about a mute or a
+ * camera the moment it happens (it is the same message that updates the tiles),
+ * and it has everybody's audio, which is the only way to know who is speaking.
+ */
+export interface GroupVoiceLive {
+  /** The room handle this describes — matched against the session's. */
+  handle: string;
+  people: GroupVoiceLivePerson[];
+  music: { playing: boolean } | null;
+}
+
 let session: GroupVoiceSession | null = null;
 let controls: GroupVoiceControls | null = null;
+let live: GroupVoiceLive | null = null;
 const listeners = new Set<() => void>();
 
 function notify() {
@@ -62,7 +95,10 @@ export function setGroupVoiceSession(next: GroupVoiceSession | null): void {
       session.groupName === next.groupName);
   if (same) return;
   session = next;
-  if (!next) controls = null;
+  if (!next) {
+    controls = null;
+    live = null;
+  }
   notify();
 }
 
@@ -83,6 +119,21 @@ function getControls(): GroupVoiceControls | null {
 
 export function useGroupVoiceControls(): GroupVoiceControls | null {
   return useSyncExternalStore(subscribe, getControls, () => null);
+}
+
+/** Published by the room while it is in group mode and joined; cleared by it on the way out. */
+export function setGroupVoiceLive(next: GroupVoiceLive | null): void {
+  if (live === next) return;
+  live = next;
+  notify();
+}
+
+function getLive(): GroupVoiceLive | null {
+  return live;
+}
+
+export function useGroupVoiceLive(): GroupVoiceLive | null {
+  return useSyncExternalStore(subscribe, getLive, () => null);
 }
 
 /** Whether the room this tab is in right now is the active group voice room. */
