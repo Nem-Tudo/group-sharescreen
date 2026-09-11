@@ -383,6 +383,8 @@ export type DirectMessageWire = {
     images?: string[];
   } | null;
   ts: number;
+  /** See lib/dmApi's DirectMessage.clientId. */
+  clientId?: string;
 };
 
 /** How many delivered messages the buffer above keeps. */

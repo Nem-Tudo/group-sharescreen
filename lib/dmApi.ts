@@ -32,6 +32,13 @@ export interface DirectMessage {
   images?: string[];
   replyTo?: DmReplyTo | null;
   ts: number;
+  /**
+   * The label this tab gave a message while it was still sending, echoed back
+   * by the server on the response and on the socket. Only ever present on a
+   * message this account just sent — it is how the placeholder on screen is
+   * matched to the real message, whichever of the two copies lands first.
+   */
+  clientId?: string;
 }
 
 export interface Conversation {
@@ -95,6 +102,8 @@ export async function sendDirectMessage(
     /** Data URLs, uploaded by the API to the CDN. */
     images?: string[];
     replyTo?: DmReplyTo | null;
+    /** See DirectMessage.clientId. */
+    clientId?: string;
   }
 ): Promise<{ ok: true; message: DirectMessage } | { ok: false; error: string }> {
   try {
@@ -106,6 +115,7 @@ export async function sendDirectMessage(
         ...(payload.url ? { url: payload.url } : {}),
         ...(payload.images && payload.images.length > 0 ? { images: payload.images } : {}),
         ...(payload.replyTo ? { replyTo: payload.replyTo } : {}),
+        ...(payload.clientId ? { clientId: payload.clientId } : {}),
       }),
     });
     const data = (await res.json().catch(() => ({}))) as {
