@@ -35,7 +35,6 @@ import {
 import {
   deleteGroupMessage,
   fetchMessages,
-  sendGroupMessage,
   type GroupDetail,
   type GroupMessage,
   type GroupReplyTo,
@@ -43,6 +42,13 @@ import {
 } from "@/lib/groupsApi";
 import { signalingClient } from "@/lib/signalingClient";
 import { onGroupMessage, onGroupMessageDeleted, setViewingChannel } from "@/lib/useGroups";
+import {
+  discardGroupMessage,
+  queueGroupMessage,
+  retryGroupMessage,
+  useOutbox,
+  type OutgoingMessage,
+} from "@/lib/groupOutbox";
 import { prefetchUserProfile } from "@/lib/userProfile";
 
 // One text room of a group: its history, read a page at a time and extended
@@ -96,7 +102,23 @@ function linkify(text: string, keyPrefix: string): ReactNode[] {
   });
 }
 
-type Pending = { clientId: string; text: string; ts: number; kind: "text" | "gif" | "image" };
+/** A message still on its way, drawn as the message it will be (see lib/groupOutbox). */
+function outgoingAsMessage(outgoing: OutgoingMessage, selfId: string): GroupMessage {
+  return {
+    id: `out:${outgoing.nonce}`,
+    groupId: outgoing.groupId,
+    channelId: outgoing.channelId,
+    from: selfId,
+    fromName: "",
+    text: outgoing.text,
+    kind: outgoing.url ? "gif" : outgoing.images?.length ? "image" : "text",
+    ...(outgoing.url ? { url: outgoing.url } : {}),
+    ...(outgoing.images ? { images: outgoing.images } : {}),
+    replyTo: outgoing.replyTo,
+    mentions: outgoing.mentions,
+    ts: outgoing.ts,
+  };
+}
 
 const rowAction =
   "inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-400 opacity-100 transition hover:bg-zinc-200/70 hover:text-zinc-800 active:scale-95 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200";
@@ -120,7 +142,9 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [replyTo, setReplyTo] = useState<GroupReplyTo | null>(null);
-  const [pending, setPending] = useState<Pending[]>([]);
+  // What this browser sent here and the server has not confirmed yet —
+  // shown at the bottom, as the messages they will be.
+  const outbox = useOutbox(channelId);
   const [preview, setPreview] = useState<ChatImagePreviewState | null>(null);
   const [unseen, setUnseen] = useState(0);
 
@@ -249,7 +273,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
     pendingScroll.current = null;
     if (want.type === "bottom") el.scrollTop = el.scrollHeight;
     else el.scrollTop = el.scrollHeight - want.height + want.top;
-  }, [messages, pending]);
+  }, [messages, outbox]);
 
   function onScroll() {
     const el = scrollRef.current;
@@ -341,24 +365,23 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
 
   // ── Actions ──────────────────────────────────────────────────────────
 
-  async function send(payload: ComposerPayload): Promise<{ ok: boolean; error?: string }> {
-    const clientId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const kind = payload.url ? "gif" : payload.images?.length ? "image" : "text";
-    pendingScroll.current = { type: "bottom" };
-    setPending((prev) => [...prev, { clientId, text: payload.text, ts: Date.now(), kind }]);
-    const result = await sendGroupMessage(groupId, channelId, {
-      ...payload,
+  // On screen at once, delivered behind it — see lib/groupOutbox. Sending
+  // is always a request to see the bottom of the conversation.
+  function send(payload: ComposerPayload) {
+    queueGroupMessage({
+      groupId,
+      channelId,
+      text: payload.text,
+      ...(payload.url ? { url: payload.url } : {}),
+      ...(payload.images ? { images: payload.images } : {}),
+      mentions: payload.mentions,
       replyTo,
       // A guest's name is whatever they are going by right now.
       name: detail.me.guest ? signalingClient.getSnapshot().name : null,
     });
-    setPending((prev) => prev.filter((p) => p.clientId !== clientId));
-    if (!result.ok) return { ok: false, error: result.error };
     setReplyTo(null);
-    setAuthors((prev) => ({ ...prev, [result.author.id]: result.author }));
     atBottomRef.current = true;
-    upsert(result.message);
-    return { ok: true };
+    pendingScroll.current = { type: "bottom" };
   }
 
   function startReply(message: GroupMessage) {
@@ -441,7 +464,13 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
   } else {
     let previous: GroupMessage | null = null;
     const rows: ReactNode[] = [];
-    for (const message of messages) {
+    // The conversation, then whatever of mine is still on its way — in the
+    // same run, so a line I just sent joins my previous ones under one header.
+    const display: { message: GroupMessage; outgoing?: OutgoingMessage }[] = [
+      ...messages.map((message) => ({ message })),
+      ...outbox.map((outgoing) => ({ message: outgoingAsMessage(outgoing, selfId), outgoing })),
+    ];
+    for (const { message, outgoing } of display) {
       const newDay = !previous || dayKey(previous.ts) !== dayKey(message.ts);
       const grouped =
         !newDay &&
@@ -466,7 +495,9 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
           key={message.id}
           className={`group relative -mx-1.5 rounded-lg px-2 text-sm transition-colors ${
             grouped ? "pb-0.5" : "mt-2.5 pb-0.5"
-          } ${mentionsMe ? "bg-blue-100/70 py-1 dark:bg-blue-500/25" : "hover:bg-zinc-100/80 dark:hover:bg-zinc-900/70"}`}
+          } ${mentionsMe ? "bg-blue-100/70 py-1 dark:bg-blue-500/25" : "hover:bg-zinc-100/80 dark:hover:bg-zinc-900/70"} ${
+            outgoing?.status === "sending" ? "opacity-60" : ""
+          }`}
         >
           {message.replyTo && (
             <div className="mb-1 flex max-w-full items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
@@ -525,7 +556,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
                   <span className="shrink-0 text-xs tabular-nums text-zinc-400 dark:text-zinc-600">{timeLabel(message.ts)}</span>
                 </span>
               </button>
-              {actionsFor(message)}
+              {!outgoing && actionsFor(message)}
             </div>
           )}
           <div className={grouped ? "flex items-start justify-between gap-1.5" : ""}>
@@ -548,7 +579,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
                 <div className={`mt-1 grid max-w-xs gap-1 ${message.images.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
                   {message.images.map((url, index) => (
                     <button
-                      key={url}
+                      key={index}
                       type="button"
                       onClick={() => setPreview({ src: url, alt: "Imagem", images: message.images, currentIndex: index })}
                       className="block cursor-zoom-in overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800"
@@ -565,8 +596,30 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
                   ))}
                 </div>
               )}
+              {outgoing?.status === "failed" && (
+                <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-red-500">
+                  <span>Não enviada{outgoing.error ? ` — ${outgoing.error}` : "."}</span>
+                  <button
+                    type="button"
+                    onClick={() => retryGroupMessage(channelId, outgoing.nonce)}
+                    className="cursor-pointer font-medium underline underline-offset-2"
+                  >
+                    Tentar de novo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => discardGroupMessage(channelId, outgoing.nonce)}
+                    className="cursor-pointer text-zinc-500 underline underline-offset-2 dark:text-zinc-400"
+                  >
+                    Descartar
+                  </button>
+                </p>
+              )}
+              {outgoing?.status === "sending" && outgoing.retrying && (
+                <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">Não foi de primeira — tentando enviar de novo…</p>
+              )}
             </div>
-            {grouped && actionsFor(message)}
+            {grouped && !outgoing && actionsFor(message)}
           </div>
         </li>
       );
@@ -589,13 +642,6 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
           )}
           {loadError && <li className="py-2 text-center text-sm text-red-500">{loadError}</li>}
           {rows}
-          {pending.map((p) => (
-            <li key={p.clientId} className="-mx-1.5 px-2 pb-0.5 text-sm text-zinc-500 opacity-70">
-              <p className="whitespace-pre-wrap break-words">
-                {p.text || (p.kind === "gif" ? "Enviando GIF…" : "Enviando imagem…")}
-              </p>
-            </li>
-          ))}
         </ul>
       </div>
     );

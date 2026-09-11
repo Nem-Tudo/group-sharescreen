@@ -104,15 +104,18 @@ export function GroupMessageComposer({
   candidates: MentionCandidate[];
   replyingTo: GroupReplyTo | null;
   onCancelReply: () => void;
-  /** Resolves once the server answered; the box keeps what was written on a failure. */
-  onSend: (payload: ComposerPayload) => Promise<{ ok: boolean; error?: string }>;
+  /**
+   * Takes the message and returns at once — the box empties the moment Enter
+   * is pressed, and the next message can be typed while this one is still on
+   * its way (see lib/groupOutbox, which shows it and delivers it).
+   */
+  onSend: (payload: ComposerPayload) => void;
   disabledReason?: string | null;
   allow?: ComposerAllowances;
 }) {
   const [text, setText] = useState("");
   const [images, setImages] = useState<{ dataUrl: string; bytes: number }[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [sending, setSending] = useState(false);
   const [gifOpen, setGifOpen] = useState(false);
   const [cursor, setCursor] = useState(0);
   const [highlight, setHighlight] = useState(0);
@@ -179,23 +182,17 @@ export function GroupMessageComposer({
     });
   }
 
-  async function send(extra: { url?: string } = {}) {
-    if (sending || disabled) return;
+  function send(extra: { url?: string } = {}) {
+    if (disabled) return;
     const trimmed = text.trim();
     if (!trimmed && images.length === 0 && !extra.url) return;
-    setSending(true);
     setError(null);
-    const result = await onSend({
+    onSend({
       text: extra.url ? "" : trimmed,
       ...(extra.url ? { url: extra.url } : {}),
       ...(!extra.url && images.length > 0 ? { images: images.map((i) => i.dataUrl) } : {}),
       mentions: extra.url ? [] : mentionedIds(trimmed, candidates),
     });
-    setSending(false);
-    if (!result.ok) {
-      setError(result.error ?? "Não foi possível enviar.");
-      return;
-    }
     // A GIF goes on its own and leaves whatever was being typed alone.
     if (!extra.url) {
       setText("");
@@ -232,7 +229,7 @@ export function GroupMessageComposer({
     }
     if (e.key === "Enter" && !e.shiftKey && !isCoarsePointer() && !e.nativeEvent.isComposing) {
       e.preventDefault();
-      void send();
+      send();
     }
   }
 
@@ -374,7 +371,7 @@ export function GroupMessageComposer({
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
-            disabled={disabled || sending}
+            disabled={disabled}
             aria-label="Enviar imagem"
             className={iconButton}
           >
@@ -392,7 +389,7 @@ export function GroupMessageComposer({
             <GifPicker
               onSelect={(gif) => {
                 setGifOpen(false);
-                void send({ url: gif.url });
+                send({ url: gif.url });
               }}
             />
           }
@@ -401,7 +398,7 @@ export function GroupMessageComposer({
           <button
             type="button"
             onClick={() => setGifOpen((open) => !open)}
-            disabled={disabled || sending}
+            disabled={disabled}
             aria-label="Enviar GIF"
             className={iconButton}
           >
@@ -424,8 +421,8 @@ export function GroupMessageComposer({
         />
         <button
           type="button"
-          onClick={() => void send()}
-          disabled={disabled || sending || (!text.trim() && images.length === 0)}
+          onClick={() => send()}
+          disabled={disabled || (!text.trim() && images.length === 0)}
           aria-label="Enviar"
           className="mb-1 flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-zinc-950 text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
         >

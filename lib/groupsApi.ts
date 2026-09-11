@@ -336,12 +336,19 @@ export const sendGroupMessage = (
     mentions?: string[];
     /** A guest's current name, so their messages carry it. */
     name?: string | null;
+    /**
+     * This message's own name, made up by the sender (see lib/groupOutbox).
+     * Echoed back, so the placeholder can be matched to the real message; and
+     * a retry carrying it gets the message the first try made, not a copy.
+     */
+    nonce?: string;
   }
 ) =>
-  request<{ message: GroupMessage; author: GroupUser }>(
+  request<{ message: GroupMessage; author: GroupUser; nonce?: string }>(
     "POST",
     `/groups/${enc(groupId)}/channels/${enc(channelId)}/messages`,
     {
+      ...(payload.nonce ? { nonce: payload.nonce } : {}),
       text: payload.text ?? "",
       ...(payload.url ? { url: payload.url } : {}),
       ...(payload.images && payload.images.length > 0 ? { images: payload.images } : {}),

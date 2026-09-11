@@ -227,7 +227,8 @@ function noteIncomingMessage(message: GroupMessage) {
 
 // ─── Socket ──────────────────────────────────────────────────────────────
 
-type MessageListener = (message: GroupMessage, author: GroupUser | null) => void;
+/** `nonce` is the sender's own name for the message — see lib/groupOutbox. */
+type MessageListener = (message: GroupMessage, author: GroupUser | null, nonce?: string) => void;
 type DeleteListener = (event: { groupId: string; channelId: string; messageId: string }) => void;
 type RemovedListener = (event: { groupId: string; reason: string }) => void;
 
@@ -261,6 +262,17 @@ export function onGroupRemoved(listener: RemovedListener): () => void {
   };
 }
 
+/**
+ * A message this browser just sent, confirmed by the server's answer — handed
+ * to the same listeners the socket's copy goes to, so the room on screen shows
+ * it without waiting for that echo (see lib/groupOutbox). The echo, when it
+ * comes, is the same message by id and is ignored.
+ */
+export function publishGroupMessage(message: GroupMessage, author: GroupUser | null, nonce?: string): void {
+  appendCachedMessage(message, author);
+  messageListeners.forEach((l) => l(message, author, nonce));
+}
+
 /** Called after a successful leave, so the page reacts before the socket echo arrives. */
 export function forgetGroup(groupId: string): void {
   const details = { ...state.details };
@@ -292,7 +304,8 @@ function handleEvent(event: GroupSocketEvent) {
       // Kept current for a room that is not on screen, so reopening it is
       // instant and already has this (see lib/groupCache).
       appendCachedMessage(message, author);
-      messageListeners.forEach((l) => l(message, author));
+      const nonce = typeof event.nonce === "string" ? event.nonce : undefined;
+      messageListeners.forEach((l) => l(message, author, nonce));
       return;
     }
     case "group-message-deleted": {
