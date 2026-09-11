@@ -28,6 +28,10 @@ export interface GroupSummary {
   role: GroupRole;
   unread: boolean;
   mentions: number;
+  /** How many people are in it. Absent from an older API. */
+  memberCount?: number;
+  /** How many of them have the site open right now. Absent from an older API. */
+  onlineCount?: number;
   /** Suspended by the site's administrators — listed, but out of use (opening it says why). */
   suspended?: boolean;
 }

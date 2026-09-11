@@ -43,6 +43,13 @@ export function isInviteCode(value: string): boolean {
   return INVITE_CODE_RE.test(value);
 }
 
+/**
+ * GoLive's own group — offered from the home page's "+" to anybody not in it
+ * yet (see HomeGroupsPanel). Opening it as a non-member lands on its join card,
+ * which is how a public group is walked into.
+ */
+export const OFFICIAL_GROUP_ID = "j9hjobgc88";
+
 export function groupPath(groupId: string, channelId?: string | null): string {
   return channelId ? `/groups/${groupId}/${channelId}` : `/groups/${groupId}`;
 }
