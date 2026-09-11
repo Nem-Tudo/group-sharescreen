@@ -33,36 +33,53 @@ const ACTION =
 function HitRow({
   hit,
   busy,
+  linkProfile,
   onAdd,
   onAccept,
 }: {
   hit: SocialSearchHit;
   busy: boolean;
+  /** Whether the name leads to the person's page. Off inside a room. */
+  linkProfile: boolean;
   onAdd: () => void;
   onAccept: () => void;
 }) {
+  const identity = (
+    <>
+      <UserAvatar
+        src={hit.avatarUrl}
+        name={hit.displayName}
+        size={32}
+        className="shrink-0"
+        userId={hit.id}
+      />
+      <span className="min-w-0 flex-1">
+        <DisplayUserName
+          name={hit.displayName}
+          verified={verifiedBadge(hit.flags)}
+          color={hit.nameColor}
+          className={`truncate text-sm font-medium text-zinc-900 dark:text-zinc-100 ${
+            linkProfile ? "hover:underline" : ""
+          }`}
+        />
+        <span className="block truncate text-xs text-zinc-500 dark:text-zinc-400">
+          @{hit.username}
+        </span>
+      </span>
+    </>
+  );
   return (
     <li className="flex items-center gap-2.5 rounded-lg border border-zinc-200 bg-white px-2.5 py-2 dark:border-zinc-800 dark:bg-zinc-950">
-      <Link href={`/user/${hit.username}`} className="flex min-w-0 flex-1 items-center gap-2.5">
-        <UserAvatar
-          src={hit.avatarUrl}
-          name={hit.displayName}
-          size={32}
-          className="shrink-0"
-          userId={hit.id}
-        />
-        <span className="min-w-0 flex-1">
-          <DisplayUserName
-            name={hit.displayName}
-            verified={verifiedBadge(hit.flags)}
-            color={hit.nameColor}
-            className="truncate text-sm font-medium text-zinc-900 hover:underline dark:text-zinc-100"
-          />
-          <span className="block truncate text-xs text-zinc-500 dark:text-zinc-400">
-            @{hit.username}
-          </span>
-        </span>
-      </Link>
+      {linkProfile ? (
+        <Link href={`/user/${hit.username}`} className="flex min-w-0 flex-1 items-center gap-2.5">
+          {identity}
+        </Link>
+      ) : (
+        // Inside a room the name is just a name. Following a link out of a
+        // room ends the call, and a search result is the easiest thing on
+        // screen to click by accident on the way to "adicionar".
+        <span className="flex min-w-0 flex-1 items-center gap-2.5">{identity}</span>
+      )}
       {/* One verb per row, decided by the server's `relationship`. A request
           already coming this way becomes "aceitar" rather than a second
           "adicionar" — the API treats those as the same call, but the button
@@ -104,7 +121,17 @@ function HitRow({
  * fresh box rather than the previous query's results sitting under a field
  * that has been cleared.
  */
-export function AddFriendDialog({ onClose }: { onClose: () => void }) {
+export function AddFriendDialog({
+  onClose,
+  inRoom = false,
+}: {
+  onClose: () => void;
+  /**
+   * Opened from inside a room (see InviteToRoomModal). Turns the names into
+   * plain text, because every way out of a room ends the call.
+   */
+  inRoom?: boolean;
+}) {
   const { refresh } = useSocialGraph();
   const [query, setQuery] = useState("");
   // The last answer, tagged with the query that produced it. Tagged rather
@@ -115,6 +142,8 @@ export function AddFriendDialog({ onClose }: { onClose: () => void }) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  // Whether the press that became this click began on the backdrop itself.
+  const pressedBackdropRef = useRef(false);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -186,15 +215,23 @@ export function AddFriendDialog({ onClose }: { onClose: () => void }) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 pt-[10vh]"
-      onClick={onClose}
+      // Only a press that began *and* ended on the backdrop closes. A plain
+      // onClick also fired for a text selection started in the field and let
+      // go past the card's edge — the browser reports that click on the
+      // nearest common ancestor, which is this.
+      onPointerDown={(e) => {
+        pressedBackdropRef.current = e.target === e.currentTarget;
+      }}
+      onClick={(e) => {
+        const began = pressedBackdropRef.current;
+        pressedBackdropRef.current = false;
+        if (began && e.target === e.currentTarget) onClose();
+      }}
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Adicionar amigo"
-        // Without this a click anywhere inside the card bubbles to the
-        // backdrop and closes the dialog — including a click on the field.
-        onClick={(e) => e.stopPropagation()}
         className="flex max-h-[80vh] w-full max-w-md flex-col rounded-2xl border border-black/10 bg-white p-6 shadow-xl dark:border-white/10 dark:bg-zinc-950"
       >
         <div className="flex items-start justify-between gap-3">
@@ -258,6 +295,7 @@ export function AddFriendDialog({ onClose }: { onClose: () => void }) {
                   key={hit.id}
                   hit={hit}
                   busy={busyId === hit.id}
+                  linkProfile={!inRoom}
                   onAdd={() => void run(hit, () => addFriend(hit.id))}
                   onAccept={() => void run(hit, () => acceptFriend(hit.id))}
                 />

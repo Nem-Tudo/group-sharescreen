@@ -111,6 +111,31 @@ export async function fetchInvitePreview(
   }
 }
 
+/** What a public group's page shows somebody not in it yet — an invite's preview, without the invite. */
+export interface PublicGroupPreview {
+  group: InvitePreview["group"];
+  member: boolean;
+}
+
+/** A public group's card, or null for a private group, a missing one, or a failed read — all alike. */
+export async function fetchPublicGroupPreview(
+  groupId: string,
+  token?: string | null,
+  signal?: AbortSignal
+): Promise<PublicGroupPreview | null> {
+  try {
+    const res = await fetch(`${getSignalingHttpBase()}/groups/${encodeURIComponent(groupId)}/preview`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      signal,
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as PublicGroupPreview;
+  } catch {
+    return null;
+  }
+}
+
 /** What an invite's lifetime says, in words — "expira em 3 h", "nunca expira". */
 export function describeInviteExpiry(expiresAt: number | null, now = Date.now()): string {
   if (expiresAt === null) return "Nunca expira";

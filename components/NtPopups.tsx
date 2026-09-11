@@ -18,6 +18,7 @@ import { RoomThemePicker } from "@/components/RoomThemePicker";
 import {
   CreateGroupDialog,
   GroupInviteDialog,
+  GroupLocationDialog,
   GroupSettingsDialog,
   JoinGroupDialog,
 } from "@/components/groups/GroupDialogs";
@@ -44,6 +45,7 @@ const customPopups: Record<string, ComponentType> = {
   join_group: JoinGroupDialog as ComponentType,
   group_invite: GroupInviteDialog as ComponentType,
   group_settings: GroupSettingsDialog as ComponentType,
+  group_location: GroupLocationDialog as ComponentType,
 };
 
 // Mounted once in app/layout.tsx, inside AuthProvider — the popups it renders

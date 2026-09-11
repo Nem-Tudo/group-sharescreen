@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { MdCall, MdClose, MdSearch } from "react-icons/md";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { MdCall, MdClose, MdPersonAdd, MdSearch } from "react-icons/md";
+import { AddFriendDialog } from "@/components/AddFriendDialog";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { UserAvatar } from "@/components/UserAvatar";
 import { ButtonSpinner } from "@/components/ButtonSpinner";
@@ -28,6 +29,14 @@ import type { SocialUser } from "@/lib/socialApi";
 // and "who can I do this to" should be a list you already curated rather than
 // anybody whose username can be typed. Somebody not on this list can still be
 // sent the room link, which is the thing this is a shortcut for.
+//
+// What *is* offered is the way onto the list: "Adicionar amigos" opens the same
+// search the home page uses (AddFriendDialog). A request is not a friendship,
+// so nobody becomes callable the moment it is sent — they turn up here on
+// their own once they accept, because the friends list is re-read whenever
+// the server announces a change (see useSocialGraph). The dialog says so
+// rather than leaving somebody to wonder why the person they just added is
+// not in the list.
 
 const ACTION =
   "flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-50";
@@ -118,16 +127,26 @@ export function InviteToRoomModal({
   // dialog closing — which is the normal way to get three friends into a room.
   const [calling, setCalling] = useState<Record<string, RowState>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // The add-friend search, opened on top of this one.
+  const [adding, setAdding] = useState(false);
+  // Whether the press that became this click began on the backdrop itself.
+  const pressedBackdropRef = useRef(false);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
+      if (event.key !== "Escape") return;
+      // The search on top closes itself on the same key. Without this one
+      // press would take both dialogs down at once.
+      if (adding) return;
+      onClose();
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+  }, [onClose, adding]);
 
   const friends = graph.friends;
+  // Requests this account sent that nobody has answered yet.
+  const waiting = graph.outgoing.length;
   const showSearch = friends.length > SEARCH_THRESHOLD;
   const shown = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -162,18 +181,37 @@ export function InviteToRoomModal({
     setErrors((current) => ({ ...current, [user.id]: result.error }));
   }
 
-  return (
+  const addButton = (
+    <button
+      type="button"
+      onClick={() => setAdding(true)}
+      className="flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-dashed border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900"
+    >
+      <MdPersonAdd className="h-4 w-4 shrink-0" />
+      Adicionar amigos
+    </button>
+  );
+
+  const dialog = (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 pt-[10vh]"
-      onClick={onClose}
+      // Only a press that began *and* ended on the backdrop closes. A plain
+      // onClick also fired for a text selection started in the filter and
+      // let go past the card's edge — the browser reports that click on the
+      // nearest common ancestor, which is this.
+      onPointerDown={(event) => {
+        pressedBackdropRef.current = event.target === event.currentTarget;
+      }}
+      onClick={(event) => {
+        const began = pressedBackdropRef.current;
+        pressedBackdropRef.current = false;
+        if (began && event.target === event.currentTarget) onClose();
+      }}
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Chamar amigo para a sala"
-        // Without this a click anywhere inside the card bubbles to the backdrop
-        // and closes the dialog — including a click on the search field.
-        onClick={(event) => event.stopPropagation()}
         className="flex max-h-[80vh] w-full max-w-md flex-col rounded-2xl border border-black/10 bg-white p-6 shadow-xl dark:border-white/10 dark:bg-zinc-950"
       >
         <div className="flex items-start justify-between gap-3">
@@ -210,10 +248,13 @@ export function InviteToRoomModal({
         )}
 
         {friends.length === 0 ? (
-          <p className="mt-6 text-sm text-zinc-500 dark:text-zinc-400">
-            Você ainda não tem amigos para chamar. Enquanto isso, o link desta
-            sala funciona para qualquer pessoa.
-          </p>
+          <div className="mt-6 flex flex-col gap-3">
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+              Você ainda não tem amigos para chamar. Adicione alguém — ou mande o
+              link desta sala, que funciona para qualquer pessoa.
+            </p>
+            {addButton}
+          </div>
         ) : shown.length === 0 ? (
           <p className="mt-6 text-sm text-zinc-500 dark:text-zinc-400">
             Nenhum amigo com esse nome.
@@ -231,7 +272,33 @@ export function InviteToRoomModal({
             ))}
           </ul>
         )}
+
+        {/* Under the list, not above it: calling who is already here is what
+            the dialog is for, and adding somebody new is the step before that.
+            Left out of the empty state, which carries its own. */}
+        {friends.length > 0 && (
+          <div className="mt-4 flex flex-col gap-1.5 border-t border-zinc-200 pt-4 dark:border-zinc-800">
+            {addButton}
+            <p className="text-center text-[11px] text-zinc-500 dark:text-zinc-400">
+              {waiting > 0 &&
+                `${waiting} ${waiting === 1 ? "pedido aguardando" : "pedidos aguardando"} resposta. `}
+              Novos amigos aparecem aqui quando aceitarem o pedido.
+            </p>
+          </div>
+        )}
       </div>
     </div>
+  );
+
+  return (
+    <>
+      {dialog}
+      {/* Beside the dialog, not inside it. React hands a click to a
+          component's parents in the tree, so nested in the backdrop above,
+          every click in the search — including the one that closes it — would
+          also close this. `inRoom` keeps its names from being links out of the
+          call. */}
+      {adding && <AddFriendDialog inRoom onClose={() => setAdding(false)} />}
+    </>
   );
 }

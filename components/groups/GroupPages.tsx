@@ -1,12 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { GroupJoinCard } from "@/components/groups/GroupJoinCard";
 import { TextChannelView } from "@/components/groups/TextChannelView";
 import { rememberedChannel } from "@/components/groups/lastChannel";
-import { groupPath } from "@/lib/groupLinks";
-import { useGroupDetail } from "@/lib/useGroups";
+import { useAccountToken } from "@/lib/accountApi";
+import { useGuestToken } from "@/lib/guestToken";
+import { joinPublicGroup } from "@/lib/groupsApi";
+import { fetchPublicGroupPreview, groupPath, type PublicGroupPreview } from "@/lib/groupLinks";
+import { refreshGroup, refreshGroups, useGroupDetail } from "@/lib/useGroups";
 
 // The two pages inside a group. Both read the same store the shell does, so
 // they never fetch the group twice.
@@ -51,6 +55,54 @@ function NotFound({ status }: { status: number }) {
   );
 }
 
+/**
+ * What stands in for a group somebody is not in. A public group lets them in
+ * from right here — the same card an invite draws (see GroupJoinCard), which
+ * is where its pin on the map leads. Anything else, a private group included,
+ * is simply not found: the page must not say a private group exists.
+ */
+function GroupGate({ groupId, status }: { groupId: string; status: number }) {
+  const accountToken = useAccountToken();
+  const guestToken = useGuestToken();
+  const token = accountToken ?? guestToken;
+  // Whose answer this is, so a new identity asks again rather than trusting
+  // what the last one was told.
+  const [read, setRead] = useState<{ key: string; preview: PublicGroupPreview | null } | null>(null);
+  const key = `${groupId}:${token ?? ""}`;
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchPublicGroupPreview(groupId, token, controller.signal).then((preview) => {
+      if (!controller.signal.aborted) setRead({ key, preview });
+    });
+    return () => controller.abort();
+  }, [groupId, token, key]);
+
+  if (!read || read.key !== key) return <Loading />;
+  if (!read.preview) return <NotFound status={status} />;
+  return (
+    <Panel>
+      <div className="flex w-full max-w-md flex-col items-center gap-2">
+        <GroupJoinCard
+          group={read.preview.group}
+          member={read.preview.member}
+          headline="Grupo público — qualquer um pode entrar"
+          acceptLabel="Entrar no grupo"
+          onOpen={() => void refreshGroup(groupId)}
+          join={async (name) => {
+            const result = await joinPublicGroup(groupId, name);
+            if (!result.ok) return { ok: false, error: result.error };
+            // The group's page is already this one: once the store has the
+            // group, GroupIndex/GroupRoom carry on as for any member.
+            await Promise.all([refreshGroups(), refreshGroup(groupId)]);
+            return { ok: true };
+          }}
+        />
+      </div>
+    </Panel>
+  );
+}
+
 /** /groups/:id — straight on to the room this group was last left on, or its first text room. */
 export function GroupIndex({ groupId }: { groupId: string }) {
   const router = useRouter();
@@ -64,7 +116,7 @@ export function GroupIndex({ groupId }: { groupId: string }) {
     if (target) router.replace(groupPath(groupId, target.id));
   }, [detail, groupId, router]);
 
-  if (error) return <NotFound status={error.status} />;
+  if (error) return <GroupGate groupId={groupId} status={error.status} />;
   return <Loading />;
 }
 
@@ -79,7 +131,7 @@ export function GroupRoom({ groupId, roomId }: { groupId: string; roomId: string
     if (detail && !channel) router.replace(groupPath(groupId));
   }, [detail, channel, groupId, router]);
 
-  if (error) return <NotFound status={error.status} />;
+  if (error) return <GroupGate groupId={groupId} status={error.status} />;
   if (!detail || !channel) return <Loading />;
   if (channel.kind === "text") {
     return <TextChannelView key={channel.id} detail={detail} channelId={channel.id} />;

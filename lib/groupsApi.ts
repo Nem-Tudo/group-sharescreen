@@ -15,6 +15,8 @@ import { getSignalingHttpBase } from "./roomsApi";
 export type GroupRole = "owner" | "admin" | "member";
 export type GroupChannelKind = "text" | "voice";
 export type GroupNotifyLevel = "all" | "mentions" | "none";
+/** Private: invite links only. Public: anybody may walk in, and it may go on the map. */
+export type GroupVisibility = "private" | "public";
 
 export interface GroupSummary {
   id: string;
@@ -51,11 +53,12 @@ export interface GroupInfo {
   name: string;
   description: string;
   iconUrl: string | null;
+  visibility: GroupVisibility;
   /** The group's theme by id, or null for each person's own. See the API's groupModels. */
   theme: string | null;
   /** "VERIFIED" draws the badge beside the name — see components/groups/GroupName. */
   flags: string[];
-  /** Where the group is on the public map, or null for none. See /worldmap. */
+  /** Where the group is on the public map, or null for none (always, for a private group). See /worldmap. */
   location: { lat: number; lng: number } | null;
   ownerId: string;
   admins: string[];
@@ -173,8 +176,16 @@ const enc = encodeURIComponent;
 export const fetchMyGroups = (signal?: AbortSignal) =>
   request<{ groups: GroupSummary[] }>("GET", "/groups", undefined, signal);
 
-export const createGroup = (name: string) =>
-  request<{ group: GroupInfo }>("POST", "/groups", { name });
+export const createGroup = (name: string, visibility: GroupVisibility) =>
+  request<{ group: GroupInfo }>("POST", "/groups", { name, visibility });
+
+/** Opens the group to anybody, or closes it to invites only (owner). Going private takes it off the map. */
+export const setGroupVisibility = (groupId: string, visibility: GroupVisibility) =>
+  request<{ group: GroupInfo }>("PUT", `/groups/${enc(groupId)}/visibility`, { visibility });
+
+/** Walks into a public group. `name` is a guest's display name — ignored for an account. */
+export const joinPublicGroup = (groupId: string, name?: string | null) =>
+  request<{ groupId: string }>("POST", `/groups/${enc(groupId)}/join`, name ? { name } : {});
 
 export const fetchGroup = (groupId: string, signal?: AbortSignal) =>
   request<GroupDetail>("GET", `/groups/${enc(groupId)}`, undefined, signal);

@@ -66,8 +66,10 @@ export function useGroupMapMarkers(options?: {
           description: group.description
             ? `${group.description} · ${group.onlineCount} online agora`
             : `${group.onlineCount} online agora`,
+          // Only public groups are on the map, so this page lets anybody in
+          // (see GroupPages' PublicGroupGate) — and simply opens it for a member.
           href: `/groups/${group.id}`,
-          actionLabel: "Abrir grupo",
+          actionLabel: "Ver grupo",
         })),
     [groups, excludeId]
   );

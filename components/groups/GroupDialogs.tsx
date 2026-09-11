@@ -11,6 +11,9 @@ import {
   MdContentCopy,
   MdDeleteOutline,
   MdEdit,
+  MdLockOutline,
+  MdOutlineMap,
+  MdPublic,
   MdTag,
   MdVolumeUp,
 } from "react-icons/md";
@@ -40,6 +43,7 @@ import {
   revokeInvite,
   setGroupAdmin,
   setGroupLocation,
+  setGroupVisibility,
   transferGroup,
   unbanMember,
   updateGroup,
@@ -48,6 +52,7 @@ import {
   type GroupChannel,
   type GroupInvite,
   type GroupMember,
+  type GroupVisibility,
   type InviteLifetime,
 } from "@/lib/groupsApi";
 import { describeInviteExpiry, groupPath, inviteCodeFromInput, invitePath } from "@/lib/groupLinks";
@@ -61,10 +66,12 @@ import { getGroupVoiceSession, setGroupVoiceSession } from "@/lib/groupVoiceSess
 
 // The group's popups, registered with ntpopups in components/NtPopups.tsx:
 //
-//   create_group   — name (and an optional picture), then straight into it.
+//   create_group   — name, private or public (and an optional picture), then
+//                    straight into it.
 //   join_group     — paste an invite link or code.
 //   group_invite   — mint a link, with an expiry and a use limit, and copy it.
 //   group_settings — everything about running the group, in tabs.
+//   group_location — the map on its own: what a new public group is asked.
 //
 // Destructive steps confirm inline (a second button in place) rather than by
 // opening another popup over this one.
@@ -124,9 +131,79 @@ function inviteUrl(code: string): string {
 
 // ─── Create ──────────────────────────────────────────────────────────────
 
+/** The size the map popups open at — the map wants the room. */
+const MAP_POPUP_SIZE = {
+  maxWidth: "min(46rem, calc(100vw - 2rem))",
+  width: "min(46rem, calc(100vw - 2rem))",
+  maxHeight: "90dvh",
+};
+
+// How long after a public group is created its map prompt opens — long enough
+// for the group's page to have drawn behind it, like a new room's (see
+// WatchRoom's "Você criou uma sala pública!").
+const NEW_GROUP_MAP_PROMPT_DELAY_MS = 600;
+
+/** Private or public, as two cards to pick from — in the create dialog and in the settings. */
+function VisibilityPicker({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: GroupVisibility;
+  onChange: (next: GroupVisibility) => void;
+  disabled?: boolean;
+}) {
+  const options: { id: GroupVisibility; label: string; hint: string; icon: ReactNode }[] = [
+    {
+      id: "private",
+      label: "Privado",
+      hint: "Só entra quem tiver um convite.",
+      icon: <MdLockOutline className="h-5 w-5" />,
+    },
+    {
+      id: "public",
+      label: "Público",
+      hint: "Qualquer um pode entrar.",
+      icon: <MdPublic className="h-5 w-5" />,
+    },
+  ];
+  return (
+    <div role="radiogroup" aria-label="Visibilidade do grupo" className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      {options.map((option) => {
+        const selected = value === option.id;
+        return (
+          <button
+            key={option.id}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            disabled={disabled}
+            onClick={() => onChange(option.id)}
+            className={`flex cursor-pointer items-start gap-2.5 rounded-lg border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${
+              selected
+                ? "border-zinc-950 bg-zinc-50 dark:border-zinc-100 dark:bg-zinc-900"
+                : "border-zinc-200 hover:border-zinc-400 dark:border-zinc-800 dark:hover:border-zinc-600"
+            }`}
+          >
+            <span className={`mt-0.5 shrink-0 ${selected ? "text-zinc-950 dark:text-zinc-50" : "text-zinc-500"}`}>
+              {option.icon}
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-medium text-zinc-950 dark:text-zinc-50">{option.label}</span>
+              <span className="block text-xs text-zinc-500 dark:text-zinc-400">{option.hint}</span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function CreateGroupDialog({ closePopup }: PopupProps<object>) {
   const router = useRouter();
+  const { openPopup } = useNtPopups();
   const [name, setName] = useState("");
+  const [visibility, setVisibility] = useState<GroupVisibility>("private");
   const [icon, setIcon] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -153,16 +230,25 @@ export function CreateGroupDialog({ closePopup }: PopupProps<object>) {
     e.preventDefault();
     if (!name.trim() || busy) return;
     setBusy(true);
-    const result = await createGroup(name.trim());
+    const result = await createGroup(name.trim(), visibility);
     if (!result.ok) {
       setBusy(false);
       setError(result.error);
       return;
     }
-    if (icon) await uploadGroupIcon(result.group.id, icon);
+    const groupId = result.group.id;
+    if (icon) await uploadGroupIcon(groupId, icon);
     await refreshGroups();
     closePopup(true);
-    router.push(groupPath(result.group.id));
+    router.push(groupPath(groupId));
+    // A public group is at its most findable the moment it exists and its
+    // owner is right here — so ask where it is now, the way a new public room
+    // does, rather than leave it to be found in the settings some day.
+    if (visibility === "public") {
+      setTimeout(() => {
+        void openPopup("group_location", { ...MAP_POPUP_SIZE, data: { groupId, justCreated: true } });
+      }, NEW_GROUP_MAP_PROMPT_DELAY_MS);
+    }
   }
 
   return (
@@ -200,6 +286,11 @@ export function CreateGroupDialog({ closePopup }: PopupProps<object>) {
               className={inputClass}
             />
           </label>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Quem pode entrar?</span>
+          <VisibilityPicker value={visibility} onChange={setVisibility} disabled={busy} />
+          <span className="text-xs text-zinc-500 dark:text-zinc-400">Dá pra trocar depois, nas configurações.</span>
         </div>
         {error && <p className="text-sm text-red-500">{error}</p>}
         <p className="text-xs text-zinc-500 dark:text-zinc-400">
@@ -444,9 +535,9 @@ export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: 
           </button>
         ))}
       </div>
-      {current === "overview" && <OverviewTab groupId={groupId} />}
+      {current === "overview" && <OverviewTab groupId={groupId} onGoToMap={() => setTab("map")} />}
       {current === "channels" && <ChannelsTab groupId={groupId} channels={detail.channels} />}
-      {current === "map" && <LocationTab groupId={groupId} />}
+      {current === "map" && <LocationTab groupId={groupId} onGoToOverview={() => setTab("overview")} />}
       {current === "invites" && <InvitesTab groupId={groupId} groupName={detail.group.name} />}
       {current === "members" && <MembersTab groupId={groupId} selfId={detail.me.id} role={role} />}
       {current === "bans" && <BansTab groupId={groupId} />}
@@ -455,7 +546,80 @@ export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: 
   );
 }
 
-function OverviewTab({ groupId }: { groupId: string }) {
+/**
+ * Private or public, in the settings. The owner's to change (the API says the
+ * same); admins see it, greyed. Going private with the group on the map says
+ * first that it comes off; going public offers the map straight away.
+ */
+function VisibilitySection({ groupId, onGoToMap }: { groupId: string; onGoToMap: () => void }) {
+  const { detail } = useGroupDetail(groupId);
+  const [busy, setBusy] = useState(false);
+  const [confirmPrivate, setConfirmPrivate] = useState(false);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [justOpened, setJustOpened] = useState(false);
+  if (!detail) return null;
+  const isOwner = detail.me.role === "owner";
+  const current = detail.group.visibility;
+
+  async function change(next: GroupVisibility) {
+    setBusy(true);
+    setMessage(null);
+    const result = await setGroupVisibility(groupId, next);
+    setBusy(false);
+    setConfirmPrivate(false);
+    if (!result.ok) {
+      setMessage({ ok: false, text: result.error });
+      return;
+    }
+    setJustOpened(next === "public");
+    setMessage({
+      ok: true,
+      text: next === "public" ? "Agora o grupo é público." : "Agora o grupo é privado: só entra quem tiver convite.",
+    });
+    void refreshGroup(groupId);
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Quem pode entrar?</span>
+      <VisibilityPicker
+        value={current}
+        disabled={!isOwner || busy}
+        onChange={(next) => {
+          if (next === current) return;
+          // Coming off the map is the part worth a second look.
+          if (next === "private" && detail.group.location) setConfirmPrivate(true);
+          else void change(next);
+        }}
+      />
+      {!isOwner && <span className="text-xs text-zinc-500 dark:text-zinc-400">Só o dono do grupo pode mudar isso.</span>}
+      {confirmPrivate && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+          <span className="min-w-0 flex-1">Grupos privados não ficam no mapa: o grupo vai sair dele.</span>
+          <button type="button" onClick={() => setConfirmPrivate(false)} className={secondaryButton}>
+            Cancelar
+          </button>
+          <button type="button" disabled={busy} onClick={() => void change("private")} className={primaryButton}>
+            Tornar privado
+          </button>
+        </div>
+      )}
+      {message && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`text-sm ${message.ok ? "text-emerald-600" : "text-red-500"}`}>{message.text}</span>
+          {justOpened && !detail.group.location && (
+            <button type="button" onClick={onGoToMap} className={`${secondaryButton} inline-flex items-center gap-1.5`}>
+              <MdOutlineMap className="h-4 w-4" />
+              Colocar no mapa
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OverviewTab({ groupId, onGoToMap }: { groupId: string; onGoToMap: () => void }) {
   const { detail } = useGroupDetail(groupId);
   const { openPopup } = useNtPopups();
   const { account } = useAuth();
@@ -536,6 +700,7 @@ function OverviewTab({ groupId }: { groupId: string }) {
           className={`${inputClass} resize-none`}
         />
       </label>
+      <VisibilitySection groupId={groupId} onGoToMap={onGoToMap} />
       <div className="flex flex-col gap-1.5">
         <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Tema do grupo</span>
         <div className="flex items-center gap-3">
@@ -575,7 +740,19 @@ function OverviewTab({ groupId }: { groupId: string }) {
  * note; what differs is that a group's pin stays, where a room's goes when the
  * room empties.
  */
-function LocationTab({ groupId }: { groupId: string }) {
+function LocationTab({
+  groupId,
+  onGoToOverview,
+  celebrating = false,
+  onDone,
+}: {
+  groupId: string;
+  /** Where a private group's owner goes to open it up — the settings' first tab. */
+  onGoToOverview?: () => void;
+  /** Opened by itself, right after a public group was created: introduced as that, and gone once answered. */
+  celebrating?: boolean;
+  onDone?: () => void;
+}) {
   const { detail } = useGroupDetail(groupId);
   const saved = detail?.group.location ?? null;
   const [pick, setPick] = useState<{ lat: number; lng: number } | null>(saved);
@@ -598,17 +775,40 @@ function LocationTab({ groupId }: { groupId: string }) {
     if (!location) setPick(null);
     setMessage({ ok: true, text: location ? "Local salvo." : "O grupo saiu do mapa." });
     void refreshGroup(groupId);
+    // The prompt nobody asked for is a one-shot errand: done, out of the way.
+    if (celebrating && location) onDone?.();
+  }
+
+  if (detail && detail.group.visibility !== "public") {
+    return (
+      <div className="flex flex-col items-start gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900">
+        <p className="flex items-center gap-2 text-sm font-medium text-zinc-800 dark:text-zinc-200">
+          <MdLockOutline className="h-4 w-4 shrink-0" />
+          Este grupo é privado
+        </p>
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          Grupos privados não aparecem no mapa: só dá pra entrar neles com convite. Para colocar o grupo no mapa,
+          torne-o público.
+        </p>
+        {detail.me.role === "owner" && onGoToOverview && (
+          <button type="button" onClick={onGoToOverview} className={secondaryButton}>
+            Mudar a visibilidade
+          </button>
+        )}
+      </div>
+    );
   }
 
   return (
     <div className="flex flex-col gap-3">
       <p className="text-sm text-zinc-600 dark:text-zinc-400">
-        Coloque o grupo no{" "}
+        {celebrating ? "Seu grupo é público: qualquer um pode entrar. Marque no " : "Coloque o grupo no "}
         <Link href="/worldmap" target="_blank" className="font-medium text-blue-600 underline underline-offset-2 dark:text-blue-400">
           mapa de salas e grupos
         </Link>
-        , para quem é de perto achar ele. Diferente de uma sala, o grupo continua no mapa mesmo sem ninguém em
-        chamada — até alguém tirar ou o grupo ser apagado.
+        {celebrating
+          ? " de onde ele é — bairro, cidade ou país — para quem é de perto achar ele. Ele fica no mapa mesmo sem ninguém em chamada."
+          : ", para quem é de perto achar ele. Diferente de uma sala, o grupo continua no mapa mesmo sem ninguém em chamada — até alguém tirar ou o grupo ser apagado."}
       </p>
       <p className="rounded-lg border border-zinc-200 bg-zinc-50 p-2.5 text-[11px] leading-relaxed text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
         <span className="font-medium text-zinc-700 dark:text-zinc-300">Privacidade: nada aqui é detectado.</span>{" "}
@@ -652,7 +852,13 @@ function LocationTab({ groupId }: { groupId: string }) {
         >
           {saved ? "Salvar novo local" : "Salvar local"}
         </button>
-        {saved && (
+        {/* Only in the prompt nobody asked for; everywhere else the × is the way out. */}
+        {celebrating && (
+          <button type="button" onClick={onDone} className={secondaryButton}>
+            Agora não
+          </button>
+        )}
+        {saved && !celebrating && (
           <button
             type="button"
             disabled={busy}
@@ -665,6 +871,35 @@ function LocationTab({ groupId }: { groupId: string }) {
       </div>
       {message && <p className={`text-sm ${message.ok ? "text-emerald-600" : "text-red-500"}`}>{message.text}</p>}
     </div>
+  );
+}
+
+/**
+ * "Você criou um grupo público!" — the map tab on its own, opened by itself
+ * right after a public group is created (see CreateGroupDialog). The same
+ * errand a new public room is sent on (see WatchRoom's newRoomPopup).
+ */
+export function GroupLocationDialog({ closePopup, data }: PopupProps<{ groupId: string; justCreated?: boolean }>) {
+  const groupId = data?.groupId ?? "";
+  const celebrating = Boolean(data?.justCreated);
+  const { detail } = useGroupDetail(groupId || null);
+  return (
+    <DialogFrame
+      title={
+        <span className="inline-flex items-center gap-2">
+          <MdOutlineMap className="h-5 w-5 shrink-0 text-blue-500" />
+          {celebrating ? "Você criou um grupo público!" : "Local do grupo no mapa"}
+        </span>
+      }
+      onClose={() => closePopup(false)}
+      wide
+    >
+      {detail ? (
+        <LocationTab groupId={groupId} celebrating={celebrating} onDone={() => closePopup(true)} />
+      ) : (
+        <p className="text-sm text-zinc-500">Carregando…</p>
+      )}
+    </DialogFrame>
   );
 }
 
