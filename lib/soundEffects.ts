@@ -184,6 +184,23 @@ export function playHangUpSound() {
 }
 
 /**
+ * You are in — a call you walked into from a group just connected.
+ *
+ * The mirror of playHangUpSound, note for note: the same three triangle steps
+ * rising instead of falling, a handset coming *off* the cradle. Deliberately
+ * not playJoinSound, which announces somebody *else* arriving — "I got in" and
+ * "someone got in" must not sound alike, for the same reason the two leave
+ * sounds do not.
+ */
+export function playConnectSound() {
+  playNotes([
+    { freq: 294, start: 0, duration: 0.09, gain: 0.14, type: "triangle" },
+    { freq: 440, start: 0.08, duration: 0.1, gain: 0.14, type: "triangle" },
+    { freq: 587, start: 0.17, duration: 0.22, gain: 0.14, type: "triangle" },
+  ]);
+}
+
+/**
  * Something arrived in the bell (see components/SocialNotifier).
  *
  * Two rising notes, softer and rounder than the mention chime: a friend

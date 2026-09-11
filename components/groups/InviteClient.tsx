@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { CreateAccountForm } from "@/components/CreateAccountForm";
 import { LoginForm } from "@/components/LoginForm";
 import { GroupIcon } from "@/components/groups/GroupIcon";
+import { GroupName } from "@/components/groups/GroupName";
 import { useAuth } from "@/lib/AuthContext";
 import { useAccountToken } from "@/lib/accountApi";
 import { useGuestToken } from "@/lib/guestToken";
@@ -110,7 +111,9 @@ export function InviteClient({ code, initialPreview }: { code: string; initialPr
       <>
         <GroupIcon name={group.name} iconUrl={group.iconUrl} seed={group.id} size={80} className="rounded-3xl" />
         <p className="text-sm text-zinc-500 dark:text-zinc-400">Você foi convidado para entrar em</p>
-        <h1 className="text-2xl font-bold tracking-tight text-zinc-950 dark:text-zinc-50">{group.name}</h1>
+        <h1 className="flex max-w-full justify-center text-2xl font-bold tracking-tight text-zinc-950 dark:text-zinc-50">
+          <GroupName name={group.name} flags={group.flags} badgeClassName="h-6 w-6" />
+        </h1>
         {group.description && <p className="max-w-sm text-sm text-zinc-600 dark:text-zinc-400">{group.description}</p>}
         <p className="flex items-center gap-3 text-sm text-zinc-500 dark:text-zinc-400">
           <span className="flex items-center gap-1.5">
@@ -172,7 +175,6 @@ export function InviteClient({ code, initialPreview }: { code: string; initialPr
                 </button>
               </div>
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                Sem conta dá para participar de até 2 grupos.{" "}
                 <button type="button" onClick={() => setMode("create")} className="cursor-pointer font-medium underline underline-offset-2">
                   Criar conta
                 </button>{" "}

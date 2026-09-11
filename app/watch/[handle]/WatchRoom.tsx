@@ -4957,7 +4957,10 @@ export function WatchRoom({
           decided per button below. With the other two absent it is one control
           filling the width, which is the shape a single button should have
           rather than a third of a row with a gap where its neighbours were. */}
-      <div className="mb-2 flex items-center gap-2">
+      {/* empty:hidden — in a group, somebody who does not run it has none of
+          these three (no map, no theme, no management), and an empty row
+          would be a strip of margin above the chat. */}
+      <div className="mb-2 flex items-center gap-2 empty:hidden">
         {/* A group's room is on no map. */}
         {!group && (isRoomManager || state.roomLocation) && (
           <Tooltip content={roomLocationTooltip} wrapperClassName="flex flex-1">
@@ -4988,19 +4991,16 @@ export function WatchRoom({
             useful thing a refusal can be; with the plan but with the room's
             switch off it is genuinely dead, and says so rather than opening
             a picker whose every choice the server would reject. */}
+        {/* Not in a group: a group's rooms wear the group's theme, which is
+            changed from the group itself (its menu and its settings). */}
+        {!group && (
         <Tooltip
           content={
-            group
-              ? !hasThemePlan
-                ? "Só quem tem Pro Max pode trocar o tema do grupo."
-                : !isRoomManager
-                  ? "Só os administradores do grupo podem trocar o tema do grupo."
-                  : "Muda o tema do grupo inteiro, para todo mundo"
-              : !hasThemePlan
-                ? "Só quem tem Pro Max pode trocar o tema da sala."
-                : !roomAllowsTheme
-                  ? "A administração desativou a troca de tema para os participantes."
-                  : "Muda o tema para todo mundo na sala"
+            !hasThemePlan
+              ? "Só quem tem Pro Max pode trocar o tema da sala."
+              : !roomAllowsTheme
+                ? "A administração desativou a troca de tema para os participantes."
+                : "Muda o tema para todo mundo na sala"
           }
           wrapperClassName="flex flex-1"
         >
@@ -5008,9 +5008,7 @@ export function WatchRoom({
             type="button"
             // Dead only when the room said no. Without the plan it still
             // does something worth doing.
-            // In a group the theme is the group's, and running the group is
-            // what lets you change it.
-            disabled={group ? hasThemePlan && !isRoomManager : hasThemePlan && !roomAllowsTheme}
+            disabled={hasThemePlan && !roomAllowsTheme}
             onClick={() => {
               if (!hasThemePlan) {
                 // The modal rather than the page: this is a live call, and
@@ -5019,23 +5017,20 @@ export function WatchRoom({
                 return;
               }
               void openPopup("room_theme", {
-                data: {
-                  currentThemeId: state.roomTheme ?? null,
-                  // Picks for the whole group instead of this room.
-                  ...(group ? { groupId: group.groupId } : {}),
-                },
+                data: { currentThemeId: state.roomTheme ?? null },
               });
             }}
             className={`flex w-full items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
-              (group ? hasThemePlan && isRoomManager : canSetRoomTheme)
+              canSetRoomTheme
                 ? "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
                 : "border-zinc-300 text-zinc-500 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900"
             }`}
           >
             <MdPalette className="h-4 w-4 shrink-0" />
-            {group ? "Tema do grupo" : roomTheme.fromRoom ? "Trocar tema" : "Tema da sala"}
+            {roomTheme.fromRoom ? "Trocar tema" : "Tema da sala"}
           </button>
         </Tooltip>
+        )}
         {isRoomManager && (
           <button
             type="button"

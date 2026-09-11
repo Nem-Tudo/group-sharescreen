@@ -79,6 +79,8 @@ export interface InvitePreview {
     name: string;
     description: string;
     iconUrl: string | null;
+    /** "VERIFIED" draws the badge beside the name. Absent from an older API. */
+    flags?: string[];
     memberCount: number;
     onlineCount: number;
   };

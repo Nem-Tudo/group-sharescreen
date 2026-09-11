@@ -6,6 +6,7 @@ import useNtPopups from "ntpopups";
 import { MdAdd, MdCheck, MdGroups, MdLink, MdUnfoldMore } from "react-icons/md";
 import { Popover } from "@/components/Tooltip";
 import { GroupIcon } from "@/components/groups/GroupIcon";
+import { GroupName } from "@/components/groups/GroupName";
 import { useAuth } from "@/lib/AuthContext";
 import { groupPath } from "@/lib/groupLinks";
 import { useMyGroups } from "@/lib/useGroups";
@@ -23,11 +24,13 @@ export function GroupSwitcher({
   activeGroupId,
   fallbackName,
   fallbackIconUrl,
+  fallbackFlags,
 }: {
   activeGroupId: string | null;
   /** The open group's name from its detail, for the moment before the list has loaded. */
   fallbackName?: string | null;
   fallbackIconUrl?: string | null;
+  fallbackFlags?: string[] | null;
 }) {
   const [open, setOpen] = useState(false);
   const { groups } = useMyGroups();
@@ -37,6 +40,7 @@ export function GroupSwitcher({
   const active = groups?.find((g) => g.id === activeGroupId) ?? null;
   const name = active?.name ?? fallbackName ?? null;
   const iconUrl = active?.iconUrl ?? fallbackIconUrl ?? null;
+  const flags = active?.flags ?? fallbackFlags ?? null;
   const elsewhereUnread = Boolean(
     groups?.some((g) => g.id !== activeGroupId && (g.unread || g.mentions > 0))
   );
@@ -58,9 +62,11 @@ export function GroupSwitcher({
             {groups?.map((group) => (
               <Link key={group.id} href={groupPath(group.id)} onClick={close} className={itemClass}>
                 <GroupIcon name={group.name} iconUrl={group.iconUrl} seed={group.id} size={26} className="rounded-md" />
-                <span className={`min-w-0 flex-1 truncate ${group.unread ? "font-semibold text-zinc-950 dark:text-zinc-50" : ""}`}>
-                  {group.name}
-                </span>
+                <GroupName
+                  name={group.name}
+                  flags={group.flags}
+                  className={`flex-1 ${group.unread ? "font-semibold text-zinc-950 dark:text-zinc-50" : ""}`}
+                />
                 {group.id === activeGroupId ? (
                   <MdCheck className="h-4 w-4 shrink-0 text-emerald-600" aria-label="Aberto" />
                 ) : group.mentions > 0 ? (
@@ -116,7 +122,12 @@ export function GroupSwitcher({
         ) : (
           <MdGroups className="h-6 w-6 shrink-0 text-zinc-600 dark:text-zinc-400" />
         )}
-        <span className="truncate text-base font-semibold text-zinc-950 sm:text-lg dark:text-zinc-50">{name ?? "Grupos"}</span>
+        <GroupName
+          name={name ?? "Grupos"}
+          flags={name ? flags : null}
+          className="text-base font-semibold text-zinc-950 sm:text-lg dark:text-zinc-50"
+          badgeClassName="h-5 w-5"
+        />
         {elsewhereUnread && (
           <span className="h-2 w-2 shrink-0 rounded-full bg-red-500" aria-label="Novidades em outros grupos" />
         )}

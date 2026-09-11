@@ -20,6 +20,8 @@ export interface GroupSummary {
   id: string;
   name: string;
   iconUrl: string | null;
+  /** "VERIFIED" draws the badge beside the name — see components/groups/GroupName. */
+  flags: string[];
   role: GroupRole;
   unread: boolean;
   mentions: number;
@@ -51,6 +53,8 @@ export interface GroupInfo {
   iconUrl: string | null;
   /** The group's theme by id, or null for each person's own. See the API's groupModels. */
   theme: string | null;
+  /** "VERIFIED" draws the badge beside the name — see components/groups/GroupName. */
+  flags: string[];
   ownerId: string;
   admins: string[];
   memberCount: number;

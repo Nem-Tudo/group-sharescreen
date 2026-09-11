@@ -33,6 +33,7 @@ import {
   type GroupVoiceSession,
 } from "@/lib/groupVoiceSession";
 import { signalingClient } from "@/lib/signalingClient";
+import { playConnectSound } from "@/lib/soundEffects";
 import { onGroupRemoved, refreshGroups, resetGroups, useGroupDetail } from "@/lib/useGroups";
 import { LG_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 import { useRoomTheme } from "@/lib/useRoomTheme";
@@ -158,6 +159,7 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
                 activeGroupId={groupId}
                 fallbackName={detail?.group.name}
                 fallbackIconUrl={detail?.group.iconUrl}
+                fallbackFlags={detail?.group.flags}
               />
             </div>
 
@@ -320,6 +322,11 @@ function VoiceHost({
       }
     >
       <RemovalGuard onRemoved={onDisconnect} />
+      {/* Keyed by the room, so moving to another voice room is a new "you
+          are in" — and a reconnect into the same call is not. Prefixed,
+          because the WatchRoom beside it is keyed by the bare handle and
+          siblings may not share a key, whatever their component. */}
+      <ConnectSound key={`connect:${session.handle}`} handle={session.handle} />
       <WatchRoom
         key={session.handle}
         handle={session.handle}
@@ -336,6 +343,24 @@ function VoiceHost({
       />
     </div>
   );
+}
+
+/**
+ * The sound of having got in: played once, the first time the room this
+ * session is for actually answers the join (not when the click happened — a
+ * join that is refused should not sound like one that worked). A new instance
+ * per room (see its key), so switching rooms plays it again; a reconnect that
+ * rejoins the same room does not, because this instance already played.
+ */
+function ConnectSound({ handle }: { handle: string }) {
+  const { room } = useSignaling();
+  const played = useRef(false);
+  useEffect(() => {
+    if (played.current || room !== handle) return;
+    played.current = true;
+    playConnectSound();
+  }, [room, handle]);
+  return null;
 }
 
 /**

@@ -29,7 +29,7 @@ import type { OAuthResult } from "@/lib/oauthApi";
 import { GlobeIcon } from "@/components/icons";
 import { DownloadAppButton } from "@/components/DownloadAppButton";
 import { RecentRooms } from "@/components/RecentRooms";
-import { HomeGroups } from "@/components/groups/HomeGroups";
+import { HomeGroupsPanel } from "@/components/groups/HomeGroupsPanel";
 import { ButtonSpinner } from "@/components/ButtonSpinner";
 import { prewarmCaptcha } from "@/lib/turnstile";
 import { MdLock, MdOutlineMap } from "react-icons/md";
@@ -428,11 +428,24 @@ export default function Home() {
 
           A guest sees none of this: HomeFriendsPanel renders nothing without an
           account, and the grid's middle column is the form either way. */}
-        <div className="flex w-full flex-col items-center justify-center gap-4 lg:flex-row lg:items-start xl:grid xl:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
-          {/* The panel's counterweight. Nothing is drawn in it — it exists so
-              the column holding the form has equal space on both sides, which
-              is the whole of what "centred" means here. */}
-          <div aria-hidden className="hidden xl:block" />
+        <div className="flex w-full flex-col items-center justify-center gap-4 lg:flex-row lg:flex-wrap lg:items-start xl:grid xl:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+          {/* The groups, in what used to be an empty counterweight column: from
+              xl the grid's left column, hugging the form from that side as the
+              friends hug it from the other, and the form stays dead centre
+              either way. Below xl there is no room for three abreast, so it
+              goes after the form and the friends (order-3) — wrapped onto a
+              row of its own at lg, stacked below that.
+
+              Wrapped, and the wrapper always exists: the panel renders nothing
+              while the account is still resolving (and for somebody with no
+              identity), and a grid missing its first child puts the form in
+              the *first* column — the page opening with the form shoved to the
+              left. So from xl the wrapper holds the column even when empty
+              (xl:empty:block), and below xl an empty one simply disappears
+              (empty:hidden) instead of leaving a gap in the stack. */}
+          <div className="order-3 flex w-full max-w-md justify-center empty:hidden lg:w-auto xl:order-none xl:block xl:w-auto xl:max-w-none xl:justify-self-end xl:empty:block">
+            <HomeGroupsPanel />
+          </div>
           <main className="w-full max-w-md rounded-2xl border border-black/10 bg-white p-8 shadow-sm dark:border-white/10 dark:bg-zinc-950">
             <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
               GoLive
@@ -689,8 +702,6 @@ export default function Home() {
                 {/* Last rooms this browser was in. Hidden when empty so a first
                   visit doesn't grow the form for nothing — see RecentRooms. */}
                 <RecentRooms />
-                {/* The groups this person is in — renders nothing when none. */}
-                <HomeGroups />
                 {/* Public/private as two visible options rather than a
                   checkbox under the name field: the choice changes what the
                   form even asks for, so it belongs above the fields it

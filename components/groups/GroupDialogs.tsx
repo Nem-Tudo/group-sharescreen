@@ -18,6 +18,7 @@ import { FaCrown } from "react-icons/fa";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { UserAvatar } from "@/components/UserAvatar";
 import { GroupIcon } from "@/components/groups/GroupIcon";
+import { GroupName } from "@/components/groups/GroupName";
 import { AVATAR_IMAGE_ACCEPT, isSupportedAvatarImage, prepareAvatarImage } from "@/lib/avatarImage";
 import { copyText } from "@/lib/clipboard";
 import { hasFeature, verifiedBadge } from "@/lib/entitlements";
@@ -274,6 +275,10 @@ const MAX_USES = [0, 1, 5, 10, 25, 50, 100];
 
 export function GroupInviteDialog({ closePopup, data }: PopupProps<{ groupId: string; groupName?: string }>) {
   const groupId = data?.groupId ?? "";
+  // From the store, for the badge — and the current name, should it have
+  // been renamed since whoever opened this was handed one.
+  const { detail: inviteDetail } = useGroupDetail(groupId || null);
+  const groupName = inviteDetail?.group.name ?? data?.groupName ?? null;
   const [lifetime, setLifetime] = useState<InviteLifetime>("7d");
   const [maxUses, setMaxUses] = useState(0);
   const [invite, setInvite] = useState<GroupInvite | null>(null);
@@ -308,7 +313,16 @@ export function GroupInviteDialog({ closePopup, data }: PopupProps<{ groupId: st
 
   return (
     <DialogFrame
-      title={data?.groupName ? `Convidar para ${data.groupName}` : "Convidar pessoas"}
+      title={
+        groupName ? (
+          <span className="inline-flex min-w-0 items-center gap-1.5">
+            <span className="shrink-0">Convidar para</span>
+            <GroupName name={groupName} flags={inviteDetail?.group.flags} badgeClassName="h-5 w-5" />
+          </span>
+        ) : (
+          "Convidar pessoas"
+        )
+      }
       onClose={() => closePopup(false)}
     >
       <div className="flex flex-col gap-1.5">
@@ -403,7 +417,11 @@ export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: 
   }
 
   return (
-    <DialogFrame title={detail.group.name} onClose={() => closePopup(false)} wide>
+    <DialogFrame
+      title={<GroupName name={detail.group.name} flags={detail.group.flags} badgeClassName="h-5 w-5" />}
+      onClose={() => closePopup(false)}
+      wide
+    >
       <div className="-mt-1 flex gap-1 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
         {visible.map((t) => (
           <button

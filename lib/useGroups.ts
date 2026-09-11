@@ -110,6 +110,19 @@ export function resetGroups(): void {
   setState({ groups: null, groupsError: null, details: {}, detailErrors: {} });
 }
 
+/** Whose groups the store holds. Undefined until somebody says. */
+let groupsIdentity: string | null | undefined = undefined;
+
+/**
+ * Tells the store who is asking, and drops what it holds when that changed —
+ * a guest who signs in on the home page must not go on seeing the guest's
+ * groups. Call from an effect: it can notify subscribers.
+ */
+export function syncGroupsIdentity(identity: string | null): void {
+  if (groupsIdentity !== undefined && groupsIdentity !== identity) resetGroups();
+  groupsIdentity = identity;
+}
+
 // ─── Unread bookkeeping ──────────────────────────────────────────────────
 
 /** The text room on screen right now, if any — see setViewingChannel. */

@@ -31,7 +31,8 @@ import {
 import { groupPath } from "@/lib/groupLinks";
 import { prefetchChannel } from "@/lib/groupCache";
 import { prefetchUserProfile } from "@/lib/userProfile";
-import { forgetGroup, refreshGroup } from "@/lib/useGroups";
+import { forgetGroup, refreshGroup, useGroupsState } from "@/lib/useGroups";
+import { GroupName } from "@/components/groups/GroupName";
 import { openGroupProfile } from "@/components/groups/groupProfile";
 import {
   setGroupVoiceSession,
@@ -514,7 +515,10 @@ export function VoiceControls({ className = "" }: { className?: string }) {
   const router = useRouter();
   const session = useGroupVoiceSession();
   const controls = useGroupVoiceControls();
+  // The group's flags, for its badge — the session carries only the name.
+  const groupsState = useGroupsState();
   if (!session) return null;
+  const sessionFlags = groupsState.details[session.groupId]?.group.flags;
   return (
     <div
       className={`flex items-center gap-1 rounded-xl border border-zinc-200 bg-zinc-100 p-1 dark:border-zinc-800 dark:bg-zinc-900 ${className}`}
@@ -526,7 +530,10 @@ export function VoiceControls({ className = "" }: { className?: string }) {
       >
         <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-emerald-500" />
         <span className="truncate font-medium text-zinc-900 dark:text-zinc-100">{session.channelName}</span>
-        <span className="hidden truncate text-zinc-500 xl:inline dark:text-zinc-400">· {session.groupName}</span>
+        <span className="hidden min-w-0 items-center gap-1 text-zinc-500 xl:inline-flex dark:text-zinc-400">
+          <span className="shrink-0">·</span>
+          <GroupName name={session.groupName} flags={sessionFlags} badgeClassName="h-3.5 w-3.5" />
+        </span>
       </Link>
       {controls && (
         <Tooltip content={controls.isMicOn ? "Desligar microfone" : "Ligar microfone"}>

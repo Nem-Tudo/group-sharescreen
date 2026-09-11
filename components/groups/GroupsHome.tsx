@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import useNtPopups from "ntpopups";
 import { MdAdd, MdChevronRight } from "react-icons/md";
 import { GroupIcon } from "@/components/groups/GroupIcon";
+import { GroupName } from "@/components/groups/GroupName";
 import { useAuth } from "@/lib/AuthContext";
 import { groupPath, inviteCodeFromInput, invitePath } from "@/lib/groupLinks";
 import { useMyGroups } from "@/lib/useGroups";
@@ -65,7 +66,7 @@ export function GroupsHome() {
 
         {!loading && !account && (
           <p className="mt-4 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
-            Sem conta dá para participar de até 2 grupos, entrando por convite. Para criar grupos,{" "}
+            Para criar grupos,{" "}
             <Link href="/" className="font-medium underline underline-offset-2">
               crie uma conta
             </Link>
@@ -85,9 +86,11 @@ export function GroupsHome() {
                 >
                   <GroupIcon name={group.name} iconUrl={group.iconUrl} seed={group.id} size={40} className="rounded-lg" />
                   <span className="min-w-0 flex-1">
-                    <span className={`block truncate text-sm ${group.unread ? "font-semibold text-zinc-950 dark:text-zinc-50" : "font-medium text-zinc-900 dark:text-zinc-100"}`}>
-                      {group.name}
-                    </span>
+                    <GroupName
+                      name={group.name}
+                      flags={group.flags}
+                      className={`flex w-full text-sm ${group.unread ? "font-semibold text-zinc-950 dark:text-zinc-50" : "font-medium text-zinc-900 dark:text-zinc-100"}`}
+                    />
                     <span className="block truncate text-xs text-zinc-500 dark:text-zinc-400">
                       {ROLE_LABEL[group.role]}
                       {group.unread && " · mensagens novas"}
