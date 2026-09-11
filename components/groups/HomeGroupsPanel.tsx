@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import useNtPopups from "ntpopups";
 import { MdAdd, MdLink } from "react-icons/md";
+import { BetaMark } from "@/components/BetaMark";
 import { Popover, Tooltip } from "@/components/Tooltip";
 import { GroupIcon } from "@/components/groups/GroupIcon";
 import { GroupName } from "@/components/groups/GroupName";
@@ -68,11 +69,16 @@ function GroupsPanelBody({
       className={`w-full max-w-md rounded-2xl border border-black/10 bg-white p-5 shadow-sm lg:w-88 dark:border-white/10 dark:bg-zinc-950 ${className}`}
     >
       <div className="flex items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+        <h2 className="flex items-center text-sm font-semibold text-zinc-900 dark:text-zinc-100">
           Grupos
           {groups && groups.length > 0 && (
             <span className="ml-1.5 font-normal text-zinc-400">{groups.length}</span>
           )}
+          {/* The site's own beta tag (see BetaMark), at the size it has in a
+              room's account card. */}
+          <span className="ml-2 text-[10px] font-bold">
+            <BetaMark />
+          </span>
         </h2>
         <span className="flex shrink-0 items-center gap-2">
           {/* One "+" for both ways of getting another group — joining one
