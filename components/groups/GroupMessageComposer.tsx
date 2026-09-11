@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -49,7 +50,11 @@ export interface ComposerPayload {
 }
 
 const MAX_LENGTH = 2000;
-const MAX_HEIGHT_PX = 144;
+// A long message gets room to be read while it is written: the box grows with
+// it up to this share of the screen, and only then starts to scroll.
+const MAX_HEIGHT_OF_SCREEN = 0.8;
+// Never so tall that the conversation above it is squeezed out entirely.
+const MIN_CONVERSATION_PX = 64;
 
 /** Which members a text @-mentions, by id — matched by name, longest names first. */
 export function mentionedIds(text: string, candidates: MentionCandidate[]): string[] {
@@ -70,8 +75,10 @@ function isCoarsePointer(): boolean {
   return typeof window !== "undefined" && Boolean(window.matchMedia?.("(pointer: coarse)").matches);
 }
 
+// Sized and nudged to sit centred on the text box's first line (48px tall),
+// and to stay on its bottom edge as the box grows.
 const iconButton =
-  "flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-zinc-800 dark:hover:text-zinc-200";
+  "mb-1 flex h-10 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-zinc-800 dark:hover:text-zinc-200";
 
 export function GroupMessageComposer({
   channelName,
@@ -112,9 +119,31 @@ export function GroupMessageComposer({
   function resize() {
     const el = textRef.current;
     if (!el) return;
+    // The screen's share, or less on a screen too short to spare it: the
+    // chat column the box sits in (TextChannelView) keeps a strip of the
+    // conversation visible above it.
+    let cap = window.innerHeight * MAX_HEIGHT_OF_SCREEN;
+    const column = el.closest<HTMLElement>("[data-chat-column]");
+    const box = el.closest<HTMLElement>("[data-composer]");
+    if (column && box) {
+      const around = box.offsetHeight - el.offsetHeight;
+      cap = Math.min(cap, column.clientHeight - MIN_CONVERSATION_PX - around);
+    }
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT_PX)}px`;
+    // scrollHeight leaves out the border, which the border-box height includes.
+    const wanted = el.scrollHeight + (el.offsetHeight - el.clientHeight);
+    const height = Math.max(Math.min(wanted, cap), 0);
+    el.style.height = `${height}px`;
+    // No scrollbar until the text actually outgrows the box.
+    el.style.overflowY = wanted > cap ? "auto" : "hidden";
   }
+
+  // The cap is a share of the screen, so a resized window moves it.
+  useEffect(() => {
+    const onResize = () => resize();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  });
 
   function onChange(e: ChangeEvent<HTMLTextAreaElement>) {
     setText(e.target.value.slice(0, MAX_LENGTH));
@@ -243,7 +272,7 @@ export function GroupMessageComposer({
   }
 
   return (
-    <div className="relative shrink-0 border-t border-zinc-200 p-2 dark:border-zinc-800">
+    <div data-composer className="relative shrink-0 border-t border-zinc-200 p-2 dark:border-zinc-800">
       {mentionOpen && (
         <ul
           role="listbox"
@@ -361,14 +390,14 @@ export function GroupMessageComposer({
           rows={1}
           disabled={disabled}
           placeholder={disabledReason ?? `Mensagem em ${channelName}`}
-          className="min-h-8 min-w-0 flex-1 resize-none rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-base leading-5 text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-white/10"
+          className="min-h-12 min-w-0 flex-1 resize-none overflow-y-hidden rounded-lg border border-zinc-300 bg-white px-3 py-[11px] text-base leading-6 text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-white/10"
         />
         <button
           type="button"
           onClick={() => void send()}
           disabled={disabled || sending || (!text.trim() && images.length === 0)}
           aria-label="Enviar"
-          className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-zinc-950 text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+          className="mb-1 flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-zinc-950 text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
         >
           <MdSend className="h-4 w-4" />
         </button>

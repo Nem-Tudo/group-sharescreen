@@ -170,7 +170,7 @@ export function InviteClient({ code, initialPreview }: { code: string; initialPr
                   placeholder="Ex: Maria"
                   className="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
                 />
-                <button type="submit" disabled={!nameInput.trim()} className={`${primaryClass} w-auto shrink-0`}>
+                <button type="submit" disabled={!nameInput.trim()} className={`${primaryBase} shrink-0`}>
                   Entrar
                 </button>
               </div>
@@ -200,5 +200,9 @@ export function InviteClient({ code, initialPreview }: { code: string; initialPr
   );
 }
 
-const primaryClass =
-  "w-full cursor-pointer rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200";
+// Without a width: a class string that says both w-full and w-auto is settled
+// by the stylesheet's order, not the string's — and w-full wins, which is how
+// the guest form's button once ate the whole row and crushed the name field.
+const primaryBase =
+  "cursor-pointer rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200";
+const primaryClass = `w-full ${primaryBase}`;

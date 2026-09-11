@@ -262,6 +262,19 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
     setUnseen(0);
   }
 
+  // The conversation's box shrinks when the composer under it grows with a
+  // long message (and grows back when it is sent). Somebody reading the
+  // newest line keeps reading it, instead of it slipping under the composer.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (atBottomRef.current) el.scrollTop = el.scrollHeight;
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  });
+
   /** Pictures landing after the scroll moved would otherwise leave the newest line under the fold. */
   function onMediaLoad() {
     const el = scrollRef.current;
@@ -568,7 +581,10 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white lg:rounded-xl lg:border lg:border-zinc-200 dark:bg-zinc-950 lg:dark:border-zinc-800">
+    <div
+      // How tall the composer may grow is measured against this (see GroupMessageComposer).
+      data-chat-column
+      className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white lg:rounded-xl lg:border lg:border-zinc-200 dark:bg-zinc-950 lg:dark:border-zinc-800">
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
         <h2 className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-zinc-700 dark:text-zinc-300">
           <MdChatBubbleOutline className="h-4 w-4 shrink-0 text-zinc-500" />
