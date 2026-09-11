@@ -58,7 +58,7 @@ const RESERVED_FOR_LIST_PX =
   (MIN_VISIBLE_PARTICIPANTS - 1) * PARTICIPANT_LIST_GAP_PX +
   PARTICIPANT_LIST_HEADING_PX;
 // Floor: a column too short to hold both still leaves the ad something to be.
-const MIN_CARD_HEIGHT_PX = 150;
+export const MIN_CARD_HEIGHT_PX = 150;
 // Below lg the card shares one drawer with the list *and* chat, and that
 // drawer's height is content-driven — measuring it to size the card would be
 // measuring something the card is part of, which is a feedback loop. A share
@@ -90,9 +90,16 @@ const CUSTOMIZER_STARTING_POINT: AdForm = {
 export function PartnerCard({
   partner: externalPartner,
   loaded: externalLoaded,
+  reservedAbove = RESERVED_FOR_LIST_PX,
 }: {
   partner?: PartnerCardData | null;
   loaded?: boolean;
+  /**
+   * From lg up, how much of its column the list above it keeps. The room's
+   * participant rows by default; a group's rooms column passes its first five
+   * rooms (see GroupPartnerSlot).
+   */
+  reservedAbove?: number;
 } = {}) {
   const isControlled = externalLoaded !== undefined;
   const signalingState = useSignaling();
@@ -343,7 +350,7 @@ export function PartnerCard({
       const available = Math.max(
         MIN_CARD_HEIGHT_PX,
         wide && column
-          ? column.clientHeight - RESERVED_FOR_LIST_PX
+          ? column.clientHeight - reservedAbove
           : Math.round(window.innerHeight * SMALL_SCREEN_CARD_HEIGHT_FRACTION)
       );
       setMaxCardHeight(available);
@@ -373,7 +380,7 @@ export function PartnerCard({
       observer.disconnect();
       window.removeEventListener("resize", measure);
     };
-  }, [loaded]);
+  }, [loaded, reservedAbove]);
 
   useEffect(() => {
     if (!clickRewardJustClaimed) return;

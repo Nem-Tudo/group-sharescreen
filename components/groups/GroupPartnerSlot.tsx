@@ -21,7 +21,12 @@ import { usePartnerAd } from "@/lib/usePartnerAd";
 // Only mounted from lg up, by the shell: below that the rooms column does not
 // exist, and an ad counting impressions while hidden would be counting nothing.
 
-export function GroupPartnerSlot() {
+export function GroupPartnerSlot({
+  reservedAbove,
+}: {
+  /** What the rooms above it keep — their first five (see the shell). */
+  reservedAbove?: number;
+}) {
   // The column is the room's 300px sidebar, where only the fluid native unit
   // is worth anything — the fixed banner is the fallback when there is none.
   const hasValidNative = Boolean(
@@ -36,11 +41,21 @@ export function GroupPartnerSlot() {
   const { rawPartner, loaded } = usePartnerAd({ visible: !showAdsterra });
 
   if (showAdsterra) {
-    return format === "native" ? (
-      <AdsterraNative className="shrink-0" label={false} maxHeight={280} />
-    ) : (
-      <AdsterraBanner slot="room" className="shrink-0" />
+    // In a box that gives way to the rooms above it and scrolls what no longer
+    // fits (see the shell). `empty:hidden`, so a unit that renders nothing
+    // leaves no gap behind in the column either.
+    return (
+      <div className="min-h-0 overflow-y-auto empty:hidden">
+        {format === "native" ? (
+          <AdsterraNative label={false} maxHeight={280} />
+        ) : (
+          <AdsterraBanner slot="room" />
+        )}
+      </div>
     );
   }
-  return <PartnerCard partner={rawPartner} loaded={loaded} />;
+  // Not in that box: the card sizes itself to the column it is in — capped at
+  // what the rooms leave it, scrolling past that — and a wrapper would be the
+  // column it measured.
+  return <PartnerCard partner={rawPartner} loaded={loaded} reservedAbove={reservedAbove} />;
 }

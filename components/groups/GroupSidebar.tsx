@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type DragEvent, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } from "react";
 import useNtPopups from "ntpopups";
 import {
   MdAdd,
@@ -203,15 +203,26 @@ type DropHint =
 // The line a drop would land on — drawn at the top or bottom edge of a row.
 const dropLine = "pointer-events-none absolute inset-x-1 h-0.5 rounded-full bg-emerald-500";
 
+// How many rooms the card always has room for, however much the ad under it
+// would like — see onMinHeight.
+const MIN_VISIBLE_ROOMS = 5;
+
 export function GroupRoomsPanel({
   detail,
   activeChannelId,
   onNavigate,
+  onMinHeight,
   bare = false,
 }: {
   detail: GroupDetail;
   activeChannelId: string | null;
   onNavigate?: () => void;
+  /**
+   * How tall the card has to be to show its first MIN_VISIBLE_ROOMS rooms (all
+   * of them, when there are fewer), told again whenever that changes — for the
+   * shell, which keeps the ad under the card from taking that space.
+   */
+  onMinHeight?: (px: number) => void;
   /** Without the card around it — for the phone's sheet, which is already one. */
   bare?: boolean;
 }) {
@@ -242,6 +253,38 @@ export function GroupRoomsPanel({
   const { collapsed, toggle: toggleCollapsed } = useCollapsedCategories(group.id);
   const sections = useMemo(() => buildSections(channels, detail.categories ?? []), [channels, detail.categories]);
   const hasCategories = sections.length > 1;
+
+  // What onMinHeight reports: down to the bottom of the fifth room's own row —
+  // its name, not the people under it, though the people in the rooms above
+  // it do count — plus the card's header, padding and border. Read in the
+  // list's own coordinates (the scroll added back), so neither scrolling nor
+  // the height the card ends up with moves it. Rooms folded away in a
+  // category are not drawn, and so are not counted.
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    const card = scroller?.parentElement;
+    const list = scroller?.firstElementChild;
+    if (!onMinHeight || !scroller || !card || !list) return;
+    const measure = () => {
+      const rows = list.querySelectorAll("[data-room-head]");
+      const last = rows[Math.min(rows.length, MIN_VISIBLE_ROOMS) - 1];
+      if (!last) {
+        onMinHeight(0);
+        return;
+      }
+      const rowBottom = last.getBoundingClientRect().bottom - card.getBoundingClientRect().top + scroller.scrollTop;
+      // The card's top border standing in for its bottom one: the same line.
+      const below = parseFloat(getComputedStyle(scroller).paddingBottom) + card.clientTop;
+      onMinHeight(Math.ceil(rowBottom + below));
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(list);
+    return () => {
+      observer.disconnect();
+      onMinHeight(0);
+    };
+  }, [onMinHeight]);
 
   function startCreating(kind: GroupChannelKind | "category", categoryId: string | null = null) {
     setAddOpen(false);
@@ -528,6 +571,7 @@ export function GroupRoomsPanel({
           {locked ? (
             <div
               title="Você não tem permissão para entrar nesta sala"
+              data-room-head
               className="group/room flex cursor-not-allowed items-center gap-2 rounded-lg px-3 py-2"
             >
               {headerContent}
@@ -540,6 +584,7 @@ export function GroupRoomsPanel({
               draggable={isManager ? false : undefined}
               aria-current={active ? "page" : undefined}
               title={connected ? "Voltar para a chamada" : "Entrar na sala"}
+              data-room-head
               className="group/room flex items-center gap-2 rounded-lg px-3 py-2 transition hover:bg-zinc-100 dark:hover:bg-zinc-900"
             >
               {headerContent}
@@ -575,6 +620,7 @@ export function GroupRoomsPanel({
           // usually opens already filled in (see lib/groupCache).
           onMouseEnter={() => prefetchChannel(group.id, channel.id)}
           onFocus={() => prefetchChannel(group.id, channel.id)}
+          data-room-head
           className={`group/room flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition ${
             active
               ? "bg-zinc-100 font-medium text-zinc-950 dark:bg-zinc-900 dark:text-zinc-50"
@@ -870,7 +916,9 @@ export function GroupRoomsPanel({
           </Popover>
         )}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-2">{content}</div>
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto p-2">
+        {content}
+      </div>
     </div>
   );
 }

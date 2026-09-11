@@ -9,6 +9,7 @@ import { WatchRoom } from "@/app/watch/[handle]/WatchRoom";
 import { AccountMenu } from "@/components/AccountMenu";
 import { AccountModal } from "@/components/AccountModal";
 import { NotificationInboxBell } from "@/components/NotificationInboxBell";
+import { MIN_CARD_HEIGHT_PX } from "@/components/PartnerCard";
 import { RoomAccountCard } from "@/components/RoomAccountCard";
 import { Tooltip } from "@/components/Tooltip";
 import { UpdateAppButton } from "@/components/UpdateAppButton";
@@ -43,6 +44,9 @@ import { onGroupRemoved, refreshGroups, resetGroups, useGroupDetail } from "@/li
 import { LG_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 import { useRoomTheme } from "@/lib/useRoomTheme";
 import { useSignaling } from "@/lib/useSignaling";
+
+// The rooms column's gap-3, between the rooms and the ad under them.
+const ASIDE_GAP_PX = 12;
 
 // The whole of /groups/*, laid out like a room: a top bar, and three columns of
 // cards on grey — the group's rooms (with the ad square under them) on the
@@ -86,6 +90,9 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   const isWide = useMediaQuery(LG_BREAKPOINT_QUERY);
   const [navOpen, setNavOpen] = useState(false);
   const [accountModal, setAccountModal] = useState<"login" | "create" | null>(null);
+  // What the rooms column keeps from the ad under it — see GroupRoomsPanel's
+  // onMinHeight. 0 until the rooms have been measured.
+  const [roomsMinHeight, setRoomsMinHeight] = useState(0);
   // Where the call's header controls are portalled to — see WatchRoom's
   // headerSlots. State rather than refs, so the room re-renders once they exist.
   const [centerSlot, setCenterSlot] = useState<HTMLDivElement | null>(null);
@@ -241,9 +248,21 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
         <div className="flex min-h-0 flex-1 lg:gap-3 lg:p-3">
           {groupId && (
             <aside className="hidden w-[300px] shrink-0 flex-col gap-3 lg:flex">
-              <div className="flex min-h-0 flex-1 flex-col">
+              {/* Never shorter than its first five rooms (see GroupRoomsPanel's
+                  onMinHeight): the ad under it gives way instead, and scrolls.
+                  Down to the floor an ad keeps in any column (PartnerCard's
+                  MIN_CARD_HEIGHT_PX) — a column shorter than that plus five
+                  rooms is too short for both, and the rooms scroll too. */}
+              <div
+                className="flex min-h-0 flex-1 flex-col"
+                style={
+                  roomsMinHeight
+                    ? { minHeight: `min(${roomsMinHeight}px, calc(100% - ${MIN_CARD_HEIGHT_PX + ASIDE_GAP_PX}px))` }
+                    : undefined
+                }
+              >
                 {detail ? (
-                  <GroupRoomsPanel detail={detail} activeChannelId={roomId} />
+                  <GroupRoomsPanel detail={detail} activeChannelId={roomId} onMinHeight={setRoomsMinHeight} />
                 ) : (
                   <div className="flex h-full flex-col gap-2 rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
                     {[0, 1, 2].map((i) => (
@@ -253,7 +272,9 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
                 )}
               </div>
               {/* Always here, call or no call — see GroupPartnerSlot. */}
-              {isWide && <GroupPartnerSlot />}
+              {isWide && (
+                <GroupPartnerSlot reservedAbove={roomsMinHeight ? roomsMinHeight + ASIDE_GAP_PX : undefined} />
+              )}
             </aside>
           )}
 
