@@ -55,6 +55,12 @@ export interface PageMetadataOptions {
    */
   card?: OgImageOptions;
   /**
+   * A picture of the thing itself, shown as the small square beside the text
+   * instead of the generated wide card — a group's icon, the way a chat app
+   * previews a group invite. Absolute. Takes the place of `card`.
+   */
+  thumbnail?: string;
+  /**
    * Left out of search results. Not the same thing as "not shareable" — a
    * room, a profile and a present are all noindex and all meant to be pasted
    * into a chat, which is exactly why they still get a card.
@@ -68,9 +74,10 @@ export function pageMetadata({
   description,
   keywords,
   card,
+  thumbnail,
   noindex,
 }: PageMetadataOptions): Metadata {
-  const image = ogImage(card ?? { title, subtitle: description });
+  const image = thumbnail ?? ogImage(card ?? { title, subtitle: description });
   const url = `${SITE_URL}${path}`;
   return {
     title,
@@ -84,10 +91,13 @@ export function pageMetadata({
       siteName: "GoLive",
       title,
       description,
-      images: [{ url: image, width: 1200, height: 630, alt: title }],
+      // A thumbnail's size is whatever it was uploaded at; the generated card
+      // is always 1200×630.
+      images: [thumbnail ? { url: image, alt: title } : { url: image, width: 1200, height: 630, alt: title }],
     },
     twitter: {
-      card: "summary_large_image",
+      // "summary" is the small square beside the text — what a thumbnail is.
+      card: thumbnail ? "summary" : "summary_large_image",
       title,
       description,
       images: [image],
