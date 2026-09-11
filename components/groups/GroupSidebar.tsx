@@ -34,6 +34,7 @@ import { prefetchUserProfile } from "@/lib/userProfile";
 import { forgetGroup, refreshGroup, useGroupsState } from "@/lib/useGroups";
 import { GroupName } from "@/components/groups/GroupName";
 import { openGroupProfile } from "@/components/groups/groupProfile";
+import { useOpenChannelSettings } from "@/components/groups/ChannelSettingsDialog";
 import {
   setGroupVoiceSession,
   useGroupVoiceControls,
@@ -91,7 +92,7 @@ export function GroupRoomsPanel({
 }) {
   const router = useRouter();
   const session = useGroupVoiceSession();
-  const openSettings = useOpenSettings(detail.group.id);
+  const openChannelSettings = useOpenChannelSettings();
   const [addOpen, setAddOpen] = useState(false);
   const [creating, setCreating] = useState<GroupChannelKind | null>(null);
   const [newName, setNewName] = useState("");
@@ -128,19 +129,28 @@ export function GroupRoomsPanel({
     router.push(groupPath(group.id, result.channel.id));
   }
 
-  const editButton = (
+  // The room's own settings — name, permissions, deleting it (see
+  // ChannelSettingsDialog). Inside the room's link, so it stops the click
+  // from also opening (or joining) the room.
+  const editButton = (channelId: string) => (
     <span
       role="button"
       tabIndex={0}
-      aria-label="Editar sala"
-      title="Editar sala"
+      aria-label="Configurações da sala"
+      title="Configurações da sala"
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
         onNavigate?.();
-        openSettings("channels");
+        openChannelSettings(group.id, channelId);
       }}
-      className="shrink-0 rounded p-0.5 text-zinc-400 opacity-0 transition hover:text-zinc-800 group-hover/room:opacity-100 dark:hover:text-zinc-200"
+      onKeyDown={(e) => {
+        if (e.key !== "Enter" && e.key !== " ") return;
+        e.preventDefault();
+        e.stopPropagation();
+        openChannelSettings(group.id, channelId);
+      }}
+      className="shrink-0 rounded p-0.5 text-zinc-400 opacity-0 transition hover:text-zinc-800 focus-visible:opacity-100 group-hover/room:opacity-100 dark:hover:text-zinc-200"
     >
       <MdSettings className="h-3.5 w-3.5" />
     </span>
@@ -222,7 +232,7 @@ export function GroupRoomsPanel({
                     ) : people.length === 0 ? (
                       <span className="shrink-0 text-xs text-zinc-400 dark:text-zinc-500">vazia</span>
                     ) : null}
-                    {isManager && editButton}
+                    {isManager && editButton(channel.id)}
                   </Link>
                   {people.length > 0 && (
                     <ul className="flex flex-col gap-0.5 border-t border-zinc-100 px-1.5 py-1.5 dark:border-zinc-800/70">
@@ -299,7 +309,7 @@ export function GroupRoomsPanel({
                   ) : !active && channel.unread ? (
                     <span className="h-2 w-2 shrink-0 rounded-full bg-zinc-950 dark:bg-zinc-50" aria-label="Mensagens novas" />
                   ) : null}
-                  {isManager && editButton}
+                  {isManager && editButton(channel.id)}
                 </Link>
               </li>
             );

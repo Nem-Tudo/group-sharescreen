@@ -24,6 +24,7 @@ import {
 import { openGroupProfile } from "@/components/groups/groupProfile";
 import { rememberChannel } from "@/components/groups/lastChannel";
 import { buildMentionsRegex, tokenizeMentions } from "@/lib/chatMentions";
+import { EVERYONE_MENTION, canInChannel, type TextPermissionKey } from "@/lib/groupPermissions";
 import { verifiedBadge } from "@/lib/entitlements";
 import {
   getCachedChannel,
@@ -99,6 +100,9 @@ type Pending = { clientId: string; text: string; ts: number; kind: "text" | "gif
 
 const rowAction =
   "inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-400 opacity-100 transition hover:bg-zinc-200/70 hover:text-zinc-800 active:scale-95 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200";
+
+/** @everyone in the mention suggestions — see lib/groupPermissions' EVERYONE_MENTION. */
+const EVERYONE_CANDIDATE: MentionCandidate = { id: EVERYONE_MENTION, name: "everyone", avatarUrl: null };
 
 export function TextChannelView({ detail, channelId }: { detail: GroupDetail; channelId: string }) {
   const { openPopup } = useNtPopups();
@@ -283,15 +287,23 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
 
   // ── People ───────────────────────────────────────────────────────────
 
+  // What this person may do here (see lib/groupPermissions) — the composer
+  // leaves out what the server would refuse anyway.
+  const can = (key: TextPermissionKey) => (channel ? canInChannel(detail, channel, key) : false);
+
   const memberById = useMemo(() => new Map(members.map((m) => [m.id, m])), [members]);
-  const candidates: MentionCandidate[] = useMemo(
-    () =>
-      members
-        .filter((m) => m.id !== selfId)
-        .map((m) => ({ id: m.id, name: m.name, avatarUrl: m.avatarUrl })),
+  const memberCandidates: MentionCandidate[] = useMemo(
+    () => members.filter((m) => m.id !== selfId).map((m) => ({ id: m.id, name: m.name, avatarUrl: m.avatarUrl })),
     [members, selfId]
   );
-  const mentionRegex = useMemo(() => buildMentionsRegex(members.map((m) => m.name)), [members]);
+  // Whom this person may @: the members, @everyone, both or neither.
+  const candidates: MentionCandidate[] = [
+    ...(can("mentionEveryone") ? [EVERYONE_CANDIDATE] : []),
+    ...(can("mentionMembers") ? memberCandidates : []),
+  ];
+  const names = useMemo(() => members.map((m) => m.name), [members]);
+  const mentionRegex = useMemo(() => buildMentionsRegex(names), [names]);
+  const everyoneRegex = useMemo(() => buildMentionsRegex([...names, "everyone"]), [names]);
 
   function userOf(message: GroupMessage): GroupUser {
     return (
@@ -309,7 +321,13 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
   }
 
   function renderText(message: GroupMessage): ReactNode {
-    const tokens = tokenizeMentions(message.text, mentionRegex);
+    // Lit up only when the message actually mentioned somebody: an @name
+    // typed without the permission to mention alerts nobody (the server drops
+    // it), so it reads as the plain text it is.
+    const mentioned = message.mentions ?? [];
+    const regex =
+      mentioned.length === 0 ? null : mentioned.includes(EVERYONE_MENTION) ? everyoneRegex : mentionRegex;
+    const tokens = tokenizeMentions(message.text, regex);
     return tokens.map((token, index) =>
       token.type === "mention" ? (
         <span key={index} className="font-semibold text-blue-600 dark:text-blue-400">
@@ -439,7 +457,10 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
         );
       }
       const author = userOf(message);
-      const mentionsMe = Boolean(message.mentions?.includes(selfId)) || message.replyTo?.userId === selfId;
+      const mentionsMe =
+        Boolean(message.mentions?.includes(selfId)) ||
+        (Boolean(message.mentions?.includes(EVERYONE_MENTION)) && message.from !== selfId) ||
+        message.replyTo?.userId === selfId;
       rows.push(
         <li
           key={message.id}
@@ -624,6 +645,8 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
           replyingTo={replyTo}
           onCancelReply={() => setReplyTo(null)}
           onSend={send}
+          disabledReason={can("sendMessages") ? null : "Você não pode enviar mensagens nesta sala."}
+          allow={{ gifs: can("sendGifs"), images: can("sendImages") }}
         />
       )}
 

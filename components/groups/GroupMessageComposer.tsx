@@ -9,7 +9,7 @@ import {
   type ClipboardEvent,
   type KeyboardEvent,
 } from "react";
-import { MdClose, MdGif, MdOutlineImage, MdSend } from "react-icons/md";
+import { MdClose, MdGif, MdGroups, MdOutlineImage, MdSend } from "react-icons/md";
 import { GifPicker } from "@/components/GifPicker";
 import { Popover, Tooltip } from "@/components/Tooltip";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -29,6 +29,7 @@ import {
   tokenizeMentions,
 } from "@/lib/chatMentions";
 import type { GroupReplyTo } from "@/lib/groupsApi";
+import { EVERYONE_MENTION } from "@/lib/groupPermissions";
 
 // The box at the bottom of a group's text room. Drawn like the room chat's own
 // composer (components/ChatPanel) — a text field and small icon buttons along
@@ -40,6 +41,16 @@ export interface MentionCandidate {
   id: string;
   name: string;
   avatarUrl: string | null;
+}
+
+/**
+ * What this person may send in this room (see lib/groupPermissions) — the
+ * composer only leaves out what the server would refuse. Sending at all is
+ * `disabledReason`'s business.
+ */
+export interface ComposerAllowances {
+  gifs: boolean;
+  images: boolean;
 }
 
 export interface ComposerPayload {
@@ -87,6 +98,7 @@ export function GroupMessageComposer({
   onCancelReply,
   onSend,
   disabledReason,
+  allow = { gifs: true, images: true },
 }: {
   channelName: string;
   candidates: MentionCandidate[];
@@ -95,6 +107,7 @@ export function GroupMessageComposer({
   /** Resolves once the server answered; the box keeps what was written on a failure. */
   onSend: (payload: ComposerPayload) => Promise<{ ok: boolean; error?: string }>;
   disabledReason?: string | null;
+  allow?: ComposerAllowances;
 }) {
   const [text, setText] = useState("");
   const [images, setImages] = useState<{ dataUrl: string; bytes: number }[]>([]);
@@ -244,6 +257,10 @@ export function GroupMessageComposer({
 
   async function addImages(files: File[]) {
     if (files.length === 0 || disabled) return;
+    if (!allow.images) {
+      setError("Você não tem permissão para enviar imagens nesta sala.");
+      return;
+    }
     const room = CHAT_IMAGE_MAX_PER_MESSAGE - images.length;
     if (room <= 0) {
       setError(`No máximo ${CHAT_IMAGE_MAX_PER_MESSAGE} imagens por mensagem.`);
@@ -295,8 +312,17 @@ export function GroupMessageComposer({
                     : "text-zinc-700 dark:text-zinc-300"
                 }`}
               >
-                <UserAvatar src={candidate.avatarUrl} name={candidate.name} size={18} />
+                {candidate.id === EVERYONE_MENTION ? (
+                  <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
+                    <MdGroups className="h-3 w-3" />
+                  </span>
+                ) : (
+                  <UserAvatar src={candidate.avatarUrl} name={candidate.name} size={18} />
+                )}
                 <span className="truncate">{candidate.name}</span>
+                {candidate.id === EVERYONE_MENTION && (
+                  <span className="ml-auto shrink-0 text-[11px] text-zinc-400">avisa todo mundo</span>
+                )}
               </button>
             </li>
           ))}
@@ -343,6 +369,7 @@ export function GroupMessageComposer({
       )}
 
       <div className="flex items-end gap-1.5">
+        {allow.images && (
         <Tooltip content={disabledReason ?? "Enviar imagem"}>
           <button
             type="button"
@@ -354,7 +381,9 @@ export function GroupMessageComposer({
             <MdOutlineImage className="h-5 w-5" />
           </button>
         </Tooltip>
+        )}
         <input ref={fileRef} type="file" accept={CHAT_IMAGE_ACCEPT} multiple hidden onChange={onPickFiles} />
+        {allow.gifs && (
         <Popover
           open={gifOpen}
           onClose={() => setGifOpen(false)}
@@ -379,6 +408,7 @@ export function GroupMessageComposer({
             <MdGif className="h-6 w-6" />
           </button>
         </Popover>
+        )}
         <textarea
           ref={textRef}
           value={text}

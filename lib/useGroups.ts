@@ -3,6 +3,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { signalingClient, type GroupSocketEvent } from "./signalingClient";
 import { appendCachedMessage, forgetGroupMembers, removeCachedMessage } from "./groupCache";
+import { EVERYONE_MENTION } from "./groupPermissions";
 import {
   fetchGroup,
   fetchMyGroups,
@@ -203,7 +204,10 @@ function noteIncomingMessage(message: GroupMessage) {
   }
   const mentionsMe =
     Boolean(selfId) &&
-    (Boolean(message.mentions?.includes(selfId!)) || message.replyTo?.userId === selfId);
+    message.from !== selfId &&
+    (Boolean(message.mentions?.includes(selfId!)) ||
+      Boolean(message.mentions?.includes(EVERYONE_MENTION)) ||
+      message.replyTo?.userId === selfId);
   if (detail) {
     patchDetail(groupId, {
       channels: detail.channels.map((c) =>

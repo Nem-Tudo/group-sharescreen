@@ -3,6 +3,7 @@
 import { getAccountToken } from "./accountApi";
 import { getStoredGuestToken } from "./guestToken";
 import { getSignalingHttpBase } from "./roomsApi";
+import type { ChannelPermissionOverrides, GroupPermissions } from "./groupPermissions";
 
 // The groups client. Same division of labour as lib/dmApi.ts: **the server is
 // the group**, every list here is read over HTTP, and the socket only ever says
@@ -34,6 +35,8 @@ export interface GroupChannel {
   kind: GroupChannelKind;
   name: string;
   position: number;
+  /** This room's own permission settings — a switch absent inherits the group's. See lib/groupPermissions. */
+  permissions: ChannelPermissionOverrides;
   unread: boolean;
   mentions: number;
 }
@@ -62,6 +65,8 @@ export interface GroupInfo {
   location: { lat: number; lng: number } | null;
   ownerId: string;
   admins: string[];
+  /** What ordinary members may do, group-wide. See lib/groupPermissions. */
+  permissions: GroupPermissions;
   memberCount: number;
   createdAt: number;
 }
@@ -272,6 +277,20 @@ export const deleteChannel = (groupId: string, channelId: string) =>
 
 export const reorderChannels = (groupId: string, ids: string[]) =>
   request<object>("PUT", `/groups/${enc(groupId)}/channels/order`, { ids });
+
+// ─── Permissions ─────────────────────────────────────────────────────────
+
+/** The group-wide switches (owner/admins). Merged: send only what changes. */
+export const setGroupPermissions = (
+  groupId: string,
+  patch: { text?: Partial<GroupPermissions["text"]>; voice?: Partial<GroupPermissions["voice"]> }
+) => request<{ group: GroupInfo }>("PUT", `/groups/${enc(groupId)}/permissions`, patch);
+
+/** One room's settings, replaced whole — a switch left out inherits the group's (owner/admins). */
+export const setChannelPermissions = (groupId: string, channelId: string, permissions: ChannelPermissionOverrides) =>
+  request<{ channel: GroupChannel }>("PUT", `/groups/${enc(groupId)}/channels/${enc(channelId)}/permissions`, {
+    permissions,
+  });
 
 // ─── Invites ─────────────────────────────────────────────────────────────
 

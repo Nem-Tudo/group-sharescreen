@@ -22,6 +22,7 @@ import {
   GroupSettingsDialog,
   JoinGroupDialog,
 } from "@/components/groups/GroupDialogs";
+import { ChannelSettingsDialog } from "@/components/groups/ChannelSettingsDialog";
 
 // Popup types this app registers with the library, opened by name through
 // `useNtPopups().openPopup(...)`. The cast is because the library types
@@ -46,6 +47,7 @@ const customPopups: Record<string, ComponentType> = {
   group_invite: GroupInviteDialog as ComponentType,
   group_settings: GroupSettingsDialog as ComponentType,
   group_location: GroupLocationDialog as ComponentType,
+  group_channel: ChannelSettingsDialog as ComponentType,
 };
 
 // Mounted once in app/layout.tsx, inside AuthProvider — the popups it renders

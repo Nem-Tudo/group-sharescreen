@@ -108,15 +108,30 @@ export function GroupIndex({ groupId }: { groupId: string }) {
   const router = useRouter();
   const { detail, error } = useGroupDetail(groupId);
 
+  // Only ever a text room: opening a voice room joins its call, and nobody
+  // should find themselves in a call for having opened a group.
+  const textRooms = detail?.channels.filter((c) => c.kind === "text") ?? [];
   useEffect(() => {
     if (!detail) return;
     const remembered = rememberedChannel(groupId);
-    const textRooms = detail.channels.filter((c) => c.kind === "text");
-    const target = textRooms.find((c) => c.id === remembered) ?? textRooms[0] ?? detail.channels[0];
+    const rooms = detail.channels.filter((c) => c.kind === "text");
+    const target = rooms.find((c) => c.id === remembered) ?? rooms[0];
     if (target) router.replace(groupPath(groupId, target.id));
   }, [detail, groupId, router]);
 
   if (error) return <GroupGate groupId={groupId} status={error.status} />;
+  // Every text room hidden from this person (see lib/groupPermissions): the
+  // voice rooms in the list are still theirs to walk into.
+  if (detail && textRooms.length === 0) {
+    return (
+      <Panel>
+        <p className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">Nenhuma sala de texto para você</p>
+        <p className="max-w-sm text-sm text-zinc-500 dark:text-zinc-400">
+          As salas de texto deste grupo não estão abertas para você. Entre numa sala de voz pela lista.
+        </p>
+      </Panel>
+    );
+  }
   return <Loading />;
 }
 

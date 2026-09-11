@@ -31,6 +31,7 @@ import { DisplayUserName } from "./DisplayUserName";
 import { WorldMap } from "./WorldMap";
 import { usePublicRoomMarkers } from "@/lib/usePublicRoomMarkers";
 import { useGroupVoiceSession } from "@/lib/groupVoiceSession";
+import { useOpenChannelSettings } from "@/components/groups/ChannelSettingsDialog";
 import { MicIcon, ScreenIcon, CameraIcon } from "./icons";
 import Link from "next/link";
 import { hasVerifiedBadge, verifiedBadge } from "@/lib/entitlements";
@@ -134,6 +135,7 @@ export function ManageRoomModal({
   // see components/groups. Every other room is unaffected.
   const groupSession = useGroupVoiceSession();
   const inGroupRoom = Boolean(groupSession && groupSession.handle === state.room);
+  const openChannelSettings = useOpenChannelSettings();
   // Admins may flip the permission switches but not hand out admin — see
   // server/signaling.ts's isRoomOwner for why that stays the owner's alone.
   const canManageAdmins = isOwner && !inGroupRoom;
@@ -276,7 +278,17 @@ export function ManageRoomModal({
           )}
           <button
             type="button"
-            onClick={() => setView("permissions")}
+            onClick={() => {
+              // A group's voice room takes its switches from the group — the
+              // room's own settings in the group (see ChannelSettingsDialog),
+              // which is where this goes instead.
+              if (inGroupRoom && groupSession) {
+                closePopup(false);
+                openChannelSettings(groupSession.groupId, groupSession.channelId, "permissions");
+                return;
+              }
+              setView("permissions");
+            }}
             className="flex items-center justify-between gap-2 rounded-lg border border-zinc-300 px-3 py-2.5 text-left text-sm font-medium transition hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
           >
             <span className="flex items-center gap-2">

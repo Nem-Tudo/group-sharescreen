@@ -15,6 +15,7 @@ import {
   MdOutlineMap,
   MdPublic,
   MdTag,
+  MdTune,
   MdVolumeUp,
 } from "react-icons/md";
 import { FaCrown } from "react-icons/fa";
@@ -63,6 +64,17 @@ import { usePublicRoomMarkers } from "@/lib/usePublicRoomMarkers";
 import { useGroupMapMarkers } from "@/lib/useGroupMapMarkers";
 import { forgetGroup, refreshGroup, refreshGroups, useGroupDetail } from "@/lib/useGroups";
 import { getGroupVoiceSession, setGroupVoiceSession } from "@/lib/groupVoiceSession";
+import {
+  DialogFrame,
+  DialogTabs,
+  WIDE_POPUP_SIZE,
+  dangerButton,
+  inputClass,
+  primaryButton,
+  secondaryButton,
+  type PopupProps,
+} from "@/components/groups/dialogKit";
+import { GroupPermissionsTab, useOpenChannelSettings } from "@/components/groups/ChannelSettingsDialog";
 
 // The group's popups, registered with ntpopups in components/NtPopups.tsx:
 //
@@ -76,50 +88,6 @@ import { getGroupVoiceSession, setGroupVoiceSession } from "@/lib/groupVoiceSess
 // Destructive steps confirm inline (a second button in place) rather than by
 // opening another popup over this one.
 
-type PopupProps<T> = { closePopup: (hasAction?: boolean) => void; data?: T };
-
-const inputClass =
-  "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50";
-const primaryButton =
-  "cursor-pointer rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200";
-const secondaryButton =
-  "cursor-pointer rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900";
-const dangerButton =
-  "cursor-pointer rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50";
-
-function DialogFrame({
-  title,
-  onClose,
-  children,
-  wide = false,
-}: {
-  title: ReactNode;
-  onClose: () => void;
-  children: ReactNode;
-  wide?: boolean;
-}) {
-  return (
-    <div
-      className={`flex max-h-[90dvh] max-w-full flex-col gap-4 overflow-y-auto bg-white p-5 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50 ${
-        wide ? "w-full" : "w-96"
-      }`}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Fechar"
-          className="-mr-1 -mt-1 flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-xl leading-none opacity-60 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
-        >
-          ×
-        </button>
-      </div>
-      {children}
-    </div>
-  );
-}
-
 /** Where an invite link points — this site, or the public one from inside an app shell. */
 function inviteUrl(code: string): string {
   const origin =
@@ -132,11 +100,7 @@ function inviteUrl(code: string): string {
 // ─── Create ──────────────────────────────────────────────────────────────
 
 /** The size the map popups open at — the map wants the room. */
-const MAP_POPUP_SIZE = {
-  maxWidth: "min(46rem, calc(100vw - 2rem))",
-  width: "min(46rem, calc(100vw - 2rem))",
-  maxHeight: "90dvh",
-};
+const MAP_POPUP_SIZE = WIDE_POPUP_SIZE;
 
 // How long after a public group is created its map prompt opens — long enough
 // for the group's page to have drawn behind it, like a new room's (see
@@ -482,7 +446,7 @@ export function GroupInviteDialog({ closePopup, data }: PopupProps<{ groupId: st
 
 // ─── Settings ────────────────────────────────────────────────────────────
 
-type SettingsTab = "overview" | "channels" | "map" | "invites" | "members" | "bans" | "danger";
+type SettingsTab = "overview" | "channels" | "permissions" | "map" | "invites" | "members" | "bans" | "danger";
 
 export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: string; tab?: string }>) {
   const groupId = data?.groupId ?? "";
@@ -494,6 +458,7 @@ export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: 
   const tabs: { id: SettingsTab; label: string; show: boolean }[] = [
     { id: "overview", label: "Visão geral", show: isManager },
     { id: "channels", label: "Salas", show: isManager },
+    { id: "permissions", label: "Permissões", show: isManager },
     { id: "map", label: "Mapa", show: isManager },
     { id: "invites", label: "Convites", show: isManager },
     { id: "members", label: "Membros", show: true },
@@ -519,24 +484,14 @@ export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: 
       onClose={() => closePopup(false)}
       wide
     >
-      <div className="-mt-1 flex gap-1 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
-        {visible.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setTab(t.id)}
-            className={`shrink-0 cursor-pointer border-b-2 px-3 py-2 text-sm font-medium transition ${
-              current === t.id
-                ? `border-zinc-950 text-zinc-950 dark:border-zinc-50 dark:text-zinc-50 ${t.id === "danger" ? "!border-red-600 !text-red-600" : ""}`
-                : `border-transparent text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 ${t.id === "danger" ? "hover:!text-red-600" : ""}`
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <DialogTabs
+        tabs={visible.map((t) => ({ id: t.id, label: t.label, danger: t.id === "danger" }))}
+        current={current}
+        onChange={setTab}
+      />
       {current === "overview" && <OverviewTab groupId={groupId} onGoToMap={() => setTab("map")} />}
       {current === "channels" && <ChannelsTab groupId={groupId} channels={detail.channels} />}
+      {current === "permissions" && <GroupPermissionsTab groupId={groupId} />}
       {current === "map" && <LocationTab groupId={groupId} onGoToOverview={() => setTab("overview")} />}
       {current === "invites" && <InvitesTab groupId={groupId} groupName={detail.group.name} />}
       {current === "members" && <MembersTab groupId={groupId} selfId={detail.me.id} role={role} />}
@@ -904,6 +859,7 @@ export function GroupLocationDialog({ closePopup, data }: PopupProps<{ groupId: 
 }
 
 function ChannelsTab({ groupId, channels }: { groupId: string; channels: GroupChannel[] }) {
+  const openChannelSettings = useOpenChannelSettings();
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -952,7 +908,14 @@ function ChannelsTab({ groupId, channels }: { groupId: string; channels: GroupCh
                 </button>
               </form>
             ) : (
-              <span className="min-w-0 flex-1 truncate text-sm">{channel.name}</span>
+              <span className="flex min-w-0 flex-1 items-center gap-2">
+                <span className="truncate text-sm">{channel.name}</span>
+                {Object.keys(channel.permissions ?? {}).length > 0 && (
+                  <span className="shrink-0 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+                    permissões próprias
+                  </span>
+                )}
+              </span>
             )}
             {confirming === channel.id ? (
               <span className="flex items-center gap-1">
@@ -986,6 +949,9 @@ function ChannelsTab({ groupId, channels }: { groupId: string; channels: GroupCh
                   }}
                 >
                   <MdEdit className="h-4 w-4" />
+                </IconButton>
+                <IconButton label="Permissões da sala" onClick={() => openChannelSettings(groupId, channel.id, "permissions")}>
+                  <MdTune className="h-4 w-4" />
                 </IconButton>
                 <IconButton label="Apagar" danger onClick={() => setConfirming(channel.id)}>
                   <MdDeleteOutline className="h-4 w-4" />
