@@ -70,15 +70,15 @@ function GroupsPanelBody({
     >
       <div className="flex items-baseline justify-between gap-2">
         <h2 className="flex items-center text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+          {/* The site's own beta tag (see BetaMark), at the size it has in a
+              room's account card. */}
+          <span className="mr-2 text-[10px] font-bold">
+            <BetaMark />
+          </span>
           Grupos
           {groups && groups.length > 0 && (
             <span className="ml-1.5 font-normal text-zinc-400">{groups.length}</span>
           )}
-          {/* The site's own beta tag (see BetaMark), at the size it has in a
-              room's account card. */}
-          <span className="ml-2 text-[10px] font-bold">
-            <BetaMark />
-          </span>
         </h2>
         <span className="flex shrink-0 items-center gap-2">
           {/* One "+" for both ways of getting another group — joining one
