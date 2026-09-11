@@ -28,6 +28,8 @@ export interface GroupSummary {
   role: GroupRole;
   unread: boolean;
   mentions: number;
+  /** Suspended by the site's administrators — listed, but out of use (opening it says why). */
+  suspended?: boolean;
 }
 
 export interface GroupChannel {

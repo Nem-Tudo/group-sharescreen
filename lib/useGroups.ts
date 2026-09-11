@@ -95,7 +95,12 @@ export function refreshGroup(groupId: string): Promise<void> {
       setState({ details: { ...state.details, [groupId]: { ...detail, channels } }, detailErrors: errors });
       syncSummaryFromDetail(groupId);
     } else if (result.status !== 0) {
+      // Gone, or suspended by the site (423): what was held is no longer
+      // something to keep drawing — the rooms, the calls, the members.
+      const details = { ...state.details };
+      if (result.status === 404 || result.status === 423) delete details[groupId];
       setState({
+        details,
         detailErrors: { ...state.detailErrors, [groupId]: { status: result.status, error: result.error } },
       });
     }

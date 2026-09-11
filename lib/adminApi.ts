@@ -722,6 +722,65 @@ export async function setAccountFlags(userId: string, flags: string[]): Promise<
   return data.account.flags;
 }
 
+// ─── Groups ──────────────────────────────────────────────────────────────
+
+/** A group as the admin panel sees it — see the API's adminGroup. */
+export interface AdminGroupHit {
+  id: string;
+  name: string;
+  description: string;
+  iconUrl: string | null;
+  visibility: "private" | "public";
+  flags: string[];
+  memberCount: number;
+  channelCount: number;
+  createdAt: number;
+  owner: { id: string; displayName: string; username: string | null };
+  suspension: { reason: string; at: number; by: string } | null;
+}
+
+/** By id or a piece of the name; the newest groups when the query is empty. */
+export async function searchAdminGroups(query: string): Promise<AdminGroupHit[]> {
+  const data = await adminFetch<{ groups: AdminGroupHit[] }>(`/admin/groups?q=${encodeURIComponent(query)}`);
+  return data.groups;
+}
+
+/** Replaces a group's flags with exactly this list. */
+export async function setAdminGroupFlags(groupId: string, flags: string[]): Promise<AdminGroupHit> {
+  const data = await adminFetch<{ group: AdminGroupHit }>(`/admin/groups/${encodeURIComponent(groupId)}/flags`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ flags }),
+  });
+  return data.group;
+}
+
+/** Suspends a group — out of use for everybody in it until lifted. */
+export async function suspendAdminGroup(groupId: string, reason: string): Promise<AdminGroupHit> {
+  const data = await adminFetch<{ group: AdminGroupHit }>(
+    `/admin/groups/${encodeURIComponent(groupId)}/suspension`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
+    }
+  );
+  return data.group;
+}
+
+export async function unsuspendAdminGroup(groupId: string): Promise<AdminGroupHit> {
+  const data = await adminFetch<{ group: AdminGroupHit }>(
+    `/admin/groups/${encodeURIComponent(groupId)}/suspension`,
+    { method: "DELETE" }
+  );
+  return data.group;
+}
+
+/** Deletes a group for good. */
+export async function deleteAdminGroup(groupId: string): Promise<void> {
+  await adminFetch<{ ok: true }>(`/admin/groups/${encodeURIComponent(groupId)}`, { method: "DELETE" });
+}
+
 /** One theme as the moderation panel sees it. */
 export type AdminThemeHit = {
   id: string;

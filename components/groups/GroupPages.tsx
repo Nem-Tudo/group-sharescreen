@@ -8,9 +8,10 @@ import { TextChannelView } from "@/components/groups/TextChannelView";
 import { rememberedChannel } from "@/components/groups/lastChannel";
 import { useAccountToken } from "@/lib/accountApi";
 import { useGuestToken } from "@/lib/guestToken";
-import { joinPublicGroup } from "@/lib/groupsApi";
+import { MdBlock } from "react-icons/md";
+import { joinPublicGroup, leaveGroup } from "@/lib/groupsApi";
 import { fetchPublicGroupPreview, groupPath, type PublicGroupPreview } from "@/lib/groupLinks";
-import { refreshGroup, refreshGroups, useGroupDetail } from "@/lib/useGroups";
+import { forgetGroup, refreshGroup, refreshGroups, useGroupDetail, useMyGroups } from "@/lib/useGroups";
 
 // The two pages inside a group. Both read the same store the shell does, so
 // they never fetch the group twice.
@@ -51,6 +52,64 @@ function NotFound({ status }: { status: number }) {
       >
         Ver meus grupos
       </Link>
+    </Panel>
+  );
+}
+
+/**
+ * A group the site's administrators suspended (see the API's GroupSuspension):
+ * why, from the server's own message, and the one thing still possible —
+ * leaving it. The owner cannot leave (they would have to hand it over, which
+ * is itself out of use), so they are only told.
+ */
+function Suspended({ groupId, message }: { groupId: string; message: string }) {
+  const router = useRouter();
+  const { groups } = useMyGroups();
+  const summary = groups?.find((g) => g.id === groupId);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function leave() {
+    setBusy(true);
+    const result = await leaveGroup(groupId);
+    setBusy(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    forgetGroup(groupId);
+    router.replace("/groups");
+  }
+
+  return (
+    <Panel>
+      <MdBlock className="h-8 w-8 text-amber-500" aria-hidden />
+      <p className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">
+        {summary ? `${summary.name} está suspenso` : "Grupo suspenso"}
+      </p>
+      <p className="max-w-sm text-sm text-zinc-500 dark:text-zinc-400">{message}</p>
+      <p className="max-w-sm text-xs text-zinc-400 dark:text-zinc-500">
+        Enquanto a suspensão durar, ninguém consegue usar o grupo.
+      </p>
+      <div className="mt-3 flex flex-wrap justify-center gap-2">
+        <Link
+          href="/groups"
+          className="rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+        >
+          Ver meus grupos
+        </Link>
+        {summary && summary.role !== "owner" && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void leave()}
+            className="cursor-pointer rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+          >
+            {busy ? "Saindo…" : "Sair do grupo"}
+          </button>
+        )}
+      </div>
+      {error && <p className="text-sm text-red-500">{error}</p>}
     </Panel>
   );
 }
@@ -119,7 +178,13 @@ export function GroupIndex({ groupId }: { groupId: string }) {
     if (target) router.replace(groupPath(groupId, target.id));
   }, [detail, groupId, router]);
 
-  if (error) return <GroupGate groupId={groupId} status={error.status} />;
+  if (error) {
+    return error.status === 423 ? (
+      <Suspended groupId={groupId} message={error.error} />
+    ) : (
+      <GroupGate groupId={groupId} status={error.status} />
+    );
+  }
   // Every text room hidden from this person (see lib/groupPermissions): the
   // voice rooms in the list are still theirs to walk into.
   if (detail && textRooms.length === 0) {
@@ -146,7 +211,13 @@ export function GroupRoom({ groupId, roomId }: { groupId: string; roomId: string
     if (detail && !channel) router.replace(groupPath(groupId));
   }, [detail, channel, groupId, router]);
 
-  if (error) return <GroupGate groupId={groupId} status={error.status} />;
+  if (error) {
+    return error.status === 423 ? (
+      <Suspended groupId={groupId} message={error.error} />
+    ) : (
+      <GroupGate groupId={groupId} status={error.status} />
+    );
+  }
   if (!detail || !channel) return <Loading />;
   if (channel.kind === "text") {
     return <TextChannelView key={channel.id} detail={detail} channelId={channel.id} />;

@@ -82,7 +82,9 @@ export function GroupsHome() {
               <li key={group.id}>
                 <Link
                   href={groupPath(group.id)}
-                  className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2.5 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-600"
+                  className={`flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2.5 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-600 ${
+                    group.suspended ? "opacity-60" : ""
+                  }`}
                 >
                   <GroupIcon name={group.name} iconUrl={group.iconUrl} seed={group.id} size={40} className="rounded-lg" />
                   <span className="min-w-0 flex-1">
@@ -92,11 +94,17 @@ export function GroupsHome() {
                       className={`flex w-full text-sm ${group.unread ? "font-semibold text-zinc-950 dark:text-zinc-50" : "font-medium text-zinc-900 dark:text-zinc-100"}`}
                     />
                     <span className="block truncate text-xs text-zinc-500 dark:text-zinc-400">
-                      {ROLE_LABEL[group.role]}
-                      {group.unread && " · mensagens novas"}
+                      {group.suspended ? (
+                        <span className="font-medium text-amber-600 dark:text-amber-400">Suspenso</span>
+                      ) : (
+                        <>
+                          {ROLE_LABEL[group.role]}
+                          {group.unread && " · mensagens novas"}
+                        </>
+                      )}
                     </span>
                   </span>
-                  {group.mentions > 0 && (
+                  {!group.suspended && group.mentions > 0 && (
                     <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-red-600 px-1 text-[11px] font-bold text-white">
                       {group.mentions}
                     </span>

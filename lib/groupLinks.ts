@@ -83,6 +83,8 @@ export interface InvitePreview {
     flags?: string[];
     memberCount: number;
     onlineCount: number;
+    /** Suspended by the site's administrators — nobody gets in until it is lifted. */
+    suspended?: boolean;
   };
   /** Whether whoever asked is already in the group. Always false without a token. */
   member: boolean;

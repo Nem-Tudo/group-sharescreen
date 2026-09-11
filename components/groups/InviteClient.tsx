@@ -56,7 +56,13 @@ export function InviteClient({ code, initialPreview }: { code: string; initialPr
         member={member}
         headline="Você foi convidado para entrar em"
         acceptLabel="Aceitar convite"
-        blocked={invite.state !== "ok" ? `${STATE_TEXT[invite.state]} Peça um novo convite a alguém do grupo.` : null}
+        blocked={
+          group.suspended
+            ? "Este grupo foi suspenso pela administração do GoLive. Ninguém consegue entrar enquanto durar a suspensão."
+            : invite.state !== "ok"
+              ? `${STATE_TEXT[invite.state]} Peça um novo convite a alguém do grupo.`
+              : null
+        }
         onOpen={() => router.push(groupPath(group.id))}
         join={async (name) => {
           const result = await acceptInvite(code, name);

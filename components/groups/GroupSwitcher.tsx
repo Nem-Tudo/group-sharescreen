@@ -60,14 +60,21 @@ export function GroupSwitcher({
           )}
           <div className="flex max-h-72 flex-col gap-0.5 overflow-y-auto">
             {groups?.map((group) => (
-              <Link key={group.id} href={groupPath(group.id)} onClick={close} className={itemClass}>
+              <Link
+                key={group.id}
+                href={groupPath(group.id)}
+                onClick={close}
+                className={`${itemClass} ${group.suspended ? "opacity-60" : ""}`}
+              >
                 <GroupIcon name={group.name} iconUrl={group.iconUrl} seed={group.id} size={26} className="rounded-md" />
                 <GroupName
                   name={group.name}
                   flags={group.flags}
                   className={`flex-1 ${group.unread ? "font-semibold text-zinc-950 dark:text-zinc-50" : ""}`}
                 />
-                {group.id === activeGroupId ? (
+                {group.suspended ? (
+                  <span className="shrink-0 text-[11px] font-medium text-amber-600 dark:text-amber-400">suspenso</span>
+                ) : group.id === activeGroupId ? (
                   <MdCheck className="h-4 w-4 shrink-0 text-emerald-600" aria-label="Aberto" />
                 ) : group.mentions > 0 ? (
                   <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-red-600 px-1 text-[11px] font-bold text-white">

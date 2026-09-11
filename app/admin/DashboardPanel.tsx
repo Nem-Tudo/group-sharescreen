@@ -17,6 +17,7 @@ import { ThemeModerationPanel } from "./ThemeModerationPanel";
 import { SupportersPanel } from "./SupportersPanel";
 import { DesktopUpdatePanel } from "./DesktopUpdatePanel";
 import { EvalPanel } from "./EvalPanel";
+import { GroupsPanel } from "./GroupsPanel";
 
 // The admin area, in sections.
 //
@@ -77,6 +78,11 @@ export const ADMIN_SECTIONS: AdminSection[] = [
         <AutoFlagsPanel />
       </Group>
     ),
+  },
+  {
+    id: "grupos",
+    label: "Grupos",
+    Panel: () => <GroupsPanel />,
   },
   {
     id: "moderacao",
