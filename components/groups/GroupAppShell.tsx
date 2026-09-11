@@ -289,7 +289,7 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
           {groupId && detail && !voiceVisible && (
             <aside className="hidden w-[300px] shrink-0 flex-col gap-3 lg:flex">
               <div className="flex min-h-0 flex-1 flex-col">
-                <GroupMembersPanel detail={detail} />
+                <GroupMembersPanel detail={detail} channel={routeChannel?.kind === "text" ? routeChannel : null} />
               </div>
               <RoomAccountCard onCreateAccount={() => setAccountModal("create")} />
             </aside>

@@ -1,4 +1,4 @@
-import type { GroupChannel, GroupChannelKind, GroupDetail } from "./groupsApi";
+import type { GroupChannel, GroupChannelKind, GroupDetail, GroupRole } from "./groupsApi";
 
 // What an ordinary member may do in a group's rooms — the client's copy of the
 // API's groupPermissions.ts. Two layers: the group sets every switch on or off;
@@ -120,8 +120,22 @@ export function channelAllows(detail: GroupDetail, channel: GroupChannel, key: G
   return groupAllows(detail.group.permissions, key);
 }
 
+/**
+ * Whether a member with this role may do `key` in this room — the answer the
+ * API's memberCan gives for them. Roles are the only thing that varies between
+ * members: the owner and admins may always, everybody else gets the room's.
+ */
+export function memberCanInChannel(
+  detail: GroupDetail,
+  channel: GroupChannel,
+  role: GroupRole,
+  key: GroupPermissionKey
+): boolean {
+  if (role === "owner" || role === "admin") return true;
+  return channelAllows(detail, channel, key);
+}
+
 /** Whether the person looking may do `key` in this room. */
 export function canInChannel(detail: GroupDetail, channel: GroupChannel, key: GroupPermissionKey): boolean {
-  if (detail.me.role === "owner" || detail.me.role === "admin") return true;
-  return channelAllows(detail, channel, key);
+  return memberCanInChannel(detail, channel, detail.me.role, key);
 }

@@ -10,8 +10,9 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { openGroupProfile } from "@/components/groups/groupProfile";
 import { verifiedBadge } from "@/lib/entitlements";
 import { useGroupMembers } from "@/lib/groupCache";
+import { memberCanInChannel } from "@/lib/groupPermissions";
 import { prefetchUserProfile } from "@/lib/userProfile";
-import type { GroupDetail, GroupMember } from "@/lib/groupsApi";
+import type { GroupChannel, GroupDetail, GroupMember } from "@/lib/groupsApi";
 
 // Who is in the group, as the right-hand column of its pages — the same card a
 // room's participant list is, with the group's people in it: who is around
@@ -21,17 +22,35 @@ import type { GroupDetail, GroupMember } from "@/lib/groupsApi";
 // suggestions, so switching rooms shows it at once; it is re-read when the
 // group's membership changes, and on a slow poll for the online dots, which
 // nothing pushes.
+//
+// Beside a text room it is that room's people: only the members who can see it
+// (see lib/groupPermissions — the owner and admins always can), the way a
+// Discord channel's member list is. Anywhere else, the whole group.
 
 const REFRESH_MS = 45_000;
 
-export function GroupMembersPanel({ detail }: { detail: GroupDetail }) {
+export function GroupMembersPanel({
+  detail,
+  channel = null,
+}: {
+  detail: GroupDetail;
+  /** The text room on screen, if any — the list is then only who can see it. */
+  channel?: GroupChannel | null;
+}) {
   const { openPopup } = useNtPopups();
   const groupId = detail.group.id;
   const isManager = detail.me.role === "owner" || detail.me.role === "admin";
-  const members = useGroupMembers(
+  const everyone = useGroupMembers(
     groupId,
     `${detail.group.memberCount}:${detail.group.admins.join(",")}`,
     REFRESH_MS
+  );
+  const members = useMemo(
+    () =>
+      everyone && channel?.kind === "text"
+        ? everyone.filter((m) => memberCanInChannel(detail, channel, m.role, "viewChannel"))
+        : everyone,
+    [everyone, channel, detail]
   );
 
   // Which voice room each person is standing in, by name.
@@ -120,7 +139,7 @@ export function GroupMembersPanel({ detail }: { detail: GroupDetail }) {
           )}
         </span>
         <span className="rounded-full bg-zinc-100 px-1.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-          {detail.group.memberCount}
+          {members?.length ?? detail.group.memberCount}
         </span>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-2">

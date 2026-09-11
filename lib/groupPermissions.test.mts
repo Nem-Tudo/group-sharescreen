@@ -8,6 +8,7 @@ import {
   canInChannel,
   channelAllows,
   groupAllows,
+  memberCanInChannel,
   permissionKeysFor,
   sectionOf,
 } from "./groupPermissions";
@@ -126,6 +127,25 @@ assert.equal(sectionOf("connect"), "voice");
 {
   const { detail, channel } = detailWith("admin", { connect: false }, {}, { kind: "voice" });
   assert.equal(canInChannel(detail, channel, "connect"), true);
+}
+
+// Who a text room's member list shows: everybody when members can see it, only
+// the owner and admins when they cannot — by role, whoever is looking.
+{
+  const { detail, channel } = detailWith("member", { viewChannel: false });
+  const members = [
+    { id: "o", role: "owner" as const },
+    { id: "a", role: "admin" as const },
+    { id: "m", role: "member" as const },
+  ];
+  const visible = members.filter((m) => memberCanInChannel(detail, channel, m.role, "viewChannel")).map((m) => m.id);
+  assert.deepEqual(visible, ["o", "a"], "a hidden room lists only who runs the group");
+}
+{
+  const { detail, channel } = detailWith("member", {}, {}, { general: { viewChannel: false } });
+  assert.equal(memberCanInChannel(detail, channel, "member", "viewChannel"), false, "the group's off reaches the list");
+  const opened = detailWith("member", { viewChannel: true }, {}, { general: { viewChannel: false } });
+  assert.equal(memberCanInChannel(opened.detail, opened.channel, "member", "viewChannel"), true, "a room opened back up lists members");
 }
 
 // A group read from an older API falls back to the defaults...
