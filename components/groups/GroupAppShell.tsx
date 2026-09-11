@@ -15,7 +15,7 @@ import { UpdateAppButton } from "@/components/UpdateAppButton";
 import { GroupNavContext } from "@/components/groups/groupNav";
 import { GroupMembersPanel } from "@/components/groups/GroupMembersPanel";
 import { GroupPartnerSlot } from "@/components/groups/GroupPartnerSlot";
-import { GroupProfileHost } from "@/components/groups/groupProfile";
+import { GroupProfileHost, openGroupProfile } from "@/components/groups/groupProfile";
 import { GroupSwitcher } from "@/components/groups/GroupSwitcher";
 import { GroupIndex, GroupRoom } from "@/components/groups/GroupPages";
 import { GroupsHome } from "@/components/groups/GroupsHome";
@@ -291,7 +291,13 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
               <div className="flex min-h-0 flex-1 flex-col">
                 <GroupMembersPanel detail={detail} channel={routeChannel?.kind === "text" ? routeChannel : null} />
               </div>
-              <RoomAccountCard onCreateAccount={() => setAccountModal("create")} />
+              <RoomAccountCard
+                onCreateAccount={() => setAccountModal("create")}
+                // Your own profile in the same dialog as everybody else in the
+                // group (see groupProfile), instead of a new tab. Only ever
+                // called for an account, whose profile is read by its id.
+                onOpenProfile={(id) => openGroupProfile({ id, name: "", avatarUrl: null, guest: false })}
+              />
             </aside>
           )}
         </div>

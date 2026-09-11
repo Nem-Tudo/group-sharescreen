@@ -24,7 +24,7 @@ import {
 import { openGroupProfile } from "@/components/groups/groupProfile";
 import { ReactionPicker } from "@/components/groups/ReactionPicker";
 import { rememberChannel } from "@/components/groups/lastChannel";
-import { buildMentionsRegex, tokenizeMentions } from "@/lib/chatMentions";
+import { buildMentionsRegex, normalizeSearch, tokenizeMentions } from "@/lib/chatMentions";
 import { EVERYONE_MENTION, canInChannel, type TextPermissionKey } from "@/lib/groupPermissions";
 import { verifiedBadge } from "@/lib/entitlements";
 import {
@@ -443,6 +443,21 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
     );
   }
 
+  /**
+   * The member an @mention in a message names — looked up by name among the
+   * people the message actually mentioned first (two members may share a
+   * name, and the message knows which one it meant), then among everybody.
+   * Null for @everyone and for a name nobody in the group has any more.
+   */
+  function mentionedMember(message: GroupMessage, name: string): GroupUser | null {
+    const wanted = normalizeSearch(name);
+    if (wanted === "everyone") return null;
+    const named = (message.mentions ?? [])
+      .map((id) => memberById.get(id))
+      .find((m) => m && normalizeSearch(m.name) === wanted);
+    return named ?? members.find((m) => normalizeSearch(m.name) === wanted) ?? null;
+  }
+
   function renderText(message: GroupMessage): ReactNode {
     // Lit up only when the message actually mentioned somebody: an @name
     // typed without the permission to mention alerts nobody (the server drops
@@ -451,15 +466,32 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
     const regex =
       mentioned.length === 0 ? null : mentioned.includes(EVERYONE_MENTION) ? everyoneRegex : mentionRegex;
     const tokens = tokenizeMentions(message.text, regex);
-    return tokens.map((token, index) =>
-      token.type === "mention" ? (
+    return tokens.map((token, index) => {
+      if (token.type !== "mention") {
+        return <Fragment key={index}>{linkify(token.value, `${message.id}-${index}`)}</Fragment>;
+      }
+      const person = mentionedMember(message, token.name);
+      // A mention is a way to the person's profile, the same dialog their
+      // name opens anywhere else in the group. @everyone is nobody's.
+      return person ? (
+        <button
+          key={index}
+          type="button"
+          onClick={() =>
+            openGroupProfile({ id: person.id, name: person.name, avatarUrl: person.avatarUrl, guest: person.guest })
+          }
+          onMouseEnter={() => !person.guest && prefetchUserProfile(person.id)}
+          title="Ver perfil"
+          className="cursor-pointer rounded font-semibold text-blue-600 hover:underline dark:text-blue-400"
+        >
+          {token.value}
+        </button>
+      ) : (
         <span key={index} className="font-semibold text-blue-600 dark:text-blue-400">
           {token.value}
         </span>
-      ) : (
-        <Fragment key={index}>{linkify(token.value, `${message.id}-${index}`)}</Fragment>
-      )
-    );
+      );
+    });
   }
 
   // ── Actions ──────────────────────────────────────────────────────────

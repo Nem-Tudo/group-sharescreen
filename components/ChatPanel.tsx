@@ -41,6 +41,7 @@ import {
   getMentionTriggerInfo,
   filterMentionCandidates,
   applyMentionInsertion,
+  normalizeSearch,
 } from "@/lib/chatMentions";
 import { hasVerifiedBadge, verifiedBadge } from "@/lib/entitlements";
 import { formatTypingLabel } from "@/lib/typing";
@@ -77,14 +78,34 @@ const URL_PATTERN = /(https?:\/\/[^\s]+|www\.[^\s]+)/g;
 
 // Splits a plain-text segment on valid room member mentions and colors each
 // mention token blue. Tokens that do not match an existing participant name
-// remain normal plain text.
-function linkifyText(text: string, mentionRegex: RegExp | null) {
+// remain normal plain text. `openMention`, when given, turns a mention it can
+// resolve into a way to that person's profile (see ChatPanel's
+// openMentionedProfile) — null leaves that one plain.
+function linkifyText(
+  text: string,
+  mentionRegex: RegExp | null,
+  openMention?: (name: string) => (() => void) | null
+) {
   const parts = text.split(URL_PATTERN);
   return parts.map((part, i) => {
     if (!part.match(URL_PATTERN)) {
       const tokens = tokenizeMentions(part, mentionRegex);
       return tokens.map((token, j) => {
         if (token.type === "mention") {
+          const open = openMention?.(token.name);
+          if (open) {
+            return (
+              <button
+                key={`mention-${i}-${j}`}
+                type="button"
+                onClick={open}
+                title="Ver perfil"
+                className="cursor-pointer rounded font-medium text-blue-600 hover:underline dark:text-blue-400"
+              >
+                {token.value}
+              </button>
+            );
+          }
           return (
             <span
               key={`mention-${i}-${j}`}
@@ -310,6 +331,18 @@ export function ChatPanel({
       if (isTypingRef.current) onTypingChangeRef.current?.(false);
     };
   }, []);
+
+  // A mention in a message, as a way to that person's profile — the same
+  // dialog their name opens on their own messages. Looked up by name among
+  // the people in the room; a guest (who has no profile), or a name nobody
+  // here has now, stays plain text. Only where there is a dialog to open.
+  function openMentionedProfile(name: string): (() => void) | null {
+    if (!onOpenProfile) return null;
+    const wanted = normalizeSearch(name);
+    const peer = peers.find((p) => !p.isGuest && p.userId && normalizeSearch(p.name) === wanted);
+    const userId = peer?.userId;
+    return userId ? () => onOpenProfile(userId) : null;
+  }
 
   const listRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1068,7 +1101,7 @@ export function ChatPanel({
                               text draws nothing rather than an empty line. */}
                           {m.text.trim() && (
                             <p className="break-words text-zinc-800 dark:text-zinc-200">
-                              {linkifyText(m.text, mentionRegex)}
+                              {linkifyText(m.text, mentionRegex, openMentionedProfile)}
                             </p>
                           )}
                           {messageImages(m).length > 0 && (

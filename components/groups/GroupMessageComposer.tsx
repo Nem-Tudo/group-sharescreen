@@ -143,6 +143,17 @@ export function GroupMessageComposer({
     el.setSelectionRange(el.value.length, el.value.length);
   }, [replyId]);
 
+  // Opening a room is opening it to write in: the box takes the focus when it
+  // appears, so the first key typed lands in it. This mounts once per room
+  // (TextChannelView is keyed by it), so every room opened does this. Not on
+  // a touch screen, where a focused box is a keyboard sliding up over the
+  // conversation somebody came to read.
+  useEffect(() => {
+    const el = textRef.current;
+    if (!el || el.disabled || isCoarsePointer()) return;
+    el.focus({ preventScroll: true });
+  }, []);
+
   // "Digitando..." — see onTypingChange and lib/typing's createTypingAnnouncer,
   // which decides when. Handed the latest handler through a ref, so the
   // announcer made once per mount never calls a stale one.
