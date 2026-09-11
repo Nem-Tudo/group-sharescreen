@@ -172,6 +172,15 @@ function clearUnread(groupId: string, channelId: string, tellServer: boolean) {
   syncSummaryFromDetail(groupId);
 }
 
+/**
+ * Changes a held group in place, ahead of the server — for an admin rearranging
+ * the rooms list, whose drop should land at once rather than a round trip
+ * later. The server's own update replaces it when it comes.
+ */
+export function patchGroupDetail(groupId: string, patch: Partial<GroupDetail>): void {
+  patchDetail(groupId, patch);
+}
+
 function patchDetail(groupId: string, patch: Partial<GroupDetail>) {
   const detail = state.details[groupId];
   if (!detail) return;

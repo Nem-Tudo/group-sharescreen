@@ -1,12 +1,16 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useMemo, useState, type DragEvent, type FormEvent } from "react";
 import useNtPopups from "ntpopups";
 import {
   MdAdd,
   MdCallEnd,
   MdChatBubbleOutline,
   MdCheck,
+  MdCreateNewFolder,
+  MdDeleteOutline,
+  MdEdit,
+  MdExpandMore,
   MdHeadsetOff,
   MdLock,
   MdLogout,
@@ -23,9 +27,15 @@ import {
 import { Popover, Tooltip } from "@/components/Tooltip";
 import { UserAvatar } from "@/components/UserAvatar";
 import {
+  createCategory,
   createChannel,
+  deleteCategory,
   leaveGroup,
+  renameCategory,
+  setGroupLayout,
   setGroupNotify,
+  type GroupCategory,
+  type GroupChannel,
   type GroupChannelKind,
   type GroupDetail,
   type GroupNotifyLevel,
@@ -36,7 +46,17 @@ import { useGroupNavigation } from "@/lib/groupNavigation";
 import { canInChannel } from "@/lib/groupPermissions";
 import { prefetchChannel } from "@/lib/groupCache";
 import { prefetchUserProfile } from "@/lib/userProfile";
-import { forgetGroup, refreshGroup, useGroupsState } from "@/lib/useGroups";
+import { forgetGroup, patchGroupDetail, refreshGroup, useGroupsState } from "@/lib/useGroups";
+import { useCollapsedCategories } from "@/lib/groupCollapse";
+import {
+  applySections,
+  buildSections,
+  dropOnChannel,
+  moveCategory,
+  moveChannel,
+  toPayload,
+  type LayoutSection,
+} from "@/lib/groupLayout";
 import { GroupLink } from "@/components/groups/GroupLink";
 import { GroupName } from "@/components/groups/GroupName";
 import { openGroupProfile } from "@/components/groups/groupProfile";
@@ -57,9 +77,12 @@ import { openProModal } from "@/lib/proModal";
 // The pieces of a group's screen around the conversation itself:
 //
 //   GroupRoomsPanel — the group's rooms, in a card like the room's participant
-//                     list. Voice rooms first and as cards of their own, with
-//                     who is in each — being in a call together is what GoLive
-//                     is for — and the text rooms as a plain list under them.
+//                     list: the rooms without a category, then each category
+//                     (folded away or open, remembered per browser). In each,
+//                     voice rooms first and as cards of their own, with who
+//                     is in each — being in a call together is what GoLive is
+//                     for — and the text rooms as a plain list under them.
+//                     The owner and admins drag rooms and categories around.
 //   GroupActions    — invite, settings, notifications, leave: the top bar's
 //                     right-hand side.
 //   VoiceControls   — the call, from anywhere in the group, drawn like the
@@ -169,6 +192,17 @@ function VoicePersonRow({ person }: { person: GroupVoiceLivePerson }) {
   );
 }
 
+/** What is being dragged in the rooms list, and where it would land. */
+type RoomDrag = { type: "channel"; id: string } | { type: "category"; id: string };
+type DropHint =
+  | { type: "before" | "after"; channelId: string }
+  | { type: "into"; categoryId: string | null }
+  | { type: "category-before" | "category-after"; categoryId: string }
+  | { type: "categories-top" };
+
+// The line a drop would land on — drawn at the top or bottom edge of a row.
+const dropLine = "pointer-events-none absolute inset-x-1 h-0.5 rounded-full bg-emerald-500";
+
 export function GroupRoomsPanel({
   detail,
   activeChannelId,
@@ -182,32 +216,60 @@ export function GroupRoomsPanel({
   bare?: boolean;
 }) {
   const navigation = useGroupNavigation();
+  const { openPopup } = useNtPopups();
   const session = useGroupVoiceSession();
   const live = useGroupVoiceLive();
   const openChannelSettings = useOpenChannelSettings();
   const [addOpen, setAddOpen] = useState(false);
-  const [creating, setCreating] = useState<GroupChannelKind | null>(null);
+  // What the inline form is making, and where: a room of a kind in a
+  // category (null for none), or a category.
+  const [creating, setCreating] = useState<{ kind: GroupChannelKind | "category"; categoryId: string | null } | null>(
+    null
+  );
   const [newName, setNewName] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // A category's "+" menu, its options menu, and the one being renamed.
+  const [categoryAddOpen, setCategoryAddOpen] = useState<string | null>(null);
+  const [categoryMenuOpen, setCategoryMenuOpen] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<{ id: string; draft: string } | null>(null);
+  const [drag, setDrag] = useState<RoomDrag | null>(null);
+  const [hint, setHint] = useState<DropHint | null>(null);
+  const [layoutError, setLayoutError] = useState<string | null>(null);
 
   const { group, channels, voice, voiceRooms: voiceRoomStates, me } = detail;
   const isManager = me.role === "owner" || me.role === "admin";
-  const textRooms = channels.filter((c) => c.kind === "text");
-  const voiceRooms = channels.filter((c) => c.kind === "voice");
+  const { collapsed, toggle: toggleCollapsed } = useCollapsedCategories(group.id);
+  const sections = useMemo(() => buildSections(channels, detail.categories ?? []), [channels, detail.categories]);
+  const hasCategories = sections.length > 1;
 
-  function startCreating(kind: GroupChannelKind) {
+  function startCreating(kind: GroupChannelKind | "category", categoryId: string | null = null) {
     setAddOpen(false);
-    setCreating(kind);
+    setCategoryAddOpen(null);
+    setCreating({ kind, categoryId });
     setNewName("");
     setCreateError(null);
+    // Making a room in a folded category unfolds it, so the room is seen landing.
+    if (categoryId && collapsed.includes(categoryId)) toggleCollapsed(categoryId);
   }
 
-  async function submitNewRoom(e: FormEvent) {
+  async function submitNew(e: FormEvent) {
     e.preventDefault();
     if (!creating || !newName.trim() || busy) return;
     setBusy(true);
-    const result = await createChannel(group.id, creating, newName.trim());
+    if (creating.kind === "category") {
+      const result = await createCategory(group.id, newName.trim());
+      setBusy(false);
+      if (!result.ok) {
+        setCreateError(result.error);
+        return;
+      }
+      setCreating(null);
+      setNewName("");
+      await refreshGroup(group.id);
+      return;
+    }
+    const result = await createChannel(group.id, creating.kind, newName.trim(), creating.categoryId);
     setBusy(false);
     if (!result.ok) {
       setCreateError(result.error);
@@ -223,6 +285,151 @@ export function GroupRoomsPanel({
     if (result.channel.kind !== "text") return;
     onNavigate?.();
     navigation.push(groupPath(group.id, result.channel.id));
+  }
+
+  async function submitRename(e: FormEvent) {
+    e.preventDefault();
+    if (!renaming || !renaming.draft.trim()) return;
+    const { id, draft } = renaming;
+    setRenaming(null);
+    const result = await renameCategory(group.id, id, draft.trim());
+    if (!result.ok) setLayoutError(result.error);
+    await refreshGroup(group.id);
+  }
+
+  function confirmDeleteCategory(category: GroupCategory) {
+    setCategoryMenuOpen(null);
+    void openPopup("confirm", {
+      data: {
+        title: `Apagar a categoria ${category.name}?`,
+        message: "As salas dela não são apagadas: elas vão para o topo da lista, sem categoria.",
+        cancelLabel: "Cancelar",
+        confirmLabel: "Apagar categoria",
+        confirmStyle: "Danger",
+        onChoose: async (confirmed: boolean) => {
+          if (!confirmed) return;
+          const result = await deleteCategory(group.id, category.id);
+          if (!result.ok) setLayoutError(result.error);
+          await refreshGroup(group.id);
+        },
+      },
+    });
+  }
+
+  // ── Dragging (owner and admins) ────────────────────────────────────────
+  //
+  // The browser's own drag and drop: a room or a category is picked up, the
+  // list shows where it would land, and letting go rearranges the list here at
+  // once and tells the server the whole new arrangement (see lib/groupLayout).
+
+  function showHint(next: DropHint) {
+    setHint((current) => (JSON.stringify(current) === JSON.stringify(next) ? current : next));
+  }
+
+  function endDrag() {
+    setDrag(null);
+    setHint(null);
+  }
+
+  function commitLayout(next: LayoutSection[]) {
+    endDrag();
+    const applied = applySections(next);
+    patchGroupDetail(group.id, applied);
+    setLayoutError(null);
+    void setGroupLayout(group.id, toPayload(next)).then((result) => {
+      if (result.ok) return;
+      setLayoutError(result.error);
+      void refreshGroup(group.id);
+    });
+  }
+
+  function dropChannel(targetCategoryId: string | null, beforeId: string | null) {
+    if (drag?.type !== "channel") return;
+    commitLayout(moveChannel(sections, drag.id, targetCategoryId, beforeId));
+  }
+
+  function dropCategory(beforeId: string | null) {
+    if (drag?.type !== "category") return;
+    commitLayout(moveCategory(sections, drag.id, beforeId));
+  }
+
+  /** What makes a room a thing to pick up and to drop another room on. */
+  function channelDragProps(channel: GroupChannel) {
+    if (!isManager) return {};
+    return {
+      draggable: true,
+      onDragStart: (e: DragEvent<HTMLLIElement>) => {
+        e.stopPropagation();
+        e.dataTransfer.effectAllowed = "move";
+        // Firefox starts no drag without some data on it.
+        e.dataTransfer.setData("text/plain", channel.id);
+        setDrag({ type: "channel", id: channel.id });
+      },
+      onDragEnd: endDrag,
+      onDragOver: (e: DragEvent<HTMLLIElement>) => {
+        // A category being dragged is the section's business, not the row's.
+        if (drag?.type !== "channel") return;
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = "move";
+        const rect = e.currentTarget.getBoundingClientRect();
+        const after = e.clientY > rect.top + rect.height / 2;
+        showHint({ type: after ? "after" : "before", channelId: channel.id });
+      },
+      onDrop: (e: DragEvent<HTMLLIElement>) => {
+        if (drag?.type !== "channel") return;
+        e.preventDefault();
+        e.stopPropagation();
+        const dragged = channels.find((c) => c.id === drag.id);
+        if (!dragged || dragged.id === channel.id) {
+          endDrag();
+          return;
+        }
+        const rect = e.currentTarget.getBoundingClientRect();
+        const after = e.clientY > rect.top + rect.height / 2;
+        const target = dropOnChannel(sections, dragged, channel, after);
+        dropChannel(target.categoryId, target.beforeId);
+      },
+    };
+  }
+
+  /** What makes a section a place to drop a room into, or a category beside. */
+  function sectionDropProps(category: GroupCategory | null) {
+    if (!isManager) return {};
+    const categoryId = category?.id ?? null;
+    const categoryPlace = (e: DragEvent<HTMLElement>) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      return e.clientY > rect.top + rect.height / 2 ? "after" : "before";
+    };
+    return {
+      onDragOver: (e: DragEvent<HTMLElement>) => {
+        if (!drag) return;
+        if (drag.type === "category" && category?.id === drag.id) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        if (drag.type === "channel") showHint({ type: "into", categoryId });
+        else if (!category) showHint({ type: "categories-top" });
+        else showHint({ type: categoryPlace(e) === "after" ? "category-after" : "category-before", categoryId: category.id });
+      },
+      onDrop: (e: DragEvent<HTMLElement>) => {
+        if (!drag) return;
+        e.preventDefault();
+        if (drag.type === "channel") {
+          dropChannel(categoryId, null);
+          return;
+        }
+        if (!category) {
+          // Dropped on the uncategorised rooms: the top of the categories.
+          dropCategory(sections[1]?.category?.id ?? null);
+          return;
+        }
+        if (category.id === drag.id) return endDrag();
+        const index = sections.findIndex((s) => s.category?.id === category.id);
+        const beforeId =
+          categoryPlace(e) === "after" ? sections[index + 1]?.category?.id ?? null : category.id;
+        dropCategory(beforeId);
+      },
+    };
   }
 
   // The room's own settings — name, permissions, deleting it (see
@@ -252,180 +459,373 @@ export function GroupRoomsPanel({
     </span>
   );
 
-  const content = (
-    <div className="flex flex-col gap-4">
-      {creating && (
-        <form
-          onSubmit={submitNewRoom}
-          className="flex flex-col gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 p-2 dark:border-zinc-800 dark:bg-zinc-900"
+  const edgeLine = (channelId: string) =>
+    hint && (hint.type === "before" || hint.type === "after") && hint.channelId === channelId ? (
+      <span className={`${dropLine} ${hint.type === "before" ? "-top-1" : "-bottom-1"}`} />
+    ) : null;
+
+  function renderVoiceRoom(channel: GroupChannel) {
+    const active = channel.id === activeChannelId;
+    const connected = session?.groupId === group.id && session.channelId === channel.id;
+    // The room you are in is drawn from the call itself (see
+    // lib/groupVoiceSession's GroupVoiceLive) — every change shows
+    // the moment it happens, and it is the only room whose speakers
+    // can be seen. Every other room, from the server's update.
+    const liveRoom = connected && live && live.handle === session?.handle ? live : null;
+    const people = liveRoom ? liveRoom.people : (voice[channel.id] ?? []).map(fromServerPresence);
+    const music = liveRoom ? liveRoom.music : voiceRoomStates?.[channel.id]?.music ?? null;
+    // Without "Conectar" the room is still listed, with who is in it,
+    // but its header is not a way in (see lib/groupPermissions). The
+    // server refuses the join regardless; this only doesn't offer it.
+    // Somebody already in the call keeps their way back to it.
+    const locked = !connected && !canInChannel(detail, channel, "connect");
+    const headerContent = (
+      <>
+        {locked ? (
+          <MdLock className="h-4 w-4 shrink-0 text-zinc-400" aria-label="Trancada" />
+        ) : (
+          <MdVolumeUp className={`h-4 w-4 shrink-0 ${connected ? "text-emerald-600" : "text-zinc-400"}`} />
+        )}
+        <span
+          className={`flex min-w-0 flex-1 items-center gap-1 text-sm font-medium ${
+            locked ? "text-zinc-500 dark:text-zinc-400" : "text-zinc-900 dark:text-zinc-100"
+          }`}
         >
-          <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
-            {creating === "voice" ? "Nova sala de voz" : "Nova sala de texto"}
-          </p>
-          <div className="flex gap-1.5">
+          <span className="truncate">{channel.name}</span>
+          {music && (
+            <MdMusicNote
+              className={`h-3.5 w-3.5 shrink-0 ${music.playing ? "text-emerald-600" : "text-zinc-400"}`}
+              title={music.playing ? "Música tocando" : "Música pausada"}
+              aria-label={music.playing ? "Música tocando" : "Música pausada"}
+            />
+          )}
+        </span>
+        {connected ? (
+          <span className="shrink-0 rounded-full bg-emerald-600 px-2 py-0.5 text-[11px] font-medium text-white">
+            Você está aqui
+          </span>
+        ) : people.length === 0 ? (
+          <span className="shrink-0 text-xs text-zinc-400 dark:text-zinc-500">vazia</span>
+        ) : null}
+        {isManager && editButton(channel.id)}
+      </>
+    );
+    return (
+      <li
+        key={channel.id}
+        className={`relative ${drag?.type === "channel" && drag.id === channel.id ? "opacity-40" : ""}`}
+        {...channelDragProps(channel)}
+      >
+        {edgeLine(channel.id)}
+        <div
+          className={`rounded-lg border transition ${
+            active ? "border-zinc-950 dark:border-zinc-50" : "border-zinc-200 dark:border-zinc-800"
+          }`}
+        >
+          {/* Only the room's own header joins it. The people under it
+              are their own targets — a click on somebody is a question
+              about them, not a request to walk into their call. */}
+          {locked ? (
+            <div
+              title="Você não tem permissão para entrar nesta sala"
+              className="group/room flex cursor-not-allowed items-center gap-2 rounded-lg px-3 py-2"
+            >
+              {headerContent}
+            </div>
+          ) : (
+            <GroupLink
+              href={groupPath(group.id, channel.id)}
+              onClick={onNavigate}
+              // The row is what is dragged, not the link inside it.
+              draggable={isManager ? false : undefined}
+              aria-current={active ? "page" : undefined}
+              title={connected ? "Voltar para a chamada" : "Entrar na sala"}
+              className="group/room flex items-center gap-2 rounded-lg px-3 py-2 transition hover:bg-zinc-100 dark:hover:bg-zinc-900"
+            >
+              {headerContent}
+            </GroupLink>
+          )}
+          {people.length > 0 && (
+            <ul className="flex flex-col gap-0.5 border-t border-zinc-100 px-1.5 py-1.5 dark:border-zinc-800/70">
+              {people.map((person) => (
+                <VoicePersonRow key={person.userId} person={person} />
+              ))}
+            </ul>
+          )}
+        </div>
+      </li>
+    );
+  }
+
+  function renderTextRoom(channel: GroupChannel) {
+    const active = channel.id === activeChannelId;
+    return (
+      <li
+        key={channel.id}
+        className={`relative ${drag?.type === "channel" && drag.id === channel.id ? "opacity-40" : ""}`}
+        {...channelDragProps(channel)}
+      >
+        {edgeLine(channel.id)}
+        <GroupLink
+          href={groupPath(group.id, channel.id)}
+          onClick={onNavigate}
+          draggable={isManager ? false : undefined}
+          aria-current={active ? "page" : undefined}
+          // Warms the room's messages on the way to the click, so it
+          // usually opens already filled in (see lib/groupCache).
+          onMouseEnter={() => prefetchChannel(group.id, channel.id)}
+          onFocus={() => prefetchChannel(group.id, channel.id)}
+          className={`group/room flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition ${
+            active
+              ? "bg-zinc-100 font-medium text-zinc-950 dark:bg-zinc-900 dark:text-zinc-50"
+              : channel.unread
+                ? "font-semibold text-zinc-950 hover:bg-zinc-100 dark:text-zinc-50 dark:hover:bg-zinc-900"
+                : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
+          }`}
+        >
+          <MdChatBubbleOutline className="h-4 w-4 shrink-0 opacity-60" />
+          <span className="min-w-0 flex-1 truncate">{channel.name}</span>
+          {!active && channel.mentions > 0 ? (
+            <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white">
+              {channel.mentions}
+            </span>
+          ) : !active && channel.unread ? (
+            <span className="h-2 w-2 shrink-0 rounded-full bg-zinc-950 dark:bg-zinc-50" aria-label="Mensagens novas" />
+          ) : null}
+          {isManager && editButton(channel.id)}
+        </GroupLink>
+      </li>
+    );
+  }
+
+  const creationForm = creating && (
+    <form
+      onSubmit={submitNew}
+      className="mb-1.5 flex flex-col gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 p-2 dark:border-zinc-800 dark:bg-zinc-900"
+    >
+      <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+        {creating.kind === "category"
+          ? "Nova categoria"
+          : creating.kind === "voice"
+            ? "Nova sala de voz"
+            : "Nova sala de texto"}
+      </p>
+      <div className="flex gap-1.5">
+        <input
+          autoFocus
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setCreating(null);
+          }}
+          maxLength={32}
+          placeholder={creating.kind === "category" ? "Ex: Jogos" : creating.kind === "voice" ? "Ex: Jogatina" : "Ex: memes"}
+          className="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+        />
+        <button
+          type="submit"
+          disabled={!newName.trim() || busy}
+          className="shrink-0 cursor-pointer rounded-lg bg-zinc-950 px-3 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-950"
+        >
+          Criar
+        </button>
+      </div>
+      {createError && <p className="text-xs text-red-500">{createError}</p>}
+      <button
+        type="button"
+        onClick={() => setCreating(null)}
+        className="self-start text-xs text-zinc-500 underline-offset-2 hover:underline"
+      >
+        Cancelar
+      </button>
+    </form>
+  );
+
+  /** The heading of a category: fold it, and — for managers — add a room to it or change it. */
+  function categoryHeader(category: GroupCategory, isCollapsed: boolean) {
+    const intoHere = hint?.type === "into" && hint.categoryId === category.id;
+    return (
+      <div
+        className={`group/cat flex items-center gap-1 rounded-md px-1 py-1 transition ${
+          intoHere ? "bg-emerald-50 ring-1 ring-emerald-500/60 dark:bg-emerald-950/40" : ""
+        }`}
+        draggable={isManager && renaming?.id !== category.id}
+        onDragStart={(e) => {
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", category.id);
+          setDrag({ type: "category", id: category.id });
+        }}
+        onDragEnd={endDrag}
+      >
+        {renaming?.id === category.id ? (
+          <form onSubmit={submitRename} className="flex min-w-0 flex-1 gap-1">
             <input
               autoFocus
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
+              value={renaming.draft}
+              onChange={(e) => setRenaming({ id: category.id, draft: e.target.value })}
               onKeyDown={(e) => {
-                if (e.key === "Escape") setCreating(null);
+                if (e.key === "Escape") setRenaming(null);
               }}
+              onBlur={() => setRenaming(null)}
               maxLength={32}
-              placeholder={creating === "voice" ? "Ex: Jogatina" : "Ex: memes"}
-              className="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+              className="min-w-0 flex-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-xs text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
             />
-            <button
-              type="submit"
-              disabled={!newName.trim() || busy}
-              className="shrink-0 cursor-pointer rounded-lg bg-zinc-950 px-3 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-950"
-            >
-              Criar
-            </button>
-          </div>
-          {createError && <p className="text-xs text-red-500">{createError}</p>}
+          </form>
+        ) : (
           <button
             type="button"
-            onClick={() => setCreating(null)}
-            className="self-start text-xs text-zinc-500 underline-offset-2 hover:underline"
+            onClick={() => toggleCollapsed(category.id)}
+            aria-expanded={!isCollapsed}
+            className="flex min-w-0 flex-1 cursor-pointer items-center gap-0.5 text-left text-[11px] font-semibold uppercase tracking-wide text-zinc-500 transition hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
           >
-            Cancelar
+            <MdExpandMore className={`h-3.5 w-3.5 shrink-0 transition-transform ${isCollapsed ? "-rotate-90" : ""}`} />
+            <span className="truncate">{category.name}</span>
           </button>
-        </form>
-      )}
-
-      <section>
-        <p className="mb-1.5 px-1 text-xs font-semibold text-zinc-500 dark:text-zinc-400">Voz</p>
-        <ul className="flex flex-col gap-1.5">
-          {voiceRooms.map((channel) => {
-            const active = channel.id === activeChannelId;
-            const connected = session?.groupId === group.id && session.channelId === channel.id;
-            // The room you are in is drawn from the call itself (see
-            // lib/groupVoiceSession's GroupVoiceLive) — every change shows
-            // the moment it happens, and it is the only room whose speakers
-            // can be seen. Every other room, from the server's update.
-            const liveRoom = connected && live && live.handle === session?.handle ? live : null;
-            const people = liveRoom ? liveRoom.people : (voice[channel.id] ?? []).map(fromServerPresence);
-            const music = liveRoom ? liveRoom.music : voiceRoomStates?.[channel.id]?.music ?? null;
-            // Without "Conectar" the room is still listed, with who is in it,
-            // but its header is not a way in (see lib/groupPermissions). The
-            // server refuses the join regardless; this only doesn't offer it.
-            // Somebody already in the call keeps their way back to it.
-            const locked = !connected && !canInChannel(detail, channel, "connect");
-            const headerContent = (
-              <>
-                {locked ? (
-                  <MdLock className="h-4 w-4 shrink-0 text-zinc-400" aria-label="Trancada" />
-                ) : (
-                  <MdVolumeUp className={`h-4 w-4 shrink-0 ${connected ? "text-emerald-600" : "text-zinc-400"}`} />
-                )}
-                <span
-                  className={`flex min-w-0 flex-1 items-center gap-1 text-sm font-medium ${
-                    locked ? "text-zinc-500 dark:text-zinc-400" : "text-zinc-900 dark:text-zinc-100"
-                  }`}
-                >
-                  <span className="truncate">{channel.name}</span>
-                  {music && (
-                    <MdMusicNote
-                      className={`h-3.5 w-3.5 shrink-0 ${music.playing ? "text-emerald-600" : "text-zinc-400"}`}
-                      title={music.playing ? "Música tocando" : "Música pausada"}
-                      aria-label={music.playing ? "Música tocando" : "Música pausada"}
-                    />
-                  )}
-                </span>
-                {connected ? (
-                  <span className="shrink-0 rounded-full bg-emerald-600 px-2 py-0.5 text-[11px] font-medium text-white">
-                    Você está aqui
-                  </span>
-                ) : people.length === 0 ? (
-                  <span className="shrink-0 text-xs text-zinc-400 dark:text-zinc-500">vazia</span>
-                ) : null}
-                {isManager && editButton(channel.id)}
-              </>
-            );
-            return (
-              <li key={channel.id}>
-                <div
-                  className={`rounded-lg border transition ${
-                    active ? "border-zinc-950 dark:border-zinc-50" : "border-zinc-200 dark:border-zinc-800"
-                  }`}
-                >
-                  {/* Only the room's own header joins it. The people under it
-                      are their own targets — a click on somebody is a question
-                      about them, not a request to walk into their call. */}
-                  {locked ? (
-                    <div
-                      title="Você não tem permissão para entrar nesta sala"
-                      className="group/room flex cursor-not-allowed items-center gap-2 rounded-lg px-3 py-2"
-                    >
-                      {headerContent}
-                    </div>
-                  ) : (
-                    <GroupLink
-                      href={groupPath(group.id, channel.id)}
-                      onClick={onNavigate}
-                      aria-current={active ? "page" : undefined}
-                      title={connected ? "Voltar para a chamada" : "Entrar na sala"}
-                      className="group/room flex items-center gap-2 rounded-lg px-3 py-2 transition hover:bg-zinc-100 dark:hover:bg-zinc-900"
-                    >
-                      {headerContent}
-                    </GroupLink>
-                  )}
-                  {people.length > 0 && (
-                    <ul className="flex flex-col gap-0.5 border-t border-zinc-100 px-1.5 py-1.5 dark:border-zinc-800/70">
-                      {people.map((person) => (
-                        <VoicePersonRow key={person.userId} person={person} />
-                      ))}
-                    </ul>
-                  )}
+        )}
+        {isManager && renaming?.id !== category.id && (
+          <>
+            <Popover
+              open={categoryMenuOpen === category.id}
+              onClose={() => setCategoryMenuOpen(null)}
+              placement="bottom-end"
+              tooltip="Editar categoria"
+              content={
+                <div className="flex w-48 flex-col gap-0.5 rounded-xl border border-zinc-200 bg-white p-1.5 shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCategoryMenuOpen(null);
+                      setRenaming({ id: category.id, draft: category.name });
+                    }}
+                    className={menuItemClass}
+                  >
+                    <MdEdit className="h-4 w-4 opacity-70" />
+                    Renomear
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => confirmDeleteCategory(category)}
+                    className={`${menuItemClass} text-red-600 dark:text-red-400`}
+                  >
+                    <MdDeleteOutline className="h-4 w-4" />
+                    Apagar categoria
+                  </button>
                 </div>
-              </li>
-            );
-          })}
-          {voiceRooms.length === 0 && (
-            <li className="px-1 text-xs text-zinc-400 dark:text-zinc-500">Nenhuma sala de voz.</li>
-          )}
-        </ul>
-      </section>
+              }
+            >
+              <button
+                type="button"
+                onClick={() => setCategoryMenuOpen((open) => (open === category.id ? null : category.id))}
+                aria-label="Editar categoria"
+                className="shrink-0 cursor-pointer rounded p-0.5 text-zinc-400 opacity-0 transition hover:text-zinc-800 focus-visible:opacity-100 group-hover/cat:opacity-100 dark:hover:text-zinc-200"
+              >
+                <MdSettings className="h-3.5 w-3.5" />
+              </button>
+            </Popover>
+            <Popover
+              open={categoryAddOpen === category.id}
+              onClose={() => setCategoryAddOpen(null)}
+              placement="bottom-end"
+              tooltip="Criar sala nesta categoria"
+              content={
+                <div className="flex w-48 flex-col gap-0.5 rounded-xl border border-zinc-200 bg-white p-1.5 shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
+                  <button type="button" onClick={() => startCreating("voice", category.id)} className={menuItemClass}>
+                    <MdVolumeUp className="h-4 w-4 opacity-70" />
+                    Sala de voz
+                  </button>
+                  <button type="button" onClick={() => startCreating("text", category.id)} className={menuItemClass}>
+                    <MdChatBubbleOutline className="h-4 w-4 opacity-70" />
+                    Sala de texto
+                  </button>
+                </div>
+              }
+            >
+              <button
+                type="button"
+                onClick={() => setCategoryAddOpen((open) => (open === category.id ? null : category.id))}
+                aria-label={`Criar sala em ${category.name}`}
+                className="shrink-0 cursor-pointer rounded p-0.5 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+              >
+                <MdAdd className="h-4 w-4" />
+              </button>
+            </Popover>
+          </>
+        )}
+      </div>
+    );
+  }
 
-      <section>
-        <p className="mb-1 px-1 text-xs font-semibold text-zinc-500 dark:text-zinc-400">Texto</p>
-        <ul className="flex flex-col gap-0.5">
-          {textRooms.map((channel) => {
-            const active = channel.id === activeChannelId;
-            return (
-              <li key={channel.id}>
-                <GroupLink
-                  href={groupPath(group.id, channel.id)}
-                  onClick={onNavigate}
-                  aria-current={active ? "page" : undefined}
-                  // Warms the room's messages on the way to the click, so it
-                  // usually opens already filled in (see lib/groupCache).
-                  onMouseEnter={() => prefetchChannel(group.id, channel.id)}
-                  onFocus={() => prefetchChannel(group.id, channel.id)}
-                  className={`group/room flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition ${
-                    active
-                      ? "bg-zinc-100 font-medium text-zinc-950 dark:bg-zinc-900 dark:text-zinc-50"
-                      : channel.unread
-                        ? "font-semibold text-zinc-950 hover:bg-zinc-100 dark:text-zinc-50 dark:hover:bg-zinc-900"
-                        : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
-                  }`}
-                >
-                  <MdChatBubbleOutline className="h-4 w-4 shrink-0 opacity-60" />
-                  <span className="min-w-0 flex-1 truncate">{channel.name}</span>
-                  {!active && channel.mentions > 0 ? (
-                    <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white">
-                      {channel.mentions}
-                    </span>
-                  ) : !active && channel.unread ? (
-                    <span className="h-2 w-2 shrink-0 rounded-full bg-zinc-950 dark:bg-zinc-50" aria-label="Mensagens novas" />
-                  ) : null}
-                  {isManager && editButton(channel.id)}
-                </GroupLink>
-              </li>
-            );
-          })}
-        </ul>
+  function renderSection(section: LayoutSection) {
+    const category = section.category;
+    const isCollapsed = Boolean(category && collapsed.includes(category.id));
+    // A folded category still shows the room on screen and the call you are
+    // in, the way Discord keeps them — folding tidies the list, it does not
+    // hide where you are.
+    const isConnected = (c: GroupChannel) => session?.groupId === group.id && session.channelId === c.id;
+    const voiceShown = isCollapsed
+      ? section.voice.filter((c) => c.id === activeChannelId || isConnected(c))
+      : section.voice;
+    const textShown = isCollapsed ? section.text.filter((c) => c.id === activeChannelId) : section.text;
+    const empty = section.voice.length === 0 && section.text.length === 0;
+    const creatingHere = creating && creating.kind !== "category" && creating.categoryId === (category?.id ?? null);
+    // Nothing to draw for the uncategorised rooms when there are none — except
+    // somewhere to drop a room while one is being dragged out of a category.
+    if (!category && empty && !creatingHere && drag?.type !== "channel") return null;
+    const categoryEdge =
+      hint &&
+      (hint.type === "category-before" || hint.type === "category-after") &&
+      category &&
+      hint.categoryId === category.id
+        ? hint.type
+        : null;
+    const intoRoot = !category && hint?.type === "into" && hint.categoryId === null;
+    return (
+      <section
+        key={category?.id ?? "root"}
+        className={`relative ${drag?.type === "category" && drag.id === category?.id ? "opacity-40" : ""}`}
+        {...sectionDropProps(category)}
+      >
+        {categoryEdge && <span className={`${dropLine} ${categoryEdge === "category-before" ? "-top-1" : "-bottom-1"}`} />}
+        {!category && hint?.type === "categories-top" && <span className={`${dropLine} -bottom-2`} />}
+        {category && categoryHeader(category, isCollapsed)}
+        {creatingHere && creationForm}
+        {voiceShown.length > 0 && <ul className="flex flex-col gap-1.5">{voiceShown.map(renderVoiceRoom)}</ul>}
+        {textShown.length > 0 && (
+          <ul className={`flex flex-col gap-0.5 ${voiceShown.length > 0 ? "mt-1.5" : ""}`}>
+            {textShown.map(renderTextRoom)}
+          </ul>
+        )}
+        {/* Somewhere to drop a room when there is nothing to drop it beside:
+            an empty category, or the top of the list while every room is
+            in a category. Only while dragging, or for an empty category
+            that could use a hint. */}
+        {isManager && empty && !isCollapsed && (category || drag?.type === "channel") && (
+          <p
+            className={`rounded-md border border-dashed px-2 py-1.5 text-center text-[11px] ${
+              (category && hint?.type === "into" && hint.categoryId === category.id) || intoRoot
+                ? "border-emerald-500 text-emerald-600 dark:text-emerald-400"
+                : "border-zinc-300 text-zinc-400 dark:border-zinc-700 dark:text-zinc-500"
+            }`}
+          >
+            {category ? "Arraste salas pra cá" : "Solte aqui pra tirar da categoria"}
+          </p>
+        )}
       </section>
+    );
+  }
+
+  const content = (
+    <div className="flex flex-col gap-3">
+      {creating?.kind === "category" && creationForm}
+      {layoutError && (
+        <p className="rounded-md bg-red-50 px-2 py-1 text-xs text-red-600 dark:bg-red-950/40 dark:text-red-400">
+          {layoutError}
+        </p>
+      )}
+      {sections.map(renderSection)}
+      {!hasCategories && channels.length === 0 && (
+        <p className="px-1 text-xs text-zinc-400 dark:text-zinc-500">Nenhuma sala.</p>
+      )}
     </div>
   );
 
@@ -440,7 +840,7 @@ export function GroupRoomsPanel({
             open={addOpen}
             onClose={() => setAddOpen(false)}
             placement="bottom-end"
-            tooltip="Criar sala"
+            tooltip="Criar sala ou categoria"
             content={
               <div className="flex w-48 flex-col gap-0.5 rounded-xl border border-zinc-200 bg-white p-1.5 shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
                 <button type="button" onClick={() => startCreating("voice")} className={menuItemClass}>
@@ -451,13 +851,18 @@ export function GroupRoomsPanel({
                   <MdChatBubbleOutline className="h-4 w-4 opacity-70" />
                   Sala de texto
                 </button>
+                <div className="my-0.5 border-t border-zinc-200 dark:border-zinc-800" />
+                <button type="button" onClick={() => startCreating("category")} className={menuItemClass}>
+                  <MdCreateNewFolder className="h-4 w-4 opacity-70" />
+                  Categoria
+                </button>
               </div>
             }
           >
             <button
               type="button"
               onClick={() => setAddOpen((o) => !o)}
-              aria-label="Criar sala"
+              aria-label="Criar sala ou categoria"
               className="cursor-pointer rounded-lg p-1 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
             >
               <MdAdd className="h-4 w-4" />

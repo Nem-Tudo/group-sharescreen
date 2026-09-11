@@ -40,10 +40,12 @@ import {
   kickMember,
   removeGroupIcon,
   renameChannel,
-  reorderChannels,
+  deleteCategory,
+  renameCategory,
   revokeInvite,
   setCustomInvite,
   setGroupAdmin,
+  setGroupLayout,
   setGroupLocation,
   setGroupVisibility,
   transferGroup,
@@ -51,6 +53,7 @@ import {
   updateGroup,
   uploadGroupIcon,
   type GroupBan,
+  type GroupCategory,
   type GroupChannel,
   type GroupDetail,
   type GroupInvite,
@@ -60,6 +63,7 @@ import {
 } from "@/lib/groupsApi";
 import { CUSTOM_INVITE_RE, describeInviteExpiry, groupPath, inviteCodeFromInput, invitePath } from "@/lib/groupLinks";
 import { useGroupNavigation } from "@/lib/groupNavigation";
+import { buildSections, moveCategory, moveChannel, toPayload, type LayoutSection } from "@/lib/groupLayout";
 import { SITE_URL } from "@/lib/seo";
 import Link from "next/link";
 import { WorldMap } from "@/components/WorldMap";
@@ -78,6 +82,7 @@ import {
   type PopupProps,
 } from "@/components/groups/dialogKit";
 import { GroupPermissionsTab, useOpenChannelSettings } from "@/components/groups/ChannelSettingsDialog";
+import { GoldVerifiedBadgeIcon } from "../icons";
 
 // The group's popups, registered with ntpopups in components/NtPopups.tsx:
 //
@@ -149,9 +154,7 @@ function CustomInviteEditor({ detail }: { detail: GroupDetail }) {
   if (!allowed && !current) {
     return (
       <p className="rounded-lg border border-dashed border-zinc-300 px-3 py-2.5 text-xs text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
-        <span className="font-medium text-zinc-700 dark:text-zinc-300">Link personalizado</span> — um convite
-        como <span className="font-mono">{prefix}seu-grupo</span>, que não expira. Disponível quando o dono do grupo
-        tem o Pro Max.
+        <span className="font-medium text-zinc-700 dark:text-zinc-300">Link personalizado</span> — Disponível quando o dono do grupo tem o <GoldVerifiedBadgeIcon className="h-3.5 w-3.5 inline"/> Pro Max.
       </p>
     );
   }
@@ -641,7 +644,9 @@ export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: 
         onChange={setTab}
       />
       {current === "overview" && <OverviewTab groupId={groupId} onGoToMap={() => setTab("map")} />}
-      {current === "channels" && <ChannelsTab groupId={groupId} channels={detail.channels} />}
+      {current === "channels" && (
+        <ChannelsTab groupId={groupId} channels={detail.channels} categories={detail.categories ?? []} />
+      )}
       {current === "permissions" && <GroupPermissionsTab groupId={groupId} />}
       {current === "map" && <LocationTab groupId={groupId} onGoToOverview={() => setTab("overview")} />}
       {current === "invites" && <InvitesTab groupId={groupId} groupName={detail.group.name} />}
@@ -1009,12 +1014,28 @@ export function GroupLocationDialog({ closePopup, data }: PopupProps<{ groupId: 
   );
 }
 
-function ChannelsTab({ groupId, channels }: { groupId: string; channels: GroupChannel[] }) {
+/**
+ * The group's rooms, arranged by hand — the same list the sidebar shows (the
+ * rooms without a category, then each category), with arrows and a category
+ * picker instead of dragging. What a phone uses, where the sidebar's drag and
+ * drop is not; both rearrange through lib/groupLayout and the same route.
+ */
+function ChannelsTab({
+  groupId,
+  channels,
+  categories,
+}: {
+  groupId: string;
+  channels: GroupChannel[];
+  categories: GroupCategory[];
+}) {
   const openChannelSettings = useOpenChannelSettings();
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [confirming, setConfirming] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const sections = buildSections(channels, categories);
+  const categoryList = sections.slice(1).map((s) => s.category!);
 
   async function run(action: Promise<{ ok: boolean; error?: string }>) {
     const result = await action;
@@ -1023,106 +1044,218 @@ function ChannelsTab({ groupId, channels }: { groupId: string; channels: GroupCh
     void refreshGroup(groupId);
   }
 
-  function move(kind: GroupChannel["kind"], id: string, delta: number) {
-    const ofKind = channels.filter((c) => c.kind === kind);
-    const index = ofKind.findIndex((c) => c.id === id);
-    const target = index + delta;
-    if (index < 0 || target < 0 || target >= ofKind.length) return;
-    const ids = ofKind.map((c) => c.id);
-    [ids[index], ids[target]] = [ids[target], ids[index]];
-    void run(reorderChannels(groupId, ids));
+  function commit(next: LayoutSection[]) {
+    void run(setGroupLayout(groupId, toPayload(next)));
   }
 
-  function section(kind: GroupChannel["kind"], label: string) {
-    const list = channels.filter((c) => c.kind === kind);
+  /** One step up or down among the rooms of its kind in its own section. */
+  function moveWithin(section: LayoutSection, channel: GroupChannel, delta: number) {
+    const list = section[channel.kind];
+    const index = list.findIndex((c) => c.id === channel.id);
+    const target = index + delta;
+    if (index < 0 || target < 0 || target >= list.length) return;
+    const beforeId = delta < 0 ? list[target].id : list[target + 1]?.id ?? null;
+    commit(moveChannel(sections, channel.id, section.category?.id ?? null, beforeId));
+  }
+
+  function moveCategoryBy(categoryId: string, delta: number) {
+    const index = categoryList.findIndex((c) => c.id === categoryId);
+    const target = index + delta;
+    if (index < 0 || target < 0 || target >= categoryList.length) return;
+    const beforeId = delta < 0 ? categoryList[target].id : categoryList[target + 1]?.id ?? null;
+    commit(moveCategory(sections, categoryId, beforeId));
+  }
+
+  function channelRow(section: LayoutSection, channel: GroupChannel) {
+    const list = section[channel.kind];
+    const index = list.findIndex((c) => c.id === channel.id);
     return (
-      <div className="flex flex-col gap-1">
-        <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{label}</p>
-        {list.map((channel, index) => (
-          <div
-            key={channel.id}
-            className="flex items-center gap-2 rounded-lg border border-zinc-200 px-2 py-1.5 dark:border-zinc-800"
+      <div
+        key={channel.id}
+        className="flex flex-wrap items-center gap-2 rounded-lg border border-zinc-200 px-2 py-1.5 dark:border-zinc-800"
+      >
+        {channel.kind === "text" ? (
+          <MdTag className="h-4 w-4 shrink-0 opacity-60" />
+        ) : (
+          <MdVolumeUp className="h-4 w-4 shrink-0 opacity-60" />
+        )}
+        {editing === channel.id ? (
+          <form
+            className="flex min-w-0 flex-1 gap-1"
+            onSubmit={(e) => {
+              e.preventDefault();
+              setEditing(null);
+              void run(renameChannel(groupId, channel.id, draft));
+            }}
           >
-            {kind === "text" ? <MdTag className="h-4 w-4 shrink-0 opacity-60" /> : <MdVolumeUp className="h-4 w-4 shrink-0 opacity-60" />}
-            {editing === channel.id ? (
-              <form
-                className="flex min-w-0 flex-1 gap-1"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  setEditing(null);
-                  void run(renameChannel(groupId, channel.id, draft));
-                }}
+            <input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={32} className={`${inputClass} py-1`} />
+            <button type="submit" className="cursor-pointer rounded-md bg-emerald-600 px-2 text-white" aria-label="Salvar">
+              <MdCheck className="h-4 w-4" />
+            </button>
+          </form>
+        ) : (
+          <span className="flex min-w-0 flex-1 items-center gap-2">
+            <span className="truncate text-sm">{channel.name}</span>
+            {Object.keys(channel.permissions ?? {}).length > 0 && (
+              <span className="shrink-0 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+                permissões próprias
+              </span>
+            )}
+          </span>
+        )}
+        {confirming === channel.id ? (
+          <span className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => {
+                setConfirming(null);
+                void run(deleteChannel(groupId, channel.id));
+              }}
+              className="cursor-pointer rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white"
+            >
+              Apagar
+            </button>
+            <button type="button" onClick={() => setConfirming(null)} className="cursor-pointer px-1 text-xs text-zinc-500">
+              Cancelar
+            </button>
+          </span>
+        ) : (
+          <span className="flex shrink-0 items-center">
+            {categoryList.length > 0 && (
+              <select
+                value={section.category?.id ?? ""}
+                onChange={(e) => commit(moveChannel(sections, channel.id, e.target.value || null, null))}
+                aria-label="Categoria da sala"
+                title="Categoria"
+                className="mr-1 max-w-28 cursor-pointer rounded-md border border-zinc-300 bg-white px-1 py-0.5 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
               >
-                <input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={32} className={`${inputClass} py-1`} />
-                <button type="submit" className="cursor-pointer rounded-md bg-emerald-600 px-2 text-white" aria-label="Salvar">
-                  <MdCheck className="h-4 w-4" />
-                </button>
-              </form>
-            ) : (
-              <span className="flex min-w-0 flex-1 items-center gap-2">
-                <span className="truncate text-sm">{channel.name}</span>
-                {Object.keys(channel.permissions ?? {}).length > 0 && (
-                  <span className="shrink-0 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
-                    permissões próprias
-                  </span>
-                )}
-              </span>
+                <option value="">Sem categoria</option>
+                {categoryList.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
             )}
-            {confirming === channel.id ? (
-              <span className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setConfirming(null);
-                    void run(deleteChannel(groupId, channel.id));
-                  }}
-                  className="cursor-pointer rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white"
-                >
-                  Apagar
-                </button>
-                <button type="button" onClick={() => setConfirming(null)} className="cursor-pointer px-1 text-xs text-zinc-500">
-                  Cancelar
-                </button>
-              </span>
-            ) : (
-              <span className="flex shrink-0 items-center">
-                <IconButton label="Subir" disabled={index === 0} onClick={() => move(kind, channel.id, -1)}>
-                  <MdArrowUpward className="h-4 w-4" />
-                </IconButton>
-                <IconButton label="Descer" disabled={index === list.length - 1} onClick={() => move(kind, channel.id, 1)}>
-                  <MdArrowDownward className="h-4 w-4" />
-                </IconButton>
-                <IconButton
-                  label="Renomear"
-                  onClick={() => {
-                    setEditing(channel.id);
-                    setDraft(channel.name);
-                  }}
-                >
-                  <MdEdit className="h-4 w-4" />
-                </IconButton>
-                <IconButton label="Permissões da sala" onClick={() => openChannelSettings(groupId, channel.id, "permissions")}>
-                  <MdTune className="h-4 w-4" />
-                </IconButton>
-                <IconButton label="Apagar" danger onClick={() => setConfirming(channel.id)}>
-                  <MdDeleteOutline className="h-4 w-4" />
-                </IconButton>
-              </span>
-            )}
-          </div>
-        ))}
+            <IconButton label="Subir" disabled={index <= 0} onClick={() => moveWithin(section, channel, -1)}>
+              <MdArrowUpward className="h-4 w-4" />
+            </IconButton>
+            <IconButton label="Descer" disabled={index === list.length - 1} onClick={() => moveWithin(section, channel, 1)}>
+              <MdArrowDownward className="h-4 w-4" />
+            </IconButton>
+            <IconButton
+              label="Renomear"
+              onClick={() => {
+                setEditing(channel.id);
+                setDraft(channel.name);
+              }}
+            >
+              <MdEdit className="h-4 w-4" />
+            </IconButton>
+            <IconButton label="Permissões da sala" onClick={() => openChannelSettings(groupId, channel.id, "permissions")}>
+              <MdTune className="h-4 w-4" />
+            </IconButton>
+            <IconButton label="Apagar" danger onClick={() => setConfirming(channel.id)}>
+              <MdDeleteOutline className="h-4 w-4" />
+            </IconButton>
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  function categoryHeading(category: GroupCategory) {
+    const index = categoryList.findIndex((c) => c.id === category.id);
+    const key = `category:${category.id}`;
+    if (editing === key) {
+      return (
+        <form
+          className="flex gap-1"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setEditing(null);
+            void run(renameCategory(groupId, category.id, draft));
+          }}
+        >
+          <input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={32} className={`${inputClass} py-1`} />
+          <button type="submit" className="cursor-pointer rounded-md bg-emerald-600 px-2 text-white" aria-label="Salvar">
+            <MdCheck className="h-4 w-4" />
+          </button>
+        </form>
+      );
+    }
+    return (
+      <div className="flex items-center gap-2">
+        <p className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-wide text-zinc-500">{category.name}</p>
+        {confirming === key ? (
+          <span className="flex items-center gap-1">
+            <span className="text-[11px] text-zinc-500">As salas vão pro topo.</span>
+            <button
+              type="button"
+              onClick={() => {
+                setConfirming(null);
+                void run(deleteCategory(groupId, category.id));
+              }}
+              className="cursor-pointer rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white"
+            >
+              Apagar
+            </button>
+            <button type="button" onClick={() => setConfirming(null)} className="cursor-pointer px-1 text-xs text-zinc-500">
+              Cancelar
+            </button>
+          </span>
+        ) : (
+          <span className="flex shrink-0 items-center">
+            <IconButton label="Subir categoria" disabled={index <= 0} onClick={() => moveCategoryBy(category.id, -1)}>
+              <MdArrowUpward className="h-4 w-4" />
+            </IconButton>
+            <IconButton
+              label="Descer categoria"
+              disabled={index === categoryList.length - 1}
+              onClick={() => moveCategoryBy(category.id, 1)}
+            >
+              <MdArrowDownward className="h-4 w-4" />
+            </IconButton>
+            <IconButton
+              label="Renomear categoria"
+              onClick={() => {
+                setEditing(key);
+                setDraft(category.name);
+              }}
+            >
+              <MdEdit className="h-4 w-4" />
+            </IconButton>
+            <IconButton label="Apagar categoria" danger onClick={() => setConfirming(key)}>
+              <MdDeleteOutline className="h-4 w-4" />
+            </IconButton>
+          </span>
+        )}
       </div>
     );
   }
 
   return (
     <div className="flex flex-col gap-4">
-      {section("text", "Salas de texto")}
-      {section("voice", "Salas de voz")}
+      {sections.map((section) => {
+        const rooms = [...section.voice, ...section.text];
+        if (!section.category && rooms.length === 0) return null;
+        return (
+          <div key={section.category?.id ?? "root"} className="flex flex-col gap-1">
+            {section.category ? (
+              categoryHeading(section.category)
+            ) : categoryList.length > 0 ? (
+              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Sem categoria</p>
+            ) : null}
+            {rooms.map((channel) => channelRow(section, channel))}
+            {rooms.length === 0 && <p className="px-1 text-xs text-zinc-400">Nenhuma sala nesta categoria.</p>}
+          </div>
+        );
+      })}
       {error && <p className="text-sm text-red-500">{error}</p>}
       <p className="text-xs text-zinc-500 dark:text-zinc-400">
-        Para criar uma sala, use o <b>+</b> ao lado de “Salas de texto” ou “Salas de voz” na lista do grupo.
-        Apagar uma sala de texto apaga as mensagens dela.
+        Para criar uma sala ou uma categoria, use o <b>+</b> da lista de salas do grupo — o de cada categoria cria a
+        sala dentro dela. Na lista, dá pra arrastar salas e categorias. Apagar uma sala de texto apaga as mensagens
+        dela; apagar uma categoria não apaga as salas.
       </p>
     </div>
   );

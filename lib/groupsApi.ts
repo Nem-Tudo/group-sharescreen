@@ -36,10 +36,20 @@ export interface GroupSummary {
   suspended?: boolean;
 }
 
+/** A heading rooms are gathered under — see the API's GroupCategory and lib/groupLayout. */
+export interface GroupCategory {
+  id: string;
+  name: string;
+  position: number;
+}
+
 export interface GroupChannel {
   id: string;
   kind: GroupChannelKind;
   name: string;
+  /** The category it is listed under, or null for none. Absent from an older API. */
+  categoryId?: string | null;
+  /** Order within its category and kind. */
   position: number;
   /** This room's own permission settings — a switch absent inherits the group's. See lib/groupPermissions. */
   permissions: ChannelPermissionOverrides;
@@ -105,6 +115,8 @@ export interface GroupInfo {
 export interface GroupDetail {
   group: GroupInfo;
   channels: GroupChannel[];
+  /** In order. Absent from an older API — read as none. */
+  categories?: GroupCategory[];
   voice: GroupVoiceMap;
   /** Absent from an older API — read as no room having anything on. */
   voiceRooms?: GroupVoiceRoomMap;
@@ -304,8 +316,13 @@ export const fetchBans = (groupId: string) =>
 
 // ─── Rooms ───────────────────────────────────────────────────────────────
 
-export const createChannel = (groupId: string, kind: GroupChannelKind, name: string) =>
-  request<{ channel: GroupChannel }>("POST", `/groups/${enc(groupId)}/channels`, { kind, name });
+/** `categoryId` puts it in that category, at the end of its kind; null for none. */
+export const createChannel = (
+  groupId: string,
+  kind: GroupChannelKind,
+  name: string,
+  categoryId: string | null = null
+) => request<{ channel: GroupChannel }>("POST", `/groups/${enc(groupId)}/channels`, { kind, name, categoryId });
 
 export const renameChannel = (groupId: string, channelId: string, name: string) =>
   request<{ channel: GroupChannel }>("PATCH", `/groups/${enc(groupId)}/channels/${enc(channelId)}`, { name });
@@ -327,6 +344,26 @@ export const setGroupPermissions = (
     voice?: Partial<GroupPermissions["voice"]>;
   }
 ) => request<{ group: GroupInfo }>("PUT", `/groups/${enc(groupId)}/permissions`, patch);
+
+// ─── Categories ──────────────────────────────────────────────────────────
+
+export const createCategory = (groupId: string, name: string) =>
+  request<{ category: GroupCategory }>("POST", `/groups/${enc(groupId)}/categories`, { name });
+
+export const renameCategory = (groupId: string, categoryId: string, name: string) =>
+  request<{ category: GroupCategory }>("PATCH", `/groups/${enc(groupId)}/categories/${enc(categoryId)}`, {
+    name,
+  });
+
+/** Removes the heading; its rooms move to the top, uncategorised. */
+export const deleteCategory = (groupId: string, categoryId: string) =>
+  request<object>("DELETE", `/groups/${enc(groupId)}/categories/${enc(categoryId)}`);
+
+/** The whole rooms list as it should be — see lib/groupLayout's LayoutPayload. */
+export const setGroupLayout = (
+  groupId: string,
+  layout: { categories: string[]; containers: { categoryId: string | null; channels: string[] }[] }
+) => request<object>("PUT", `/groups/${enc(groupId)}/layout`, layout);
 
 /** Sets the group's own invite link, or clears it with null (owner/admins). */
 export const setCustomInvite = (groupId: string, code: string | null) =>
