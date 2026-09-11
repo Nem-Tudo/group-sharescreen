@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { FaDiscord } from "react-icons/fa";
-import { MdCardGiftcard, MdMonitor, MdOutlineMap, MdPalette } from "react-icons/md";
+import { MdCardGiftcard, MdGroups, MdMonitor, MdOutlineMap, MdPalette } from "react-icons/md";
 import { GlobeIcon, GoldVerifiedBadgeIcon, VerifiedBadgeIcon } from "@/components/icons";
 import useNtPopups from "ntpopups";
 import { AccountMenu } from "@/components/AccountMenu";
@@ -30,6 +30,8 @@ import { useAuth } from "@/lib/AuthContext";
 const PRIMARY: any[] = [
   // { href: "/rooms", label: "Salas públicas", short: "Salas", Icon: GlobeIcon },
   // { href: "/worldmap", label: "Mapa de salas", short: "Mapa", Icon: MdOutlineMap },
+  // Groups: permanent places with several voice and text rooms (see /groups).
+  { href: "/groups", label: "Grupos", short: "Grupos", Icon: MdGroups },
 ];
 
 function SquareIcon() {

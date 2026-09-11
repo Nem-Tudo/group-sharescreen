@@ -460,6 +460,17 @@ html .ntpopups-main {
   }
 }
 
+/* The group pages (app/groups, see components/groups/GroupAppShell) are an app
+   shell at every width, not only below lg like the room: the rail, the rooms
+   and the conversation each scroll inside themselves, and the document behind
+   them must not. Same reasoning as the rule above, just unconditional. */
+html:has([data-group-shell]),
+body:has([data-group-shell]) {
+  height: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 /* The two bits of motion on /app (see app/app/FeatureArt.tsx): a small
    equalizer that says "someone is talking / sound is going out", and the
    dot on the "ao vivo" badge. Both live here rather than inline because

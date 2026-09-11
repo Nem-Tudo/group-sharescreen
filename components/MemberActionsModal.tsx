@@ -4,6 +4,8 @@ import { useState } from "react";
 import { MdGavel, MdLogout } from "react-icons/md";
 import { FaCrown } from "react-icons/fa";
 import { signalingClient } from "@/lib/signalingClient";
+import { useSignaling } from "@/lib/useSignaling";
+import { isActiveGroupVoiceRoom } from "@/lib/groupVoiceSession";
 import { DisplayUserName } from "./DisplayUserName";
 import type { VerifiedTone } from "@/lib/entitlements";
 
@@ -65,8 +67,8 @@ export function MemberActionsMenu({
     verified,
     nameColor,
     canKick,
-    canBan,
-    canPromote,
+    canBan: canBanRoom,
+    canPromote: canPromoteRoom,
     isAdmin,
     blockedReason,
   },
@@ -80,6 +82,13 @@ export function MemberActionsMenu({
   showHeader?: boolean;
 }) {
   const [confirmingBan, setConfirmingBan] = useState(false);
+  // In a group's voice room, admins and bans are the group's (see the API's
+  // syncGroupRoomManagers) and the server refuses both from inside the room —
+  // so neither button is offered there. Kicking out of the call still is.
+  const { room } = useSignaling();
+  const inGroupRoom = isActiveGroupVoiceRoom(room);
+  const canBan = canBanRoom && !inGroupRoom;
+  const canPromote = canPromoteRoom && !inGroupRoom;
 
   return (
     <div className="flex w-72 max-w-[calc(100vw-1rem)] flex-col gap-3 rounded-xl bg-white p-4 text-zinc-900 shadow-lg dark:bg-zinc-950 dark:text-zinc-50">

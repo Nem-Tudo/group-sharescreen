@@ -15,6 +15,12 @@ import { GiftClaimDialog } from "@/components/GiftClaimDialog";
 import { ThemeEditorDialog } from "@/components/ThemeEditorDialog";
 import { ThemeHubDialog } from "@/components/ThemeHubDialog";
 import { RoomThemePicker } from "@/components/RoomThemePicker";
+import {
+  CreateGroupDialog,
+  GroupInviteDialog,
+  GroupSettingsDialog,
+  JoinGroupDialog,
+} from "@/components/groups/GroupDialogs";
 
 // Popup types this app registers with the library, opened by name through
 // `useNtPopups().openPopup(...)`. The cast is because the library types
@@ -33,6 +39,11 @@ const customPopups: Record<string, ComponentType> = {
   theme_editor: ThemeEditorDialog as ComponentType,
   theme_hub: ThemeHubDialog as ComponentType,
   room_theme: RoomThemePicker as ComponentType,
+  // Groups — see components/groups/GroupDialogs.tsx.
+  create_group: CreateGroupDialog as ComponentType,
+  join_group: JoinGroupDialog as ComponentType,
+  group_invite: GroupInviteDialog as ComponentType,
+  group_settings: GroupSettingsDialog as ComponentType,
 };
 
 // Mounted once in app/layout.tsx, inside AuthProvider — the popups it renders

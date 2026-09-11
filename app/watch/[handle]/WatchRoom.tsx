@@ -25,6 +25,7 @@ import {
   type ChatReplyTo,
 } from "@/lib/signalingClient";
 import { useSignaling, useHasStoredName } from "@/lib/useSignaling";
+import { setGroupVoiceControls } from "@/lib/groupVoiceSession";
 import { peerPresence } from "@/lib/presence";
 import { useAuth } from "@/lib/AuthContext";
 import { getAccountToken } from "@/lib/accountApi";
@@ -162,6 +163,8 @@ import { getProfileSongAutoplay, setProfileSongAutoplay } from "@/lib/profileSon
 import { useMediaQuery, SM_BREAKPOINT_QUERY, LG_BREAKPOINT_QUERY } from "@/lib/useMediaQuery";
 import {
   MdHome,
+  MdMenu,
+  MdVolumeUp,
   MdOutlineOndemandVideo,
   MdOutlineDesktopWindows,
   MdOutlineMap,
@@ -996,13 +999,32 @@ const DOCK_TAB_ACTIVE = "room-accent";
 const DOCK_TAB_IDLE =
   "text-zinc-600 active:bg-zinc-100 dark:text-zinc-400 dark:active:bg-zinc-900";
 
+/**
+ * What changes when this room is a group's voice room (see
+ * components/groups/GroupAppShell). Absent for every /watch room, which is the
+ * whole guarantee: without it, nothing below behaves any differently.
+ */
+export type WatchRoomGroupMode = {
+  groupId: string;
+  channelId: string;
+  channelName: string;
+  groupName: string;
+  /** Hanging up: the shell unmounts the room, which is what leaves it. */
+  onDisconnect: () => void;
+  /** Opens the group's rooms drawer on a phone. */
+  onOpenNav: () => void;
+};
+
 export function WatchRoom({
   handle,
   viewThemeId = null,
+  group,
 }: {
   handle: string;
   /** A theme this room was opened to show. See useRoomTheme. */
   viewThemeId?: string | null;
+  /** Set only when the room is a group's voice room. See WatchRoomGroupMode. */
+  group?: WatchRoomGroupMode;
 }) {
   const router = useRouter();
   const state = useSignaling();
@@ -1999,9 +2021,29 @@ export function WatchRoom({
   // link on the home page. localStorage, not session, so it survives the
   // leave that takes them back there.
   useEffect(() => {
-    if (state.room !== handle) return;
+    // A group's room is reached through its group, never from the list of
+    // rooms somebody walked into by name.
+    if (state.room !== handle || group) return;
     rememberRecentRoom(handle);
-  }, [state.room, handle]);
+  }, [state.room, handle, group]);
+
+  // In a group, the voice dock outside this room offers the mute button (see
+  // components/groups/GroupSidebar's VoiceDock). Published through a stable
+  // wrapper, so the dock is not told about a "new" toggle on every render.
+  const toggleMicRef = useRef(toggleMic);
+  useEffect(() => {
+    toggleMicRef.current = toggleMic;
+  }, [toggleMic]);
+  const stableToggleMic = useCallback(() => toggleMicRef.current(), []);
+  const inGroup = Boolean(group);
+  useEffect(() => {
+    if (!inGroup) return;
+    setGroupVoiceControls({ isMicOn, toggleMic: stableToggleMic });
+  }, [inGroup, isMicOn, stableToggleMic]);
+  useEffect(() => {
+    if (!inGroup) return;
+    return () => setGroupVoiceControls(null);
+  }, [inGroup]);
 
   // Whether the tile an id points at still has anything to show. The one
   // place that knows how each kind of tile answers that — used both by the
@@ -2141,7 +2183,8 @@ export function WatchRoom({
   // "room-location-set" and its /rooms listing, which filters private rooms
   // out), so placing a private one is refused rather than quietly kept as
   // state nobody can see.
-  const privateRoomCannotBeMapped = isPrivateRoomHandle(handle);
+  // A group's room belongs to its group's members and is on no map either.
+  const privateRoomCannotBeMapped = isPrivateRoomHandle(handle) || Boolean(group);
   const roomLocationTooltip = privateRoomCannotBeMapped
     ? "Apenas salas públicas podem definir uma localização no Mapa Mundi"
     : isRoomManager
@@ -4075,13 +4118,15 @@ export function WatchRoom({
         </button>
       </div>
 
-      <span
-        className={`mb-2 inline-block w-fit shrink-0 rounded-full px-2.5 py-1 text-xs font-medium text-white sm:hidden ${
-          isPrivateRoomHandle(handle) ? "bg-red-600" : "bg-emerald-600"
-        }`}
-      >
-        {isPrivateRoomHandle(handle) ? "Sala privada" : "Sala pública"}
-      </span>
+      {!group && (
+        <span
+          className={`mb-2 inline-block w-fit shrink-0 rounded-full px-2.5 py-1 text-xs font-medium text-white sm:hidden ${
+            isPrivateRoomHandle(handle) ? "bg-red-600" : "bg-emerald-600"
+          }`}
+        >
+          {isPrivateRoomHandle(handle) ? "Sala privada" : "Sala pública"}
+        </span>
+      )}
 
       {/* The room's category and blurb, which sit in the header from lg up
           (see RoomInfoControls there). Skipped entirely for a viewer of a
@@ -4093,6 +4138,7 @@ export function WatchRoom({
           anything for a room that is only reachable by its link. */}
       {!isWideLayout &&
         !isPrivateRoomHandle(handle) &&
+        !group &&
         (isRoomManager || state.roomDescription || state.roomCategory) && (
         <div className="mb-1">
           <p className="mb-1.5 px-1 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
@@ -4358,7 +4404,8 @@ export function WatchRoom({
       {/* At every width now, not just on a phone: it used to have its own
           button in the desktop header, where a once-a-session action was
           taking permanent space from the controls used all call long. */}
-      <div>
+      {/* Not in a group: its rooms are one click away in the group's own list. */}
+      <div className={group ? "hidden" : undefined}>
         <button
           type="button"
           onClick={() => setSwitching((s) => !s)}
@@ -5084,7 +5131,7 @@ export function WatchRoom({
           nothing for anyone who has already answered — or whose installation
           is already known, since RoomAppGate then asks before the room is
           joined at all. */}
-      <OpenInAppBanner />
+      {!group && <OpenInAppBanner />}
       {/* One bar, three zones from lg up: where you are on the left, what
           you do in the call in the middle, who you are (and everything about
           the page) on the right.
@@ -5109,22 +5156,47 @@ export function WatchRoom({
               whatever this zone has spare (it caps itself), which it can only
               do if the zone claims that room in the first place. */}
           <div className="flex min-w-0 flex-1 items-center gap-2 lg:flex-none">
-            <Tooltip content="Voltar ao início" placement="bottom">
-              <Link
-                href="/"
-                aria-label="Início"
-                className="flex shrink-0 items-center justify-center rounded-lg p-1.5 text-lg text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
+            {group ? (
+              // In a group the way out is the group's own navigation, already
+              // on screen from lg up; below that this opens it as a drawer.
+              <button
+                type="button"
+                onClick={group.onOpenNav}
+                aria-label="Salas do grupo"
+                className="flex shrink-0 items-center justify-center rounded-lg p-1.5 text-lg text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-950 lg:hidden dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
               >
-                <MdHome />
-              </Link>
-            </Tooltip>
+                <MdMenu />
+              </button>
+            ) : (
+              <Tooltip content="Voltar ao início" placement="bottom">
+                <Link
+                  href="/"
+                  aria-label="Início"
+                  className="flex shrink-0 items-center justify-center rounded-lg p-1.5 text-lg text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
+                >
+                  <MdHome />
+                </Link>
+              </Tooltip>
+            )}
 
-            <span className="hidden h-6 w-px shrink-0 bg-zinc-200 lg:block dark:bg-zinc-800" />
+            {!group && <span className="hidden h-6 w-px shrink-0 bg-zinc-200 lg:block dark:bg-zinc-800" />}
+
+            {group && (
+              <div className="flex min-w-0 items-center gap-2">
+                <MdVolumeUp className="h-5 w-5 shrink-0 text-emerald-600" />
+                <h1 className="truncate text-base font-semibold text-zinc-950 dark:text-zinc-50 sm:text-lg">
+                  {group.channelName}
+                </h1>
+                <span className="hidden truncate text-sm text-zinc-500 sm:inline dark:text-zinc-400">
+                  {group.groupName}
+                </span>
+              </div>
+            )}
 
             {/* The room's own identity — name, access code, public/private —
                 held together in one group, so the description beside it is
                 the only thing that gives space up as the window narrows. */}
-            <div className="flex min-w-0 items-center gap-2">
+            <div className={group ? "hidden" : "flex min-w-0 items-center gap-2"}>
               {/* For a private room the code is split out of the handle and
                   shown on its own: it's the room's whole secret now (see
                   roomsApi's toPrivateRoomHandle), so it's the thing someone
@@ -5192,7 +5264,7 @@ export function WatchRoom({
                 menuItems), which is where the rest of the once-per-visit
                 controls already are. */}
             {/* Public rooms only — see the same gate on the phone copy above. */}
-            {isWideLayout && !isPrivateRoomHandle(handle) && (
+            {isWideLayout && !isPrivateRoomHandle(handle) && !group && (
               <RoomInfoControls
                 description={state.roomDescription}
                 category={state.roomCategory}
@@ -5287,7 +5359,10 @@ export function WatchRoom({
                     // button is about to be unmounted and there is no reason
                     // to race that.
                     playHangUpSound();
-                    router.push("/");
+                    // In a group, hanging up stays in the group — the shell
+                    // unmounts the room, which is what leaves it.
+                    if (group) group.onDisconnect();
+                    else router.push("/");
                   }}
                   aria-label="Sair da chamada"
                   className="flex items-center rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-700"
@@ -6318,7 +6393,8 @@ export function WatchRoom({
                       type="button"
                       onClick={() => {
                         playHangUpSound();
-                        router.push("/");
+                        if (group) group.onDisconnect();
+                        else router.push("/");
                       }}
                       aria-label="Sair da chamada"
                       className={`${DOCK_BUTTON} bg-red-600 hover:bg-red-700 active:bg-red-800 text-white`}

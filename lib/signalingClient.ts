@@ -731,6 +731,14 @@ export type SignalingState = {
 type Listener = () => void;
 type SignalListener = (from: string, data: Record<string, unknown>) => void;
 
+/**
+ * A group nudge from the server (see the API's groupRoutes.ts), or the
+ * synthetic "group-resync" this client fires after reconnecting. Left loose on
+ * purpose — lib/useGroups.ts is the one place that reads these and narrows
+ * each by its `type`.
+ */
+export type GroupSocketEvent = { type: string; groupId?: string } & Record<string, unknown>;
+
 const NAME_STORAGE_KEY = "sharescreen:name";
 // Deliberately sessionStorage, not localStorage: this id is echoed to every
 // peer in whatever room it's used in (see peerSummary/room-state on the
@@ -1087,6 +1095,8 @@ class SignalingClient {
   // true means "the tab was opened in the background and is about to be
   // looked at", not "the person is elsewhere".
   private isBackground = false;
+  // See onGroupEvent.
+  private groupEventListeners = new Set<(event: GroupSocketEvent) => void>();
 
   state: SignalingState = initialState;
 
@@ -1119,6 +1129,30 @@ class SignalingClient {
   onRoomJoined(cb: Listener) {
     this.roomJoinedListeners.add(cb);
     return () => this.roomJoinedListeners.delete(cb);
+  }
+
+  // Groups' live nudges (see lib/useGroups.ts) — delivered to listeners rather
+  // than written into `state`, on purpose: a busy group's text rooms produce a
+  // message every few seconds, and putting each one in the snapshot would
+  // re-render every useSignaling subscriber — a whole room included — for
+  // something only the group screens care about. Also fires a synthetic
+  // "group-resync" on every fresh registration, so a screen that missed
+  // nudges while the socket was down knows to re-read.
+  onGroupEvent(cb: (event: GroupSocketEvent) => void) {
+    this.groupEventListeners.add(cb);
+    return () => {
+      this.groupEventListeners.delete(cb);
+    };
+  }
+
+  private emitGroupEvent(event: GroupSocketEvent) {
+    this.groupEventListeners.forEach((l) => {
+      try {
+        l(event);
+      } catch (err) {
+        console.error("[signaling] group listener failed:", err);
+      }
+    });
   }
 
   private setState(patch: Partial<SignalingState>) {
@@ -1290,6 +1324,9 @@ class SignalingClient {
           selfId: msg.id as string,
           account,
         });
+        // A fresh connection may have missed any number of group nudges while
+        // it was down — see onGroupEvent.
+        if (!isReRegister) this.emitGroupEvent({ type: "group-resync" });
         // A guest's name is remembered locally so it can be restored on
         // the next visit; an account's isn't, since accountApi's own
         // stored token is what drives auto-login next time (see the
@@ -1874,6 +1911,15 @@ class SignalingClient {
         break;
       case "dm-read":
         this.setState({ dmReadSeq: this.state.dmReadSeq + 1 });
+        break;
+      // Groups — handed to their own listeners, never to `state`. See onGroupEvent.
+      case "group-message":
+      case "group-message-deleted":
+      case "group-updated":
+      case "group-removed":
+      case "group-voice":
+      case "group-read":
+        this.emitGroupEvent(msg as GroupSocketEvent);
         break;
       // ─── Ligações ────────────────────────────────────────────────────
       //

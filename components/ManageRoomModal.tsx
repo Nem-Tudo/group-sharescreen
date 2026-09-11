@@ -30,6 +30,7 @@ import { useSignaling } from "@/lib/useSignaling";
 import { DisplayUserName } from "./DisplayUserName";
 import { WorldMap } from "./WorldMap";
 import { usePublicRoomMarkers } from "@/lib/usePublicRoomMarkers";
+import { useGroupVoiceSession } from "@/lib/groupVoiceSession";
 import { MicIcon, ScreenIcon, CameraIcon } from "./icons";
 import Link from "next/link";
 import { hasVerifiedBadge, verifiedBadge } from "@/lib/entitlements";
@@ -128,9 +129,14 @@ export function ManageRoomModal({
   const { markers } = usePublicRoomMarkers({ excludeHandle: state.room ?? undefined });
 
   const isOwner = Boolean(state.selfUserId && state.roomOwnerId === state.selfUserId);
+  // A group's voice room takes its admins and its bans from the group (see the
+  // API's syncGroupRoomManagers), so both screens are the group's to show —
+  // see components/groups. Every other room is unaffected.
+  const groupSession = useGroupVoiceSession();
+  const inGroupRoom = Boolean(groupSession && groupSession.handle === state.room);
   // Admins may flip the permission switches but not hand out admin — see
   // server/signaling.ts's isRoomOwner for why that stays the owner's alone.
-  const canManageAdmins = isOwner;
+  const canManageAdmins = isOwner && !inGroupRoom;
 
   // Moderators ride the peer list so their WebRTC connections get set up, but
   // are invisible to real participants (see WatchRoom's visiblePeers) — they
@@ -281,7 +287,9 @@ export function ManageRoomModal({
           </button>
           {!canManageAdmins && (
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Só o dono da sala pode adicionar ou remover administradores.
+              {inGroupRoom
+                ? "Os administradores e banimentos desta sala são os do grupo — gerencie pelas configurações do grupo."
+                : "Só o dono da sala pode adicionar ou remover administradores."}
             </p>
           )}
         </div>

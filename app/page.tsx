@@ -29,6 +29,7 @@ import type { OAuthResult } from "@/lib/oauthApi";
 import { GlobeIcon } from "@/components/icons";
 import { DownloadAppButton } from "@/components/DownloadAppButton";
 import { RecentRooms } from "@/components/RecentRooms";
+import { HomeGroups } from "@/components/groups/HomeGroups";
 import { ButtonSpinner } from "@/components/ButtonSpinner";
 import { prewarmCaptcha } from "@/lib/turnstile";
 import { MdLock, MdOutlineMap } from "react-icons/md";
@@ -688,6 +689,8 @@ export default function Home() {
                 {/* Last rooms this browser was in. Hidden when empty so a first
                   visit doesn't grow the form for nothing — see RecentRooms. */}
                 <RecentRooms />
+                {/* The groups this person is in — renders nothing when none. */}
+                <HomeGroups />
                 {/* Public/private as two visible options rather than a
                   checkbox under the name field: the choice changes what the
                   form even asks for, so it belongs above the fields it

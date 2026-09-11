@@ -184,6 +184,11 @@ async function registerNative(
         if (data.kind === "dm" && typeof data.fromId === "string") {
           openDirectMessages(data.fromId);
         }
+        // A message in a group's text room: open that room. Only a
+        // site-relative path is followed, never an arbitrary address.
+        if (data.kind === "group-message" && typeof data.url === "string" && data.url.startsWith("/groups/")) {
+          window.location.assign(data.url);
+        }
       });
     }
     await plugin.register();
