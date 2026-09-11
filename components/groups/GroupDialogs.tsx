@@ -42,6 +42,7 @@ import {
   renameChannel,
   reorderChannels,
   revokeInvite,
+  setCustomInvite,
   setGroupAdmin,
   setGroupLocation,
   setGroupVisibility,
@@ -51,12 +52,13 @@ import {
   uploadGroupIcon,
   type GroupBan,
   type GroupChannel,
+  type GroupDetail,
   type GroupInvite,
   type GroupMember,
   type GroupVisibility,
   type InviteLifetime,
 } from "@/lib/groupsApi";
-import { describeInviteExpiry, groupPath, inviteCodeFromInput, invitePath } from "@/lib/groupLinks";
+import { CUSTOM_INVITE_RE, describeInviteExpiry, groupPath, inviteCodeFromInput, invitePath } from "@/lib/groupLinks";
 import { useGroupNavigation } from "@/lib/groupNavigation";
 import { SITE_URL } from "@/lib/seo";
 import Link from "next/link";
@@ -96,6 +98,135 @@ function inviteUrl(code: string): string {
       ? window.location.origin
       : SITE_URL;
   return `${origin}${invitePath(code)}`;
+}
+
+/** "Copiar" that says "Copiado" for a moment once it has. */
+function CopyLinkButton({ url, disabled = false }: { url: string; disabled?: boolean }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={async () => {
+        if (await copyText(url)) {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        }
+      }}
+      className={`${copied ? "bg-emerald-600 text-white hover:bg-emerald-700" : "bg-zinc-950 text-white hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"} flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-3 text-sm font-medium transition disabled:opacity-50`}
+    >
+      {copied ? <MdCheck className="h-4 w-4" /> : <MdContentCopy className="h-4 w-4" />}
+      {copied ? "Copiado" : "Copiar"}
+    </button>
+  );
+}
+
+/**
+ * The group's own invite link — /invite/<name>, chosen here, permanent and
+ * with no use limit (see the API's GroupDoc.customInvite). Only for a group
+ * that may have one: granted by the site, or owned by somebody on Pro Max. A
+ * link set while it could, and no longer can, is shown as switched off — it
+ * stays the group's, and can still be taken off.
+ */
+function CustomInviteSection({ groupId }: { groupId: string }) {
+  const { detail } = useGroupDetail(groupId);
+  if (!detail) return null;
+  // Keyed by the saved link, so the box starts from it again whenever it
+  // changes — here or from another admin's screen.
+  return <CustomInviteEditor key={detail.group.customInvite ?? ""} detail={detail} />;
+}
+
+function CustomInviteEditor({ detail }: { detail: GroupDetail }) {
+  const groupId = detail.group.id;
+  const current = detail.group.customInvite ?? null;
+  const allowed = detail.group.customInviteAllowed ?? false;
+  const [draft, setDraft] = useState(current ?? "");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  // Shown without the scheme: it is what somebody reads out or types.
+  const prefix = inviteUrl("").replace(/^https?:\/\//, "");
+
+  if (!allowed && !current) {
+    return (
+      <p className="rounded-lg border border-dashed border-zinc-300 px-3 py-2.5 text-xs text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+        <span className="font-medium text-zinc-700 dark:text-zinc-300">Link personalizado</span> — um convite
+        como <span className="font-mono">{prefix}seu-grupo</span>, que não expira. Disponível quando o dono do grupo
+        tem o Pro Max.
+      </p>
+    );
+  }
+
+  const cleaned = draft.trim().toLowerCase();
+  const valid = CUSTOM_INVITE_RE.test(cleaned);
+  const changed = cleaned !== (current ?? "");
+
+  async function save(next: string | null) {
+    setBusy(true);
+    const result = await setCustomInvite(groupId, next);
+    setBusy(false);
+    if (!result.ok) {
+      setMessage({ ok: false, text: result.error });
+      return;
+    }
+    setMessage({ ok: true, text: next ? "Link salvo." : "Link removido." });
+    void refreshGroup(groupId);
+  }
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    if (!allowed || busy || !valid || !changed) return;
+    void save(cleaned);
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Link personalizado</span>
+        {current && allowed && <CopyLinkButton url={inviteUrl(current)} />}
+      </div>
+      {current && !allowed && (
+        <p className="text-xs text-amber-600 dark:text-amber-400">
+          <span className="font-mono">{prefix + current}</span> está desativado: ele volta a funcionar quando o
+          dono do grupo tiver o Pro Max. Enquanto isso, o nome continua reservado para o grupo.
+        </p>
+      )}
+      <form onSubmit={submit} className="flex gap-2">
+        <label className="flex min-w-0 flex-1 items-center rounded-lg border border-zinc-300 bg-white focus-within:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900">
+          <span className="hidden shrink-0 pl-3 font-mono text-xs text-zinc-500 sm:inline dark:text-zinc-400">
+            {prefix}
+          </span>
+          <input
+            value={draft}
+            onChange={(e) => {
+              setDraft(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 32));
+              setMessage(null);
+            }}
+            disabled={!allowed || busy}
+            placeholder="meu-grupo"
+            aria-label="Link personalizado"
+            className="min-w-0 flex-1 bg-transparent py-2 pl-3 pr-3 font-mono text-sm text-zinc-950 outline-none disabled:opacity-60 sm:pl-0 dark:text-zinc-50"
+          />
+        </label>
+        <button type="submit" disabled={!allowed || busy || !valid || !changed} className={primaryButton}>
+          Salvar
+        </button>
+      </form>
+      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+        De 3 a 32 letras minúsculas, números ou hífen. Não expira e não tem limite de usos.
+      </p>
+      {current && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void save(null)}
+          className="self-start cursor-pointer text-xs font-medium text-red-600 underline-offset-2 hover:underline disabled:opacity-50"
+        >
+          Remover link personalizado
+        </button>
+      )}
+      {message && <p className={`text-xs ${message.ok ? "text-emerald-600" : "text-red-500"}`}>{message.text}</p>}
+    </div>
+  );
 }
 
 // ─── Create ──────────────────────────────────────────────────────────────
@@ -371,6 +502,12 @@ export function GroupInviteDialog({ closePopup, data }: PopupProps<{ groupId: st
   }, [groupId]);
 
   const url = invite ? inviteUrl(invite.code) : "";
+  // The group's own link, when it has one that works — offered first: it is
+  // the one that never runs out.
+  const customUrl =
+    inviteDetail?.group.customInvite && inviteDetail.group.customInviteAllowed
+      ? inviteUrl(inviteDetail.group.customInvite)
+      : null;
 
   return (
     <DialogFrame
@@ -386,8 +523,21 @@ export function GroupInviteDialog({ closePopup, data }: PopupProps<{ groupId: st
       }
       onClose={() => closePopup(false)}
     >
+      {customUrl && (
+        <div className="flex flex-col gap-1.5">
+          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Link do grupo</span>
+          <div className="flex gap-2">
+            <input readOnly value={customUrl} className={`${inputClass} font-mono text-xs`} />
+            <CopyLinkButton url={customUrl} />
+          </div>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">Personalizado · nunca expira · usos ilimitados</p>
+        </div>
+      )}
+
       <div className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Link de convite</span>
+        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+          {customUrl ? "Ou um link temporário" : "Link de convite"}
+        </span>
         <div className="flex gap-2">
           <input readOnly value={busy && !invite ? "Gerando…" : url} className={`${inputClass} font-mono text-xs`} />
           <button
@@ -1025,6 +1175,7 @@ function InvitesTab({ groupId, groupName }: { groupId: string; groupName: string
 
   return (
     <div className="flex flex-col gap-3">
+      <CustomInviteSection groupId={groupId} />
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm text-zinc-500 dark:text-zinc-400">Links ativos que deixam alguém entrar no grupo.</p>
         <button

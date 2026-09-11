@@ -23,7 +23,17 @@ export function groupVoiceHandle(channelId: string): string {
 
 /** Group and room ids are lowercase letters and digits (see the API's newGroupId/newChannelId). */
 const GROUP_ID_RE = /^[a-z0-9]{6,32}$/;
-const INVITE_CODE_RE = /^[A-Za-z0-9]{4,32}$/;
+// Either kind of invite: a random code (letters and digits, case matters) or
+// a group's own link, which may also have hyphens — never at either end. See
+// CUSTOM_INVITE_RE for the stricter shape a custom link is saved in.
+const INVITE_CODE_RE = /^[A-Za-z0-9][A-Za-z0-9-]{1,30}[A-Za-z0-9]$/;
+
+/**
+ * What a group's custom invite link may be (see the API's groupStore): 3 to 32
+ * lowercase letters, digits or hyphens, no hyphen at either end. Typed in any
+ * case — it is lowered before it is saved or looked up.
+ */
+export const CUSTOM_INVITE_RE = /^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$/;
 
 export function isGroupId(value: string): boolean {
   return GROUP_ID_RE.test(value);
@@ -89,7 +99,8 @@ export function inviteCodeFromInput(raw: string): string | null {
 export type InviteState = "ok" | "expired" | "revoked" | "exhausted";
 
 export interface InvitePreview {
-  invite: { code: string; state: InviteState; expiresAt: number | null };
+  /** `custom` for a group's own link: it never expires and is never used up. */
+  invite: { code: string; state: InviteState; expiresAt: number | null; custom?: boolean };
   group: {
     id: string;
     name: string;

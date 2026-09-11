@@ -42,7 +42,16 @@ assert.ok(isGroupId("abc123def0"));
 assert.ok(!isGroupId("ABC123DEF0"));
 assert.ok(!isGroupId("../etc"));
 assert.ok(isInviteCode("AbC12345"));
-assert.ok(!isInviteCode("ab-c"));
+// A group's custom link may carry hyphens, just not at either end.
+assert.ok(isInviteCode("ab-c"));
+assert.ok(isInviteCode("meu-grupo"));
+assert.ok(isInviteCode("abc"));
+assert.ok(!isInviteCode("-abc"));
+assert.ok(!isInviteCode("abc-"));
+assert.ok(!isInviteCode("ab"));
+assert.ok(!isInviteCode("meu grupo"));
+assert.ok(!isInviteCode("a".repeat(33)));
+assert.equal(inviteCodeFromInput("golive.nemtudo.me/invite/meu-grupo"), "meu-grupo");
 
 // Bare codes come back as they are.
 assert.equal(inviteCodeFromInput("AbC12345"), "AbC12345");

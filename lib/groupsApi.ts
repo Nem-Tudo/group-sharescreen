@@ -82,6 +82,14 @@ export interface GroupInfo {
   flags: string[];
   /** Where the group is on the public map, or null for none (always, for a private group). See /worldmap. */
   location: { lat: number; lng: number } | null;
+  /** The group's own invite link, /invite/<this>, or null. Absent from an older API. */
+  customInvite?: string | null;
+  /**
+   * Whether the group may have one right now — it was granted, or its owner is
+   * on Pro Max. A link set while it was, and no longer is, is kept but does
+   * not open. Absent from an older API.
+   */
+  customInviteAllowed?: boolean;
   ownerId: string;
   admins: string[];
   /** What ordinary members may do, group-wide. See lib/groupPermissions. */
@@ -315,6 +323,10 @@ export const setGroupPermissions = (
     voice?: Partial<GroupPermissions["voice"]>;
   }
 ) => request<{ group: GroupInfo }>("PUT", `/groups/${enc(groupId)}/permissions`, patch);
+
+/** Sets the group's own invite link, or clears it with null (owner/admins). */
+export const setCustomInvite = (groupId: string, code: string | null) =>
+  request<{ group: GroupInfo }>("PUT", `/groups/${enc(groupId)}/custom-invite`, { code });
 
 /** One room's settings, replaced whole — a switch left out inherits the group's (owner/admins). */
 export const setChannelPermissions = (groupId: string, channelId: string, permissions: ChannelPermissionOverrides) =>
