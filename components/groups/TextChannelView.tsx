@@ -141,8 +141,17 @@ const rowAction =
   "inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-400 opacity-100 transition hover:bg-zinc-200/70 hover:text-zinc-800 active:scale-95 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200";
 
 // One reaction under a message: its emoji and its count, in a small pill.
-const reactionChip =
-  "inline-flex h-6 items-center gap-1 rounded-md border px-1.5 text-xs font-medium transition border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300";
+// The shape only — each state below brings its own colours. Two border (or
+// background) colours on one element do not override each other by their
+// order in the class list: whichever the stylesheet happens to put last wins,
+// which is how a reaction of yours used to stay grey instead of turning blue.
+const reactionChip = "inline-flex h-6 items-center gap-1 rounded-md border px-1.5 text-xs font-medium transition";
+/** A reaction you are not on, and the "+" beside them. */
+const reactionChipIdle =
+  "border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300";
+/** A reaction you are on — Discord's blue border and background. */
+const reactionChipMine =
+  "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-500/15 dark:text-blue-300";
 
 /** @everyone in the mention suggestions — see lib/groupPermissions' EVERYONE_MENTION. */
 const EVERYONE_CANDIDATE: MentionCandidate = { id: EVERYONE_MENTION, name: "everyone", avatarUrl: null };
@@ -548,7 +557,11 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
           type="button"
           onClick={() => setPickerFor((open) => (open === key ? null : key))}
           aria-label="Adicionar reação"
-          className={where === "actions" ? rowAction : reactionChip}
+          className={
+            where === "actions"
+              ? rowAction
+              : `${reactionChip} ${reactionChipIdle} cursor-pointer hover:border-zinc-400 dark:hover:border-zinc-600`
+          }
         >
           {trigger}
         </button>
@@ -755,11 +768,13 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
                         aria-pressed={mine}
                         onClick={() => void toggleReaction(message, reaction.emoji)}
                         title={describeReaction(reaction, reactorName)}
-                        className={`${reactionChip} ${
-                          mine
-                            ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-500/15 dark:text-blue-300"
-                            : "border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
-                        } ${allowed ? "cursor-pointer hover:border-zinc-400 dark:hover:border-zinc-600" : "cursor-default"}`}
+                        className={`${reactionChip} ${mine ? reactionChipMine : reactionChipIdle} ${
+                          !allowed
+                            ? "cursor-default"
+                            : mine
+                              ? "cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-500/25"
+                              : "cursor-pointer hover:border-zinc-400 dark:hover:border-zinc-600"
+                        }`}
                       >
                         <span className="text-sm leading-none">{reaction.emoji}</span>
                         <span className="tabular-nums">{reaction.users.length}</span>
