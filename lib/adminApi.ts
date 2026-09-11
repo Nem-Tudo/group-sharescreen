@@ -404,6 +404,23 @@ export async function setBannedWords(words: string[]): Promise<string[]> {
   return data.words;
 }
 
+// Names no group may take as its custom invite link (see the API's
+// reservedInvites.ts). The whole list, read and replaced at once — the admin
+// page is a textarea of one name per line, like the chat filter above.
+export async function fetchReservedInvites(): Promise<string[]> {
+  const data = await adminFetch<{ names: string[] }>("/admin/reserved-invites");
+  return data.names;
+}
+
+export async function setReservedInvites(names: string[]): Promise<string[]> {
+  const data = await adminFetch<{ names: string[] }>("/admin/reserved-invites", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ names }),
+  });
+  return data.names;
+}
+
 // Kill switch for the server's auto-ban system (see server/signaling.ts's
 // recordRateLimitViolation) — lets an admin turn it off without a redeploy.
 export async function fetchAntiSpamEnabled(): Promise<boolean> {

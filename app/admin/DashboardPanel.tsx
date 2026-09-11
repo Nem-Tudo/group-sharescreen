@@ -18,6 +18,7 @@ import { SupportersPanel } from "./SupportersPanel";
 import { DesktopUpdatePanel } from "./DesktopUpdatePanel";
 import { EvalPanel } from "./EvalPanel";
 import { GroupsPanel } from "./GroupsPanel";
+import { ReservedInvitesPanel } from "./ReservedInvitesPanel";
 
 // The admin area, in sections.
 //
@@ -82,7 +83,14 @@ export const ADMIN_SECTIONS: AdminSection[] = [
   {
     id: "grupos",
     label: "Grupos",
-    Panel: () => <GroupsPanel />,
+    Panel: () => (
+      <div className="flex flex-col gap-4">
+        <GroupsPanel />
+        {/* The names no group may take as its link — edited once in a while,
+            so under the day-to-day work on groups. */}
+        <ReservedInvitesPanel />
+      </div>
+    ),
   },
   {
     id: "moderacao",

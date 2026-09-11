@@ -962,7 +962,13 @@ export function DirectMessagesModal({
         key={bubble.key}
         bubble={bubble}
         grouped={grouped}
-        onReply={(target) => activeId && setReply({ userId: activeId, value: target })}
+        onReply={(target) => {
+          if (!activeId) return;
+          setReply({ userId: activeId, value: target });
+          // Straight into the box, so the next key is the answer. Every
+          // pointer, unlike opening a thread: answering *is* asking to type.
+          requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }));
+        }}
         onOpenImage={(images, index, alt) =>
           setImageModalPreview({ src: images[index], alt, images, currentIndex: index })
         }

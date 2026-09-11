@@ -132,6 +132,17 @@ export function GroupMessageComposer({
   const textRef = useRef<HTMLTextAreaElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
+  // Pressing "Responder" is asking to write: the box takes the focus, cursor
+  // at the end of whatever was already typed, so the next key lands in it.
+  // Keyed by the message, so answering a different one focuses again.
+  const replyId = replyingTo?.id ?? null;
+  useEffect(() => {
+    const el = textRef.current;
+    if (!replyId || !el || el.disabled) return;
+    el.focus({ preventScroll: true });
+    el.setSelectionRange(el.value.length, el.value.length);
+  }, [replyId]);
+
   // "Digitando..." — see onTypingChange and lib/typing's createTypingAnnouncer,
   // which decides when. Handed the latest handler through a ref, so the
   // announcer made once per mount never calls a stale one.
