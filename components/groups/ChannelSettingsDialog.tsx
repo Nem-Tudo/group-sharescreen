@@ -21,19 +21,19 @@ import {
   setChannelPermissions,
   setGroupPermissions,
   type GroupChannel,
-  type GroupChannelKind,
   type GroupDetail,
 } from "@/lib/groupsApi";
 import {
+  GENERAL_PERMISSION_KEYS,
   PERMISSION_LABELS,
   TEXT_PERMISSION_KEYS,
   VOICE_PERMISSION_KEYS,
   groupAllows,
   permissionKeysFor,
+  sectionOf,
   type ChannelPermissionOverrides,
   type GroupPermissionKey,
-  type TextPermissionKey,
-  type VoicePermissionKey,
+  type PermissionSection,
 } from "@/lib/groupPermissions";
 import { groupPath } from "@/lib/groupLinks";
 import { refreshGroup, useGroupDetail } from "@/lib/useGroups";
@@ -271,6 +271,15 @@ function ChannelPermissionsTab({ detail, channel }: { detail: GroupDetail; chann
 
   const keys = permissionKeysFor(channel.kind);
   const overridden = keys.some((key) => typeof local[key] === "boolean");
+  // The same sections as the group's own tab: the general switches, then
+  // this room's kind.
+  const sections: { title: string; keys: readonly GroupPermissionKey[] }[] = [
+    { title: "Gerais", keys: GENERAL_PERMISSION_KEYS },
+    {
+      title: channel.kind === "text" ? "Sala de texto" : "Sala de voz",
+      keys: channel.kind === "text" ? TEXT_PERMISSION_KEYS : VOICE_PERMISSION_KEYS,
+    },
+  ];
 
   return (
     <div className="flex flex-col gap-3">
@@ -278,37 +287,42 @@ function ChannelPermissionsTab({ detail, channel }: { detail: GroupDetail; chann
         O que os membros podem fazer nesta sala. <b>Neutra</b> segue o que está definido para o grupo todo;{" "}
         <b>ativada</b> ou <b>desativada</b> vale só aqui. O dono e os administradores podem tudo, sempre.
       </p>
-      <ul className="flex flex-col divide-y divide-zinc-200 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
-        {keys.map((key) => {
-          const value = triOf(local[key]);
-          const inherited = groupAllows(detail.group.permissions, channel.kind, key);
-          const effective = value === "neutral" ? inherited : value === "on";
-          const { label, hint } = PERMISSION_LABELS[key];
-          return (
-            <li key={key} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-3 py-2.5">
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{label}</p>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  {value === "neutral" ? (
-                    <>
-                      Segue o grupo:{" "}
-                      <span className={inherited ? "text-emerald-600 dark:text-emerald-500" : "text-red-500"}>
-                        {inherited ? "ativada" : "desativada"}
-                      </span>
-                    </>
-                  ) : (
-                    <span className={effective ? "text-emerald-600 dark:text-emerald-500" : "text-red-500"}>
-                      {effective ? "Ativada nesta sala" : "Desativada nesta sala"}
-                    </span>
-                  )}
-                  {hint && <> · {hint}</>}
-                </p>
-              </div>
-              <TriStateControl value={value} onChange={(next) => void change(key, next)} />
-            </li>
-          );
-        })}
-      </ul>
+      {sections.map((section) => (
+        <div key={section.title} className="flex flex-col gap-1.5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{section.title}</p>
+          <ul className="flex flex-col divide-y divide-zinc-200 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
+            {section.keys.map((key) => {
+              const value = triOf(local[key]);
+              const inherited = groupAllows(detail.group.permissions, key);
+              const effective = value === "neutral" ? inherited : value === "on";
+              const { label, hint } = PERMISSION_LABELS[key];
+              return (
+                <li key={key} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-3 py-2.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{label}</p>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                      {value === "neutral" ? (
+                        <>
+                          Segue o grupo:{" "}
+                          <span className={inherited ? "text-emerald-600 dark:text-emerald-500" : "text-red-500"}>
+                            {inherited ? "ativada" : "desativada"}
+                          </span>
+                        </>
+                      ) : (
+                        <span className={effective ? "text-emerald-600 dark:text-emerald-500" : "text-red-500"}>
+                          {effective ? "Ativada nesta sala" : "Desativada nesta sala"}
+                        </span>
+                      )}
+                      {hint && <> · {hint}</>}
+                    </p>
+                  </div>
+                  <TriStateControl value={value} onChange={(next) => void change(key, next)} />
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
       {error && <p className="text-sm text-red-500">{error}</p>}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <button
@@ -351,8 +365,9 @@ function useOpenGroupSettings() {
 // ─── Permissões (do grupo) ────────────────────────────────────────────────
 
 /**
- * The group-wide switches — the "group settings" tab. Each is on or off for
- * every room of its kind that does not say otherwise.
+ * The group-wide switches — the "group settings" tab. The general ones are on
+ * or off for every room; the others for every room of their kind. Any room may
+ * say otherwise.
  */
 export function GroupPermissionsTab({ groupId }: { groupId: string }) {
   const { detail } = useGroupDetail(groupId);
@@ -360,17 +375,13 @@ export function GroupPermissionsTab({ groupId }: { groupId: string }) {
   const [error, setError] = useState<string | null>(null);
   if (!detail) return null;
 
-  const valueOf = (kind: GroupChannelKind, key: GroupPermissionKey) =>
-    pending[key] ?? groupAllows(detail.group.permissions, kind, key);
+  const valueOf = (key: GroupPermissionKey) => pending[key] ?? groupAllows(detail.group.permissions, key);
 
-  async function toggle(kind: GroupChannelKind, key: GroupPermissionKey) {
-    const next = !valueOf(kind, key);
+  async function toggle(key: GroupPermissionKey) {
+    const next = !valueOf(key);
     setPending((p) => ({ ...p, [key]: next }));
     setError(null);
-    const result = await setGroupPermissions(
-      groupId,
-      kind === "text" ? { text: { [key as TextPermissionKey]: next } } : { voice: { [key as VoicePermissionKey]: next } }
-    );
+    const result = await setGroupPermissions(groupId, { [sectionOf(key)]: { [key]: next } });
     if (!result.ok) setError(result.error);
     await refreshGroup(groupId);
     setPending((p) => {
@@ -380,24 +391,26 @@ export function GroupPermissionsTab({ groupId }: { groupId: string }) {
     });
   }
 
-  // How many rooms of each kind say otherwise — worth knowing before
-  // flipping a switch that some rooms will not follow.
-  const overriding = (key: GroupPermissionKey, kind: GroupChannelKind) =>
-    detail.channels.filter((c) => c.kind === kind && typeof c.permissions?.[key] === "boolean").length;
+  // How many rooms say otherwise — worth knowing before flipping a switch
+  // that some rooms will not follow. A general switch can be set in any room.
+  const overriding = (key: GroupPermissionKey, section: PermissionSection) =>
+    detail.channels.filter(
+      (c) => (section === "general" || c.kind === section) && typeof c.permissions?.[key] === "boolean"
+    ).length;
 
-  const section = (kind: GroupChannelKind, title: string, keys: readonly GroupPermissionKey[]) => (
+  const section = (id: PermissionSection, title: string, keys: readonly GroupPermissionKey[]) => (
     <div className="flex flex-col gap-1.5">
       <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{title}</p>
       <ul className="flex flex-col divide-y divide-zinc-200 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
         {keys.map((key) => {
-          const on = valueOf(kind, key);
+          const on = valueOf(key);
           const { label, hint } = PERMISSION_LABELS[key];
-          const exceptions = overriding(key, kind);
+          const exceptions = overriding(key, id);
           return (
             <li key={key}>
               <button
                 type="button"
-                onClick={() => void toggle(kind, key)}
+                onClick={() => void toggle(key)}
                 aria-pressed={on}
                 className="flex w-full cursor-pointer items-center justify-between gap-3 px-3 py-2.5 text-left transition hover:bg-zinc-50 dark:hover:bg-zinc-900"
               >
@@ -427,6 +440,7 @@ export function GroupPermissionsTab({ groupId }: { groupId: string }) {
         O que os membros podem fazer em todas as salas do grupo. Cada sala pode mudar isso nas configurações dela
         (a engrenagem ao lado do nome). O dono e os administradores podem tudo, sempre.
       </p>
+      {section("general", "Gerais", GENERAL_PERMISSION_KEYS)}
       {section("text", "Salas de texto", TEXT_PERMISSION_KEYS)}
       {section("voice", "Salas de voz", VOICE_PERMISSION_KEYS)}
       {error && <p className="text-sm text-red-500">{error}</p>}

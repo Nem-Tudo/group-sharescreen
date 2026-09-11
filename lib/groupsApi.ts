@@ -285,7 +285,11 @@ export const reorderChannels = (groupId: string, ids: string[]) =>
 /** The group-wide switches (owner/admins). Merged: send only what changes. */
 export const setGroupPermissions = (
   groupId: string,
-  patch: { text?: Partial<GroupPermissions["text"]>; voice?: Partial<GroupPermissions["voice"]> }
+  patch: {
+    general?: Partial<GroupPermissions["general"]>;
+    text?: Partial<GroupPermissions["text"]>;
+    voice?: Partial<GroupPermissions["voice"]>;
+  }
 ) => request<{ group: GroupInfo }>("PUT", `/groups/${enc(groupId)}/permissions`, patch);
 
 /** One room's settings, replaced whole — a switch left out inherits the group's (owner/admins). */

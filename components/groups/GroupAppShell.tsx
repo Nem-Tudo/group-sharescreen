@@ -26,6 +26,7 @@ import {
 import { useAccountToken } from "@/lib/accountApi";
 import { useGuestToken } from "@/lib/guestToken";
 import { groupPath, groupVoiceHandle } from "@/lib/groupLinks";
+import { canInChannel } from "@/lib/groupPermissions";
 import {
   getGroupVoiceSession,
   setGroupVoiceSession,
@@ -91,13 +92,15 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
     void refreshGroups();
   }, [identity]);
 
-  // Opening a voice room's address is joining it. Also keeps the call's
-  // labels current when the room or the group is renamed while connected.
+  // Opening a voice room's address is joining it — unless it is locked to this
+  // person (no "Conectar", see lib/groupPermissions), in which case the page
+  // says so instead (GroupPages' GroupRoom). Also keeps the call's labels
+  // current when the room or the group is renamed while connected.
   const routeChannel = detail?.channels.find((c) => c.id === roomId) ?? null;
   useEffect(() => {
     if (!detail || !groupId) return;
     const current = getGroupVoiceSession();
-    if (routeChannel?.kind === "voice") {
+    if (routeChannel?.kind === "voice" && canInChannel(detail, routeChannel, "connect")) {
       setGroupVoiceSession({
         groupId,
         channelId: routeChannel.id,

@@ -9,6 +9,7 @@ import {
   MdCallEnd,
   MdChatBubbleOutline,
   MdCheck,
+  MdLock,
   MdLogout,
   MdMic,
   MdMicOff,
@@ -29,6 +30,7 @@ import {
   type GroupNotifyLevel,
 } from "@/lib/groupsApi";
 import { groupPath } from "@/lib/groupLinks";
+import { canInChannel } from "@/lib/groupPermissions";
 import { prefetchChannel } from "@/lib/groupCache";
 import { prefetchUserProfile } from "@/lib/userProfile";
 import { forgetGroup, refreshGroup, useGroupsState } from "@/lib/useGroups";
@@ -125,6 +127,10 @@ export function GroupRoomsPanel({
     setNewName("");
     setCreateError(null);
     await refreshGroup(group.id);
+    // A new text room opens. A new voice room only appears in the list:
+    // opening a voice room is joining its call, and making one is not a
+    // request to be in it.
+    if (result.channel.kind !== "text") return;
     onNavigate?.();
     router.push(groupPath(group.id, result.channel.id));
   }
@@ -204,6 +210,35 @@ export function GroupRoomsPanel({
             const active = channel.id === activeChannelId;
             const connected = session?.groupId === group.id && session.channelId === channel.id;
             const people = voice[channel.id] ?? [];
+            // Without "Conectar" the room is still listed, with who is in it,
+            // but its header is not a way in (see lib/groupPermissions). The
+            // server refuses the join regardless; this only doesn't offer it.
+            // Somebody already in the call keeps their way back to it.
+            const locked = !connected && !canInChannel(detail, channel, "connect");
+            const headerContent = (
+              <>
+                {locked ? (
+                  <MdLock className="h-4 w-4 shrink-0 text-zinc-400" aria-label="Trancada" />
+                ) : (
+                  <MdVolumeUp className={`h-4 w-4 shrink-0 ${connected ? "text-emerald-600" : "text-zinc-400"}`} />
+                )}
+                <span
+                  className={`min-w-0 flex-1 truncate text-sm font-medium ${
+                    locked ? "text-zinc-500 dark:text-zinc-400" : "text-zinc-900 dark:text-zinc-100"
+                  }`}
+                >
+                  {channel.name}
+                </span>
+                {connected ? (
+                  <span className="shrink-0 rounded-full bg-emerald-600 px-2 py-0.5 text-[11px] font-medium text-white">
+                    Você está aqui
+                  </span>
+                ) : people.length === 0 ? (
+                  <span className="shrink-0 text-xs text-zinc-400 dark:text-zinc-500">vazia</span>
+                ) : null}
+                {isManager && editButton(channel.id)}
+              </>
+            );
             return (
               <li key={channel.id}>
                 <div
@@ -214,26 +249,24 @@ export function GroupRoomsPanel({
                   {/* Only the room's own header joins it. The people under it
                       are their own targets — a click on somebody is a question
                       about them, not a request to walk into their call. */}
-                  <Link
-                    href={groupPath(group.id, channel.id)}
-                    onClick={onNavigate}
-                    aria-current={active ? "page" : undefined}
-                    title={connected ? "Voltar para a chamada" : "Entrar na sala"}
-                    className="group/room flex items-center gap-2 rounded-lg px-3 py-2 transition hover:bg-zinc-100 dark:hover:bg-zinc-900"
-                  >
-                    <MdVolumeUp className={`h-4 w-4 shrink-0 ${connected ? "text-emerald-600" : "text-zinc-400"}`} />
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                      {channel.name}
-                    </span>
-                    {connected ? (
-                      <span className="shrink-0 rounded-full bg-emerald-600 px-2 py-0.5 text-[11px] font-medium text-white">
-                        Você está aqui
-                      </span>
-                    ) : people.length === 0 ? (
-                      <span className="shrink-0 text-xs text-zinc-400 dark:text-zinc-500">vazia</span>
-                    ) : null}
-                    {isManager && editButton(channel.id)}
-                  </Link>
+                  {locked ? (
+                    <div
+                      title="Você não tem permissão para entrar nesta sala"
+                      className="group/room flex cursor-not-allowed items-center gap-2 rounded-lg px-3 py-2"
+                    >
+                      {headerContent}
+                    </div>
+                  ) : (
+                    <Link
+                      href={groupPath(group.id, channel.id)}
+                      onClick={onNavigate}
+                      aria-current={active ? "page" : undefined}
+                      title={connected ? "Voltar para a chamada" : "Entrar na sala"}
+                      className="group/room flex items-center gap-2 rounded-lg px-3 py-2 transition hover:bg-zinc-100 dark:hover:bg-zinc-900"
+                    >
+                      {headerContent}
+                    </Link>
+                  )}
                   {people.length > 0 && (
                     <ul className="flex flex-col gap-0.5 border-t border-zinc-100 px-1.5 py-1.5 dark:border-zinc-800/70">
                       {people.map((person) => (

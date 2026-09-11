@@ -8,8 +8,9 @@ import { TextChannelView } from "@/components/groups/TextChannelView";
 import { rememberedChannel } from "@/components/groups/lastChannel";
 import { useAccountToken } from "@/lib/accountApi";
 import { useGuestToken } from "@/lib/guestToken";
-import { MdBlock } from "react-icons/md";
+import { MdBlock, MdLock } from "react-icons/md";
 import { joinPublicGroup, leaveGroup } from "@/lib/groupsApi";
+import { canInChannel } from "@/lib/groupPermissions";
 import { fetchPublicGroupPreview, groupPath, type PublicGroupPreview } from "@/lib/groupLinks";
 import { forgetGroup, refreshGroup, refreshGroups, useGroupDetail, useMyGroups } from "@/lib/useGroups";
 
@@ -185,14 +186,15 @@ export function GroupIndex({ groupId }: { groupId: string }) {
       <GroupGate groupId={groupId} status={error.status} />
     );
   }
-  // Every text room hidden from this person (see lib/groupPermissions): the
-  // voice rooms in the list are still theirs to walk into.
+  // Every text room hidden from this person (see lib/groupPermissions). Any
+  // voice room in the list they may connect to is still theirs to walk into.
   if (detail && textRooms.length === 0) {
     return (
       <Panel>
         <p className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">Nenhuma sala de texto para você</p>
         <p className="max-w-sm text-sm text-zinc-500 dark:text-zinc-400">
-          As salas de texto deste grupo não estão abertas para você. Entre numa sala de voz pela lista.
+          As salas de texto deste grupo não estão abertas para você. Se houver uma sala de voz aberta, entre por
+          ela na lista.
         </p>
       </Panel>
     );
@@ -221,6 +223,21 @@ export function GroupRoom({ groupId, roomId }: { groupId: string; roomId: string
   if (!detail || !channel) return <Loading />;
   if (channel.kind === "text") {
     return <TextChannelView key={channel.id} detail={detail} channelId={channel.id} />;
+  }
+  // Locked to this person (no "Conectar"): the shell does not try to join it,
+  // so this is what stays on screen — for a link followed, or a room that was
+  // locked while its page was open. Somebody already in its call is shown the
+  // call instead, and never gets here.
+  if (!canInChannel(detail, channel, "connect")) {
+    return (
+      <Panel>
+        <MdLock className="h-8 w-8 text-zinc-400" />
+        <p className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">{channel.name} está trancada</p>
+        <p className="max-w-sm text-sm text-zinc-500 dark:text-zinc-400">
+          Você pode ver quem está nesta sala de voz, mas não tem permissão para entrar nela.
+        </p>
+      </Panel>
+    );
   }
   // The shell hides this the moment the call is up; until then, say what is happening.
   return <Loading label={`Entrando em ${channel.name}…`} />;
