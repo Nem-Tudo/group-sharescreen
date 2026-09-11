@@ -55,6 +55,8 @@ export interface GroupInfo {
   theme: string | null;
   /** "VERIFIED" draws the badge beside the name — see components/groups/GroupName. */
   flags: string[];
+  /** Where the group is on the public map, or null for none. See /worldmap. */
+  location: { lat: number; lng: number } | null;
   ownerId: string;
   admins: string[];
   memberCount: number;
@@ -189,6 +191,26 @@ export const uploadGroupIcon = (groupId: string, image: string) =>
 
 export const removeGroupIcon = (groupId: string) =>
   request<{ group: GroupInfo }>("DELETE", `/groups/${enc(groupId)}/icon`);
+
+/** Puts the group on the public map (owner/admins), or takes it off with null. */
+export const setGroupLocation = (groupId: string, location: { lat: number; lng: number } | null) =>
+  request<{ group: GroupInfo }>("PUT", `/groups/${enc(groupId)}/location`, { location });
+
+/** A group on the public map — what /groups/map answers with. */
+export interface GroupMapPin {
+  id: string;
+  name: string;
+  iconUrl: string | null;
+  flags: string[];
+  description: string;
+  memberCount: number;
+  onlineCount: number;
+  location: { lat: number; lng: number };
+}
+
+/** Every group on the public map. Needs no identity. */
+export const fetchGroupMap = (signal?: AbortSignal) =>
+  request<{ groups: GroupMapPin[] }>("GET", "/groups/map", undefined, signal);
 
 /** Repaints the whole group for everybody (Pro Max, owner/admins). Null clears it. */
 export const setGroupTheme = (groupId: string, theme: string | null) =>

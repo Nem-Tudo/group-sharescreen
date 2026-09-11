@@ -39,6 +39,7 @@ import {
   reorderChannels,
   revokeInvite,
   setGroupAdmin,
+  setGroupLocation,
   transferGroup,
   unbanMember,
   updateGroup,
@@ -51,6 +52,10 @@ import {
 } from "@/lib/groupsApi";
 import { describeInviteExpiry, groupPath, inviteCodeFromInput, invitePath } from "@/lib/groupLinks";
 import { SITE_URL } from "@/lib/seo";
+import Link from "next/link";
+import { WorldMap } from "@/components/WorldMap";
+import { usePublicRoomMarkers } from "@/lib/usePublicRoomMarkers";
+import { useGroupMapMarkers } from "@/lib/useGroupMapMarkers";
 import { forgetGroup, refreshGroup, refreshGroups, useGroupDetail } from "@/lib/useGroups";
 import { getGroupVoiceSession, setGroupVoiceSession } from "@/lib/groupVoiceSession";
 
@@ -386,7 +391,7 @@ export function GroupInviteDialog({ closePopup, data }: PopupProps<{ groupId: st
 
 // ─── Settings ────────────────────────────────────────────────────────────
 
-type SettingsTab = "overview" | "channels" | "invites" | "members" | "bans" | "danger";
+type SettingsTab = "overview" | "channels" | "map" | "invites" | "members" | "bans" | "danger";
 
 export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: string; tab?: string }>) {
   const groupId = data?.groupId ?? "";
@@ -398,6 +403,7 @@ export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: 
   const tabs: { id: SettingsTab; label: string; show: boolean }[] = [
     { id: "overview", label: "Visão geral", show: isManager },
     { id: "channels", label: "Salas", show: isManager },
+    { id: "map", label: "Mapa", show: isManager },
     { id: "invites", label: "Convites", show: isManager },
     { id: "members", label: "Membros", show: true },
     { id: "bans", label: "Banidos", show: isManager },
@@ -440,6 +446,7 @@ export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: 
       </div>
       {current === "overview" && <OverviewTab groupId={groupId} />}
       {current === "channels" && <ChannelsTab groupId={groupId} channels={detail.channels} />}
+      {current === "map" && <LocationTab groupId={groupId} />}
       {current === "invites" && <InvitesTab groupId={groupId} groupName={detail.group.name} />}
       {current === "members" && <MembersTab groupId={groupId} selfId={detail.me.id} role={role} />}
       {current === "bans" && <BansTab groupId={groupId} />}
@@ -559,6 +566,105 @@ function OverviewTab({ groupId }: { groupId: string }) {
         </button>
       </div>
     </form>
+  );
+}
+
+/**
+ * Where the group sits on the public map (/worldmap) — the room's "Definir
+ * local do mundo", for a group. The same map in picker mode, the same privacy
+ * note; what differs is that a group's pin stays, where a room's goes when the
+ * room empties.
+ */
+function LocationTab({ groupId }: { groupId: string }) {
+  const { detail } = useGroupDetail(groupId);
+  const saved = detail?.group.location ?? null;
+  const [pick, setPick] = useState<{ lat: number; lng: number } | null>(saved);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  // Everything already on the map, for context around the spot being picked —
+  // this group's own pin left out, since it is the pick marker.
+  const { markers: roomMarkers } = usePublicRoomMarkers();
+  const { markers: groupMarkers } = useGroupMapMarkers({ excludeId: groupId });
+  const moved = pick?.lat !== saved?.lat || pick?.lng !== saved?.lng;
+
+  async function save(location: { lat: number; lng: number } | null) {
+    setBusy(true);
+    const result = await setGroupLocation(groupId, location);
+    setBusy(false);
+    if (!result.ok) {
+      setMessage({ ok: false, text: result.error });
+      return;
+    }
+    if (!location) setPick(null);
+    setMessage({ ok: true, text: location ? "Local salvo." : "O grupo saiu do mapa." });
+    void refreshGroup(groupId);
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        Coloque o grupo no{" "}
+        <Link href="/worldmap" target="_blank" className="font-medium text-blue-600 underline underline-offset-2 dark:text-blue-400">
+          mapa de salas e grupos
+        </Link>
+        , para quem é de perto achar ele. Diferente de uma sala, o grupo continua no mapa mesmo sem ninguém em
+        chamada — até alguém tirar ou o grupo ser apagado.
+      </p>
+      <p className="rounded-lg border border-zinc-200 bg-zinc-50 p-2.5 text-[11px] leading-relaxed text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+        <span className="font-medium text-zinc-700 dark:text-zinc-300">Privacidade: nada aqui é detectado.</span>{" "}
+        O lugar é só o que você clicar no mapa — o site nunca lê a localização do seu aparelho. Pode ser tão vago
+        quanto quiser: um país, uma cidade, um bairro. No mapa aparecem o nome, o ícone, a descrição e quantos
+        membros o grupo tem; nunca quem são.
+      </p>
+      <div className="h-[min(50vh,24rem)] min-h-64 overflow-hidden rounded-lg border border-zinc-300 dark:border-zinc-700">
+        <WorldMap
+          className="h-full w-full"
+          searchable
+          markers={[...groupMarkers, ...roomMarkers]}
+          pick={pick}
+          onPick={(lat, lng) => {
+            setPick({ lat, lng });
+            setMessage(null);
+          }}
+          center={pick ? [pick.lat, pick.lng] : undefined}
+          zoom={pick ? 6 : undefined}
+        />
+      </div>
+      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+        {pick ? (
+          <>
+            Alfinete em{" "}
+            <span className="font-mono text-zinc-700 dark:text-zinc-300">
+              {pick.lat.toFixed(4)}, {pick.lng.toFixed(4)}
+            </span>
+            {!moved && " (local salvo)"}
+          </>
+        ) : (
+          "O grupo ainda não está no mapa. Clique num lugar ou pesquise uma cidade."
+        )}
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled={!pick || !moved || busy}
+          onClick={() => void save(pick)}
+          className="flex-1 cursor-pointer rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {saved ? "Salvar novo local" : "Salvar local"}
+        </button>
+        {saved && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void save(null)}
+            className="cursor-pointer rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-600 transition hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
+          >
+            Remover do mapa
+          </button>
+        )}
+      </div>
+      {message && <p className={`text-sm ${message.ok ? "text-emerald-600" : "text-red-500"}`}>{message.text}</p>}
+    </div>
   );
 }
 

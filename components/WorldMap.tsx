@@ -21,6 +21,13 @@ export type WorldMapMarker = {
   tag?: string;
   // Longer text, popup only — there is no room for it on the pin itself.
   description?: string;
+  // What kind of place the pin is, which decides its colour: a live room is
+  // green, a group (which stays on the map) is blue. Absent means a room.
+  kind?: "room" | "group";
+  // How the popup words `peopleCount` — ["pessoa", "pessoas"] unless said.
+  countNoun?: [string, string];
+  // The popup's button. "Entrar na sala" unless said.
+  actionLabel?: string;
   // Clicking the pin goes here. Omitted for a pin that isn't a link.
   href?: string;
 };

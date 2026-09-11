@@ -84,6 +84,10 @@ const COMPACT_LABEL_ZOOM = 5;
 // as the rest of the app (inline, since Leaflet inserts this outside React
 // and Tailwind's scanner never sees a class name built at runtime).
 function roomIcon(marker: WorldMapMarker, compact: boolean): L.DivIcon {
+  // Green for a live room, blue for a group — the one difference between the
+  // two kinds of pin, so the map can be read at a glance (see WorldMapMarker.kind).
+  const color = marker.kind === "group" ? "#2563eb" : "#059669";
+  const glow = marker.kind === "group" ? "rgba(37,99,235,.28)" : "rgba(5,150,105,.28)";
   const count =
     typeof marker.peopleCount === "number"
       ? `<span style="opacity:.8;font-variant-numeric:tabular-nums">${marker.peopleCount}</span>`
@@ -91,7 +95,7 @@ function roomIcon(marker: WorldMapMarker, compact: boolean): L.DivIcon {
   const pill = compact
     ? // Just the number. The name is still one hover (the native tooltip) or
       // one click (the popup) away, which is the right price for it out here.
-      `<div style="display:flex;align-items:center;justify-content:center;min-width:16px;white-space:nowrap;border-radius:9999px;background:#059669;color:#fff;padding:1px 5px;font-size:10px;font-weight:700;box-shadow:0 1px 4px rgba(0,0,0,.35)">${count || "·"}</div>`
+      `<div style="display:flex;align-items:center;justify-content:center;min-width:16px;white-space:nowrap;border-radius:9999px;background:${color};color:#fff;padding:1px 5px;font-size:10px;font-weight:700;box-shadow:0 1px 4px rgba(0,0,0,.35)">${count || "·"}</div>`
     : (() => {
         const raw = marker.label;
         const label = escapeHtml(
@@ -103,15 +107,15 @@ function roomIcon(marker: WorldMapMarker, compact: boolean): L.DivIcon {
         const tag = marker.tag
           ? `<span style="border-radius:9999px;background:rgba(0,0,0,.25);padding:0 5px;font-size:9px">${escapeHtml(marker.tag)}</span>`
           : "";
-        return `<div style="display:flex;align-items:center;gap:4px;white-space:nowrap;border-radius:9999px;background:#059669;color:#fff;padding:2px 7px;font-size:11px;font-weight:600;box-shadow:0 1px 5px rgba(0,0,0,.35)">${tag}<span>${label}</span>${count}</div>`;
+        return `<div style="display:flex;align-items:center;gap:4px;white-space:nowrap;border-radius:9999px;background:${color};color:#fff;padding:2px 7px;font-size:11px;font-weight:600;box-shadow:0 1px 5px rgba(0,0,0,.35)">${tag}<span>${label}</span>${count}</div>`;
       })();
   return L.divIcon({
     className: "",
     html: `
       <div style="transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;pointer-events:auto">
         ${pill}
-        <div style="width:2px;height:${compact ? 4 : 6}px;background:#059669"></div>
-        <div style="width:6px;height:6px;border-radius:9999px;background:#059669;box-shadow:0 0 0 2px rgba(5,150,105,.28)"></div>
+        <div style="width:2px;height:${compact ? 4 : 6}px;background:${color}"></div>
+        <div style="width:6px;height:6px;border-radius:9999px;background:${color};box-shadow:0 0 0 2px ${glow}"></div>
       </div>`,
     // The whole thing is positioned by the CSS transform above, so Leaflet's
     // own anchor maths has nothing left to do — hence a zero-size icon.
@@ -126,12 +130,13 @@ function roomIcon(marker: WorldMapMarker, compact: boolean): L.DivIcon {
 function popupHtml(marker: WorldMapMarker): string {
   const label = escapeHtml(marker.label);
   // Spelled out here, unlike on the pin: this is the one place with room for
-  // a sentence.
+  // a sentence. A room counts people in it; a group counts its members.
+  const [one, many] = marker.countNoun ?? ["pessoa", "pessoas"];
   const badge =
     typeof marker.peopleCount === "number"
-      ? `<div style="font-size:12px;opacity:.7;margin-top:2px">${marker.peopleCount} ${
-          marker.peopleCount === 1 ? "pessoa" : "pessoas"
-        }</div>`
+      ? `<div style="font-size:12px;opacity:.7;margin-top:2px">${marker.peopleCount} ${escapeHtml(
+          marker.peopleCount === 1 ? one : many
+        )}</div>`
       : "";
   const tag = marker.tag
     ? `<div style="font-size:11px;font-weight:600;opacity:.8;margin-bottom:2px">${escapeHtml(marker.tag)}</div>`
@@ -147,7 +152,7 @@ function popupHtml(marker: WorldMapMarker): string {
       <div style="font-weight:600;font-size:14px;word-break:break-all">${label}</div>
       ${badge}
       ${description}
-      <a href="${escapeHtml(marker.href ?? "#")}" style="display:block;margin-top:8px;border-radius:8px;background:#09090b;color:#fff;padding:6px 10px;text-align:center;font-size:13px;font-weight:500;text-decoration:none">Entrar na sala</a>
+      <a href="${escapeHtml(marker.href ?? "#")}" style="display:block;margin-top:8px;border-radius:8px;background:#09090b;color:#fff;padding:6px 10px;text-align:center;font-size:13px;font-weight:500;text-decoration:none">${escapeHtml(marker.actionLabel ?? "Entrar na sala")}</a>
     </div>`;
 }
 
