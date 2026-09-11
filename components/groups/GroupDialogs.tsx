@@ -57,6 +57,7 @@ import {
   type InviteLifetime,
 } from "@/lib/groupsApi";
 import { describeInviteExpiry, groupPath, inviteCodeFromInput, invitePath } from "@/lib/groupLinks";
+import { useGroupNavigation } from "@/lib/groupNavigation";
 import { SITE_URL } from "@/lib/seo";
 import Link from "next/link";
 import { WorldMap } from "@/components/WorldMap";
@@ -164,7 +165,7 @@ function VisibilityPicker({
 }
 
 export function CreateGroupDialog({ closePopup }: PopupProps<object>) {
-  const router = useRouter();
+  const navigation = useGroupNavigation();
   const { openPopup } = useNtPopups();
   const [name, setName] = useState("");
   const [visibility, setVisibility] = useState<GroupVisibility>("private");
@@ -204,7 +205,7 @@ export function CreateGroupDialog({ closePopup }: PopupProps<object>) {
     if (icon) await uploadGroupIcon(groupId, icon);
     await refreshGroups();
     closePopup(true);
-    router.push(groupPath(groupId));
+    navigation.push(groupPath(groupId));
     // A public group is at its most findable the moment it exists and its
     // owner is right here — so ask where it is now, the way a new public room
     // does, rather than leave it to be found in the settings some day.
@@ -1266,7 +1267,7 @@ function BansTab({ groupId }: { groupId: string }) {
 }
 
 function DangerTab({ groupId, groupName, onDone }: { groupId: string; groupName: string; onDone: () => void }) {
-  const router = useRouter();
+  const navigation = useGroupNavigation();
   const [typed, setTyped] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1299,7 +1300,7 @@ function DangerTab({ groupId, groupName, onDone }: { groupId: string; groupName:
             if (getGroupVoiceSession()?.groupId === groupId) setGroupVoiceSession(null);
             forgetGroup(groupId);
             onDone();
-            router.push("/groups");
+            navigation.push("/groups");
           }}
           className={dangerButton}
         >

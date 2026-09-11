@@ -6,10 +6,11 @@ import { useRouter } from "next/navigation";
 import useNtPopups from "ntpopups";
 import { MdAdd, MdChevronRight } from "react-icons/md";
 import { GroupIcon } from "@/components/groups/GroupIcon";
+import { GroupLink } from "@/components/groups/GroupLink";
 import { GroupName } from "@/components/groups/GroupName";
 import { useAuth } from "@/lib/AuthContext";
 import { groupPath, inviteCodeFromInput, invitePath } from "@/lib/groupLinks";
-import { useMyGroups } from "@/lib/useGroups";
+import { prefetchGroup, useMyGroups } from "@/lib/useGroups";
 
 // /groups — every group this person is in, and the two ways to get another.
 // Laid out like the site's other list pages (see /amigos): a title, a line
@@ -80,8 +81,10 @@ export function GroupsHome() {
           <ul className="mt-6 flex flex-col gap-2">
             {groups!.map((group) => (
               <li key={group.id}>
-                <Link
+                <GroupLink
                   href={groupPath(group.id)}
+                  onMouseEnter={() => prefetchGroup(group.id)}
+                  onFocus={() => prefetchGroup(group.id)}
                   className={`flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2.5 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-600 ${
                     group.suspended ? "opacity-60" : ""
                   }`}
@@ -110,7 +113,7 @@ export function GroupsHome() {
                     </span>
                   )}
                   <MdChevronRight className="h-5 w-5 shrink-0 text-zinc-400" />
-                </Link>
+                </GroupLink>
               </li>
             ))}
           </ul>

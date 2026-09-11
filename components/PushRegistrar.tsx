@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { App as CapacitorApp } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
 import { useAuth } from "@/lib/AuthContext";
 import { ensurePushRegistration, ensureServiceWorker } from "@/lib/pushRegistration";
 import { signalingClient } from "@/lib/signalingClient";
 import { openDirectMessages } from "@/lib/dmWindow";
+import { useGroupNavigation } from "@/lib/groupNavigation";
 
 // Three jobs, all of them invisible, all of them about the app being *closed*.
 //
@@ -28,7 +28,7 @@ import { openDirectMessages } from "@/lib/dmWindow";
 
 export function PushRegistrar() {
   const { account } = useAuth();
-  const router = useRouter();
+  const navigation = useGroupNavigation();
 
   // ─── Registration ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -126,19 +126,21 @@ export function PushRegistrar() {
         openDirectMessages(payload.fromId);
       }
       // A group message opens its text room. A client-side navigation, so a
-      // group voice call already running in this tab is not dropped by a reload.
-      // Only a site-relative group path is followed.
+      // group voice call already running in this tab is not dropped by a reload
+      // — and with the group shell already open, one that never waits on the
+      // server (see lib/groupNavigation). Only a site-relative group path is
+      // followed.
       if (
         payload.kind === "group-message" &&
         typeof payload.url === "string" &&
         payload.url.startsWith("/groups/")
       ) {
-        router.push(payload.url);
+        navigation.push(payload.url);
       }
     };
     navigator.serviceWorker.addEventListener("message", onMessage);
     return () => navigator.serviceWorker.removeEventListener("message", onMessage);
-  }, [router]);
+  }, [navigation]);
 
   return null;
 }

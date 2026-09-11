@@ -1,9 +1,8 @@
-import { GroupIndex } from "@/components/groups/GroupPages";
-
-// /groups/:id — lands on a room. Which one is decided in the browser (the room
-// this group was last left on lives in localStorage), so this page is only the
-// redirect and the "not found" for a group that is not yours.
-export default async function GroupIndexPage(props: PageProps<"/groups/[groupId]">) {
-  const { groupId } = await props.params;
-  return <GroupIndex groupId={groupId} />;
+// /groups/:id — lands on a room (the one this group was last left on lives in
+// localStorage, so that is decided in the browser). Drawn by the group shell
+// from the address, like every page under /groups — see
+// components/groups/GroupAppShell and lib/groupNavigation. It exists so the
+// address resolves on a reload or a shared link.
+export default function GroupIndexPage() {
+  return null;
 }

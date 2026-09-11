@@ -1,7 +1,5 @@
 "use client";
 
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import useNtPopups from "ntpopups";
 import {
@@ -30,10 +28,12 @@ import {
   type GroupNotifyLevel,
 } from "@/lib/groupsApi";
 import { groupPath } from "@/lib/groupLinks";
+import { useGroupNavigation } from "@/lib/groupNavigation";
 import { canInChannel } from "@/lib/groupPermissions";
 import { prefetchChannel } from "@/lib/groupCache";
 import { prefetchUserProfile } from "@/lib/userProfile";
 import { forgetGroup, refreshGroup, useGroupsState } from "@/lib/useGroups";
+import { GroupLink } from "@/components/groups/GroupLink";
 import { GroupName } from "@/components/groups/GroupName";
 import { openGroupProfile } from "@/components/groups/groupProfile";
 import { useOpenChannelSettings } from "@/components/groups/ChannelSettingsDialog";
@@ -92,7 +92,7 @@ export function GroupRoomsPanel({
   /** Without the card around it — for the phone's sheet, which is already one. */
   bare?: boolean;
 }) {
-  const router = useRouter();
+  const navigation = useGroupNavigation();
   const session = useGroupVoiceSession();
   const openChannelSettings = useOpenChannelSettings();
   const [addOpen, setAddOpen] = useState(false);
@@ -132,7 +132,7 @@ export function GroupRoomsPanel({
     // request to be in it.
     if (result.channel.kind !== "text") return;
     onNavigate?.();
-    router.push(groupPath(group.id, result.channel.id));
+    navigation.push(groupPath(group.id, result.channel.id));
   }
 
   // The room's own settings — name, permissions, deleting it (see
@@ -257,7 +257,7 @@ export function GroupRoomsPanel({
                       {headerContent}
                     </div>
                   ) : (
-                    <Link
+                    <GroupLink
                       href={groupPath(group.id, channel.id)}
                       onClick={onNavigate}
                       aria-current={active ? "page" : undefined}
@@ -265,7 +265,7 @@ export function GroupRoomsPanel({
                       className="group/room flex items-center gap-2 rounded-lg px-3 py-2 transition hover:bg-zinc-100 dark:hover:bg-zinc-900"
                     >
                       {headerContent}
-                    </Link>
+                    </GroupLink>
                   )}
                   {people.length > 0 && (
                     <ul className="flex flex-col gap-0.5 border-t border-zinc-100 px-1.5 py-1.5 dark:border-zinc-800/70">
@@ -317,7 +317,7 @@ export function GroupRoomsPanel({
             const active = channel.id === activeChannelId;
             return (
               <li key={channel.id}>
-                <Link
+                <GroupLink
                   href={groupPath(group.id, channel.id)}
                   onClick={onNavigate}
                   aria-current={active ? "page" : undefined}
@@ -343,7 +343,7 @@ export function GroupRoomsPanel({
                     <span className="h-2 w-2 shrink-0 rounded-full bg-zinc-950 dark:bg-zinc-50" aria-label="Mensagens novas" />
                   ) : null}
                   {isManager && editButton(channel.id)}
-                </Link>
+                </GroupLink>
               </li>
             );
           })}
@@ -396,7 +396,7 @@ export function GroupRoomsPanel({
 // ─── Group actions (top bar) ─────────────────────────────────────────────
 
 export function GroupActions({ detail }: { detail: GroupDetail }) {
-  const router = useRouter();
+  const navigation = useGroupNavigation();
   const { openPopup } = useNtPopups();
   const session = useGroupVoiceSession();
   const openSettings = useOpenSettings(detail.group.id);
@@ -436,7 +436,7 @@ export function GroupActions({ detail }: { detail: GroupDetail }) {
           }
           if (session?.groupId === group.id) setGroupVoiceSession(null);
           forgetGroup(group.id);
-          router.push("/groups");
+          navigation.push("/groups");
         },
       },
     });
@@ -555,7 +555,7 @@ export function GroupActions({ detail }: { detail: GroupDetail }) {
  * the room's own mid-call controls. Renders nothing while not connected.
  */
 export function VoiceControls({ className = "" }: { className?: string }) {
-  const router = useRouter();
+  const navigation = useGroupNavigation();
   const session = useGroupVoiceSession();
   const controls = useGroupVoiceControls();
   // The group's flags, for its badge — the session carries only the name.
@@ -566,7 +566,7 @@ export function VoiceControls({ className = "" }: { className?: string }) {
     <div
       className={`flex items-center gap-1 rounded-xl border border-zinc-200 bg-zinc-100 p-1 dark:border-zinc-800 dark:bg-zinc-900 ${className}`}
     >
-      <Link
+      <GroupLink
         href={groupPath(session.groupId, session.channelId)}
         title="Voltar para a chamada"
         className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition hover:bg-white dark:hover:bg-zinc-800"
@@ -577,7 +577,7 @@ export function VoiceControls({ className = "" }: { className?: string }) {
           <span className="shrink-0">·</span>
           <GroupName name={session.groupName} flags={sessionFlags} badgeClassName="h-3.5 w-3.5" />
         </span>
-      </Link>
+      </GroupLink>
       {controls && (
         <Tooltip content={controls.isMicOn ? "Desligar microfone" : "Ligar microfone"}>
           <button
@@ -603,7 +603,7 @@ export function VoiceControls({ className = "" }: { className?: string }) {
               typeof window !== "undefined" &&
               window.location.pathname === groupPath(session.groupId, session.channelId);
             setGroupVoiceSession(null);
-            if (wasOnCall) router.push(groupPath(session.groupId));
+            if (wasOnCall) navigation.push(groupPath(session.groupId));
           }}
           aria-label="Sair da chamada"
           className="flex h-8 shrink-0 cursor-pointer items-center rounded-lg bg-red-600 px-2.5 text-white transition hover:bg-red-700"
@@ -626,7 +626,7 @@ export function VoiceCallLink() {
   if (!session) return null;
   return (
     <Tooltip content={`Voltar para a chamada · ${session.groupName}`} placement="bottom">
-      <Link
+      <GroupLink
         href={groupPath(session.groupId, session.channelId)}
         aria-label={`Voltar para a chamada em ${session.channelName}`}
         className="flex max-w-[12rem] shrink-0 items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-100 px-3 py-2 text-sm transition hover:bg-white dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800"
@@ -634,7 +634,7 @@ export function VoiceCallLink() {
         <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-emerald-500" />
         <MdVolumeUp className="h-4 w-4 shrink-0 text-emerald-600" />
         <span className="truncate font-medium text-zinc-900 dark:text-zinc-100">{session.channelName}</span>
-      </Link>
+      </GroupLink>
     </Tooltip>
   );
 }

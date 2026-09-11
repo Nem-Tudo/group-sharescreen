@@ -111,6 +111,17 @@ export function refreshGroup(groupId: string): Promise<void> {
   return run;
 }
 
+/**
+ * Warms a group before it is opened — a hover or focus on its link — so the
+ * click lands on rooms already drawn instead of on a spinner. Nothing when it
+ * is held and fresh; the socket keeps a held group current.
+ */
+export function prefetchGroup(groupId: string): void {
+  const fetchedAt = detailFetchedAt.get(groupId);
+  if (state.details[groupId] && fetchedAt !== undefined && Date.now() - fetchedAt < DETAIL_STALE_MS) return;
+  void refreshGroup(groupId);
+}
+
 /** Drops everything — used when the identity changes (logging in or out). */
 export function resetGroups(): void {
   setState({ groups: null, groupsError: null, details: {}, detailErrors: {} });

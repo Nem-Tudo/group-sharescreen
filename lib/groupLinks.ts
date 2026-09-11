@@ -37,6 +37,22 @@ export function groupPath(groupId: string, channelId?: string | null): string {
   return channelId ? `/groups/${groupId}/${channelId}` : `/groups/${groupId}`;
 }
 
+/** What a path under /groups names — groupPath read back. See lib/groupNavigation. */
+export type GroupsRoute =
+  | { kind: "home" }
+  | { kind: "group"; groupId: string }
+  | { kind: "room"; groupId: string; roomId: string };
+
+export function parseGroupsPath(pathname: string | null | undefined): GroupsRoute | null {
+  if (!pathname) return null;
+  const parts = pathname.split(/[?#]/)[0].split("/").filter(Boolean);
+  if (parts[0] !== "groups" || parts.length > 3) return null;
+  if (parts.length === 1) return { kind: "home" };
+  const groupId = decodeURIComponent(parts[1]);
+  if (parts.length === 2) return { kind: "group", groupId };
+  return { kind: "room", groupId, roomId: decodeURIComponent(parts[2]) };
+}
+
 export function invitePath(code: string): string {
   return `/invite/${code}`;
 }

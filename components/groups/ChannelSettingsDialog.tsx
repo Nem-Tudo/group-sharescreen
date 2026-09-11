@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
 import useNtPopups from "ntpopups";
 import { MdCheck, MdClose, MdRemove, MdTag, MdVolumeUp } from "react-icons/md";
 import {
@@ -36,6 +35,7 @@ import {
   type PermissionSection,
 } from "@/lib/groupPermissions";
 import { groupPath } from "@/lib/groupLinks";
+import { useGroupNavigation } from "@/lib/groupNavigation";
 import { refreshGroup, useGroupDetail } from "@/lib/useGroups";
 
 // One room's own settings — the gear beside a room in the group's list opens
@@ -110,7 +110,7 @@ export function ChannelSettingsDialog({
 // ─── Geral ────────────────────────────────────────────────────────────────
 
 function GeneralTab({ detail, channel, onDeleted }: { detail: GroupDetail; channel: GroupChannel; onDeleted: () => void }) {
-  const router = useRouter();
+  const navigation = useGroupNavigation();
   const groupId = detail.group.id;
   const [name, setName] = useState(channel.name);
   const [busy, setBusy] = useState(false);
@@ -144,7 +144,7 @@ function GeneralTab({ detail, channel, onDeleted }: { detail: GroupDetail; chann
     onDeleted();
     // Standing in it? The group's page picks the next room.
     if (typeof window !== "undefined" && window.location.pathname.endsWith(`/${channel.id}`)) {
-      router.replace(groupPath(groupId));
+      navigation.replace(groupPath(groupId));
     }
   }
 

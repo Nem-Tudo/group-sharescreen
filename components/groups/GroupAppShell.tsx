@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import useNtPopups from "ntpopups";
 import { MdHome, MdViewList } from "react-icons/md";
 import { WatchRoom } from "@/app/watch/[handle]/WatchRoom";
@@ -17,6 +17,8 @@ import { GroupMembersPanel } from "@/components/groups/GroupMembersPanel";
 import { GroupPartnerSlot } from "@/components/groups/GroupPartnerSlot";
 import { GroupProfileHost } from "@/components/groups/groupProfile";
 import { GroupSwitcher } from "@/components/groups/GroupSwitcher";
+import { GroupIndex, GroupRoom } from "@/components/groups/GroupPages";
+import { GroupsHome } from "@/components/groups/GroupsHome";
 import {
   GroupActions,
   GroupRoomsPanel,
@@ -25,7 +27,9 @@ import {
 } from "@/components/groups/GroupSidebar";
 import { useAccountToken } from "@/lib/accountApi";
 import { useGuestToken } from "@/lib/guestToken";
-import { groupPath, groupVoiceHandle } from "@/lib/groupLinks";
+import { groupPath, groupVoiceHandle, parseGroupsPath, type GroupsRoute } from "@/lib/groupLinks";
+import { prefetchChannel } from "@/lib/groupCache";
+import { GroupShellContext, registerGroupShell, useGroupNavigation } from "@/lib/groupNavigation";
 import { canInChannel } from "@/lib/groupPermissions";
 import {
   getGroupVoiceSession,
@@ -55,12 +59,21 @@ import { useSignaling } from "@/lib/useSignaling";
 // is what keeps the voice call alive: a single WatchRoom for the connected
 // voice room, shown when that room is the one on screen and merely hidden when
 // it is not. Leaving /groups altogether does unmount it, and hangs up.
+//
+// And it is what draws the page, too: the view in the middle is picked from
+// the address here (GroupsView), not handed down by the route. Moving between
+// rooms and groups is a pushState (see lib/groupNavigation), which changes the
+// address without a server round trip — the pages under app/groups render
+// nothing, and exist so that a reload or a shared link resolves.
 
 export function GroupAppShell({ children }: { children: ReactNode }) {
-  const params = useParams<{ groupId?: string; roomId?: string }>();
-  const groupId = typeof params.groupId === "string" ? params.groupId : null;
-  const roomId = typeof params.roomId === "string" ? params.roomId : null;
-  const router = useRouter();
+  // Off the path, never useParams: after a shallow navigation the params still
+  // describe whichever page the server last rendered.
+  const route = parseGroupsPath(usePathname());
+  const groupId = route && route.kind !== "home" ? route.groupId : null;
+  const roomId = route?.kind === "room" ? route.roomId : null;
+  const navigation = useGroupNavigation();
+  useEffect(() => registerGroupShell(), []);
   const { openPopup } = useNtPopups();
   const { detail } = useGroupDetail(groupId);
   // The group's look, painted here once for every page of it: the group's own
@@ -123,7 +136,7 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
       onGroupRemoved(({ groupId: removedId, reason }) => {
         if (getGroupVoiceSession()?.groupId === removedId) setGroupVoiceSession(null);
         if (removedId !== groupId || reason === "left") return;
-        router.replace("/groups");
+        navigation.replace("/groups");
         const message =
           reason === "deleted"
             ? "Este grupo foi apagado pelo dono."
@@ -132,12 +145,33 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
               : "Você foi removido deste grupo.";
         void openPopup("generic", { data: { title: "Você saiu do grupo", message } });
       }),
-    [groupId, router, openPopup]
+    [groupId, navigation, openPopup]
   );
 
   // Leaving /groups entirely hangs up — the WatchRoom goes with this shell, and
   // a session left behind would silently rejoin the call on the way back in.
   useEffect(() => () => setGroupVoiceSession(null), []);
+
+  // Every text room of the open group, warmed once the group is known, so the
+  // next one clicked opens on its messages instead of on a spinner (see
+  // lib/groupCache — a room already fresh costs nothing). After a beat, so the
+  // room on screen gets the network first; and only a dozen, for a group that
+  // has made a hobby of rooms.
+  const textRoomIds =
+    detail?.chatAvailable && groupId
+      ? detail.channels
+          .filter((c) => c.kind === "text")
+          .slice(0, 12)
+          .map((c) => c.id)
+          .join(",")
+      : "";
+  useEffect(() => {
+    if (!groupId || !textRoomIds) return;
+    const timer = setTimeout(() => {
+      for (const channelId of textRoomIds.split(",")) prefetchChannel(groupId, channelId);
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [groupId, textRoomIds]);
 
   const voiceVisible = Boolean(session && session.groupId === groupId && session.channelId === roomId);
   const closeNav = () => setNavOpen(false);
@@ -224,7 +258,17 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
           )}
 
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            <div className={voiceVisible ? "hidden" : "flex min-h-0 flex-1 flex-col"}>{children}</div>
+            <div className={voiceVisible ? "hidden" : "flex min-h-0 flex-1 flex-col"}>
+              {/* Marked as inside the shell, so what it draws navigates shallowly
+                  even from an effect that runs before the shell has registered
+                  (see lib/groupNavigation's GroupShellContext). */}
+              <GroupShellContext.Provider value={true}>
+                <GroupsView route={route} />
+              </GroupShellContext.Provider>
+              {/* The route's own page: empty (see app/groups), kept in the
+                  tree so anything Next hangs off it still has its place. */}
+              {children}
+            </div>
             {session && (
               <VoiceHost
                 session={session}
@@ -233,7 +277,7 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
                 onOpenNav={() => setNavOpen(true)}
                 onDisconnect={() => {
                   setGroupVoiceSession(null);
-                  if (voiceVisible) router.push(groupPath(session.groupId));
+                  if (voiceVisible) navigation.push(groupPath(session.groupId));
                 }}
               />
             )}
@@ -298,6 +342,17 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
  * The call. Mounted for as long as there is a session, visible only while its
  * room is the page being looked at — see the shell's header comment.
  */
+/**
+ * The middle of the screen, for whatever the address names. Keyed by the room,
+ * so each one starts fresh — the text room's own state (scroll, the reply
+ * being written) belongs to that room.
+ */
+function GroupsView({ route }: { route: GroupsRoute | null }) {
+  if (!route || route.kind === "home") return <GroupsHome />;
+  if (route.kind === "group") return <GroupIndex key={route.groupId} groupId={route.groupId} />;
+  return <GroupRoom key={`${route.groupId}/${route.roomId}`} groupId={route.groupId} roomId={route.roomId} />;
+}
+
 function VoiceHost({
   session,
   visible,

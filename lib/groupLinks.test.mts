@@ -13,6 +13,7 @@ import {
   invitePath,
   isGroupId,
   isInviteCode,
+  parseGroupsPath,
 } from "./groupLinks";
 
 // Voice handles have to fit the room system's HANDLE_RE (1–32 of [A-Za-z0-9_-]).
@@ -22,6 +23,19 @@ assert.ok(/^[a-zA-Z0-9_-]{1,32}$/.test(handle));
 
 assert.equal(groupPath("g1a2b3c4d5"), "/groups/g1a2b3c4d5");
 assert.equal(groupPath("g1a2b3c4d5", "c1"), "/groups/g1a2b3c4d5/c1");
+
+// parseGroupsPath reads groupPath back — it is what the group shell draws the
+// page from, since useParams stops following along after a shallow navigation.
+assert.deepEqual(parseGroupsPath("/groups"), { kind: "home" });
+assert.deepEqual(parseGroupsPath("/groups/"), { kind: "home" });
+assert.deepEqual(parseGroupsPath(groupPath("g1a2b3c4d5")), { kind: "group", groupId: "g1a2b3c4d5" });
+assert.deepEqual(parseGroupsPath(groupPath("g1a2b3c4d5", "c1")), { kind: "room", groupId: "g1a2b3c4d5", roomId: "c1" });
+assert.deepEqual(parseGroupsPath("/groups/g1/c1?x=1#y"), { kind: "room", groupId: "g1", roomId: "c1" });
+assert.equal(parseGroupsPath("/groups/g1/c1/extra"), null, "deeper than a room is not a groups page");
+assert.equal(parseGroupsPath("/grupos/g1"), null);
+assert.equal(parseGroupsPath("/"), null);
+assert.equal(parseGroupsPath("/invite/abc"), null);
+assert.equal(parseGroupsPath(null), null);
 assert.equal(invitePath("AbC12345"), "/invite/AbC12345");
 
 assert.ok(isGroupId("abc123def0"));

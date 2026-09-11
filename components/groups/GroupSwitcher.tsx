@@ -1,15 +1,15 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import useNtPopups from "ntpopups";
 import { MdAdd, MdCheck, MdGroups, MdLink, MdUnfoldMore } from "react-icons/md";
 import { Popover } from "@/components/Tooltip";
 import { GroupIcon } from "@/components/groups/GroupIcon";
+import { GroupLink } from "@/components/groups/GroupLink";
 import { GroupName } from "@/components/groups/GroupName";
 import { useAuth } from "@/lib/AuthContext";
 import { groupPath } from "@/lib/groupLinks";
-import { useMyGroups } from "@/lib/useGroups";
+import { prefetchGroup, useMyGroups } from "@/lib/useGroups";
 
 // Which group is open, and the way to every other one — a switcher in the top
 // bar, the same place the room shows its own name. One control instead of a
@@ -60,10 +60,12 @@ export function GroupSwitcher({
           )}
           <div className="flex max-h-72 flex-col gap-0.5 overflow-y-auto">
             {groups?.map((group) => (
-              <Link
+              <GroupLink
                 key={group.id}
                 href={groupPath(group.id)}
                 onClick={close}
+                onMouseEnter={() => prefetchGroup(group.id)}
+                onFocus={() => prefetchGroup(group.id)}
                 className={`${itemClass} ${group.suspended ? "opacity-60" : ""}`}
               >
                 <GroupIcon name={group.name} iconUrl={group.iconUrl} seed={group.id} size={26} className="rounded-md" />
@@ -83,14 +85,14 @@ export function GroupSwitcher({
                 ) : group.unread ? (
                   <span className="h-2 w-2 shrink-0 rounded-full bg-zinc-950 dark:bg-zinc-50" aria-label="Mensagens novas" />
                 ) : null}
-              </Link>
+              </GroupLink>
             ))}
           </div>
           <div className="my-1 border-t border-zinc-200 dark:border-zinc-800" />
-          <Link href="/groups" onClick={close} className={itemClass}>
+          <GroupLink href="/groups" onClick={close} className={itemClass}>
             <MdGroups className="h-4 w-4 shrink-0 opacity-70" />
             Todos os grupos
-          </Link>
+          </GroupLink>
           <button
             type="button"
             disabled={!account}

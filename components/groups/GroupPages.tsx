@@ -1,9 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { GroupJoinCard } from "@/components/groups/GroupJoinCard";
+import { GroupLink } from "@/components/groups/GroupLink";
 import { TextChannelView } from "@/components/groups/TextChannelView";
 import { rememberedChannel } from "@/components/groups/lastChannel";
 import { useAccountToken } from "@/lib/accountApi";
@@ -12,6 +11,7 @@ import { MdBlock, MdLock } from "react-icons/md";
 import { joinPublicGroup, leaveGroup } from "@/lib/groupsApi";
 import { canInChannel } from "@/lib/groupPermissions";
 import { fetchPublicGroupPreview, groupPath, type PublicGroupPreview } from "@/lib/groupLinks";
+import { useGroupNavigation } from "@/lib/groupNavigation";
 import { forgetGroup, refreshGroup, refreshGroups, useGroupDetail, useMyGroups } from "@/lib/useGroups";
 
 // The two pages inside a group. Both read the same store the shell does, so
@@ -47,12 +47,12 @@ function NotFound({ status }: { status: number }) {
           ? "Use sua conta, ou abra o link de convite que te mandaram."
           : "Ele não existe mais, ou você não faz parte dele. Para entrar, peça um convite a alguém do grupo."}
       </p>
-      <Link
+      <GroupLink
         href="/groups"
         className="mt-3 rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
       >
         Ver meus grupos
-      </Link>
+      </GroupLink>
     </Panel>
   );
 }
@@ -64,7 +64,7 @@ function NotFound({ status }: { status: number }) {
  * is itself out of use), so they are only told.
  */
 function Suspended({ groupId, message }: { groupId: string; message: string }) {
-  const router = useRouter();
+  const navigation = useGroupNavigation();
   const { groups } = useMyGroups();
   const summary = groups?.find((g) => g.id === groupId);
   const [busy, setBusy] = useState(false);
@@ -79,7 +79,7 @@ function Suspended({ groupId, message }: { groupId: string; message: string }) {
       return;
     }
     forgetGroup(groupId);
-    router.replace("/groups");
+    navigation.replace("/groups");
   }
 
   return (
@@ -93,12 +93,12 @@ function Suspended({ groupId, message }: { groupId: string; message: string }) {
         Enquanto a suspensão durar, ninguém consegue usar o grupo.
       </p>
       <div className="mt-3 flex flex-wrap justify-center gap-2">
-        <Link
+        <GroupLink
           href="/groups"
           className="rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
         >
           Ver meus grupos
-        </Link>
+        </GroupLink>
         {summary && summary.role !== "owner" && (
           <button
             type="button"
@@ -165,7 +165,7 @@ function GroupGate({ groupId, status }: { groupId: string; status: number }) {
 
 /** /groups/:id — straight on to the room this group was last left on, or its first text room. */
 export function GroupIndex({ groupId }: { groupId: string }) {
-  const router = useRouter();
+  const navigation = useGroupNavigation();
   const { detail, error } = useGroupDetail(groupId);
 
   // Only ever a text room: opening a voice room joins its call, and nobody
@@ -176,8 +176,8 @@ export function GroupIndex({ groupId }: { groupId: string }) {
     const remembered = rememberedChannel(groupId);
     const rooms = detail.channels.filter((c) => c.kind === "text");
     const target = rooms.find((c) => c.id === remembered) ?? rooms[0];
-    if (target) router.replace(groupPath(groupId, target.id));
-  }, [detail, groupId, router]);
+    if (target) navigation.replace(groupPath(groupId, target.id));
+  }, [detail, groupId, navigation]);
 
   if (error) {
     return error.status === 423 ? (
@@ -204,14 +204,14 @@ export function GroupIndex({ groupId }: { groupId: string }) {
 
 /** /groups/:id/:room — a text room here; a voice room is drawn by the shell. */
 export function GroupRoom({ groupId, roomId }: { groupId: string; roomId: string }) {
-  const router = useRouter();
+  const navigation = useGroupNavigation();
   const { detail, error } = useGroupDetail(groupId);
   const channel = detail?.channels.find((c) => c.id === roomId) ?? null;
 
   // A room that is gone (deleted while open, or a stale link) sends you to the group.
   useEffect(() => {
-    if (detail && !channel) router.replace(groupPath(groupId));
-  }, [detail, channel, groupId, router]);
+    if (detail && !channel) navigation.replace(groupPath(groupId));
+  }, [detail, channel, groupId, navigation]);
 
   if (error) {
     return error.status === 423 ? (
