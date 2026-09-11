@@ -130,6 +130,59 @@ export function isCallRoomHandle(handle: string): boolean {
   return /^priv-call-[a-z0-9]{10}-\d{6}$/.test(handle);
 }
 
+/**
+ * The name halves of the rooms the theme pages open. See lib/roomThemes, which
+ * builds the links; kept here so the builder and the rule below read the same
+ * two strings.
+ */
+export const THEME_CREATION_ROOM_NAME = "theme-creation";
+export const THEME_VIEW_ROOM_NAME = "theme-view";
+
+/**
+ * Which theme a room is being shown in (see lib/roomThemes' themeViewRoomLink).
+ * A parameter of its own rather than the editor's `tema`.
+ *
+ * Lives here, not beside the link builder, because the watch page reads it on
+ * the *server* and lib/roomThemes is a client module — a server component
+ * calling a function from one is a runtime error that neither the type check
+ * nor the build notices. This file carries no "use client", so both can.
+ */
+export const THEME_VIEW_PARAM = "theme_id";
+
+/**
+ * The theme a room was opened to show, from its query string — or null.
+ *
+ * Takes the already-parsed value rather than a search string, because it is
+ * read on the server so the first render and the browser's agree. Only the
+ * shape is checked; whether the id names a theme at all is for the fetch to
+ * find out, and a bad one simply shows the site's own look.
+ */
+export function viewedThemeId(value: string | string[] | undefined): string | null {
+  const id = Array.isArray(value) ? value[0] : value;
+  if (!id) return null;
+  const trimmed = id.trim();
+  return /^[A-Za-z0-9_-]{1,64}$/.test(trimmed) ? trimmed : null;
+}
+
+/**
+ * Whether a handle is a room a theme page opened — "priv-theme-creation-<6>"
+ * or "priv-theme-view-<6>".
+ *
+ * Same reasoning as isCallRoomHandle, and matched as strictly: these are
+ * minted per press, named after a task rather than a place, and nobody goes
+ * back to one — the way back to a theme is the theme's page, not the room it
+ * was once looked at in. Somebody who deliberately calls their own room
+ * "priv-theme-view-da-galera" keeps it, because that is not six digits.
+ */
+export function isThemeRoomHandle(handle: string): boolean {
+  // [0-9] rather than a backslash-d: this pattern is built from a template
+  // literal, where an unrecognised escape quietly becomes the bare letter and
+  // the rule would match "priv-theme-view-dddddd" instead of the six digits.
+  return new RegExp(
+    `^${PRIVATE_ROOM_PREFIX}(?:${THEME_CREATION_ROOM_NAME}|${THEME_VIEW_ROOM_NAME})-[0-9]{6}$`
+  ).test(handle);
+}
+
 // A private room's handle carries its own access code: "priv-<nome>-<123456>".
 // The client mints the code when creating the room and the server simply
 // parses it back out of the handle (see server/signaling.ts's

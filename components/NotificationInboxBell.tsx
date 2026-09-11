@@ -5,6 +5,7 @@ import {
   MdCallMissed,
   MdCardGiftcard,
   MdChatBubbleOutline,
+  MdFavorite,
   MdNotificationsNone,
   MdPersonAdd,
 } from "react-icons/md";
@@ -64,6 +65,8 @@ function Item({
           // The only good news in the list, and coloured like it — this is
           // somebody having spent money on the person reading it.
           <MdCardGiftcard className="h-4 w-4 text-emerald-500" />
+        ) : notification.kind === "theme-like" ? (
+          <MdFavorite className="h-4 w-4 text-pink-500" />
         ) : (
           <MdPersonAdd className="h-4 w-4" />
         )}

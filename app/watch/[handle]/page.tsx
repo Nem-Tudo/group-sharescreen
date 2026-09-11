@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { RoomAppGate } from "@/components/RoomAppGate";
 import { WatchRoom } from "./WatchRoom";
+import { THEME_VIEW_PARAM, viewedThemeId } from "@/lib/roomsApi";
 
 /** The prefix a private room's handle carries. See lib/roomsApi.ts. */
 const PRIVATE_PREFIX = "priv-";
@@ -42,13 +43,16 @@ export async function generateMetadata(
 
 export default async function WatchPage(props: PageProps<"/watch/[handle]">) {
   const { handle } = await props.params;
+  // Read here rather than in the room, so the server's render and the
+  // browser's agree about which theme is on screen from the first paint.
+  const viewThemeId = viewedThemeId((await props.searchParams)[THEME_VIEW_PARAM]);
   // The gate wraps the room rather than living inside it, and that placement
   // is the feature: WatchRoom connects, registers a name and turns on a
   // microphone as soon as it mounts, so the only way to offer the app
   // *before* joining is to not mount it yet. See components/RoomAppGate.tsx.
   return (
     <RoomAppGate handle={handle}>
-      <WatchRoom handle={handle} />
+      <WatchRoom handle={handle} viewThemeId={viewThemeId} />
     </RoomAppGate>
   );
 }

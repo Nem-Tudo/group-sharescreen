@@ -9,6 +9,7 @@ import { AuthProvider } from "@/lib/AuthContext";
 import { PresenceReporter } from "@/components/PresenceReporter";
 import { SocialNotifier } from "@/components/SocialNotifier";
 import { GiftNotifier } from "@/components/GiftNotifier";
+import { ThemeLikeNotifier } from "@/components/ThemeLikeNotifier";
 import { GiftClaimHost } from "@/components/GiftClaimHost";
 import { DmNotifier } from "@/components/DmNotifier";
 import { DirectMessagesHost } from "@/components/DirectMessagesHost";
@@ -218,6 +219,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                   its owner having done anything — a plan somebody bought
                   them. */}
               <GiftNotifier />
+              {/* And for somebody liking a theme this account made. */}
+              <ThemeLikeNotifier />
               {/* Opens the present somebody arrived holding — see /gift/[code],
                   which redirects here with the code on the URL. */}
               <GiftClaimHost />

@@ -996,7 +996,14 @@ const DOCK_TAB_ACTIVE = "room-accent";
 const DOCK_TAB_IDLE =
   "text-zinc-600 active:bg-zinc-100 dark:text-zinc-400 dark:active:bg-zinc-900";
 
-export function WatchRoom({ handle }: { handle: string }) {
+export function WatchRoom({
+  handle,
+  viewThemeId = null,
+}: {
+  handle: string;
+  /** A theme this room was opened to show. See useRoomTheme. */
+  viewThemeId?: string | null;
+}) {
   const router = useRouter();
   const state = useSignaling();
   useRoomSoundEffects(state);
@@ -1005,7 +1012,7 @@ export function WatchRoom({ handle }: { handle: string }) {
   // It writes CSS variables onto the document, so nothing here has to be
   // passed a colour: every `bg-zinc-950` and `border-zinc-200` in this file
   // already reads one.
-  const roomTheme = useRoomTheme(state.roomTheme);
+  const roomTheme = useRoomTheme(state.roomTheme, viewThemeId);
   // Whether this browser refuses room themes (see the toggle in the menu). Read
   // here as well as inside the hook, because the row has to draw its own state.
   const roomThemeOptedOut = useSyncExternalStore(

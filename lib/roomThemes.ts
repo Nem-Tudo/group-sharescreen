@@ -4,6 +4,9 @@ import { getAccountToken } from "./accountApi";
 import {
   generateRoomCode,
   getSignalingHttpBase,
+  THEME_CREATION_ROOM_NAME,
+  THEME_VIEW_PARAM,
+  THEME_VIEW_ROOM_NAME,
   toPrivateRoomHandle,
 } from "./roomsApi";
 
@@ -771,9 +774,6 @@ export async function fetchMyThemes(signal?: AbortSignal): Promise<RoomTheme[]> 
 // mode — it can be shared, people can join it, it shows up in the recent list
 // like any other. The name is only so its address says what it is for.
 
-/** The name half of the handle. Kept under MAX_PRIVATE_ROOM_NAME_LENGTH. */
-const THEME_ROOM_NAME = "theme-creation";
-
 /**
  * How the room is told to open the editor.
  *
@@ -788,7 +788,7 @@ const THEME_EDITOR_VALUE = "create";
 
 /** A brand new theme-creation room, with the editor asked for. */
 export function themeCreationRoomLink(): string {
-  const handle = toPrivateRoomHandle(THEME_ROOM_NAME, generateRoomCode());
+  const handle = toPrivateRoomHandle(THEME_CREATION_ROOM_NAME, generateRoomCode());
   return `/watch/${handle}?${THEME_EDITOR_PARAM}=${THEME_EDITOR_VALUE}`;
 }
 
@@ -796,6 +796,22 @@ export function themeCreationRoomLink(): string {
 export function wantsThemeEditor(search: string): boolean {
   return new URLSearchParams(search).get(THEME_EDITOR_PARAM) === THEME_EDITOR_VALUE;
 }
+
+// Looking at a theme happens in a room too, for the same reason making one
+// does: a palette is judged against the chat and the tiles it will be worn on,
+// not against a rectangle on a product page.
+//
+// The id rides in the address and is *left* there, unlike the editor's. That
+// is the difference between the two: the editor is a one-off action, whereas
+// this room is about the theme for as long as it is open — a refresh should
+// still show it, and a friend handed the link should see what you are seeing.
+
+/** A brand new room for looking at one theme. */
+export function themeViewRoomLink(themeId: string): string {
+  const handle = toPrivateRoomHandle(THEME_VIEW_ROOM_NAME, generateRoomCode());
+  return `/watch/${handle}?${THEME_VIEW_PARAM}=${encodeURIComponent(themeId)}`;
+}
+
 
 /**
  * A theme's own page — the address a share button hands over.

@@ -46,8 +46,18 @@ export interface RoomThemeState {
  * `roomThemeId` is what the room broadcast (see the "room-settings" payload);
  * undefined means the room has not said yet, which is different from null —
  * "not told" should not flash the account's own theme on and then off again.
+ *
+ * `viewThemeId` is a theme this tab was sent here to look at (see the theme
+ * page's "Visualizar" and themeViewRoomLink). It outranks everything below,
+ * including the room's own theme and the opt-out: both of those are about
+ * rooms deciding for you, and this is somebody who asked, by name, to see one
+ * particular theme. It is also only ever on their screen — nothing here
+ * writes it to the room or to the account.
  */
-export function useRoomTheme(roomThemeId: string | null | undefined): RoomThemeState {
+export function useRoomTheme(
+  roomThemeId: string | null | undefined,
+  viewThemeId: string | null = null
+): RoomThemeState {
   const { account } = useAuth();
   // What this tab just chose, if the account has not caught up yet. Pressing
   // "usar tema" writes it (see the workshop and the hub) so the room repaints
@@ -71,7 +81,13 @@ export function useRoomTheme(roomThemeId: string | null | undefined): RoomThemeS
   // account's. Opting out does not mean "no theme" — it means the room never
   // gets to choose for you, and what you chose for yourself still stands.
   const fromRoomId = optedOut ? null : roomThemeId;
-  const wanted = roomThemeId === undefined ? undefined : fromRoomId ?? mine;
+  // A viewed theme does not wait for the room to answer: it does not depend on
+  // anything the room could say, so there is no flash to avoid by waiting.
+  const wanted = viewThemeId
+    ? viewThemeId
+    : roomThemeId === undefined
+      ? undefined
+      : fromRoomId ?? mine;
   // Bumped whenever a theme is saved or deleted anywhere in this tab (see
   // roomThemes' notifyThemeChanged). It is part of what a cached answer is an
   // answer *to*: the same id after an edit is a different palette.
@@ -159,5 +175,5 @@ export function useRoomTheme(roomThemeId: string | null | undefined): RoomThemeS
   // not an answer about this one.
   const theme =
     cached ?? (wanted && loaded?.id === wanted && loaded.seq === seq ? loaded.theme : null);
-  return { theme, fromRoom: Boolean(theme && fromRoomId) };
+  return { theme, fromRoom: Boolean(theme && !viewThemeId && fromRoomId) };
 }

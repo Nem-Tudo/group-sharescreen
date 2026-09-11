@@ -188,6 +188,19 @@ export type PremiumGiftRedeemedEvent = {
   days: number;
 };
 
+/**
+ * Somebody liked a theme *this* account made (see the API's like route).
+ *
+ * Only ever an announcement: the count itself lives on the theme, and nothing
+ * here is evidence of it. See ThemeLikeNotifier.
+ */
+export type ThemeLikedEvent = {
+  themeId: string;
+  themeName: string;
+  byId: string | null;
+  byName: string;
+};
+
 /** The colour of the indicator beside a person's name (see lib/presence.ts and
  *  the API's presence sweep): green, blue, yellow, none. "offline" is a real
  *  value on the wire — it is the answer to a question that was asked, as
@@ -517,6 +530,8 @@ export type SignalingState = {
   giftSeq: number;
   /** The last gift of this account's that somebody redeemed. */
   lastGiftRedeemed: PremiumGiftRedeemedEvent | null;
+  /** The last like somebody put on one of this account's themes. */
+  lastThemeLike: ThemeLikedEvent | null;
   // Presence of the accounts this tab asked about, by account id (see
   // watchPresence). Only ever holds ids somebody subscribed to — this is a
   // cache of answers, not a directory of the site.
@@ -756,6 +771,7 @@ const initialState: SignalingState = {
   lastGift: null,
   giftSeq: 0,
   lastGiftRedeemed: null,
+  lastThemeLike: null,
   presence: {},
   presenceSeq: 0,
   lastDm: null,
@@ -1934,6 +1950,18 @@ class SignalingClient {
             byName: typeof msg.byName === "string" ? msg.byName : "Alguém",
             planTitle: typeof msg.planTitle === "string" ? msg.planTitle : "Pro",
             days: typeof msg.days === "number" ? msg.days : 0,
+          },
+        });
+        break;
+      // Somebody liked a theme this account made. News and nothing else — the
+      // count lives on the theme.
+      case "theme-liked":
+        this.setState({
+          lastThemeLike: {
+            themeId: String(msg.themeId ?? ""),
+            themeName: typeof msg.themeName === "string" ? msg.themeName : "seu tema",
+            byId: typeof msg.byId === "string" ? msg.byId : null,
+            byName: typeof msg.byName === "string" ? msg.byName : "Alguém",
           },
         });
         break;

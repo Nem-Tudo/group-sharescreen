@@ -1,6 +1,7 @@
 import {
   isCallRoomHandle,
   isPrivateRoomHandle,
+  isThemeRoomHandle,
   PRIVATE_ROOM_PREFIX,
   splitPrivateRoomHandle,
 } from "./roomsApi";
@@ -62,6 +63,11 @@ function isRecentRoom(value: unknown): value is RecentRoom {
     // handles are dropped, and for the same reason: this is the one gate
     // every read goes through.
     !isCallRoomHandle(handle) &&
+    // The theme pages' rooms, for the same reason — and dropped here on read
+    // too, because the creation room was remembered by the build before this
+    // one and would otherwise hold a slot until three newer rooms pushed it
+    // out.
+    !isThemeRoomHandle(handle) &&
     typeof visitedAt === "number" &&
     Number.isFinite(visitedAt)
   );
@@ -134,6 +140,10 @@ export function rememberRecentRoom(handle: string, now = Date.now()) {
   // name nobody recognizes, taking one of the three slots from a room that
   // somebody actually chose.
   if (isCallRoomHandle(handle)) return;
+  // Same for the rooms a theme page opens to make or look at a theme: minted
+  // per press, named after the task, and the way back to the theme is its
+  // page — not a room it was once looked at in.
+  if (isThemeRoomHandle(handle)) return;
   const existing = getRecentRooms();
   // Already on the list: leave the *order* alone. Re-entering the second slot
   // would otherwise bump it to the top and shuffle the other two, which is

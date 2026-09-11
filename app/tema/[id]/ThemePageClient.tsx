@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { BsCoin } from "react-icons/bs";
 import {
   MdFavorite,
@@ -9,6 +10,7 @@ import {
   MdOutlinePeopleAlt,
   MdOutlineShowChart,
   MdPalette,
+  MdVisibility,
 } from "react-icons/md";
 import { AccountModal, type AccountModalMode } from "@/components/AccountModal";
 import { CopyButton } from "@/components/CopyButton";
@@ -29,6 +31,7 @@ import {
   setWornOverride,
   subscribeWornOverride,
   themeLink,
+  themeViewRoomLink,
   type RoomTheme,
 } from "@/lib/roomThemes";
 import { useSyncExternalStore } from "react";
@@ -47,6 +50,7 @@ import { useSyncExternalStore } from "react";
 
 export function ThemePageClient({ id }: { id: string }) {
   const { account, refresh } = useAuth();
+  const router = useRouter();
   const [theme, setTheme] = useState<RoomTheme | null | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -278,7 +282,7 @@ export function ThemePageClient({ id }: { id: string }) {
             }`}
           >
             <MdPalette className="h-4 w-4 shrink-0" />
-            {wearing ? "Em uso — remover" : "Usar este tema"}
+            {wearing ? "Em uso — remover" : "Usar tema"}
           </button>
         ) : (
           <button
@@ -291,6 +295,23 @@ export function ThemePageClient({ id }: { id: string }) {
             {busy ? "Comprando…" : `Comprar por ${theme.price.toLocaleString("pt-BR")}`}
           </button>
         )}
+
+        {/* Before deciding, the way to decide: the theme on an actual room.
+            The rectangle above is a palette; this is the chat, the tiles and
+            the dock wearing it. Free for everybody, paid themes included —
+            looking is not wearing, and nothing is written anywhere (see
+            useRoomTheme's viewThemeId).
+            A button rather than a Link because the room's six-digit code is
+            minted on the press: a new room each time, not one address baked
+            into the page that everybody opening it would land in together. */}
+        <button
+          type="button"
+          onClick={() => router.push(themeViewRoomLink(theme.id))}
+          className="flex items-center gap-2 rounded-lg border border-zinc-300 px-4 py-2.5 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+        >
+          <MdVisibility className="h-4 w-4 shrink-0" />
+          Visualizar tema
+        </button>
 
         {/* The point of the page. Sits with the actions rather than in a corner:
             somebody who just decided they like a theme is the person most

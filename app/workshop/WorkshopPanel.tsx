@@ -12,6 +12,7 @@ import {
   MdOutlineShowChart,
   MdPalette,
   MdPeople,
+  MdVisibility,
 } from "react-icons/md";
 import { BsCoin } from "react-icons/bs";
 import { DisplayUserName } from "@/components/DisplayUserName";
@@ -40,6 +41,7 @@ import {
   likeTheme,
   themeCreationRoomLink,
   themeLink,
+  themeViewRoomLink,
   type RoomTheme,
   type WorkshopSort,
 } from "@/lib/roomThemes";
@@ -126,6 +128,7 @@ function ThemeCard({
   onWear,
   onBuy,
   onLike,
+  onView,
   onEdit,
   onOpenAuthor,
   busy,
@@ -135,6 +138,8 @@ function ThemeCard({
   onWear: () => void;
   onBuy: () => void;
   onLike: () => void;
+  /** Opens the theme on a room of its own — see themeViewRoomLink. */
+  onView: () => void;
   onEdit?: () => void;
   onOpenAuthor: () => void;
   busy: boolean;
@@ -226,6 +231,11 @@ function ThemeCard({
         </button>
       )}
 
+      {/* Two rows of actions, and the split is by who they are for. The first
+          is for everybody deciding about this theme — take it, or see it on a
+          room first. The second only appears on your own, for looking after
+          it. Four controls in one row did not fit a card this narrow, and the
+          two that fell off the end would have been the two everybody needs. */}
       <div className="flex items-center gap-2">
         {/* Which verb this is comes from the server's `owned`, not from the
             price: an author owns theirs by having written it, and a buyer owns
@@ -254,31 +264,43 @@ function ThemeCard({
             Comprar por {theme.price.toLocaleString("pt-BR")}
           </button>
         )}
-        {onEdit && (
-          <>
-            <button
-              type="button"
-              onClick={onEdit}
-              className="rounded-lg border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
-            >
-              Editar
-            </button>
-            {/* Only on your own — the API refuses the report to anybody else,
-                and a link that leads to a refusal is worse than no link.
-                A Link rather than a button because it *is* navigation: the
-                panel has its own address, worth keeping open in a tab while
-                the numbers move. */}
-            <Link
-              href={`/tema/${theme.id}/painel`}
-              aria-label={`Ver o painel de ${theme.name}`}
-              title="Ver o painel do tema"
-              className="flex items-center justify-center rounded-lg border border-zinc-300 px-2.5 py-2 text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
-            >
-              <MdOutlineShowChart className="h-4 w-4 shrink-0" />
-            </Link>
-          </>
-        )}
+        {/* Beside the verb and the same width, because it is the other half of
+            the same decision — and the half that matters most exactly when the
+            verb is "comprar". Free for everybody: looking is not wearing. */}
+        <button
+          type="button"
+          onClick={onView}
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+        >
+          <MdVisibility className="h-3.5 w-3.5 shrink-0" />
+          Visualizar tema
+        </button>
       </div>
+
+      {onEdit && (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onEdit}
+            className="flex-1 rounded-lg border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+          >
+            Editar
+          </button>
+          {/* Only on your own — the API refuses the report to anybody else,
+              and a link that leads to a refusal is worse than no link.
+              A Link rather than a button because it *is* navigation: the
+              panel has its own address, worth keeping open in a tab while
+              the numbers move. */}
+          <Link
+            href={`/tema/${theme.id}/painel`}
+            aria-label={`Ver o painel de ${theme.name}`}
+            title="Ver o painel do tema"
+            className="flex items-center justify-center rounded-lg border border-zinc-300 px-2.5 py-2 text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+          >
+            <MdOutlineShowChart className="h-4 w-4 shrink-0" />
+          </Link>
+        </div>
+      )}
 
       {/* What is left here is a statistic rather than a control. The like moved
           onto the preview above; this line answers the other question — "how
@@ -392,6 +414,16 @@ export function WorkshopPanel() {
   const createInRoom = useCallback(() => {
     router.push(themeCreationRoomLink());
   }, [router]);
+
+  /**
+   * The same reasoning, for a theme that already exists: judged on a room, not
+   * on this card. A fresh room per press — the code is minted here — so two
+   * people pressing it do not end up looking at each other.
+   */
+  const viewInRoom = useCallback(
+    (theme: RoomTheme) => router.push(themeViewRoomLink(theme.id)),
+    [router]
+  );
 
   async function buy(theme: RoomTheme) {
     if (!account) {
@@ -519,6 +551,7 @@ export function WorkshopPanel() {
                 onWear={() => void wear(theme)}
                 onBuy={() => void buy(theme)}
                 onLike={() => void toggleLike(theme)}
+                onView={() => viewInRoom(theme)}
                 onEdit={() => openEditor(theme)}
                 onOpenAuthor={() => setProfileUserId(theme.authorId)}
               />
@@ -568,6 +601,7 @@ export function WorkshopPanel() {
                 onWear={() => void wear(theme)}
                 onBuy={() => void buy(theme)}
                 onLike={() => void toggleLike(theme)}
+                onView={() => viewInRoom(theme)}
                 onEdit={
                   theme.authorId === account?.id ? () => openEditor(theme) : undefined
                 }
