@@ -15,6 +15,7 @@ import {
   type Ref,
   type SetStateAction,
 } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -1013,6 +1014,14 @@ export type WatchRoomGroupMode = {
   onDisconnect: () => void;
   /** Opens the group's rooms drawer on a phone. */
   onOpenNav: () => void;
+  /** Whether the call is the page on screen — the shell keeps it mounted while hidden. */
+  visible: boolean;
+  /**
+   * Where in the group's top bar this room's own header controls go. A group
+   * room has no header of its own — the group's bar already says where you are
+   * — so the call controls and the room's page buttons are portalled into it.
+   */
+  headerSlots: { center: HTMLElement | null; right: HTMLElement | null };
 };
 
 export function WatchRoom({
@@ -1633,7 +1642,9 @@ export function WatchRoom({
     loaded: partnerLoaded,
     // Told when it is off screen, so it stops counting impressions for an ad
     // nobody can see and defers its rotation to a minute it owns.
-  } = usePartnerAd({ visible: !showAdsterra });
+    // In a group on a wide screen the room draws no ad at all — the group's
+    // rooms column does (see GroupPartnerSlot) — so this one must not count.
+  } = usePartnerAd({ visible: !showAdsterra && !(group && isWideLayout) });
 
   const hasLocalScreen = Boolean(isSharing && localStream);
   const hasLocalCamera = Boolean(localCameraStream);
@@ -2028,7 +2039,7 @@ export function WatchRoom({
   }, [state.room, handle, group]);
 
   // In a group, the voice dock outside this room offers the mute button (see
-  // components/groups/GroupSidebar's VoiceDock). Published through a stable
+  // components/groups/GroupSidebar's VoiceControls). Published through a stable
   // wrapper, so the dock is not told about a "new" toggle on every render.
   const toggleMicRef = useRef(toggleMic);
   useEffect(() => {
@@ -4944,7 +4955,8 @@ export function WatchRoom({
           filling the width, which is the shape a single button should have
           rather than a third of a row with a gap where its neighbours were. */}
       <div className="mb-2 flex items-center gap-2">
-        {(isRoomManager || state.roomLocation) && (
+        {/* A group's room is on no map. */}
+        {!group && (isRoomManager || state.roomLocation) && (
           <Tooltip content={roomLocationTooltip} wrapperClassName="flex flex-1">
             <button
               type="button"
@@ -5113,6 +5125,22 @@ export function WatchRoom({
     </>
   );
 
+  // In a group, the room's header does not exist as such: its call controls and
+  // its page buttons are rendered into the group's own top bar instead (see
+  // WatchRoomGroupMode.headerSlots). The call controls stay there for as long
+  // as you are connected — reading a text room included, since sharing a screen
+  // or switching on a camera is not something that should need the call on
+  // screen first. The page buttons (share, Pro, options) are about the room's
+  // page, so they only come along while it is the one shown.
+  // Outside a group this hands the node straight back, unchanged.
+  function inHeaderSlot(slot: "center" | "right", node: ReactNode): ReactNode {
+    if (!group) return node;
+    const target = group.headerSlots[slot];
+    if (!target) return null;
+    if (slot === "right" && !group.visible) return null;
+    return createPortal(node, target);
+  }
+
   return (
     <div
       // Marks this page as an app shell for globals.css, which is what pins
@@ -5148,7 +5176,15 @@ export function WatchRoom({
           Below lg the same children stay the wrapping flex row they were:
           the mid-call controls are the bottom bar down there, not in here,
           so there is no middle zone to centre anything around. */}
-      <header className="shrink-0 border-b border-black/10 bg-white px-3 py-2 dark:border-white/10 dark:bg-zinc-950 sm:px-4">
+      <header
+        className={
+          // Hidden in a group: what matters in it is portalled into the
+          // group's bar (see inHeaderSlot), and the rest is said there already.
+          group
+            ? "hidden"
+            : "shrink-0 border-b border-black/10 bg-white px-3 py-2 dark:border-white/10 dark:bg-zinc-950 sm:px-4"
+        }
+      >
         <div className="flex flex-wrap items-center gap-x-2 gap-y-2.5 lg:grid lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] lg:flex-nowrap lg:gap-3">
           {/* Where you are. min-w-0 the whole way down, so a long room name
               truncates instead of shoving the middle zone off-centre — and
@@ -5286,7 +5322,7 @@ export function WatchRoom({
               in one place at a time rather than hidden with a `lg:` class, so
               there is only ever one mic button, one device popover and one
               open/closed state for them. */}
-          {isWideLayout && (
+          {isWideLayout && inHeaderSlot("center", (
             <div className="flex items-center justify-center gap-1.5 justify-self-center rounded-xl border border-zinc-200 bg-zinc-100 p-1 dark:border-zinc-800 dark:bg-zinc-900">
               {mainControls}
 
@@ -5371,11 +5407,12 @@ export function WatchRoom({
                 </button>
               </Tooltip>
             </div>
-          )}
+          ))}
 
           {/* Who you are, and everything that is about the page rather than
               about the call. Labels drop out before anything else does, so a
               narrow desktop loses words and never buttons. */}
+          {inHeaderSlot("right", (
           <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5 lg:ml-0 lg:flex-nowrap">
             {/* Still desktop-only: on a phone this lives inside "Mais opções"
                 (see menuItems), the only place with room for it. "Trocar de
@@ -5413,7 +5450,8 @@ export function WatchRoom({
                 color) either way so it reads as a status readout, not another
                 button. Shown only once there *is* an identity — a name is
                 what mints the guest one. */}
-            {isWideLayout ? null : account ? (
+            {/* Not in a group: the group's bar has the account menu. */}
+            {isWideLayout || group ? null : account ? (
               <Tooltip content="Ver seu perfil" placement="bottom">
                 {/* Your own profile opens in the room's dialog like everybody
                     else's — it was the last name here that still took you out
@@ -5482,7 +5520,8 @@ export function WatchRoom({
             {/* Immediately left of "mais opções": the two are the only
                 controls in this row that open a panel, and this is the one
                 that can be asking for attention. */}
-            <NotificationInboxBell />
+            {/* The group's bar has its own. */}
+            {!group && <NotificationInboxBell />}
 
             <Popover
               open={isDesktopLayout && menuOpen}
@@ -5523,7 +5562,7 @@ export function WatchRoom({
                 `state.account`, so logging in swaps one for the other in the
                 same render instead of showing both while the signaling
                 re-registration lands. */}
-            {!isWideLayout && !account && (
+            {!isWideLayout && !account && !group && (
               <Tooltip content="Entrar ou criar uma conta" placement="bottom">
                 <button
                   type="button"
@@ -5544,7 +5583,7 @@ export function WatchRoom({
               </Tooltip>
             )}
 
-            <UpdateAppButton />
+            {!group && <UpdateAppButton />}
 
             {!isDesktopLayout && menuOpen && (
               <>
@@ -5558,6 +5597,7 @@ export function WatchRoom({
               </>
             )}
           </div>
+          ))}
         </div>
       </header>
 
@@ -5754,7 +5794,8 @@ export function WatchRoom({
         />
       )}
 
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row lg:gap-3 lg:p-3">
+      {/* In a group the shell around this already pads it (see GroupAppShell). */}
+      <div className={`flex min-h-0 flex-1 flex-col lg:flex-row lg:gap-3 ${group ? "" : "lg:p-3"}`}>
         {/* From lg up, participants get this dedicated full-height column
             instead of sharing a pane with chat — see isWideLayout. A card of
             its own rather than loose text on the page background: the room is
@@ -5765,7 +5806,9 @@ export function WatchRoom({
 
             The ad card lives here (below the list) rather than in the chat
             column, so chat gets the full column to itself. */}
-        {isWideLayout && !leftSidebarCollapsed && (
+        {/* Not in a group: who is in the call is already on the group's room
+            card, and the ad lives in the group's rooms column. */}
+        {isWideLayout && !leftSidebarCollapsed && !group && (
           <aside className="flex h-full w-[300px] shrink-0 flex-col gap-3">
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
               <div className="shrink-0 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
@@ -5798,7 +5841,7 @@ export function WatchRoom({
 
         <main className="relative flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-2 lg:p-0">
           {/* Floating expand buttons when sidebars are collapsed on wide screens */}
-          {isWideLayout && leftSidebarCollapsed && (
+          {isWideLayout && leftSidebarCollapsed && !group && (
             <div className="absolute left-2 top-2 z-20">
               <Tooltip content="Mostrar participantes" placement="right">
                 <button

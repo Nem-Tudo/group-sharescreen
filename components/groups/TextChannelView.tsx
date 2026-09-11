@@ -11,40 +11,48 @@ import {
   type ReactNode,
 } from "react";
 import useNtPopups from "ntpopups";
-import { MdDeleteOutline, MdMenu, MdPeopleOutline, MdReply, MdTag } from "react-icons/md";
-import { AccountMenu } from "@/components/AccountMenu";
+import { MdChatBubbleOutline, MdDeleteOutline, MdPeopleOutline, MdReply } from "react-icons/md";
 import { ChatImageModal, type ChatImagePreviewState } from "@/components/ChatImageModal";
 import { DisplayUserName } from "@/components/DisplayUserName";
-import { NotificationInboxBell } from "@/components/NotificationInboxBell";
 import { Tooltip } from "@/components/Tooltip";
 import { UserAvatar } from "@/components/UserAvatar";
-import { useGroupNav } from "@/components/groups/groupNav";
 import {
   GroupMessageComposer,
   type ComposerPayload,
   type MentionCandidate,
 } from "@/components/groups/GroupMessageComposer";
+import { openGroupProfile } from "@/components/groups/groupProfile";
 import { rememberChannel } from "@/components/groups/lastChannel";
 import { buildMentionsRegex, tokenizeMentions } from "@/lib/chatMentions";
 import { verifiedBadge } from "@/lib/entitlements";
 import {
+  getCachedChannel,
+  loadLatestMessages,
+  putCachedChannel,
+  useGroupMembers,
+} from "@/lib/groupCache";
+import {
   deleteGroupMessage,
-  fetchMembers,
   fetchMessages,
   sendGroupMessage,
   type GroupDetail,
-  type GroupMember,
   type GroupMessage,
   type GroupReplyTo,
   type GroupUser,
 } from "@/lib/groupsApi";
 import { signalingClient } from "@/lib/signalingClient";
 import { onGroupMessage, onGroupMessageDeleted, setViewingChannel } from "@/lib/useGroups";
+import { prefetchUserProfile } from "@/lib/userProfile";
 
 // One text room of a group: its history, read a page at a time and extended
-// live, and the box to write in. Discord's shape rather than the DM bubbles —
-// a face and a name at the head of each run of messages — because a room has
-// many voices and the thing a reader scans for is *who* said it.
+// live, and the box to write in. Drawn as a panel in the same family as the
+// room's chat (components/ChatPanel) — small face beside the name, a run of
+// lines from one person under one header, a mention lit in blue — because it
+// is the same kind of conversation, just one that stays after everybody leaves.
+//
+// Opens from lib/groupCache when the room was read before — at once, scrolled
+// to the bottom — and re-reads the newest page behind that, so switching
+// between rooms never shows a skeleton for something already seen.
 
 const GROUP_GAP_MS = 5 * 60 * 1000;
 const NEAR_BOTTOM_PX = 96;
@@ -63,8 +71,7 @@ function dayLabel(ts: number): string {
   const now = Date.now();
   if (dayKey(ts) === dayKey(now)) return "Hoje";
   if (dayKey(ts) === dayKey(now - 86_400_000)) return "Ontem";
-  const label = new Date(ts).toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" });
-  return label.charAt(0).toUpperCase() + label.slice(1);
+  return new Date(ts).toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" });
 }
 
 const LINK_SPLIT = /(https?:\/\/[^\s]+|www\.[^\s]+)/g;
@@ -80,7 +87,7 @@ function linkify(text: string, keyPrefix: string): ReactNode[] {
         href={href}
         target="_blank"
         rel="noopener noreferrer"
-        className="break-all text-indigo-600 underline-offset-2 hover:underline dark:text-indigo-400"
+        className="break-all underline underline-offset-2 hover:text-zinc-950 dark:hover:text-white"
       >
         {part}
       </a>
@@ -90,20 +97,24 @@ function linkify(text: string, keyPrefix: string): ReactNode[] {
 
 type Pending = { clientId: string; text: string; ts: number; kind: "text" | "gif" | "image" };
 
+const rowAction =
+  "inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-400 opacity-100 transition hover:bg-zinc-200/70 hover:text-zinc-800 active:scale-95 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200";
+
 export function TextChannelView({ detail, channelId }: { detail: GroupDetail; channelId: string }) {
   const { openPopup } = useNtPopups();
-  const { openNav } = useGroupNav();
   const groupId = detail.group.id;
   const channel = detail.channels.find((c) => c.id === channelId) ?? null;
   const selfId = detail.me.id;
   const isManager = detail.me.role === "owner" || detail.me.role === "admin";
 
-  const [messages, setMessages] = useState<GroupMessage[] | null>(null);
-  const [authors, setAuthors] = useState<Record<string, GroupUser>>({});
-  const [hasMore, setHasMore] = useState(true);
+  // Whatever was held for this room from last time. Read once: this component
+  // is keyed by the room, so a new room is a new instance and a fresh read.
+  const [cached] = useState(() => (detail.chatAvailable ? getCachedChannel(channelId) : null));
+  const [messages, setMessages] = useState<GroupMessage[] | null>(cached?.messages ?? null);
+  const [authors, setAuthors] = useState<Record<string, GroupUser>>(cached?.authors ?? {});
+  const [hasMore, setHasMore] = useState(cached?.hasMore ?? true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
-  const [members, setMembers] = useState<GroupMember[]>([]);
   const [replyTo, setReplyTo] = useState<GroupReplyTo | null>(null);
   const [pending, setPending] = useState<Pending[]>([]);
   const [preview, setPreview] = useState<ChatImagePreviewState | null>(null);
@@ -112,40 +123,51 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const atBottomRef = useRef(true);
   const olderInFlight = useRef(false);
-  const pendingScroll = useRef<{ type: "bottom" } | { type: "preserve"; height: number; top: number } | null>(null);
+  const pendingScroll = useRef<{ type: "bottom" } | { type: "preserve"; height: number; top: number } | null>(
+    cached ? { type: "bottom" } : null
+  );
 
   // ── Loading ──────────────────────────────────────────────────────────
 
+  // The newest page, folded into whatever was held (see loadLatestMessages).
   useEffect(() => {
     if (!detail.chatAvailable) return;
-    const controller = new AbortController();
-    void fetchMessages(groupId, channelId, undefined, controller.signal)
-      .then((result) => {
-        if (controller.signal.aborted) return;
-        if (!result.ok) {
-          setLoadError(result.error);
-          setMessages([]);
-          return;
-        }
-        pendingScroll.current = { type: "bottom" };
-        setMessages(result.messages);
-        setAuthors((prev) => ({ ...prev, ...result.authors }));
-        setHasMore(result.messages.length >= 50);
-      })
-      .catch(() => {});
-    return () => controller.abort();
+    let cancelled = false;
+    void loadLatestMessages(groupId, channelId).then((entry) => {
+      if (cancelled) return;
+      if (!entry) {
+        // Nothing held and nothing read: say so. With a cached page on
+        // screen, a failed refresh is not worth replacing it with an error.
+        setMessages((prev) => {
+          if (prev === null) setLoadError("Não foi possível carregar as mensagens.");
+          return prev ?? [];
+        });
+        return;
+      }
+      if (atBottomRef.current) pendingScroll.current = { type: "bottom" };
+      setMessages(entry.messages);
+      setAuthors((prev) => ({ ...prev, ...entry.authors }));
+      setHasMore(entry.hasMore);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [groupId, channelId, detail.chatAvailable]);
 
-  // Members, for @mention suggestions and for naming authors the page did not carry.
+  // Everything this room holds goes back into the cache as it changes, so the
+  // next visit opens on exactly what was on screen when this one ended.
   useEffect(() => {
-    const controller = new AbortController();
-    void fetchMembers(groupId, controller.signal)
-      .then((result) => {
-        if (!controller.signal.aborted && result.ok) setMembers(result.members);
-      })
-      .catch(() => {});
-    return () => controller.abort();
-  }, [groupId, detail.group.memberCount]);
+    if (!messages || !detail.chatAvailable || loadError) return;
+    const held = getCachedChannel(channelId);
+    putCachedChannel(channelId, { messages, authors, hasMore, fetchedAt: held?.fetchedAt ?? Date.now() });
+  }, [channelId, messages, authors, hasMore, detail.chatAvailable, loadError]);
+
+  // Members, shared with the members column — for @mention suggestions and for
+  // naming authors the page did not carry.
+  const heldMembers = useGroupMembers(groupId, `${detail.group.memberCount}:${detail.group.admins.join(",")}`);
+  // One stable empty list while nothing is held, so what is derived from it
+  // below is not recomputed on every render.
+  const members = useMemo(() => heldMembers ?? [], [heldMembers]);
 
   const loadOlder = useCallback(async () => {
     if (olderInFlight.current || !hasMore || !messages || messages.length === 0) return;
@@ -167,15 +189,18 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
 
   // ── Live ─────────────────────────────────────────────────────────────
 
-  const upsert = useCallback((message: GroupMessage) => {
-    setMessages((prev) => {
-      if (!prev) return prev;
-      if (prev.some((m) => m.id === message.id)) return prev;
-      if (atBottomRef.current) pendingScroll.current = { type: "bottom" };
-      else if (message.from !== selfId) setUnseen((n) => n + 1);
-      return [...prev, message].sort((a, b) => a.ts - b.ts);
-    });
-  }, [selfId]);
+  const upsert = useCallback(
+    (message: GroupMessage) => {
+      setMessages((prev) => {
+        if (!prev) return prev;
+        if (prev.some((m) => m.id === message.id)) return prev;
+        if (atBottomRef.current) pendingScroll.current = { type: "bottom" };
+        else if (message.from !== selfId) setUnseen((n) => n + 1);
+        return [...prev, message].sort((a, b) => a.ts - b.ts);
+      });
+    },
+    [selfId]
+  );
 
   useEffect(
     () =>
@@ -197,7 +222,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
   );
 
   // This room is the one on screen — nothing in it is unread, here or on any
-  // other device — and the rail should come back here next time.
+  // other device — and the group should come back here next time.
   useEffect(() => {
     rememberChannel(groupId, channelId);
     setViewingChannel({ groupId, channelId });
@@ -253,10 +278,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
         .map((m) => ({ id: m.id, name: m.name, avatarUrl: m.avatarUrl })),
     [members, selfId]
   );
-  const mentionRegex = useMemo(
-    () => buildMentionsRegex(members.map((m) => m.name)),
-    [members]
-  );
+  const mentionRegex = useMemo(() => buildMentionsRegex(members.map((m) => m.name)), [members]);
 
   function userOf(message: GroupMessage): GroupUser {
     return (
@@ -277,10 +299,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
     const tokens = tokenizeMentions(message.text, mentionRegex);
     return tokens.map((token, index) =>
       token.type === "mention" ? (
-        <span
-          key={index}
-          className="rounded bg-indigo-500/15 px-0.5 font-medium text-indigo-700 dark:text-indigo-300"
-        >
+        <span key={index} className="font-semibold text-blue-600 dark:text-blue-400">
           {token.value}
         </span>
       ) : (
@@ -331,23 +350,22 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
         cancelLabel: "Cancelar",
         confirmLabel: "Apagar",
         confirmStyle: "Danger",
-        icon: "🗑️",
         onChoose: async (confirmed: boolean) => {
           if (!confirmed) return;
           const result = await deleteGroupMessage(groupId, channelId, message.id);
           if (result.ok) setMessages((prev) => prev?.filter((m) => m.id !== message.id) ?? prev);
-          else void openPopup("generic", { data: { title: "Não deu", message: result.error, icon: "⚠️" } });
+          else void openPopup("generic", { data: { title: "Não deu", message: result.error } });
         },
       },
     });
   }
 
-  function openSettings(tab: string) {
+  function openMembers() {
     void openPopup("group_settings", {
       maxWidth: "min(46rem, calc(100vw - 2rem))",
       width: "min(46rem, calc(100vw - 2rem))",
       maxHeight: "90dvh",
-      data: { groupId, tab },
+      data: { groupId, tab: "members" },
     });
   }
 
@@ -355,23 +373,36 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
 
   const channelName = channel?.name ?? "sala";
 
+  function actionsFor(message: GroupMessage) {
+    const canDelete = message.from === selfId || isManager;
+    return (
+      <span className="flex shrink-0 items-center">
+        <button type="button" onClick={() => startReply(message)} aria-label="Responder" title="Responder" className={rowAction}>
+          <MdReply className="h-3.5 w-3.5" />
+        </button>
+        {canDelete && (
+          <button type="button" onClick={() => confirmDelete(message)} aria-label="Apagar" title="Apagar" className={rowAction}>
+            <MdDeleteOutline className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </span>
+    );
+  }
+
   let body: ReactNode;
   if (!detail.chatAvailable) {
     body = (
-      <div className="flex flex-1 items-center justify-center p-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
+      <p className="my-auto p-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
         As salas de texto não estão disponíveis nesta instalação.
-      </div>
+      </p>
     );
   } else if (messages === null) {
     body = (
-      <div className="flex flex-1 flex-col justify-end gap-4 p-4" aria-hidden>
-        {[0, 1, 2].map((i) => (
-          <div key={i} className="flex gap-3">
-            <span className="h-10 w-10 shrink-0 animate-pulse rounded-full bg-zinc-200 dark:bg-zinc-800" />
-            <span className="flex flex-1 flex-col gap-2">
-              <span className="h-3 w-32 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
-              <span className="h-3 w-2/3 animate-pulse rounded bg-zinc-100 dark:bg-zinc-900" />
-            </span>
+      <div className="flex flex-1 flex-col justify-end gap-3 px-3 py-4" aria-hidden>
+        {["w-1/2", "w-2/3", "w-1/3"].map((width, i) => (
+          <div key={i} className="flex flex-col gap-1.5">
+            <span className="h-3 w-24 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
+            <span className={`h-3 ${width} animate-pulse rounded bg-zinc-100 dark:bg-zinc-900`} />
           </div>
         ))}
       </div>
@@ -389,124 +420,119 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
         !message.replyTo;
       if (newDay) {
         rows.push(
-          <li key={`day-${message.id}`} className="my-3 flex items-center gap-3 px-4" aria-hidden>
-            <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
-            <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">{dayLabel(message.ts)}</span>
-            <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
+          <li key={`day-${message.id}`} className="my-3 text-center text-[11px] font-medium text-zinc-400 first:mt-0 dark:text-zinc-500">
+            {dayLabel(message.ts)}
           </li>
         );
       }
       const author = userOf(message);
       const mentionsMe = Boolean(message.mentions?.includes(selfId)) || message.replyTo?.userId === selfId;
-      const canDelete = message.from === selfId || isManager;
       rows.push(
         <li
           key={message.id}
-          className={`group/msg relative flex gap-3 px-4 py-0.5 transition hover:bg-zinc-50 dark:hover:bg-zinc-900/60 ${
-            grouped ? "" : "mt-3"
-          } ${mentionsMe ? "border-l-2 border-amber-500 bg-amber-500/10 hover:bg-amber-500/15 dark:hover:bg-amber-500/15" : ""}`}
+          className={`group relative -mx-1.5 rounded-lg px-2 text-sm transition-colors ${
+            grouped ? "pb-0.5" : "mt-2.5 pb-0.5"
+          } ${mentionsMe ? "bg-blue-100/70 py-1 dark:bg-blue-500/25" : "hover:bg-zinc-100/80 dark:hover:bg-zinc-900/70"}`}
         >
-          <div className="w-10 shrink-0">
-            {grouped ? (
-              <span className="invisible block pt-1 text-right text-[10px] text-zinc-400 group-hover/msg:visible">
-                {timeLabel(message.ts)}
+          {message.replyTo && (
+            <div className="mb-1 flex max-w-full items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+              <svg
+                className="h-3.5 w-3.5 shrink-0 text-zinc-300 dark:text-zinc-600"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <path d="M 4 19 V 9 A 5 5 0 0 1 9 4 H 20" />
+              </svg>
+              <span className="font-medium text-zinc-700 dark:text-zinc-300">@{message.replyTo.name}</span>
+              <span className="truncate text-zinc-400 dark:text-zinc-500">
+                {message.replyTo.text ||
+                  (message.replyTo.kind === "gif" ? <span className="italic">[GIF]</span> : <span className="italic">[Imagem]</span>)}
               </span>
-            ) : (
-              <UserAvatar
-                src={author.avatarUrl}
-                name={author.name}
-                size={40}
-                userId={author.guest ? null : author.id}
-                isGuest={author.guest}
-              />
-            )}
-          </div>
-          <div className="min-w-0 flex-1">
-            {message.replyTo && (
-              <p className="mb-0.5 flex min-w-0 items-center gap-1 text-xs text-zinc-500 dark:text-zinc-400">
-                <MdReply className="h-3.5 w-3.5 shrink-0 -scale-x-100" />
-                <span className="font-semibold">@{message.replyTo.name}</span>
-                <span className="truncate">
-                  {message.replyTo.text || (message.replyTo.kind === "gif" ? "GIF" : "Imagem")}
-                </span>
-              </p>
-            )}
-            {!grouped && (
-              <p className="flex items-baseline gap-2">
-                <DisplayUserName
+            </div>
+          )}
+          {!grouped && (
+            <div className="flex items-center justify-between gap-1.5">
+              {/* The author, as a way to their profile — the same thing the
+                  room's chat does with a name. */}
+              <button
+                type="button"
+                onClick={() =>
+                  openGroupProfile({
+                    id: author.id,
+                    name: author.name,
+                    avatarUrl: author.avatarUrl,
+                    guest: author.guest,
+                  })
+                }
+                onMouseEnter={() => !author.guest && prefetchUserProfile(author.id)}
+                title="Ver perfil"
+                className="flex min-w-0 cursor-pointer items-center gap-1.5 text-left"
+              >
+                <UserAvatar
+                  src={author.avatarUrl}
                   name={author.name}
+                  size={20}
+                  userId={author.guest ? null : author.id}
                   isGuest={author.guest}
-                  verified={verifiedBadge(author.flags)}
-                  color={author.nameColor}
-                  className="text-[15px] font-semibold text-zinc-950 dark:text-zinc-50"
                 />
-                <span className="text-xs text-zinc-400">{timeLabel(message.ts)}</span>
-              </p>
-            )}
-            {message.text && (
-              <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-zinc-800 dark:text-zinc-200">
-                {renderText(message)}
-              </p>
-            )}
-            {message.kind === "gif" && message.url && (
-              <button
-                type="button"
-                onClick={() => setPreview({ src: message.url!, alt: "GIF" })}
-                className="mt-1 block cursor-zoom-in"
-                aria-label="Ampliar o GIF"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={message.url} alt="GIF" onLoad={onMediaLoad} className="max-h-60 rounded-lg" />
+                <span className="flex min-w-0 items-baseline gap-1.5">
+                  <DisplayUserName
+                    name={author.name}
+                    isGuest={author.guest}
+                    verified={verifiedBadge(author.flags)}
+                    color={author.nameColor}
+                    className="min-w-0 font-medium text-zinc-700 hover:underline dark:text-zinc-300"
+                  />
+                  <span className="shrink-0 text-xs tabular-nums text-zinc-400 dark:text-zinc-600">{timeLabel(message.ts)}</span>
+                </span>
               </button>
-            )}
-            {message.images && message.images.length > 0 && (
-              <div className={`mt-1 grid max-w-md gap-1 ${message.images.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
-                {message.images.map((url, index) => (
-                  <button
-                    key={url}
-                    type="button"
-                    onClick={() =>
-                      setPreview({ src: url, alt: "Imagem", images: message.images, currentIndex: index })
-                    }
-                    className="block cursor-zoom-in overflow-hidden rounded-lg"
-                    aria-label="Ampliar a imagem"
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={url}
-                      alt="Imagem"
-                      onLoad={onMediaLoad}
-                      className={`w-full object-cover ${message.images!.length > 1 ? "aspect-square" : "max-h-72 object-contain"}`}
-                    />
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          {/* What can be done to a message, over its top-right corner on hover. */}
-          <div className="absolute -top-3 right-4 hidden items-center gap-0.5 rounded-lg border border-zinc-200 bg-white p-0.5 shadow-sm group-hover/msg:flex dark:border-zinc-800 dark:bg-zinc-900">
-            <Tooltip content="Responder">
-              <button
-                type="button"
-                onClick={() => startReply(message)}
-                aria-label="Responder"
-                className="cursor-pointer rounded-md p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-              >
-                <MdReply className="h-4 w-4" />
-              </button>
-            </Tooltip>
-            {canDelete && (
-              <Tooltip content="Apagar">
+              {actionsFor(message)}
+            </div>
+          )}
+          <div className={grouped ? "flex items-start justify-between gap-1.5" : ""}>
+            <div className="min-w-0 flex-1">
+              {message.text && (
+                <p className="whitespace-pre-wrap break-words text-zinc-900 dark:text-zinc-100">{renderText(message)}</p>
+              )}
+              {message.kind === "gif" && message.url && (
                 <button
                   type="button"
-                  onClick={() => confirmDelete(message)}
-                  aria-label="Apagar"
-                  className="cursor-pointer rounded-md p-1 text-red-500 hover:bg-red-500/10"
+                  onClick={() => setPreview({ src: message.url!, alt: "GIF" })}
+                  className="mt-1 block cursor-zoom-in"
+                  aria-label="Ampliar o GIF"
                 >
-                  <MdDeleteOutline className="h-4 w-4" />
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={message.url} alt="GIF" onLoad={onMediaLoad} className="max-h-48 rounded-lg" />
                 </button>
-              </Tooltip>
-            )}
+              )}
+              {message.images && message.images.length > 0 && (
+                <div className={`mt-1 grid max-w-xs gap-1 ${message.images.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
+                  {message.images.map((url, index) => (
+                    <button
+                      key={url}
+                      type="button"
+                      onClick={() => setPreview({ src: url, alt: "Imagem", images: message.images, currentIndex: index })}
+                      className="block cursor-zoom-in overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800"
+                      aria-label="Ampliar a imagem"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={url}
+                        alt="Imagem"
+                        onLoad={onMediaLoad}
+                        className={`w-full object-cover ${message.images!.length > 1 ? "aspect-square" : "max-h-64 object-contain"}`}
+                      />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {grouped && actionsFor(message)}
           </div>
         </li>
       );
@@ -514,26 +540,24 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
     }
 
     body = (
-      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
-        <ul className="flex min-h-full flex-col justify-end pb-3">
+      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
+        <ul className="flex min-h-full flex-col justify-end">
           {!hasMore && (
-            <li className="px-4 pb-4 pt-8">
-              <span className="flex h-14 w-14 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-900">
-                <MdTag className="h-8 w-8 text-zinc-500" />
-              </span>
-              <p className="mt-2 text-2xl font-bold text-zinc-950 dark:text-zinc-50">Bem-vindo a #{channelName}!</p>
-              <p className="text-sm text-zinc-500 dark:text-zinc-400">Este é o começo da sala #{channelName}.</p>
+            <li className="mb-3 pt-6 text-center">
+              <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Começo de {channelName}</p>
+              <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                O que for dito aqui fica salvo para todo mundo do grupo.
+              </p>
             </li>
           )}
           {loadingOlder && (
             <li className="py-2 text-center text-xs text-zinc-500 dark:text-zinc-400">Carregando mensagens antigas…</li>
           )}
-          {loadError && <li className="px-4 py-2 text-sm text-red-500">{loadError}</li>}
+          {loadError && <li className="py-2 text-center text-sm text-red-500">{loadError}</li>}
           {rows}
           {pending.map((p) => (
-            <li key={p.clientId} className="flex gap-3 px-4 py-0.5 opacity-60">
-              <div className="w-10 shrink-0" />
-              <p className="min-w-0 flex-1 whitespace-pre-wrap break-words text-[15px] text-zinc-700 dark:text-zinc-300">
+            <li key={p.clientId} className="-mx-1.5 px-2 pb-0.5 text-sm text-zinc-500 opacity-70">
+              <p className="whitespace-pre-wrap break-words">
                 {p.text || (p.kind === "gif" ? "Enviando GIF…" : "Enviando imagem…")}
               </p>
             </li>
@@ -544,37 +568,25 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-white dark:bg-zinc-950">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-black/5 px-3 dark:border-white/5">
-        <button
-          type="button"
-          onClick={openNav}
-          aria-label="Salas do grupo"
-          className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-zinc-600 transition hover:bg-zinc-100 lg:hidden dark:text-zinc-400 dark:hover:bg-zinc-900"
-        >
-          <MdMenu className="h-5 w-5" />
-        </button>
-        <MdTag className="h-5 w-5 shrink-0 text-zinc-500" />
-        <h1 className="min-w-0 truncate font-semibold text-zinc-950 dark:text-zinc-50">{channelName}</h1>
-        <span className="hidden truncate text-sm text-zinc-500 md:inline dark:text-zinc-400">
-          · {detail.group.name}
-        </span>
-        <div className="ml-auto flex shrink-0 items-center gap-1">
-          <Tooltip content="Membros">
-            <button
-              type="button"
-              onClick={() => openSettings("members")}
-              aria-label="Membros"
-              className="flex h-9 cursor-pointer items-center gap-1 rounded-lg px-2 text-sm text-zinc-600 transition hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
-            >
-              <MdPeopleOutline className="h-5 w-5" />
-              <span className="hidden sm:inline">{detail.group.memberCount}</span>
-            </button>
-          </Tooltip>
-          <NotificationInboxBell />
-          <AccountMenu />
-        </div>
-      </header>
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white lg:rounded-xl lg:border lg:border-zinc-200 dark:bg-zinc-950 lg:dark:border-zinc-800">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
+        <h2 className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-zinc-700 dark:text-zinc-300">
+          <MdChatBubbleOutline className="h-4 w-4 shrink-0 text-zinc-500" />
+          <span className="truncate">{channelName}</span>
+        </h2>
+        <Tooltip content="Membros do grupo">
+          <button
+            type="button"
+            onClick={openMembers}
+            aria-label="Membros do grupo"
+            // From lg up the members are the column on the right (see GroupMembersPanel).
+            className="flex shrink-0 cursor-pointer items-center gap-1 rounded-lg px-1.5 py-1 text-xs text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 lg:hidden dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+          >
+            <MdPeopleOutline className="h-4 w-4" />
+            {detail.group.memberCount}
+          </button>
+        </Tooltip>
+      </div>
 
       <div className="relative flex min-h-0 flex-1 flex-col">
         {body}
@@ -582,9 +594,9 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
           <button
             type="button"
             onClick={scrollToBottom}
-            className="absolute bottom-2 left-1/2 -translate-x-1/2 cursor-pointer rounded-full bg-indigo-600 px-3 py-1 text-xs font-medium text-white shadow-lg transition hover:bg-indigo-700"
+            className="absolute bottom-2 left-1/2 -translate-x-1/2 cursor-pointer rounded-full bg-zinc-950 px-3 py-1 text-xs font-medium text-white shadow-lg transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
           >
-            {unseen === 1 ? "1 mensagem nova" : `${unseen} mensagens novas`} ↓
+            {unseen === 1 ? "1 mensagem nova" : `${unseen} mensagens novas`}
           </button>
         )}
       </div>

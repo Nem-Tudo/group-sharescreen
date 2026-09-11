@@ -2,6 +2,7 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import { signalingClient, type GroupSocketEvent } from "./signalingClient";
+import { appendCachedMessage, forgetGroupMembers, removeCachedMessage } from "./groupCache";
 import {
   fetchGroup,
   fetchMyGroups,
@@ -69,6 +70,10 @@ export function refreshGroups(): Promise<void> {
 }
 
 const detailInFlight = new Map<string, Promise<void>>();
+/** When each group's detail was last read — see useGroupDetail's background refresh. */
+const detailFetchedAt = new Map<string, number>();
+/** A group opened again after this long is re-read behind what is shown. */
+const DETAIL_STALE_MS = 30_000;
 
 export function refreshGroup(groupId: string): Promise<void> {
   const pending = detailInFlight.get(groupId);
@@ -78,6 +83,7 @@ export function refreshGroup(groupId: string): Promise<void> {
     if (result.ok) {
       const { ok: _ok, ...detail } = result;
       void _ok;
+      detailFetchedAt.set(groupId, Date.now());
       // A room being looked at right now has, by definition, nothing unread.
       const viewing = viewingChannel?.groupId === groupId ? viewingChannel.channelId : null;
       const channels = detail.channels.map((c) =>
@@ -266,12 +272,16 @@ function handleEvent(event: GroupSocketEvent) {
       if (!message) return;
       noteIncomingMessage(message);
       const author = (event.author as GroupUser | undefined) ?? null;
+      // Kept current for a room that is not on screen, so reopening it is
+      // instant and already has this (see lib/groupCache).
+      appendCachedMessage(message, author);
       messageListeners.forEach((l) => l(message, author));
       return;
     }
     case "group-message-deleted": {
       if (!groupId || typeof event.channelId !== "string" || typeof event.messageId !== "string") return;
       const payload = { groupId, channelId: event.channelId, messageId: event.messageId };
+      removeCachedMessage(event.channelId, event.messageId);
       deleteListeners.forEach((l) => l(payload));
       return;
     }
@@ -295,6 +305,7 @@ function handleEvent(event: GroupSocketEvent) {
     case "group-removed": {
       if (!groupId) return;
       forgetGroup(groupId);
+      forgetGroupMembers(groupId);
       const reason = typeof event.reason === "string" ? event.reason : "removed";
       removedListeners.forEach((l) => l({ groupId, reason }));
       return;
@@ -325,8 +336,13 @@ export function useGroupDetail(groupId: string | null): {
   const snapshot = useGroupsState();
   const detail = groupId ? snapshot.details[groupId] ?? null : null;
   const error = groupId ? snapshot.detailErrors[groupId] ?? null : null;
+  // Shown from memory at once when it was read before; re-read behind it when
+  // that read is old — the socket keeps it current while connected, this covers
+  // whatever a sleeping tab or a dropped connection missed.
   useEffect(() => {
-    if (groupId && !state.details[groupId]) void refreshGroup(groupId);
+    if (!groupId) return;
+    const stale = Date.now() - (detailFetchedAt.get(groupId) ?? 0) > DETAIL_STALE_MS;
+    if (!state.details[groupId] || stale) void refreshGroup(groupId);
   }, [groupId]);
   return { detail, error };
 }

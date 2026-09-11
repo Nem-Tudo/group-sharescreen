@@ -3,9 +3,7 @@
 import Link from "next/link";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { MdMenu } from "react-icons/md";
 import { TextChannelView } from "@/components/groups/TextChannelView";
-import { useGroupNav } from "@/components/groups/groupNav";
 import { rememberedChannel } from "@/components/groups/lastChannel";
 import { groupPath } from "@/lib/groupLinks";
 import { useGroupDetail } from "@/lib/useGroups";
@@ -13,40 +11,28 @@ import { useGroupDetail } from "@/lib/useGroups";
 // The two pages inside a group. Both read the same store the shell does, so
 // they never fetch the group twice.
 
-function Centered({ children }: { children: React.ReactNode }) {
-  const { openNav } = useGroupNav();
+function Panel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex h-12 shrink-0 items-center border-b border-black/5 px-3 lg:hidden dark:border-white/5">
-        <button
-          type="button"
-          onClick={openNav}
-          aria-label="Menu"
-          className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
-        >
-          <MdMenu className="h-5 w-5" />
-        </button>
-      </div>
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">{children}</div>
+    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 bg-white p-6 text-center lg:rounded-xl lg:border lg:border-zinc-200 dark:bg-zinc-950 lg:dark:border-zinc-800">
+      {children}
     </div>
   );
 }
 
-function Loading() {
+function Loading({ label = "Carregando…" }: { label?: string }) {
   return (
-    <Centered>
-      <span className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-900 dark:border-zinc-700 dark:border-t-zinc-100" />
-      <span className="sr-only" role="status">
-        Carregando…
-      </span>
-    </Centered>
+    <Panel>
+      <span className="h-6 w-6 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-900 dark:border-zinc-700 dark:border-t-zinc-100" />
+      <p className="text-sm text-zinc-500 dark:text-zinc-400" role="status">
+        {label}
+      </p>
+    </Panel>
   );
 }
 
 function NotFound({ status }: { status: number }) {
   return (
-    <Centered>
-      <p className="text-4xl">🔒</p>
+    <Panel>
       <p className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">
         {status === 401 ? "Entre para ver seus grupos" : "Grupo não encontrado"}
       </p>
@@ -57,11 +43,11 @@ function NotFound({ status }: { status: number }) {
       </p>
       <Link
         href="/groups"
-        className="mt-2 rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+        className="mt-3 rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
       >
         Ver meus grupos
       </Link>
-    </Centered>
+    </Panel>
   );
 }
 
@@ -99,10 +85,5 @@ export function GroupRoom({ groupId, roomId }: { groupId: string; roomId: string
     return <TextChannelView key={channel.id} detail={detail} channelId={channel.id} />;
   }
   // The shell hides this the moment the call is up; until then, say what is happening.
-  return (
-    <Centered>
-      <span className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-300 border-t-emerald-600" />
-      <p className="text-sm text-zinc-500 dark:text-zinc-400">Entrando em {channel.name}…</p>
-    </Centered>
-  );
+  return <Loading label={`Entrando em ${channel.name}…`} />;
 }

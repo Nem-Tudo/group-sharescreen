@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type Rea
 import { useRouter } from "next/navigation";
 import useNtPopups from "ntpopups";
 import {
+  MdAddPhotoAlternate,
   MdArrowDownward,
   MdArrowUpward,
   MdCheck,
@@ -174,7 +175,7 @@ export function CreateGroupDialog({ closePopup }: PopupProps<object>) {
               <img src={icon} alt="Ícone" className="h-20 w-20 rounded-2xl object-cover" />
             ) : (
               <span className="flex h-20 w-20 flex-col items-center justify-center rounded-2xl border-2 border-dashed border-zinc-300 text-xs text-zinc-500 dark:border-zinc-700">
-                <span className="text-2xl">📷</span>
+                <MdAddPhotoAlternate className="h-6 w-6" />
                 Ícone
               </span>
             )}
@@ -321,7 +322,7 @@ export function GroupInviteDialog({ closePopup, data }: PopupProps<{ groupId: st
                 setTimeout(() => setCopied(false), 2000);
               }
             }}
-            className={`${copied ? "bg-emerald-600 hover:bg-emerald-700" : "bg-indigo-600 hover:bg-indigo-700"} flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-3 text-sm font-medium text-white transition disabled:opacity-50`}
+            className={`${copied ? "bg-emerald-600 text-white hover:bg-emerald-700" : "bg-zinc-950 text-white hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"} flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-3 text-sm font-medium transition disabled:opacity-50`}
           >
             {copied ? <MdCheck className="h-4 w-4" /> : <MdContentCopy className="h-4 w-4" />}
             {copied ? "Copiado" : "Copiar"}
@@ -703,7 +704,7 @@ function InvitesTab({ groupId, groupName }: { groupId: string; groupName: string
                     setTimeout(() => setCopied(null), 2000);
                   }
                 }}
-                className="cursor-pointer rounded-md px-2 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-500/10 dark:text-indigo-400"
+                className="cursor-pointer rounded-md px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
                 {copied === invite.code ? "Copiado!" : "Copiar link"}
               </button>
@@ -790,7 +791,7 @@ function MembersTab({ groupId, selfId, role }: { groupId: string; selfId: string
                     className={`flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
                       member.role === "owner"
                         ? "bg-amber-500/15 text-amber-700 dark:text-amber-400"
-                        : "bg-indigo-500/15 text-indigo-700 dark:text-indigo-300"
+                        : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
                     }`}
                   >
                     {member.role === "owner" && <FaCrown className="h-3 w-3" />}
@@ -900,7 +901,7 @@ function BansTab({ groupId }: { groupId: string }) {
                 const result = await unbanMember(groupId, ban.userId);
                 if (result.ok) setBans(result.bans);
               }}
-              className="cursor-pointer rounded-md px-2 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-500/10 dark:text-indigo-400"
+              className="cursor-pointer rounded-md px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
             >
               Desbanir
             </button>

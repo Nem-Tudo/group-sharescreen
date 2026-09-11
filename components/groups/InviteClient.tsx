@@ -95,7 +95,6 @@ export function InviteClient({ code, initialPreview }: { code: string; initialPr
   if (!preview) {
     body = (
       <>
-        <p className="text-4xl">🔗</p>
         <h1 className="text-xl font-semibold text-zinc-950 dark:text-zinc-50">Convite inválido</h1>
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
           Esse link não leva a nenhum grupo. Confira se foi copiado inteiro, ou peça um novo.
@@ -200,4 +199,4 @@ export function InviteClient({ code, initialPreview }: { code: string; initialPr
 }
 
 const primaryClass =
-  "w-full cursor-pointer rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50";
+  "w-full cursor-pointer rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200";

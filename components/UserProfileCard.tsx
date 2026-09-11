@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { fetchUserProfile, formatDuration, type UserProfile } from "@/lib/userProfile";
+import { fetchUserProfile, formatDuration, peekUserProfile, type UserProfile } from "@/lib/userProfile";
 import { MicIcon, ScreenIcon } from "@/components/icons";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { BsCoin, BsClock, BsShop } from "react-icons/bs";
@@ -374,7 +374,12 @@ export function UserProfileCard({
    */
   autoPlaySong?: boolean;
 }) {
-  const [profile, setProfile] = useState<UserProfile | null | undefined>(undefined);
+  // Starts from the last answer read for this id when there is one (see
+  // peekUserProfile), so a profile opened again — or warmed on hover — draws at
+  // once; the read below always still happens and replaces it.
+  const [profile, setProfile] = useState<UserProfile | null | undefined>(
+    () => peekUserProfile(id) ?? undefined
+  );
 
   // Keeps whatever's already on screen while a new id loads, rather than
   // flashing back to "Carregando..." — the aborted fetch below (on id
@@ -389,7 +394,9 @@ export function UserProfileCard({
         // aborts on purpose — that's not "not found," it's just stale, and
         // the effect that fired it no longer cares about the answer.
         if (err instanceof DOMException && err.name === "AbortError") return;
-        setProfile(null);
+        // A failed *refresh* of a profile already on screen keeps it rather
+        // than replacing it with "not found" — only a first read reports that.
+        setProfile((previous) => previous ?? null);
       });
     return () => controller.abort();
   }, [id]);
