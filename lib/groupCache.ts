@@ -83,6 +83,16 @@ export function appendCachedMessage(message: GroupMessage, author: GroupUser | n
   });
 }
 
+/** A change to one held message — its reactions, today — for a room not on screen. */
+export function updateCachedMessage(channelId: string, messageId: string, patch: Partial<GroupMessage>): void {
+  const entry = channels.get(channelId);
+  if (!entry || !entry.messages.some((m) => m.id === messageId)) return;
+  channels.set(channelId, {
+    ...entry,
+    messages: entry.messages.map((m) => (m.id === messageId ? { ...m, ...patch } : m)),
+  });
+}
+
 export function removeCachedMessage(channelId: string, messageId: string): void {
   const entry = channels.get(channelId);
   if (!entry) return;

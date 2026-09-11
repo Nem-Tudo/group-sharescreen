@@ -84,7 +84,12 @@ assert.deepEqual([...permissionKeysFor("text")], [
   "sendImages",
   "mentionMembers",
   "mentionEveryone",
+  "addReactions",
+  "react",
 ]);
+// Both reaction switches start on.
+assert.equal(groupAllows(undefined, "addReactions"), true);
+assert.equal(groupAllows(undefined, "react"), true);
 assert.deepEqual([...permissionKeysFor("voice")], [
   "viewChannel",
   "connect",

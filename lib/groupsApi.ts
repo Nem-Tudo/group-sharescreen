@@ -157,6 +157,13 @@ export interface GroupReplyTo {
   images?: string[];
 }
 
+/** One emoji on a message and who reacted with it — see the API's GroupReaction. */
+export interface GroupReaction {
+  emoji: string;
+  /** Member ids, in the order they reacted. */
+  users: string[];
+}
+
 export interface GroupMessage {
   id: string;
   groupId: string;
@@ -169,6 +176,8 @@ export interface GroupMessage {
   images?: string[];
   replyTo?: GroupReplyTo | null;
   mentions?: string[];
+  /** In the order each emoji was first used. Absent when nobody has reacted (and from an older API). */
+  reactions?: GroupReaction[];
   ts: number;
 }
 
@@ -439,6 +448,14 @@ export const sendGroupMessage = (
       ...(payload.mentions && payload.mentions.length > 0 ? { mentions: payload.mentions } : {}),
       ...(payload.name ? { name: payload.name } : {}),
     }
+  );
+
+/** Puts this person's reaction on a message (`on`), or takes it back. Answers with the message's reactions. */
+export const reactToGroupMessage = (groupId: string, channelId: string, messageId: string, emoji: string, on: boolean) =>
+  request<{ reactions: GroupReaction[] }>(
+    "POST",
+    `/groups/${enc(groupId)}/channels/${enc(channelId)}/messages/${enc(messageId)}/reactions`,
+    { emoji, on }
   );
 
 export const deleteGroupMessage = (groupId: string, channelId: string, messageId: string) =>

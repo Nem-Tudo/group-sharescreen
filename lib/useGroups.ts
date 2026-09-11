@@ -2,7 +2,7 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import { signalingClient, type GroupSocketEvent } from "./signalingClient";
-import { appendCachedMessage, forgetGroupMembers, removeCachedMessage } from "./groupCache";
+import { appendCachedMessage, forgetGroupMembers, removeCachedMessage, updateCachedMessage } from "./groupCache";
 import { EVERYONE_MENTION } from "./groupPermissions";
 import {
   fetchGroup,
@@ -10,6 +10,7 @@ import {
   markChannelRead,
   type GroupDetail,
   type GroupMessage,
+  type GroupReaction,
   type GroupSummary,
   type GroupUser,
   type GroupVoiceMap,
@@ -256,6 +257,9 @@ function noteIncomingMessage(message: GroupMessage) {
 /** `nonce` is the sender's own name for the message — see lib/groupOutbox. */
 type MessageListener = (message: GroupMessage, author: GroupUser | null, nonce?: string) => void;
 type DeleteListener = (event: { groupId: string; channelId: string; messageId: string }) => void;
+/** A message's reactions as they now stand — see the API's reactions route. */
+export type ReactionsEvent = { groupId: string; channelId: string; messageId: string; reactions: GroupReaction[] };
+type ReactionsListener = (event: ReactionsEvent) => void;
 type RemovedListener = (event: { groupId: string; reason: string }) => void;
 /** Somebody else started or stopped writing in a text room — see the API's typing route. */
 export type GroupTypingEvent = { groupId: string; channelId: string; userId: string; name: string; typing: boolean };
@@ -263,6 +267,7 @@ type TypingListener = (event: GroupTypingEvent) => void;
 
 const messageListeners = new Set<MessageListener>();
 const deleteListeners = new Set<DeleteListener>();
+const reactionsListeners = new Set<ReactionsListener>();
 const removedListeners = new Set<RemovedListener>();
 const typingListeners = new Set<TypingListener>();
 
@@ -289,6 +294,15 @@ export function onGroupTyping(listener: TypingListener): () => void {
   typingListeners.add(listener);
   return () => {
     typingListeners.delete(listener);
+  };
+}
+
+/** A message's reactions changed — for the text room on screen to redraw them. */
+export function onGroupMessageReactions(listener: ReactionsListener): () => void {
+  ensureSocketListener();
+  reactionsListeners.add(listener);
+  return () => {
+    reactionsListeners.delete(listener);
   };
 }
 
@@ -352,6 +366,15 @@ function handleEvent(event: GroupSocketEvent) {
       const payload = { groupId, channelId: event.channelId, messageId: event.messageId };
       removeCachedMessage(event.channelId, event.messageId);
       deleteListeners.forEach((l) => l(payload));
+      return;
+    }
+    case "group-message-reactions": {
+      if (!groupId || typeof event.channelId !== "string" || typeof event.messageId !== "string") return;
+      const reactions = Array.isArray(event.reactions) ? (event.reactions as GroupReaction[]) : [];
+      // Kept current for a room that is not on screen, like new messages are.
+      updateCachedMessage(event.channelId, event.messageId, { reactions });
+      const payload: ReactionsEvent = { groupId, channelId: event.channelId, messageId: event.messageId, reactions };
+      reactionsListeners.forEach((l) => l(payload));
       return;
     }
     case "group-read": {

@@ -11,10 +11,10 @@ import {
   type ReactNode,
 } from "react";
 import useNtPopups from "ntpopups";
-import { MdChatBubbleOutline, MdDeleteOutline, MdPeopleOutline, MdReply } from "react-icons/md";
+import { MdChatBubbleOutline, MdDeleteOutline, MdOutlineAddReaction, MdPeopleOutline, MdReply } from "react-icons/md";
 import { ChatImageModal, type ChatImagePreviewState } from "@/components/ChatImageModal";
 import { DisplayUserName } from "@/components/DisplayUserName";
-import { Tooltip } from "@/components/Tooltip";
+import { Popover, Tooltip } from "@/components/Tooltip";
 import { UserAvatar } from "@/components/UserAvatar";
 import {
   GroupMessageComposer,
@@ -22,6 +22,7 @@ import {
   type MentionCandidate,
 } from "@/components/groups/GroupMessageComposer";
 import { openGroupProfile } from "@/components/groups/groupProfile";
+import { ReactionPicker } from "@/components/groups/ReactionPicker";
 import { rememberChannel } from "@/components/groups/lastChannel";
 import { buildMentionsRegex, tokenizeMentions } from "@/lib/chatMentions";
 import { EVERYONE_MENTION, canInChannel, type TextPermissionKey } from "@/lib/groupPermissions";
@@ -35,15 +36,24 @@ import {
 import {
   deleteGroupMessage,
   fetchMessages,
+  reactToGroupMessage,
   sendGroupTyping,
   type GroupDetail,
   type GroupMessage,
+  type GroupReaction,
   type GroupReplyTo,
   type GroupUser,
 } from "@/lib/groupsApi";
+import { describeReaction, toggleReaction as toggledReactions } from "@/lib/groupReactions";
 import { signalingClient } from "@/lib/signalingClient";
 import { TYPING_REFRESH_MS, formatTypingLabel } from "@/lib/typing";
-import { onGroupMessage, onGroupMessageDeleted, onGroupTyping, setViewingChannel } from "@/lib/useGroups";
+import {
+  onGroupMessage,
+  onGroupMessageDeleted,
+  onGroupMessageReactions,
+  onGroupTyping,
+  setViewingChannel,
+} from "@/lib/useGroups";
 import {
   discardGroupMessage,
   queueGroupMessage,
@@ -130,6 +140,10 @@ function outgoingAsMessage(outgoing: OutgoingMessage, selfId: string): GroupMess
 const rowAction =
   "inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-400 opacity-100 transition hover:bg-zinc-200/70 hover:text-zinc-800 active:scale-95 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200";
 
+// One reaction under a message: its emoji and its count, in a small pill.
+const reactionChip =
+  "inline-flex h-6 items-center gap-1 rounded-md border px-1.5 text-xs font-medium transition border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300";
+
 /** @everyone in the mention suggestions — see lib/groupPermissions' EVERYONE_MENTION. */
 const EVERYONE_CANDIDATE: MentionCandidate = { id: EVERYONE_MENTION, name: "everyone", avatarUrl: null };
 
@@ -154,6 +168,10 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
   const outbox = useOutbox(channelId);
   const [preview, setPreview] = useState<ChatImagePreviewState | null>(null);
   const [unseen, setUnseen] = useState(0);
+  // The reaction picker that is open, as "<message id>:<where>" — each message
+  // has two ways in (its hover actions and the "+" at the end of its
+  // reactions), and only the one clicked opens.
+  const [pickerFor, setPickerFor] = useState<string | null>(null);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const atBottomRef = useRef(true);
@@ -295,6 +313,17 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
         upsert(message);
       }),
     [groupId, channelId, upsert, dropTyper]
+  );
+
+  useEffect(
+    () =>
+      onGroupMessageReactions((event) => {
+        if (event.channelId !== channelId) return;
+        setMessages(
+          (prev) => prev?.map((m) => (m.id === event.messageId ? { ...m, reactions: event.reactions } : m)) ?? prev
+        );
+      }),
+    [channelId]
   );
 
   useEffect(
@@ -480,6 +509,53 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
     });
   }
 
+  // A reaction, put on or taken back. Changed here at once and then replaced
+  // by what the server answers, so the chip lights up on the click; put back
+  // as it was, with the reason, when the server refuses.
+  async function toggleReaction(message: GroupMessage, emoji: string) {
+    setPickerFor(null);
+    const before = message.reactions ?? [];
+    const on = !before.some((r) => r.emoji === emoji && r.users.includes(selfId));
+    const apply = (reactions: GroupReaction[]) =>
+      setMessages((prev) => prev?.map((m) => (m.id === message.id ? { ...m, reactions } : m)) ?? prev);
+    apply(toggledReactions(before, emoji, selfId, on));
+    const result = await reactToGroupMessage(groupId, channelId, message.id, emoji, on);
+    if (result.ok) {
+      apply(result.reactions);
+      return;
+    }
+    apply(before);
+    void openPopup("generic", { data: { title: "Não deu", message: result.error } });
+  }
+
+  function reactorName(userId: string): string {
+    if (userId === selfId) return "Você";
+    return memberById.get(userId)?.name ?? authors[userId]?.name ?? "Alguém";
+  }
+
+  /** The emoji picker for one message, opened from `where`. */
+  function reactionPicker(message: GroupMessage, where: string, trigger: ReactNode) {
+    const key = `${message.id}:${where}`;
+    return (
+      <Popover
+        open={pickerFor === key}
+        onClose={() => setPickerFor(null)}
+        placement="bottom-end"
+        tooltip="Adicionar reação"
+        content={<ReactionPicker onSelect={(emoji) => void toggleReaction(message, emoji)} />}
+      >
+        <button
+          type="button"
+          onClick={() => setPickerFor((open) => (open === key ? null : key))}
+          aria-label="Adicionar reação"
+          className={where === "actions" ? rowAction : reactionChip}
+        >
+          {trigger}
+        </button>
+      </Popover>
+    );
+  }
+
   function openMembers() {
     void openPopup("group_settings", {
       maxWidth: "min(46rem, calc(100vw - 2rem))",
@@ -497,6 +573,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
     const canDelete = message.from === selfId || isManager;
     return (
       <span className="flex shrink-0 items-center">
+        {can("addReactions") && reactionPicker(message, "actions", <MdOutlineAddReaction className="h-3.5 w-3.5" />)}
         <button type="button" onClick={() => startReply(message)} aria-label="Responder" title="Responder" className={rowAction}>
           <MdReply className="h-3.5 w-3.5" />
         </button>
@@ -660,6 +737,38 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
                       />
                     </button>
                   ))}
+                </div>
+              )}
+              {!outgoing && message.reactions && message.reactions.length > 0 && (
+                // Discord's row: each emoji with how many, lit up when one of
+                // them is yours. Clicking joins it or takes yours back — taking
+                // it back is always allowed, joining needs "Reagir".
+                <div className="mt-1 flex flex-wrap items-center gap-1">
+                  {message.reactions.map((reaction) => {
+                    const mine = reaction.users.includes(selfId);
+                    const allowed = mine || can("react");
+                    return (
+                      <button
+                        key={reaction.emoji}
+                        type="button"
+                        disabled={!allowed}
+                        aria-pressed={mine}
+                        onClick={() => void toggleReaction(message, reaction.emoji)}
+                        title={describeReaction(reaction, reactorName)}
+                        className={`${reactionChip} ${
+                          mine
+                            ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-500/15 dark:text-blue-300"
+                            : "border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
+                        } ${allowed ? "cursor-pointer hover:border-zinc-400 dark:hover:border-zinc-600" : "cursor-default"}`}
+                      >
+                        <span className="text-sm leading-none">{reaction.emoji}</span>
+                        <span className="tabular-nums">{reaction.users.length}</span>
+                      </button>
+                    );
+                  })}
+                  {can("addReactions") &&
+                    message.reactions.length < 20 &&
+                    reactionPicker(message, "row", <MdOutlineAddReaction className="h-3.5 w-3.5 opacity-70" />)}
                 </div>
               )}
               {outgoing?.status === "failed" && (

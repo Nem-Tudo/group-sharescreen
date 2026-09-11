@@ -1915,6 +1915,7 @@ class SignalingClient {
       // Groups — handed to their own listeners, never to `state`. See onGroupEvent.
       case "group-message":
       case "group-message-deleted":
+      case "group-message-reactions":
       case "group-updated":
       case "group-removed":
       case "group-voice":

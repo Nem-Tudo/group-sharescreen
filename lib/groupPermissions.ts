@@ -20,6 +20,8 @@ export const TEXT_PERMISSION_KEYS = [
   "sendImages",
   "mentionMembers",
   "mentionEveryone",
+  "addReactions",
+  "react",
 ] as const;
 export type TextPermissionKey = (typeof TEXT_PERMISSION_KEYS)[number];
 
@@ -63,6 +65,8 @@ export const DEFAULT_GROUP_PERMISSIONS: GroupPermissions = {
     sendImages: true,
     mentionMembers: true,
     mentionEveryone: false,
+    addReactions: true,
+    react: true,
   },
   voice: { connect: true, mic: true, screen: true, camera: true, videoSource: true, chat: true, gif: true, image: true },
 };
@@ -75,6 +79,8 @@ export const PERMISSION_LABELS: Record<GroupPermissionKey, { label: string; hint
   sendImages: { label: "Enviar imagens", hint: "Anexadas ou coladas com Ctrl+V." },
   mentionMembers: { label: "Mencionar pessoas", hint: "Um @nome avisa a pessoa." },
   mentionEveryone: { label: "Mencionar @everyone", hint: "Avisa todo mundo que vê a sala de uma vez." },
+  addReactions: { label: "Adicionar reações", hint: "Colocar um emoji novo numa mensagem." },
+  react: { label: "Reagir", hint: "Entrar numa reação que já está na mensagem. Tirar a própria sempre pode." },
   connect: { label: "Conectar", hint: "Sem isso, a sala aparece com um cadeado e não dá pra entrar." },
   mic: { label: "Ligar o microfone", hint: "" },
   screen: { label: "Compartilhar a tela", hint: "" },
