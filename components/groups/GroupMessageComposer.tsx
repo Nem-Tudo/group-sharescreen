@@ -30,6 +30,7 @@ import {
 } from "@/lib/chatMentions";
 import type { GroupReplyTo } from "@/lib/groupsApi";
 import { EVERYONE_MENTION } from "@/lib/groupPermissions";
+import { createTypingAnnouncer, type TypingAnnouncer } from "@/lib/typing";
 
 // The box at the bottom of a group's text room. Drawn like the room chat's own
 // composer (components/ChatPanel) — a text field and small icon buttons along
@@ -99,6 +100,7 @@ export function GroupMessageComposer({
   onSend,
   disabledReason,
   allow = { gifs: true, images: true },
+  onTypingChange,
 }: {
   channelName: string;
   candidates: MentionCandidate[];
@@ -112,6 +114,13 @@ export function GroupMessageComposer({
   onSend: (payload: ComposerPayload) => void;
   disabledReason?: string | null;
   allow?: ComposerAllowances;
+  /**
+   * True when a burst of typing starts and again every few seconds while it
+   * lasts; false when it stops, the box is emptied, or the composer goes away
+   * mid-burst. Not on send: the message itself is what clears the line on
+   * everybody else's screen. Timing in lib/typing's createTypingAnnouncer.
+   */
+  onTypingChange?: (typing: boolean) => void;
 }) {
   const [text, setText] = useState("");
   const [images, setImages] = useState<{ dataUrl: string; bytes: number }[]>([]);
@@ -122,6 +131,28 @@ export function GroupMessageComposer({
   const [mentionDismissed, setMentionDismissed] = useState<number | null>(null);
   const textRef = useRef<HTMLTextAreaElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
+
+  // "Digitando..." — see onTypingChange and lib/typing's createTypingAnnouncer,
+  // which decides when. Handed the latest handler through a ref, so the
+  // announcer made once per mount never calls a stale one.
+  const onTypingChangeRef = useRef(onTypingChange);
+  useEffect(() => {
+    onTypingChangeRef.current = onTypingChange;
+  }, [onTypingChange]);
+  const typingRef = useRef<TypingAnnouncer | null>(null);
+  useEffect(() => {
+    const announcer = createTypingAnnouncer((value) => onTypingChangeRef.current?.(value));
+    typingRef.current = announcer;
+    // Leaving the room (or the page) mid-sentence says so now, rather than
+    // leaving everybody else to wait out TextChannelView's TYPING_EXPIRE_MS.
+    return () => {
+      announcer.dispose();
+      typingRef.current = null;
+    };
+  }, []);
+  function noteTyping(value: string) {
+    if (onTypingChangeRef.current) typingRef.current?.input(value);
+  }
 
   const trigger = getMentionTriggerInfo(text, cursor);
   const suggestions = useMemo(
@@ -167,12 +198,14 @@ export function GroupMessageComposer({
     setHighlight(0);
     setError(null);
     resize();
+    noteTyping(e.target.value);
   }
 
   function pickMention(candidate: MentionCandidate) {
     const { newText, newCursorPos } = applyMentionInsertion(text, cursor, trigger.startIndex, candidate.name);
     setText(newText);
     setCursor(newCursorPos);
+    noteTyping(newText);
     requestAnimationFrame(() => {
       const el = textRef.current;
       if (!el) return;
@@ -195,6 +228,7 @@ export function GroupMessageComposer({
     });
     // A GIF goes on its own and leaves whatever was being typed alone.
     if (!extra.url) {
+      typingRef.current?.sent();
       setText("");
       setImages([]);
       setCursor(0);

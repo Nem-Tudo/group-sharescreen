@@ -35,13 +35,15 @@ import {
 import {
   deleteGroupMessage,
   fetchMessages,
+  sendGroupTyping,
   type GroupDetail,
   type GroupMessage,
   type GroupReplyTo,
   type GroupUser,
 } from "@/lib/groupsApi";
 import { signalingClient } from "@/lib/signalingClient";
-import { onGroupMessage, onGroupMessageDeleted, setViewingChannel } from "@/lib/useGroups";
+import { TYPING_REFRESH_MS, formatTypingLabel } from "@/lib/typing";
+import { onGroupMessage, onGroupMessageDeleted, onGroupTyping, setViewingChannel } from "@/lib/useGroups";
 import {
   discardGroupMessage,
   queueGroupMessage,
@@ -64,6 +66,11 @@ import { prefetchUserProfile } from "@/lib/userProfile";
 const GROUP_GAP_MS = 5 * 60 * 1000;
 const NEAR_BOTTOM_PX = 96;
 const NEAR_TOP_PX = 80;
+// How long somebody stays in the "digitando..." line with nothing more heard
+// from them. A writer re-announces every TYPING_REFRESH_MS (see lib/typing),
+// and the margin on top is for the request that carries it — so this only
+// ever runs out when a "stopped" was lost: a closed tab, a dropped connection.
+const TYPING_EXPIRE_MS = TYPING_REFRESH_MS + 3000;
 
 function timeLabel(ts: number): string {
   return new Date(ts).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
@@ -230,14 +237,64 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
     [selfId]
   );
 
+  // Who else is writing here right now: their name by id, each with a timer
+  // that takes them off after TYPING_EXPIRE_MS unless they are heard from
+  // again. This component is keyed by the room, so a new room starts empty.
+  const [typers, setTypers] = useState<Record<string, string>>({});
+  const typerTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+
+  const dropTyper = useCallback((userId: string) => {
+    const timers = typerTimers.current;
+    const timer = timers.get(userId);
+    if (timer) clearTimeout(timer);
+    timers.delete(userId);
+    setTypers((prev) => {
+      if (!(userId in prev)) return prev;
+      const next = { ...prev };
+      delete next[userId];
+      return next;
+    });
+  }, []);
+
+  useEffect(
+    () =>
+      onGroupTyping((event) => {
+        if (event.groupId !== groupId || event.channelId !== channelId || event.userId === selfId) return;
+        if (!event.typing) {
+          dropTyper(event.userId);
+          return;
+        }
+        const timers = typerTimers.current;
+        const existing = timers.get(event.userId);
+        if (existing) clearTimeout(existing);
+        timers.set(
+          event.userId,
+          setTimeout(() => dropTyper(event.userId), TYPING_EXPIRE_MS)
+        );
+        setTypers((prev) => (prev[event.userId] === event.name ? prev : { ...prev, [event.userId]: event.name }));
+      }),
+    [groupId, channelId, selfId, dropTyper]
+  );
+
+  useEffect(() => {
+    const timers = typerTimers.current;
+    return () => {
+      timers.forEach((timer) => clearTimeout(timer));
+      timers.clear();
+    };
+  }, []);
+
   useEffect(
     () =>
       onGroupMessage((message, author) => {
         if (message.groupId !== groupId || message.channelId !== channelId) return;
         if (author) setAuthors((prev) => ({ ...prev, [author.id]: author }));
+        // What they were typing just arrived — the line goes with it, the way
+        // it does everywhere else, rather than lingering until it times out.
+        dropTyper(message.from);
         upsert(message);
       }),
-    [groupId, channelId, upsert]
+    [groupId, channelId, upsert, dropTyper]
   );
 
   useEffect(
@@ -316,6 +373,10 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
   const can = (key: TextPermissionKey) => (channel ? canInChannel(detail, channel, key) : false);
 
   const memberById = useMemo(() => new Map(members.map((m) => [m.id, m])), [members]);
+  const typingNames = useMemo(
+    () => Object.entries(typers).map(([id, name]) => memberById.get(id)?.name ?? name),
+    [typers, memberById]
+  );
   const memberCandidates: MentionCandidate[] = useMemo(
     () => members.filter((m) => m.id !== selfId).map((m) => ({ id: m.id, name: m.name, avatarUrl: m.avatarUrl })),
     [members, selfId]
@@ -382,6 +443,11 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
     setReplyTo(null);
     atBottomRef.current = true;
     pendingScroll.current = { type: "bottom" };
+  }
+
+  // "Digitando..." on everybody else's screen — when, is GroupMessageComposer's call.
+  function announceTyping(typing: boolean) {
+    sendGroupTyping(groupId, channelId, typing);
   }
 
   function startReply(message: GroupMessage) {
@@ -684,6 +750,15 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
         )}
       </div>
 
+      {detail.chatAvailable && typingNames.length > 0 && (
+        // Same line as a room's chat (components/ChatPanel). Taking its row
+        // shrinks the conversation, and the ResizeObserver above keeps
+        // whoever is reading the newest line on it.
+        <p aria-live="polite" className="shrink-0 truncate px-3 pt-1.5 text-xs text-zinc-500 italic">
+          {formatTypingLabel(typingNames)}
+        </p>
+      )}
+
       {detail.chatAvailable && (
         <GroupMessageComposer
           channelName={channelName}
@@ -693,6 +768,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
           onSend={send}
           disabledReason={can("sendMessages") ? null : "Você não pode enviar mensagens nesta sala."}
           allow={{ gifs: can("sendGifs"), images: can("sendImages") }}
+          onTypingChange={can("sendMessages") ? announceTyping : undefined}
         />
       )}
 

@@ -367,3 +367,14 @@ export const deleteGroupMessage = (groupId: string, channelId: string, messageId
 export function markChannelRead(groupId: string, channelId: string): void {
   void request<object>("POST", `/groups/${enc(groupId)}/channels/${enc(channelId)}/read`).catch(() => {});
 }
+
+/**
+ * Tells the room this person is (or stopped) writing. Fire-and-forget: a lost
+ * one is a "digitando..." line that shows a moment late or clears on its own
+ * (see TextChannelView's TYPING_EXPIRE_MS). When to call it is the composer's.
+ */
+export function sendGroupTyping(groupId: string, channelId: string, typing: boolean): void {
+  void request<object>("POST", `/groups/${enc(groupId)}/channels/${enc(channelId)}/typing`, { typing }).catch(
+    () => {}
+  );
+}

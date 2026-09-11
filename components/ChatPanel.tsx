@@ -43,6 +43,7 @@ import {
   applyMentionInsertion,
 } from "@/lib/chatMentions";
 import { hasVerifiedBadge, verifiedBadge } from "@/lib/entitlements";
+import { formatTypingLabel } from "@/lib/typing";
 
 type ChatAttachment = {
   id: number;
@@ -131,12 +132,6 @@ const TYPING_IDLE_MS = 3000;
 // just the next line. Anything longer than this and the gap in the
 // conversation is itself worth showing.
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
-
-function formatTypingLabel(names: string[]): string {
-  if (names.length === 1) return `${names[0]} está digitando...`;
-  if (names.length === 2) return `${names[0]} e ${names[1]} estão digitando...`;
-  return `${names.length} pessoas estão digitando...`;
-}
 
 export function ChatPanel({
   messages,

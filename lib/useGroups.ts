@@ -236,10 +236,14 @@ function noteIncomingMessage(message: GroupMessage) {
 type MessageListener = (message: GroupMessage, author: GroupUser | null, nonce?: string) => void;
 type DeleteListener = (event: { groupId: string; channelId: string; messageId: string }) => void;
 type RemovedListener = (event: { groupId: string; reason: string }) => void;
+/** Somebody else started or stopped writing in a text room — see the API's typing route. */
+export type GroupTypingEvent = { groupId: string; channelId: string; userId: string; name: string; typing: boolean };
+type TypingListener = (event: GroupTypingEvent) => void;
 
 const messageListeners = new Set<MessageListener>();
 const deleteListeners = new Set<DeleteListener>();
 const removedListeners = new Set<RemovedListener>();
+const typingListeners = new Set<TypingListener>();
 
 /** Every live group message, for the text room on screen to append. */
 export function onGroupMessage(listener: MessageListener): () => void {
@@ -255,6 +259,15 @@ export function onGroupMessageDeleted(listener: DeleteListener): () => void {
   deleteListeners.add(listener);
   return () => {
     deleteListeners.delete(listener);
+  };
+}
+
+/** Who is writing where. Nothing is kept here — the room on screen holds it (see TextChannelView). */
+export function onGroupTyping(listener: TypingListener): () => void {
+  ensureSocketListener();
+  typingListeners.add(listener);
+  return () => {
+    typingListeners.delete(listener);
   };
 }
 
@@ -322,6 +335,18 @@ function handleEvent(event: GroupSocketEvent) {
     }
     case "group-read": {
       if (groupId && typeof event.channelId === "string") clearUnread(groupId, event.channelId, false);
+      return;
+    }
+    case "group-typing": {
+      if (!groupId || typeof event.channelId !== "string" || typeof event.userId !== "string") return;
+      const payload: GroupTypingEvent = {
+        groupId,
+        channelId: event.channelId,
+        userId: event.userId,
+        name: typeof event.name === "string" && event.name ? event.name : "Alguém",
+        typing: event.typing !== false,
+      };
+      typingListeners.forEach((l) => l(payload));
       return;
     }
     case "group-voice": {

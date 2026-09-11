@@ -1919,6 +1919,7 @@ class SignalingClient {
       case "group-removed":
       case "group-voice":
       case "group-read":
+      case "group-typing":
         this.emitGroupEvent(msg as GroupSocketEvent);
         break;
       // ─── Ligações ────────────────────────────────────────────────────
