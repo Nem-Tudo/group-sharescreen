@@ -13,6 +13,7 @@ import {
   MdMic,
   MdMicOff,
   MdPeopleOutline,
+  MdPalette,
   MdPersonAdd,
   MdSettings,
   MdVolumeUp,
@@ -38,6 +39,9 @@ import {
   useGroupVoiceSession,
 } from "@/lib/groupVoiceSession";
 import { playHangUpSound } from "@/lib/soundEffects";
+import { useAuth } from "@/lib/AuthContext";
+import { hasFeature } from "@/lib/entitlements";
+import { openProModal } from "@/lib/proModal";
 
 // The pieces of a group's screen around the conversation itself:
 //
@@ -354,6 +358,9 @@ export function GroupActions({ detail }: { detail: GroupDetail }) {
   const openSettings = useOpenSettings(detail.group.id);
   const [menuOpen, setMenuOpen] = useState(false);
   const { group, me } = detail;
+  const { account } = useAuth();
+  // The same plan gate as a room's theme — see WatchRoom's hasThemePlan.
+  const hasThemePlan = hasFeature("room_theme_set", account?.features ?? []);
   const isManager = me.role === "owner" || me.role === "admin";
 
   function openInvite() {
@@ -427,6 +434,29 @@ export function GroupActions({ detail }: { detail: GroupDetail }) {
               {isManager ? <MdSettings className="h-4 w-4 opacity-70" /> : <MdPeopleOutline className="h-4 w-4 opacity-70" />}
               {isManager ? "Configurações do grupo" : "Membros"}
             </button>
+            {isManager && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false);
+                  // Without the plan it is a way *to* the plan, as in a room.
+                  if (!hasThemePlan) {
+                    openProModal("premium_max");
+                    return;
+                  }
+                  void openPopup("room_theme", {
+                    data: { currentThemeId: group.theme, groupId: group.id },
+                  });
+                }}
+                className={menuItemClass}
+              >
+                <MdPalette className="h-4 w-4 opacity-70" />
+                <span className="flex-1">Tema do grupo</span>
+                {!hasThemePlan && (
+                  <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">PRO MAX</span>
+                )}
+              </button>
+            )}
             <div className="my-1 border-t border-zinc-200 dark:border-zinc-800" />
             <p className="px-2 pb-0.5 pt-1 text-xs font-semibold text-zinc-500 dark:text-zinc-400">Notificações</p>
             {(Object.keys(NOTIFY_LABELS) as GroupNotifyLevel[]).map((level) => (

@@ -49,6 +49,8 @@ export interface GroupInfo {
   name: string;
   description: string;
   iconUrl: string | null;
+  /** The group's theme by id, or null for each person's own. See the API's groupModels. */
+  theme: string | null;
   ownerId: string;
   admins: string[];
   memberCount: number;
@@ -183,6 +185,10 @@ export const uploadGroupIcon = (groupId: string, image: string) =>
 
 export const removeGroupIcon = (groupId: string) =>
   request<{ group: GroupInfo }>("DELETE", `/groups/${enc(groupId)}/icon`);
+
+/** Repaints the whole group for everybody (Pro Max, owner/admins). Null clears it. */
+export const setGroupTheme = (groupId: string, theme: string | null) =>
+  request<{ group: GroupInfo }>("PUT", `/groups/${enc(groupId)}/theme`, { theme });
 
 export const deleteGroup = (groupId: string) =>
   request<object>("DELETE", `/groups/${enc(groupId)}`);

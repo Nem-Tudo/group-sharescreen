@@ -56,7 +56,13 @@ export interface RoomThemeState {
  */
 export function useRoomTheme(
   roomThemeId: string | null | undefined,
-  viewThemeId: string | null = null
+  viewThemeId: string | null = null,
+  /**
+   * False for a room that is not the one deciding the page's look — a group's
+   * voice room, whose group paints every page of the group instead (see
+   * GroupAppShell). Nothing is then painted, fetched, or taken off.
+   */
+  enabled = true
 ): RoomThemeState {
   const { account } = useAuth();
   // What this tab just chose, if the account has not caught up yet. Pressing
@@ -83,7 +89,9 @@ export function useRoomTheme(
   const fromRoomId = optedOut ? null : roomThemeId;
   // A viewed theme does not wait for the room to answer: it does not depend on
   // anything the room could say, so there is no flash to avoid by waiting.
-  const wanted = viewThemeId
+  const wanted = !enabled
+    ? undefined
+    : viewThemeId
     ? viewThemeId
     : roomThemeId === undefined
       ? undefined
@@ -166,9 +174,12 @@ export function useRoomTheme(
   // out of the room, or the room ending. The theme is written onto the
   // document element (it has to be, so dialogs portalled to the body follow
   // it), so nothing else would ever remove it.
+  // Not for a hook that never painted — taking the theme off on the way out
+  // would take off whoever *is* painting (see `enabled`).
   useEffect(() => {
+    if (!enabled) return;
     return () => applyRoomTheme(null);
-  }, []);
+  }, [enabled]);
 
   // Only the answer to the question currently being asked. A reply that
   // landed for the previous room, or for the theme worn before this one, is

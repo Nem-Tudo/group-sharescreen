@@ -1043,7 +1043,10 @@ export function WatchRoom({
   // It writes CSS variables onto the document, so nothing here has to be
   // passed a colour: every `bg-zinc-950` and `border-zinc-200` in this file
   // already reads one.
-  const roomTheme = useRoomTheme(state.roomTheme, viewThemeId);
+  // In a group the page's look is the group's, painted by the group shell for
+  // every page of it — this room paints nothing of its own (see useRoomTheme's
+  // `enabled`), or a call in one group would recolour another one being read.
+  const roomTheme = useRoomTheme(state.roomTheme, viewThemeId, !group);
   // Whether this browser refuses room themes (see the toggle in the menu). Read
   // here as well as inside the hook, because the row has to draw its own state.
   const roomThemeOptedOut = useSyncExternalStore(
@@ -4987,11 +4990,17 @@ export function WatchRoom({
             a picker whose every choice the server would reject. */}
         <Tooltip
           content={
-            !hasThemePlan
-              ? "Só quem tem Pro Max pode trocar o tema da sala."
-              : !roomAllowsTheme
-                ? "A administração desativou a troca de tema para os participantes."
-                : "Muda o tema para todo mundo na sala"
+            group
+              ? !hasThemePlan
+                ? "Só quem tem Pro Max pode trocar o tema do grupo."
+                : !isRoomManager
+                  ? "Só os administradores do grupo podem trocar o tema do grupo."
+                  : "Muda o tema do grupo inteiro, para todo mundo"
+              : !hasThemePlan
+                ? "Só quem tem Pro Max pode trocar o tema da sala."
+                : !roomAllowsTheme
+                  ? "A administração desativou a troca de tema para os participantes."
+                  : "Muda o tema para todo mundo na sala"
           }
           wrapperClassName="flex flex-1"
         >
@@ -4999,7 +5008,9 @@ export function WatchRoom({
             type="button"
             // Dead only when the room said no. Without the plan it still
             // does something worth doing.
-            disabled={hasThemePlan && !roomAllowsTheme}
+            // In a group the theme is the group's, and running the group is
+            // what lets you change it.
+            disabled={group ? hasThemePlan && !isRoomManager : hasThemePlan && !roomAllowsTheme}
             onClick={() => {
               if (!hasThemePlan) {
                 // The modal rather than the page: this is a live call, and
@@ -5008,17 +5019,21 @@ export function WatchRoom({
                 return;
               }
               void openPopup("room_theme", {
-                data: { currentThemeId: state.roomTheme ?? null },
+                data: {
+                  currentThemeId: state.roomTheme ?? null,
+                  // Picks for the whole group instead of this room.
+                  ...(group ? { groupId: group.groupId } : {}),
+                },
               });
             }}
             className={`flex w-full items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
-              canSetRoomTheme
+              (group ? hasThemePlan && isRoomManager : canSetRoomTheme)
                 ? "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
                 : "border-zinc-300 text-zinc-500 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900"
             }`}
           >
             <MdPalette className="h-4 w-4 shrink-0" />
-            {roomTheme.fromRoom ? "Trocar tema" : "Tema da sala"}
+            {group ? "Tema do grupo" : roomTheme.fromRoom ? "Trocar tema" : "Tema da sala"}
           </button>
         </Tooltip>
         {isRoomManager && (

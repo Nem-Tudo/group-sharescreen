@@ -20,7 +20,9 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { GroupIcon } from "@/components/groups/GroupIcon";
 import { AVATAR_IMAGE_ACCEPT, isSupportedAvatarImage, prepareAvatarImage } from "@/lib/avatarImage";
 import { copyText } from "@/lib/clipboard";
-import { verifiedBadge } from "@/lib/entitlements";
+import { hasFeature, verifiedBadge } from "@/lib/entitlements";
+import { openProModal } from "@/lib/proModal";
+import { useAuth } from "@/lib/AuthContext";
 import {
   banMember,
   createGroup,
@@ -430,6 +432,9 @@ export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: 
 
 function OverviewTab({ groupId }: { groupId: string }) {
   const { detail } = useGroupDetail(groupId);
+  const { openPopup } = useNtPopups();
+  const { account } = useAuth();
+  const hasThemePlan = hasFeature("room_theme_set", account?.features ?? []);
   const [name, setName] = useState(detail?.group.name ?? "");
   const [description, setDescription] = useState(detail?.group.description ?? "");
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -506,6 +511,29 @@ function OverviewTab({ groupId }: { groupId: string }) {
           className={`${inputClass} resize-none`}
         />
       </label>
+      <div className="flex flex-col gap-1.5">
+        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Tema do grupo</span>
+        <div className="flex items-center gap-3">
+          <p className="min-w-0 flex-1 text-sm text-zinc-500 dark:text-zinc-400">
+            {detail.group.theme
+              ? "O grupo tem um tema: todo mundo vê ele, em todas as salas."
+              : "Sem tema: cada um vê o tema que escolheu para si."}
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              if (!hasThemePlan) {
+                openProModal("premium_max");
+                return;
+              }
+              void openPopup("room_theme", { data: { currentThemeId: detail.group.theme, groupId } });
+            }}
+            className={secondaryButton}
+          >
+            {hasThemePlan ? "Escolher tema" : "Pro Max"}
+          </button>
+        </div>
+      </div>
       <div className="flex items-center justify-end gap-3">
         {message && <span className={`text-sm ${message.ok ? "text-emerald-600" : "text-red-500"}`}>{message.text}</span>}
         <button type="submit" disabled={!dirty || !name.trim() || busy} className={primaryButton}>

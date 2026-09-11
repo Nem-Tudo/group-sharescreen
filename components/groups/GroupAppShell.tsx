@@ -35,6 +35,7 @@ import {
 import { signalingClient } from "@/lib/signalingClient";
 import { onGroupRemoved, refreshGroups, resetGroups, useGroupDetail } from "@/lib/useGroups";
 import { LG_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
+import { useRoomTheme } from "@/lib/useRoomTheme";
 import { useSignaling } from "@/lib/useSignaling";
 
 // The whole of /groups/*, laid out like a room: a top bar, and three columns of
@@ -60,6 +61,12 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { openPopup } = useNtPopups();
   const { detail } = useGroupDetail(groupId);
+  // The group's look, painted here once for every page of it: the group's own
+  // theme when an admin set one, otherwise each person's own — the room rule,
+  // at the scale of the group (the call inside paints nothing of its own; see
+  // WatchRoom). Undefined while the group loads, so the viewer's colours do not
+  // flash first. On /groups itself there is no group: your own theme.
+  useRoomTheme(groupId ? (detail ? detail.group.theme ?? null : undefined) : null);
   const session = useGroupVoiceSession();
   const isWide = useMediaQuery(LG_BREAKPOINT_QUERY);
   const [navOpen, setNavOpen] = useState(false);

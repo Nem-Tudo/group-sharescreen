@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { MdClose, MdPalette } from "react-icons/md";
 import { signalingClient } from "@/lib/signalingClient";
+import { setGroupTheme } from "@/lib/groupsApi";
+import { refreshGroup } from "@/lib/useGroups";
 import {
   fetchMyThemes,
   fetchWorkshop,
@@ -80,6 +82,12 @@ function ThemeRow({
 export type RoomThemePopupData = {
   /** The theme the room is wearing now, so the list can mark it. */
   currentThemeId?: string | null;
+  /**
+   * Set when this picks a *group's* theme rather than a room's (see
+   * components/groups) — the whole group, every room in it, over HTTP. Absent
+   * for an ordinary room, which is exactly what this popup always did.
+   */
+  groupId?: string | null;
 };
 
 export function RoomThemePicker({
@@ -90,6 +98,9 @@ export function RoomThemePicker({
   data?: RoomThemePopupData;
 }) {
   const current = data?.currentThemeId ?? null;
+  const groupId = data?.groupId ?? null;
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const [mine, setMine] = useState<RoomTheme[]>([]);
   const [popular, setPopular] = useState<RoomTheme[]>([]);
 
@@ -104,8 +115,24 @@ export function RoomThemePicker({
     return () => controller.abort();
   }, []);
 
-  function pick(themeId: string | null) {
-    signalingClient.setRoomTheme(themeId);
+  async function pick(themeId: string | null) {
+    if (!groupId) {
+      signalingClient.setRoomTheme(themeId);
+      closePopup(true);
+      return;
+    }
+    // A group's theme is set over HTTP and can be refused (the plan, the
+    // theme itself) — said here rather than closing on a choice that did not
+    // take.
+    if (busy) return;
+    setBusy(true);
+    const result = await setGroupTheme(groupId, themeId);
+    setBusy(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    void refreshGroup(groupId);
     closePopup(true);
   }
 
@@ -119,10 +146,12 @@ export function RoomThemePicker({
         <div>
           <h2 className="flex items-center gap-1.5 text-base font-semibold tracking-tight">
             <MdPalette className="h-5 w-5 shrink-0 text-indigo-500" />
-            Tema da sala
+            {groupId ? "Tema do grupo" : "Tema da sala"}
           </h2>
           <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-            Todo mundo na sala vai ver o tema escolhido.
+            {groupId
+              ? "Todo mundo no grupo vai ver o tema escolhido, em todas as salas."
+              : "Todo mundo na sala vai ver o tema escolhido."}
           </p>
         </div>
         <button
@@ -136,6 +165,11 @@ export function RoomThemePicker({
       </div>
 
       <div className="flex max-h-[60vh] flex-col gap-4 overflow-y-auto px-5 py-4">
+        {error && (
+          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
+            {error}
+          </p>
+        )}
         <button
           type="button"
           onClick={() => pick(null)}
