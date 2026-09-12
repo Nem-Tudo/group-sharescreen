@@ -273,7 +273,18 @@ export function VideoTile({
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    video.srcObject = detachWhenHidden && !visible ? null : stream;
+    // Releasing the stream stops this tile decoding and compositing while it
+    // is off screen — but only when the element is not the thing carrying the
+    // sound. useGainedAudio runs the audio through a Web Audio graph built
+    // from the *stream* (immune to this) and mutes the element; when that
+    // graph cannot be built yet, because the context has not been unblocked
+    // by a gesture, it leaves the element unmuted and audible instead. In
+    // that state releasing the stream would silence a share that somebody is
+    // listening to, so the video stays attached and we simply do without the
+    // saving. A muted element has no audio to lose either way.
+    const carriesAudio = !video.muted && stream !== null && stream.getAudioTracks().length > 0;
+    const release = detachWhenHidden && !visible && !carriesAudio;
+    video.srcObject = release ? null : stream;
   }, [stream, visible, detachWhenHidden]);
 
   const visibilityCallbackRef = useRef(onVisibilityChange);
