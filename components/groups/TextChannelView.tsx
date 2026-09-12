@@ -11,7 +11,14 @@ import {
   type ReactNode,
 } from "react";
 import useNtPopups from "ntpopups";
-import { MdChatBubbleOutline, MdDeleteOutline, MdOutlineAddReaction, MdPeopleOutline, MdReply } from "react-icons/md";
+import {
+  MdChatBubbleOutline,
+  MdDeleteOutline,
+  MdOutlineAddReaction,
+  MdPeopleOutline,
+  MdReply,
+  MdVolumeUp,
+} from "react-icons/md";
 import { ChatImageModal, type ChatImagePreviewState } from "@/components/ChatImageModal";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { Popover, Tooltip } from "@/components/Tooltip";
@@ -30,6 +37,7 @@ import {
   ROLE_MENTION_PREFIX,
   canInChannel,
   canManage,
+  memberCanInChannel,
   membersRevalidateKey,
   roleColorOf,
   rolesInOrder,
@@ -40,12 +48,13 @@ import {
   getCachedChannel,
   loadLatestMessages,
   putCachedChannel,
-  useGroupMembers,
+  useOnlineGroupMembers,
 } from "@/lib/groupCache";
 import {
   deleteGroupMessage,
   fetchMessages,
   reactToGroupMessage,
+  searchMembers,
   sendGroupTyping,
   type GroupDetail,
   type GroupMessage,
@@ -71,6 +80,8 @@ import {
   type OutgoingMessage,
 } from "@/lib/groupOutbox";
 import { prefetchUserProfile } from "@/lib/userProfile";
+import { useGroupNavigation } from "@/lib/groupNavigation";
+import { UNKNOWN_ROOM, UNKNOWN_USER, plainTokens, splitTokens } from "@/lib/messageTokens";
 
 // One text room of a group: its history, read a page at a time and extended
 // live, and the box to write in. Drawn as a panel in the same family as the
@@ -94,6 +105,8 @@ const TYPING_EXPIRE_MS = TYPING_REFRESH_MS + 3000;
 // MAX_MESSAGES_PER_CHANNEL, so what gets stored for the next visit is decided
 // there as before and this only bounds what is on screen right now.
 const MAX_LIVE_MESSAGES = 400;
+// People kept from @-searches so their names are at hand — see `found`.
+const MAX_FOUND = 200;
 
 function timeLabel(ts: number): string {
   return new Date(ts).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
@@ -238,12 +251,16 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
     putCachedChannel(channelId, { messages, authors, hasMore, fetchedAt: held?.fetchedAt ?? Date.now() });
   }, [channelId, messages, authors, hasMore, detail.chatAvailable, loadError]);
 
-  // Members, shared with the members column — for @mention suggestions and for
-  // naming authors the page did not carry.
-  const heldMembers = useGroupMembers(groupId, membersRevalidateKey(detail));
-  // One stable empty list while nothing is held, so what is derived from it
-  // below is not recomputed on every render.
-  const members = useMemo(() => heldMembers ?? [], [heldMembers]);
+  // Who is online, shared with the members column. This used to be the whole
+  // membership — every member, loaded here just so @-suggestions and names
+  // had somebody to draw from. Messages now carry who they mention as ids
+  // (see lib/messageTokens), the API names them alongside, and anybody else
+  // is found by searching as their name is typed.
+  const onlineEntry = useOnlineGroupMembers(groupId, membersRevalidateKey(detail));
+  // People a search turned up, so one picked from it is drawn by name the
+  // moment the message is sent, before the API's echo brings the name back.
+  const [found, setFound] = useState<Record<string, GroupUser>>({});
+  const navigation = useGroupNavigation();
 
   const loadOlder = useCallback(async () => {
     if (olderInFlight.current || !hasMore || !messages || messages.length === 0) return;
@@ -447,14 +464,73 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
   // leaves out what the server would refuse anyway.
   const can = (key: TextPermissionKey) => (channel ? canInChannel(detail, channel, key) : false);
 
-  const memberById = useMemo(() => new Map(members.map((m) => [m.id, m])), [members]);
+  // Everybody this room can put a name to: whoever is online, every author
+  // and mentioned person the messages carried (see the API's
+  // mentionedPeople), and anybody a search found.
+  const personById = useMemo(() => {
+    const out = new Map<string, GroupUser>();
+    for (const person of Object.values(found)) out.set(person.id, person);
+    for (const person of Object.values(authors)) out.set(person.id, person);
+    for (const member of onlineEntry?.list ?? []) out.set(member.id, member);
+    return out;
+  }, [found, authors, onlineEntry]);
   const typingNames = useMemo(
-    () => Object.entries(typers).map(([id, name]) => memberById.get(id)?.name ?? name),
-    [typers, memberById]
+    () => Object.entries(typers).map(([id, name]) => personById.get(id)?.name ?? name),
+    [typers, personById]
   );
-  const memberCandidates: MentionCandidate[] = useMemo(
-    () => members.filter((m) => m.id !== selfId).map((m) => ({ id: m.id, name: m.name, avatarUrl: m.avatarUrl })),
-    [members, selfId]
+  // The people "@" offers before anything is typed: whoever is online and can
+  // see this room, then whoever has written here, most recent first. Anybody
+  // else is a search away (see searchPeople).
+  const memberCandidates: MentionCandidate[] = useMemo(() => {
+    const out: MentionCandidate[] = [];
+    const seen = new Set<string>([selfId]);
+    // Looked up here by id rather than captured, so this depends on values only.
+    const room = detail.channels.find((c) => c.id === channelId) ?? null;
+    for (const member of onlineEntry?.list ?? []) {
+      if (seen.has(member.id)) continue;
+      if (room && !memberCanInChannel(detail, room, { id: member.id, roleIds: member.roleIds }, "viewChannel")) {
+        continue;
+      }
+      seen.add(member.id);
+      out.push({ id: member.id, name: member.name, avatarUrl: member.avatarUrl });
+    }
+    const held = messages ?? [];
+    for (let i = held.length - 1; i >= 0; i -= 1) {
+      const writer = authors[held[i].from];
+      if (!writer || seen.has(writer.id)) continue;
+      seen.add(writer.id);
+      out.push({ id: writer.id, name: writer.name, avatarUrl: writer.avatarUrl });
+    }
+    return out;
+  }, [onlineEntry, messages, authors, selfId, channelId, detail]);
+
+  const searchPeople = useCallback(
+    async (query: string): Promise<MentionCandidate[]> => {
+      // Scoped to this room: the API drops a mention of anybody who cannot
+      // see it, so offering them would promise an alert that never comes.
+      const result = await searchMembers(groupId, query, channelId).catch(() => null);
+      if (!result || !result.ok) return [];
+      const people = result.members.filter((m) => m.id !== selfId);
+      setFound((prev) => {
+        const next: Record<string, GroupUser> = { ...prev };
+        for (const person of people) next[person.id] = person;
+        // Bounded: a long session of searching would otherwise keep
+        // everybody it ever turned up.
+        const ids = Object.keys(next);
+        for (let i = 0; i < ids.length - MAX_FOUND; i += 1) delete next[ids[i]];
+        return next;
+      });
+      return people.map((m) => ({ id: m.id, name: m.name, avatarUrl: m.avatarUrl }));
+    },
+    [groupId, channelId, selfId]
+  );
+
+  // What "#" offers: every room this person can see — which is exactly what
+  // the group detail lists, since a hidden room is never sent to them.
+  const roomById = useMemo(() => new Map(detail.channels.map((c) => [c.id, c])), [detail.channels]);
+  const roomCandidates: MentionCandidate[] = useMemo(
+    () => detail.channels.map((c) => ({ id: c.id, name: c.name, avatarUrl: null, room: c.kind })),
+    [detail.channels]
   );
   // The group's roles, highest first — for @cargo, both ways.
   const roles = useMemo(() => rolesInOrder(detail), [detail]);
@@ -470,22 +546,12 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
     ...roleCandidates,
     ...(can("mentionMembers") ? memberCandidates : []),
   ];
-  // Everybody this room can put a name to: the members list plus every author
-  // and mentioned person the messages carried. A mention is drawn from here —
-  // see renderText, which needs only the people a message actually named.
-  const personById = useMemo(() => {
-    const out = new Map<string, GroupUser>();
-    for (const person of Object.values(authors)) out.set(person.id, person);
-    for (const member of members) out.set(member.id, member);
-    return out;
-  }, [authors, members]);
   // The roles I hold — a message that mentions one of them mentions me.
   const myRoleIds = detail.me.roleIds ?? detail.memberRoles?.[selfId] ?? [];
 
   function userOf(message: GroupMessage): GroupUser {
     return (
-      memberById.get(message.from) ??
-      authors[message.from] ?? {
+      personById.get(message.from) ?? {
         id: message.from,
         name: message.fromName || "Alguém",
         username: null,
@@ -525,53 +591,129 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
             ...(mentioned.includes(EVERYONE_MENTION) ? ["everyone"] : []),
             ...mentionedRoles.map((r) => r.name),
           ]);
-    const tokens = tokenizeMentions(message.text, regex);
-    return tokens.map((token, index) => {
-      if (token.type !== "mention") {
-        return <Fragment key={index}>{linkify(token.value, `${message.id}-${index}`)}</Fragment>;
-      }
-      const wanted = normalizeSearch(token.name);
-      // A role the message mentioned: drawn in its colour.
-      const role = mentionedRoles.find((r) => normalizeSearch(r.name) === wanted);
-      if (role) {
-        return (
-          <span
-            key={index}
-            className="rounded px-0.5 font-semibold"
-            style={
-              role.color
-                ? { color: role.color, backgroundColor: `${role.color}26` }
-                : { color: "#5865f2", backgroundColor: "#5865f226" }
+    // A message is cut at its tokens first: <@id> and <#id> are drawn from
+    // their ids. What lies between them — and the whole of any message sent
+    // before the tokens existed — goes through the old "@Name" reading below.
+    return splitTokens(message.text).flatMap((segment, s) => {
+      const key = `${message.id}-${s}`;
+      if (segment.type === "user") return [userToken(segment.id, mentioned.includes(segment.id), key)];
+      if (segment.type === "room") return [roomToken(segment.id, key)];
+      return legacyText(segment.value, key);
+    });
+
+    function legacyText(text: string, keyPrefix: string): ReactNode[] {
+      const tokens = tokenizeMentions(text, regex);
+      return tokens.map((token, index) => {
+        const key = `${keyPrefix}-${index}`;
+        if (token.type !== "mention") {
+          return <Fragment key={key}>{linkify(token.value, key)}</Fragment>;
+        }
+        const wanted = normalizeSearch(token.name);
+        // A role the message mentioned: drawn in its colour.
+        const role = mentionedRoles.find((r) => normalizeSearch(r.name) === wanted);
+        if (role) {
+          return (
+            <span
+              key={key}
+              className="rounded px-0.5 font-semibold"
+              style={
+                role.color
+                  ? { color: role.color, backgroundColor: `${role.color}26` }
+                  : { color: "#5865f2", backgroundColor: "#5865f226" }
+              }
+            >
+              {token.value}
+            </span>
+          );
+        }
+        // Everything the pattern can match was mentioned, so there is no longer
+        // a "matched but not really mentioned" case to fall back to plain text.
+        const person = mentionedPeople.find((p) => normalizeSearch(p.name) === wanted) ?? null;
+        // A mention is a way to the person's profile, the same dialog their
+        // name opens anywhere else in the group. @everyone is nobody's.
+        return person ? (
+          <button
+            key={key}
+            type="button"
+            onClick={() =>
+              openGroupProfile({ id: person.id, name: person.name, avatarUrl: person.avatarUrl, guest: person.guest })
             }
+            onMouseEnter={() => !person.guest && prefetchUserProfile(person.id)}
+            title="Ver perfil"
+            className="cursor-pointer rounded font-semibold text-blue-600 hover:underline dark:text-blue-400"
           >
+            {token.value}
+          </button>
+        ) : (
+          <span key={key} className="font-semibold text-blue-600 dark:text-blue-400">
             {token.value}
           </span>
         );
-      }
-      // Everything the pattern can match was mentioned, so there is no longer
-      // a "matched but not really mentioned" case to fall back to plain text.
-      const person = mentionedPeople.find((p) => normalizeSearch(p.name) === wanted) ?? null;
-      // A mention is a way to the person's profile, the same dialog their
-      // name opens anywhere else in the group. @everyone is nobody's.
-      return person ? (
-        <button
-          key={index}
-          type="button"
-          onClick={() =>
-            openGroupProfile({ id: person.id, name: person.name, avatarUrl: person.avatarUrl, guest: person.guest })
-          }
-          onMouseEnter={() => !person.guest && prefetchUserProfile(person.id)}
-          title="Ver perfil"
-          className="cursor-pointer rounded font-semibold text-blue-600 hover:underline dark:text-blue-400"
-        >
-          {token.value}
-        </button>
-      ) : (
-        <span key={index} className="font-semibold text-blue-600 dark:text-blue-400">
-          {token.value}
+      });
+    }
+  }
+
+  /**
+   * <@id>, drawn as the person's name. Lit up — and a way to their profile —
+   * only when the message actually alerted them: an author without the
+   * permission to mention still wrote a name, and it reads as the plain text
+   * it is, exactly as an "@Name" of theirs always did.
+   */
+  function userToken(id: string, alerted: boolean, key: string): ReactNode {
+    const person = personById.get(id);
+    const label = `@${person?.name ?? UNKNOWN_USER}`;
+    if (!alerted) return <Fragment key={key}>{label}</Fragment>;
+    if (!person) {
+      return (
+        <span key={key} className="font-semibold text-blue-600 dark:text-blue-400">
+          {label}
         </span>
       );
-    });
+    }
+    return (
+      <button
+        key={key}
+        type="button"
+        onClick={() =>
+          openGroupProfile({ id: person.id, name: person.name, avatarUrl: person.avatarUrl, guest: person.guest })
+        }
+        onMouseEnter={() => !person.guest && prefetchUserProfile(person.id)}
+        title="Ver perfil"
+        className="cursor-pointer rounded font-semibold text-blue-600 hover:underline dark:text-blue-400"
+      >
+        {label}
+      </button>
+    );
+  }
+
+  /**
+   * <#id>, drawn as the room's name and a way into it. A room this person
+   * cannot see is not in their group detail at all, so it reads as unknown —
+   * which is also what a deleted one looks like, and says nothing about a
+   * private room beyond that something was mentioned. Opening a voice room is
+   * joining it, the same as it is from the rooms list.
+   */
+  function roomToken(id: string, key: string): ReactNode {
+    const room = roomById.get(id);
+    if (!room) {
+      return (
+        <span key={key} className="rounded bg-zinc-100 px-1 font-semibold text-zinc-500 dark:bg-zinc-800">
+          #{UNKNOWN_ROOM}
+        </span>
+      );
+    }
+    return (
+      <button
+        key={key}
+        type="button"
+        onClick={() => navigation.push(`/groups/${groupId}/${room.id}`)}
+        title={room.kind === "voice" ? "Entrar na sala de voz" : "Abrir a sala"}
+        className="inline-flex cursor-pointer items-baseline gap-0.5 rounded bg-blue-500/10 px-1 font-semibold text-blue-600 hover:underline dark:text-blue-400"
+      >
+        {room.kind === "voice" ? <MdVolumeUp className="h-3.5 w-3.5 self-center" /> : "#"}
+        {room.name}
+      </button>
+    );
   }
 
   // ── Actions ──────────────────────────────────────────────────────────
@@ -606,7 +748,17 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
       id: message.id,
       userId: message.from,
       name: author.name,
-      ...(message.text ? { text: message.text.slice(0, 200) } : {}),
+      // A snapshot, shown as stored with no lookups — so it keeps names, not
+      // the ids the message itself carries.
+      ...(message.text
+        ? {
+            text: plainTokens(
+              message.text,
+              (id) => personById.get(id)?.name,
+              (id) => roomById.get(id)?.name
+            ).slice(0, 200),
+          }
+        : {}),
       ...(message.kind ? { kind: message.kind } : {}),
       ...(message.images ? { images: message.images.slice(0, 3) } : {}),
     });
@@ -651,7 +803,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
 
   function reactorName(userId: string): string {
     if (userId === selfId) return "Você";
-    return memberById.get(userId)?.name ?? authors[userId]?.name ?? "Alguém";
+    return personById.get(userId)?.name ?? "Alguém";
   }
 
   /** The emoji picker for one message, opened from `where`. */
@@ -1005,6 +1157,8 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
         <GroupMessageComposer
           channelName={channelName}
           candidates={candidates}
+          rooms={roomCandidates}
+          searchPeople={can("mentionMembers") ? searchPeople : undefined}
           replyingTo={replyTo}
           onCancelReply={() => setReplyTo(null)}
           onSend={send}

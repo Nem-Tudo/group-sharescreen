@@ -185,11 +185,20 @@ export interface MentionTriggerInfo {
 
 // Inspects the textarea text and cursor position to detect if the user is
 // currently typing an "@mention".
-export function getMentionTriggerInfo(text: string, cursorPos: number): MentionTriggerInfo {
+// `char` is what opens the suggestions: "@" for people (the default, and all
+// the room chat uses), "#" for a group's rooms. `maxQuery` is how long the typed
+// part may run before it stops counting as a mention in progress — a room name
+// is allowed a little longer than a person's.
+export function getMentionTriggerInfo(
+  text: string,
+  cursorPos: number,
+  char: "@" | "#" = "@",
+  maxQuery = 25
+): MentionTriggerInfo {
   if (cursorPos < 0) return { isTriggered: false, query: "", startIndex: -1 };
 
   const textBeforeCursor = text.slice(0, cursorPos);
-  const lastAtIndex = textBeforeCursor.lastIndexOf("@");
+  const lastAtIndex = textBeforeCursor.lastIndexOf(char);
 
   if (lastAtIndex === -1) {
     return { isTriggered: false, query: "", startIndex: -1 };
@@ -204,7 +213,7 @@ export function getMentionTriggerInfo(text: string, cursorPos: number): MentionT
   const query = textBeforeCursor.slice(lastAtIndex + 1);
 
   // Stop trigger if query contains newlines or exceeds max display name length
-  if (query.includes("\n") || query.length > 25) {
+  if (query.includes("\n") || query.length > maxQuery) {
     return { isTriggered: false, query: "", startIndex: -1 };
   }
 
@@ -282,14 +291,15 @@ export function applyMentionInsertion(
   text: string,
   cursorPos: number,
   startIndex: number,
-  selectedName: string
+  selectedName: string,
+  char: "@" | "#" = "@"
 ): { newText: string; newCursorPos: number } {
   const before = text.slice(0, startIndex);
   let after = text.slice(cursorPos);
   if (after.startsWith(" ")) {
     after = after.slice(1);
   }
-  const mentionText = `@${selectedName} `;
+  const mentionText = `${char}${selectedName} `;
   const newText = before + mentionText + after;
   const newCursorPos = before.length + mentionText.length;
   return { newText, newCursorPos };

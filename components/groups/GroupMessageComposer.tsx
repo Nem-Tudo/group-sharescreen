@@ -9,7 +9,7 @@ import {
   type ClipboardEvent,
   type KeyboardEvent,
 } from "react";
-import { MdClose, MdGif, MdGroups, MdOutlineImage, MdSend } from "react-icons/md";
+import { MdClose, MdGif, MdGroups, MdOutlineImage, MdSend, MdVolumeUp } from "react-icons/md";
 import { GifPicker } from "@/components/GifPicker";
 import { Popover, Tooltip } from "@/components/Tooltip";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -30,6 +30,7 @@ import {
 } from "@/lib/chatMentions";
 import type { GroupReplyTo } from "@/lib/groupsApi";
 import { EVERYONE_MENTION, ROLE_MENTION_PREFIX } from "@/lib/groupPermissions";
+import { encodeMentions, userTokenIds, type Named } from "@/lib/messageTokens";
 import { createTypingAnnouncer, type TypingAnnouncer } from "@/lib/typing";
 
 // The box at the bottom of a group's text room. Drawn like the room chat's own
@@ -39,13 +40,34 @@ import { createTypingAnnouncer, type TypingAnnouncer } from "@/lib/typing";
 // members, which the "só menções" notification level is built on.
 
 export interface MentionCandidate {
-  /** A member's id, EVERYONE_MENTION, or ROLE_MENTION_PREFIX + a role's id. */
+  /** A member's id, EVERYONE_MENTION, ROLE_MENTION_PREFIX + a role's id, or a room's id. */
   id: string;
   name: string;
   avatarUrl: string | null;
   /** A role's colour, for its suggestion. */
   color?: string | null;
+  /** Set on a room offered after "#": which kind, for its icon. */
+  room?: "text" | "voice";
 }
+
+function isPerson(candidate: MentionCandidate): boolean {
+  return (
+    !candidate.room &&
+    candidate.id !== EVERYONE_MENTION &&
+    !candidate.id.startsWith(ROLE_MENTION_PREFIX)
+  );
+}
+
+// How long typing may pause before the people search asks the API. Short
+// enough to feel like the list answering the keys, long enough that a name
+// typed at speed is one request rather than one per letter.
+const SEARCH_DEBOUNCE_MS = 200;
+// People found by searching are remembered for turning a typed name into a
+// mention on send, whether or not it was picked — bounded, since a long
+// session of searching would otherwise hold everybody it ever saw.
+const MAX_REMEMBERED = 200;
+// A room's name may be longer than a person's before the "#" stops counting.
+const ROOM_QUERY_MAX = 32;
 
 /**
  * What this person may send in this room (see lib/groupPermissions) — the
@@ -65,6 +87,8 @@ export interface ComposerPayload {
 }
 
 const MAX_LENGTH = 2000;
+
+const NO_CANDIDATES: MentionCandidate[] = [];
 // A long message gets room to be read while it is written: the box grows with
 // it up to this share of the screen, and only then starts to scroll.
 const MAX_HEIGHT_OF_SCREEN = 0.8;
@@ -98,6 +122,8 @@ const iconButton =
 export function GroupMessageComposer({
   channelName,
   candidates,
+  rooms = [],
+  searchPeople,
   replyingTo,
   onCancelReply,
   onSend,
@@ -106,7 +132,17 @@ export function GroupMessageComposer({
   onTypingChange,
 }: {
   channelName: string;
+  /**
+   * What "@" offers without asking anybody: @everyone, the roles, and the
+   * people this room already knows (who is online, who has written here).
+   * Everybody else is found through `searchPeople` as their name is typed —
+   * the whole membership is never loaded.
+   */
   candidates: MentionCandidate[];
+  /** What "#" offers: the rooms this person can see. */
+  rooms?: MentionCandidate[];
+  /** Members whose name contains the text — asked as somebody types after "@". */
+  searchPeople?: (query: string) => Promise<MentionCandidate[]>;
   replyingTo: GroupReplyTo | null;
   onCancelReply: () => void;
   /**
@@ -132,6 +168,19 @@ export function GroupMessageComposer({
   const [cursor, setCursor] = useState(0);
   const [highlight, setHighlight] = useState(0);
   const [mentionDismissed, setMentionDismissed] = useState<number | null>(null);
+  // The last search's answer, tagged with what was searched — read as empty
+  // for any other query, so a change of query needs no effect to clear it.
+  const [found, setFound] = useState<{ query: string; people: MentionCandidate[] }>({
+    query: "",
+    people: [],
+  });
+  // People picked from the suggestions in the message being written, by
+  // name. They come first when names are turned into mentions on send, so
+  // somebody who shares a name with whoever was picked never takes the mention.
+  const picked = useRef(new Map<string, MentionCandidate>());
+  // Everybody any search has turned up, for a name typed out in full rather
+  // than picked. Insertion-ordered, oldest dropped first.
+  const remembered = useRef(new Map<string, MentionCandidate>());
   const textRef = useRef<HTMLTextAreaElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
@@ -179,11 +228,58 @@ export function GroupMessageComposer({
     if (onTypingChangeRef.current) typingRef.current?.input(value);
   }
 
-  const trigger = getMentionTriggerInfo(text, cursor);
-  const suggestions = useMemo(
-    () => (trigger.isTriggered ? filterMentionCandidates(candidates, trigger.query).slice(0, 8) : []),
-    [trigger.isTriggered, trigger.query, candidates]
-  );
+  // "@" for people and roles, "#" for rooms — whichever was typed last before
+  // the cursor, since that is the one being written.
+  const atTrigger = getMentionTriggerInfo(text, cursor, "@");
+  const hashTrigger =
+    rooms.length > 0 ? getMentionTriggerInfo(text, cursor, "#", ROOM_QUERY_MAX) : atTrigger;
+  const trigger =
+    rooms.length > 0 &&
+    hashTrigger.isTriggered &&
+    (!atTrigger.isTriggered || hashTrigger.startIndex > atTrigger.startIndex)
+      ? { ...hashTrigger, char: "#" as const }
+      : { ...atTrigger, char: "@" as const };
+
+  const searchQuery = trigger.isTriggered && trigger.char === "@" ? trigger.query.trim() : "";
+  // Asked of the API as a name is typed, for everybody the room does not
+  // already know. The answer lands in a timer's callback, never in the effect
+  // itself, and is tagged with its query so a stale one is simply not read.
+  useEffect(() => {
+    if (!searchPeople || !searchQuery) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void searchPeople(searchQuery)
+        .then((people) => {
+          if (cancelled) return;
+          for (const person of people) {
+            remembered.current.delete(person.id);
+            remembered.current.set(person.id, person);
+          }
+          while (remembered.current.size > MAX_REMEMBERED) {
+            const oldest = remembered.current.keys().next();
+            if (oldest.done) break;
+            remembered.current.delete(oldest.value);
+          }
+          setFound({ query: searchQuery, people });
+        })
+        .catch(() => {});
+    }, SEARCH_DEBOUNCE_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [searchPeople, searchQuery]);
+  const searched = found.query === searchQuery ? found.people : NO_CANDIDATES;
+
+  const suggestions = useMemo(() => {
+    if (!trigger.isTriggered) return NO_CANDIDATES;
+    if (trigger.char === "#") return filterMentionCandidates(rooms, trigger.query).slice(0, 8);
+    // Ranked together, so an exact match found by the search is not buried
+    // under a looser one the room happened to know already.
+    const known = new Set(candidates.map((c) => c.id));
+    const pool = [...candidates, ...searched.filter((c) => !known.has(c.id))];
+    return filterMentionCandidates(pool, trigger.query).slice(0, 8);
+  }, [trigger.isTriggered, trigger.char, trigger.query, candidates, rooms, searched]);
   const mentionOpen =
     trigger.isTriggered && suggestions.length > 0 && mentionDismissed !== trigger.startIndex;
   const disabled = Boolean(disabledReason);
@@ -227,7 +323,14 @@ export function GroupMessageComposer({
   }
 
   function pickMention(candidate: MentionCandidate) {
-    const { newText, newCursorPos } = applyMentionInsertion(text, cursor, trigger.startIndex, candidate.name);
+    if (isPerson(candidate)) picked.current.set(normalizeSearch(candidate.name), candidate);
+    const { newText, newCursorPos } = applyMentionInsertion(
+      text,
+      cursor,
+      trigger.startIndex,
+      candidate.name,
+      trigger.char
+    );
     setText(newText);
     setCursor(newCursorPos);
     noteTyping(newText);
@@ -244,13 +347,41 @@ export function GroupMessageComposer({
     if (disabled) return;
     const trimmed = text.trim();
     if (!trimmed && images.length === 0 && !extra.url) return;
+
+    // What goes out carries ids, not names (see lib/messageTokens): "@Ana"
+    // becomes <@her id> and "#geral" becomes <#its id>, and the API reads who
+    // was mentioned off those. Roles and @everyone stay as typed and still
+    // travel in `mentions`, matched against the roles this room already has.
+    const special = candidates.filter((c) => !isPerson(c));
+    const specialNames = new Set(special.map((c) => normalizeSearch(c.name)));
+    const people: Named[] = [
+      // Picked ones first, so they win any name they share.
+      ...picked.current.values(),
+      // Then anybody else the room knows or a search turned up — for a name
+      // typed out in full. One that is also a role's name is left to the role
+      // unless it was picked as a person.
+      ...[...candidates.filter(isPerson), ...remembered.current.values()].filter(
+        (c) => !specialNames.has(normalizeSearch(c.name))
+      ),
+    ];
+    const encoded = extra.url ? "" : encodeMentions(trimmed, people, rooms);
+    // An id is longer than most names, so a message that fitted as typed can
+    // outgrow the limit once encoded — and the API would cut it, splitting a
+    // token in half. Better to say so than to send a broken mention.
+    if (encoded.length > MAX_LENGTH) {
+      setError("A mensagem ficou longa demais com as menções. Encurte um pouco.");
+      return;
+    }
     setError(null);
     onSend({
-      text: extra.url ? "" : trimmed,
+      text: encoded,
       ...(extra.url ? { url: extra.url } : {}),
       ...(!extra.url && images.length > 0 ? { images: images.map((i) => i.dataUrl) } : {}),
-      mentions: extra.url ? [] : mentionedIds(trimmed, candidates),
+      // The people are in the text now; they ride here too only so an API
+      // from before the tokens still alerts them.
+      mentions: extra.url ? [] : [...mentionedIds(trimmed, special), ...userTokenIds(encoded)],
     });
+    picked.current.clear();
     // A GIF goes on its own and leaves whatever was being typed alone.
     if (!extra.url) {
       typingRef.current?.sent();
@@ -368,7 +499,15 @@ export function GroupMessageComposer({
                     : "text-zinc-700 dark:text-zinc-300"
                 }`}
               >
-                {candidate.id === EVERYONE_MENTION ? (
+                {candidate.room ? (
+                  <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-zinc-500">
+                    {candidate.room === "voice" ? (
+                      <MdVolumeUp className="h-3.5 w-3.5" />
+                    ) : (
+                      <span className="text-sm font-semibold leading-none">#</span>
+                    )}
+                  </span>
+                ) : candidate.id === EVERYONE_MENTION ? (
                   <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
                     <MdGroups className="h-3 w-3" />
                   </span>

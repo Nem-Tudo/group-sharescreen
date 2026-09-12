@@ -387,11 +387,21 @@ export const fetchOfflineMembers = (
     signal
   );
 
-/** Members whose name contains `q` — for @-suggestions that must reach somebody offline. */
-export const searchMembers = (groupId: string, q: string, signal?: AbortSignal) =>
+/**
+ * Members whose name contains `q` — for @-suggestions that must reach somebody
+ * offline. With `channelId`, only people who can see that room: the API drops
+ * a mention of anybody who cannot, so suggesting them would promise an alert
+ * that never happens.
+ */
+export const searchMembers = (
+  groupId: string,
+  q: string,
+  channelId?: string | null,
+  signal?: AbortSignal
+) =>
   request<{ members: GroupMember[] } & MemberCounts>(
     "GET",
-    `/groups/${enc(groupId)}/members?q=${enc(q)}`,
+    `/groups/${enc(groupId)}/members?q=${enc(q)}${channelId ? `&channel=${enc(channelId)}` : ""}`,
     undefined,
     signal
   );
