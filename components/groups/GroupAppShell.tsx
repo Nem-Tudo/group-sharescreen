@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import useNtPopups from "ntpopups";
 import { MdHome, MdViewList } from "react-icons/md";
-import { WatchRoom } from "@/app/watch/[handle]/WatchRoom";
 import { AccountMenu } from "@/components/AccountMenu";
+import { CallOutlet } from "@/components/CallOutlet";
 import { AccountModal } from "@/components/AccountModal";
 import { NotificationInboxBell } from "@/components/NotificationInboxBell";
 import { MIN_CARD_HEIGHT_PX } from "@/components/PartnerCard";
@@ -27,8 +27,9 @@ import {
   VoiceControls,
 } from "@/components/groups/GroupSidebar";
 import { useAccountToken } from "@/lib/accountApi";
+import { setCallChrome, useCallSession } from "@/lib/callSession";
 import { useGuestToken } from "@/lib/guestToken";
-import { groupPath, groupVoiceHandle, parseGroupsPath, type GroupsRoute } from "@/lib/groupLinks";
+import { groupVoiceHandle, parseGroupsPath, type GroupsRoute } from "@/lib/groupLinks";
 import { prefetchChannel } from "@/lib/groupCache";
 import { GroupShellContext, registerGroupShell, useGroupNavigation } from "@/lib/groupNavigation";
 import { canInChannel } from "@/lib/groupPermissions";
@@ -36,14 +37,11 @@ import {
   getGroupVoiceSession,
   setGroupVoiceSession,
   useGroupVoiceSession,
-  type GroupVoiceSession,
 } from "@/lib/groupVoiceSession";
 import { signalingClient } from "@/lib/signalingClient";
-import { playConnectSound } from "@/lib/soundEffects";
 import { onGroupRemoved, refreshGroups, resetGroups, useGroupDetail } from "@/lib/useGroups";
 import { LG_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 import { useRoomTheme } from "@/lib/useRoomTheme";
-import { useSignaling } from "@/lib/useSignaling";
 
 // The rooms column's gap-3, between the rooms and the ad under them.
 const ASIDE_GAP_PX = 12;
@@ -59,10 +57,11 @@ const ASIDE_GAP_PX = 12;
 // buttons on the right (see WatchRoom's inHeaderSlot) — so there is one bar,
 // not two.
 //
-// It stays mounted for as long as the address stays under /groups, and that
-// is what keeps the voice call alive: a single WatchRoom for the connected
-// voice room, shown when that room is the one on screen and merely hidden when
-// it is not. Leaving /groups altogether does unmount it, and hangs up.
+// The call itself is not this shell's any more: it is mounted at the root of
+// the app and merely drawn here, in the middle, while its own room is the page
+// on screen (see components/RoomCallHost and lib/callSession). This shell
+// lends it the top bar's slots and says when to draw it; leaving /groups
+// altogether now carries the call along instead of hanging it up.
 //
 // And it is what draws the page, too: the view in the middle is picked from
 // the address here (GroupsView), not handed down by the route. Moving between
@@ -87,6 +86,9 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   // flash first. On /groups itself there is no group: your own theme.
   useRoomTheme(groupId ? (detail ? detail.group.theme ?? null : undefined) : null);
   const session = useGroupVoiceSession();
+  // Any call this tab is in — a group's, or an ordinary room's carried in from
+  // elsewhere on the site. Both get the same place in this bar.
+  const call = useCallSession();
   const isWide = useMediaQuery(LG_BREAKPOINT_QUERY);
   const [navOpen, setNavOpen] = useState(false);
   const [accountModal, setAccountModal] = useState<"login" | "create" | null>(null);
@@ -97,6 +99,19 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   // headerSlots. State rather than refs, so the room re-renders once they exist.
   const [centerSlot, setCenterSlot] = useState<HTMLDivElement | null>(null);
   const [rightSlot, setRightSlot] = useState<HTMLDivElement | null>(null);
+
+  // What the call borrows from the group while the group's pages are the ones
+  // on screen: this bar's two slots for the room's own controls, and the way
+  // to open the rooms drawer on a phone. Published rather than handed down,
+  // because the room is no longer mounted below this — it lives at the root of
+  // the app now (see components/RoomCallHost). Its presence is also what tells
+  // the host not to draw its floating call bar: from lg up this bar already
+  // carries one (see GroupSidebar's VoiceCallLink and VoiceControls).
+  const openNav = useCallback(() => setNavOpen(true), []);
+  useEffect(() => {
+    setCallChrome({ headerSlots: { center: centerSlot, right: rightSlot }, onOpenNav: openNav });
+    return () => setCallChrome(null);
+  }, [centerSlot, rightSlot, openNav]);
 
   // A different person — logging in, out, or into another account — is a
   // different set of groups. Skipped on the first render, which is not a change.
@@ -155,10 +170,11 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
     [groupId, navigation, openPopup]
   );
 
-  // Leaving /groups entirely hangs up — the WatchRoom goes with this shell, and
-  // a session left behind would silently rejoin the call on the way back in.
-  useEffect(() => () => setGroupVoiceSession(null), []);
-
+  // Leaving /groups does *not* hang up any more. The room is mounted at the
+  // root of the app now (see components/RoomCallHost), so a call carries on
+  // while its group's pages are not the ones on screen — the same way it
+  // already carried on while a text room of the group was.
+  //
   // Every text room of the open group, warmed once the group is known, so the
   // next one clicked opens on its messages instead of on a spinner (see
   // lib/groupCache — a room already fresh costs nothing). After a beat, so the
@@ -212,7 +228,7 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
                 connected, portalled in by the room whether or not it is the
                 page on screen. Beside them, while it is not, the way back to it. */}
             <div className="hidden items-center gap-2 justify-self-center lg:flex">
-              {session && !voiceVisible && <VoiceCallLink />}
+              {call && !voiceVisible && <VoiceCallLink />}
               <div ref={setCenterSlot} className="contents" />
             </div>
 
@@ -239,7 +255,7 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
         </header>
 
         {/* Below lg the call gets a strip of its own under the bar. */}
-        {session && !voiceVisible && (
+        {call && !voiceVisible && (
           <div className="shrink-0 border-b border-black/10 bg-white px-3 py-1.5 lg:hidden dark:border-white/10 dark:bg-zinc-950">
             <VoiceControls className="w-full" />
           </div>
@@ -290,18 +306,11 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
                   tree so anything Next hangs off it still has its place. */}
               {children}
             </div>
-            {session && (
-              <VoiceHost
-                session={session}
-                visible={voiceVisible}
-                headerSlots={{ center: centerSlot, right: rightSlot }}
-                onOpenNav={() => setNavOpen(true)}
-                onDisconnect={() => {
-                  setGroupVoiceSession(null);
-                  if (voiceVisible) navigation.push(groupPath(session.groupId));
-                }}
-              />
-            )}
+            {/* Where the call is drawn while its own room is the page being
+                looked at. The room is mounted at the root of the app and moved
+                in here (see components/RoomCallHost); on every other page of
+                the group it is simply not drawn, and goes on regardless. */}
+            {voiceVisible && <CallOutlet />}
           </div>
 
           {/* The group's people, like a room's participant column. Not while
@@ -366,10 +375,6 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
 }
 
 /**
- * The call. Mounted for as long as there is a session, visible only while its
- * room is the page being looked at — see the shell's header comment.
- */
-/**
  * The middle of the screen, for whatever the address names. Keyed by the room,
  * so each one starts fresh — the text room's own state (scroll, the reply
  * being written) belongs to that room.
@@ -380,90 +385,6 @@ function GroupsView({ route }: { route: GroupsRoute | null }) {
   return <GroupRoom key={`${route.groupId}/${route.roomId}`} groupId={route.groupId} roomId={route.roomId} />;
 }
 
-function VoiceHost({
-  session,
-  visible,
-  headerSlots,
-  onOpenNav,
-  onDisconnect,
-}: {
-  session: GroupVoiceSession;
-  visible: boolean;
-  headerSlots: { center: HTMLElement | null; right: HTMLElement | null };
-  onOpenNav: () => void;
-  onDisconnect: () => void;
-}) {
-  return (
-    <div
-      className={
-        visible
-          ? "flex min-h-0 flex-1 flex-col"
-          : // Collapsed rather than display:none. The call's controls stay in
-            // the top bar while this is out of sight, and what they open —
-            // the screen-share quality picker, the guest broadcast limit —
-            // is drawn fixed to the viewport from inside the room: under
-            // display:none it would be invisible, collapsed it still shows.
-            "h-0 shrink-0 overflow-hidden"
-      }
-    >
-      <RemovalGuard onRemoved={onDisconnect} />
-      {/* Keyed by the room, so moving to another voice room is a new "you
-          are in" — and a reconnect into the same call is not. Prefixed,
-          because the WatchRoom beside it is keyed by the bare handle and
-          siblings may not share a key, whatever their component. */}
-      <ConnectSound key={`connect:${session.handle}`} handle={session.handle} />
-      <WatchRoom
-        key={session.handle}
-        handle={session.handle}
-        group={{
-          groupId: session.groupId,
-          channelId: session.channelId,
-          channelName: session.channelName,
-          groupName: session.groupName,
-          onDisconnect,
-          onOpenNav,
-          visible,
-          headerSlots,
-        }}
-      />
-    </div>
-  );
-}
-
-/**
- * The sound of having got in: played once, the first time the room this
- * session is for actually answers the join (not when the click happened — a
- * join that is refused should not sound like one that worked). A new instance
- * per room (see its key), so switching rooms plays it again; a reconnect that
- * rejoins the same room does not, because this instance already played.
- */
-function ConnectSound({ handle }: { handle: string }) {
-  const { room } = useSignaling();
-  const played = useRef(false);
-  useEffect(() => {
-    if (played.current || room !== handle) return;
-    played.current = true;
-    playConnectSound();
-  }, [room, handle]);
-  return null;
-}
-
-/**
- * Hangs up when the room throws this connection out (a kick from inside the
- * call, or the group removing them). Reacts to the *transition* only: a
- * removal left in state from some earlier room must not end a call that has
- * only just started.
- */
-function RemovalGuard({ onRemoved }: { onRemoved: () => void }) {
-  const { roomRemoval } = useSignaling();
-  const previous = useRef(roomRemoval);
-  const onRemovedRef = useRef(onRemoved);
-  useEffect(() => {
-    onRemovedRef.current = onRemoved;
-  }, [onRemoved]);
-  useEffect(() => {
-    if (roomRemoval && !previous.current) onRemovedRef.current();
-    previous.current = roomRemoval;
-  }, [roomRemoval]);
-  return null;
-}
+// The call's own pieces — the room, the sound of getting in, and hanging up
+// when the room throws somebody out — moved to components/RoomCallHost, which
+// is where the room lives now.

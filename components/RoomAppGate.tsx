@@ -5,6 +5,7 @@ import { MdOutlineDesktopWindows } from "react-icons/md";
 import { RoomSkeleton } from "@/components/RoomSkeleton";
 import { DownloadAppButton } from "@/components/DownloadAppButton";
 import { clearAppHandoff, requestAppHandoff, useAppHandoffCount } from "@/lib/appHandoff";
+import { endCall, getCallSession } from "@/lib/callSession";
 import { isDesktopApp } from "@/lib/desktop";
 import { detectDownloadPlatform } from "@/lib/downloadTargets";
 import {
@@ -86,6 +87,17 @@ export function RoomAppGate({ handle, children }: { handle: string; children: Re
     clearAppHandoff();
     setState("browser");
   }, []);
+
+  // Handing the room to the app means leaving it here, and this is now the
+  // only thing that says so: swapping this gate away from its children used to
+  // unmount WatchRoom, which was what left the room. The room outlives the
+  // page now (see lib/callSession), so without this the person would sit in
+  // the call twice — once here as a ghost, once in the app.
+  useEffect(() => {
+    if (handoffCount === 0) return;
+    if (getCallSession()?.handle !== handle) return;
+    endCall();
+  }, [handoffCount, handle]);
 
 
 

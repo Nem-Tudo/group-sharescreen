@@ -85,6 +85,17 @@ export function getGroupVoiceSession(): GroupVoiceSession | null {
   return session;
 }
 
+/**
+ * Every change here, for lib/callSession — which mirrors this store into the
+ * one the call host runs on, so that hanging up from the group's own dock (or
+ * leaving the group, or logging out) still ends the call now that no component
+ * owns the room. Fires for the controls and the participant list too; the
+ * reader compares before acting.
+ */
+export function subscribeGroupVoiceSession(listener: () => void): () => void {
+  return subscribe(listener);
+}
+
 export function setGroupVoiceSession(next: GroupVoiceSession | null): void {
   const same =
     session === next ||

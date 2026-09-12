@@ -471,6 +471,81 @@ body:has([data-group-shell]) {
   overscroll-behavior: none;
 }
 
+/* The floating call bar's extra controls (see components/RoomCallHost and
+   WatchRoom's dockExtra): the device chevrons, the quality gear, video sources
+   and music, which the compact bar leaves out.
+
+   They grow in from nothing and shrink back to it, which is what makes the bar
+   open out to the right. Grid tracks rather than max-width: 0fr → 1fr runs to
+   each button's own width, so a 22px chevron and a 100px button take the same
+   time to arrive — a max-width cap big enough for the widest one would have the
+   chevrons snap open in the first frames and then sit there. The child's
+   overflow is what lets the track reach zero (its automatic minimum is 0 then);
+   the menus these buttons open are portalled to <body>, so nothing they show is
+   clipped by it.
+
+   `--call-dock-gap` is the flex gap around an extra that sits directly in the
+   row, taken back while it is closed so the spacing does not jump either. */
+.call-dock-extra {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+.call-dock-extra > * {
+  min-width: 0;
+  overflow: hidden;
+}
+
+@keyframes call-dock-reveal {
+  from {
+    grid-template-columns: 0fr;
+    margin-inline-start: calc(-1 * var(--call-dock-gap, 0px));
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+  to {
+    grid-template-columns: 1fr;
+    margin-inline-start: 0;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes call-dock-conceal {
+  from {
+    grid-template-columns: 1fr;
+    margin-inline-start: 0;
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    grid-template-columns: 0fr;
+    margin-inline-start: calc(-1 * var(--call-dock-gap, 0px));
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+}
+
+/* Out a little quicker than in, the way a drawer closes: arriving is something
+   to look at, leaving is only getting out of the way. The duration here is
+   matched by DOCK_COLLAPSE_MS in RoomCallHost, which drops the buttons once it
+   is over. */
+.call-dock-reveal {
+  animation: call-dock-reveal 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.call-dock-conceal {
+  animation: call-dock-conceal 180ms cubic-bezier(0.4, 0, 1, 1) both;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .call-dock-reveal,
+  .call-dock-conceal {
+    animation-duration: 1ms;
+  }
+}
+
 /* The two bits of motion on /app (see app/app/FeatureArt.tsx): a small
    equalizer that says "someone is talking / sound is going out", and the
    dot on the "ao vivo" badge. Both live here rather than inline because

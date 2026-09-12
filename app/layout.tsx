@@ -14,6 +14,7 @@ import { GiftClaimHost } from "@/components/GiftClaimHost";
 import { DmNotifier } from "@/components/DmNotifier";
 import { DirectMessagesHost } from "@/components/DirectMessagesHost";
 import { CallHost } from "@/components/CallHost";
+import { RoomCallHost } from "@/components/RoomCallHost";
 import { PushRegistrar } from "@/components/PushRegistrar";
 import { ProModalHost } from "@/components/ProModalHost";
 import { NtPopups } from "@/components/NtPopups";
@@ -231,6 +232,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                   reason the bell is: a call arrives whenever it arrives, and
                   it has to be answerable from whatever page somebody is on. */}
               <CallHost />
+              {/* The call itself — the one room there is, mounted here so it
+                  survives every navigation. The page it belongs to only says
+                  where to draw it (see components/RoomCallHost). */}
+              <RoomCallHost />
               {/* Renders nothing; it is what makes a notification arrive with
                   the app closed — see components/PushRegistrar.tsx. */}
               <PushRegistrar />

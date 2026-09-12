@@ -56,6 +56,7 @@ import {
   MAX_PRIVATE_ROOM_NAME_LENGTH,
 } from "@/lib/roomsApi";
 import { rememberRecentRoom } from "@/lib/recentRooms";
+import type { CallDockPhase } from "@/lib/callSession";
 import { useRoomSoundEffects } from "@/lib/useRoomSoundEffects";
 import { useBackgroundKeepAlive } from "@/lib/useBackgroundKeepAlive";
 import {
@@ -635,6 +636,8 @@ function ShareControls({
   onCloseShortcutQuick,
   onRequestAccount,
   onOpenAllShortcuts,
+  compact = false,
+  extraMotion = "",
 }: {
   screenSharing: boolean;
   cameraSharing: boolean;
@@ -694,6 +697,12 @@ function ShareControls({
   onCloseShortcutQuick?: () => void;
   onRequestAccount?: () => void;
   onOpenAllShortcuts?: () => void;
+  // The floating call bar's compact size (see WatchRoom's dockExtra): only the
+  // screen and camera buttons, without the quality gear or the camera picker.
+  compact?: boolean;
+  // The bar's animation class for those two while it is expanded — empty
+  // anywhere but the bar.
+  extraMotion?: string;
 }) {
   const segment =
     "flex items-center px-3 py-2 text-white transition disabled:cursor-not-allowed disabled:opacity-50";
@@ -717,8 +726,21 @@ function ShareControls({
         ? "Compartilhar câmera"
         : "Seu navegador não permite usar a câmera";
 
+  // Same job as WatchRoom's dockExtra, for the two pieces of this segment the
+  // compact bar leaves out.
+  const extra = (node: ReactNode): ReactNode => {
+    if (compact || !node) return null;
+    if (!extraMotion) return node;
+    return (
+      <span className={`call-dock-extra ${extraMotion}`}>
+        <span className="flex items-stretch">{node}</span>
+      </span>
+    );
+  };
+
   return (
     <div className="flex items-stretch overflow-hidden rounded-lg">
+      {extra(
       <Popover
         open={open}
         onClose={() => setOpen(false)}
@@ -739,6 +761,7 @@ function ShareControls({
           <BsGearFill className="h-3.5 w-3.5" />
         </button>
       </Popover>
+      )}
       {/* Wrapped so the tooltip still opens while the button is disabled —
           which is the one state where it has something to explain. */}
       <ShortcutQuickPopover
@@ -800,7 +823,7 @@ function ShareControls({
           ("which camera?") and a phone showing a flip button *and* a list of
           "camera2 0, facing back" entries would be two ways to do one thing,
           one of them unreadable. */}
-      {cameraSupported && onPhone ? (
+      {extra(cameraSupported && onPhone ? (
         <Tooltip
           content={
             cameraFacing === "environment"
@@ -859,7 +882,7 @@ function ShareControls({
             <ChevronDownIcon className="h-3.5 w-3.5" />
           </button>
         </Popover>
-      ) : null}
+      ) : null)}
     </div>
   );
 }
@@ -1015,28 +1038,52 @@ export type WatchRoomGroupMode = {
   channelId: string;
   channelName: string;
   groupName: string;
-  /** Hanging up: the shell unmounts the room, which is what leaves it. */
-  onDisconnect: () => void;
   /** Opens the group's rooms drawer on a phone. */
   onOpenNav: () => void;
-  /** Whether the call is the page on screen — the shell keeps it mounted while hidden. */
-  visible: boolean;
-  /**
-   * Where in the group's top bar this room's own header controls go. A group
-   * room has no header of its own — the group's bar already says where you are
-   * — so the call controls and the room's page buttons are portalled into it.
-   */
-  headerSlots: { center: HTMLElement | null; right: HTMLElement | null };
 };
 
 export function WatchRoom({
   handle,
   viewThemeId = null,
+  visible = true,
+  onDisconnect,
+  dockSlot = null,
+  dockPhase = "expanded",
+  headerSlots = null,
   group,
 }: {
   handle: string;
   /** A theme this room was opened to show. See useRoomTheme. */
   viewThemeId?: string | null;
+  /**
+   * Whether a page is drawing the room right now. False while the call is
+   * docked — connected and audible, with somebody reading another page (see
+   * components/RoomCallHost). The room stays mounted either way: unmounting it
+   * is what ends the call.
+   */
+  visible?: boolean;
+  /** Hanging up. Clearing the session is what unmounts this and leaves the room. */
+  onDisconnect: () => void;
+  /**
+   * The floating call bar's box, while the call is docked: the room's own call
+   * controls are drawn into it (see inHeaderSlot), so the bar carries the real
+   * ones rather than copies of a few.
+   */
+  dockSlot?: HTMLElement | null;
+  /**
+   * Which size that bar is. Its lesser controls are left out while compact
+   * and animated in and out around its arrow (see dockExtra). Means nothing
+   * anywhere but the bar.
+   */
+  dockPhase?: CallDockPhase;
+  /**
+   * The slots of whatever top bar is lending itself to the call — a group's,
+   * while the group's pages are on screen, whether the call is that group's or
+   * one carried in from an ordinary room. The call controls are portalled into
+   * it, and the room's page buttons too while the room is the page shown (see
+   * inHeaderSlot). Null anywhere else.
+   */
+  headerSlots?: { center: HTMLElement | null; right: HTMLElement | null } | null;
   /** Set only when the room is a group's voice room. See WatchRoomGroupMode. */
   group?: WatchRoomGroupMode;
 }) {
@@ -1051,7 +1098,10 @@ export function WatchRoom({
   // In a group the page's look is the group's, painted by the group shell for
   // every page of it — this room paints nothing of its own (see useRoomTheme's
   // `enabled`), or a call in one group would recolour another one being read.
-  const roomTheme = useRoomTheme(state.roomTheme, viewThemeId, !group);
+  // ...and nothing at all while the call is docked: the room's colours belong
+  // to the room, and a call carried around the site must not repaint the page
+  // somebody walked off to read.
+  const roomTheme = useRoomTheme(state.roomTheme, viewThemeId, !group && visible);
   // Whether this browser refuses room themes (see the toggle in the menu). Read
   // here as well as inside the hook, because the row has to draw its own state.
   const roomThemeOptedOut = useSyncExternalStore(
@@ -1652,7 +1702,7 @@ export function WatchRoom({
     // nobody can see and defers its rotation to a minute it owns.
     // In a group on a wide screen the room draws no ad at all — the group's
     // rooms column does (see GroupPartnerSlot) — so this one must not count.
-  } = usePartnerAd({ visible: !showAdsterra && !(group && isWideLayout) });
+  } = usePartnerAd({ visible: visible && !showAdsterra && !(group && isWideLayout) });
 
   const hasLocalScreen = Boolean(isSharing && localStream);
   const hasLocalCamera = Boolean(localCameraStream);
@@ -2055,14 +2105,13 @@ export function WatchRoom({
   }, [toggleMic]);
   const stableToggleMic = useCallback(() => toggleMicRef.current(), []);
   const inGroup = Boolean(group);
+  // Published for every call, not only a group's: the bar that carries a call
+  // around the rest of the site offers the same mute button (see
+  // components/RoomCallHost's CallDock), and it has no other way to reach it.
   useEffect(() => {
-    if (!inGroup) return;
     setGroupVoiceControls({ isMicOn, toggleMic: stableToggleMic });
-  }, [inGroup, isMicOn, stableToggleMic]);
-  useEffect(() => {
-    if (!inGroup) return;
-    return () => setGroupVoiceControls(null);
-  }, [inGroup]);
+  }, [isMicOn, stableToggleMic]);
+  useEffect(() => () => setGroupVoiceControls(null), []);
 
   // In a group, the rooms list outside this room draws the room you are in
   // from here rather than from the server's group-wide update (see
@@ -4533,9 +4582,33 @@ export function WatchRoom({
   // everything else in "Mais opções" above. Rendered in the header's single
   // control row, alongside "Compartilhar sala"/"Trocar de sala" and the
   // "Pro" button.
+  // The floating call bar's two sizes (see components/RoomCallHost). Compact is
+  // what a call needs every minute — mic, headset, screen, camera and hanging
+  // up — and everything else in the row goes through here: left out while the
+  // bar is compact, grown in and shrunk back out around its arrow (see the
+  // .call-dock-* rules in globals.css). Anywhere but the bar — the room's own
+  // header, the group's top bar — it hands the node back untouched.
+  const inDock = !visible && !headerSlots?.center;
+  const dockCompact = inDock && dockPhase === "compact";
+  const dockMotion = !inDock
+    ? ""
+    : dockPhase === "collapsing"
+      ? "call-dock-conceal"
+      : "call-dock-reveal";
+  function dockExtra(node: ReactNode, innerClassName = "flex items-stretch", outerClassName = ""): ReactNode {
+    if (dockCompact || !node) return null;
+    if (!dockMotion) return node;
+    return (
+      <span className={`call-dock-extra ${dockMotion} ${outerClassName}`}>
+        <span className={innerClassName}>{node}</span>
+      </span>
+    );
+  }
+
   const mainControls = (
     <>
       <div className="flex items-stretch">
+        {dockExtra(
         <Popover
           open={micDeviceMenuOpen}
           onClose={() => setMicDeviceMenuOpen(false)}
@@ -4583,6 +4656,7 @@ export function WatchRoom({
             <ChevronDownIcon className="h-3.5 w-3.5" />
           </button>
         </Popover>
+        )}
         <ShortcutQuickPopover
           action="toggleMute"
           open={quickShortcutAction === "toggleMute"}
@@ -4613,7 +4687,7 @@ export function WatchRoom({
               // screenBlockedReason for the same reasoning.
               disabled={!isMicOn && Boolean(micBlockedReason)}
               aria-label={isMicOn ? "Desativar microfone" : "Ativar microfone"}
-              className={`rounded-r-lg p-2 text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${isMicOn ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700"
+              className={`${dockCompact ? "rounded-lg" : "rounded-r-lg"} p-2 text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${isMicOn ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700"
                 }`}
             >
               {isMicOn ? <MicIcon className="h-5 w-5" /> : <MicOffIcon className="h-5 w-5" />}
@@ -4623,7 +4697,7 @@ export function WatchRoom({
       </div>
 
       <div className="flex items-stretch">
-        {canSelectSpeaker && (
+        {canSelectSpeaker && dockExtra(
           <Popover
             open={speakerDeviceMenuOpen}
             onClose={() => setSpeakerDeviceMenuOpen(false)}
@@ -4681,7 +4755,7 @@ export function WatchRoom({
                 setQuickShortcutAction("toggleDeafen");
               }}
               aria-label={micsMuted ? "Reativar microfones" : "Silenciar microfones"}
-              className={`p-2 text-white transition ${canSelectSpeaker ? "rounded-r-lg" : "rounded-lg"} ${micsMuted ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"
+              className={`p-2 text-white transition ${canSelectSpeaker && !dockCompact ? "rounded-r-lg" : "rounded-lg"} ${micsMuted ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"
                 }`}
             >
               {micsMuted ? (
@@ -4740,6 +4814,8 @@ export function WatchRoom({
           onCloseShortcutQuick={() => setQuickShortcutAction(null)}
           onRequestAccount={() => setAccountModal("create")}
           onOpenAllShortcuts={() => setShortcutsModalOpen(true)}
+          compact={dockCompact}
+          extraMotion={dockMotion}
         />
       </div>
     </>
@@ -5228,12 +5304,24 @@ export function WatchRoom({
   // screen first. The page buttons (share, Pro, options) are about the room's
   // page, so they only come along while it is the one shown.
   // Outside a group this hands the node straight back, unchanged.
+  //
+  // Docked — the call carried around the site with no page of its own on
+  // screen (see components/RoomCallHost) — the call controls go to the
+  // floating call bar instead, at every width and in every kind of room, and
+  // the page buttons go nowhere: there is no room page for them to be about.
+  // A group's bar still wins while the group's pages are the ones showing (its
+  // slots only exist then), for every call alike: a group's, while somebody
+  // reads one of its text rooms, and an ordinary room's carried into /groups —
+  // whose controls would otherwise be nowhere at all, since the floating bar
+  // stands aside for the group's.
   function inHeaderSlot(slot: "center" | "right", node: ReactNode): ReactNode {
-    if (!group) return node;
-    const target = group.headerSlots[slot];
-    if (!target) return null;
-    if (slot === "right" && !group.visible) return null;
-    return createPortal(node, target);
+    const barTarget = headerSlots?.[slot] ?? null;
+    if (barTarget) {
+      if (slot === "right" && !visible) return null;
+      return createPortal(node, barTarget);
+    }
+    if (!visible) return slot === "center" && dockSlot ? createPortal(node, dockSlot) : null;
+    return group ? null : node;
   }
 
   return (
@@ -5241,7 +5329,10 @@ export function WatchRoom({
       // Marks this page as an app shell for globals.css, which is what pins
       // it to the viewport actually on screen below lg — see the
       // `[data-room-shell]` rule there.
-      data-room-shell
+      // Only while a page is actually showing the room: those rules pin the
+      // document to the viewport, and a docked call is a call on somebody
+      // else's page, which must go on scrolling like the page it is.
+      data-room-shell={visible ? "" : undefined}
       // Read by app/globals.css, which hides the header, both side columns
       // and the bottom bar while Android is floating the window. A React
       // branch would mean unmounting the video element the floating window is
@@ -5416,11 +5507,21 @@ export function WatchRoom({
               into three wrapped rows of buttons on a 360px screen. Rendered
               in one place at a time rather than hidden with a `lg:` class, so
               there is only ever one mic button, one device popover and one
-              open/closed state for them. */}
-          {isWideLayout && inHeaderSlot("center", (
+              open/closed state for them.
+
+              Docked, at any width: the floating call bar is where they go then
+              (see inHeaderSlot), and the bottom bar is not drawn — the one-
+              place rule still holds. */}
+          {(isWideLayout || !visible) && inHeaderSlot("center", (
             <div className="flex items-center justify-center gap-1.5 justify-self-center rounded-xl border border-zinc-200 bg-zinc-100 p-1 dark:border-zinc-800 dark:bg-zinc-900">
               {mainControls}
 
+              {/* Everything here past what a call needs every minute goes in
+                  one piece, so the compact call bar leaves it out and the
+                  expanded one grows it in as one (see dockExtra). The gap
+                  variable is the row's own gap-1.5, taken back while closed. */}
+              {dockExtra(
+              <>
               <span className="mx-0.5 h-6 w-px shrink-0 bg-zinc-300 dark:bg-zinc-700" />
 
               {/* Adding a YouTube/Twitch video/live to the room. Sits with
@@ -5475,6 +5576,10 @@ export function WatchRoom({
                   <span className="hidden 2xl:inline"><BetaMark /></span>
                 </button>
               </Tooltip>
+              </>,
+              "flex items-center gap-1.5",
+              "[--call-dock-gap:0.375rem]"
+              )}
 
               {/* Leaving. Red and last in the row for the same reason every
                   call app puts it there: it is the one control here that ends
@@ -5490,10 +5595,10 @@ export function WatchRoom({
                     // button is about to be unmounted and there is no reason
                     // to race that.
                     playHangUpSound();
-                    // In a group, hanging up stays in the group — the shell
-                    // unmounts the room, which is what leaves it.
-                    if (group) group.onDisconnect();
-                    else router.push("/");
+                    // Ends the session, which unmounts this room and leaves
+                    // it — and, from the room's own page, moves off a page
+                    // that now has nothing to show (see RoomCallHost).
+                    onDisconnect();
                   }}
                   aria-label="Sair da chamada"
                   className="flex items-center rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-700"
@@ -5903,7 +6008,9 @@ export function WatchRoom({
             column, so chat gets the full column to itself. */}
         {/* Not in a group: who is in the call is already on the group's room
             card, and the ad lives in the group's rooms column. */}
-        {isWideLayout && !leftSidebarCollapsed && !group && (
+        {/* Nor while docked — same reason as the bottom bar below: the ad
+            in it would be counting impressions nobody saw. */}
+        {isWideLayout && visible && !leftSidebarCollapsed && !group && (
           <aside className="flex h-full w-[300px] shrink-0 flex-col gap-3">
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
               <div className="shrink-0 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
@@ -6202,8 +6309,12 @@ export function WatchRoom({
             was a pane that grew downwards as it filled: it pushed the page
             taller than the viewport, so the whole room slid up and down under
             the thumb, and the only hint that a chat existed at all was a grey
-            tab strip floating under the video. */}
-        {!isWideLayout && (
+            tab strip floating under the video.
+
+            Not while docked: nobody is looking at the room then, its controls
+            are in the floating call bar (see inHeaderSlot), and an ad drawn
+            where nobody can see it would be an impression counted for nothing. */}
+        {!isWideLayout && visible && (
           <>
             {/* Out here rather than inside a sheet: this is the ad that pays
                 for the room, and below lg the partner card collapses itself
@@ -6531,8 +6642,7 @@ export function WatchRoom({
                       type="button"
                       onClick={() => {
                         playHangUpSound();
-                        if (group) group.onDisconnect();
-                        else router.push("/");
+                        onDisconnect();
                       }}
                       aria-label="Sair da chamada"
                       className={`${DOCK_BUTTON} bg-red-600 hover:bg-red-700 active:bg-red-800 text-white`}

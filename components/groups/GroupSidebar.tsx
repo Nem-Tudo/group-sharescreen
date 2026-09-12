@@ -69,6 +69,7 @@ import {
   type GroupVoiceLivePerson,
 } from "@/lib/groupVoiceSession";
 import { useSpeaking } from "@/lib/useSpeaking";
+import { callNameFor, callPathFor, endCall, useCallSession } from "@/lib/callSession";
 import { playHangUpSound } from "@/lib/soundEffects";
 import { useAuth } from "@/lib/AuthContext";
 import { hasFeature } from "@/lib/entitlements";
@@ -1083,30 +1084,36 @@ export function GroupActions({ detail }: { detail: GroupDetail }) {
  * The call, from anywhere in the group: which room it is in (click to go back
  * to it), the microphone, and hanging up. The same grey tray and red button as
  * the room's own mid-call controls. Renders nothing while not connected.
+ *
+ * Any call, not only a group's: one carried into /groups from an ordinary room
+ * is shown the same way (see lib/callSession), just without a group to name.
  */
 export function VoiceControls({ className = "" }: { className?: string }) {
   const navigation = useGroupNavigation();
-  const session = useGroupVoiceSession();
+  const call = useCallSession();
   const controls = useGroupVoiceControls();
   // The group's flags, for its badge — the session carries only the name.
   const groupsState = useGroupsState();
-  if (!session) return null;
-  const sessionFlags = groupsState.details[session.groupId]?.group.flags;
+  if (!call) return null;
+  const callGroup = call.group;
+  const sessionFlags = callGroup ? groupsState.details[callGroup.groupId]?.group.flags : undefined;
   return (
     <div
       className={`flex items-center gap-1 rounded-xl border border-zinc-200 bg-zinc-100 p-1 dark:border-zinc-800 dark:bg-zinc-900 ${className}`}
     >
       <GroupLink
-        href={groupPath(session.groupId, session.channelId)}
+        href={callPathFor(call)}
         title="Voltar para a chamada"
         className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition hover:bg-white dark:hover:bg-zinc-800"
       >
         <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-emerald-500" />
-        <span className="truncate font-medium text-zinc-900 dark:text-zinc-100">{session.channelName}</span>
-        <span className="hidden min-w-0 items-center gap-1 text-zinc-500 xl:inline-flex dark:text-zinc-400">
-          <span className="shrink-0">·</span>
-          <GroupName name={session.groupName} flags={sessionFlags} badgeClassName="h-3.5 w-3.5" />
-        </span>
+        <span className="truncate font-medium text-zinc-900 dark:text-zinc-100">{callNameFor(call)}</span>
+        {callGroup && (
+          <span className="hidden min-w-0 items-center gap-1 text-zinc-500 xl:inline-flex dark:text-zinc-400">
+            <span className="shrink-0">·</span>
+            <GroupName name={callGroup.groupName} flags={sessionFlags} badgeClassName="h-3.5 w-3.5" />
+          </span>
+        )}
       </GroupLink>
       {controls && (
         <Tooltip content={controls.isMicOn ? "Desligar microfone" : "Ligar microfone"}>
@@ -1130,10 +1137,9 @@ export function VoiceControls({ className = "" }: { className?: string }) {
           onClick={() => {
             playHangUpSound();
             const wasOnCall =
-              typeof window !== "undefined" &&
-              window.location.pathname === groupPath(session.groupId, session.channelId);
-            setGroupVoiceSession(null);
-            if (wasOnCall) navigation.push(groupPath(session.groupId));
+              typeof window !== "undefined" && window.location.pathname === callPathFor(call);
+            endCall();
+            if (wasOnCall) navigation.push(callGroup ? groupPath(callGroup.groupId) : "/");
           }}
           aria-label="Sair da chamada"
           className="flex h-8 shrink-0 cursor-pointer items-center rounded-lg bg-red-600 px-2.5 text-white transition hover:bg-red-700"
@@ -1152,18 +1158,23 @@ export function VoiceControls({ className = "" }: { className?: string }) {
  * inHeaderSlot). Renders nothing while not connected.
  */
 export function VoiceCallLink() {
-  const session = useGroupVoiceSession();
-  if (!session) return null;
+  // Any call — see VoiceControls.
+  const call = useCallSession();
+  if (!call) return null;
+  const name = callNameFor(call);
   return (
-    <Tooltip content={`Voltar para a chamada · ${session.groupName}`} placement="bottom">
+    <Tooltip
+      content={call.group ? `Voltar para a chamada · ${call.group.groupName}` : "Voltar para a chamada"}
+      placement="bottom"
+    >
       <GroupLink
-        href={groupPath(session.groupId, session.channelId)}
-        aria-label={`Voltar para a chamada em ${session.channelName}`}
+        href={callPathFor(call)}
+        aria-label={`Voltar para a chamada em ${name}`}
         className="flex max-w-[12rem] shrink-0 items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-100 px-3 py-2 text-sm transition hover:bg-white dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800"
       >
         <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-emerald-500" />
         <MdVolumeUp className="h-4 w-4 shrink-0 text-emerald-600" />
-        <span className="truncate font-medium text-zinc-900 dark:text-zinc-100">{session.channelName}</span>
+        <span className="truncate font-medium text-zinc-900 dark:text-zinc-100">{name}</span>
       </GroupLink>
     </Tooltip>
   );
