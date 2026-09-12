@@ -58,6 +58,8 @@ export function VideoTile({
   onStopWatching,
   onDoubleClick,
   onRenderedSizeChange,
+  onVisibilityChange,
+  detachWhenHidden = true,
   onFocus,
   onNativePip,
   isSpotlighted = false,
@@ -97,6 +99,18 @@ export function VideoTile({
   // pixels away, on their CPU and their uplink both. Omitted for the local
   // preview, which nobody is sending to us.
   onRenderedSizeChange?: (width: number, height: number) => void;
+  // Told whenever this tile enters or leaves the screen — scrolled out of the
+  // pane, or the whole page put in the background. What the room does with it
+  // is drop the peer's quality tier and, if it stays away, stop receiving from
+  // them altogether (see WatchRoom's tileVisibility). Omitted where nobody is
+  // watching visibility.
+  onVisibilityChange?: (visible: boolean) => void;
+  // Whether to release the stream from the element while off screen. On by
+  // default: an attached <video> keeps decoding every frame whether or not
+  // anyone can see it, which in a room full of shares is the single largest
+  // thing this client does for no reason. Passed false for the local preview,
+  // where the capture runs regardless and detaching buys nothing.
+  detachWhenHidden?: boolean;
   // When true (the lone tile in the room), grow to fill the available
   // space instead of staying locked to a 16:9 card like the grid view.
   fill?: boolean;
@@ -218,11 +232,59 @@ export function VideoTile({
     setIsVideoLoading(true);
   }
 
+  // Whether this tile is within the scrolling pane, and whether the page is
+  // being looked at. Both start true so the first paint attaches immediately
+  // rather than flashing an empty tile while the observer's first callback
+  // is waiting for a frame.
+  const [onScreen, setOnScreen] = useState(true);
+  const [pageVisible, setPageVisible] = useState(true);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => setOnScreen(entries[entries.length - 1]?.isIntersecting ?? true),
+      // A generous margin because the two directions are not symmetric:
+      // detaching is instant, while re-attaching costs a decode before there
+      // is a picture. Better to keep a row just out of view alive than to
+      // show a hole where a tile should already be.
+      { threshold: 0, rootMargin: "200px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const onVis = () => setPageVisible(document.visibilityState === "visible");
+    onVis();
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
+
+  // Picture-in-picture and fullscreen are both showing this video somewhere
+  // the observers cannot see — PiP survives the page being backgrounded, and
+  // that is the whole point of it. Detaching either would blank the one thing
+  // actually being watched.
+  const visible = (onScreen && pageVisible) || isPiP || isFullscreen;
+
   // Attaching the stream to the element stays an effect: that genuinely is a
   // side effect on a DOM node.
   useEffect(() => {
-    if (videoRef.current) videoRef.current.srcObject = stream;
-  }, [stream]);
+    const video = videoRef.current;
+    if (!video) return;
+    video.srcObject = detachWhenHidden && !visible ? null : stream;
+  }, [stream, visible, detachWhenHidden]);
+
+  const visibilityCallbackRef = useRef(onVisibilityChange);
+  useEffect(() => {
+    visibilityCallbackRef.current = onVisibilityChange;
+  }, [onVisibilityChange]);
+  // Through a ref so a parent passing a fresh arrow every render does not
+  // turn this into a report per render.
+  useEffect(() => {
+    visibilityCallbackRef.current?.(visible);
+  }, [visible]);
 
   useGainedAudio(videoRef, stream, volume ?? internalVolume, isMuted);
 

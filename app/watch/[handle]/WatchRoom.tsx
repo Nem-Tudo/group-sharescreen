@@ -3654,6 +3654,10 @@ export function WatchRoom({
       render: (fill, compact, overlayRightOffset) => (
         <VideoTile
           stream={localStream}
+          // Our own capture keeps running whether or not this preview is on
+          // screen, so releasing it would cost a black tile on the way back and
+          // save nothing on the machine that matters.
+          detachWhenHidden={false}
           label="Você"
           accessibleLabel="Você"
           badge={shareSource === "camera" ? "câmera" : "transmitindo"}
@@ -3687,6 +3691,10 @@ export function WatchRoom({
       render: (fill, compact, overlayRightOffset) => (
         <VideoTile
           stream={localCameraStream}
+          // Our own capture keeps running whether or not this preview is on
+          // screen, so releasing it would cost a black tile on the way back and
+          // save nothing on the machine that matters.
+          detachWhenHidden={false}
           label="Você"
           accessibleLabel="Você"
           badge="câmera"
@@ -3815,6 +3823,7 @@ export function WatchRoom({
           fill={fill}
           compact={compact}
           onRenderedSizeChange={(w, h) => qualityNegotiator.report(slot, peerId, w, h)}
+          onVisibilityChange={(visible) => qualityNegotiator.setHidden(slot, peerId, !visible)}
           onStopWatching={() => fileChannels[slot].stopWatchingPeer(peerId)}
           onDoubleClick={doubleClickFocus ? () => toggleSpotlight(id) : undefined}
           onFocus={() => toggleSpotlight(id)}
@@ -3941,6 +3950,7 @@ export function WatchRoom({
           fill={fill}
           compact={compact}
           onRenderedSizeChange={(w, h) => qualityNegotiator.report("screen", peerId, w, h)}
+          onVisibilityChange={(visible) => qualityNegotiator.setHidden("screen", peerId, !visible)}
           onStopWatching={() => stopWatchingPeer(peerId)}
           onDoubleClick={doubleClickFocus ? () => toggleSpotlight(id) : undefined}
           onFocus={() => toggleSpotlight(id)}
@@ -3986,6 +3996,7 @@ export function WatchRoom({
           fill={fill}
           compact={compact}
           onRenderedSizeChange={(w, h) => qualityNegotiator.report("camera", peerId, w, h)}
+          onVisibilityChange={(visible) => qualityNegotiator.setHidden("camera", peerId, !visible)}
           onStopWatching={() => stopWatchingCameraPeer(peerId)}
           onDoubleClick={doubleClickFocus ? () => toggleSpotlight(id) : undefined}
           onFocus={() => toggleSpotlight(id)}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } from "react";
 import useNtPopups from "ntpopups";
 import {
   MdAdd,
@@ -138,7 +138,13 @@ function fromServerPresence(person: GroupVoiceParticipant): GroupVoiceLivePerson
  * it. A closed mic and deafened are two icons, side by side when both are true
  * — which is the usual case, since deafening closes the mic.
  */
-function VoicePersonRow({ person, color = null }: { person: GroupVoiceLivePerson; color?: string | null }) {
+const VoicePersonRow = memo(function VoicePersonRow({
+  person,
+  color = null,
+}: {
+  person: GroupVoiceLivePerson;
+  color?: string | null;
+}) {
   const speaking = useSpeaking(person.micStream);
   return (
     <li>
@@ -193,7 +199,7 @@ function VoicePersonRow({ person, color = null }: { person: GroupVoiceLivePerson
       </button>
     </li>
   );
-}
+});
 
 /** What is being dragged in the rooms list, and where it would land. */
 type RoomDrag = { type: "channel"; id: string } | { type: "category"; id: string };

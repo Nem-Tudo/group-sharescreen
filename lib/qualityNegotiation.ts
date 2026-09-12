@@ -16,7 +16,7 @@
 // travels end to end without a single backend change.
 
 import { signalingClient } from "./signalingClient";
-import { tierForRenderedSize, type QualityTier } from "./videoQuality";
+import { tierForRenderedSize, WORST_TIER, type QualityTier } from "./videoQuality";
 
 // The video channels a viewer can ask for a size on. The "fileN" ones are
 // local files being played into the room (see lib/localMediaSource.ts) — a
@@ -30,6 +30,18 @@ interface Entry {
   tier: QualityTier | null;
   lastSentAt: number;
   timer: ReturnType<typeof setTimeout> | null;
+  /**
+   * Whether this tile is currently off screen — scrolled out of the pane, or
+   * on a page nobody is looking at.
+   *
+   * Kept apart from the measured size rather than folded into it, because
+   * `report` deliberately ignores a 0x0 tile (see its comment) and so cannot
+   * express this. The result was the opposite failure: a hidden tile stayed
+   * pinned at whatever large tier it last asked for, and the periodic
+   * re-announce kept demanding it every twenty seconds for as long as the
+   * room stayed open.
+   */
+  hidden: boolean;
 }
 
 // Coalescing window for resize storms. A dragged window or an animated grid
@@ -62,11 +74,37 @@ class QualityNegotiator {
 
     const key = this.key(channel, peerId);
     const entry =
-      this.entries.get(key) ?? { width: 0, height: 0, tier: null, lastSentAt: 0, timer: null };
+      this.entries.get(key) ??
+      { width: 0, height: 0, tier: null, lastSentAt: 0, timer: null, hidden: false };
     entry.width = width;
     entry.height = height;
     this.entries.set(key, entry);
 
+    if (entry.timer) return;
+    entry.timer = setTimeout(() => {
+      entry.timer = null;
+      this.flush(channel, peerId);
+    }, COALESCE_MS);
+    this.ensureRefresh();
+  }
+
+  /**
+   * Say whether this peer's tile is on screen at all.
+   *
+   * A viewer that cannot see a tile has no use for its pixels, and saying so
+   * is worth far more to the broadcaster than to us: they stop encoding a
+   * large picture for somebody who is not looking at it, on the machine that
+   * is already the bottleneck in a mesh room.
+   */
+  setHidden(channel: QualityChannel, peerId: string, hidden: boolean) {
+    const key = this.key(channel, peerId);
+    const entry = this.entries.get(key);
+    // Nothing to say about a tile that has never reported a size: there is no
+    // standing request to walk back.
+    if (!entry || entry.hidden === hidden) return;
+    entry.hidden = hidden;
+    // Through the same coalescing window as a resize, so scrolling a long
+    // filmstrip past a dozen tiles is not a dozen signalling messages.
     if (entry.timer) return;
     entry.timer = setTimeout(() => {
       entry.timer = null;
@@ -80,7 +118,9 @@ class QualityNegotiator {
     const entry = this.entries.get(key);
     if (!entry) return;
     const dpr = typeof window !== "undefined" ? window.devicePixelRatio : 1;
-    const next = tierForRenderedSize(entry.width, entry.height, dpr, entry.tier ?? undefined);
+    const next = entry.hidden
+      ? WORST_TIER
+      : tierForRenderedSize(entry.width, entry.height, dpr, entry.tier ?? undefined);
     if (!force && next === entry.tier) return;
     entry.tier = next;
     entry.lastSentAt = Date.now();
@@ -100,6 +140,9 @@ class QualityNegotiator {
   announce(channel: QualityChannel, peerId: string) {
     const entry = this.entries.get(this.key(channel, peerId));
     if (!entry || entry.width <= 0) return;
+    // Hidden tiles still announce — flush reads `hidden` and sends the worst
+    // tier, which is exactly what a fresh sender needs to hear from a viewer
+    // who is not looking.
     this.flush(channel, peerId, true);
   }
 
