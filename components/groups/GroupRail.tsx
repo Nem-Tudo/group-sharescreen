@@ -55,7 +55,7 @@ import { useT } from "@/lib/useI18n";
 // What it says about each group, at a glance:
 //   - which one is open: its tile is lit, with a bar on the side facing its rooms;
 //   - something new: a dot on the icon's corner;
-//   - you were mentioned: an "@n" tag on the icon — and the "@" tile at the top
+//   - you were mentioned: a count on the icon — and the "@" tile at the top
 //     jumps to the next group holding one, with hints at the list's edges when
 //     one is scrolled out of sight;
 //   - you are in a call there: a headset on the icon.
@@ -763,8 +763,7 @@ function GroupTile({
           className={`rounded-xl ${group.suspended ? "opacity-50 grayscale" : ""}`}
         />
         {mentions > 0 ? (
-          <span className="absolute -bottom-1 -right-1.5 flex h-[18px] min-w-[18px] items-center justify-center gap-px rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-white dark:ring-zinc-950">
-            <span className="opacity-80">@</span>
+          <span className="absolute -bottom-1 -right-1.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-white dark:ring-zinc-950">
             {mentions > 99 ? "99+" : mentions}
           </span>
         ) : unread ? (
