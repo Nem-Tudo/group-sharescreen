@@ -23,6 +23,12 @@ const primaryButtonClass =
 const secondaryButtonClass =
   "rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900";
 
+// Every bot's username ends in this — the API appends it (see its
+// accountStore's botUsernameFor), and the form shows it fixed after the field
+// so what you type is only the part before it. 16 because usernames cap at 20.
+const BOT_USERNAME_SUFFIX = "_bot";
+const BOT_USERNAME_BASE_MAX = 20 - BOT_USERNAME_SUFFIX.length;
+
 // The whole credential, prefix included — that string is exactly what goes in
 // the Authorization header, so copying anything less would only invite a
 // "401" from somebody who pasted the bare token.
@@ -218,9 +224,12 @@ function CreateBotForm({
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    const trimmed = username.trim().toLowerCase();
-    if (!/^[a-z0-9_]{3,20}$/.test(trimmed)) {
-      setError("Use 3 a 20 letras, números ou _.");
+    let trimmed = username.trim().toLowerCase();
+    // Somebody typing the suffix themselves gets it once, not twice — the API
+    // does the same.
+    if (trimmed.endsWith(BOT_USERNAME_SUFFIX)) trimmed = trimmed.slice(0, -BOT_USERNAME_SUFFIX.length);
+    if (!new RegExp(`^[a-z0-9_]{1,${BOT_USERNAME_BASE_MAX}}$`).test(trimmed)) {
+      setError(`Use até ${BOT_USERNAME_BASE_MAX} letras, números ou _.`);
       return;
     }
     setBusy(true);
@@ -239,16 +248,21 @@ function CreateBotForm({
       <label htmlFor="bot-username" className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
         Usuário do bot
       </label>
-      <input
-        id="bot-username"
-        autoFocus
-        value={username}
-        onChange={(e) => setUsername(e.target.value)}
-        maxLength={20}
-        placeholder="meu_bot"
-        autoComplete="off"
-        className={inputClass}
-      />
+      <div className="flex items-stretch">
+        <input
+          id="bot-username"
+          autoFocus
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          maxLength={BOT_USERNAME_BASE_MAX}
+          placeholder="meu"
+          autoComplete="off"
+          className={`min-w-0 flex-1 !rounded-r-none ${inputClass}`}
+        />
+        <span className="flex shrink-0 items-center rounded-r-lg border border-l-0 border-zinc-300 bg-zinc-100 px-2.5 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">
+          {BOT_USERNAME_SUFFIX}
+        </span>
+      </div>
       <label htmlFor="bot-display-name" className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
         Nome de exibição
       </label>
@@ -257,7 +271,7 @@ function CreateBotForm({
         value={displayName}
         onChange={(e) => setDisplayName(e.target.value)}
         maxLength={24}
-        placeholder={username.trim() || "Meu Bot"}
+        placeholder={username.trim() || "Meu"}
         autoComplete="off"
         className={inputClass}
       />
