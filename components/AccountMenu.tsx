@@ -15,7 +15,7 @@ import Link from "next/link";
 import { AccountConnections } from "@/components/AccountConnections";
 import { BotsPanel } from "@/components/BotsPanel";
 import { ThemeSegmented } from "@/components/ThemeToggle";
-import { LanguageSegmented } from "@/components/LanguageToggle";
+import { LanguagePicker } from "@/components/LanguageToggle";
 import { openDirectMessages } from "@/lib/dmWindow";
 import type { OAuthResult } from "@/lib/oauthApi";
 import { useT } from "@/lib/useI18n";
@@ -261,7 +261,7 @@ export function AccountMenu() {
             <p className="mt-3 mb-1.5 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
               {t("languageToggle.language")}
             </p>
-            <LanguageSegmented />
+            <LanguagePicker />
           </div>
         </>
       )}

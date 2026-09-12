@@ -15,8 +15,9 @@
 
 import en from "@/locales/en.json";
 import es from "@/locales/es.json";
+import pt from "@/locales/pt.json";
 
-export const LOCALES = ["en", "es"] as const;
+export const LOCALES = ["en", "es", "pt"] as const;
 export type Locale = (typeof LOCALES)[number];
 
 /** What the user picked. "auto" means "whatever the browser asks for". */
@@ -34,12 +35,16 @@ export const LOCALE_STORAGE_KEY = "sharescreen:locale";
 export const LOCALE_LABELS: Record<Locale, string> = {
   en: "English",
   es: "Español",
+  pt: "Português",
 };
 
 /** The `lang` attribute / BCP-47 tag for each locale. */
 export const LOCALE_TAGS: Record<Locale, string> = {
   en: "en",
   es: "es",
+  // The catalog is the Brazilian wording the site was originally written in,
+  // and the tag is what decides 23/08 over 08/23 and 1.234,5 over 1,234.5.
+  pt: "pt-BR",
 };
 
 export type Catalog = Record<string, string>;
@@ -55,6 +60,7 @@ export type Catalog = Record<string, string>;
 const catalogs: Record<Locale, Catalog> = {
   en: en as Catalog,
   es: es as Catalog,
+  pt: pt as Catalog,
 };
 
 export function isLocale(value: unknown): value is Locale {
