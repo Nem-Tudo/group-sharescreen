@@ -170,7 +170,13 @@ export function ProPanel({
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(() => {
     if (initialPlanId) return initialPlanId;
     if (typeof window === "undefined") return null;
-    return new URLSearchParams(window.location.search).get("plan");
+    const params = new URLSearchParams(window.location.search);
+    // "plano" is the name this parameter had while the site was Portuguese
+    // only. It is read here rather than redirected in next.config because a
+    // redirect forwards the original query along with the rewritten one, so
+    // the rule would keep matching its own output and loop. Links carrying it
+    // are still in the wild — the header's "Pro Max" entry point used it.
+    return params.get("plan") ?? params.get("plano");
   });
   // "Presentear" is a popup owned by the library rather than markup on this
   // page, which is what lets it be offered from every state below — and what

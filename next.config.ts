@@ -90,6 +90,23 @@ const nextConfig: NextConfig = {
   },
   async redirects() {
     return [
+      // The routes these replaced were Portuguese, and they were renamed once
+      // the site stopped being a Portuguese-only site (see locales/). They are
+      // kept here because the old ones are not only bookmarks: /tema/<id> is
+      // the link a theme's author shares, /anuncio/<token> is the report link
+      // handed to an advertiser, and /termos is linked from other people's
+      // pages. A 308 keeps every one of those working and tells a crawler the
+      // new address is the real one.
+      //
+      // The deeper path goes first. A `:param` never matches across a slash,
+      // so /tema/:id could not swallow /tema/:id/painel anyway — but the two
+      // read as a pair, and the order is what makes that obvious to whoever
+      // adds the third.
+      { source: "/tema/:id/painel", destination: "/theme/:id/panel", permanent: true },
+      { source: "/tema/:id", destination: "/theme/:id", permanent: true },
+      { source: "/anuncio/:token", destination: "/ad/:token", permanent: true },
+      { source: "/amigos", destination: "/friends", permanent: true },
+      { source: "/termos", destination: "/terms", permanent: true },
       {
         source: "/bot",
         destination: "https://discord.com/oauth2/authorize?client_id=1540460243270635600",
