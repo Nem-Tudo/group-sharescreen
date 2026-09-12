@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { usePathname } from "next/navigation";
 import useNtPopups from "ntpopups";
 
 // Notices that somebody arrived holding a present, and opens it.
@@ -11,6 +12,20 @@ import useNtPopups from "ntpopups";
 // the layout root, and that hook would make every page in the app render on
 // demand — a Suspense boundary and a lost static prerender, for a parameter
 // that is absent from all but one visit in a thousand.
+//
+// Reading it is not enough on its own, though. This sits in the layout, so it
+// mounts once and stays mounted, while /gift/[code] arrives here by a *client*
+// navigation (see GiftRedirect, and why it cannot be a server redirect). At
+// the moment this first mounted the address was still /gift/<code>, with no
+// query on it at all — so an effect that only ran on mount looked, found
+// nothing, and never looked again. Following a present's link did nothing;
+// opening the same home page with ?gift= by hand worked, which is what made
+// it look like the redirect was at fault rather than the listening.
+//
+// So the effect follows the pathname. usePathname does not force dynamic
+// rendering the way useSearchParams does, which keeps the reason for reading
+// window.location intact — it is only used to know that the address changed,
+// never for what it changed to.
 //
 // Opening it is an effect and nothing else is: the present is an ntpopups
 // popup (registered as "gift_claim" in NtPopups.tsx), so this file holds no
@@ -37,39 +52,53 @@ const LEGACY_PARAM = "presente";
 
 export function GiftClaimHost() {
   const { openPopup } = useNtPopups();
-  // Once per page load. The effect's dependency is a function the provider may
-  // hand back fresh on its own re-renders, and a present that reopens every
-  // time something above it re-rendered would be unbearable.
-  const openedRef = useRef(false);
+  const pathname = usePathname();
+  // Which presents this page load has already shown. By code rather than a
+  // single "have I opened one" flag: the effect can now run more than once,
+  // and the two things worth telling apart are the same present arriving
+  // twice — the popup closing rewrites the URL, and a re-render must not
+  // reopen it — and a genuinely different present, which somebody following a
+  // second link in the same session should still get.
+  const openedRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    if (openedRef.current) return;
     const query = new URLSearchParams(window.location.search);
     const found = query.get(PARAM) ?? query.get(LEGACY_PARAM);
     if (!found) return;
-    openedRef.current = true;
+    // Folded to match the alphabet codes are minted in (see the API's
+    // premiumGiftStore), so a link retyped in lower case still opens a
+    // present.
+    const code = found.trim().toUpperCase();
+    if (!code || openedRef.current.has(code)) return;
+    openedRef.current.add(code);
 
     void openPopup("gift_claim", {
-      // Folded to match the alphabet codes are minted in (see the API's
-      // premiumGiftStore), so a link retyped in lower case still opens a
-      // present.
-      data: { code: found.trim().toUpperCase() },
+      data: { code },
       onClose: () => {
-        try {
-          const url = new URL(window.location.href);
-          url.searchParams.delete(PARAM);
-          url.searchParams.delete(LEGACY_PARAM);
-          // replaceState rather than a router navigation: there is nothing to
-          // re-render — the popup is already gone — and pushing an entry would
-          // put the present back one press of "voltar" away.
-          window.history.replaceState(null, "", url.toString());
-        } catch {
-          // A URL the browser will not let us rewrite costs the tidy address
-          // bar and nothing else.
-        }
+        // Deferred out of the current task, and that is not tidiness. Next
+        // patches history.replaceState so its router can follow along, and
+        // ntpopups calls onClose while it is rendering — so doing this inline
+        // updates the Router from inside NtPopupProvider's render, which
+        // React reports as "Cannot update a component while rendering a
+        // different component". A timeout puts it after that render, where
+        // changing the address is an ordinary thing to do.
+        setTimeout(() => {
+          try {
+            const url = new URL(window.location.href);
+            url.searchParams.delete(PARAM);
+            url.searchParams.delete(LEGACY_PARAM);
+            // replaceState rather than a router navigation: there is nothing
+            // to re-render — the popup is already gone — and pushing an entry
+            // would put the present back one press of "voltar" away.
+            window.history.replaceState(null, "", url.toString());
+          } catch {
+            // A URL the browser will not let us rewrite costs the tidy
+            // address bar and nothing else.
+          }
+        }, 0);
       },
     });
-  }, [openPopup]);
+  }, [openPopup, pathname]);
 
   return null;
 }
