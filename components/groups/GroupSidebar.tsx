@@ -69,6 +69,8 @@ import {
   type GroupVoiceLivePerson,
 } from "@/lib/groupVoiceSession";
 import { useSpeaking } from "@/lib/useSpeaking";
+import { VolumeSlider } from "@/components/VolumeSlider";
+import { MAX_GAIN } from "@/lib/audioGain";
 import { callNameFor, callPathFor, endCall, useCallSession } from "@/lib/callSession";
 import { playHangUpSound } from "@/lib/soundEffects";
 import { useAuth } from "@/lib/AuthContext";
@@ -146,8 +148,16 @@ const VoicePersonRow = memo(function VoicePersonRow({
   color?: string | null;
 }) {
   const speaking = useSpeaking(person.micStream);
+  // Only for somebody else in the room you are in (see
+  // GroupVoiceLivePerson.audio) — and only once the call has published how to
+  // change it.
+  const controls = useGroupVoiceControls();
+  const audio = controls ? person.audio : undefined;
   return (
-    <li>
+    // The profile link and the volume sit side by side rather than one inside
+    // the other: the slider has buttons of its own, and a button inside a
+    // button is not something a browser will build.
+    <li className="flex items-center gap-0.5">
       <button
         type="button"
         onClick={() =>
@@ -160,7 +170,7 @@ const VoicePersonRow = memo(function VoicePersonRow({
         }
         onMouseEnter={() => prefetchUserProfile(person.userId)}
         title="Ver perfil"
-        className="flex w-full cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
+        className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
       >
         <span
           className={`flex shrink-0 rounded-full transition-shadow duration-150 ${
@@ -197,6 +207,20 @@ const VoicePersonRow = memo(function VoicePersonRow({
           <MdHeadsetOff className="h-3.5 w-3.5 shrink-0 opacity-60" title="Ensurdecido" aria-label="Ensurdecido" />
         )}
       </button>
+      {/* This listener's own dial for them — the same control, and the same
+          saved value, as the participant list's (see ParticipantRow). */}
+      {audio && controls && (
+        <VolumeSlider
+          value={audio.volume}
+          label={`Volume do áudio de ${person.name}`}
+          onChange={(volume) => controls.setPersonVolume(person.userId, volume)}
+          muted={audio.muted}
+          onToggleMute={() => controls.togglePersonMute(person.userId)}
+          collapseOnIdle
+          max={MAX_GAIN}
+          className="shrink-0 text-zinc-400 dark:text-zinc-500"
+        />
+      )}
     </li>
   );
 });

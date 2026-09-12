@@ -2112,13 +2112,57 @@ export function WatchRoom({
     toggleMicRef.current = toggleMic;
   }, [toggleMic]);
   const stableToggleMic = useCallback(() => toggleMicRef.current(), []);
+
+  // The per-person audio controls, for the rooms list of a group: from lg up
+  // a group's voice room has no participant list of its own (who is in it is
+  // on the group's room card instead), so the card is where turning somebody
+  // down has to be offered. The same state the participant rows use — one
+  // person's dial is one person's dial wherever it is turned.
+  //
+  // By person, not by connection: somebody on a phone and a laptop is one row
+  // on the card, so muting them mutes both, and unmuting only happens once
+  // every one of their devices is muted (otherwise the click mutes the rest).
+  const personAudioRef = useRef<{
+    toggle: (userId: string) => void;
+    volume: (userId: string, volume: number) => void;
+  } | null>(null);
+  useEffect(() => {
+    personAudioRef.current = {
+      toggle: (userId: string) => {
+        const ids = state.peers.filter((p) => (p.userId ?? p.id) === userId).map((p) => p.id);
+        if (ids.length === 0) return;
+        setMutedPeerIds((prev) => {
+          const next = new Set(prev);
+          const allMuted = ids.every((id) => next.has(id));
+          for (const id of ids) {
+            if (allMuted) next.delete(id);
+            else next.add(id);
+          }
+          return next;
+        });
+      },
+      // The participant rows key a volume by userId (see setPeerVolume), and
+      // a person on the card is keyed the same way.
+      volume: (userId: string, volume: number) => setPeerVolume(userId, volume),
+    };
+  });
+  const stableTogglePersonMute = useCallback((userId: string) => personAudioRef.current?.toggle(userId), []);
+  const stableSetPersonVolume = useCallback(
+    (userId: string, volume: number) => personAudioRef.current?.volume(userId, volume),
+    []
+  );
   const inGroup = Boolean(group);
   // Published for every call, not only a group's: the bar that carries a call
   // around the rest of the site offers the same mute button (see
   // components/RoomCallHost's CallDock), and it has no other way to reach it.
   useEffect(() => {
-    setGroupVoiceControls({ isMicOn, toggleMic: stableToggleMic });
-  }, [isMicOn, stableToggleMic]);
+    setGroupVoiceControls({
+      isMicOn,
+      toggleMic: stableToggleMic,
+      togglePersonMute: stableTogglePersonMute,
+      setPersonVolume: stableSetPersonVolume,
+    });
+  }, [isMicOn, stableToggleMic, stableTogglePersonMute, stableSetPersonVolume]);
   useEffect(() => () => setGroupVoiceControls(null), []);
 
   // In a group, the rooms list outside this room draws the room you are in
@@ -2147,6 +2191,11 @@ export function WatchRoom({
       existing.screen ||= person.screen;
       existing.deafened &&= person.deafened;
       existing.micStream ??= person.micStream;
+      // Muted on the card only while every one of their devices is — the same
+      // rule the toggle follows.
+      if (existing.audio && person.audio) {
+        existing.audio = { ...existing.audio, muted: existing.audio.muted && person.audio.muted };
+      }
     };
     if (state.selfUserId && state.name) {
       const camera = Boolean(localCameraStream);
@@ -2173,6 +2222,12 @@ export function WatchRoom({
         camera,
         screen: p.sharing && (!camera || p.screen === true || (p.files?.length ?? 0) > 0),
         micStream: p.mic ? remoteMicStreams[p.id] ?? null : null,
+        // Read exactly as the participant row reads them: deafening yourself
+        // shows everybody as muted, and a volume is keyed by the person.
+        audio: {
+          muted: micsMuted || mutedPeerIds.has(p.id),
+          volume: peerVolumes[p.userId ?? p.id] ?? 1,
+        },
       });
     }
     return {
@@ -2195,6 +2250,8 @@ export function WatchRoom({
     localCameraStream,
     localMicStream,
     remoteMicStreams,
+    mutedPeerIds,
+    peerVolumes,
   ]);
   useEffect(() => {
     setGroupVoiceLive(groupVoiceLive);

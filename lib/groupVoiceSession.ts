@@ -33,6 +33,13 @@ export interface GroupVoiceSession {
 export interface GroupVoiceControls {
   isMicOn: boolean;
   toggleMic: () => void;
+  /**
+   * Silences somebody in the call for this listener alone — every device they
+   * are on at once — or lets them be heard again. See GroupVoiceLivePerson.audio.
+   */
+  togglePersonMute: (userId: string) => void;
+  /** How loud somebody is for this listener alone, 0 to MAX_GAIN. */
+  setPersonVolume: (userId: string, volume: number) => void;
 }
 
 /**
@@ -50,6 +57,13 @@ export interface GroupVoiceLivePerson {
   screen: boolean;
   /** Their microphone's audio, for telling when they speak. Null while it is off. */
   micStream: MediaStream | null;
+  /**
+   * How this listener hears them: muted for this listener, and at what volume.
+   * Present only for somebody else in the room you are connected to — nobody
+   * else's audio reaches this tab, and your own is not yours to turn down —
+   * which is also what says whether the rooms list offers the controls.
+   */
+  audio?: { muted: boolean; volume: number };
 }
 
 /**
@@ -119,7 +133,14 @@ export function useGroupVoiceSession(): GroupVoiceSession | null {
 
 /** Published by the room while it is in group mode; cleared by it on the way out. */
 export function setGroupVoiceControls(next: GroupVoiceControls | null): void {
-  if (controls?.isMicOn === next?.isMicOn && controls?.toggleMic === next?.toggleMic) return;
+  if (
+    controls?.isMicOn === next?.isMicOn &&
+    controls?.toggleMic === next?.toggleMic &&
+    controls?.togglePersonMute === next?.togglePersonMute &&
+    controls?.setPersonVolume === next?.setPersonVolume
+  ) {
+    return;
+  }
   controls = next;
   notify();
 }
