@@ -16,6 +16,7 @@ import { ThemeEditorDialog } from "@/components/ThemeEditorDialog";
 import { ThemeHubDialog } from "@/components/ThemeHubDialog";
 import { RoomThemePicker } from "@/components/RoomThemePicker";
 import {
+  AddGroupDialog,
   CreateGroupDialog,
   GroupInviteDialog,
   GroupLocationDialog,
@@ -42,6 +43,7 @@ const customPopups: Record<string, ComponentType> = {
   theme_hub: ThemeHubDialog as ComponentType,
   room_theme: RoomThemePicker as ComponentType,
   // Groups — see components/groups/GroupDialogs.tsx.
+  add_group: AddGroupDialog as ComponentType,
   create_group: CreateGroupDialog as ComponentType,
   join_group: JoinGroupDialog as ComponentType,
   group_invite: GroupInviteDialog as ComponentType,

@@ -13,7 +13,9 @@ import {
   MdEdit,
   MdLockOutline,
   MdAdd,
+  MdChevronRight,
   MdClose,
+  MdLink,
   MdOutlineMap,
   MdPublic,
   MdTag,
@@ -95,7 +97,7 @@ import {
   rolesWithIds,
 } from "@/lib/groupPermissions";
 import { GoldVerifiedBadgeIcon } from "../icons";
-import { useI18n } from "@/lib/useI18n";
+import { useI18n, useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
 import { formatLocale } from "@/lib/i18n";
 
@@ -422,6 +424,59 @@ export function CreateGroupDialog({ closePopup }: PopupProps<object>) {
           </button>
         </div>
       </form>
+    </DialogFrame>
+  );
+}
+
+// ─── Add (create or join) ───────────────────────────────────────────────
+
+/**
+ * The dock's "+": one question — make a group, or get into one — before either
+ * form. Each answer closes this and opens its own popup (create_group or
+ * join_group), so both stay the one form they already are everywhere else.
+ */
+export function AddGroupDialog({ closePopup }: PopupProps<object>) {
+  const t = useT();
+  const { account } = useAuth();
+  const { openPopup } = useNtPopups();
+  const canCreate = Boolean(account);
+
+  function choose(popup: "create_group" | "join_group") {
+    closePopup(true);
+    // After this one has gone, so the two are never on screen together.
+    setTimeout(() => void openPopup(popup, { data: {} }), 0);
+  }
+
+  const choice =
+    "group flex w-full cursor-pointer items-center gap-3 rounded-xl border border-zinc-200 p-3 text-left transition hover:border-zinc-400 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-zinc-200 disabled:hover:bg-transparent dark:border-zinc-800 dark:hover:border-zinc-600 dark:hover:bg-zinc-900 dark:disabled:hover:border-zinc-800";
+
+  return (
+    <DialogFrame title={t("groups.homeGroupsPanel.addGroup")} onClose={() => closePopup(false)}>
+      <p className="-mt-2 text-sm text-zinc-500 dark:text-zinc-400">{t("groups.groupDialogs.addGroupQuestion")}</p>
+      <div className="flex flex-col gap-2">
+        <button type="button" autoFocus onClick={() => choose("join_group")} className={choice}>
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-sky-100 text-2xl text-sky-700 dark:bg-sky-950 dark:text-sky-300">
+            <MdLink />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold">{t("common.joinAGroup")}</span>
+            <span className="block text-xs text-zinc-500 dark:text-zinc-400">{t("groups.homeGroupsPanel.withTheInviteLink")}</span>
+          </span>
+          <MdChevronRight className="h-5 w-5 shrink-0 text-zinc-400 transition group-hover:translate-x-0.5" />
+        </button>
+        <button type="button" disabled={!canCreate} onClick={() => choose("create_group")} className={choice}>
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-2xl text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+            <MdAdd />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold">{t("common.createAGroup")}</span>
+            <span className="block text-xs text-zinc-500 dark:text-zinc-400">
+              {canCreate ? t("groups.homeGroupsPanel.withVoiceAndTextRooms") : t("common.createAnAccountToCreateGroups")}
+            </span>
+          </span>
+          <MdChevronRight className="h-5 w-5 shrink-0 text-zinc-400 transition group-hover:translate-x-0.5" />
+        </button>
+      </div>
     </DialogFrame>
   );
 }

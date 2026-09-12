@@ -8,6 +8,7 @@ import {
   fetchGroup,
   fetchMyGroups,
   markChannelRead,
+  setGroupOrder,
   type GroupDetail,
   type GroupMessage,
   type GroupReaction,
@@ -171,6 +172,21 @@ function clearUnread(groupId: string, channelId: string, tellServer: boolean) {
     }
   }
   if (tellServer) markChannelRead(groupId, channelId);
+  syncSummaryFromDetail(groupId);
+}
+
+/**
+ * Clears every dot in a group at once — the rail's "mark as read". Reads the
+ * group first when its rooms were never opened, since only the rooms know
+ * which of them hold anything; each is then marked read like opening it would.
+ */
+export async function markGroupRead(groupId: string): Promise<void> {
+  if (!state.details[groupId]) await refreshGroup(groupId);
+  const detail = state.details[groupId];
+  if (!detail) return;
+  for (const channel of detail.channels) {
+    if (channel.unread || channel.mentions > 0) clearUnread(groupId, channel.id, true);
+  }
   syncSummaryFromDetail(groupId);
 }
 
@@ -344,6 +360,42 @@ export function forgetGroup(groupId: string): void {
   setState({ groups: state.groups?.filter((g) => g.id !== groupId) ?? null, details });
 }
 
+/** The list in the order `ids` names; any group it leaves out keeps its place after them. */
+function inOrder(groups: GroupSummary[], ids: readonly string[]): GroupSummary[] {
+  const byId = new Map(groups.map((g) => [g.id, g]));
+  const named = ids.map((id) => byId.get(id)).filter((g): g is GroupSummary => Boolean(g));
+  const rest = groups.filter((g) => !ids.includes(g.id));
+  return [...named, ...rest];
+}
+
+let orderSeq = 0;
+/** Saves still on their way — while any is, the socket's echo of an older one is ignored. */
+let ordersInFlight = 0;
+
+/**
+ * Rearranges this person's list of groups — dragged on the rail. Drawn at
+ * once, then saved; the server's answer (the order that holds) replaces it,
+ * and a failure re-reads the list so what is drawn is what is kept.
+ */
+export function reorderGroups(ids: string[]): void {
+  if (!state.groups) return;
+  const next = inOrder(state.groups, ids);
+  if (next.every((g, i) => g.id === state.groups![i]?.id)) return;
+  setState({ groups: next });
+  const seq = ++orderSeq;
+  ordersInFlight += 1;
+  void setGroupOrder(next.map((g) => g.id)).then((result) => {
+    ordersInFlight -= 1;
+    // A newer drag already went out; its answer is the one that counts.
+    if (seq !== orderSeq) return;
+    if (result.ok) {
+      if (state.groups) setState({ groups: inOrder(state.groups, result.ids) });
+    } else {
+      void refreshGroups();
+    }
+  });
+}
+
 let socketListenerInstalled = false;
 
 function ensureSocketListener() {
@@ -390,6 +442,13 @@ function handleEvent(event: GroupSocketEvent) {
       updateCachedMessage(event.channelId, event.messageId, { reactions });
       const payload: ReactionsEvent = { groupId, channelId: event.channelId, messageId: event.messageId, reactions };
       reactionsListeners.forEach((l) => l(payload));
+      return;
+    }
+    case "group-order": {
+      // Rearranged on another of this person's devices.
+      if (state.groups && ordersInFlight === 0 && Array.isArray(event.ids)) {
+        setState({ groups: inOrder(state.groups, event.ids.filter((id): id is string => typeof id === "string")) });
+      }
       return;
     }
     case "group-read": {

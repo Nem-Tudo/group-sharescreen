@@ -17,6 +17,7 @@ import { GroupNavContext } from "@/components/groups/groupNav";
 import { GroupMembersPanel } from "@/components/groups/GroupMembersPanel";
 import { GroupPartnerSlot } from "@/components/groups/GroupPartnerSlot";
 import { GroupProfileHost, openGroupProfile } from "@/components/groups/groupProfile";
+import { GroupRail } from "@/components/groups/GroupRail";
 import { GroupSwitcher } from "@/components/groups/GroupSwitcher";
 import { GroupIndex, GroupRoom } from "@/components/groups/GroupPages";
 import { GroupsHome } from "@/components/groups/GroupsHome";
@@ -48,8 +49,8 @@ import { useT } from "@/lib/useI18n";
 // The rooms column's gap-3, between the rooms and the ad under them.
 const ASIDE_GAP_PX = 12;
 
-// The whole of /groups/*, laid out like a room: a top bar, and three columns of
-// cards on grey — the group's rooms (with the ad square under them) on the
+// The whole of /groups/*, laid out like a room: a top bar, and columns of cards
+// on grey — your groups down the far left (see GroupRail), the group's rooms (with the ad square under them) on the
 // left, the conversation or the call in the middle, and the group's members
 // (with your own card under them) on the right.
 //
@@ -313,6 +314,9 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
         )}
 
         <div className="flex min-h-0 flex-1 lg:gap-3 lg:p-3">
+          {/* Every group, down the left edge — from lg up; below that the
+              switcher in the bar is the way between them. */}
+          {isWide && <GroupRail activeGroupId={groupId} />}
           {groupId && (
             <aside className="hidden w-[300px] shrink-0 flex-col gap-3 lg:flex">
               {/* Never shorter than its first five rooms (see GroupRoomsPanel's

@@ -324,6 +324,23 @@ export interface GroupMapPin {
   location: { lat: number; lng: number };
 }
 
+/** A public group found by the search bar on /groups — what /groups/search answers with. */
+export interface GroupSearchResult {
+  id: string;
+  name: string;
+  iconUrl: string | null;
+  flags: string[];
+  description: string;
+  memberCount: number;
+  onlineCount: number;
+  /** Whether the person asking is already in it. */
+  member: boolean;
+}
+
+/** Public groups by name (or blurb). Needs no identity; an older API answers 404. */
+export const searchPublicGroups = (query: string, signal?: AbortSignal) =>
+  request<{ groups: GroupSearchResult[] }>("GET", `/groups/search?q=${encodeURIComponent(query)}`, undefined, signal);
+
 /** Every group on the public map. Needs no identity. */
 export const fetchGroupMap = (signal?: AbortSignal) =>
   request<{ groups: GroupMapPin[] }>("GET", "/groups/map", undefined, signal);
@@ -343,6 +360,10 @@ export const leaveGroup = (groupId: string) =>
 
 export const setGroupNotify = (groupId: string, level: GroupNotifyLevel) =>
   request<{ notify: GroupNotifyLevel }>("PUT", `/groups/${enc(groupId)}/notify`, { level });
+
+/** Rearranges your own list of groups (the rail). Answers with the order that now holds. */
+export const setGroupOrder = (ids: string[]) =>
+  request<{ ids: string[] }>("PUT", "/groups/order", { ids });
 
 // ─── Members ─────────────────────────────────────────────────────────────
 

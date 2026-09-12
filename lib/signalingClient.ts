@@ -2043,6 +2043,7 @@ class SignalingClient {
       case "group-voice":
       case "group-read":
       case "group-typing":
+      case "group-order":
         this.emitGroupEvent(msg as GroupSocketEvent);
         break;
       // ─── Ligações ────────────────────────────────────────────────────

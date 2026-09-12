@@ -13,10 +13,9 @@ import { prefetchGroup, useMyGroups } from "@/lib/useGroups";
 import { useT } from "@/lib/useI18n";
 
 // Which group is open, and the way to every other one — a switcher in the top
-// bar, the same place the room shows its own name. One control instead of a
-// column of icons: most people are in a handful of groups, and a list you open
-// when you want to move says that without spending the left edge of every
-// screen on it.
+// bar, the same place the room shows its own name. From lg up the groups are
+// also down the left edge (see GroupRail), so the switcher's own "news
+// elsewhere" dot is left to the narrower screens that have no rail.
 
 const itemClass =
   "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:text-zinc-200 dark:hover:bg-zinc-900";
@@ -140,7 +139,7 @@ export function GroupSwitcher({
           badgeClassName="h-5 w-5"
         />
         {elsewhereUnread && (
-          <span className="h-2 w-2 shrink-0 rounded-full bg-red-500" aria-label={t("groups.groupSwitcher.newsInOtherGroups")} />
+          <span className="h-2 w-2 shrink-0 rounded-full bg-red-500 lg:hidden" aria-label={t("groups.groupSwitcher.newsInOtherGroups")} />
         )}
         <MdUnfoldMore className="h-4 w-4 shrink-0 text-zinc-500" />
       </button>
