@@ -12,6 +12,7 @@ import { getCallSession, setCallSession, useCallSession } from "@/lib/callSessio
 // no longer owns the room, so walking off it no longer ends the call (see
 // lib/callSession). Only hanging up does.
 
+
 export function WatchRoomStage({
   handle,
   viewThemeId,
