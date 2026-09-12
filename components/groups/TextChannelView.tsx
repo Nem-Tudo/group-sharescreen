@@ -24,7 +24,7 @@ import {
 import { openGroupProfile } from "@/components/groups/groupProfile";
 import { ReactionPicker } from "@/components/groups/ReactionPicker";
 import { rememberChannel } from "@/components/groups/lastChannel";
-import { buildMentionsRegex, normalizeSearch, tokenizeMentions } from "@/lib/chatMentions";
+import { mentionsRegexFor, normalizeSearch, tokenizeMentions } from "@/lib/chatMentions";
 import {
   EVERYONE_MENTION,
   ROLE_MENTION_PREFIX,
@@ -345,9 +345,14 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
 
   useEffect(
     () =>
-      onGroupMessage((message, author) => {
+      onGroupMessage((message, author, _nonce, mentioned) => {
         if (message.groupId !== groupId || message.channelId !== channelId) return;
-        if (author) setAuthors((prev) => ({ ...prev, [author.id]: author }));
+        // The people it mentions come with it, so the mention can be drawn with
+        // their name even when they are nobody this room has seen yet.
+        const named = mentioned && Object.keys(mentioned).length > 0 ? mentioned : null;
+        if (author || named) {
+          setAuthors((prev) => ({ ...named, ...prev, ...(author ? { [author.id]: author } : {}) }));
+        }
         // What they were typing just arrived — the line goes with it, the way
         // it does everywhere else, rather than lingering until it times out.
         dropTyper(message.from);
@@ -465,15 +470,15 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
     ...roleCandidates,
     ...(can("mentionMembers") ? memberCandidates : []),
   ];
-  const names = useMemo(() => members.map((m) => m.name), [members]);
-  const mentionRegex = useMemo(() => buildMentionsRegex(names), [names]);
-  const everyoneRegex = useMemo(() => buildMentionsRegex([...names, "everyone"]), [names]);
-  // For a message that mentions a role: every name there is — and which of
-  // them actually light up is the message's own mentions' to say.
-  const fullRegex = useMemo(
-    () => buildMentionsRegex([...names, "everyone", ...roles.map((r) => r.name)]),
-    [names, roles]
-  );
+  // Everybody this room can put a name to: the members list plus every author
+  // and mentioned person the messages carried. A mention is drawn from here —
+  // see renderText, which needs only the people a message actually named.
+  const personById = useMemo(() => {
+    const out = new Map<string, GroupUser>();
+    for (const person of Object.values(authors)) out.set(person.id, person);
+    for (const member of members) out.set(member.id, member);
+    return out;
+  }, [authors, members]);
   // The roles I hold — a message that mentions one of them mentions me.
   const myRoleIds = detail.me.roleIds ?? detail.memberRoles?.[selfId] ?? [];
 
@@ -492,21 +497,6 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
     );
   }
 
-  /**
-   * The member an @mention in a message names — looked up by name among the
-   * people the message actually mentioned first (two members may share a
-   * name, and the message knows which one it meant), then among everybody.
-   * Null for @everyone and for a name nobody in the group has any more.
-   */
-  function mentionedMember(message: GroupMessage, name: string): GroupUser | null {
-    const wanted = normalizeSearch(name);
-    if (wanted === "everyone") return null;
-    const named = (message.mentions ?? [])
-      .map((id) => memberById.get(id))
-      .find((m) => m && normalizeSearch(m.name) === wanted);
-    return named ?? members.find((m) => normalizeSearch(m.name) === wanted) ?? null;
-  }
-
   function renderText(message: GroupMessage): ReactNode {
     // Lit up only when the message actually mentioned somebody: an @name
     // typed without the permission to mention alerts nobody (the server drops
@@ -516,14 +506,25 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
       .filter((m) => m.startsWith(ROLE_MENTION_PREFIX))
       .map((m) => roleById.get(m.slice(ROLE_MENTION_PREFIX.length)))
       .filter((r): r is NonNullable<typeof r> => Boolean(r));
+    // The people it named, resolved by id — the message knows exactly which
+    // ones it meant, even when two members share a name.
+    const mentionedPeople = mentioned
+      .filter((m) => m !== EVERYONE_MENTION && !m.startsWith(ROLE_MENTION_PREFIX))
+      .map((id) => personById.get(id))
+      .filter((p): p is GroupUser => Boolean(p));
+    // Built from exactly what this message mentioned, since nothing else can
+    // light up. It used to be built from every member's name and then
+    // filtered: at ten thousand members, one pattern with ten thousand
+    // alternatives, run against every message on screen. Most messages
+    // mention nobody and get no pattern at all.
     const regex =
       mentioned.length === 0
         ? null
-        : mentionedRoles.length > 0
-          ? fullRegex
-          : mentioned.includes(EVERYONE_MENTION)
-            ? everyoneRegex
-            : mentionRegex;
+        : mentionsRegexFor([
+            ...mentionedPeople.map((p) => p.name),
+            ...(mentioned.includes(EVERYONE_MENTION) ? ["everyone"] : []),
+            ...mentionedRoles.map((r) => r.name),
+          ]);
     const tokens = tokenizeMentions(message.text, regex);
     return tokens.map((token, index) => {
       if (token.type !== "mention") {
@@ -547,16 +548,9 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
           </span>
         );
       }
-      // In the full list, a name the message did not mention is plain text —
-      // @everyone without its permission, a role it did not mention.
-      if (regex === fullRegex) {
-        const isEveryone = wanted === "everyone";
-        const isMember = members.some((m) => normalizeSearch(m.name) === wanted);
-        if ((isEveryone && !mentioned.includes(EVERYONE_MENTION)) || (!isEveryone && !isMember)) {
-          return <Fragment key={index}>{linkify(token.value, `${message.id}-${index}`)}</Fragment>;
-        }
-      }
-      const person = mentionedMember(message, token.name);
+      // Everything the pattern can match was mentioned, so there is no longer
+      // a "matched but not really mentioned" case to fall back to plain text.
+      const person = mentionedPeople.find((p) => normalizeSearch(p.name) === wanted) ?? null;
       // A mention is a way to the person's profile, the same dialog their
       // name opens anywhere else in the group. @everyone is nobody's.
       return person ? (

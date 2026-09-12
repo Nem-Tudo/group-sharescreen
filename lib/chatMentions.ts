@@ -41,6 +41,31 @@ export function buildMentionsRegex(names: string[]): RegExp | null {
   return new RegExp(`(?:(?<=^|[\\s(\\[{<"']))@(${alternation})(?=$|[^\\p{L}\\p{N}_])`, "gui");
 }
 
+// Regexes already built, by the exact set of names they match.
+//
+// For a list of messages that each mention a different handful of people:
+// most messages mention nobody, the rest mention one or two, and the same few
+// combinations recur down a conversation. Building each one is a sort, an
+// escape per name and a compile, so it is done once per combination rather
+// than once per message per render. Bounded because nothing else evicts.
+const regexCache = new Map<string, RegExp | null>();
+const REGEX_CACHE_MAX = 500;
+
+/**
+ * buildMentionsRegex, remembered. Safe to share between messages: the regex
+ * is /g and so carries lastIndex, but tokenizeMentions resets it before every
+ * use (pinned by chatMentions.test.mts).
+ */
+export function mentionsRegexFor(names: string[]): RegExp | null {
+  const key = JSON.stringify([...names].sort());
+  const held = regexCache.get(key);
+  if (held !== undefined) return held;
+  const regex = buildMentionsRegex(names);
+  if (regexCache.size >= REGEX_CACHE_MAX) regexCache.clear();
+  regexCache.set(key, regex);
+  return regex;
+}
+
 /**
  * Who might be mentioned: the room's names, or a regex already built from
  * them by buildMentionsRegex. Passing the regex is what a list of messages

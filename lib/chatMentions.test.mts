@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import {
   buildMentionsRegex,
+  mentionsRegexFor,
   isUserMentionedInMessage,
   tokenizeMentions,
   getMentionTriggerInfo,
@@ -230,6 +231,40 @@ assert.ok(containsBroadcastMention("@todos"));
 assert.ok(containsBroadcastMention("@todos"));
 assert.ok(!containsBroadcastMention("nem todos vieram"));
 assert.ok(containsBroadcastMention("@todos"));
+
+// mentionsRegexFor: the per-message pattern the group text room builds from
+// just the people a message mentioned, instead of from every member's name.
+
+// The same names in a different order are the same combination, and must get
+// the very same regex back rather than a second compile.
+const forward = mentionsRegexFor(["Ana", "Bia"]);
+assert.ok(forward, "dois nomes devem produzir um padrão");
+assert.equal(mentionsRegexFor(["Bia", "Ana"]), forward, "a ordem dos nomes não pode importar");
+assert.equal(mentionsRegexFor(["Ana", "Bia"]), forward, "a mesma combinação deve vir do cache");
+
+// Nothing to match is no pattern at all — what most messages get.
+assert.equal(mentionsRegexFor([]), null);
+
+// It matches exactly the names it was built from, and nothing else in the
+// message: a name the message did not mention stays plain text.
+const only = mentionsRegexFor(["Ana"]);
+const tokens = tokenizeMentions("oi @Ana e @Bia", only);
+const lit = tokens.filter((t) => t.type === "mention").map((t) => (t.type === "mention" ? t.name : ""));
+assert.deepEqual(lit, ["Ana"], "só quem a mensagem mencionou acende");
+
+// Shared between messages, so it is reused many times in one render. It is
+// /g and carries lastIndex; every one of these must still find its mention.
+for (let i = 0; i < 5; i += 1) {
+  const again = tokenizeMentions("@Ana chegou", only);
+  assert.equal(again.filter((t) => t.type === "mention").length, 1, `reuso ${i} perdeu a menção`);
+}
+
+// A compound name still wins over the shorter one it starts with, exactly as
+// buildMentionsRegex promises — the cache must not change what matches.
+const compound = mentionsRegexFor(["João", "João Silva"]);
+const long = tokenizeMentions("fala @João Silva", compound).filter((t) => t.type === "mention");
+assert.equal(long.length, 1);
+assert.equal(long[0].type === "mention" ? long[0].name : "", "João Silva");
 
 console.log("chatMentions: ok");
 

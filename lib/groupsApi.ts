@@ -347,6 +347,55 @@ export const setGroupNotify = (groupId: string, level: GroupNotifyLevel) =>
 export const fetchMembers = (groupId: string, signal?: AbortSignal) =>
   request<{ members: GroupMember[] }>("GET", `/groups/${enc(groupId)}/members`, undefined, signal);
 
+/** How many people the group has, and how many of them are connected. */
+export interface MemberCounts {
+  total: number;
+  online: number;
+}
+
+/**
+ * A slice of the member list instead of all of it — see the API's
+ * memberSlice. The whole list was a couple of megabytes at ten thousand
+ * members, fetched by every open column and again on its poll.
+ */
+export const fetchOnlineMembers = (groupId: string, signal?: AbortSignal) =>
+  request<{ members: GroupMember[] } & MemberCounts>(
+    "GET",
+    `/groups/${enc(groupId)}/members?online=1`,
+    undefined,
+    signal
+  );
+
+/**
+ * The next page of members who are not connected, after `after` (the last id
+ * of the page before). With `channelId`, only the ones who can see that room —
+ * filtered by the API, since doing it here would mean paging through the whole
+ * membership to find the few a private room admits.
+ */
+export const fetchOfflineMembers = (
+  groupId: string,
+  after: string | null,
+  channelId?: string | null,
+  signal?: AbortSignal
+) =>
+  request<{ members: GroupMember[]; next: string | null } & MemberCounts>(
+    "GET",
+    `/groups/${enc(groupId)}/members?online=0${after ? `&after=${enc(after)}` : ""}${
+      channelId ? `&channel=${enc(channelId)}` : ""
+    }`,
+    undefined,
+    signal
+  );
+
+/** Members whose name contains `q` — for @-suggestions that must reach somebody offline. */
+export const searchMembers = (groupId: string, q: string, signal?: AbortSignal) =>
+  request<{ members: GroupMember[] } & MemberCounts>(
+    "GET",
+    `/groups/${enc(groupId)}/members?q=${enc(q)}`,
+    undefined,
+    signal
+  );
+
 /** The roles somebody holds, replaced whole — only the ones below one's own change. */
 export const setMemberRoles = (groupId: string, userId: string, roleIds: string[]) =>
   request<{ roleIds: string[] }>("PUT", `/groups/${enc(groupId)}/members/${enc(userId)}/roles`, { roleIds });

@@ -255,7 +255,17 @@ function noteIncomingMessage(message: GroupMessage) {
 // ─── Socket ──────────────────────────────────────────────────────────────
 
 /** `nonce` is the sender's own name for the message — see lib/groupOutbox. */
-type MessageListener = (message: GroupMessage, author: GroupUser | null, nonce?: string) => void;
+/**
+ * `mentioned` is everybody the message @mentions, by id — sent by the API so a
+ * screen can name them without holding the whole member list (see its
+ * mentionedPeople). Empty from an older API.
+ */
+type MessageListener = (
+  message: GroupMessage,
+  author: GroupUser | null,
+  nonce?: string,
+  mentioned?: Record<string, GroupUser>
+) => void;
 type DeleteListener = (event: { groupId: string; channelId: string; messageId: string }) => void;
 /** A message's reactions as they now stand — see the API's reactions route. */
 export type ReactionsEvent = { groupId: string; channelId: string; messageId: string; reactions: GroupReaction[] };
@@ -354,11 +364,15 @@ function handleEvent(event: GroupSocketEvent) {
       if (!message) return;
       noteIncomingMessage(message);
       const author = (event.author as GroupUser | undefined) ?? null;
+      const mentioned =
+        event.mentioned && typeof event.mentioned === "object"
+          ? (event.mentioned as Record<string, GroupUser>)
+          : {};
       // Kept current for a room that is not on screen, so reopening it is
       // instant and already has this (see lib/groupCache).
-      appendCachedMessage(message, author);
+      appendCachedMessage(message, author, mentioned);
       const nonce = typeof event.nonce === "string" ? event.nonce : undefined;
-      messageListeners.forEach((l) => l(message, author, nonce));
+      messageListeners.forEach((l) => l(message, author, nonce, mentioned));
       return;
     }
     case "group-message-deleted": {

@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo } from "react";
 import useNtPopups from "ntpopups";
 import { FaCrown } from "react-icons/fa";
 import { MdPersonAdd, MdVolumeUp } from "react-icons/md";
@@ -9,7 +9,7 @@ import { Tooltip } from "@/components/Tooltip";
 import { UserAvatar } from "@/components/UserAvatar";
 import { openGroupProfile } from "@/components/groups/groupProfile";
 import { verifiedBadge } from "@/lib/entitlements";
-import { useGroupMembers } from "@/lib/groupCache";
+import { useOfflineGroupMembers, useOnlineGroupMembers } from "@/lib/groupCache";
 import {
   canManage,
   hoistedRoleOf,
@@ -52,6 +52,13 @@ const MEMBER_VOICE_H = 54;
 // The section heading, with the gap that used to be the section's own margin
 // folded in — the list is flat now, so the spacing has to live somewhere.
 const HEADER_H = 32;
+
+// How close to the end of the loaded rows the window may get before the next
+// page of offline members is asked for — about a screen's worth.
+const LOAD_AHEAD_ROWS = 20;
+
+// One stable empty list while the online members have not arrived.
+const NO_ONE: GroupMember[] = [];
 
 /** One flattened list entry: the headings and the people, in display order. */
 type Row =
@@ -139,13 +146,27 @@ export function GroupMembersPanel({
   const { openPopup } = useNtPopups();
   const groupId = detail.group.id;
   const canInvite = canManage(detail, "createInvites");
-  const everyone = useGroupMembers(groupId, membersRevalidateKey(detail), REFRESH_MS);
-  const members = useMemo(
+  const revalidateKey = membersRevalidateKey(detail);
+  const textChannel = channel?.kind === "text" ? channel : null;
+
+  // Who is connected, whole — bounded by how many are online, not by how many
+  // belong — and everybody else a page at a time, as the list scrolls down to
+  // them. This used to be the entire membership in one request, re-read on a
+  // poll, which at ten thousand members was a couple of megabytes each time.
+  const onlineEntry = useOnlineGroupMembers(groupId, revalidateKey, REFRESH_MS);
+  const offlinePaged = useOfflineGroupMembers(groupId, revalidateKey, textChannel?.id ?? null);
+
+  // The online list is group-wide and shared with the text room, so beside a
+  // room it is narrowed here; it is small enough for that to be free. The
+  // offline pages arrive already narrowed — see the API's memberSlice.
+  const onlineHere = useMemo(
     () =>
-      everyone && channel?.kind === "text"
-        ? everyone.filter((m) => memberCanInChannel(detail, channel, { id: m.id, roleIds: m.roleIds }, "viewChannel"))
-        : everyone,
-    [everyone, channel, detail]
+      onlineEntry && textChannel
+        ? onlineEntry.list.filter((m) =>
+            memberCanInChannel(detail, textChannel, { id: m.id, roleIds: m.roleIds }, "viewChannel")
+          )
+        : onlineEntry?.list ?? null,
+    [onlineEntry, textChannel, detail]
   );
 
   // Which voice room each person is standing in, by name.
@@ -162,15 +183,20 @@ export function GroupMembersPanel({
   // membership — twice for the split, then once more for the sections, each
   // with a permission lookup per member — and none of it changes when the
   // panel re-renders for something else.
-  const [online, offline] = useMemo(() => {
-    const here: GroupMember[] = [];
-    const away: GroupMember[] = [];
-    for (const m of members ?? []) {
-      if (m.online || voiceRoomOf.has(m.id)) here.push(m);
-      else away.push(m);
-    }
-    return [here, away] as const;
-  }, [members, voiceRoomOf]);
+  const online = onlineHere ?? NO_ONE;
+  // An offline page can be older than the online list: somebody who connected
+  // since it was fetched would otherwise be listed in both sections. Anybody
+  // standing in a voice room is connected by definition, so they never belong
+  // down here either.
+  const offline = useMemo(() => {
+    const here = new Set(online.map((m) => m.id));
+    return offlinePaged.list.filter((m) => !here.has(m.id) && !voiceRoomOf.has(m.id));
+  }, [offlinePaged.list, online, voiceRoomOf]);
+  // How many are offline in all, not merely how many pages have arrived — so
+  // the heading says the real number before the list has been scrolled to.
+  const offlineTotal = offlinePaged.counts
+    ? Math.max(0, offlinePaged.counts.total - offlinePaged.counts.online)
+    : offline.length;
 
   // Whoever is around, by their highest role shown apart — in the roles'
   // order — and everybody else around after them.
@@ -219,14 +245,14 @@ export function GroupMembersPanel({
         });
       }
     }
-    if (offline.length > 0) {
-      out.push({ kind: "header", key: "h:offline", title: "Offline", count: offline.length });
+    if (offline.length > 0 || offlineTotal > 0) {
+      out.push({ kind: "header", key: "h:offline", title: "Offline", count: offlineTotal });
       for (const member of offline) {
         out.push({ kind: "member", key: member.id, member, away: true });
       }
     }
     return out;
-  }, [sections, offline, voiceRoomOf]);
+  }, [sections, offline, offlineTotal, voiceRoomOf]);
 
   // Prefix sum of row tops, which is what lets the window binary-search a
   // scroll position across rows of three different heights.
@@ -256,6 +282,16 @@ export function GroupMembersPanel({
     rowHeight: offsets,
   });
 
+  // The next page is asked for once the rendered window comes within a screen
+  // or so of the end of what has arrived. With a small group the window is the
+  // whole list, so this reads the pages back to back until they run out — a
+  // handful of requests. With a large one it waits for the scroll.
+  const { hasMore, loading: loadingMore, loadMore } = offlinePaged;
+  const nearEnd = end >= rows.length - LOAD_AHEAD_ROWS;
+  useEffect(() => {
+    if (onlineEntry && hasMore && !loadingMore && nearEnd) loadMore();
+  }, [onlineEntry, hasMore, loadingMore, nearEnd, loadMore]);
+
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
@@ -277,11 +313,13 @@ export function GroupMembersPanel({
           )}
         </span>
         <span className="rounded-full bg-zinc-100 px-1.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-          {members?.length ?? detail.group.memberCount}
+          {textChannel
+            ? offlinePaged.counts?.total ?? online.length
+            : onlineEntry?.counts.total ?? detail.group.memberCount}
         </span>
       </div>
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
-        {members === null ? (
+        {onlineEntry === null ? (
           <p className="px-2 py-1 text-sm text-zinc-500 dark:text-zinc-400">Carregando…</p>
         ) : (
           // The spacers stand in for the rows that are not rendered, so the
