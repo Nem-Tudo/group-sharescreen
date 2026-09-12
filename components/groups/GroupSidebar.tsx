@@ -995,7 +995,7 @@ export function GroupActions({ detail }: { detail: GroupDetail }) {
           className="hidden shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-zinc-300 px-2.5 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 sm:flex dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
         >
           <MdPersonAdd className="h-4 w-4" />
-          <span className="hidden lg:inline">Convidar</span>
+          <span data-header-label className="hidden lg:inline">Convidar</span>
         </button>
       )}
       <Popover

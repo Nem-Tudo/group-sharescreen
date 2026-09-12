@@ -5607,7 +5607,7 @@ export function WatchRoom({
                   className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <MdOutlineOndemandVideo className="h-5 w-5 shrink-0" />
-                  <span className="hidden 2xl:inline"><BetaMark /></span>
+                  <span data-header-label className="hidden 2xl:inline"><BetaMark /></span>
                 </button>
               </Tooltip>
 
@@ -5636,7 +5636,7 @@ export function WatchRoom({
                   className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <MdMusicNote className="h-5 w-5 shrink-0" />
-                  <span className="hidden 2xl:inline"><BetaMark /></span>
+                  <span data-header-label className="hidden 2xl:inline"><BetaMark /></span>
                 </button>
               </Tooltip>
               </>,
@@ -5693,7 +5693,7 @@ export function WatchRoom({
                   }`}
               >
                 {linkCopied ? <CheckIcon className="h-4 w-4" /> : <LinkIcon className="h-4 w-4" />}
-                <span className="hidden 2xl:inline">
+                <span data-header-label className="hidden 2xl:inline">
                   {linkCopied ? "Copiado!" : "Compartilhar sala"}
                 </span>
               </button>
@@ -5774,7 +5774,7 @@ export function WatchRoom({
                 <proButton.Icon
                   className={`h-5 w-5 shrink-0 ${proButton.iconClassName}`}
                 />
-                <span className="hidden sm:inline lg:hidden 2xl:inline">
+                <span data-header-label className="hidden sm:inline lg:hidden 2xl:inline">
                   {proButton.label}
                 </span>
               </button>

@@ -279,7 +279,7 @@ export function AccountMenu() {
             {initial}
           </span>
         )}
-        <span className="hidden max-w-[12ch] truncate sm:inline">{name}</span>
+        <span data-header-label className="hidden max-w-[12ch] truncate sm:inline">{name}</span>
         <MdExpandMore className="h-4 w-4 shrink-0 text-zinc-400" />
       </button>
     </Popover>

@@ -41,6 +41,7 @@ import {
 import { signalingClient } from "@/lib/signalingClient";
 import { onGroupRemoved, refreshGroups, resetGroups, useGroupDetail } from "@/lib/useGroups";
 import { LG_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
+import { useHeaderFit } from "@/lib/headerFit";
 import { useRoomTheme } from "@/lib/useRoomTheme";
 
 // The rooms column's gap-3, between the rooms and the ad under them.
@@ -101,6 +102,12 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   const [rightSlot, setRightSlot] = useState<HTMLDivElement | null>(null);
   // Where a group voice room's music bars are drawn — see CallChrome.musicSlot.
   const [musicSlot, setMusicSlot] = useState<HTMLDivElement | null>(null);
+  // The bar's row and the two clusters that grow as a call fills them, for
+  // measuring what fits (see lib/headerFit). State, like the slots, so the
+  // measuring starts once they exist.
+  const [headerRow, setHeaderRow] = useState<HTMLDivElement | null>(null);
+  const [headerCenter, setHeaderCenter] = useState<HTMLDivElement | null>(null);
+  const [headerRight, setHeaderRight] = useState<HTMLDivElement | null>(null);
 
   // What the call borrows from the group while the group's pages are the ones
   // on screen: this bar's two slots for the room's own controls, and the way
@@ -204,12 +211,31 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
 
   const voiceVisible = Boolean(session && session.groupId === groupId && session.channelId === roomId);
   const closeNav = () => setNavOpen(false);
+  // Only a call puts controls in the middle of the bar, and only from lg up —
+  // anywhere else the bar is what it always was.
+  const headerFit = useHeaderFit(headerRow, [headerCenter, headerRight], Boolean(call) && isWide);
 
   return (
     <GroupNavContext.Provider value={{ openNav: () => setNavOpen(true) }}>
       <div data-group-shell className="flex min-h-0 flex-1 flex-col bg-zinc-50 dark:bg-black">
-        <header className="shrink-0 border-b border-black/10 bg-white px-3 py-2 sm:px-4 dark:border-white/10 dark:bg-zinc-950">
-          <div className="flex items-center gap-2 lg:grid lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] lg:gap-3">
+        <header
+          data-header-compact={headerFit >= 1 ? "" : undefined}
+          className="shrink-0 border-b border-black/10 bg-white px-3 py-2 sm:px-4 dark:border-white/10 dark:bg-zinc-950"
+        >
+          {/* The call's controls stay in the middle while there is room for
+              them there. The right column never gives up any of its own width
+              (max-content) — it used to be able to shrink to nothing, which is
+              how its buttons ended up drawn over the controls — and the left,
+              where the group's name truncates, gives way first. When even that
+              is not enough the bar steps down (see lib/headerFit). */}
+          <div
+            ref={setHeaderRow}
+            className={
+              headerFit === 2
+                ? "flex items-center gap-2 lg:grid lg:grid-cols-[minmax(0,1fr)_max-content] lg:gap-x-3 lg:gap-y-2"
+                : "flex items-center gap-2 lg:grid lg:grid-cols-[minmax(10rem,1fr)_auto_minmax(max-content,1fr)] lg:gap-3"
+            }
+          >
             <div className="flex min-w-0 flex-1 items-center gap-2">
               <Tooltip content="Voltar ao início" placement="bottom">
                 <Link
@@ -233,12 +259,22 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
                 camera, sources, music, hang up — for as long as you are
                 connected, portalled in by the room whether or not it is the
                 page on screen. Beside them, while it is not, the way back to it. */}
-            <div className="hidden items-center gap-2 justify-self-center lg:flex">
+            <div
+              ref={setHeaderCenter}
+              className={`hidden items-center gap-2 justify-self-center lg:flex ${
+                headerFit === 2 ? "lg:col-span-2 lg:row-start-2" : ""
+              }`}
+            >
               {call && !voiceVisible && <VoiceCallLink />}
               <div ref={setCenterSlot} className="contents" />
             </div>
 
-            <div className="ml-auto flex shrink-0 items-center justify-end gap-1.5 lg:ml-0">
+            <div
+              ref={setHeaderRight}
+              className={`ml-auto flex shrink-0 items-center justify-end gap-1.5 lg:ml-0 ${
+                headerFit === 2 ? "lg:col-start-2 lg:row-start-1" : ""
+              }`}
+            >
               {/* The call's page buttons (share, Pro, its options), portalled
                   in by the room while it is on screen. */}
               <div ref={setRightSlot} className="contents" />

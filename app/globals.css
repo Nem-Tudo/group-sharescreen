@@ -111,6 +111,14 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* A group's top bar, when its three clusters do not fit on one line at full
+   size (see lib/headerFit): the labels go and the icons stay. Outside the
+   layers on purpose, so it outranks the `2xl:inline` and `lg:inline` that show
+   them — and scoped to that bar, so every other header keeps its labels. */
+[data-header-compact] [data-header-label] {
+  display: none;
+}
+
 /* Thin, dark scrollbars everywhere instead of the browser's chunky default. */
 * {
   scrollbar-width: thin;
