@@ -4,6 +4,7 @@ import { useEffect, useSyncExternalStore } from "react";
 import { signalingClient, type GroupSocketEvent } from "./signalingClient";
 import { appendCachedMessage, forgetGroupMembers, removeCachedMessage, updateCachedMessage } from "./groupCache";
 import { EVERYONE_MENTION } from "./groupPermissions";
+import { isPageInFront } from "./pageFocus";
 import {
   fetchGroup,
   fetchMyGroups,
@@ -89,8 +90,11 @@ export function refreshGroup(groupId: string): Promise<void> {
       const { ok: _ok, ...detail } = result;
       void _ok;
       detailFetchedAt.set(groupId, Date.now());
-      // A room being looked at right now has, by definition, nothing unread.
-      const viewing = viewingChannel?.groupId === groupId ? viewingChannel.channelId : null;
+      // A room being looked at right now has, by definition, nothing unread —
+      // but only if somebody is looking: open behind another window, it keeps
+      // what the server says until they are back.
+      const viewing =
+        viewingChannel?.groupId === groupId && isPageInFront() ? viewingChannel.channelId : null;
       const channels = detail.channels.map((c) =>
         c.id === viewing ? { ...c, unread: false, mentions: 0 } : c
       );
@@ -236,11 +240,10 @@ function noteIncomingMessage(message: GroupMessage) {
   const detail = state.details[groupId];
   const selfId = detail?.me.id ?? null;
   if (selfId && message.from === selfId) return;
+  // In front, not merely visible: a room open behind another window gets its
+  // dot, and is read once somebody comes back to it (see TextChannelView).
   const onScreen =
-    viewingChannel?.groupId === groupId &&
-    viewingChannel.channelId === channelId &&
-    typeof document !== "undefined" &&
-    document.visibilityState === "visible";
+    viewingChannel?.groupId === groupId && viewingChannel.channelId === channelId && isPageInFront();
   if (onScreen) {
     // Read as it lands — move the bookmark so other devices agree.
     markChannelRead(groupId, channelId);

@@ -85,6 +85,7 @@ import { UNKNOWN_ROOM, UNKNOWN_USER, plainTokens, splitTokens } from "@/lib/mess
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
 import { formatLocale } from "@/lib/i18n";
+import { isPageInFront } from "@/lib/pageFocus";
 
 // One text room of a group: its history, read a page at a time and extended
 // live, and the box to write in. Drawn as a panel in the same family as the
@@ -407,12 +408,16 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
   useEffect(() => {
     rememberChannel(groupId, channelId);
     setViewingChannel({ groupId, channelId });
+    // Back in front — the tab shown again, or its window focused again — reads
+    // whatever landed while it was not (see useGroups' noteIncomingMessage).
     const onVisible = () => {
-      if (document.visibilityState === "visible") setViewingChannel({ groupId, channelId });
+      if (isPageInFront()) setViewingChannel({ groupId, channelId });
     };
     document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
     return () => {
       document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
       setViewingChannel(null);
     };
   }, [groupId, channelId]);

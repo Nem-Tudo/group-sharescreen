@@ -30,6 +30,7 @@
 // Everything is SSR-safe: on the server every function degrades to
 // "unsupported"/no-op rather than touching window.
 
+import { isPageInFront } from "./pageFocus";
 import { Capacitor } from "@capacitor/core";
 import { getDesktopBridge } from "./desktop";
 import { translate } from "@/lib/i18n";
@@ -243,10 +244,7 @@ export function setNotificationsMuted(muted: boolean): void {
 const DEFAULT_ICON = "/icon.png";
 
 function documentIsFocused(): boolean {
-  if (!isBrowser() || typeof document === "undefined") return false;
-  const visible = document.visibilityState === "visible";
-  const focused = typeof document.hasFocus === "function" ? document.hasFocus() : visible;
-  return visible && focused;
+  return isBrowser() && isPageInFront();
 }
 
 /**

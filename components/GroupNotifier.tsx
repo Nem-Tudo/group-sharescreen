@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/AuthContext";
 import { useGroupNavigation } from "@/lib/groupNavigation";
 import { showNotification } from "@/lib/notifications";
+import { isPageInFront } from "@/lib/pageFocus";
 import { playDirectMessageSound } from "@/lib/soundEffects";
 import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
 import { selectGroupNudge } from "@/lib/signalingSelectors";
@@ -35,8 +36,10 @@ export function GroupNotifier() {
     if (announcedRef.current === lastGroupNotify.messageId) return;
     announcedRef.current = lastGroupNotify.messageId;
     if (!alertTarget) return;
-    // Reading that very room right now: the message is already on screen.
-    if (pathname === lastGroupNotify.url && document.visibilityState === "visible") return;
+    // Reading that very room right now: the message is already on screen. Only
+    // with the page in front — the room left open in a window behind another
+    // one is not being read, and announces like any other.
+    if (pathname === lastGroupNotify.url && isPageInFront()) return;
 
     playDirectMessageSound();
     void showNotification({

@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useAuth } from "@/lib/AuthContext";
 import { showNotification } from "@/lib/notifications";
+import { isPageInFront } from "@/lib/pageFocus";
 import { upsertNotification } from "@/lib/notificationInbox";
 import { playDirectMessageSound } from "@/lib/soundEffects";
 import { openDirectMessages, useDirectMessagesWindow } from "@/lib/dmWindow";
@@ -18,8 +19,10 @@ import { translate } from "@/lib/i18n";
 //   - announce your own message. It arrives on this socket too, because the
 //     sender's other devices need it, and a chime for something you just
 //     typed is the most annoying possible notification.
-//   - announce a thread that is open on screen. Somebody reading the
-//     conversation is already looking at the message.
+//   - announce a thread that is open on screen, with the page in front.
+//     Somebody reading the conversation is already looking at the message.
+//     Open but behind another window, or in a tab in the background, is not
+//     being read — that one is announced like any other.
 //   - dedupe by content. The inbox key is the *sender*, so a burst of five
 //     messages is one row in the bell rather than five, and the row's body is
 //     the newest of them.
@@ -46,9 +49,10 @@ export function DmNotifier() {
     const { message, fromUser } = lastDm;
     if (message.from === account.id) return;
     if (announcedRef.current === message.id) return;
-    // The thread is on screen: the message is already being read. Marked as
-    // announced anyway, so it cannot come back the moment the window closes.
-    if (open && withUserId === message.from) {
+    // The thread is on screen and the page is in front: the message is
+    // already being read. Marked as announced anyway, so it cannot come back
+    // the moment the window closes.
+    if (open && withUserId === message.from && isPageInFront()) {
       announcedRef.current = message.id;
       return;
     }

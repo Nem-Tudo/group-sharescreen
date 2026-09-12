@@ -68,6 +68,7 @@ import {
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
 import { formatLocale } from "@/lib/i18n";
+import { usePageInFront } from "@/lib/pageFocus";
 
 // Private messages, in a dialog.
 //
@@ -466,6 +467,7 @@ export function DirectMessagesModal({
   const { account } = useAuth();
   const recentDms = useSignalingSelector(selectRecentDms);
   const now = useSyncExternalStore(subscribeClock, getClock, getClockServer);
+  const pageInFront = usePageInFront();
 
   // null until the first answer, so "loading" and "no conversations" are two
   // different screens instead of one that lies for a second.
@@ -641,14 +643,16 @@ export function DirectMessagesModal({
 
   // The bookmark, moved once per message that arrives in the open thread —
   // not once per message arriving anywhere, which is what re-running on every
-  // socket delivery used to do.
+  // socket delivery used to do. And only while the page is in front: a thread
+  // left open behind another window has not been read, so its unread count
+  // and notification stand until somebody comes back to it.
   useEffect(() => {
-    if (!open || !activeId || !loaded) return;
+    if (!open || !activeId || !loaded || !pageInFront) return;
     const key = `${activeId}:${newestIncomingId ?? ""}`;
     if (lastMarkedRef.current === key) return;
     lastMarkedRef.current = key;
     markConversationRead(activeId);
-  }, [open, activeId, loaded, newestIncomingId]);
+  }, [open, activeId, loaded, newestIncomingId, pageInFront]);
 
   // The box is ready to type in as soon as a thread is. Not on phones: that
   // would throw the keyboard over the conversation somebody opened to read.
