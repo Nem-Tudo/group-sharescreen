@@ -13,7 +13,28 @@ import type { ChannelPermissionOverrides, GroupPermissions } from "./groupPermis
 // be a member (see the API's groupStore MAX_GUEST_GROUPS), so the token sent is
 // the account's when there is one and the guest's otherwise.
 
+/**
+ * The coarse version of where somebody stands, for a badge: the owner, an
+ * administrator (a role that can do everything), or anybody else. What they
+ * may actually do is their roles' — see GroupRoleInfo and lib/groupPermissions.
+ */
 export type GroupRole = "owner" | "admin" | "member";
+
+/** One of a group's roles (Discord's), as the API sends it — see the API's GroupRole. */
+export interface GroupRoleInfo {
+  id: string;
+  name: string;
+  /** "#rrggbb", or null for none. */
+  color: string | null;
+  /** Higher is above; 1 is the lowest. */
+  position: number;
+  /** Listed in a section of its own in the member list. */
+  hoist: boolean;
+  /** Anybody may @-mention it (otherwise only who may mention @everyone). */
+  mentionable: boolean;
+  /** What it turns on — a false takes nothing away from @everyone. */
+  permissions: GroupPermissions;
+}
 export type GroupChannelKind = "text" | "voice";
 export type GroupNotifyLevel = "all" | "mentions" | "none";
 /** Private: invite links only. Public: anybody may walk in, and it may go on the map. */
@@ -51,8 +72,10 @@ export interface GroupChannel {
   categoryId?: string | null;
   /** Order within its category and kind. */
   position: number;
-  /** This room's own permission settings — a switch absent inherits the group's. See lib/groupPermissions. */
+  /** This room's own permission settings for @everyone — a switch absent inherits the group's. See lib/groupPermissions. */
   permissions: ChannelPermissionOverrides;
+  /** The same, per role id. Absent from an older API. */
+  roleOverrides?: Record<string, ChannelPermissionOverrides>;
   unread: boolean;
   mentions: number;
 }
@@ -105,9 +128,10 @@ export interface GroupInfo {
    */
   customInviteAllowed?: boolean;
   ownerId: string;
-  admins: string[];
-  /** What ordinary members may do, group-wide. See lib/groupPermissions. */
+  /** What everybody may do, group-wide (@everyone). See lib/groupPermissions. */
   permissions: GroupPermissions;
+  /** Highest first. Absent from an older API. */
+  roles?: GroupRoleInfo[];
   memberCount: number;
   createdAt: number;
 }
@@ -120,7 +144,20 @@ export interface GroupDetail {
   voice: GroupVoiceMap;
   /** Absent from an older API — read as no room having anything on. */
   voiceRooms?: GroupVoiceRoomMap;
-  me: { id: string; role: GroupRole; notify: GroupNotifyLevel; guest: boolean };
+  /** Member id -> the ids of the roles they hold; only members with one. Absent from an older API. */
+  memberRoles?: Record<string, string[]>;
+  me: {
+    id: string;
+    role: GroupRole;
+    /** Absent from an older API. */
+    roleIds?: string[];
+    /** Their highest role's position (see lib/groupPermissions' myRank); -1 for the owner. */
+    rank?: number;
+    /** Every switch, group-wide, as they have it. Absent from an older API. */
+    permissions?: GroupPermissions;
+    notify: GroupNotifyLevel;
+    guest: boolean;
+  };
   /** False on an installation without a database — the text rooms are off there. */
   chatAvailable: boolean;
 }
@@ -137,6 +174,8 @@ export interface GroupUser {
 
 export interface GroupMember extends GroupUser {
   role: GroupRole;
+  /** Absent from an older API. */
+  roleIds?: string[];
   online: boolean;
   joinedAt: number;
 }
@@ -308,8 +347,9 @@ export const setGroupNotify = (groupId: string, level: GroupNotifyLevel) =>
 export const fetchMembers = (groupId: string, signal?: AbortSignal) =>
   request<{ members: GroupMember[] }>("GET", `/groups/${enc(groupId)}/members`, undefined, signal);
 
-export const setGroupAdmin = (groupId: string, userId: string, admin: boolean) =>
-  request<{ group: GroupInfo }>(admin ? "POST" : "DELETE", `/groups/${enc(groupId)}/admins/${enc(userId)}`);
+/** The roles somebody holds, replaced whole — only the ones below one's own change. */
+export const setMemberRoles = (groupId: string, userId: string, roleIds: string[]) =>
+  request<{ roleIds: string[] }>("PUT", `/groups/${enc(groupId)}/members/${enc(userId)}/roles`, { roleIds });
 
 export const kickMember = (groupId: string, userId: string) =>
   request<object>("POST", `/groups/${enc(groupId)}/members/${enc(userId)}/kick`);
@@ -344,10 +384,19 @@ export const reorderChannels = (groupId: string, ids: string[]) =>
 
 // ─── Permissions ─────────────────────────────────────────────────────────
 
-/** The group-wide switches (owner/admins). Merged: send only what changes. */
+/** Something to send for a set of switches: only the sections and switches that change. */
+export interface PermissionsPatch {
+  manage?: Partial<NonNullable<GroupPermissions["manage"]>>;
+  general?: Partial<GroupPermissions["general"]>;
+  text?: Partial<GroupPermissions["text"]>;
+  voice?: Partial<GroupPermissions["voice"]>;
+}
+
+/** @everyone's switches (whoever manages roles). Merged: send only what changes. */
 export const setGroupPermissions = (
   groupId: string,
   patch: {
+    manage?: Partial<NonNullable<GroupPermissions["manage"]>>;
     general?: Partial<GroupPermissions["general"]>;
     text?: Partial<GroupPermissions["text"]>;
     voice?: Partial<GroupPermissions["voice"]>;
@@ -378,11 +427,44 @@ export const setGroupLayout = (
 export const setCustomInvite = (groupId: string, code: string | null) =>
   request<{ group: GroupInfo }>("PUT", `/groups/${enc(groupId)}/custom-invite`, { code });
 
-/** One room's settings, replaced whole — a switch left out inherits the group's (owner/admins). */
-export const setChannelPermissions = (groupId: string, channelId: string, permissions: ChannelPermissionOverrides) =>
+/**
+ * One room's settings for @everyone (roleId null) or one role, replaced whole
+ * — a switch left out inherits (whoever manages the rooms).
+ */
+export const setChannelPermissions = (
+  groupId: string,
+  channelId: string,
+  permissions: ChannelPermissionOverrides,
+  roleId: string | null = null
+) =>
   request<{ channel: GroupChannel }>("PUT", `/groups/${enc(groupId)}/channels/${enc(channelId)}/permissions`, {
     permissions,
+    ...(roleId ? { roleId } : {}),
   });
+
+// ─── Roles ───────────────────────────────────────────────────────────────
+
+export interface RoleInput {
+  name?: string;
+  color?: string | null;
+  hoist?: boolean;
+  mentionable?: boolean;
+  permissions?: PermissionsPatch;
+}
+
+/** A new role, at the bottom of the order. */
+export const createRole = (groupId: string, input: RoleInput) =>
+  request<{ role: GroupRoleInfo }>("POST", `/groups/${enc(groupId)}/roles`, input);
+
+export const updateRole = (groupId: string, roleId: string, input: RoleInput) =>
+  request<{ role: GroupRoleInfo }>("PATCH", `/groups/${enc(groupId)}/roles/${enc(roleId)}`, input);
+
+export const deleteRole = (groupId: string, roleId: string) =>
+  request<object>("DELETE", `/groups/${enc(groupId)}/roles/${enc(roleId)}`);
+
+/** Every role's id, highest first. */
+export const reorderRoles = (groupId: string, ids: string[]) =>
+  request<{ roles: GroupRoleInfo[] }>("PUT", `/groups/${enc(groupId)}/roles/order`, { ids });
 
 // ─── Invites ─────────────────────────────────────────────────────────────
 

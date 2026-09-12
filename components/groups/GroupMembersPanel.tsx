@@ -10,13 +10,25 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { openGroupProfile } from "@/components/groups/groupProfile";
 import { verifiedBadge } from "@/lib/entitlements";
 import { useGroupMembers } from "@/lib/groupCache";
-import { memberCanInChannel } from "@/lib/groupPermissions";
+import {
+  canManage,
+  hoistedRoleOf,
+  memberCanInChannel,
+  membersRevalidateKey,
+  roleColorOf,
+  rolesInOrder,
+} from "@/lib/groupPermissions";
 import { prefetchUserProfile } from "@/lib/userProfile";
-import type { GroupChannel, GroupDetail, GroupMember } from "@/lib/groupsApi";
+import type { GroupChannel, GroupDetail, GroupMember, GroupRoleInfo } from "@/lib/groupsApi";
 
 // Who is in the group, as the right-hand column of its pages — the same card a
 // room's participant list is, with the group's people in it: who is around
 // right now, which voice room they are in, and who runs the place.
+//
+// Discord's sections: whoever is around is listed under their highest role
+// that is shown apart ("Exibir separadamente"), in the roles' order, and
+// everybody else around under "Online"; whoever is away, under "Offline"
+// whatever their roles. Names are drawn in their highest coloured role's colour.
 //
 // The list comes from lib/groupCache, shared with the text room's @mention
 // suggestions, so switching rooms shows it at once; it is re-read when the
@@ -24,7 +36,7 @@ import type { GroupChannel, GroupDetail, GroupMember } from "@/lib/groupsApi";
 // nothing pushes.
 //
 // Beside a text room it is that room's people: only the members who can see it
-// (see lib/groupPermissions — the owner and admins always can), the way a
+// (see lib/groupPermissions — the owner and administrators always can), the way a
 // Discord channel's member list is. Anywhere else, the whole group.
 
 const REFRESH_MS = 45_000;
@@ -39,16 +51,12 @@ export function GroupMembersPanel({
 }) {
   const { openPopup } = useNtPopups();
   const groupId = detail.group.id;
-  const isManager = detail.me.role === "owner" || detail.me.role === "admin";
-  const everyone = useGroupMembers(
-    groupId,
-    `${detail.group.memberCount}:${detail.group.admins.join(",")}`,
-    REFRESH_MS
-  );
+  const canInvite = canManage(detail, "createInvites");
+  const everyone = useGroupMembers(groupId, membersRevalidateKey(detail), REFRESH_MS);
   const members = useMemo(
     () =>
       everyone && channel?.kind === "text"
-        ? everyone.filter((m) => memberCanInChannel(detail, channel, m.role, "viewChannel"))
+        ? everyone.filter((m) => memberCanInChannel(detail, channel, { id: m.id, roleIds: m.roleIds }, "viewChannel"))
         : everyone,
     [everyone, channel, detail]
   );
@@ -65,6 +73,30 @@ export function GroupMembersPanel({
 
   const online = (members ?? []).filter((m) => m.online || voiceRoomOf.has(m.id));
   const offline = (members ?? []).filter((m) => !m.online && !voiceRoomOf.has(m.id));
+
+  // Whoever is around, by their highest role shown apart — in the roles'
+  // order — and everybody else around after them.
+  const sections = (() => {
+    const byRole = new Map<string, GroupMember[]>();
+    const rest: GroupMember[] = [];
+    for (const member of online) {
+      const role = hoistedRoleOf(detail, { id: member.id, roleIds: member.roleIds });
+      if (!role) {
+        rest.push(member);
+        continue;
+      }
+      const list = byRole.get(role.id);
+      if (list) list.push(member);
+      else byRole.set(role.id, [member]);
+    }
+    const out: { key: string; title: string; role: GroupRoleInfo | null; people: GroupMember[] }[] = [];
+    for (const role of rolesInOrder(detail)) {
+      const people = byRole.get(role.id);
+      if (people) out.push({ key: role.id, title: role.name, role, people });
+    }
+    if (rest.length > 0) out.push({ key: "online", title: "Online", role: null, people: rest });
+    return out;
+  })();
 
   function row(member: GroupMember, away: boolean) {
     const room = voiceRoomOf.get(member.id);
@@ -94,16 +126,11 @@ export function GroupMembersPanel({
                 name={member.name}
                 isGuest={member.guest}
                 verified={verifiedBadge(member.flags)}
-                color={member.nameColor}
+                color={roleColorOf(detail, { id: member.id, roleIds: member.roleIds }) ?? member.nameColor}
                 className="min-w-0 truncate text-sm font-medium text-zinc-800 dark:text-zinc-200"
               />
               {member.role === "owner" && (
                 <FaCrown className="h-3 w-3 shrink-0 text-amber-500" aria-label="Dono do grupo" />
-              )}
-              {member.role === "admin" && (
-                <span className="shrink-0 rounded bg-zinc-100 px-1 text-[10px] font-semibold uppercase text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
-                  admin
-                </span>
               )}
             </span>
             {room !== undefined && (
@@ -123,7 +150,7 @@ export function GroupMembersPanel({
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
         <span className="flex items-center gap-2">
           <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Membros</h2>
-          {isManager && (
+          {canInvite && (
             <Tooltip content="Convidar pessoas">
               <button
                 type="button"
@@ -147,14 +174,15 @@ export function GroupMembersPanel({
           <p className="px-2 py-1 text-sm text-zinc-500 dark:text-zinc-400">Carregando…</p>
         ) : (
           <>
-            {online.length > 0 && (
-              <section className="mb-3">
-                <p className="px-2 pb-1 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
-                  Online — {online.length}
+            {sections.map((section) => (
+              <section key={section.key} className="mb-3">
+                <p className="flex min-w-0 items-center gap-1.5 px-2 pb-1 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                  <span className="truncate">{section.title}</span>
+                  <span className="shrink-0">— {section.people.length}</span>
                 </p>
-                <ul className="flex flex-col">{online.map((m) => row(m, false))}</ul>
+                <ul className="flex flex-col">{section.people.map((m) => row(m, false))}</ul>
               </section>
-            )}
+            ))}
             {offline.length > 0 && (
               <section>
                 <p className="px-2 pb-1 text-xs font-semibold text-zinc-500 dark:text-zinc-400">

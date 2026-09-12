@@ -707,6 +707,11 @@ export type SignalingState = {
   // happened.
   roomRemoval: { banned: boolean } | null;
   roomPermissions: RoomPermissions;
+  // In a group's voice room, what *we* may do — the room's switches are only
+  // what the group's @everyone gets, and our roles may add to them (see the
+  // server's personalRoomPermissions). Null in every other room, where the
+  // switches are the same for everybody.
+  myRoomPermissions: RoomPermissions | null;
   // Whether the join that produced the room state we're holding is the one
   // that *created* the room, as opposed to walking into one already running
   // (see the server's "room-state"). False for everyone but its creator, and
@@ -838,6 +843,7 @@ const initialState: SignalingState = {
   roomMemberLimit: null,
   roomRemoval: null,
   roomPermissions: { ...DEFAULT_ROOM_PERMISSIONS },
+  myRoomPermissions: null,
   roomLocation: null,
   roomDescription: "",
   roomCategory: null,
@@ -1562,6 +1568,8 @@ class SignalingClient {
           // answer is no — we are in.
           roomRemoval: null,
           roomPermissions: parseRoomPermissions(msg.permissions),
+          myRoomPermissions:
+            msg.myPermissions && typeof msg.myPermissions === "object" ? parseRoomPermissions(msg.myPermissions) : null,
           roomLocation: parseRoomLocation(msg.location),
           roomDescription: typeof msg.description === "string" ? msg.description : "",
           roomCategory: typeof msg.category === "string" ? msg.category : null,
@@ -1732,6 +1740,14 @@ class SignalingClient {
       // Who runs the room / what it allows changed — broadcast to everyone
       // in it, not just whoever made the change, since every client's
       // controls are drawn from this.
+      // Our own switches in a group's voice room changed — a role handed out
+      // or taken away, the group's permissions edited. Addressed to us alone.
+      case "room-my-permissions":
+        this.setState({
+          myRoomPermissions:
+            msg.permissions && typeof msg.permissions === "object" ? parseRoomPermissions(msg.permissions) : null,
+        });
+        break;
       case "room-settings":
         this.setState({
           roomOwnerId: typeof msg.ownerId === "string" ? msg.ownerId : this.state.roomOwnerId,
@@ -2831,6 +2847,7 @@ class SignalingClient {
       roomBans: [],
       roomMemberLimit: null,
       roomPermissions: { ...DEFAULT_ROOM_PERMISSIONS },
+      myRoomPermissions: null,
       roomLocation: null,
       roomDescription: "",
       roomCategory: null,

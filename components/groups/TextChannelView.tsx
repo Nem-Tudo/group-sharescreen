@@ -25,7 +25,16 @@ import { openGroupProfile } from "@/components/groups/groupProfile";
 import { ReactionPicker } from "@/components/groups/ReactionPicker";
 import { rememberChannel } from "@/components/groups/lastChannel";
 import { buildMentionsRegex, normalizeSearch, tokenizeMentions } from "@/lib/chatMentions";
-import { EVERYONE_MENTION, canInChannel, type TextPermissionKey } from "@/lib/groupPermissions";
+import {
+  EVERYONE_MENTION,
+  ROLE_MENTION_PREFIX,
+  canInChannel,
+  canManage,
+  membersRevalidateKey,
+  roleColorOf,
+  rolesInOrder,
+  type TextPermissionKey,
+} from "@/lib/groupPermissions";
 import { verifiedBadge } from "@/lib/entitlements";
 import {
   getCachedChannel,
@@ -161,7 +170,8 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
   const groupId = detail.group.id;
   const channel = detail.channels.find((c) => c.id === channelId) ?? null;
   const selfId = detail.me.id;
-  const isManager = detail.me.role === "owner" || detail.me.role === "admin";
+  // Deleting somebody else's message is "Gerenciar mensagens" (see lib/groupPermissions).
+  const canManageMessages = canManage(detail, "manageMessages");
 
   // Whatever was held for this room from last time. Read once: this component
   // is keyed by the room, so a new room is a new instance and a fresh read.
@@ -226,7 +236,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
 
   // Members, shared with the members column — for @mention suggestions and for
   // naming authors the page did not carry.
-  const heldMembers = useGroupMembers(groupId, `${detail.group.memberCount}:${detail.group.admins.join(",")}`);
+  const heldMembers = useGroupMembers(groupId, membersRevalidateKey(detail));
   // One stable empty list while nothing is held, so what is derived from it
   // below is not recomputed on every render.
   const members = useMemo(() => heldMembers ?? [], [heldMembers]);
@@ -419,14 +429,31 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
     () => members.filter((m) => m.id !== selfId).map((m) => ({ id: m.id, name: m.name, avatarUrl: m.avatarUrl })),
     [members, selfId]
   );
-  // Whom this person may @: the members, @everyone, both or neither.
+  // The group's roles, highest first — for @cargo, both ways.
+  const roles = useMemo(() => rolesInOrder(detail), [detail]);
+  const roleById = useMemo(() => new Map(roles.map((r) => [r.id, r])), [roles]);
+  // A role anybody may mention, or any role for whoever may mention @everyone
+  // (see the API's message route).
+  const roleCandidates: MentionCandidate[] = roles
+    .filter((r) => r.mentionable || can("mentionEveryone"))
+    .map((r) => ({ id: `${ROLE_MENTION_PREFIX}${r.id}`, name: r.name, avatarUrl: null, color: r.color }));
+  // Whom this person may @: the members, @everyone, roles — any of them, or none.
   const candidates: MentionCandidate[] = [
     ...(can("mentionEveryone") ? [EVERYONE_CANDIDATE] : []),
+    ...roleCandidates,
     ...(can("mentionMembers") ? memberCandidates : []),
   ];
   const names = useMemo(() => members.map((m) => m.name), [members]);
   const mentionRegex = useMemo(() => buildMentionsRegex(names), [names]);
   const everyoneRegex = useMemo(() => buildMentionsRegex([...names, "everyone"]), [names]);
+  // For a message that mentions a role: every name there is — and which of
+  // them actually light up is the message's own mentions' to say.
+  const fullRegex = useMemo(
+    () => buildMentionsRegex([...names, "everyone", ...roles.map((r) => r.name)]),
+    [names, roles]
+  );
+  // The roles I hold — a message that mentions one of them mentions me.
+  const myRoleIds = detail.me.roleIds ?? detail.memberRoles?.[selfId] ?? [];
 
   function userOf(message: GroupMessage): GroupUser {
     return (
@@ -463,12 +490,49 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
     // typed without the permission to mention alerts nobody (the server drops
     // it), so it reads as the plain text it is.
     const mentioned = message.mentions ?? [];
+    const mentionedRoles = mentioned
+      .filter((m) => m.startsWith(ROLE_MENTION_PREFIX))
+      .map((m) => roleById.get(m.slice(ROLE_MENTION_PREFIX.length)))
+      .filter((r): r is NonNullable<typeof r> => Boolean(r));
     const regex =
-      mentioned.length === 0 ? null : mentioned.includes(EVERYONE_MENTION) ? everyoneRegex : mentionRegex;
+      mentioned.length === 0
+        ? null
+        : mentionedRoles.length > 0
+          ? fullRegex
+          : mentioned.includes(EVERYONE_MENTION)
+            ? everyoneRegex
+            : mentionRegex;
     const tokens = tokenizeMentions(message.text, regex);
     return tokens.map((token, index) => {
       if (token.type !== "mention") {
         return <Fragment key={index}>{linkify(token.value, `${message.id}-${index}`)}</Fragment>;
+      }
+      const wanted = normalizeSearch(token.name);
+      // A role the message mentioned: drawn in its colour.
+      const role = mentionedRoles.find((r) => normalizeSearch(r.name) === wanted);
+      if (role) {
+        return (
+          <span
+            key={index}
+            className="rounded px-0.5 font-semibold"
+            style={
+              role.color
+                ? { color: role.color, backgroundColor: `${role.color}26` }
+                : { color: "#5865f2", backgroundColor: "#5865f226" }
+            }
+          >
+            {token.value}
+          </span>
+        );
+      }
+      // In the full list, a name the message did not mention is plain text —
+      // @everyone without its permission, a role it did not mention.
+      if (regex === fullRegex) {
+        const isEveryone = wanted === "everyone";
+        const isMember = members.some((m) => normalizeSearch(m.name) === wanted);
+        if ((isEveryone && !mentioned.includes(EVERYONE_MENTION)) || (!isEveryone && !isMember)) {
+          return <Fragment key={index}>{linkify(token.value, `${message.id}-${index}`)}</Fragment>;
+        }
       }
       const person = mentionedMember(message, token.name);
       // A mention is a way to the person's profile, the same dialog their
@@ -615,7 +679,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
   const channelName = channel?.name ?? "sala";
 
   function actionsFor(message: GroupMessage) {
-    const canDelete = message.from === selfId || isManager;
+    const canDelete = message.from === selfId || canManageMessages;
     return (
       <span className="flex shrink-0 items-center">
         {can("addReactions") && reactionPicker(message, "actions", <MdOutlineAddReaction className="h-3.5 w-3.5" />)}
@@ -677,6 +741,12 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
       const mentionsMe =
         Boolean(message.mentions?.includes(selfId)) ||
         (Boolean(message.mentions?.includes(EVERYONE_MENTION)) && message.from !== selfId) ||
+        (message.from !== selfId &&
+          Boolean(
+            message.mentions?.some(
+              (m) => m.startsWith(ROLE_MENTION_PREFIX) && myRoleIds.includes(m.slice(ROLE_MENTION_PREFIX.length))
+            )
+          )) ||
         message.replyTo?.userId === selfId;
       rows.push(
         <li
@@ -738,7 +808,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
                     name={author.name}
                     isGuest={author.guest}
                     verified={verifiedBadge(author.flags)}
-                    color={author.nameColor}
+                    color={roleColorOf(detail, { id: author.id }) ?? author.nameColor}
                     className="min-w-0 font-medium text-zinc-700 hover:underline dark:text-zinc-300"
                   />
                   <span className="shrink-0 text-xs tabular-nums text-zinc-400 dark:text-zinc-600">{timeLabel(message.ts)}</span>

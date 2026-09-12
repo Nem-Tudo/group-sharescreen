@@ -29,7 +29,7 @@ import {
   tokenizeMentions,
 } from "@/lib/chatMentions";
 import type { GroupReplyTo } from "@/lib/groupsApi";
-import { EVERYONE_MENTION } from "@/lib/groupPermissions";
+import { EVERYONE_MENTION, ROLE_MENTION_PREFIX } from "@/lib/groupPermissions";
 import { createTypingAnnouncer, type TypingAnnouncer } from "@/lib/typing";
 
 // The box at the bottom of a group's text room. Drawn like the room chat's own
@@ -39,9 +39,12 @@ import { createTypingAnnouncer, type TypingAnnouncer } from "@/lib/typing";
 // members, which the "só menções" notification level is built on.
 
 export interface MentionCandidate {
+  /** A member's id, EVERYONE_MENTION, or ROLE_MENTION_PREFIX + a role's id. */
   id: string;
   name: string;
   avatarUrl: string | null;
+  /** A role's colour, for its suggestion. */
+  color?: string | null;
 }
 
 /**
@@ -369,12 +372,24 @@ export function GroupMessageComposer({
                   <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
                     <MdGroups className="h-3 w-3" />
                   </span>
+                ) : candidate.id.startsWith(ROLE_MENTION_PREFIX) ? (
+                  <span
+                    className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white"
+                    style={{ backgroundColor: candidate.color ?? "#5865f2" }}
+                  >
+                    @
+                  </span>
                 ) : (
                   <UserAvatar src={candidate.avatarUrl} name={candidate.name} size={18} />
                 )}
-                <span className="truncate">{candidate.name}</span>
+                <span className="truncate" style={candidate.color ? { color: candidate.color } : undefined}>
+                  {candidate.name}
+                </span>
                 {candidate.id === EVERYONE_MENTION && (
                   <span className="ml-auto shrink-0 text-[11px] text-zinc-400">avisa todo mundo</span>
+                )}
+                {candidate.id.startsWith(ROLE_MENTION_PREFIX) && (
+                  <span className="ml-auto shrink-0 text-[11px] text-zinc-400">avisa quem tem o cargo</span>
                 )}
               </button>
             </li>

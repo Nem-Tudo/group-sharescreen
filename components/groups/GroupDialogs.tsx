@@ -12,6 +12,8 @@ import {
   MdDeleteOutline,
   MdEdit,
   MdLockOutline,
+  MdAdd,
+  MdClose,
   MdOutlineMap,
   MdPublic,
   MdTag,
@@ -44,10 +46,10 @@ import {
   renameCategory,
   revokeInvite,
   setCustomInvite,
-  setGroupAdmin,
   setGroupLayout,
   setGroupLocation,
   setGroupVisibility,
+  setMemberRoles,
   transferGroup,
   unbanMember,
   updateGroup,
@@ -81,7 +83,17 @@ import {
   secondaryButton,
   type PopupProps,
 } from "@/components/groups/dialogKit";
-import { GroupPermissionsTab, useOpenChannelSettings } from "@/components/groups/ChannelSettingsDialog";
+import { useOpenChannelSettings } from "@/components/groups/ChannelSettingsDialog";
+import { RolesTab } from "@/components/groups/RolesTab";
+import {
+  canManage,
+  membersRevalidateKey,
+  myRank,
+  rankOf,
+  roleColorOf,
+  rolesInOrder,
+  rolesWithIds,
+} from "@/lib/groupPermissions";
 import { GoldVerifiedBadgeIcon } from "../icons";
 
 // The group's popups, registered with ntpopups in components/NtPopups.tsx:
@@ -600,29 +612,35 @@ export function GroupInviteDialog({ closePopup, data }: PopupProps<{ groupId: st
 
 // ─── Settings ────────────────────────────────────────────────────────────
 
-type SettingsTab = "overview" | "channels" | "permissions" | "map" | "invites" | "members" | "bans" | "danger";
+type SettingsTab = "overview" | "channels" | "roles" | "map" | "invites" | "members" | "bans" | "danger";
 
 export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: string; tab?: string }>) {
   const groupId = data?.groupId ?? "";
   const { detail } = useGroupDetail(groupId);
-  const role = detail?.me.role ?? "member";
-  const isManager = role === "owner" || role === "admin";
-  const isOwner = role === "owner";
+  const can = (key: Parameters<typeof canManage>[1]) => (detail ? canManage(detail, key) : false);
+  const isOwner = detail?.me.role === "owner";
 
+  // Each tab for whoever has the switch it takes (see lib/groupPermissions).
   const tabs: { id: SettingsTab; label: string; show: boolean }[] = [
-    { id: "overview", label: "Visão geral", show: isManager },
-    { id: "channels", label: "Salas", show: isManager },
-    { id: "permissions", label: "Permissões", show: isManager },
-    { id: "map", label: "Mapa", show: isManager },
-    { id: "invites", label: "Convites", show: isManager },
+    { id: "overview", label: "Visão geral", show: can("manageGroup") },
+    { id: "channels", label: "Salas", show: can("manageChannels") },
+    { id: "roles", label: "Cargos", show: can("manageRoles") },
+    { id: "map", label: "Mapa", show: can("manageGroup") },
+    { id: "invites", label: "Convites", show: can("manageGroup") || can("createInvites") },
     { id: "members", label: "Membros", show: true },
-    { id: "bans", label: "Banidos", show: isManager },
+    { id: "bans", label: "Banidos", show: can("banMembers") },
     { id: "danger", label: "Zona de perigo", show: isOwner },
   ];
   const visible = tabs.filter((t) => t.show);
-  const requested = visible.find((t) => t.id === data?.tab)?.id;
-  const [tab, setTab] = useState<SettingsTab>(requested ?? (isManager ? "overview" : "members"));
-  const current = visible.some((t) => t.id === tab) ? tab : "members";
+  // "permissions" is what the tab was called before roles — asked for by
+  // older links, and it lives in "Cargos" now (@everyone).
+  const asked = data?.tab === "permissions" ? "roles" : data?.tab;
+  const [tab, setTab] = useState<SettingsTab | null>(null);
+  // Whatever was picked, else what the opener asked for, else the first tab
+  // this person has — asked again on every render, since the group (and so
+  // which tabs there are) may only arrive after this opens.
+  const pick = (id: string | null | undefined) => visible.find((t) => t.id === id)?.id ?? null;
+  const current = pick(tab) ?? pick(asked) ?? visible[0]?.id ?? "members";
 
   if (!detail) {
     return (
@@ -647,10 +665,10 @@ export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: 
       {current === "channels" && (
         <ChannelsTab groupId={groupId} channels={detail.channels} categories={detail.categories ?? []} />
       )}
-      {current === "permissions" && <GroupPermissionsTab groupId={groupId} />}
+      {current === "roles" && <RolesTab groupId={groupId} />}
       {current === "map" && <LocationTab groupId={groupId} onGoToOverview={() => setTab("overview")} />}
       {current === "invites" && <InvitesTab groupId={groupId} groupName={detail.group.name} />}
-      {current === "members" && <MembersTab groupId={groupId} selfId={detail.me.id} role={role} />}
+      {current === "members" && <MembersTab groupId={groupId} />}
       {current === "bans" && <BansTab groupId={groupId} />}
       {current === "danger" && <DangerTab groupId={groupId} groupName={detail.group.name} onDone={() => closePopup(true)} />}
     </DialogFrame>
@@ -1292,6 +1310,11 @@ function IconButton({
 
 function InvitesTab({ groupId, groupName }: { groupId: string; groupName: string }) {
   const { openPopup } = useNtPopups();
+  const { detail } = useGroupDetail(groupId);
+  // Whoever manages the group sees every invite and the group's own link;
+  // whoever only creates invites, their own.
+  const managesGroup = detail ? canManage(detail, "manageGroup") : false;
+  const createsInvites = detail ? canManage(detail, "createInvites") : false;
   const [invites, setInvites] = useState<GroupInvite[] | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [seq, setSeq] = useState(0);
@@ -1308,16 +1331,20 @@ function InvitesTab({ groupId, groupName }: { groupId: string; groupName: string
 
   return (
     <div className="flex flex-col gap-3">
-      <CustomInviteSection groupId={groupId} />
+      {managesGroup && <CustomInviteSection groupId={groupId} />}
       <div className="flex items-center justify-between gap-2">
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">Links ativos que deixam alguém entrar no grupo.</p>
-        <button
-          type="button"
-          onClick={() => void openPopup("group_invite", { data: { groupId, groupName }, onClose: () => setSeq((s) => s + 1) })}
-          className={primaryButton}
-        >
-          Novo convite
-        </button>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">
+          {managesGroup ? "Links ativos que deixam alguém entrar no grupo." : "Os links de convite que você criou."}
+        </p>
+        {createsInvites && (
+          <button
+            type="button"
+            onClick={() => void openPopup("group_invite", { data: { groupId, groupName }, onClose: () => setSeq((s) => s + 1) })}
+            className={primaryButton}
+          >
+            Novo convite
+          </button>
+        )}
       </div>
       {invites === null && <p className="text-sm text-zinc-500">Carregando…</p>}
       {invites?.length === 0 && <p className="text-sm text-zinc-500">Nenhum convite ativo.</p>}
@@ -1364,14 +1391,45 @@ function InvitesTab({ groupId, groupName }: { groupId: string; groupName: string
   );
 }
 
-const ROLE_LABELS = { owner: "Dono", admin: "Admin", member: "Membro" } as const;
+/** A role on somebody, as a chip in its colour — with an × to take it off when that is allowed. */
+function RoleChip({
+  name,
+  color,
+  onRemove,
+}: {
+  name: string;
+  color: string | null;
+  onRemove?: () => void;
+}) {
+  return (
+    <span className="flex max-w-40 shrink-0 items-center gap-1 rounded-full border border-zinc-200 py-0.5 pl-1.5 pr-2 text-[11px] font-medium text-zinc-700 dark:border-zinc-700 dark:text-zinc-300">
+      {onRemove ? (
+        <button
+          type="button"
+          onClick={onRemove}
+          aria-label={`Tirar o cargo ${name}`}
+          title="Tirar o cargo"
+          className="group/chip relative flex h-3 w-3 shrink-0 cursor-pointer items-center justify-center rounded-full"
+          style={{ backgroundColor: color ?? "#99aab5" }}
+        >
+          <MdClose className="h-2.5 w-2.5 text-white opacity-0 transition group-hover/chip:opacity-100" />
+        </button>
+      ) : (
+        <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: color ?? "#99aab5" }} />
+      )}
+      <span className="truncate">{name}</span>
+    </span>
+  );
+}
 
-function MembersTab({ groupId, selfId, role }: { groupId: string; selfId: string; role: "owner" | "admin" | "member" }) {
+function MembersTab({ groupId }: { groupId: string }) {
   const [members, setMembers] = useState<GroupMember[] | null>(null);
   const [confirm, setConfirm] = useState<{ userId: string; action: "kick" | "ban" | "transfer" } | null>(null);
+  const [adding, setAdding] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [seq, setSeq] = useState(0);
   const { detail } = useGroupDetail(groupId);
+  const revalidate = detail ? membersRevalidateKey(detail) : "";
 
   useEffect(() => {
     let cancelled = false;
@@ -1382,19 +1440,27 @@ function MembersTab({ groupId, selfId, role }: { groupId: string; selfId: string
       cancelled = true;
     };
     // Re-read when the group itself changed (someone joined, a role moved).
-  }, [groupId, seq, detail?.group.memberCount, detail?.group.admins.length, detail?.group.ownerId]);
+  }, [groupId, seq, revalidate]);
 
   async function run(action: Promise<{ ok: boolean; error?: string }>) {
     const result = await action;
     setConfirm(null);
+    setAdding(null);
     if (!result.ok) setError(result.error ?? "Algo deu errado.");
     else setError(null);
     setSeq((s) => s + 1);
     void refreshGroup(groupId);
   }
 
-  const isOwner = role === "owner";
-  const isManager = role === "owner" || role === "admin";
+  if (!detail) return null;
+  const selfId = detail.me.id;
+  const isOwner = detail.me.role === "owner";
+  const rank = myRank(detail);
+  const canRoles = canManage(detail, "manageRoles");
+  const canKick = canManage(detail, "kickMembers");
+  const canBan = canManage(detail, "banMembers");
+  // The roles the person looking may hand out or take away: below their own.
+  const assignable = rolesInOrder(detail).filter((r) => canRoles && r.position < rank);
 
   return (
     <div className="flex flex-col gap-2">
@@ -1403,90 +1469,79 @@ function MembersTab({ groupId, selfId, role }: { groupId: string; selfId: string
       <ul className="flex flex-col gap-1">
         {members?.map((member) => {
           const self = member.id === selfId;
-          // Nobody acts on the owner; only the owner acts on an admin.
-          const canModerate = isManager && !self && member.role !== "owner" && (isOwner || member.role !== "admin");
+          const roleIds = member.roleIds ?? detail.memberRoles?.[member.id] ?? [];
+          const roles = rolesWithIds(detail, roleIds);
+          // Nobody acts on the owner, nor on anybody at or above their own highest role.
+          const above = member.role !== "owner" && rank > rankOf(detail, { id: member.id, roleIds });
           const pendingConfirm = confirm?.userId === member.id ? confirm.action : null;
+          const missing = assignable.filter((r) => !roleIds.includes(r.id));
+          const setRoles = (next: string[]) => void run(setMemberRoles(groupId, member.id, next));
           return (
-            <li key={member.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg px-2 py-1.5 hover:bg-zinc-50 dark:hover:bg-zinc-900">
-              <span className="relative">
-                <UserAvatar src={member.avatarUrl} name={member.name} size={32} />
-                <span
-                  className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white dark:border-zinc-950 ${
-                    member.online ? "bg-emerald-500" : "bg-zinc-400"
-                  }`}
-                />
-              </span>
-              <span className="flex min-w-0 flex-1 items-center gap-2">
-                <DisplayUserName
-                  name={member.name}
-                  isGuest={member.guest}
-                  verified={verifiedBadge(member.flags)}
-                  color={member.nameColor}
-                  className="truncate text-sm font-medium"
-                />
-                {member.role !== "member" && (
+            <li key={member.id} className="flex flex-col gap-1.5 rounded-lg px-2 py-1.5 hover:bg-zinc-50 dark:hover:bg-zinc-900">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="relative">
+                  <UserAvatar src={member.avatarUrl} name={member.name} size={32} />
                   <span
-                    className={`flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                      member.role === "owner"
-                        ? "bg-amber-500/15 text-amber-700 dark:text-amber-400"
-                        : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                    className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white dark:border-zinc-950 ${
+                      member.online ? "bg-emerald-500" : "bg-zinc-400"
                     }`}
-                  >
-                    {member.role === "owner" && <FaCrown className="h-3 w-3" />}
-                    {ROLE_LABELS[member.role]}
-                  </span>
-                )}
-              </span>
-              {pendingConfirm ? (
-                <span className="flex items-center gap-1">
-                  <span className="text-xs text-zinc-500">
-                    {pendingConfirm === "kick"
-                      ? "Remover do grupo?"
-                      : pendingConfirm === "ban"
-                        ? "Banir do grupo?"
-                        : "Passar a posse do grupo?"}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void run(
-                        pendingConfirm === "kick"
-                          ? kickMember(groupId, member.id)
-                          : pendingConfirm === "ban"
-                            ? banMember(groupId, member.id)
-                            : transferGroup(groupId, member.id)
-                      )
-                    }
-                    className="cursor-pointer rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white"
-                  >
-                    Confirmar
-                  </button>
-                  <button type="button" onClick={() => setConfirm(null)} className="cursor-pointer px-1 text-xs text-zinc-500">
-                    Cancelar
-                  </button>
+                  />
                 </span>
-              ) : (
-                <span className="flex flex-wrap items-center gap-1">
-                  {isOwner && !self && (
+                <span className="flex min-w-0 flex-1 items-center gap-2">
+                  <DisplayUserName
+                    name={member.name}
+                    isGuest={member.guest}
+                    verified={verifiedBadge(member.flags)}
+                    color={roleColorOf(detail, { id: member.id, roleIds }) ?? member.nameColor}
+                    className="truncate text-sm font-medium"
+                  />
+                  {member.role === "owner" && (
+                    <span className="flex shrink-0 items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-400">
+                      <FaCrown className="h-3 w-3" />
+                      Dono
+                    </span>
+                  )}
+                </span>
+                {pendingConfirm ? (
+                  <span className="flex items-center gap-1">
+                    <span className="text-xs text-zinc-500">
+                      {pendingConfirm === "kick"
+                        ? "Remover do grupo?"
+                        : pendingConfirm === "ban"
+                          ? "Banir do grupo?"
+                          : "Passar a posse do grupo?"}
+                    </span>
                     <button
                       type="button"
-                      onClick={() => void run(setGroupAdmin(groupId, member.id, member.role !== "admin"))}
-                      className="cursor-pointer rounded-md px-2 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                      onClick={() =>
+                        void run(
+                          pendingConfirm === "kick"
+                            ? kickMember(groupId, member.id)
+                            : pendingConfirm === "ban"
+                              ? banMember(groupId, member.id)
+                              : transferGroup(groupId, member.id)
+                        )
+                      }
+                      className="cursor-pointer rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white"
                     >
-                      {member.role === "admin" ? "Tirar admin" : "Tornar admin"}
+                      Confirmar
                     </button>
-                  )}
-                  {isOwner && !self && !member.guest && (
-                    <button
-                      type="button"
-                      onClick={() => setConfirm({ userId: member.id, action: "transfer" })}
-                      className="cursor-pointer rounded-md px-2 py-1 text-xs font-medium text-amber-600 hover:bg-amber-500/10"
-                    >
-                      Passar posse
+                    <button type="button" onClick={() => setConfirm(null)} className="cursor-pointer px-1 text-xs text-zinc-500">
+                      Cancelar
                     </button>
-                  )}
-                  {canModerate && (
-                    <>
+                  </span>
+                ) : (
+                  <span className="flex flex-wrap items-center gap-1">
+                    {isOwner && !self && !member.guest && (
+                      <button
+                        type="button"
+                        onClick={() => setConfirm({ userId: member.id, action: "transfer" })}
+                        className="cursor-pointer rounded-md px-2 py-1 text-xs font-medium text-amber-600 hover:bg-amber-500/10"
+                      >
+                        Passar posse
+                      </button>
+                    )}
+                    {!self && above && canKick && (
                       <button
                         type="button"
                         onClick={() => setConfirm({ userId: member.id, action: "kick" })}
@@ -1494,6 +1549,8 @@ function MembersTab({ groupId, selfId, role }: { groupId: string; selfId: string
                       >
                         Remover
                       </button>
+                    )}
+                    {!self && above && canBan && (
                       <button
                         type="button"
                         onClick={() => setConfirm({ userId: member.id, action: "ban" })}
@@ -1501,9 +1558,54 @@ function MembersTab({ groupId, selfId, role }: { groupId: string; selfId: string
                       >
                         Banir
                       </button>
-                    </>
-                  )}
-                </span>
+                    )}
+                  </span>
+                )}
+              </div>
+              {(roles.length > 0 || missing.length > 0) && (
+                <div className="flex flex-wrap items-center gap-1 pl-11">
+                  {roles.map((role) => (
+                    <RoleChip
+                      key={role.id}
+                      name={role.name}
+                      color={role.color}
+                      onRemove={
+                        canRoles && role.position < rank
+                          ? () => setRoles(roleIds.filter((id) => id !== role.id))
+                          : undefined
+                      }
+                    />
+                  ))}
+                  {missing.length > 0 &&
+                    (adding === member.id ? (
+                      <select
+                        autoFocus
+                        value=""
+                        onBlur={() => setAdding(null)}
+                        onChange={(e) => {
+                          if (e.target.value) setRoles([...roleIds, e.target.value]);
+                        }}
+                        className="h-6 rounded-full border border-zinc-300 bg-white px-2 text-[11px] dark:border-zinc-700 dark:bg-zinc-900"
+                      >
+                        <option value="">Escolha um cargo…</option>
+                        {missing.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setAdding(member.id)}
+                        aria-label="Dar um cargo"
+                        title="Dar um cargo"
+                        className="flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border border-dashed border-zinc-300 text-zinc-500 hover:border-zinc-500 hover:text-zinc-800 dark:border-zinc-700 dark:hover:border-zinc-500 dark:hover:text-zinc-200"
+                      >
+                        <MdAdd className="h-3.5 w-3.5" />
+                      </button>
+                    ))}
+                </div>
               )}
             </li>
           );

@@ -2,11 +2,10 @@
 
 import { useState, type FormEvent } from "react";
 import useNtPopups from "ntpopups";
-import { MdCheck, MdClose, MdRemove, MdTag, MdVolumeUp } from "react-icons/md";
+import { MdCheck, MdClose, MdLockOutline, MdRemove, MdTag, MdVolumeUp } from "react-icons/md";
 import {
   DialogFrame,
   DialogTabs,
-  TogglePill,
   WIDE_POPUP_SIZE,
   dangerButton,
   inputClass,
@@ -18,7 +17,6 @@ import {
   deleteChannel,
   renameChannel,
   setChannelPermissions,
-  setGroupPermissions,
   type GroupChannel,
   type GroupDetail,
 } from "@/lib/groupsApi";
@@ -27,12 +25,14 @@ import {
   PERMISSION_LABELS,
   TEXT_PERMISSION_KEYS,
   VOICE_PERMISSION_KEYS,
+  canManage,
   groupAllows,
+  myRank,
+  permissionIn,
   permissionKeysFor,
-  sectionOf,
+  rolesInOrder,
   type ChannelPermissionOverrides,
   type GroupPermissionKey,
-  type PermissionSection,
 } from "@/lib/groupPermissions";
 import { groupPath } from "@/lib/groupLinks";
 import { useGroupNavigation } from "@/lib/groupNavigation";
@@ -42,11 +42,13 @@ import { refreshGroup, useGroupDetail } from "@/lib/useGroups";
 // this (see GroupSidebar), as does the "Salas" tab of the group's settings.
 //
 //   Geral       — its name, and deleting it.
-//   Permissões  — what ordinary members may do in this room: each switch on,
-//                 off, or neutral (the group's setting, from the "Permissões"
-//                 tab of the group's settings — GroupPermissionsTab below).
+//   Permissões  — what @everyone, or one role, may do in this room: each
+//                 switch on, off, or neutral (for @everyone, the group's
+//                 setting from the "Cargos" tab of the group's settings; for a
+//                 role, whatever everything else says).
 //
-// The owner and admins may always do everything; none of this applies to them.
+// The owner and administrators may always do everything; none of this applies
+// to them. Whoever manages the rooms opens it.
 
 type ChannelTab = "general" | "permissions";
 
@@ -65,7 +67,7 @@ export function ChannelSettingsDialog({
   const { detail } = useGroupDetail(groupId || null);
   const channel = detail?.channels.find((c) => c.id === data?.channelId) ?? null;
   const [tab, setTab] = useState<ChannelTab>(data?.tab ?? "general");
-  const isManager = detail?.me.role === "owner" || detail?.me.role === "admin";
+  const isManager = detail ? canManage(detail, "manageChannels") : false;
 
   if (!detail || !channel) {
     return (
@@ -88,7 +90,7 @@ export function ChannelSettingsDialog({
       wide
     >
       {!isManager ? (
-        <p className="text-sm text-zinc-500">Só os administradores do grupo mexem nas configurações das salas.</p>
+        <p className="text-sm text-zinc-500">Você não tem permissão para mexer nas configurações das salas.</p>
       ) : (
         <>
           <DialogTabs
@@ -218,7 +220,7 @@ function TriStateControl({
 }) {
   const options: { id: TriState; label: string; icon: typeof MdCheck; active: string }[] = [
     { id: "off", label: "Desativada", icon: MdClose, active: "bg-red-600 text-white" },
-    { id: "neutral", label: "Neutra (segue o grupo)", icon: MdRemove, active: "bg-zinc-500 text-white dark:bg-zinc-600" },
+    { id: "neutral", label: "Neutra", icon: MdRemove, active: "bg-zinc-500 text-white dark:bg-zinc-600" },
     { id: "on", label: "Ativada", icon: MdCheck, active: "bg-emerald-600 text-white" },
   ];
   return (
@@ -246,21 +248,90 @@ function TriStateControl({
   );
 }
 
+const EVERYONE = "@everyone";
+
 function ChannelPermissionsTab({ detail, channel }: { detail: GroupDetail; channel: GroupChannel }) {
+  const roles = rolesInOrder(detail);
+  // Whose overrides are being edited: @everyone, or one role.
+  const [target, setTarget] = useState<string>(EVERYONE);
+  const role = roles.find((r) => r.id === target) ?? null;
+  const rank = myRank(detail);
+  const overridesOf = (roleId: string | null) =>
+    roleId ? channel.roleOverrides?.[roleId] ?? {} : channel.permissions ?? {};
+  const hasOverrides = (roleId: string | null) => Object.keys(overridesOf(roleId)).length > 0;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        O que cada um pode fazer nesta sala. Escolha <b>@everyone</b> (todo mundo) ou um cargo. <b>Neutra</b> não muda
+        nada; <b>ativada</b> ou <b>desativada</b> vale só aqui. Se um cargo ativa e outro desativa, quem tem os dois
+        pode. O dono e os administradores podem tudo, sempre.
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {[{ id: EVERYONE, name: "@everyone", color: null as string | null }, ...roles].map((option) => {
+          const active = option.id === (role?.id ?? EVERYONE);
+          const overridden = hasOverrides(option.id === EVERYONE ? null : option.id);
+          return (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => setTarget(option.id)}
+              className={`flex max-w-48 cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition ${
+                active
+                  ? "border-zinc-950 bg-zinc-950 text-white dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-950"
+                  : "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+              }`}
+            >
+              {option.id !== EVERYONE && (
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: option.color ?? "#99aab5" }} />
+              )}
+              <span className="truncate">{option.name}</span>
+              {overridden && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-500" title="Tem ajustes nesta sala" />}
+            </button>
+          );
+        })}
+      </div>
+      <OverridesEditor
+        key={`${channel.id}:${role?.id ?? EVERYONE}`}
+        detail={detail}
+        channel={channel}
+        roleId={role?.id ?? null}
+        roleName={role?.name ?? null}
+        initial={overridesOf(role?.id ?? null)}
+        // A role at or above one's own is the API's to refuse — drawn, but locked.
+        locked={Boolean(role && role.position >= rank)}
+      />
+    </div>
+  );
+}
+
+function OverridesEditor({
+  detail,
+  channel,
+  roleId,
+  roleName,
+  initial,
+  locked,
+}: {
+  detail: GroupDetail;
+  channel: GroupChannel;
+  roleId: string | null;
+  roleName: string | null;
+  initial: ChannelPermissionOverrides;
+  locked: boolean;
+}) {
   const openGroupSettings = useOpenGroupSettings();
   const groupId = detail.group.id;
   // What was last sent, shown at once rather than after the round trip.
-  const [local, setLocal] = useState<ChannelPermissionOverrides>(channel.permissions ?? {});
+  const [local, setLocal] = useState<ChannelPermissionOverrides>(initial);
   const [error, setError] = useState<string | null>(null);
+  const role = roleId ? rolesInOrder(detail).find((r) => r.id === roleId) ?? null : null;
 
-  async function change(key: GroupPermissionKey, next: TriState) {
+  async function send(overrides: ChannelPermissionOverrides) {
     const previous = local;
-    const overrides: ChannelPermissionOverrides = { ...local };
-    if (next === "neutral") delete overrides[key];
-    else overrides[key] = next === "on";
     setLocal(overrides);
     setError(null);
-    const result = await setChannelPermissions(groupId, channel.id, overrides);
+    const result = await setChannelPermissions(groupId, channel.id, overrides, roleId);
     if (!result.ok) {
       setLocal(previous);
       setError(result.error);
@@ -269,10 +340,17 @@ function ChannelPermissionsTab({ detail, channel }: { detail: GroupDetail; chann
     void refreshGroup(groupId);
   }
 
+  function change(key: GroupPermissionKey, next: TriState) {
+    const overrides: ChannelPermissionOverrides = { ...local };
+    if (next === "neutral") delete overrides[key];
+    else overrides[key] = next === "on";
+    void send(overrides);
+  }
+
   const keys = permissionKeysFor(channel.kind);
   const overridden = keys.some((key) => typeof local[key] === "boolean");
-  // The same sections as the group's own tab: the general switches, then
-  // this room's kind.
+  // The same sections as the group's own: the general switches, then this
+  // room's kind.
   const sections: { title: string; keys: readonly GroupPermissionKey[] }[] = [
     { title: "Gerais", keys: GENERAL_PERMISSION_KEYS },
     {
@@ -283,40 +361,56 @@ function ChannelPermissionsTab({ detail, channel }: { detail: GroupDetail; chann
 
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-sm text-zinc-600 dark:text-zinc-400">
-        O que os membros podem fazer nesta sala. <b>Neutra</b> segue o que está definido para o grupo todo;{" "}
-        <b>ativada</b> ou <b>desativada</b> vale só aqui. O dono e os administradores podem tudo, sempre.
-      </p>
+      {locked && (
+        <p className="flex items-center gap-1.5 rounded-lg bg-zinc-100 px-3 py-2 text-xs text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
+          <MdLockOutline className="h-4 w-4 shrink-0" />
+          Este cargo está no mesmo nível ou acima do seu — só dá pra ver.
+        </p>
+      )}
       {sections.map((section) => (
         <div key={section.title} className="flex flex-col gap-1.5">
           <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{section.title}</p>
           <ul className="flex flex-col divide-y divide-zinc-200 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
             {section.keys.map((key) => {
               const value = triOf(local[key]);
-              const inherited = groupAllows(detail.group.permissions, key);
-              const effective = value === "neutral" ? inherited : value === "on";
               const { label, hint } = PERMISSION_LABELS[key];
+              // What neutral means: for @everyone, the group's setting; for a
+              // role, whatever it (or @everyone) already gives.
+              const inherited = role
+                ? permissionIn(role.permissions, key) || groupAllows(detail.group.permissions, key)
+                : groupAllows(detail.group.permissions, key);
+              const effective = value === "neutral" ? inherited : value === "on";
               return (
                 <li key={key} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-3 py-2.5">
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{label}</p>
                     <p className="text-xs text-zinc-500 dark:text-zinc-400">
                       {value === "neutral" ? (
-                        <>
-                          Segue o grupo:{" "}
-                          <span className={inherited ? "text-emerald-600 dark:text-emerald-500" : "text-red-500"}>
-                            {inherited ? "ativada" : "desativada"}
-                          </span>
-                        </>
+                        role ? (
+                          <>Não muda nada para {roleName}</>
+                        ) : (
+                          <>
+                            Segue o grupo:{" "}
+                            <span className={inherited ? "text-emerald-600 dark:text-emerald-500" : "text-red-500"}>
+                              {inherited ? "ativada" : "desativada"}
+                            </span>
+                          </>
+                        )
                       ) : (
                         <span className={effective ? "text-emerald-600 dark:text-emerald-500" : "text-red-500"}>
-                          {effective ? "Ativada nesta sala" : "Desativada nesta sala"}
+                          {effective
+                            ? role
+                              ? `Ativada para ${roleName} nesta sala`
+                              : "Ativada nesta sala"
+                            : role
+                              ? `Desativada para ${roleName} nesta sala`
+                              : "Desativada nesta sala"}
                         </span>
                       )}
                       {hint && <> · {hint}</>}
                     </p>
                   </div>
-                  <TriStateControl value={value} onChange={(next) => void change(key, next)} />
+                  <TriStateControl value={value} disabled={locked} onChange={(next) => change(key, next)} />
                 </li>
               );
             })}
@@ -327,27 +421,13 @@ function ChannelPermissionsTab({ detail, channel }: { detail: GroupDetail; chann
       <div className="flex flex-wrap items-center justify-between gap-2">
         <button
           type="button"
-          onClick={() => openGroupSettings(groupId, "permissions")}
+          onClick={() => openGroupSettings(groupId, "roles")}
           className="cursor-pointer text-sm font-medium text-zinc-600 underline underline-offset-2 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-50"
         >
-          Permissões do grupo todo
+          Cargos e permissões do grupo
         </button>
-        {overridden && (
-          <button
-            type="button"
-            onClick={async () => {
-              const previous = local;
-              setLocal({});
-              const result = await setChannelPermissions(groupId, channel.id, {});
-              if (!result.ok) {
-                setLocal(previous);
-                setError(result.error);
-                return;
-              }
-              void refreshGroup(groupId);
-            }}
-            className={secondaryButton}
-          >
+        {overridden && !locked && (
+          <button type="button" onClick={() => void send({})} className={secondaryButton}>
             Deixar tudo neutro
           </button>
         )}
@@ -360,90 +440,4 @@ function useOpenGroupSettings() {
   const { openPopup } = useNtPopups();
   return (groupId: string, tab?: string) =>
     void openPopup("group_settings", { ...WIDE_POPUP_SIZE, data: { groupId, tab } });
-}
-
-// ─── Permissões (do grupo) ────────────────────────────────────────────────
-
-/**
- * The group-wide switches — the "group settings" tab. The general ones are on
- * or off for every room; the others for every room of their kind. Any room may
- * say otherwise.
- */
-export function GroupPermissionsTab({ groupId }: { groupId: string }) {
-  const { detail } = useGroupDetail(groupId);
-  const [pending, setPending] = useState<Partial<Record<GroupPermissionKey, boolean>>>({});
-  const [error, setError] = useState<string | null>(null);
-  if (!detail) return null;
-
-  const valueOf = (key: GroupPermissionKey) => pending[key] ?? groupAllows(detail.group.permissions, key);
-
-  async function toggle(key: GroupPermissionKey) {
-    const next = !valueOf(key);
-    setPending((p) => ({ ...p, [key]: next }));
-    setError(null);
-    const result = await setGroupPermissions(groupId, { [sectionOf(key)]: { [key]: next } });
-    if (!result.ok) setError(result.error);
-    await refreshGroup(groupId);
-    setPending((p) => {
-      const rest = { ...p };
-      delete rest[key];
-      return rest;
-    });
-  }
-
-  // How many rooms say otherwise — worth knowing before flipping a switch
-  // that some rooms will not follow. A general switch can be set in any room.
-  const overriding = (key: GroupPermissionKey, section: PermissionSection) =>
-    detail.channels.filter(
-      (c) => (section === "general" || c.kind === section) && typeof c.permissions?.[key] === "boolean"
-    ).length;
-
-  const section = (id: PermissionSection, title: string, keys: readonly GroupPermissionKey[]) => (
-    <div className="flex flex-col gap-1.5">
-      <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{title}</p>
-      <ul className="flex flex-col divide-y divide-zinc-200 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
-        {keys.map((key) => {
-          const on = valueOf(key);
-          const { label, hint } = PERMISSION_LABELS[key];
-          const exceptions = overriding(key, id);
-          return (
-            <li key={key}>
-              <button
-                type="button"
-                onClick={() => void toggle(key)}
-                aria-pressed={on}
-                className="flex w-full cursor-pointer items-center justify-between gap-3 px-3 py-2.5 text-left transition hover:bg-zinc-50 dark:hover:bg-zinc-900"
-              >
-                <span className="min-w-0">
-                  <span className="block text-sm font-medium text-zinc-900 dark:text-zinc-100">{label}</span>
-                  {(hint || exceptions > 0) && (
-                    <span className="block text-xs text-zinc-500 dark:text-zinc-400">
-                      {hint}
-                      {hint && exceptions > 0 && " · "}
-                      {exceptions > 0 &&
-                        `${exceptions} ${exceptions === 1 ? "sala define" : "salas definem"} diferente`}
-                    </span>
-                  )}
-                </span>
-                <TogglePill on={on} />
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
-  );
-
-  return (
-    <div className="flex flex-col gap-4">
-      <p className="text-sm text-zinc-600 dark:text-zinc-400">
-        O que os membros podem fazer em todas as salas do grupo. Cada sala pode mudar isso nas configurações dela
-        (a engrenagem ao lado do nome). O dono e os administradores podem tudo, sempre.
-      </p>
-      {section("general", "Gerais", GENERAL_PERMISSION_KEYS)}
-      {section("text", "Salas de texto", TEXT_PERMISSION_KEYS)}
-      {section("voice", "Salas de voz", VOICE_PERMISSION_KEYS)}
-      {error && <p className="text-sm text-red-500">{error}</p>}
-    </div>
-  );
 }

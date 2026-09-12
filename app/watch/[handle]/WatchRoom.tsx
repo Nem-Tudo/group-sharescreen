@@ -2248,8 +2248,12 @@ export function WatchRoom({
   // only us" (mirrors the server's canUseRoomPermission, which is what
   // actually enforces it; this copy only decides what to render).
   const isRoomManager = isRoomOwner || isRoomAdmin;
+  // In a group's voice room, our own switches — our roles may give us what
+  // the room's (@everyone's) do not. Never the theme, which is the room's.
+  const myPermissions = state.myRoomPermissions;
   function canUseRoomPermission(key: RoomPermissionKey): boolean {
-    return state.roomPermissions[key] || isRoomManager;
+    const own = key !== "theme" && myPermissions ? myPermissions[key] : state.roomPermissions[key];
+    return own || isRoomManager;
   }
   // Repainting the room is two questions at once, and they are kept apart
   // because the button says something different about each: a plan (Pro Max, a
@@ -2390,7 +2394,7 @@ export function WatchRoom({
   useEffect(() => {
     if (isMicOn && !canUseRoomPermission("mic")) toggleMic();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMicOn, isRoomManager, state.roomPermissions.mic]);
+  }, [isMicOn, isRoomManager, state.roomPermissions.mic, myPermissions?.mic]);
 
   // "Você criou uma sala pública!" — opened by itself, once, for whoever's
   // join brought the room into existence (see the server's "room-state"
@@ -2498,12 +2502,12 @@ export function WatchRoom({
   useEffect(() => {
     if (localStream && !canUseRoomPermission("screen")) stopShare();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [localStream, isRoomManager, state.roomPermissions.screen]);
+  }, [localStream, isRoomManager, state.roomPermissions.screen, myPermissions?.screen]);
 
   useEffect(() => {
     if (localCameraStream && !canUseRoomPermission("camera")) stopCameraShare();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [localCameraStream, isRoomManager, state.roomPermissions.camera]);
+  }, [localCameraStream, isRoomManager, state.roomPermissions.camera, myPermissions?.camera]);
 
   // The refusal banner is a one-shot notice, not a state — clear it on its
   // own after a few seconds so it doesn't sit there for the rest of the call.

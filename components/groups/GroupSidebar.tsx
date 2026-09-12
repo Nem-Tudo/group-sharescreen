@@ -43,7 +43,7 @@ import {
 } from "@/lib/groupsApi";
 import { groupPath } from "@/lib/groupLinks";
 import { useGroupNavigation } from "@/lib/groupNavigation";
-import { canInChannel } from "@/lib/groupPermissions";
+import { canInChannel, canManage, managesAnything, roleColorOf } from "@/lib/groupPermissions";
 import { prefetchChannel } from "@/lib/groupCache";
 import { prefetchUserProfile } from "@/lib/userProfile";
 import { forgetGroup, patchGroupDetail, refreshGroup, useGroupsState } from "@/lib/useGroups";
@@ -138,7 +138,7 @@ function fromServerPresence(person: GroupVoiceParticipant): GroupVoiceLivePerson
  * it. A closed mic and deafened are two icons, side by side when both are true
  * — which is the usual case, since deafening closes the mic.
  */
-function VoicePersonRow({ person }: { person: GroupVoiceLivePerson }) {
+function VoicePersonRow({ person, color = null }: { person: GroupVoiceLivePerson; color?: string | null }) {
   const speaking = useSpeaking(person.micStream);
   return (
     <li>
@@ -167,6 +167,8 @@ function VoicePersonRow({ person }: { person: GroupVoiceLivePerson }) {
           className={`min-w-0 flex-1 truncate transition-colors duration-150 ${
             speaking ? "font-medium text-emerald-600 dark:text-emerald-500" : ""
           }`}
+          // Their highest coloured role's colour — green wins while they speak.
+          style={!speaking && color ? { color } : undefined}
         >
           {person.name}
         </span>
@@ -249,8 +251,9 @@ export function GroupRoomsPanel({
   const [hint, setHint] = useState<DropHint | null>(null);
   const [layoutError, setLayoutError] = useState<string | null>(null);
 
-  const { group, channels, voice, voiceRooms: voiceRoomStates, me } = detail;
-  const isManager = me.role === "owner" || me.role === "admin";
+  const { group, channels, voice, voiceRooms: voiceRoomStates } = detail;
+  // Creating, renaming, moving and configuring rooms — "Gerenciar salas".
+  const isManager = canManage(detail, "manageChannels");
   const { collapsed, toggle: toggleCollapsed } = useCollapsedCategories(group.id);
   const sections = useMemo(() => buildSections(channels, detail.categories ?? []), [channels, detail.categories]);
   const hasCategories = sections.length > 1;
@@ -594,7 +597,7 @@ export function GroupRoomsPanel({
           {people.length > 0 && (
             <ul className="flex flex-col gap-0.5 border-t border-zinc-100 px-1.5 py-1.5 dark:border-zinc-800/70">
               {people.map((person) => (
-                <VoicePersonRow key={person.userId} person={person} />
+                <VoicePersonRow key={person.userId} person={person} color={roleColorOf(detail, { id: person.userId })} />
               ))}
             </ul>
           )}
@@ -936,7 +939,11 @@ export function GroupActions({ detail }: { detail: GroupDetail }) {
   const { account } = useAuth();
   // The same plan gate as a room's theme — see WatchRoom's hasThemePlan.
   const hasThemePlan = hasFeature("room_theme_set", account?.features ?? []);
-  const isManager = me.role === "owner" || me.role === "admin";
+  // The settings open on whatever part of the group this person runs; the
+  // theme is "Gerenciar grupo"'s, inviting "Criar convites"'.
+  const isManager = managesAnything(detail);
+  const canTheme = canManage(detail, "manageGroup");
+  const canInvite = canManage(detail, "createInvites");
 
   function openInvite() {
     setMenuOpen(false);
@@ -975,7 +982,7 @@ export function GroupActions({ detail }: { detail: GroupDetail }) {
 
   return (
     <>
-      {isManager && (
+      {canInvite && (
         <button
           type="button"
           onClick={openInvite}
@@ -992,7 +999,7 @@ export function GroupActions({ detail }: { detail: GroupDetail }) {
         tooltip="Opções do grupo"
         content={
           <div className="flex w-60 flex-col gap-0.5 rounded-xl border border-zinc-200 bg-white p-1.5 shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
-            {isManager && (
+            {canInvite && (
               <button type="button" onClick={openInvite} className={`${menuItemClass} sm:hidden`}>
                 <MdPersonAdd className="h-4 w-4 opacity-70" />
                 Convidar pessoas
@@ -1009,7 +1016,7 @@ export function GroupActions({ detail }: { detail: GroupDetail }) {
               {isManager ? <MdSettings className="h-4 w-4 opacity-70" /> : <MdPeopleOutline className="h-4 w-4 opacity-70" />}
               {isManager ? "Configurações do grupo" : "Membros"}
             </button>
-            {isManager && (
+            {canTheme && (
               <button
                 type="button"
                 onClick={() => {
