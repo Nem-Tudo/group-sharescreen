@@ -1,4 +1,5 @@
-// The gradient behind a profile, and every colour derived from it.
+
+import { translate } from "@/lib/i18n";// The gradient behind a profile, and every colour derived from it.
 //
 // The point of deriving rather than storing: somebody picks two colours and a
 // direction, and the border, the muted text and the text itself all have to
@@ -17,14 +18,14 @@ export interface ProfileTheme {
 
 /** The directions the picker offers, with a name for each. */
 export const GRADIENT_DIRECTIONS: { angle: number; label: string }[] = [
-  { angle: 180, label: "Para baixo" },
-  { angle: 0, label: "Para cima" },
-  { angle: 90, label: "Para a direita" },
-  { angle: 270, label: "Para a esquerda" },
-  { angle: 135, label: "Diagonal ↘" },
-  { angle: 225, label: "Diagonal ↙" },
-  { angle: 45, label: "Diagonal ↗" },
-  { angle: 315, label: "Diagonal ↖" },
+  { angle: 180, get label() { return translate("common.downwards"); } },
+  { angle: 0, get label() { return translate("common.upwards"); } },
+  { angle: 90, get label() { return translate("common.toTheRight"); } },
+  { angle: 270, get label() { return translate("common.toTheLeft"); } },
+  { angle: 135, get label() { return translate("common.diagonal"); } },
+  { angle: 225, get label() { return translate("common.diagonal2"); } },
+  { angle: 45, get label() { return translate("common.diagonal3"); } },
+  { angle: 315, get label() { return translate("common.diagonal4"); } },
 ];
 
 const HEX_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;

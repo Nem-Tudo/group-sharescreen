@@ -2,10 +2,11 @@ import type { Metadata } from "next";
 import { SiteHeader } from "@/components/SiteHeader";
 import { WorkshopPanel } from "./WorkshopPanel";
 import { pageMetadata } from "@/lib/seo";
+import { translate } from "@/lib/i18n";
 
-const TITLE = "Descobrir temas — GoLive";
+const TITLE = translate("workshop.discoverThemesGolive");
 const DESCRIPTION =
-  "Temas de sala feitos pela comunidade do GoLive. Use qualquer um de graça, ou crie o seu.";
+  translate("workshop.roomThemesMadeByTheGolive");
 
 export const metadata: Metadata = pageMetadata({
   path: "/workshop",
@@ -13,10 +14,10 @@ export const metadata: Metadata = pageMetadata({
   description: DESCRIPTION,
   keywords: ["temas golive", "descobrir temas", "tema de sala", "personalizar sala"],
   card: {
-    title: "Temas para a sua sala",
-    subtitle: "Feitos pela comunidade. Usar é grátis para qualquer conta.",
+    get title() { return translate("workshop.themesForYourRoom"); },
+    get subtitle() { return translate("workshop.madeByTheCommunityFreeTo"); },
     tone: "theme",
-    badge: "Descobrir",
+    get badge() { return translate("common.discover"); },
   },
 });
 

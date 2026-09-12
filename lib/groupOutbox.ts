@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from "react";
 import { sendGroupMessage, type GroupReplyTo } from "./groupsApi";
 import { onGroupMessage, publishGroupMessage } from "./useGroups";
+import { translate } from "@/lib/i18n";
 
 // What this browser has written in a group's text rooms and the server has not
 // confirmed yet — so a message is on screen the instant it is sent, not a
@@ -108,7 +109,7 @@ async function deliver(channelId: string, nonce: string): Promise<void> {
       mentions: item.mentions,
       name: item.name,
       nonce,
-    }).catch(() => ({ ok: false as const, status: 0, error: "Sem conexão com o servidor." }));
+    }).catch(() => ({ ok: false as const, status: 0, error: translate("common.noConnectionToTheServer") }));
     if (result.ok) {
       // Both in the same tick, so the placeholder and the real message trade
       // places in one render — nothing blinks.

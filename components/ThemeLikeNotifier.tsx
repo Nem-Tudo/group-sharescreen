@@ -38,7 +38,7 @@ export function ThemeLikeNotifier() {
       kind: "theme-like",
       title,
       body: lastThemeLike.themeName,
-      href: `/tema/${encodeURIComponent(lastThemeLike.themeId)}`,
+      href: `/theme/${encodeURIComponent(lastThemeLike.themeId)}`,
       userId: lastThemeLike.byId ?? undefined,
     });
     if (!isNew || !alertTarget) return;

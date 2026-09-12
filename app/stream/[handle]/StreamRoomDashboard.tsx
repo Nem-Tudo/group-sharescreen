@@ -16,6 +16,7 @@ import {
   ArrowLeftIcon,
 } from "@/components/icons";
 import { MdContentCopy, MdOpenInNew } from "react-icons/md";
+import { useT } from "@/lib/useI18n";
 
 type StreamEntry = {
   id: string;
@@ -26,6 +27,7 @@ type StreamEntry = {
 };
 
 export function StreamRoomDashboard({ handle }: { handle: string }) {
+  const t = useT();
   const state = useSignaling();
   const {
     remoteStreams,
@@ -36,7 +38,7 @@ export function StreamRoomDashboard({ handle }: { handle: string }) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const defaultStreamName = useMemo(
-    () => `Stream-Painel-${Math.floor(100 + Math.random() * 900)}`,
+    () => `Stream-Panel-${Math.floor(100 + Math.random() * 900)}`,
     []
   );
 
@@ -81,8 +83,8 @@ export function StreamRoomDashboard({ handle }: { handle: string }) {
       list.push({
         id: `screen:${identifier}`,
         kind: "screen",
-        title: peer?.name ?? "Alguém",
-        badge: "Tela",
+        title: peer?.name ?? t("common.someone"),
+        badge: t("common.screen"),
         streamPath: `${origin}/stream/${encodeURIComponent(handle)}/${encodeURIComponent(identifier)}/screen`,
       });
     }
@@ -92,10 +94,10 @@ export function StreamRoomDashboard({ handle }: { handle: string }) {
       const peer = state.peers.find((p) => p.id === peerId);
       const identifier = peer?.userId ?? peerId;
       list.push({
-        id: `camera:${identifier}`,
+        id: t("stream.streamRoomDashboard.cameraIdentifier", { identifier }),
         kind: "camera",
-        title: peer?.name ?? "Alguém",
-        badge: "Câmera",
+        title: peer?.name ?? t("common.someone"),
+        badge: t("common.camera"),
         streamPath: `${origin}/stream/${encodeURIComponent(handle)}/${encodeURIComponent(identifier)}/camera`,
       });
     }
@@ -109,8 +111,8 @@ export function StreamRoomDashboard({ handle }: { handle: string }) {
         list.push({
           id: `file:${slot}:${identifier}`,
           kind: "file",
-          title: shared?.name ?? peer?.name ?? "Arquivo",
-          badge: `Arquivo (${slot})`,
+          title: shared?.name ?? peer?.name ?? t("common.file"),
+          badge: t("stream.streamRoomDashboard.fileSlot", { slot }),
           streamPath: `${origin}/stream/${encodeURIComponent(handle)}/file:${encodeURIComponent(slot)}:${encodeURIComponent(identifier)}`,
         });
       }
@@ -128,7 +130,7 @@ export function StreamRoomDashboard({ handle }: { handle: string }) {
     }
 
     return list;
-  }, [remoteStreams, remoteCameraStreams, fileChannels, state.peers, state.videoSources, handle]);
+  }, [remoteStreams, remoteCameraStreams, fileChannels, state.peers, state.videoSources, handle, t]);
 
   const isRoomManager = Boolean(
     state.selfUserId &&
@@ -138,14 +140,14 @@ export function StreamRoomDashboard({ handle }: { handle: string }) {
 
   async function handleCopy(entry: StreamEntry) {
     if (!state.selfUserId || !state.account || !isRoomManager) {
-      alert("Apenas administradores da sala com conta podem gerar o link de transmissão.");
+      alert(t("stream.streamRoomDashboard.onlyRoomAdministratorsWithAnAccount"));
       return;
     }
     const token = await createObsSecurityToken(
       handle,
       entry.id,
       state.selfUserId,
-      state.account.username || state.name || "Administrador"
+      state.account.username || state.name || t("common.administrator")
     );
     const finalUrl = `${entry.streamPath}?token=${encodeURIComponent(token)}`;
     await copyText(finalUrl);
@@ -164,17 +166,17 @@ export function StreamRoomDashboard({ handle }: { handle: string }) {
             <Link
               href={`/watch/${encodeURIComponent(handle)}`}
               className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 transition hover:bg-white/20"
-              title="Voltar para a sala"
+              title={t("stream.streamRoomDashboard.backToTheRoom")}
             >
               <ArrowLeftIcon className="h-5 w-5" />
             </Link>
             <div>
               <h1 className="flex items-center gap-2 text-xl font-bold">
                 <ObsSourceIcon className="h-6 w-6 text-purple-400" />
-                Fontes de Transmissão da Sala
+                {t("stream.streamRoomDashboard.roomBroadcastSources")}
               </h1>
               <p className="text-sm text-zinc-400">
-                Sala: <span className="font-semibold text-zinc-200">{handle}</span>
+                {t("stream.streamRoomDashboard.room")} <span className="font-semibold text-zinc-200">{handle}</span>
               </p>
             </div>
           </div>
@@ -183,14 +185,14 @@ export function StreamRoomDashboard({ handle }: { handle: string }) {
             href={`/watch/${encodeURIComponent(handle)}`}
             className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium transition hover:bg-white/20"
           >
-            Ir para a sala
+            {t("common.goToTheRoom")}
           </Link>
         </div>
 
         {/* Tutorial Card */}
         <div className="mb-8 rounded-2xl border border-white/10 bg-zinc-900/80 p-5 backdrop-blur-sm">
           <h2 className="mb-3 font-semibold text-zinc-100">
-            Como adicionar a transmissão no seu software (OBS Studio / Streamlabs / vMix):
+            {t("stream.streamRoomDashboard.howToAddTheBroadcastIn")}
           </h2>
           <ol className="space-y-2 text-sm text-zinc-300">
             <li className="flex items-start gap-2">
@@ -198,7 +200,7 @@ export function StreamRoomDashboard({ handle }: { handle: string }) {
                 1
               </span>
               <span>
-                No seu programa de transmissão (OBS Studio, Streamlabs, vMix, etc.), adicione uma fonte <strong>Navegador (Browser Source)</strong>.
+                {t("stream.streamRoomDashboard.inYourBroadcastingProgramObsStudio")} <strong>{t("common.browserBrowserSource")}</strong>.
               </span>
             </li>
             <li className="flex items-start gap-2">
@@ -206,7 +208,7 @@ export function StreamRoomDashboard({ handle }: { handle: string }) {
                 2
               </span>
               <span>
-                Clique no botão <strong>Copiar link</strong> da transmissão desejada abaixo e cole no campo <strong>URL</strong>.
+                {t("stream.streamRoomDashboard.clickTheButton")} <strong>{t("common.copyLink")}</strong> {t("stream.streamRoomDashboard.ofTheBroadcastYouWantBelow")} <strong>URL</strong>.
               </span>
             </li>
             <li className="flex items-start gap-2">
@@ -214,7 +216,7 @@ export function StreamRoomDashboard({ handle }: { handle: string }) {
                 3
               </span>
               <span>
-                Defina a <strong>Largura: 1920</strong> e <strong>Altura: 1080</strong> e confirme. A transmissão iniciará automaticamente.
+                {t("common.setThe")} <strong>{t("stream.streamRoomDashboard.width1920")}</strong> {t("common.andWord")} <strong>{t("stream.streamRoomDashboard.height1080")}</strong> {t("stream.streamRoomDashboard.andConfirmTheBroadcastWillStart")}
               </span>
             </li>
           </ol>
@@ -223,17 +225,17 @@ export function StreamRoomDashboard({ handle }: { handle: string }) {
         {/* Stream List */}
         <div className="space-y-4">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">
-            Transmissões ativas ({activeStreams.length})
+            {t("stream.streamRoomDashboard.activeBroadcasts")}{activeStreams.length})
           </h2>
 
           {activeStreams.length === 0 ? (
             <div className="rounded-2xl border border-white/10 bg-zinc-900/50 py-12 text-center text-zinc-400">
               <ObsSourceIcon className="mx-auto mb-3 h-10 w-10 opacity-40" />
               <p className="font-medium text-zinc-300">
-                Nenhuma transmissão ativa nesta sala no momento.
+                {t("stream.streamRoomDashboard.noBroadcastActiveInThisRoom")}
               </p>
               <p className="mt-1 text-xs text-zinc-500">
-                Assim que alguém compartilhar tela, câmera ou arquivo, o link de transmissão aparecerá aqui automaticamente.
+                {t("stream.streamRoomDashboard.asSoonAsSomeoneSharesA")}
               </p>
             </div>
           ) : (
@@ -278,12 +280,12 @@ export function StreamRoomDashboard({ handle }: { handle: string }) {
                         {isCopied ? (
                           <>
                             <CheckIcon className="h-4 w-4" />
-                            Copiado!
+                            {t("common.copied2")}
                           </>
                         ) : (
                           <>
                             <MdContentCopy className="h-4 w-4" />
-                            Copiar link
+                            {t("common.copyLink")}
                           </>
                         )}
                       </button>
@@ -293,7 +295,7 @@ export function StreamRoomDashboard({ handle }: { handle: string }) {
                         target="_blank"
                         rel="noreferrer"
                         className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/5 text-zinc-400 transition hover:bg-white/10 hover:text-white"
-                        title="Ver instruções do link"
+                        title={t("stream.streamRoomDashboard.seeTheLinkInstructions")}
                       >
                         <MdOpenInNew className="h-4 w-4" />
                       </a>

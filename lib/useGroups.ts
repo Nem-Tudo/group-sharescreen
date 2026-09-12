@@ -16,6 +16,7 @@ import {
   type GroupVoiceMap,
   type GroupVoiceRoomMap,
 } from "./groupsApi";
+import { translate } from "@/lib/i18n";
 
 // Every group this person is in, and the details of the ones they have opened.
 //
@@ -401,7 +402,7 @@ function handleEvent(event: GroupSocketEvent) {
         groupId,
         channelId: event.channelId,
         userId: event.userId,
-        name: typeof event.name === "string" && event.name ? event.name : "Alguém",
+        name: typeof event.name === "string" && event.name ? event.name : translate("common.someone"),
         typing: event.typing !== false,
       };
       typingListeners.forEach((l) => l(payload));

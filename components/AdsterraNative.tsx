@@ -14,6 +14,7 @@ import {
   useAdsterraBlocked,
 } from "@/lib/adsterraFill";
 import { useAdsAllowed } from "@/lib/useAdsAllowed";
+import { useT } from "@/lib/useI18n";
 
 // The Adsterra native banner — a row of "recommended" cards that takes the
 // width it is given and whatever height its contents need.
@@ -70,6 +71,7 @@ export function AdsterraNative({
    */
   maxHeight?: number;
 }) {
+  const t = useT();
   const allowed = useAdsAllowed();
   // See AdsterraBanner: one refusal anywhere takes every slot down, because
   // an ad blocker is a fact about the browser and not about this unit.
@@ -121,12 +123,12 @@ export function AdsterraNative({
           no caption. */}
       {label && height !== null && (
         <span className="text-[10px] uppercase tracking-wide text-zinc-400 dark:text-zinc-600">
-          Publicidade
+          {t("common.advertising")}
         </span>
       )}
       <iframe
         ref={frameRef}
-        title="Publicidade"
+        title={t("common.advertising")}
         // See AdsterraBanner: a real URL, not srcDoc, so the script has an
         // origin to work in.
         src={adFrameUrl("native")}

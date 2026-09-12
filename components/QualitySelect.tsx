@@ -6,6 +6,7 @@ import { DEFAULT_PLAN_ICON_ID, PLAN_ICONS } from "@/components/planIcons";
 import { hasFeature, lockLabel, lockName, lockTier, type Feature } from "@/lib/entitlements";
 import { FINE_POINTER_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 import { openProModal } from "@/lib/proModal";
+import { useT } from "@/lib/useI18n";
 
 // One of the room's quality dials, in whichever form the machine deserves.
 //
@@ -56,6 +57,7 @@ export function QualitySelect<T extends string | number>({
   features: readonly string[];
   onChange: (value: T) => void;
 }) {
+  const t = useT();
   const fine = useMediaQuery(FINE_POINTER_QUERY);
   const reactId = useId();
   const controlId = `quality-${reactId}`;
@@ -354,7 +356,7 @@ export function QualitySelect<T extends string | number>({
                       className={`h-4 w-4 shrink-0 ${MARK.className}`}
                       aria-label={MARK.label}
                     />
-                    Pro
+                    {t("common.pro")}
                   </button>
                 ) : (
                   locked && (

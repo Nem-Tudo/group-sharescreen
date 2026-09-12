@@ -7,11 +7,11 @@ export default function robots(): MetadataRoute.Robots {
     rules: {
       userAgent: "*",
       allow: "/",
-      // "/anuncio" holds the link-only ad reports: the token in the URL is
+      // "/ad" holds the link-only ad reports: the token in the URL is
       // the whole credential, so a crawler must never walk one (the pages
       // also carry robots: noindex — this just keeps the fetch from
       // happening at all).
-      disallow: ["/admin", "/api/", "/anuncio"],
+      disallow: ["/admin", "/api/", "/ad"],
     },
     sitemap: `${SITE_URL}/sitemap.xml`,
   };

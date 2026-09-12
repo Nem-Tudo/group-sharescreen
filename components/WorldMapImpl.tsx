@@ -7,6 +7,8 @@ import { MdSearch, MdClose } from "react-icons/md";
 import { useResolvedTheme } from "@/lib/useTheme";
 import { searchPlaces, type PlaceResult } from "@/lib/geocoding";
 import type { WorldMapMarker, WorldMapProps } from "./WorldMap";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
 
 // Esri's Canvas basemaps. Two things ruled out the more obvious choices:
 // CARTO's basemaps now stamp "API KEY REQUIRED" across every tile, and
@@ -131,7 +133,10 @@ function popupHtml(marker: WorldMapMarker): string {
   const label = escapeHtml(marker.label);
   // Spelled out here, unlike on the pin: this is the one place with room for
   // a sentence. A room counts people in it; a group counts its members.
-  const [one, many] = marker.countNoun ?? ["pessoa", "pessoas"];
+  const [one, many] = marker.countNoun ?? [
+    translate("common.personNoun.one"),
+    translate("common.personNoun.other"),
+  ];
   const badge =
     typeof marker.peopleCount === "number"
       ? `<div style="font-size:12px;opacity:.7;margin-top:2px">${marker.peopleCount} ${escapeHtml(
@@ -152,7 +157,7 @@ function popupHtml(marker: WorldMapMarker): string {
       <div style="font-weight:600;font-size:14px;word-break:break-all">${label}</div>
       ${badge}
       ${description}
-      <a href="${escapeHtml(marker.href ?? "#")}" style="display:block;margin-top:8px;border-radius:8px;background:#09090b;color:#fff;padding:6px 10px;text-align:center;font-size:13px;font-weight:500;text-decoration:none">${escapeHtml(marker.actionLabel ?? "Entrar na sala")}</a>
+      <a href="${escapeHtml(marker.href ?? "#")}" style="display:block;margin-top:8px;border-radius:8px;background:#09090b;color:#fff;padding:6px 10px;text-align:center;font-size:13px;font-weight:500;text-decoration:none">${escapeHtml(marker.actionLabel ?? translate("common.joinTheRoom"))}</a>
     </div>`;
 }
 
@@ -199,6 +204,7 @@ export default function WorldMapImpl({
   searchable = false,
   className = "",
 }: WorldMapProps) {
+  const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
   const searchBoxRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -489,15 +495,15 @@ export default function WorldMapImpl({
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Pesquisar cidade, país, endereço..."
-              aria-label="Pesquisar um lugar no mapa"
+              placeholder={t("worldMapImpl.searchCityCountryAddress")}
+              aria-label={t("worldMapImpl.searchForAPlaceOnThe")}
               className="w-full rounded-lg border border-zinc-300 bg-white py-2 pl-8 pr-8 text-sm text-zinc-900 shadow-md outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
             />
             {query && (
               <button
                 type="button"
                 onClick={clearSearch}
-                aria-label="Limpar pesquisa"
+                aria-label={t("worldMapImpl.clearSearch")}
                 className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-zinc-400 transition hover:bg-black/10 hover:text-zinc-700 dark:hover:bg-white/10 dark:hover:text-zinc-200"
               >
                 <MdClose className="h-4 w-4" />
@@ -511,13 +517,13 @@ export default function WorldMapImpl({
             <div className="mt-1 max-h-64 overflow-y-auto rounded-lg border border-zinc-300 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
               {currentError ? (
                 <p className="px-3 py-2 text-xs text-red-500">
-                  Não foi possível pesquisar agora.
+                  {t("worldMapImpl.couldNotSearchRightNow")}
                 </p>
               ) : currentResults === null ? (
-                <p className="px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400">Pesquisando...</p>
+                <p className="px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400">{t("worldMapImpl.searching")}</p>
               ) : currentResults.length === 0 ? (
                 <p className="px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400">
-                  Nenhum lugar encontrado.
+                  {t("worldMapImpl.noPlaceFound")}
                 </p>
               ) : (
                 <ul>

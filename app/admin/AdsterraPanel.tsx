@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { fetchAdsterraEnabled, setAdsterraEnabled } from "@/lib/adminApi";
+import { useT } from "@/lib/useI18n";
 
 // The Adsterra kill switch.
 //
@@ -15,6 +16,7 @@ import { fetchAdsterraEnabled, setAdsterraEnabled } from "@/lib/adminApi";
 // the network that pays per impression should hand the slot back to the ad
 // the room sold itself — not leave the room with no ad at all.
 export function AdsterraPanel() {
+  const t = useT();
   // undefined = still loading the current state from the server.
   const [enabled, setEnabled] = useState<boolean | undefined>(undefined);
   const [saving, setSaving] = useState(false);
@@ -45,7 +47,7 @@ export function AdsterraPanel() {
     try {
       setEnabled(await setAdsterraEnabled(!enabled));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao atualizar.");
+      setError(err instanceof Error ? err.message : t("common.couldNotUpdate"));
     } finally {
       setSaving(false);
     }
@@ -54,17 +56,13 @@ export function AdsterraPanel() {
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
       <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
-        Anúncios da Adsterra
+        {t("admin.adsterraPanel.adsterraAds")}
       </h2>
       <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-        Liga e desliga os anúncios da rede em todo o site — home, salas públicas, perfis e o slot
-        da sala. Vale na hora: as abas que já estão abertas somem com o anúncio sem precisar
-        recarregar. Fica salvo no banco, então sobrevive a reinícios da API.
+        {t("admin.adsterraPanel.turnsTheNetworkSAdsOn")}
       </p>
       <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-        Não mexe nos anúncios de parceiro acima. Com a Adsterra desligada, o slot da sala volta a
-        ser só do parceiro, como era antes dela existir. Quem assina o Pro continua sem ver
-        anúncio nenhum de qualquer forma.
+        {t("admin.adsterraPanel.itDoesNotTouchThePartner")}
       </p>
 
       <div className="mt-3 flex items-center gap-3">
@@ -78,12 +76,12 @@ export function AdsterraPanel() {
           }`}
         >
           {enabled === undefined
-            ? "Carregando..."
+            ? t("common.loading2")
             : saving
-              ? "Salvando..."
+              ? t("common.saving")
               : enabled
-                ? "Ativados"
-                : "Desativados"}
+                ? t("admin.adsterraPanel.enabled")
+                : t("admin.adsterraPanel.disabled")}
         </button>
         {error && <span className="text-sm text-red-500">{error}</span>}
       </div>

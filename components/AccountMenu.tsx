@@ -15,8 +15,10 @@ import Link from "next/link";
 import { AccountConnections } from "@/components/AccountConnections";
 import { BotsPanel } from "@/components/BotsPanel";
 import { ThemeSegmented } from "@/components/ThemeToggle";
+import { LanguageSegmented } from "@/components/LanguageToggle";
 import { openDirectMessages } from "@/lib/dmWindow";
 import type { OAuthResult } from "@/lib/oauthApi";
+import { useT } from "@/lib/useI18n";
 
 // Who you are, and everything you can do about it, in the header.
 //
@@ -45,6 +47,7 @@ const secondaryButtonClass =
   "rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900";
 
 export function AccountMenu() {
+  const t = useT();
   const state = useSignaling();
   const { account: authAccount, logout } = useAuth();
 
@@ -136,7 +139,7 @@ export function AccountMenu() {
             htmlFor="account-menu-name"
             className="text-xs font-medium text-zinc-700 dark:text-zinc-300"
           >
-            Novo nome
+            {t("common.newName")}
           </label>
           <input
             id="account-menu-name"
@@ -154,7 +157,7 @@ export function AccountMenu() {
               disabled={!nameInput.trim() || nameInput.trim() === name}
               className={`flex-1 ${primaryButtonClass}`}
             >
-              Salvar
+              {t("common.save")}
             </button>
             <button
               type="button"
@@ -164,7 +167,7 @@ export function AccountMenu() {
               }}
               className={secondaryButtonClass}
             >
-              Cancelar
+              {t("common.cancel")}
             </button>
           </div>
         </form>
@@ -172,7 +175,7 @@ export function AccountMenu() {
         <>
           <div className="px-3 pt-2 pb-3">
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              {isAccount ? "Conectado como" : "Usando nome"}
+              {isAccount ? t("accountMenu.signedInAs") : t("accountMenu.usingTheName")}
             </p>
             <p className="truncate font-semibold text-zinc-950 dark:text-zinc-50">{name}</p>
           </div>
@@ -186,7 +189,7 @@ export function AccountMenu() {
                     person already signed in. */}
                 {authAccount?.id && (
                   <Link href={`/user/${authAccount.username}`} onClick={close} className={itemClass}>
-                    Meu perfil
+                    {t("accountMenu.myProfile")}
                   </Link>
                 )}
                 <button
@@ -197,21 +200,21 @@ export function AccountMenu() {
                   }}
                   className={itemClass}
                 >
-                  Mensagens
+                  {t("common.messages")}
                 </button>
-                <Link href="/amigos" onClick={close} className={itemClass}>
-                  Amigos
+                <Link href="/friends" onClick={close} className={itemClass}>
+                  {t("common.friends")}
                 </Link>
                 {/* A bot cannot own bots (the API refuses it too), so the row
                     is only for a person's account. */}
                 {authAccount?.id && !authAccount.bot && (
                   <button type="button" onClick={() => setMode("bots")} className={itemClass}>
-                    Criar bot
+                    {t("common.createBot")}
                   </button>
                 )}
                 {(authAccount?.flags?.includes("ADMIN") || state.account?.flags?.includes("ADMIN")) && (
                   <Link href="/admin" onClick={close} className={`${itemClass} font-semibold text-purple-600 dark:text-purple-400`}>
-                    Painel de Admin
+                    {t("accountMenu.adminPanel")}
                   </Link>
                 )}
                 {/* Brings its own collapsible section, so it sits in the
@@ -219,7 +222,7 @@ export function AccountMenu() {
                     the row's own padding, so no wrapper here. */}
                 <AccountConnections />
                 <button type="button" onClick={() => { logout(); close(); }} className={itemClass}>
-                  Sair da conta
+                  {t("accountMenu.signOut")}
                 </button>
               </>
             ) : (
@@ -232,13 +235,13 @@ export function AccountMenu() {
                   }}
                   className={itemClass}
                 >
-                  Trocar nome
+                  {t("accountMenu.changeName")}
                 </button>
                 <button type="button" onClick={() => setMode("create")} className={itemClass}>
-                  Criar uma conta
+                  {t("common.createAnAccount")}
                 </button>
                 <button type="button" onClick={() => setMode("login")} className={itemClass}>
-                  Já tenho uma conta
+                  {t("common.iAlreadyHaveAnAccount")}
                 </button>
               </>
             )}
@@ -249,9 +252,16 @@ export function AccountMenu() {
               a choice people make once. */}
           <div className="mt-1 border-t border-black/5 px-3 pt-2 pb-1 dark:border-white/5">
             <p className="mb-1.5 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
-              Tema
+              {t("common.theme")}
             </p>
             <ThemeSegmented />
+            {/* Below the theme, and for the same reason it is here at all:
+                both are settings about this browser rather than about who is
+                signed in, so a guest gets them too. */}
+            <p className="mt-3 mb-1.5 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+              {t("languageToggle.language")}
+            </p>
+            <LanguageSegmented />
           </div>
         </>
       )}

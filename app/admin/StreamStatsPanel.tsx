@@ -11,6 +11,7 @@ import {
 } from "@/components/icons";
 import { copyText } from "@/lib/clipboard";
 import { MdContentCopy } from "react-icons/md";
+import { useT } from "@/lib/useI18n";
 
 const POLL_INTERVAL_MS = 4000;
 
@@ -53,6 +54,7 @@ function StatCard({
 }
 
 export function StreamStatsPanel() {
+  const t = useT();
   const [stats, setStats] = useState<StreamStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -70,7 +72,7 @@ export function StreamStatsPanel() {
       } catch (err) {
         if (cancelled) return;
         if (err instanceof Error && err.message === "unauthorized") return;
-        setError("Não foi possível carregar as métricas de transmissão.");
+        setError(t("admin.streamStatsPanel.couldNotLoadTheBroadcastMetrics"));
       }
     }
 
@@ -80,7 +82,7 @@ export function StreamStatsPanel() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, []);
+  }, [t]);
 
   async function handleCopyStreamUrl(streamId: string, room: string, target: string) {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
@@ -101,7 +103,7 @@ export function StreamStatsPanel() {
   }
 
   if (!stats) {
-    return <p className="text-sm text-zinc-500 dark:text-zinc-400">Carregando métricas de transmissão...</p>;
+    return <p className="text-sm text-zinc-500 dark:text-zinc-400">{t("admin.streamStatsPanel.loadingBroadcastMetrics")}</p>;
   }
 
   return (
@@ -111,10 +113,10 @@ export function StreamStatsPanel() {
         <div>
           <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50 flex items-center gap-2">
             <ObsSourceIcon className="h-5 w-5 text-purple-500" />
-            Métricas do Modo Streamer e Programas de Transmissão
+            {t("admin.streamStatsPanel.streamerModeAndBroadcastingSoftwareMetrics")}
           </h2>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-            Monitoramento em tempo real de streamers e vídeos rodando fora do GoLive via OBS Studio, Streamlabs, vMix, etc.
+            {t("admin.streamStatsPanel.realTimeMonitoringOfStreamersAnd")}
           </p>
         </div>
       </div>
@@ -122,26 +124,26 @@ export function StreamStatsPanel() {
       {/* Main Stats Grid */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard
-          label="Streamers online"
+          label={t("common.streamersOnline")}
           value={stats.streamersOnline}
-          subtext="Usuários com modo streamer ligado"
+          subtext={t("admin.streamStatsPanel.usersWithStreamerModeOn")}
           highlight={stats.streamersOnline > 0}
         />
         <StatCard
-          label="Salas transmitindo"
+          label={t("admin.streamStatsPanel.roomsBroadcasting")}
           value={stats.roomsWithStreamerMode}
-          subtext="Salas ativas com modo streamer"
+          subtext={t("admin.streamStatsPanel.activeRoomsWithStreamerMode")}
         />
         <StatCard
-          label="Softwares conectados"
+          label={t("admin.streamStatsPanel.connectedSoftware")}
           value={stats.externalStreamClients}
-          subtext="Conexões ativas de OBS / vMix"
+          subtext={t("admin.streamStatsPanel.activeObsVmixConnections")}
           highlight={stats.externalStreamClients > 0}
         />
         <StatCard
-          label="Vídeos fora do GoLive"
+          label={t("admin.streamStatsPanel.videosOutsideGolive")}
           value={stats.activeExternalStreams}
-          subtext="Fluxos de mídia em broadcast"
+          subtext={t("admin.streamStatsPanel.mediaStreamsBroadcasting")}
           highlight={stats.activeExternalStreams > 0}
         />
       </div>
@@ -149,7 +151,7 @@ export function StreamStatsPanel() {
       {/* Breakdown by Media Type */}
       <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-3">
-          Tipos de Mídia Transmitidas Fora
+          {t("admin.streamStatsPanel.mediaTypesBroadcastOutside")}
         </h3>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div className="flex items-center gap-3 rounded-lg border border-zinc-100 bg-zinc-50 p-3 dark:border-zinc-800/80 dark:bg-zinc-900/50">
@@ -157,7 +159,7 @@ export function StreamStatsPanel() {
               <ScreenIcon className="h-4 w-4" />
             </div>
             <div>
-              <p className="text-[11px] text-zinc-500 dark:text-zinc-400">Telas Compartilhadas</p>
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{t("admin.streamStatsPanel.sharedScreens")}</p>
               <p className="text-lg font-bold text-zinc-900 dark:text-zinc-100">{stats.byKind.screens}</p>
             </div>
           </div>
@@ -167,7 +169,7 @@ export function StreamStatsPanel() {
               <CameraIcon className="h-4 w-4" />
             </div>
             <div>
-              <p className="text-[11px] text-zinc-500 dark:text-zinc-400">Câmeras / Webcams</p>
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{t("admin.streamStatsPanel.camerasWebcams")}</p>
               <p className="text-lg font-bold text-zinc-900 dark:text-zinc-100">{stats.byKind.cameras}</p>
             </div>
           </div>
@@ -177,7 +179,7 @@ export function StreamStatsPanel() {
               <VideoSourceIcon className="h-4 w-4" />
             </div>
             <div>
-              <p className="text-[11px] text-zinc-500 dark:text-zinc-400">Arquivos de Mídia</p>
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{t("admin.streamStatsPanel.mediaFiles")}</p>
               <p className="text-lg font-bold text-zinc-900 dark:text-zinc-100">{stats.byKind.files}</p>
             </div>
           </div>
@@ -187,7 +189,7 @@ export function StreamStatsPanel() {
               <VideoSourceIcon className="h-4 w-4" />
             </div>
             <div>
-              <p className="text-[11px] text-zinc-500 dark:text-zinc-400">YouTube / Twitch / Kick</p>
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{t("admin.streamStatsPanel.youtubeTwitchKick")}</p>
               <p className="text-lg font-bold text-zinc-900 dark:text-zinc-100">{stats.byKind.videoSources}</p>
             </div>
           </div>
@@ -197,26 +199,26 @@ export function StreamStatsPanel() {
       {/* Active Streams Table */}
       <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-3">
-          Transmissões Ativas no Momento ({stats.streams.length})
+          {t("admin.streamStatsPanel.broadcastsActiveRightNow")}{stats.streams.length})
         </h3>
 
         {stats.streams.length === 0 ? (
           <div className="py-10 text-center text-zinc-400 dark:text-zinc-500">
             <ObsSourceIcon className="mx-auto mb-2.5 h-8 w-8 opacity-40" />
-            <p className="text-sm font-medium">Nenhum vídeo sendo transmitido fora do GoLive no momento.</p>
-            <p className="text-xs mt-0.5">Assim que uma fonte Browser Source do OBS conectar, ela aparecerá listada aqui.</p>
+            <p className="text-sm font-medium">{t("admin.streamStatsPanel.noVideoIsBeingBroadcastOutside")}</p>
+            <p className="text-xs mt-0.5">{t("admin.streamStatsPanel.asSoonAsAnObsBrowser")}</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
                 <tr className="border-b border-zinc-100 text-zinc-400 dark:border-zinc-800/80">
-                  <th className="pb-2 font-medium">Sala</th>
-                  <th className="pb-2 font-medium">Tipo de Mídia</th>
-                  <th className="pb-2 font-medium">Alvo</th>
-                  <th className="pb-2 font-medium">Autorizado Por</th>
-                  <th className="pb-2 font-medium">Tempo Conectado</th>
-                  <th className="pb-2 font-medium text-right">Ação</th>
+                  <th className="pb-2 font-medium">{t("common.room")}</th>
+                  <th className="pb-2 font-medium">{t("admin.streamStatsPanel.mediaType")}</th>
+                  <th className="pb-2 font-medium">{t("admin.streamStatsPanel.target")}</th>
+                  <th className="pb-2 font-medium">{t("admin.streamStatsPanel.authorisedBy")}</th>
+                  <th className="pb-2 font-medium">{t("admin.streamStatsPanel.timeConnected")}</th>
+                  <th className="pb-2 font-medium text-right">{t("common.action")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/50">
@@ -229,11 +231,11 @@ export function StreamStatsPanel() {
                       </td>
                       <td className="py-3">
                         <span className="inline-flex items-center gap-1 rounded-md bg-purple-500/10 px-2 py-0.5 text-[11px] font-medium text-purple-600 dark:text-purple-400">
-                          {stream.targetKind === "screen" && "Tela"}
-                          {stream.targetKind === "camera" && "Câmera"}
-                          {stream.targetKind === "file" && "Arquivo"}
-                          {stream.targetKind === "video-source" && "Vídeo Externo"}
-                          {stream.targetKind === "other" && "Mídia"}
+                          {stream.targetKind === "screen" && t("common.screen")}
+                          {stream.targetKind === "camera" && t("common.camera")}
+                          {stream.targetKind === "file" && t("common.file")}
+                          {stream.targetKind === "video-source" && t("admin.streamStatsPanel.externalVideo")}
+                          {stream.targetKind === "other" && t("common.media")}
                         </span>
                       </td>
                       <td className="py-3 font-mono text-[11px] text-zinc-600 dark:text-zinc-400 max-w-[180px] truncate">
@@ -250,17 +252,17 @@ export function StreamStatsPanel() {
                           type="button"
                           onClick={() => void handleCopyStreamUrl(stream.id, stream.room, stream.target)}
                           className="inline-flex items-center gap-1 rounded-md border border-zinc-200 px-2.5 py-1 text-[11px] font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800 transition"
-                          title="Copiar rota de transmissão"
+                          title={t("admin.streamStatsPanel.copyBroadcastRoute")}
                         >
                           {isCopied ? (
                             <>
                               <CheckIcon className="h-3 w-3 text-emerald-500" />
-                              Copiado
+                              {t("common.copied")}
                             </>
                           ) : (
                             <>
                               <MdContentCopy className="h-3 w-3" />
-                              Copiar
+                              {t("common.copy")}
                             </>
                           )}
                         </button>

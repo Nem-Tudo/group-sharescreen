@@ -31,6 +31,8 @@ import {
   type RoomTheme,
   type RoomThemeSpec,
 } from "@/lib/roomThemes";
+import { useT } from "@/lib/useI18n";
+import { formatLocale } from "@/lib/i18n";
 
 // Making a theme.
 //
@@ -83,6 +85,7 @@ function ColorField({
    */
   alpha?: boolean;
 }) {
+  const t = useT();
   const hexId = useId();
   // The picker and the swatch work in six digits; the alpha rides alongside.
   const base = colorBase(value);
@@ -165,14 +168,14 @@ function ColorField({
           A row of its own is one axis and a number beside it. */}
       {alpha && (
         <label className="flex items-center gap-2 pl-11 text-[11px] text-zinc-500 dark:text-zinc-500">
-          <span className="w-16 shrink-0">Opacidade</span>
+          <span className="w-16 shrink-0">{t("themeEditorDialog.opacity")}</span>
           <input
             type="range"
             min={0}
             max={100}
             value={Math.round(opacity * 100)}
             onChange={(e) => onChange(withAlpha(base, Number(e.target.value) / 100))}
-            aria-label={`Opacidade de ${label}`}
+            aria-label={t("themeEditorDialog.opacityOfLabel", { label })}
             className="flex-1"
           />
           <span className="w-9 shrink-0 text-right font-mono">
@@ -216,6 +219,7 @@ export function ThemeEditorDialog({
   closePopup: (hasAction?: boolean) => void;
   data?: ThemeEditorPopupData;
 }) {
+  const t = useT();
   const existing = data?.theme ?? null;
   const { account } = useAuth();
   const features = account?.features ?? [];
@@ -331,7 +335,7 @@ export function ThemeEditorDialog({
 
   function pickImage(file: File) {
     if (file.size > MAX_IMAGE_BYTES) {
-      setError(`Imagem muito grande (máximo ${Math.round(MAX_IMAGE_BYTES / (1024 * 1024))} MB).`);
+      setError(t("themeEditorDialog.imageTooLargeMaximumValueMb", { value: Math.round(MAX_IMAGE_BYTES / (1024 * 1024)) }));
       return;
     }
     const reader = new FileReader();
@@ -355,11 +359,11 @@ export function ThemeEditorDialog({
   async function save() {
     if (busy) return;
     if (!name.trim()) {
-      setError("Dê um nome ao tema.");
+      setError(t("themeEditorDialog.giveTheThemeAName"));
       return;
     }
     if (!everyColourValid) {
-      setError("Alguma cor está inválida. Use #rgb ou #rrggbb.");
+      setError(t("themeEditorDialog.someColourIsInvalidUseRgb"));
       return;
     }
     setBusy(true);
@@ -388,14 +392,14 @@ export function ThemeEditorDialog({
 
   async function remove() {
     if (!existing || busy) return;
-    if (!window.confirm(`Apagar "${existing.name}"? Quem estiver usando volta ao tema padrão.`)) {
+    if (!window.confirm(t("themeEditorDialog.deleteNameWhoeverIsUsingIt", { name: existing.name }))) {
       return;
     }
     setBusy(true);
     const ok = await deleteTheme(existing.id);
     setBusy(false);
     if (!ok) {
-      setError("Não foi possível apagar.");
+      setError(t("themeEditorDialog.couldNotDelete"));
       return;
     }
     // Same signal for the same reason: a room wearing a theme that no longer
@@ -414,18 +418,18 @@ export function ThemeEditorDialog({
         <div>
           <h2 className="flex items-center gap-1.5 text-base font-semibold tracking-tight">
             <MdPalette className="h-5 w-5 shrink-0 text-indigo-500" />
-            {existing ? "Editar tema" : "Novo tema"}
+            {existing ? t("themeEditorDialog.editTheme") : t("themeEditorDialog.newTheme")}
           </h2>
           <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
             {existing
-              ? "Quem já usa vê a mudança ao recarregar."
-              : "Seis cores e o tema já funciona."}
+              ? t("themeEditorDialog.whoeverAlreadyUsesItSeesThe")
+              : t("themeEditorDialog.sixColoursAndTheThemeAlready")}
           </p>
         </div>
         <button
           type="button"
           onClick={() => closePopup(false)}
-          aria-label="Fechar"
+          aria-label={t("common.close")}
           className="-mr-1 rounded-lg p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-900 dark:hover:text-zinc-200"
         >
           <MdClose className="h-5 w-5" />
@@ -437,14 +441,14 @@ export function ThemeEditorDialog({
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Nome do tema"
+            placeholder={t("themeEditorDialog.themeName")}
             maxLength={40}
             className={inputClass}
           />
           <input
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Descrição (opcional)"
+            placeholder={t("themeEditorDialog.descriptionOptional")}
             maxLength={160}
             className={inputClass}
           />
@@ -467,13 +471,13 @@ export function ThemeEditorDialog({
             style={{ background: spec.palette.surface, borderColor: spec.palette.border }}
           >
             <span className="text-xs font-semibold" style={{ color: spec.palette.text }}>
-              {name.trim() || "Sem nome"}
+              {name.trim() || t("themeEditorDialog.unnamed")}
             </span>
             <span
               className="rounded-md px-2 py-1 text-[11px] font-medium"
               style={{ background: spec.accent, color: spec.accentText }}
             >
-              Destaque
+              {t("themeEditorDialog.highlight")}
             </span>
           </div>
           <div className="flex flex-col gap-2 p-3">
@@ -486,13 +490,13 @@ export function ThemeEditorDialog({
                   and still legible?" is a comparison, and a comparison needs
                   the other two next to it. */}
               <span className="block text-xs" style={{ color: spec.palette.text }}>
-                Um controle elevado, com texto por cima.
+                {t("themeEditorDialog.aRaisedControlWithTextOn")}
               </span>
               <span className="block text-xs" style={{ color: spec.palette.textSoft }}>
-                @usuário · texto secundário
+                {t("themeEditorDialog.usernameSecondaryText")}
               </span>
               <span className="block text-[11px]" style={{ color: spec.palette.muted }}>
-                Ninguém está transmitindo ainda
+                {t("themeEditorDialog.nobodyIsBroadcastingYet")}
               </span>
             </div>
             <div
@@ -500,13 +504,13 @@ export function ThemeEditorDialog({
               style={{ background: spec.palette.input }}
             >
               <span className="text-xs opacity-70" style={{ color: spec.palette.text }}>
-                Um campo de texto
+                {t("themeEditorDialog.aTextField")}
               </span>
             </div>
           </div>
         </div>
         <p className="-mt-2 text-[11px] text-zinc-500 dark:text-zinc-500">
-          A sala vai ficar {dark ? "escura" : "clara"} — decidido pela cor do fundo.
+          {t("themeEditorDialog.theRoomWillBe")} {dark ? t("common.darkFem") : t("common.lightFem")} {t("themeEditorDialog.decidedByTheBackgroundColour")}
         </p>
 
         {/* The fundo, and the two things that can go behind it, boxed away
@@ -552,7 +556,7 @@ export function ThemeEditorDialog({
                 className="h-4 w-4 shrink-0"
               />
               <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                Degradê no fundo
+                {t("themeEditorDialog.gradientInTheBackground")}
               </span>
             </label>
 
@@ -567,15 +571,15 @@ export function ThemeEditorDialog({
                 className="flex cursor-pointer items-center gap-1 self-start rounded-lg text-[11px] font-medium text-zinc-500 underline-offset-2 transition hover:text-zinc-900 hover:underline dark:text-zinc-400 dark:hover:text-zinc-100"
               >
                 <proMaxMark.Icon className={`h-3.5 w-3.5 shrink-0 ${proMaxMark.className}`} />
-                Disponível no Pro Max
+                {t("themeEditorDialog.availableOnProMax")}
               </button>
             )}
 
             {spec.gradient && (
               <div className="flex flex-col gap-2.5">
                 <ColorField
-                  label="Fade para"
-                  hint={`Sai de ${spec.palette.page}`}
+                  label={t("themeEditorDialog.fadeTo")}
+                  hint={t("themeEditorDialog.leavesPage", { page: spec.palette.page })}
                   value={spec.gradient.to}
                   open={openField === "gradient"}
                   onToggle={() =>
@@ -589,7 +593,7 @@ export function ThemeEditorDialog({
                   }
                 />
                 <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
-                  <span className="w-20 shrink-0">Direção</span>
+                  <span className="w-20 shrink-0">{t("common.direction")}</span>
                   <select
                     value={spec.gradient.angle}
                     onChange={(e) =>
@@ -611,7 +615,7 @@ export function ThemeEditorDialog({
                 </label>
                 {spec.background && (
                   <p className="text-[11px] text-zinc-500 dark:text-zinc-500">
-                    A imagem de fundo cobre o degradê — ele volta a aparecer se você removê-la.
+                    {t("themeEditorDialog.theBackgroundImageCoversTheGradient")}
                   </p>
                 )}
               </div>
@@ -620,7 +624,7 @@ export function ThemeEditorDialog({
 
           <div className="flex flex-col gap-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
             <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-              Imagem de fundo
+              {t("themeEditorDialog.backgroundImage")}
             </span>
             <input
               ref={fileRef}
@@ -640,7 +644,7 @@ export function ThemeEditorDialog({
                 className="flex items-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium transition hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
               >
                 <MdImage className="h-4 w-4 shrink-0" />
-                {spec.background || pendingImage ? "Trocar imagem" : "Escolher imagem"}
+                {spec.background || pendingImage ? t("themeEditorDialog.changeImage") : t("themeEditorDialog.chooseImage")}
               </button>
               {(spec.background || pendingImage) && (
                 <button
@@ -651,7 +655,7 @@ export function ThemeEditorDialog({
                   }}
                   className="text-xs font-medium text-zinc-500 underline-offset-2 transition hover:underline dark:text-zinc-400"
                 >
-                  Remover
+                  {t("common.remove")}
                 </button>
               )}
             </div>
@@ -661,7 +665,7 @@ export function ThemeEditorDialog({
                     full of text is unreadable at zero of each, and the amount
                     needed depends entirely on the picture. */}
                 <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
-                  <span className="w-20 shrink-0">Desfoque</span>
+                  <span className="w-20 shrink-0">{t("themeEditorDialog.blur")}</span>
                   <input
                     type="range"
                     min={0}
@@ -690,7 +694,7 @@ export function ThemeEditorDialog({
                     light theme it does not even darken. Opacity is the thing
                     being chosen; the subtraction happens here, once. */}
                 <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
-                  <span className="w-20 shrink-0">Opacidade</span>
+                  <span className="w-20 shrink-0">{t("themeEditorDialog.opacity")}</span>
                   <input
                     type="range"
                     min={5}
@@ -728,16 +732,16 @@ export function ThemeEditorDialog({
             />
           ))}
           <ColorField
-            label="Destaque"
-            hint="Aba ativa e realces"
+            label={t("themeEditorDialog.highlight")}
+            hint={t("themeEditorDialog.activeTabAndHighlights")}
             value={spec.accent}
             open={openField === "accent"}
             onToggle={() => setOpenField((current) => (current === "accent" ? null : "accent"))}
             onChange={(next) => setSpec((c) => ({ ...c, accent: next }))}
           />
           <ColorField
-            label="Sobre o destaque"
-            hint="O texto que fica em cima dele"
+            label={t("themeEditorDialog.aboutTheHighlight")}
+            hint={t("themeEditorDialog.theTextThatGoesOnTop")}
             value={spec.accentText}
             open={openField === "accentText"}
             onToggle={() =>
@@ -762,10 +766,10 @@ export function ThemeEditorDialog({
             />
             <span className="min-w-0">
               <span className="block text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                Publicar no Descobrir
+                {t("themeEditorDialog.publishOnDiscover")}
               </span>
               <span className="block text-[11px] text-zinc-500 dark:text-zinc-500">
-                Qualquer pessoa poderá usar o seu tema.
+                {t("themeEditorDialog.anyoneWillBeAbleToUse")}
               </span>
             </span>
           </label>
@@ -783,7 +787,7 @@ export function ThemeEditorDialog({
               className="flex cursor-pointer items-center gap-1 self-start rounded-lg text-[11px] font-medium text-zinc-500 underline-offset-2 transition hover:text-zinc-900 hover:underline dark:text-zinc-400 dark:hover:text-zinc-100"
             >
               <proMaxMark.Icon className={`h-3.5 w-3.5 shrink-0 ${proMaxMark.className}`} />
-              Disponível no Pro Max
+              {t("themeEditorDialog.availableOnProMax")}
             </button>
           )}
         </div>
@@ -795,7 +799,7 @@ export function ThemeEditorDialog({
           <div className="flex flex-col gap-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
             <span className="flex items-center gap-1.5 text-xs font-semibold text-zinc-700 dark:text-zinc-300">
               <BsCoin className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-              Preço em pontos
+              {t("themeEditorDialog.priceInPoints")}
             </span>
             <div className="flex flex-wrap items-center gap-2">
               {/* Free is a button rather than "type 0", because it is the
@@ -811,7 +815,7 @@ export function ThemeEditorDialog({
                     : "border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
                 }`}
               >
-                Grátis
+                {t("common.free")}
               </button>
               <input
                 type="number"
@@ -824,7 +828,7 @@ export function ThemeEditorDialog({
                   const next = Number(e.target.value);
                   setPrice(Number.isFinite(next) && next > 0 ? next : 0);
                 }}
-                aria-label="Preço em pontos"
+                aria-label={t("themeEditorDialog.priceInPoints")}
                 className="w-28 rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
               />
             </div>
@@ -832,16 +836,16 @@ export function ThemeEditorDialog({
               <p className="text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-500">
                 {price < MIN_THEME_PRICE || price > MAX_THEME_PRICE ? (
                   <>
-                    O preço precisa ficar entre {MIN_THEME_PRICE} e{" "}
-                    {MAX_THEME_PRICE.toLocaleString("pt-BR")} pontos — vai ser ajustado ao salvar.
+                    {t("themeEditorDialog.thePriceHasToBeBetween")} {MIN_THEME_PRICE} {t("common.andWord")}{" "}
+                    {MAX_THEME_PRICE.toLocaleString(formatLocale())} {t("themeEditorDialog.pointsItWillBeAdjustedOn")}
                   </>
                 ) : (
                   <>
-                    Você recebe{" "}
+                    {t("themeEditorDialog.youGet")}{" "}
                     <span className="font-semibold text-amber-600 dark:text-amber-400">
-                      {Math.floor(price * THEME_AUTHOR_SHARE).toLocaleString("pt-BR")} pontos
+                      {Math.floor(price * THEME_AUTHOR_SHARE).toLocaleString(formatLocale())} {t("common.pointsNoun")}
                     </span>{" "}
-                    por venda. Cada pessoa compra uma vez só.
+                    {t("themeEditorDialog.perSaleEachPersonBuysIt")}
                   </>
                 )}
               </p>
@@ -863,7 +867,7 @@ export function ThemeEditorDialog({
           disabled={busy || !everyColourValid}
           className="rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
         >
-          {busy ? "Salvando…" : "Salvar"}
+          {busy ? t("themeEditorDialog.saving") : t("common.save")}
         </button>
         {existing && (
           <button
@@ -873,7 +877,7 @@ export function ThemeEditorDialog({
             className="ml-auto flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-red-600 transition hover:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-950/40"
           >
             <MdDelete className="h-4 w-4 shrink-0" />
-            Apagar
+            {t("common.delete")}
           </button>
         )}
       </div>

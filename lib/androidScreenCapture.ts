@@ -29,6 +29,7 @@
 // easier-to-get-right implementation.
 
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
+import { translate } from "@/lib/i18n";
 
 interface ScreenCaptureFrameEvent {
   /** Base64 JPEG, no `data:` prefix. */
@@ -109,7 +110,7 @@ export async function captureAndroidScreen(options: AndroidScreenCaptureOptions)
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext("2d", { alpha: false });
-  if (!ctx) throw new Error("Não foi possível preparar a captura de tela.");
+  if (!ctx) throw new Error(translate("androidScreenCapture.couldNotPrepareTheScreenCapture"));
 
   // Standard "mdpi" density (160dpi) scaled by the device's own pixel ratio,
   // matching what a VirtualDisplay expects — it only affects how the native
@@ -121,7 +122,7 @@ export async function captureAndroidScreen(options: AndroidScreenCaptureOptions)
   } catch (err) {
     const code = err && typeof err === "object" && "code" in err ? String((err as { code?: unknown }).code) : null;
     if (code === "cancelled") {
-      throw new DOMException("Compartilhamento de tela cancelado.", "NotAllowedError");
+      throw new DOMException(translate("androidScreenCapture.screenSharingCancelled"), "NotAllowedError");
     }
     throw err;
   }
@@ -130,7 +131,7 @@ export async function captureAndroidScreen(options: AndroidScreenCaptureOptions)
   const track = stream.getVideoTracks()[0];
   if (!track) {
     void ScreenCapture.stop();
-    throw new Error("Não foi possível iniciar a captura de tela.");
+    throw new Error(translate("androidScreenCapture.couldNotStartTheScreenCapture"));
   }
 
   let stopped = false;

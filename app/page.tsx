@@ -38,6 +38,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { AdsterraBanner } from "@/components/AdsterraBanner";
 import { HomeFriendsPanel } from "@/components/HomeFriendsPanel";
 import { Tooltip } from "@/components/Tooltip";
+import { useI18n } from "@/lib/useI18n";
 
 // Mirrors server/signaling.ts's HANDLE_RE — must match exactly, or a name
 // this lets through but the server rejects lands the user in a dead room
@@ -88,6 +89,7 @@ type IdentityMode = "landing" | "create" | "login";
 type RoomMode = "public" | "private-create" | "private-join";
 
 export default function Home() {
+  const { t, tc } = useI18n();
   const state = useSignaling();
   const router = useRouter();
   const { loading: resolvingAccount, account, retryIdentity } = useAuth();
@@ -319,7 +321,7 @@ export default function Home() {
 
     if (roomMode === "private-create") {
       if (trimmed.length > MAX_PRIVATE_ROOM_NAME_LENGTH) {
-        setRoomError(`O nome pode ter no máximo ${MAX_PRIVATE_ROOM_NAME_LENGTH} caracteres.`);
+        setRoomError(t("common.theNameCanHaveAtMost", { MAX_PRIVATE_ROOM_NAME_LENGTH }));
         return;
       }
       // The code is minted here, client-side, and becomes part of the URL —
@@ -327,7 +329,7 @@ export default function Home() {
       // one of its own (see roomCodeFromHandle), so the link is the room.
       const handle = toPrivateRoomHandle(trimmed, generateRoomCode());
       if (!HANDLE_RE.test(handle)) {
-        setRoomError("Use de 1 a 32 letras, números, - e _.");
+        setRoomError(t("common.use1To32LettersNumbers"));
         return;
       }
       trackEvent("room_create", { visibility: "private" });
@@ -345,7 +347,7 @@ export default function Home() {
       // "priv-priv-familia-123456" is nobody's intent.
       const handle = isPrivateRoomHandle(trimmed) ? trimmed : toRoomHandle(trimmed, true);
       if (!HANDLE_RE.test(handle)) {
-        setRoomError("Use de 1 a 32 letras, números, - e _.");
+        setRoomError(t("common.use1To32LettersNumbers"));
         return;
       }
       // Only demanded once the scheme is being enforced — see
@@ -354,7 +356,7 @@ export default function Home() {
       // code to type and this is the only way back into them. The existence
       // check below is what catches a typo either way.
       if (ENFORCE_NEW_ROOM_CODE_SYSTEM && !splitPrivateRoomHandle(handle)) {
-        setRoomError(`Inclua o código no fim: nome-${"0".repeat(ROOM_CODE_LENGTH)}`);
+        setRoomError(t("page.includeTheCodeAtTheEnd", { value: "0".repeat(ROOM_CODE_LENGTH) }));
         return;
       }
       // Checked before navigating precisely because joining a room that
@@ -363,11 +365,11 @@ export default function Home() {
       setCheckingRoom(true);
       try {
         if (!(await roomExists(handle))) {
-          setRoomError("Sala não encontrada. Confira o nome e o código.");
+          setRoomError(t("page.roomNotFoundCheckTheName"));
           return;
         }
       } catch {
-        setRoomError("Não foi possível verificar a sala. Tente de novo.");
+        setRoomError(t("page.couldNotCheckTheRoomTry"));
         return;
       } finally {
         setCheckingRoom(false);
@@ -379,7 +381,7 @@ export default function Home() {
 
     const fullHandle = toRoomHandle(trimmed, false);
     if (!HANDLE_RE.test(fullHandle)) {
-      setRoomError("Use de 1 a 32 letras, números, - e _.");
+      setRoomError(t("common.use1To32LettersNumbers"));
       return;
     }
     setNavigating(true);
@@ -393,19 +395,19 @@ export default function Home() {
         {peopleOnline !== null && (<div className="inline-flex gap-2">
           <span className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3.5 py-1.5 text-xs font-medium text-zinc-600 shadow-sm dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
             <span className="h-2 w-2 rounded-full bg-emerald-500" />
-            {peopleOnline} {peopleOnline === 1 ? "pessoa" : "pessoas"} em salas agora
+            {tc("home.peopleInRoomsNow", peopleOnline)}
           </span>
           <DownloadAppButton source="home" />
         </div>
         )}
         {false && <>
 
-          <h2 style={{ color: "#ff2828", maxWidth: "500px", fontSize: "1.3rem" }}>Site fora do ar momentâneamente!!</h2>
-          <h2 style={{ color: "#ff6767", maxWidth: "500px" }}>A API foi reiniciar pra atualizar e não consegue mais ligar por ter mais de 2000 pessoas tentando reconectar.</h2>
-          <h2 style={{ color: "#ff6767", maxWidth: "500px" }}>Eu tô programando um sistema de balanceamento de carga. Aguentaí que já volta</h2>
-          <h2 style={{ color: "#ff6767", maxWidth: "500px" }}>Deve voltar em uns 10 minutos</h2>
-          <h2 style={{ color: "#67c7ff", maxWidth: "500px" }}>Para atualizações/sugestões/etc entre no meu Discord: <Link style={{ color: "#00ff00" }} href={"https://go.nemtudo.me/golive-nemtudodiscord"} target="_blank">discord.gg/nemtudo</Link></h2>
-          <h2 style={{ color: "#67c7ff", maxWidth: "500px" }}>Me segue no Twitter tbm, sempre posto update e projeto por lá <Link style={{ color: "#00ff00" }} href={"https://go.nemtudo.me/golive-nemtudo-twitter"} target="_blank">x.com/NemTudo_</Link></h2>
+          <h2 style={{ color: "#ff2828", maxWidth: "500px", fontSize: "1.3rem" }}>{t("page.theSiteIsTemporarilyDown")}</h2>
+          <h2 style={{ color: "#ff6767", maxWidth: "500px" }}>{t("page.theApiRestartedToUpdateAnd")}</h2>
+          <h2 style={{ color: "#ff6767", maxWidth: "500px" }}>{t("page.iMCodingALoadBalancing")}</h2>
+          <h2 style={{ color: "#ff6767", maxWidth: "500px" }}>{t("page.itShouldBeBackInAbout")}</h2>
+          <h2 style={{ color: "#67c7ff", maxWidth: "500px" }}>{t("page.forUpdatesSuggestionsEtcJoinMy")} <Link style={{ color: "#00ff00" }} href={"https://go.nemtudo.me/golive-nemtudodiscord"} target="_blank">{t("common.discordGgNemtudo")}</Link></h2>
+          <h2 style={{ color: "#67c7ff", maxWidth: "500px" }}>{t("page.followMeOnTwitterTooI")} <Link style={{ color: "#00ff00" }} href={"https://go.nemtudo.me/golive-nemtudo-twitter"} target="_blank">{t("page.xComNemtudo")}</Link></h2>
         </>
         }
         {/* The form and the friends list. Three layouts, and the middle one is
@@ -448,10 +450,10 @@ export default function Home() {
           </div>
           <main className="w-full max-w-md rounded-2xl border border-black/10 bg-white p-8 shadow-sm dark:border-white/10 dark:bg-zinc-950">
             <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-              GoLive
+              {t("common.golive")}
             </h1>
             <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-              Compartilhe sua tela com quem estiver na mesma sala, sem cadastro.
+              {t("page.shareYourScreenWithWhoeverIs")}
             </p>
             {/* Wrapped so the two sit side by side and wrap together on a
               narrow screen — the download button renders nothing at all in
@@ -462,18 +464,18 @@ export default function Home() {
                 className="inline-flex items-center gap-1.5 rounded-lg border border-sky-300 px-3.5 py-2 text-sm font-medium text-sky-700 transition hover:border-sky-400 hover:bg-sky-100 dark:border-sky-700 dark:text-sky-300 dark:hover:border-sky-600 dark:hover:bg-sky-900"
               >
                 <GlobeIcon className="h-4 w-4" />
-                Ver salas públicas
+                {t("page.seePublicRooms")}
               </Link>
               {/* The same rooms, arranged by where their owners put them on the
                 globe instead of by headcount — see app/worldmap. Only ever public
                 ones, same as the list beside it. */}
-              <Tooltip content="Encontre salas no seu país, cidade ou bairro!">
+              <Tooltip content={t("page.findRoomsInYourCountryCity")}>
                 <Link
                   href="/worldmap"
                   className="inline-flex items-center gap-1.5 rounded-lg border border-sky-300 px-3.5 py-2 text-sm font-medium text-sky-700 transition hover:border-sky-400 hover:bg-sky-100 dark:border-sky-700 dark:text-sky-300 dark:hover:border-sky-600 dark:hover:bg-sky-900"
                 >
                   <MdOutlineMap className="h-4 w-4" />
-                  Ver mapa de salas
+                  {t("page.seeTheRoomMap")}
                 </Link>
               </Tooltip>
             </div>
@@ -481,27 +483,27 @@ export default function Home() {
               <div className="mt-8 flex flex-col items-start gap-2">
                 <p className="text-sm font-medium text-red-600 dark:text-red-400">
                   {state.bannedReason
-                    ? `Você foi banido do site: ${state.bannedReason}`
-                    : "Você foi temporariamente banido do site pelo AntiSpam. Duração: 1h."}
+                    ? t("common.youHaveBeenBannedFromThe", { bannedReason: state.bannedReason })
+                    : t("page.youHaveBeenTemporarilyBannedFrom")}
                 </p>
                 <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  Se você acredita que isso é um engano, abra um ticket em{" "}
+                  {t("common.ifYouThinkThisIsA")}{" "}
                   <a
                     href="https://discord.gg/nemtudo"
                     target="_blank"
                     className="font-medium text-blue-600 hover:text-blue-700 dark:text-blue-500 dark:hover:text-blue-400"
                   >
-                    discord.gg/nemtudo
+                    {t("common.discordGgNemtudo")}
                   </a>
                 </p>
               </div>
             ) : superseded ? (
               <div className="mt-8 flex flex-col items-start gap-2">
                 <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                  Essa sessão foi aberta em outra aba ou dispositivo.
+                  {t("common.thisSessionWasOpenedInAnother")}
                 </p>
                 <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  Só é possível ficar conectado com o mesmo nome em um lugar por vez.
+                  {t("common.youCanOnlyStayConnectedWith")}
                 </p>
                 <button
                   type="button"
@@ -515,12 +517,12 @@ export default function Home() {
                   }}
                   className={secondaryButtonClass}
                 >
-                  Usar esta aba
+                  {t("common.useThisTab")}
                 </button>
               </div>
             ) : restoring ? (
               <div className="mt-8 flex flex-col items-start gap-2">
-                <p className="text-sm text-sky-500 dark:text-zinc-400">Conectando...</p>
+                <p className="text-sm text-sky-500 dark:text-zinc-400">{t("common.connecting")}</p>
                 {stuckReconnecting && (
                   <>
                     <button
@@ -542,10 +544,10 @@ export default function Home() {
                       }}
                       className="rounded-lg border border-zinc-300 px-3.5 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
                     >
-                      Tentar novamente
+                      {t("common.tryAgain")}
                     </button>
                     <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                      Está demorando mais que o normal. Pode ser a sua conexão ou o servidor.
+                      {t("page.itIsTakingLongerThanUsual")}
                     </p>
                   </>
                 )}
@@ -563,7 +565,7 @@ export default function Home() {
               // JavaScript on the page is running at all, which is precisely the
               // situation it exists for.
               <div className="mt-8 flex h-24 flex-col items-start gap-2">
-                <p className="text-sm text-zinc-500 dark:text-zinc-400">Carregando...</p>
+                <p className="text-sm text-zinc-500 dark:text-zinc-400">{t("common.loading2")}</p>
                 {/* eslint-disable-next-line @next/next/no-html-link-for-pages --
                     A plain anchor on purpose. <Link> is client-side navigation,
                     which needs the very JavaScript that has failed to arrive in
@@ -571,7 +573,7 @@ export default function Home() {
                     control that does nothing. A real href does a full document
                     load with no script involved at all. */}
                 <a href="/" className={`reveal-when-stuck ${linkButtonClass}`}>
-                  Demorou demais — recarregar a página
+                  {t("page.itTookTooLongReloadThe")}
                 </a>
               </div>
             ) : oauthTicket ? (
@@ -613,8 +615,7 @@ export default function Home() {
                 {mode === "landing" && appShell && (
                   <div className="mt-8 flex flex-col gap-3">
                     <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                      No aplicativo é preciso ter uma conta. É rápido, e ela guarda seu nome, seus
-                      amigos e seu plano entre os aparelhos.
+                      {t("page.inTheAppYouNeedAn")}
                     </p>
                     {/* Signed in, but the signaling registration was refused —
                         which lands right back on this screen and, until this
@@ -636,26 +637,26 @@ export default function Home() {
                           className={`flex items-center gap-2 ${linkButtonClass}`}
                         >
                           {retryingIdentity && <ButtonSpinner />}
-                          {retryingIdentity ? "Entrando..." : "Tentar novamente"}
+                          {retryingIdentity ? t("common.joining") : t("common.tryAgain")}
                         </button>
                       </div>
                     )}
                     <button type="button" onClick={openCreateMode} className={primaryButtonClass}>
-                      Criar uma conta
+                      {t("common.createAnAccount")}
                     </button>
                     <button
                       type="button"
                       onClick={() => setMode("login")}
                       className={`${linkButtonClass} self-center`}
                     >
-                      Já tenho uma conta
+                      {t("common.iAlreadyHaveAnAccount")}
                     </button>
                   </div>
                 )}
                 {mode === "landing" && !appShell && (
                   <form onSubmit={handleGuestSubmit} className="mt-8 flex flex-col gap-3">
                     <label htmlFor="name" className={labelClass}>
-                      Seu nome
+                      {t("common.yourName")}
                     </label>
                     <div className="flex gap-2">
                       <input
@@ -664,7 +665,7 @@ export default function Home() {
                         value={nameInput}
                         onChange={(e) => setNameInput(e.target.value)}
                         maxLength={24}
-                        placeholder="Ex: Maria"
+                        placeholder={t("common.exMaria")}
                         className={`min-w-0 flex-1 ${inputClass}`}
                       />
                       <button
@@ -672,19 +673,19 @@ export default function Home() {
                         disabled={!nameInput.trim()}
                         className={`shrink-0 ${primaryButtonClass}`}
                       >
-                        Continuar
+                        {t("common.continue")}
                       </button>
                     </div>
                     {state.nameError && <p className="text-sm text-red-500">{state.nameError}</p>}
                     <button type="button" onClick={openCreateMode} className={secondaryButtonClass}>
-                      Criar uma conta
+                      {t("common.createAnAccount")}
                     </button>
                     <button
                       type="button"
                       onClick={() => setMode("login")}
                       className={`${linkButtonClass} self-center`}
                     >
-                      Já tenho uma conta
+                      {t("common.iAlreadyHaveAnAccount")}
                     </button>
                   </form>
                 )}
@@ -706,7 +707,7 @@ export default function Home() {
                   checkbox under the name field: the choice changes what the
                   form even asks for, so it belongs above the fields it
                   governs instead of below them. */}
-                <span className={labelClass}>Que tipo de sala?</span>
+                <span className={labelClass}>{t("page.whatKindOfRoom")}</span>
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
@@ -715,7 +716,7 @@ export default function Home() {
                     className={roomTabClass(roomMode === "public")}
                   >
                     <GlobeIcon className="h-4 w-4 shrink-0" />
-                    Pública
+                    {t("page.public")}
                   </button>
                   {/* Lands on "Entrar em sala" — someone who was handed a link
                     or a code is the common arrival here, and creating is the
@@ -727,7 +728,7 @@ export default function Home() {
                     className={roomTabClass(roomMode !== "public")}
                   >
                     <MdLock className="h-4 w-4 shrink-0" />
-                    Privada
+                    {t("page.private")}
                   </button>
                 </div>
 
@@ -742,7 +743,7 @@ export default function Home() {
                       aria-pressed={roomMode === "private-join"}
                       className={roomTabClass(roomMode === "private-join")}
                     >
-                      Entrar em sala
+                      {t("page.joinARoom")}
                     </button>
                     <button
                       type="button"
@@ -750,13 +751,13 @@ export default function Home() {
                       aria-pressed={roomMode === "private-create"}
                       className={roomTabClass(roomMode === "private-create")}
                     >
-                      Criar sala
+                      {t("page.createRoom")}
                     </button>
                   </div>
                 )}
 
                 <label htmlFor="room" className={labelClass}>
-                  Nome da sala
+                  {t("common.roomName")}
                 </label>
                 {/* One field, always. For "Entrar em sala" the code is just the
                   tail of what's typed here ("familia-123456") — the same
@@ -776,8 +777,8 @@ export default function Home() {
                   }
                   placeholder={
                     roomMode === "private-join"
-                      ? "Ex: familia-123456 (ou link)"
-                      : "Ex: reuniao-time (ou link)"
+                      ? t("page.exFamily123456OrLink")
+                      : t("page.exTeamMeetingOrLink")
                   }
                   className={inputClass}
                 />
@@ -786,19 +787,18 @@ export default function Home() {
                   old form had a parenthetical about the public list. */}
                 <p className="text-xs text-zinc-500 dark:text-zinc-400">
                   {roomMode === "public" ? (
-                    <>Aparece na lista de salas públicas.</>
+                    <>{t("page.itAppearsInThePublicRoom")}</>
                   ) : roomMode === "private-create" ? (
                     <>
-                      Geramos um código de {ROOM_CODE_LENGTH} dígitos e ele vira parte do link. Quem
-                      tiver o link entra; a sala não aparece na lista pública.
+                      {t("page.weGenerateACodeOf")} {ROOM_CODE_LENGTH} {t("page.digitsAndItBecomesPartOf")}
                     </>
                   ) : ENFORCE_NEW_ROOM_CODE_SYSTEM ? (
-                    <>Cole o nome com o código no fim, como no link que te mandaram.</>
+                    <>{t("page.pasteTheNameWithTheCode")}</>
                   ) : (
                     // While the code scheme isn't enforced, a room from before
                     // it exists has no code to type — so this can't read as if
                     // one were mandatory.
-                    <>Cole o nome da sala, com o código no fim se ela tiver um.</>
+                    <>{t("page.pasteTheRoomNameWithThe")}</>
                   )}
                 </p>
 
@@ -810,11 +810,11 @@ export default function Home() {
                 >
                   {(checkingRoom || navigating) && <ButtonSpinner />}
                   {roomMode === "private-create"
-                    ? "Criar sala privada"
+                    ? t("page.createPrivateRoom")
                     : roomMode === "private-join"
                       ? checkingRoom
-                        ? "Verificando..."
-                        : "Entrar na sala"
+                        ? t("common.checking")
+                        : t("common.joinTheRoom")
                       : // Public: entering and creating are the same click, so
                       // the label is the only thing that tells someone which
                       // of the two they're about to do. "Criar sala" is the
@@ -823,8 +823,8 @@ export default function Home() {
                       // promising "Entrar" before the lookup lands would walk
                       // that back a moment later on most names.
                       publicRoomExists === true
-                        ? "Entrar na sala"
-                        : "Criar sala"}
+                        ? t("common.joinTheRoom")
+                        : t("page.createRoom")}
                 </button>
               </form>
             )}
@@ -842,10 +842,10 @@ export default function Home() {
         <SocialLinks title={null} className="mt-6" />
         <p className="mt-4 flex gap-5 text-center text-xs text-zinc-400 dark:text-zinc-600" style={{ alignItems: "center" }}>
           <Link
-            href="/termos"
+            href="/terms"
             className="underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-300"
           >
-            Termos de uso
+            {t("common.termsOfUse")}
           </Link>
           <Link href={"https://go.nemtudo.me/square-link"} target="_blank">
             <img src={"https://cdn.squarecloud.app/assets/powered-by.svg"} style={{ width: "200px" }} />

@@ -3,6 +3,7 @@
 import { getAccountToken } from "./accountApi";
 import { getSignalingHttpBase } from "./roomsApi";
 import type { RoomThemeSpec } from "./roomThemes";
+import { formatLocale } from "@/lib/i18n";
 
 // The dashboard behind one theme, for the person who made it.
 //
@@ -83,5 +84,5 @@ export async function fetchThemeReport(
 
 /** "1,2 mil" rather than "1200" once a number stops being worth reading exactly. */
 export function formatPoints(value: number): string {
-  return value.toLocaleString("pt-BR");
+  return value.toLocaleString(formatLocale());
 }

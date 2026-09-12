@@ -1,4 +1,5 @@
-// A video someone added to the room from an external service — mirrors the
+
+import { translate } from "@/lib/i18n";// A video someone added to the room from an external service — mirrors the
 // server's RoomVideoSource (see server/signaling.ts), which is the authority
 // on all of it. Nothing here streams: every participant embeds the same
 // video themselves, and only this record travels, which is what makes the

@@ -75,6 +75,6 @@ export function useOpenPro(): (planId?: string | null) => void {
     }
     // The page reads the same thing off the query string (see ProPanel), so a
     // plan named here survives whichever of the two answers this gives.
-    router.push(planId ? `/pro?plano=${encodeURIComponent(planId)}` : "/pro");
+    router.push(planId ? `/pro?plan=${encodeURIComponent(planId)}` : "/pro");
   };
 }

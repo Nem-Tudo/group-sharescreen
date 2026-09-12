@@ -43,6 +43,8 @@ import {
   type AnyPermissionKey,
 } from "@/lib/groupPermissions";
 import { refreshGroup, useGroupDetail } from "@/lib/useGroups";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
 
 // The group settings' "Cargos" tab — Discord's roles. The list on the left,
 // highest first, with @everyone at the bottom; the one picked is edited on
@@ -78,10 +80,10 @@ const ROLE_COLORS = [
 ];
 
 const SECTIONS: { title: string; keys: readonly AnyPermissionKey[] }[] = [
-  { title: "Administração", keys: MANAGE_PERMISSION_KEYS },
-  { title: "Gerais", keys: GENERAL_PERMISSION_KEYS },
-  { title: "Salas de texto", keys: TEXT_PERMISSION_KEYS },
-  { title: "Salas de voz", keys: VOICE_PERMISSION_KEYS },
+  { get title() { return translate("common.administration"); }, keys: MANAGE_PERMISSION_KEYS },
+  { get title() { return translate("common.general2"); }, keys: GENERAL_PERMISSION_KEYS },
+  { get title() { return translate("groups.rolesTab.textRooms"); }, keys: TEXT_PERMISSION_KEYS },
+  { get title() { return translate("groups.rolesTab.voiceRooms"); }, keys: VOICE_PERMISSION_KEYS },
 ];
 
 /** A patch for one switch, in the shape the API merges. */
@@ -95,6 +97,7 @@ function mayGrant(detail: GroupDetail, key: AnyPermissionKey): boolean {
 }
 
 export function RolesTab({ groupId }: { groupId: string }) {
+  const t = useT();
   const { detail } = useGroupDetail(groupId);
   const [selected, setSelected] = useState<string>(EVERYONE);
   const [error, setError] = useState<string | null>(null);
@@ -138,8 +141,7 @@ export function RolesTab({ groupId }: { groupId: string }) {
   return (
     <div className="flex flex-col gap-3">
       <p className="text-sm text-zinc-600 dark:text-zinc-400">
-        Cargos dão permissões a mais para quem os tem. Quem tem vários cargos soma as permissões de todos. Você só pode
-        mexer nos cargos abaixo do seu mais alto — o dono está acima de todos.
+        {t("groups.rolesTab.rolesGiveExtraPermissionsToWhoever")}
       </p>
       {error && <p className="text-sm text-red-500">{error}</p>}
       <div className="grid gap-4 sm:grid-cols-[13rem_minmax(0,1fr)]">
@@ -152,7 +154,7 @@ export function RolesTab({ groupId }: { groupId: string }) {
               className={`${secondaryButton} flex items-center justify-center gap-1.5`}
             >
               <MdAdd className="h-4 w-4" />
-              Criar cargo
+              {t("groups.rolesTab.createRole")}
             </button>
           )}
           <ul className="flex flex-col gap-0.5">
@@ -176,7 +178,7 @@ export function RolesTab({ groupId }: { groupId: string }) {
                     />
                     <span className="min-w-0 flex-1 truncate">{role.name}</span>
                     {role.permissions.manage?.administrator && (
-                      <MdShield className="h-3.5 w-3.5 shrink-0 opacity-50" title="Administrador" />
+                      <MdShield className="h-3.5 w-3.5 shrink-0 opacity-50" title={t("common.administrator")} />
                     )}
                     {locked && canEdit && <MdLockOutline className="h-3.5 w-3.5 shrink-0 opacity-50" />}
                     <span className="shrink-0 text-xs tabular-nums text-zinc-400">{holders.get(role.id) ?? 0}</span>
@@ -185,8 +187,8 @@ export function RolesTab({ groupId }: { groupId: string }) {
                     <span className="flex shrink-0 flex-col">
                       <button
                         type="button"
-                        aria-label="Subir"
-                        title="Subir"
+                        aria-label={t("common.moveUp")}
+                        title={t("common.moveUp")}
                         disabled={index === 0 || roles[index - 1].position >= rank}
                         onClick={() => void move(index, -1)}
                         className="cursor-pointer rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 disabled:cursor-default disabled:opacity-30 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
@@ -195,8 +197,8 @@ export function RolesTab({ groupId }: { groupId: string }) {
                       </button>
                       <button
                         type="button"
-                        aria-label="Descer"
-                        title="Descer"
+                        aria-label={t("common.moveDown")}
+                        title={t("common.moveDown")}
                         disabled={index === roles.length - 1}
                         onClick={() => void move(index, 1)}
                         className="cursor-pointer rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 disabled:cursor-default disabled:opacity-30 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
@@ -316,6 +318,7 @@ function usePendingSwitches() {
 // ─── @everyone ────────────────────────────────────────────────────────────
 
 function EveryoneEditor({ detail, editable }: { detail: GroupDetail; editable: boolean }) {
+  const t = useT();
   const groupId = detail.group.id;
   const { pending, hold, release } = usePendingSwitches();
   const [error, setError] = useState<string | null>(null);
@@ -349,8 +352,7 @@ function EveryoneEditor({ detail, editable }: { detail: GroupDetail; editable: b
       <div>
         <p className="text-base font-semibold">@everyone</p>
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          O que todo mundo no grupo pode fazer, em todas as salas. Os cargos só somam a isso, e cada sala pode mudar
-          nas configurações dela (a engrenagem ao lado do nome).
+          {t("groups.rolesTab.whatEveryoneInTheGroupCan")}
         </p>
       </div>
       <PermissionSections
@@ -377,6 +379,7 @@ function RoleEditor({
   editable: boolean;
   onDeleted: () => void;
 }) {
+  const t = useT();
   const groupId = detail.group.id;
   const [name, setName] = useState(role.name);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -397,7 +400,7 @@ function RoleEditor({
     e.preventDefault();
     if (!name.trim() || name.trim() === role.name) return;
     setBusy(true);
-    if (await save({ name: name.trim() })) setMessage({ ok: true, text: "Salvo." });
+    if (await save({ name: name.trim() })) setMessage({ ok: true, text: t("common.saved2") });
     setBusy(false);
   }
 
@@ -437,13 +440,13 @@ function RoleEditor({
         <p className="flex items-center gap-1.5 rounded-lg bg-zinc-100 px-3 py-2 text-xs text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
           <MdLockOutline className="h-4 w-4 shrink-0" />
           {canManage(detail, "manageRoles")
-            ? "Este cargo está no mesmo nível ou acima do seu — só dá pra ver."
-            : "Você não tem permissão para gerenciar cargos."}
+            ? t("common.thisRoleIsAtTheSame")
+            : t("groups.rolesTab.youDoNotHavePermissionTo")}
         </p>
       )}
 
       <form onSubmit={rename} className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Nome do cargo</span>
+        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("groups.rolesTab.roleName")}</span>
         <div className="flex gap-2">
           <input
             value={name}
@@ -454,24 +457,24 @@ function RoleEditor({
           />
           {editable && (
             <button type="submit" disabled={busy || !name.trim() || name.trim() === role.name} className={`${primaryButton} shrink-0`}>
-              Salvar
+              {t("common.save")}
             </button>
           )}
         </div>
       </form>
 
       <div className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Cor</span>
+        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("common.color")}</span>
         <p className="text-xs text-zinc-500 dark:text-zinc-400">
-          O nome de quem tem o cargo aparece nessa cor — a do cargo mais alto que tiver uma.
+          {t("groups.rolesTab.theNameOfWhoeverHasThe")}
         </p>
         <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
             disabled={!editable}
             onClick={() => void setFlag({ color: null })}
-            aria-label="Sem cor"
-            title="Sem cor"
+            aria-label={t("groups.rolesTab.noColour")}
+            title={t("groups.rolesTab.noColour")}
             className={`flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border text-zinc-500 disabled:cursor-not-allowed ${
               color === null ? "border-zinc-950 ring-2 ring-zinc-950/20 dark:border-zinc-50" : "border-zinc-300 dark:border-zinc-700"
             }`}
@@ -493,7 +496,7 @@ function RoleEditor({
             />
           ))}
           <label
-            title="Outra cor"
+            title={t("groups.rolesTab.anotherColour")}
             className={`relative h-7 w-7 overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700 ${
               editable ? "cursor-pointer" : "cursor-not-allowed opacity-60"
             } ${color && !ROLE_COLORS.includes(color) ? "ring-2 ring-zinc-950 ring-offset-2 dark:ring-zinc-50 dark:ring-offset-zinc-950" : ""}`}
@@ -528,9 +531,9 @@ function RoleEditor({
             className="flex w-full cursor-pointer items-center justify-between gap-3 px-3 py-2.5 text-left transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent dark:hover:bg-zinc-900"
           >
             <span className="min-w-0">
-              <span className="block text-sm font-medium text-zinc-900 dark:text-zinc-100">Exibir separadamente</span>
+              <span className="block text-sm font-medium text-zinc-900 dark:text-zinc-100">{t("groups.rolesTab.displaySeparately")}</span>
               <span className="block text-xs text-zinc-500 dark:text-zinc-400">
-                Quem tem o cargo aparece numa seção própria na lista de membros.
+                {t("groups.rolesTab.whoeverHasTheRoleAppearsIn")}
               </span>
             </span>
             <TogglePill on={hoist} />
@@ -546,10 +549,10 @@ function RoleEditor({
           >
             <span className="min-w-0">
               <span className="block text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                Permitir que qualquer um @mencione este cargo
+                {t("groups.rolesTab.allowAnyoneToMentionThisRole")}
               </span>
               <span className="block text-xs text-zinc-500 dark:text-zinc-400">
-                Uma menção avisa todo mundo que tem o cargo. Quem pode mencionar @everyone menciona qualquer cargo.
+                {t("groups.rolesTab.aMentionNotifiesEveryoneWhoHas")}
               </span>
             </span>
             <TogglePill on={mentionable} />
@@ -569,17 +572,17 @@ function RoleEditor({
 
       {editable && (
         <div className="flex flex-col gap-2 rounded-lg border border-red-200 p-3 dark:border-red-900/60">
-          <p className="text-sm font-medium text-red-600 dark:text-red-400">Apagar cargo</p>
+          <p className="text-sm font-medium text-red-600 dark:text-red-400">{t("groups.rolesTab.deleteRole")}</p>
           <p className="text-xs text-zinc-500 dark:text-zinc-400">
-            Tira o cargo de todo mundo que o tem e das permissões das salas. Não dá pra desfazer.
+            {t("groups.rolesTab.removesTheRoleFromEveryoneWho")}
           </p>
           {confirmDelete ? (
             <div className="flex flex-wrap gap-2">
               <button type="button" disabled={busy} onClick={() => void remove()} className={dangerButton}>
-                Sim, apagar {role.name}
+                {t("common.yesDelete")} {role.name}
               </button>
               <button type="button" onClick={() => setConfirmDelete(false)} className={secondaryButton}>
-                Cancelar
+                {t("common.cancel")}
               </button>
             </div>
           ) : (
@@ -588,7 +591,7 @@ function RoleEditor({
               onClick={() => setConfirmDelete(true)}
               className={`${secondaryButton} self-start !border-red-300 !text-red-600 dark:!border-red-900 dark:!text-red-400`}
             >
-              Apagar cargo
+              {t("groups.rolesTab.deleteRole")}
             </button>
           )}
         </div>
@@ -599,6 +602,7 @@ function RoleEditor({
 
 /** Who holds a role — with a way to take it off them, and to hand it to somebody else. */
 function RoleHolders({ detail, role, editable }: { detail: GroupDetail; role: GroupRoleInfo; editable: boolean }) {
+  const t = useT();
   const groupId = detail.group.id;
   const members = useGroupMembers(groupId, membersRevalidateKey(detail));
   const [error, setError] = useState<string | null>(null);
@@ -621,7 +625,7 @@ function RoleHolders({ detail, role, editable }: { detail: GroupDetail; role: Gr
   return (
     <div className="flex flex-col gap-1.5">
       <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-        Membros com este cargo · {members ? holding.length : "…"}
+        {t("groups.rolesTab.membersWithThisRole")} {members ? holding.length : "…"}
       </p>
       {editable && others.length > 0 && (
         <select
@@ -632,7 +636,7 @@ function RoleHolders({ detail, role, editable }: { detail: GroupDetail; role: Gr
           }}
           className={inputClass}
         >
-          <option value="">Adicionar alguém…</option>
+          <option value="">{t("groups.rolesTab.addSomeone")}</option>
           {others.map((m) => (
             <option key={m.id} value={m.id}>
               {m.name}
@@ -641,7 +645,7 @@ function RoleHolders({ detail, role, editable }: { detail: GroupDetail; role: Gr
           ))}
         </select>
       )}
-      {members && holding.length === 0 && <p className="text-sm text-zinc-500">Ninguém tem este cargo ainda.</p>}
+      {members && holding.length === 0 && <p className="text-sm text-zinc-500">{t("groups.rolesTab.nobodyHasThisRoleYet")}</p>}
       <ul className="flex flex-col gap-0.5">
         {holding.map((m) => (
           <li key={m.id} className="flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-zinc-50 dark:hover:bg-zinc-900">
@@ -659,8 +663,8 @@ function RoleHolders({ detail, role, editable }: { detail: GroupDetail; role: Gr
                 type="button"
                 disabled={busy}
                 onClick={() => void change(m.id, false)}
-                aria-label={`Tirar o cargo de ${m.name}`}
-                title="Tirar o cargo"
+                aria-label={t("groups.rolesTab.removeNameSRole", { name: m.name })}
+                title={t("common.removeTheRole")}
                 className="cursor-pointer rounded-md p-1 text-zinc-400 hover:bg-zinc-100 hover:text-red-600 dark:hover:bg-zinc-800"
               >
                 <MdClose className="h-4 w-4" />

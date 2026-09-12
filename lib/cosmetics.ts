@@ -6,6 +6,7 @@
 
 import { getAccountToken } from "./accountApi";
 import { getSignalingHttpBase } from "./roomsApi";
+import { translate } from "@/lib/i18n";
 
 export type CosmeticProductType = "name_color" | "profile_color";
 
@@ -39,7 +40,7 @@ export async function fetchCosmeticsCatalog(): Promise<CosmeticsCatalogResponse>
   const res = await fetch(`${getSignalingHttpBase()}/cosmetics`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
-  if (!res.ok) throw new Error("Não foi possível carregar a loja.");
+  if (!res.ok) throw new Error(translate("cosmetics.couldNotLoadTheShop"));
   return (await res.json()) as CosmeticsCatalogResponse;
 }
 
@@ -52,12 +53,12 @@ export type PurchaseCosmeticResult = {
 
 export async function purchaseCosmetic(productId: string): Promise<PurchaseCosmeticResult> {
   const token = getAccountToken();
-  if (!token) throw new Error("Crie uma conta para comprar itens da loja.");
+  if (!token) throw new Error(translate("cosmetics.createAnAccountToBuyItems"));
   const res = await fetch(`${getSignalingHttpBase()}/cosmetics/${encodeURIComponent(productId)}/buy`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!res.ok) throw new Error(await parseErrorMessage(res, "Falha ao comprar o item."));
+  if (!res.ok) throw new Error(await parseErrorMessage(res, translate("common.couldNotBuyTheItem")));
   return (await res.json()) as PurchaseCosmeticResult;
 }
 
@@ -74,12 +75,12 @@ export async function equipCosmetic(
   targetType?: CosmeticProductType
 ): Promise<EquipCosmeticResult> {
   const token = getAccountToken();
-  if (!token) throw new Error("Crie uma conta para usar a loja.");
+  if (!token) throw new Error(translate("cosmetics.createAnAccountToUseThe"));
   const res = await fetch(`${getSignalingHttpBase()}/cosmetics/equip`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ productId, targetType }),
   });
-  if (!res.ok) throw new Error(await parseErrorMessage(res, "Falha ao equipar o item."));
+  if (!res.ok) throw new Error(await parseErrorMessage(res, translate("common.couldNotEquipTheItem")));
   return (await res.json()) as EquipCosmeticResult;
 }

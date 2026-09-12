@@ -9,16 +9,19 @@ import { useGuestToken } from "@/lib/guestToken";
 import { acceptInvite } from "@/lib/groupsApi";
 import { fetchInvitePreview, groupPath, type InvitePreview } from "@/lib/groupLinks";
 import { refreshGroups } from "@/lib/useGroups";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
 
 // The invite page: the join card (see GroupJoinCard), spending the invite.
 
 const STATE_TEXT: Record<Exclude<InvitePreview["invite"]["state"], "ok">, string> = {
-  expired: "Este convite expirou.",
-  revoked: "Este convite foi revogado.",
-  exhausted: "Este convite já foi usado o máximo de vezes.",
+  get expired() { return translate("groups.inviteClient.thisInviteHasExpired"); },
+  get revoked() { return translate("groups.inviteClient.thisInviteHasBeenRevoked"); },
+  get exhausted() { return translate("groups.inviteClient.thisInviteHasAlreadyBeenUsed"); },
 };
 
 export function InviteClient({ code, initialPreview }: { code: string; initialPreview: InvitePreview | null }) {
+  const t = useT();
   const router = useRouter();
   const accountToken = useAccountToken();
   const guestToken = useGuestToken();
@@ -39,12 +42,12 @@ export function InviteClient({ code, initialPreview }: { code: string; initialPr
   if (!preview) {
     body = (
       <>
-        <h1 className="text-xl font-semibold text-zinc-950 dark:text-zinc-50">Convite inválido</h1>
+        <h1 className="text-xl font-semibold text-zinc-950 dark:text-zinc-50">{t("common.invalidInvite")}</h1>
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
-          Esse link não leva a nenhum grupo. Confira se foi copiado inteiro, ou peça um novo.
+          {t("groups.inviteClient.thisLinkDoesNotLeadTo")}
         </p>
         <Link href="/" className="mt-2 text-sm font-medium underline underline-offset-4">
-          Ir para o início
+          {t("groups.inviteClient.goToHome")}
         </Link>
       </>
     );
@@ -54,13 +57,13 @@ export function InviteClient({ code, initialPreview }: { code: string; initialPr
       <GroupJoinCard
         group={group}
         member={member}
-        headline="Você foi convidado para entrar em"
-        acceptLabel="Aceitar convite"
+        headline={t("groups.inviteClient.youHaveBeenInvitedToJoin")}
+        acceptLabel={t("groups.inviteClient.acceptInvite")}
         blocked={
           group.suspended
-            ? "Este grupo foi suspenso pela administração do GoLive. Ninguém consegue entrar enquanto durar a suspensão."
+            ? t("groups.inviteClient.thisGroupHasBeenSuspendedBy")
             : invite.state !== "ok"
-              ? `${STATE_TEXT[invite.state]} Peça um novo convite a alguém do grupo.`
+              ? t("groups.inviteClient.valueAskSomeoneInTheGroup", { value: STATE_TEXT[invite.state] })
               : null
         }
         onOpen={() => router.push(groupPath(group.id))}

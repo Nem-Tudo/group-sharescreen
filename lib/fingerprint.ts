@@ -1,4 +1,5 @@
 "use client";
+import { translate } from "@/lib/i18n";
 
 // A stable-ish identifier for *this browser on this device*, derived from
 // traits it already exposes to every page. Sent with "register" (see
@@ -38,7 +39,7 @@ function canvasSignal(): string {
     ctx.fillStyle = "#f60";
     ctx.fillRect(10, 5, 80, 30);
     ctx.fillStyle = "#069";
-    ctx.fillText("GoLive fp \u{1F5A5}\u{1F4F7}", 12, 12);
+    ctx.fillText(translate("fingerprint.goliveFp"), 12, 12);
     ctx.strokeStyle = "rgba(0, 120, 200, 0.7)";
     ctx.arc(60, 30, 22, 0, Math.PI * 1.7);
     ctx.stroke();

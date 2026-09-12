@@ -16,6 +16,8 @@ import { useGuestToken } from "@/lib/guestToken";
 import { refreshGroup, refreshGroups, syncGroupsIdentity, useMyGroups } from "@/lib/useGroups";
 import { useSignalingSelector } from "@/lib/useSignalingSelector";
 import { selectName } from "@/lib/signalingSelectors";
+import { useT } from "@/lib/useI18n";
+import { translate, translateCount } from "@/lib/i18n";
 
 // The groups list beside the home page's room form — the counterpart of the
 // friends list on the other side of it (see HomeFriendsPanel), drawn the same
@@ -27,12 +29,12 @@ import { selectName } from "@/lib/signalingSelectors";
 // the home page is where they come back to. Nothing at all, and no request, for
 // somebody with no identity yet: the form next to this is still asking for one.
 
-const ROLE_LABEL = { owner: "Dono", admin: "Admin", member: "Membro" } as const;
+const ROLE_LABEL = { get owner() { return translate("common.owner"); }, get admin() { return translate("common.admin"); }, get member() { return translate("common.member"); } } as const;
 
 /** "4 membros · 1 online" — the line a group's card carries. Empty from an API that does not say. */
 function describeCounts(memberCount: number | undefined, onlineCount: number | undefined): string {
   if (memberCount === undefined) return "";
-  const members = `${memberCount} ${memberCount === 1 ? "membro" : "membros"}`;
+  const members = translateCount("common.memberCount", memberCount);
   return onlineCount ? `${members} · ${onlineCount} online` : members;
 }
 
@@ -59,6 +61,7 @@ let officialPreview: Promise<PublicGroupPreview | null> | null = null;
  * instead, whose join card is where a name is asked for.
  */
 function OfficialGroupCard({ onDone }: { onDone: () => void }) {
+  const t = useT();
   const router = useRouter();
   const { account } = useAuth();
   const registeredName = useSignalingSelector(selectName);
@@ -105,7 +108,7 @@ function OfficialGroupCard({ onDone }: { onDone: () => void }) {
 
   return (
     <div className="mt-1 border-t border-zinc-200 pt-1.5 dark:border-zinc-800">
-      <p className="px-2 pb-1 text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">Grupo oficial</p>
+      <p className="px-2 pb-1 text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">{t("groups.homeGroupsPanel.officialGroup")}</p>
       <div className="flex items-center gap-2.5 rounded-lg border border-zinc-200 bg-white px-2.5 py-2 dark:border-zinc-800 dark:bg-zinc-950">
         {preview === undefined ? (
           <>
@@ -137,7 +140,7 @@ function OfficialGroupCard({ onDone }: { onDone: () => void }) {
               onClick={() => void join()}
               className={`${CARD_ACTION} cursor-pointer bg-emerald-600 text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60`}
             >
-              {busy ? "Entrando…" : "Entrar"}
+              {busy ? t("common.joining2") : t("common.signIn")}
             </button>
           </>
         )}
@@ -167,6 +170,7 @@ function GroupsPanelBody({
   identity: string;
   isAccount: boolean;
 }) {
+  const t = useT();
   const { openPopup } = useNtPopups();
   const [addOpen, setAddOpen] = useState(false);
   // Somebody logging in on this page must not keep the guest's list on screen.
@@ -194,7 +198,7 @@ function GroupsPanelBody({
           <span className="mr-2 text-[10px] font-bold">
             <BetaMark />
           </span>
-          Grupos
+          {t("common.groups")}
           {groups && groups.length > 0 && (
             <span className="ml-1.5 font-normal text-zinc-400">{groups.length}</span>
           )}
@@ -207,7 +211,7 @@ function GroupsPanelBody({
             open={addOpen}
             onClose={() => setAddOpen(false)}
             placement="bottom-end"
-            tooltip="Adicionar grupo"
+            tooltip={t("groups.homeGroupsPanel.addGroup")}
             content={
               <div className="flex w-72 max-w-[calc(100vw-1.5rem)] flex-col gap-0.5 rounded-xl border border-zinc-200 bg-white p-1.5 shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
                 <button
@@ -221,9 +225,9 @@ function GroupsPanelBody({
                 >
                   <MdAdd className="h-4 w-4 shrink-0 text-emerald-600" />
                   <span className="min-w-0">
-                    <span className="block font-medium">Criar um grupo</span>
+                    <span className="block font-medium">{t("common.createAGroup")}</span>
                     <span className="block text-[11px] text-zinc-500 dark:text-zinc-400">
-                      {isAccount ? "Com salas de voz e de texto" : "Precisa de uma conta"}
+                      {isAccount ? t("groups.homeGroupsPanel.withVoiceAndTextRooms") : t("groups.homeGroupsPanel.needsAnAccount")}
                     </span>
                   </span>
                 </button>
@@ -237,9 +241,9 @@ function GroupsPanelBody({
                 >
                   <MdLink className="h-4 w-4 shrink-0 opacity-70" />
                   <span className="min-w-0">
-                    <span className="block font-medium">Entrar em um grupo</span>
+                    <span className="block font-medium">{t("common.joinAGroup")}</span>
                     <span className="block text-[11px] text-zinc-500 dark:text-zinc-400">
-                      Com o link de convite
+                      {t("groups.homeGroupsPanel.withTheInviteLink")}
                     </span>
                   </span>
                 </button>
@@ -250,7 +254,7 @@ function GroupsPanelBody({
             <button
               type="button"
               onClick={() => setAddOpen((open) => !open)}
-              aria-label="Adicionar grupo"
+              aria-label={t("groups.homeGroupsPanel.addGroup")}
               aria-expanded={addOpen}
               className={ICON_BUTTON}
             >
@@ -261,7 +265,7 @@ function GroupsPanelBody({
             href="/groups"
             className="text-xs font-medium text-zinc-500 underline underline-offset-2 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
           >
-            Ver todos
+            {t("common.seeAll")}
           </Link>
         </span>
       </div>
@@ -275,18 +279,18 @@ function GroupsPanelBody({
       )} */}
 
       {groups === null ? (
-        <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">Carregando…</p>
+        <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">{t("common.loading")}</p>
       ) : groups.length === 0 ? (
         <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-          Você ainda não está em nenhum grupo.{" "}
+          {t("common.youAreNotInAnyGroup")}{" "}
           <button
             type="button"
             onClick={() => void openPopup("create_group", { data: {} })}
             className="cursor-pointer font-medium underline underline-offset-2 hover:text-zinc-900 dark:hover:text-zinc-100"
           >
-            Criar um grupo
+            {t("common.createAGroup")}
           </button>{" "}
-          ou{" "}
+          {t("common.or")}{" "}
           <button
             type="button"
             onClick={() => void openPopup("join_group", { data: {} })}
@@ -324,7 +328,7 @@ function GroupsPanelBody({
                   />
                   <span className="block truncate text-xs text-zinc-500 dark:text-zinc-400">
                     {group.suspended ? (
-                      <span className="font-medium text-amber-600 dark:text-amber-400">Suspenso</span>
+                      <span className="font-medium text-amber-600 dark:text-amber-400">{t("common.suspended")}</span>
                     ) : (
                       [
                         ROLE_LABEL[group.role],
@@ -337,19 +341,19 @@ function GroupsPanelBody({
                   </span>
                 </span>
                 {group.suspended ? null : group.mentions > 0 ? (
-                  <Tooltip content={group.mentions === 1 ? "1 menção" : `${group.mentions} menções`}>
+                  <Tooltip content={group.mentions === 1 ? t("groups.homeGroupsPanel.n1Mention") : t("groups.homeGroupsPanel.mentionsMentions", { mentions: group.mentions })}>
                     <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-red-600 px-1.5 text-[11px] font-bold text-white">
                       {group.mentions > 99 ? "99+" : group.mentions}
                     </span>
                   </Tooltip>
                 ) : group.unread ? (
-                  <span className="h-2 w-2 shrink-0 rounded-full bg-zinc-950 dark:bg-zinc-50" aria-label="Mensagens novas" />
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-zinc-950 dark:bg-zinc-50" aria-label={t("common.newMessages")} />
                 ) : null}
                 <span
                   aria-hidden
                   className={`${CARD_ACTION} bg-zinc-950 text-white group-hover/card:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:group-hover/card:bg-zinc-200`}
                 >
-                  Abrir
+                  {t("groups.homeGroupsPanel.open")}
                 </span>
               </Link>
             </li>

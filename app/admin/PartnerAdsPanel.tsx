@@ -15,15 +15,18 @@ import type { PartnerClickRewardPlacement } from "@/lib/partner";
 import { useVideoDurationLabel } from "@/lib/useVideoDuration";
 import { BsCoin } from "react-icons/bs";
 import { MdContentCopy, MdOpenInNew } from "react-icons/md";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
+import { formatLocale } from "@/lib/i18n";
 
 const STATS_POLL_INTERVAL_MS = 3000;
 
 // One wording for the click-reward placement, shared by the form's select and
 // the badge on each ad in the list.
 const CLICK_REWARD_PLACEMENT_LABELS: Record<PartnerClickRewardPlacement, string> = {
-  both: "card e vídeo",
-  video: "só no popup do vídeo",
-  card: "só no card",
+  get both() { return translate("admin.partnerAdsPanel.cardAndVideo"); },
+  get video() { return translate("admin.partnerAdsPanel.videoPopupOnly"); },
+  get card() { return translate("admin.partnerAdsPanel.cardOnly"); },
 };
 
 const inputClass =
@@ -53,6 +56,7 @@ function toDatetimeLocalValue(ms: number): string {
 }
 
 export function PartnerAdsPanel() {
+  const t = useT();
   // undefined = still loading.
   const [partners, setPartners] = useState<AdminPartner[] | undefined>(undefined);
   const [stats, setStats] = useState<Record<string, PartnerStats>>({});
@@ -185,12 +189,12 @@ export function PartnerAdsPanel() {
     setError(null);
   }
 
-  // The public report lives on this same site (see app/anuncio/[token]), so
+  // The public report lives on this same site (see app/ad/[token]), so
   // the link is built from wherever the panel is open — localhost while
   // developing, the real domain in production — instead of a hardcoded host.
   function reportUrl(token: string): string {
     if (typeof window === "undefined") return "";
-    return `${window.location.origin}/anuncio/${encodeURIComponent(token)}`;
+    return `${window.location.origin}/ad/${encodeURIComponent(token)}`;
   }
 
   async function copyReportLink(p: AdminPartner) {
@@ -212,7 +216,7 @@ export function PartnerAdsPanel() {
     const trimmedRewardVideoUrl = rewardVideoUrl.trim();
     const trimmedClickRewardPoints = clickRewardPointsInput.trim();
     if (trimmedRewardVideoUrl && !rewardPointsInput.trim()) {
-      setError("Defina quantos pontos a recompensa em vídeo dá.");
+      setError(t("admin.partnerAdsPanel.setHowManyPointsTheVideo"));
       return;
     }
     setSending(true);
@@ -243,7 +247,7 @@ export function PartnerAdsPanel() {
       applyList(fresh);
       resetForm();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao salvar anúncio.");
+      setError(err instanceof Error ? err.message : t("admin.partnerAdsPanel.couldNotSaveTheAd"));
     } finally {
       setSending(false);
     }
@@ -257,7 +261,7 @@ export function PartnerAdsPanel() {
       applyList(fresh);
       if (editingId === id) resetForm();
     } catch {
-      setError("Falha ao remover anúncio.");
+      setError(t("admin.partnerAdsPanel.couldNotRemoveTheAd"));
     }
   }
 
@@ -265,7 +269,7 @@ export function PartnerAdsPanel() {
     setPercentError(null);
     const value = Number(emptyPercentInput);
     if (!Number.isFinite(value) || value < 0 || value > 100) {
-      setPercentError("Use um número entre 0 e 100.");
+      setPercentError(t("admin.partnerAdsPanel.useANumberBetween0And"));
       return;
     }
     setSavingPercent(true);
@@ -274,7 +278,7 @@ export function PartnerAdsPanel() {
       setEmptyPercent(saved);
       setEmptyPercentInput(String(saved));
     } catch {
-      setPercentError("Falha ao salvar a porcentagem.");
+      setPercentError(t("admin.partnerAdsPanel.couldNotSaveThePercentage"));
     } finally {
       setSavingPercent(false);
     }
@@ -284,15 +288,14 @@ export function PartnerAdsPanel() {
 
   return (
     <div className="mb-8 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-      <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Anúncios de parceiros</h2>
+      <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">{t("admin.partnerAdsPanel.partnerAds")}</h2>
       <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-        Gerencia os anúncios exibidos no card lateral das salas. Atualiza ao vivo via socket para quem já
-        está com a sala aberta; quem abre/recarrega a página busca via HTTP.
+        {t("admin.partnerAdsPanel.managesTheAdsShownOnThe")}
       </p>
 
       <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/40">
         <label htmlFor="partner-empty-percent" className={labelClass}>
-          Porcentagem de requests que retornam vazio (mostra o &quot;anuncie aqui&quot;)
+          {t("admin.partnerAdsPanel.percentageOfRequestsThatReturnEmpty")}
         </label>
         <div className="mt-1 flex items-center gap-2">
           <input
@@ -311,20 +314,19 @@ export function PartnerAdsPanel() {
             disabled={savingPercent || !needsSave}
             className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
           >
-            {savingPercent ? "Salvando..." : "Salvar"}
+            {savingPercent ? t("common.saving") : t("common.save")}
           </button>
         </div>
         {percentError && <p className="mt-1 text-xs text-red-500">{percentError}</p>}
         <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-          Só afeta quem abre/recarrega a página (busca via HTTP) — quem já está online nunca recebe vazio
-          por causa dessa regra quando um anúncio é criado, editado ou removido.
+          {t("admin.partnerAdsPanel.itOnlyAffectsWhoeverOpensOr")}
         </p>
       </div>
 
       {partners === undefined ? (
-        <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">Carregando anúncios...</p>
+        <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">{t("admin.partnerAdsPanel.loadingAds")}</p>
       ) : partners.length === 0 && mode === "closed" ? (
-        <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">Nenhum anúncio cadastrado.</p>
+        <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">{t("admin.partnerAdsPanel.noAdRegistered")}</p>
       ) : (
         <div className="mt-4 flex flex-col gap-2">
           {partners.map((p) => {
@@ -356,12 +358,12 @@ export function PartnerAdsPanel() {
                   </span>
                   {expired && (
                     <span className="shrink-0 rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-semibold uppercase text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
-                      Expirado
+                      {t("common.expired")}
                     </span>
                   )}
                   {p.rewardVideoUrl && p.rewardPoints && (
                     <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
-                      +{p.rewardPoints} pts por vídeo
+                      +{p.rewardPoints} {t("admin.partnerAdsPanel.ptsPerVideo")}
                     </span>
                   )}
                   {p.clickRewardPoints && (
@@ -376,14 +378,14 @@ export function PartnerAdsPanel() {
                     onClick={() => startEditing(p)}
                     className="shrink-0 font-semibold text-zinc-700 underline underline-offset-2 dark:text-zinc-300"
                   >
-                    Editar
+                    {t("common.edit")}
                   </button>
                   <button
                     type="button"
                     onClick={() => handleDelete(p.id)}
                     className="shrink-0 font-semibold text-red-600 underline underline-offset-2 dark:text-red-400"
                   >
-                    Remover
+                    {t("common.remove")}
                   </button>
                   {/* The advertiser's own link. Read-only and account-free:
                       whoever holds it watches this one ad's numbers live and
@@ -394,17 +396,17 @@ export function PartnerAdsPanel() {
                       <button
                         type="button"
                         onClick={() => copyReportLink(p)}
-                        title="Copiar o link público de estatísticas desse anúncio"
+                        title={t("admin.partnerAdsPanel.copyThisAdSPublicStats")}
                         className="flex items-center gap-1 font-semibold text-emerald-700 underline underline-offset-2 dark:text-emerald-400"
                       >
                         <MdContentCopy className="h-3 w-3" />
-                        {copiedId === p.id ? "Link copiado!" : "Copiar relatório"}
+                        {copiedId === p.id ? t("common.linkCopied") : t("admin.partnerAdsPanel.copyReport")}
                       </button>
                       <a
                         href={reportUrl(p.reportToken)}
                         target="_blank"
                         rel="noopener noreferrer"
-                        title="Abrir o relatório em uma nova aba"
+                        title={t("admin.partnerAdsPanel.openTheReportInANew")}
                         className="flex items-center gap-1 text-zinc-500 underline underline-offset-2 dark:text-zinc-400"
                       >
                         <MdOpenInNew className="h-3 w-3" />
@@ -414,46 +416,46 @@ export function PartnerAdsPanel() {
                   )}
                 </div>
                 <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-zinc-500 dark:text-zinc-400">
-                  <span>Expira: {p.expiresAt ? new Date(p.expiresAt).toLocaleString("pt-BR") : "nunca"}</span>
+                  <span>{t("admin.partnerAdsPanel.expires")} {p.expiresAt ? new Date(p.expiresAt).toLocaleString(formatLocale()) : "nunca"}</span>
                   <span>
-                    Impressões: <strong>{s.views}</strong>
+                    {t("admin.partnerAdsPanel.impressions")} <strong>{s.views}</strong>
                   </span>
                   <span>
-                    Sessões: <strong>{s.sessionViews ?? "—"}</strong>
+                    {t("admin.partnerAdsPanel.sessions")} <strong>{s.sessionViews ?? "—"}</strong>
                   </span>
                   <span>
-                    Pessoas únicas:{" "}
+                    {t("admin.partnerAdsPanel.uniquePeople")}{" "}
                     <strong>{s.uniqueViews ?? "—"}</strong>
                   </span>
                   <span>
-                    Cliques no card: <strong>{s.clicks}</strong>
+                    {t("admin.partnerAdsPanel.clicksOnTheCard")} <strong>{s.clicks}</strong>
                   </span>
                   <span>
-                    Cliques no vídeo: <strong>{clicksByVideo}</strong>
+                    {t("admin.partnerAdsPanel.clicksOnTheVideo")} <strong>{clicksByVideo}</strong>
                   </span>
                   <span>
-                    Cliques totais: <strong>{totalClicks}</strong>
+                    {t("admin.partnerAdsPanel.totalClicks")} <strong>{totalClicks}</strong>
                     {ctr ? ` (${ctr})` : ""}
                   </span>
                   <span>
-                    Minimizações: <strong>{s.minimizes ?? 0}</strong>
+                    {t("admin.partnerAdsPanel.minimises")} <strong>{s.minimizes ?? 0}</strong>
                   </span>
                   {p.rewardVideoUrl && p.rewardPoints && (
                     <>
                       <span>
-                        Apertos pra ver o vídeo: <strong>{s.rewardVideoOpens ?? 0}</strong>
+                        {t("admin.partnerAdsPanel.pressesToWatchTheVideo")} <strong>{s.rewardVideoOpens ?? 0}</strong>
                       </span>
                       <span>
-                        Assistiram inteiro: <strong>{s.rewardVideoCompletions ?? 0}</strong>
+                        {t("admin.partnerAdsPanel.watchedItFully")} <strong>{s.rewardVideoCompletions ?? 0}</strong>
                       </span>
                       <span>
-                        Resgataram os pontos: <strong>{s.rewardClaims ?? 0}</strong>
+                        {t("admin.partnerAdsPanel.redeemedThePoints")} <strong>{s.rewardClaims ?? 0}</strong>
                       </span>
                     </>
                   )}
                   {p.clickRewardPoints && (
                     <span>
-                      Resgataram os pontos por clique:{" "}
+                      {t("admin.partnerAdsPanel.redeemedThePointsPerClick")}{" "}
                       <strong>{s.clickRewardClaims ?? 0}</strong>
                     </span>
                   )}
@@ -470,17 +472,17 @@ export function PartnerAdsPanel() {
           onClick={() => setMode("create")}
           className="mt-4 rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
         >
-          + Novo anúncio
+          {t("admin.partnerAdsPanel.newAd")}
         </button>
       ) : (
         <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-3 border-t border-zinc-200 pt-4 dark:border-zinc-800">
           <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-500">
-            {mode === "edit" ? "Editando anúncio" : "Novo anúncio"}
+            {mode === "edit" ? t("admin.partnerAdsPanel.editingAd") : t("admin.partnerAdsPanel.newAd2")}
           </p>
 
           <div>
             <label htmlFor="partner-title" className={labelClass}>
-              Título
+              {t("common.title")}
             </label>
             <input
               id="partner-title"
@@ -493,7 +495,7 @@ export function PartnerAdsPanel() {
 
           <div>
             <label htmlFor="partner-description" className={labelClass}>
-              Descrição
+              {t("common.description")}
             </label>
             <textarea
               id="partner-description"
@@ -507,7 +509,7 @@ export function PartnerAdsPanel() {
 
           <div>
             <label htmlFor="partner-image" className={labelClass}>
-              URL da imagem (opcional)
+              {t("admin.partnerAdsPanel.imageUrlOptional")}
             </label>
             <input
               id="partner-image"
@@ -521,7 +523,7 @@ export function PartnerAdsPanel() {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <label htmlFor="partner-button-label" className={labelClass}>
-                Label do botão
+                {t("common.buttonLabel")}
               </label>
               <input
                 id="partner-button-label"
@@ -533,7 +535,7 @@ export function PartnerAdsPanel() {
             </div>
             <div>
               <label htmlFor="partner-button-url" className={labelClass}>
-                Link do botão
+                {t("common.buttonLink")}
               </label>
               <input
                 id="partner-button-url"
@@ -546,16 +548,14 @@ export function PartnerAdsPanel() {
           </div>
 
           <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/40">
-            <p className={labelClass}>Recompensa em vídeo (opcional)</p>
+            <p className={labelClass}>{t("admin.partnerAdsPanel.videoRewardOptional")}</p>
             <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-              Se preenchido, o card mostra um botão &quot;Ganhar X Pontos&quot; que abre esse vídeo em um
-              popup. Sem como avançar — só libera a recompensa quando o vídeo termina, e cada conta só
-              recebe uma vez.
+              {t("admin.partnerAdsPanel.ifFilledInTheCardShows")}
             </p>
             <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto]">
               <div>
                 <label htmlFor="partner-reward-video" className={labelClass}>
-                  Link do vídeo (mp4)
+                  {t("admin.partnerAdsPanel.videoLinkMp4")}
                 </label>
                 <input
                   id="partner-reward-video"
@@ -567,7 +567,7 @@ export function PartnerAdsPanel() {
               </div>
               <div>
                 <label htmlFor="partner-reward-points" className={labelClass}>
-                  Pontos ao assistir
+                  {t("admin.partnerAdsPanel.pointsForWatching")}
                 </label>
                 <input
                   id="partner-reward-points"
@@ -584,16 +584,14 @@ export function PartnerAdsPanel() {
           </div>
 
           <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/40">
-            <p className={labelClass}>Pontos por clique (opcional)</p>
+            <p className={labelClass}>{t("admin.partnerAdsPanel.pointsPerClickOptional")}</p>
             <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-              Se preenchido, o botão principal do anúncio vira &quot;[moeda] X {"{label}"}&quot; e dá
-              esses pontos na primeira vez que a pessoa clicar. O link abre normalmente de qualquer
-              jeito — cada conta recebe uma vez só, e isso é independente da recompensa em vídeo.
+              {t("admin.partnerAdsPanel.ifFilledInTheAdS")} {"{label}"}{t("admin.partnerAdsPanel.andGivesThosePointsTheFirst")}
             </p>
             <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-[auto_1fr]">
               <div>
                 <label htmlFor="partner-click-reward-points" className={labelClass}>
-                  Pontos ao clicar
+                  {t("admin.partnerAdsPanel.pointsForClicking")}
                 </label>
                 <input
                   id="partner-click-reward-points"
@@ -607,7 +605,7 @@ export function PartnerAdsPanel() {
               </div>
               <div>
                 <label htmlFor="partner-click-reward-placement" className={labelClass}>
-                  Onde vale
+                  {t("admin.partnerAdsPanel.whereItApplies")}
                 </label>
                 <select
                   id="partner-click-reward-placement"
@@ -629,7 +627,7 @@ export function PartnerAdsPanel() {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div>
               <label htmlFor="partner-bg" className={labelClass}>
-                Fundo
+                {t("common.background")}
               </label>
               <input
                 id="partner-bg"
@@ -641,7 +639,7 @@ export function PartnerAdsPanel() {
             </div>
             <div>
               <label htmlFor="partner-text" className={labelClass}>
-                Texto
+                {t("common.text")}
               </label>
               <input
                 id="partner-text"
@@ -653,7 +651,7 @@ export function PartnerAdsPanel() {
             </div>
             <div>
               <label htmlFor="partner-btn-bg" className={labelClass}>
-                Fundo do botão
+                {t("admin.partnerAdsPanel.buttonBackground")}
               </label>
               <input
                 id="partner-btn-bg"
@@ -665,7 +663,7 @@ export function PartnerAdsPanel() {
             </div>
             <div>
               <label htmlFor="partner-btn-text" className={labelClass}>
-                Texto do botão
+                {t("common.buttonText")}
               </label>
               <input
                 id="partner-btn-text"
@@ -680,7 +678,7 @@ export function PartnerAdsPanel() {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:items-end">
             <div>
               <label htmlFor="partner-weight" className={labelClass}>
-                Peso (distribuição entre anúncios ativos)
+                {t("admin.partnerAdsPanel.weightDistributionAmongActiveAds")}
               </label>
               <input
                 id="partner-weight"
@@ -702,14 +700,14 @@ export function PartnerAdsPanel() {
                 onChange={(e) => setNeverExpires(e.target.checked)}
                 className="h-4 w-4 rounded border-zinc-300 dark:border-zinc-700"
               />
-              Nunca expira
+              {t("common.neverExpires")}
             </label>
           </div>
 
           {!neverExpires && (
             <div>
               <label htmlFor="partner-expires" className={labelClass}>
-                Expira em
+                {t("admin.partnerAdsPanel.expiresOn")}
               </label>
               <input
                 id="partner-expires"
@@ -729,14 +727,14 @@ export function PartnerAdsPanel() {
               disabled={sending || !form.title.trim() || !form.buttonLabel.trim() || !form.buttonUrl.trim()}
               className="rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
             >
-              {sending ? "Salvando..." : mode === "edit" ? "Salvar edição" : "Criar anúncio"}
+              {sending ? t("common.saving") : mode === "edit" ? t("common.saveChanges") : t("admin.partnerAdsPanel.createAd")}
             </button>
             <button
               type="button"
               onClick={resetForm}
               className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-500 transition hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
             >
-              Cancelar
+              {t("common.cancel")}
             </button>
           </div>
 
@@ -746,23 +744,23 @@ export function PartnerAdsPanel() {
               behind a toggle. Mirrors PartnerCard's real markup; when the two
               drift, that one is the original. */}
           <div>
-            <p className={labelClass}>Preview</p>
+            <p className={labelClass}>{t("common.preview")}</p>
             <div
               className="mt-1 w-72 max-w-full overflow-hidden rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
               style={{ backgroundColor: form.backgroundColor, color: form.textColor }}
             >
               <div className="mb-2 flex items-center">
                 <span className="rounded-full bg-black/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide opacity-70 dark:bg-white/10">
-                  Patrocinado
+                  {t("common.sponsored")}
                 </span>
               </div>
               {form.imageUrl && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={form.imageUrl} alt="" className="mb-2 max-h-32 w-full rounded-lg object-cover" />
               )}
-              <p className="text-sm font-semibold">{form.title || "Título do anúncio"}</p>
+              <p className="text-sm font-semibold">{form.title || t("common.adTitle")}</p>
               <p className="mt-1 whitespace-pre-line text-xs opacity-80">
-                {form.description || "Descrição do anúncio"}
+                {form.description || t("common.adDescription")}
               </p>
               <div
                 className="mt-3 flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-center text-sm font-semibold"
@@ -774,7 +772,7 @@ export function PartnerAdsPanel() {
                     <span className="shrink-0 tabular-nums">{clickRewardPointsInput.trim()}</span>
                   </>
                 )}
-                <span className="truncate">{form.buttonLabel || "Botão"}</span>
+                <span className="truncate">{form.buttonLabel || t("common.button")}</span>
               </div>
               {previewRewardVideo && (
                 <div
@@ -783,7 +781,7 @@ export function PartnerAdsPanel() {
                   } gap-2 rounded-lg border border-current px-3 py-1.5 text-xs font-semibold opacity-90`}
                 >
                   <span className="flex min-w-0 items-center gap-1.5">
-                    Resgatar
+                    {t("common.redeem")}
                     <BsCoin className="h-3.5 w-3.5 shrink-0" />
                     {rewardPointsInput.trim()}
                   </span>
@@ -797,8 +795,7 @@ export function PartnerAdsPanel() {
             </div>
             {clickRewardPointsInput.trim() && clickRewardPlacement === "video" && (
               <p className="mt-1.5 w-72 max-w-full text-xs text-zinc-500 dark:text-zinc-400">
-                Os pontos por clique não aparecem aqui porque estão configurados só para o popup do
-                vídeo.
+                {t("admin.partnerAdsPanel.thePointsPerClickDoNot")}
               </p>
             )}
           </div>

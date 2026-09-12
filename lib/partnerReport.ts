@@ -1,7 +1,8 @@
 import { getSignalingHttpBase } from "./roomsApi";
+import { translate } from "@/lib/i18n";
 
 // The public, link-only report for one partner ad (see the API's
-// GET /partner-report/:token and app/anuncio/[token]). Everything here is
+// GET /partner-report/:token and app/ad/[token]). Everything here is
 // read-only and unauthenticated by design: the token in the URL is the whole
 // credential, so this module never touches the admin token — an advertiser
 // holding a link is not an admin and must not need to be one.
@@ -86,7 +87,7 @@ export type PartnerReport = {
  *  error a reader can actually act on (ask for a new link). */
 export class PartnerReportNotFoundError extends Error {
   constructor() {
-    super("Relatório não encontrado.");
+    super(translate("partnerReport.reportNotFound"));
     this.name = "PartnerReportNotFoundError";
   }
 }
@@ -104,7 +105,7 @@ export async function fetchPartnerReport(
     { signal, cache: "no-store" }
   );
   if (res.status === 404) throw new PartnerReportNotFoundError();
-  if (!res.ok) throw new Error(`Falha ao carregar o relatório (status ${res.status})`);
+  if (!res.ok) throw new Error(translate("partnerReport.couldNotLoadTheReportStatus", { status: res.status }));
   return (await res.json()) as PartnerReport;
 }
 

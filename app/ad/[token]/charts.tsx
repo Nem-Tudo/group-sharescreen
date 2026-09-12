@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { PartnerReportBucket } from "@/lib/partnerReport";
+import { useT } from "@/lib/useI18n";
+import { formatLocale } from "@/lib/i18n";
 
 // The report's drawing kit: a time-series chart, a funnel and a split bar,
 // all hand-rolled SVG.
@@ -13,11 +15,11 @@ import type { PartnerReportBucket } from "@/lib/partnerReport";
 // `.report-viz` block, which is also where light and dark are decided; nothing
 // here hardcodes a hex, so the two themes can never drift apart.
 
-const numberFormat = new Intl.NumberFormat("pt-BR");
-const compactFormat = new Intl.NumberFormat("pt-BR", { notation: "compact", maximumFractionDigits: 1 });
+const numberFormat = () => new Intl.NumberFormat(formatLocale());
+const compactFormat = () => new Intl.NumberFormat(formatLocale(), { notation: "compact", maximumFractionDigits: 1 });
 
 export function formatCount(value: number): string {
-  return numberFormat.format(value);
+  return numberFormat().format(value);
 }
 
 /** The chart's own width, measured rather than guessed.
@@ -55,26 +57,26 @@ function niceMax(value: number): number {
   return 10 * magnitude;
 }
 
-const hourLabel = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" });
-const dayLabel = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit" });
-const fullHourLabel = new Intl.DateTimeFormat("pt-BR", {
+const hourLabel = () => new Intl.DateTimeFormat(formatLocale(), { hour: "2-digit", minute: "2-digit" });
+const dayLabel = () => new Intl.DateTimeFormat(formatLocale(), { day: "2-digit", month: "2-digit" });
+const fullHourLabel = () => new Intl.DateTimeFormat(formatLocale(), {
   day: "2-digit",
   month: "2-digit",
   hour: "2-digit",
   minute: "2-digit",
 });
-const fullDayLabel = new Intl.DateTimeFormat("pt-BR", {
+const fullDayLabel = () => new Intl.DateTimeFormat(formatLocale(), {
   weekday: "short",
   day: "2-digit",
   month: "2-digit",
 });
 
 export function bucketAxisLabel(t: number, step: "hour" | "day"): string {
-  return step === "hour" ? hourLabel.format(t) : dayLabel.format(t);
+  return step === "hour" ? hourLabel().format(t) : dayLabel().format(t);
 }
 
 export function bucketFullLabel(t: number, step: "hour" | "day"): string {
-  return step === "hour" ? fullHourLabel.format(t) : fullDayLabel.format(t);
+  return step === "hour" ? fullHourLabel().format(t) : fullDayLabel().format(t);
 }
 
 /**
@@ -82,7 +84,7 @@ export function bucketFullLabel(t: number, step: "hour" | "day"): string {
  *
  * Generic rather than tied to the partner report, because the theme dashboard
  * draws the same shapes from a different set of numbers (see
- * app/tema/[id]). Everything here only ever reads `t` and whatever `valueOf`
+ * app/theme/[id]). Everything here only ever reads `t` and whatever `valueOf`
  * pulls out, so widening the type costs nothing and saves a second copy of a
  * chart — which is how two pages that should look identical stop looking
  * identical.
@@ -125,6 +127,7 @@ export function TimeSeriesChart<B extends ChartBucket>({
   step: "hour" | "day";
   emptyLabel: string;
 }) {
+  const t = useT();
   const [ref, width] = useMeasuredWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
 
@@ -176,7 +179,7 @@ export function TimeSeriesChart<B extends ChartBucket>({
           {series.label}
         </span>
         <span className="text-xs tabular-nums text-[var(--ink-2)]">
-          {formatCount(total)} no período
+          {formatCount(total)} {t("ad.charts.inThePeriod")}
         </span>
       </div>
 
@@ -217,7 +220,7 @@ export function TimeSeriesChart<B extends ChartBucket>({
                   textAnchor="end"
                   className="fill-[var(--ink-3)] text-[10px] tabular-nums"
                 >
-                  {compactFormat.format(yMax * fraction)}
+                  {compactFormat().format(yMax * fraction)}
                 </text>
               </g>
             );
@@ -314,6 +317,7 @@ export function FunnelChart({
 }: {
   stages: { label: string; value: number; hint?: string }[];
 }) {
+  const t = useT();
   const first = stages[0]?.value ?? 0;
   const max = Math.max(first, 1);
   // An ordinal ramp of one hue, darkest first — the stages are ordered, and

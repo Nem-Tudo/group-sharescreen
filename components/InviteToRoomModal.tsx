@@ -10,6 +10,7 @@ import { verifiedBadge } from "@/lib/entitlements";
 import { startCall } from "@/lib/callsApi";
 import { useSocialGraph } from "@/lib/useSocialGraph";
 import type { SocialUser } from "@/lib/socialApi";
+import { useT } from "@/lib/useI18n";
 
 // "Chamar um amigo para esta sala".
 //
@@ -22,7 +23,7 @@ import type { SocialUser } from "@/lib/socialApi";
 //
 // A dialog rather than a page, for the reason every dialog in a room exists:
 // navigating away from a room ends the call you are in. Which also rules out
-// the obvious alternative of sending people to /amigos to do this.
+// the obvious alternative of sending people to /friends to do this.
 //
 // Deliberately friends only, and deliberately not a search: pulling somebody
 // into a room with other people in it is a bigger thing than messaging them,
@@ -57,6 +58,7 @@ function FriendRow({
   error?: string;
   onCall: () => void;
 }) {
+  const t = useT();
   return (
     <li className="flex items-center gap-2.5 rounded-lg border border-zinc-200 bg-white px-2.5 py-2 dark:border-zinc-800 dark:bg-zinc-950">
       <UserAvatar
@@ -88,18 +90,18 @@ function FriendRow({
         // greyed-out button invites a click to find out why. A plain label
         // says the thing that is actually true.
         <span className="shrink-0 rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">
-          Já está aqui
+          {t("inviteToRoomModal.alreadyHere")}
         </span>
       ) : (
         <button
           type="button"
           disabled={state !== "idle"}
           onClick={onCall}
-          aria-label={`Chamar ${user.displayName} para a sala`}
+          aria-label={t("inviteToRoomModal.callDisplaynameToTheRoom", { displayName: user.displayName })}
           className={`${ACTION} border border-emerald-600/40 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-500/40 dark:text-emerald-400 dark:hover:bg-emerald-950/40`}
         >
           {state === "calling" ? <ButtonSpinner /> : <MdCall className="h-4 w-4" />}
-          {state === "called" ? "Chamando…" : "Chamar"}
+          {state === "called" ? t("inviteToRoomModal.calling") : t("inviteToRoomModal.call")}
         </button>
       )}
     </li>
@@ -122,6 +124,7 @@ export function InviteToRoomModal({
   presentUserIds: Set<string>;
   onClose: () => void;
 }) {
+  const t = useT();
   const { graph } = useSocialGraph();
   const [query, setQuery] = useState("");
   // Per person, because several can be rung one after another without the
@@ -189,7 +192,7 @@ export function InviteToRoomModal({
       className="flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-dashed border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900"
     >
       <MdPersonAdd className="h-4 w-4 shrink-0" />
-      Adicionar amigos
+      {t("inviteToRoomModal.addFriends")}
     </button>
   );
 
@@ -212,22 +215,22 @@ export function InviteToRoomModal({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Chamar amigo para a sala"
+        aria-label={t("inviteToRoomModal.callAFriendToTheRoom")}
         className="flex max-h-[80vh] w-full max-w-md flex-col rounded-2xl border border-black/10 bg-white p-6 shadow-xl dark:border-white/10 dark:bg-zinc-950"
       >
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-              Chamar para a sala
+              {t("inviteToRoomModal.callToTheRoom")}
             </h2>
             <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-              O telefone deles toca e, ao atender, entram aqui.
+              {t("inviteToRoomModal.theirPhoneRingsAndWhenThey")}
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Fechar"
+            aria-label={t("common.close")}
             className="cursor-pointer rounded-lg p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-900 dark:hover:text-zinc-200"
           >
             <MdClose className="h-5 w-5" />
@@ -241,8 +244,8 @@ export function InviteToRoomModal({
               autoFocus
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Filtrar amigos"
-              aria-label="Filtrar amigos"
+              placeholder={t("inviteToRoomModal.filterFriends")}
+              aria-label={t("inviteToRoomModal.filterFriends")}
               className="w-full rounded-lg border border-zinc-300 bg-white py-2 pl-9 pr-3 text-sm text-zinc-950 outline-none transition focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
             />
           </div>
@@ -251,14 +254,13 @@ export function InviteToRoomModal({
         {friends.length === 0 ? (
           <div className="mt-6 flex flex-col gap-3">
             <p className="text-sm text-zinc-500 dark:text-zinc-400">
-              Você ainda não tem amigos para chamar. Adicione alguém — ou mande o
-              link desta sala, que funciona para qualquer pessoa.
+              {t("inviteToRoomModal.youDoNotHaveAnyFriends")}
             </p>
             {addButton}
           </div>
         ) : shown.length === 0 ? (
           <p className="mt-6 text-sm text-zinc-500 dark:text-zinc-400">
-            Nenhum amigo com esse nome.
+            {t("inviteToRoomModal.noFriendWithThatName")}
           </p>
         ) : (
           <ul className="mt-4 flex flex-col gap-1.5 overflow-y-auto">
@@ -283,7 +285,7 @@ export function InviteToRoomModal({
             <p className="text-center text-[11px] text-zinc-500 dark:text-zinc-400">
               {waiting > 0 &&
                 `${waiting} ${waiting === 1 ? "pedido aguardando" : "pedidos aguardando"} resposta. `}
-              Novos amigos aparecem aqui quando aceitarem o pedido.
+              {t("inviteToRoomModal.newFriendsAppearHereWhenThey")}
             </p>
           </div>
         )}

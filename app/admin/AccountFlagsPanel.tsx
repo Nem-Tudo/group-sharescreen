@@ -6,6 +6,7 @@ import {
   setAccountFlags,
   type AdminAccountHit,
 } from "@/lib/adminApi";
+import { useT } from "@/lib/useI18n";
 
 // Editing what an account is allowed to be.
 //
@@ -37,6 +38,7 @@ const KNOWN_FLAGS = [
 const RESTRICTED = ["ADMIN", "ADMIN_MASTER"];
 
 export function AccountFlagsPanel() {
+  const t = useT();
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<AdminAccountHit[]>([]);
   const [canEditAdminFlags, setCanEditAdminFlags] = useState(false);
@@ -94,9 +96,9 @@ export function AccountFlagsPanel() {
       setHits((current) =>
         current.map((hit) => (hit.id === selected.id ? { ...hit, flags: saved } : hit))
       );
-      setDone("Flags salvas.");
+      setDone(t("common.flagsSaved"));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao salvar.");
+      setError(err instanceof Error ? err.message : t("common.couldNotSave"));
     } finally {
       setBusy(false);
     }
@@ -107,12 +109,12 @@ export function AccountFlagsPanel() {
 
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-      <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Flags da conta</h2>
+      <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">{t("admin.accountFlagsPanel.accountFlags")}</h2>
       <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-        Procure alguém e edite as flags separadas por vírgula.{" "}
+        {t("admin.accountFlagsPanel.findSomeoneAndEditTheFlags")}{" "}
         {canEditAdminFlags
-          ? "Como ADMIN_MASTER, você pode alterar qualquer flag, inclusive ADMIN e ADMIN_MASTER."
-          : "ADMIN e ADMIN_MASTER só podem ser alteradas por um ADMIN_MASTER — dar ou tirar."}
+          ? t("admin.accountFlagsPanel.asAdminMasterYouCanChange")
+          : t("admin.accountFlagsPanel.adminAndAdminMasterCanOnly")}
       </p>
 
       <div className="mt-3 flex flex-col gap-3">
@@ -121,7 +123,7 @@ export function AccountFlagsPanel() {
             htmlFor="flags-search"
             className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400"
           >
-            Pessoa
+            {t("common.person")}
           </label>
           <input
             id="flags-search"
@@ -130,7 +132,7 @@ export function AccountFlagsPanel() {
               setSelected(null);
               setQuery(e.target.value);
             }}
-            placeholder="Nome ou @usuário"
+            placeholder={t("common.nameOrUsername")}
             className={inputClass}
           />
           {!selected && hits.length > 0 && (
@@ -155,7 +157,7 @@ export function AccountFlagsPanel() {
             </ul>
           )}
           {!selected && query.trim().length >= 2 && hits.length === 0 && (
-            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Ninguém encontrado.</p>
+            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t("common.nobodyFound")}</p>
           )}
         </div>
 
@@ -165,26 +167,26 @@ export function AccountFlagsPanel() {
               htmlFor="flags-value"
               className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400"
             >
-              Flags
+              {t("admin.accountFlagsPanel.flags")}
             </label>
             <input
               id="flags-value"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              placeholder="ADMIN,VERIFIED"
+              placeholder={t("admin.accountFlagsPanel.adminVerified")}
               spellCheck={false}
               autoCapitalize="characters"
               className={`${inputClass} font-mono`}
             />
             <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-              Conhecidas: {KNOWN_FLAGS.join(", ")}.{" "}
-              {!canEditAdminFlags && `Você não pode mexer em ${RESTRICTED.join(" nem ")}.`}
+              {t("admin.accountFlagsPanel.known")} {KNOWN_FLAGS.join(", ")}.{" "}
+              {!canEditAdminFlags && t("admin.accountFlagsPanel.youCannotTouchValue", { value: RESTRICTED.join(" nem ") })}
             </p>
             <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-600">
               {/* Said plainly because the field would otherwise seem to be
                   missing one: PRO is not stored, it is derived from a paying
                   subscription on every read (see the API's toPublicAccount). */}
-              PRO não aparece aqui: ela é derivada da assinatura ativa, não guardada na conta.
+              {t("admin.accountFlagsPanel.proDoesNotAppearHereIt")}
             </p>
 
             <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -194,7 +196,7 @@ export function AccountFlagsPanel() {
                 disabled={busy || draft === selected.flags.join(",")}
                 className="rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
               >
-                {busy ? "Salvando..." : "Salvar"}
+                {busy ? t("common.saving") : t("common.save")}
               </button>
               <button
                 type="button"
@@ -202,7 +204,7 @@ export function AccountFlagsPanel() {
                 disabled={busy || draft === selected.flags.join(",")}
                 className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
               >
-                Desfazer
+                {t("common.undo")}
               </button>
               {done && (
                 <span className="text-sm text-emerald-600 dark:text-emerald-500">{done}</span>

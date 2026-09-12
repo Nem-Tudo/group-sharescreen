@@ -25,6 +25,7 @@ import {
   type TopologyPlan,
 } from "./topologyPlanner";
 import { encodeMpxs, type QualityTier } from "./videoQuality";
+import { translate } from "@/lib/i18n";
 
 export interface PeerCapacity {
   peerId: string;
@@ -386,9 +387,9 @@ export function useMeshTopology(
     lastParents = parentsOf(plan);
     const reason =
       plan.depth > 1
-        ? `Sua conexão não alcança ${viewers.length} pessoas sozinha — ${plan.relays.length} participante(s) estão ajudando a retransmitir.`
+        ? translate("useMeshTopology.yourConnectionCannotReachLengthPeople", { length: viewers.length, length2: plan.relays.length })
         : plan.globalDowngrade > 0
-          ? "Qualidade reduzida para caber na sua conexão."
+          ? translate("useMeshTopology.qualityReducedToFitYourConnection")
           : null;
       setAdvice({ directMeshFits: false, plan, reason });
     };

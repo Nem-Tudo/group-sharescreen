@@ -4,6 +4,7 @@ import Link from "next/link";
 import { UserProfileCard } from "@/components/UserProfileCard";
 import { useProfileSongAutoplay } from "@/lib/profileSong";
 import { AdsterraNative } from "@/components/AdsterraNative";
+import { useT } from "@/lib/useI18n";
 
 // The standalone profile page. Everything that is actually *the profile* now
 // lives in components/UserProfileCard, which the room's dialog renders too —
@@ -11,6 +12,7 @@ import { AdsterraNative } from "@/components/AdsterraNative";
 // back out. Before that split, opening a profile from a room meant a new tab
 // showing this page, and the two would have drifted the moment either changed.
 export function UserProfileClient({ id }: { id: string }) {
+  const t = useT();
   // The listener's own setting (see lib/profileSong). Read through a store
   // rather than an effect so the first render already has the answer — a
   // song must not start while the page is still deciding whether it may.
@@ -23,7 +25,7 @@ export function UserProfileClient({ id }: { id: string }) {
           href="/"
           className="text-sm font-medium text-zinc-500 underline underline-offset-2 hover:text-zinc-900 dark:hover:text-zinc-100"
         >
-          ← Voltar para o GoLive
+          {t("common.backToGolive")}
         </Link>
         <div className="mt-4">
           {/* Autoplay only here: this page is somebody opening a profile on

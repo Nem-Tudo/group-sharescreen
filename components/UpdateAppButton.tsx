@@ -8,6 +8,7 @@ import { useSignalingSelector } from "@/lib/useSignalingSelector";
 import { selectDesktopUpdateSeq } from "@/lib/signalingSelectors";
 import { signalingClient } from "@/lib/signalingClient";
 import { trackEvent } from "@/lib/analytics";
+import { useT } from "@/lib/useI18n";
 
 // "A new version is ready — press when you feel like it."
 //
@@ -22,6 +23,7 @@ import { trackEvent } from "@/lib/analytics";
 // so it is in any desktop build older than the one that added these methods,
 // which is why each is called defensively rather than assumed present.
 export function UpdateAppButton() {
+  const t = useT();
   const [version, setVersion] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
   // The admin panel's "lançar atualização" broadcast, counted (see
@@ -87,14 +89,14 @@ export function UpdateAppButton() {
 
   return (
     <Tooltip
-      content={installing ? "Reiniciando…" : `Uma nova atualização está pronta! (${version})`}
+      content={installing ? t("updateAppButton.restarting") : t("updateAppButton.aNewUpdateIsReadyVersion", { version })}
       placement="bottom"
     >
       <button
         type="button"
         onClick={handleInstall}
         disabled={installing}
-        aria-label="Uma nova atualização está pronta!"
+        aria-label={t("updateAppButton.aNewUpdateIsReady")}
         className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-600 text-white shadow-lg transition hover:bg-emerald-500 disabled:opacity-70 dark:bg-emerald-500 dark:hover:bg-emerald-400"
       >
         <DownloadIcon className="h-5 w-5" />

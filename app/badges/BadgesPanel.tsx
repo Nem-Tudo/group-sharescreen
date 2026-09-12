@@ -3,6 +3,7 @@
 import { MdCheck } from "react-icons/md";
 import { useAuth } from "@/lib/AuthContext";
 import { getUserBadges, useBadgesCatalog, type BadgeDefinition } from "@/lib/badges";
+import { useT } from "@/lib/useI18n";
 
 // What every badge is and how somebody ends up with one.
 //
@@ -13,6 +14,7 @@ import { getUserBadges, useBadgesCatalog, type BadgeDefinition } from "@/lib/bad
 // looking like itself without a deploy.
 
 function BadgeCard({ badge, owned }: { badge: BadgeDefinition; owned: boolean }) {
+  const t = useT();
   return (
     <li
       className={`group relative flex flex-col gap-3 rounded-2xl border bg-white p-5 transition hover:-translate-y-0.5 hover:shadow-lg dark:bg-zinc-950 ${
@@ -22,7 +24,7 @@ function BadgeCard({ badge, owned }: { badge: BadgeDefinition; owned: boolean })
       {owned && (
         <span className="absolute top-4 right-4 flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
           <MdCheck className="h-3 w-3" />
-          Você tem
+          {t("badges.badgesPanel.youHave")}
         </span>
       )}
 
@@ -50,6 +52,7 @@ function BadgeCard({ badge, owned }: { badge: BadgeDefinition; owned: boolean })
 }
 
 export function BadgesPanel() {
+  const t = useT();
   const badges = useBadgesCatalog();
   const { account } = useAuth();
   // The same function the profile uses, so this page and a profile can never
@@ -61,16 +64,16 @@ export function BadgesPanel() {
     <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-12 sm:py-16">
       <header className="flex flex-col gap-3">
         <h1 className="text-3xl font-semibold tracking-tight text-zinc-950 sm:text-4xl dark:text-zinc-50">
-          Badges
+          {t("common.badges")}
         </h1>
         <p className="max-w-2xl text-base leading-relaxed text-zinc-600 dark:text-zinc-400">
-          Marcas que aparecem no perfil de quem as tem. Badges são diferentes de qualquer outra coisa, <b>elas são especiais.</b> Algumas fáceis de obter, outras quase impossíveis. Se alguém tem uma badge, essa pessoa fica marcada pra sempre como diferente de todas as outras.
+          {t("badges.badgesPanel.marksThatAppearOnTheProfile")} <b>{t("badges.badgesPanel.theyAreSpecial")}</b> {t("badges.badgesPanel.someAreEasyToGetOthers")}
         </p>
         {account && badges.length > 0 && (
           <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
-            Você tem{" "}
+            {t("badges.badgesPanel.youHave")}{" "}
             <span className="text-zinc-950 dark:text-zinc-50">
-              {ownedIds.size} de {badges.length}
+              {ownedIds.size} {t("common.ofWord")} {badges.length}
             </span>
             .
           </p>
@@ -81,7 +84,7 @@ export function BadgesPanel() {
         // The catalogue is fetched, so an empty list means it has not arrived
         // yet — never "there are no badges", which would be a claim this page
         // has no way to make.
-        <p className="mt-10 text-sm text-zinc-500 dark:text-zinc-400">Carregando as badges…</p>
+        <p className="mt-10 text-sm text-zinc-500 dark:text-zinc-400">{t("badges.badgesPanel.loadingTheBadges")}</p>
       ) : (
         <ul className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {badges.map((badge) => (

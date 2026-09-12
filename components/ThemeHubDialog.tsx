@@ -41,6 +41,9 @@ import {
   subscribeWornOverride,
   type RoomTheme,
 } from "@/lib/roomThemes";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
+import { formatLocale } from "@/lib/i18n";
 
 // The theme button's home: three doors, all of them visible.
 //
@@ -59,9 +62,9 @@ const TABS: { id: TabId; label: string; feature?: Feature }[] = [
   // No feature at all: wearing a published theme is free to any account, and
   // that is the deal the workshop offers (see the API's entitlement list,
   // where it deliberately has no name).
-  { id: "workshop", label: "Descobrir" },
-  { id: "create", label: "Criar tema", feature: "room_theme" },
-  { id: "publish", label: "Publicar tema", feature: "room_theme_publish" },
+  { id: "workshop", get label() { return translate("common.discover"); } },
+  { id: "create", get label() { return translate("common.createTheme"); }, feature: "room_theme" },
+  { id: "publish", get label() { return translate("themeHubDialog.publishTheme"); }, feature: "room_theme_publish" },
 ];
 
 /**
@@ -81,6 +84,7 @@ function LockedPanel({
   /** Closes this popup on the way to the plan. See the editor's leaveForPro. */
   onLeave: () => void;
 }) {
+  const t = useT();
   const mark = planIcon(tier === "premium_max" ? "gold_verified" : "blue_verified");
   const openPro = useOpenPro();
   // The plan this rung names, so the panel opens on the card it is about
@@ -106,7 +110,7 @@ function LockedPanel({
         className="flex cursor-pointer items-center gap-1.5 text-sm font-semibold text-zinc-900 underline-offset-4 transition hover:underline dark:text-zinc-100"
       >
         <mark.Icon className={`h-4 w-4 shrink-0 ${mark.className}`} />
-        Disponível no {TIER_NAMES[tier]}
+        {t("themeHubDialog.availableOn")} {TIER_NAMES[tier]}
       </button>
       <p className="max-w-xs text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">{what}</p>
       {/* A button rather than a link to /pro, and that matters here: this opens
@@ -117,7 +121,7 @@ function LockedPanel({
         onClick={leave}
         className="rounded-lg bg-zinc-950 px-4 py-2 text-xs font-semibold text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
       >
-        Conhecer o {TIER_NAMES[tier]}
+        {t("themeHubDialog.findOutAbout")} {TIER_NAMES[tier]}
       </button>
     </div>
   );
@@ -142,6 +146,7 @@ function ThemeRow({
   onBuy: () => void;
   onLike: () => void;
 }) {
+  const t = useT();
   const { palette, accent } = theme.spec;
   return (
     <li className="flex flex-wrap items-center gap-2.5 rounded-lg border border-zinc-200 px-2.5 py-2 dark:border-zinc-800">
@@ -160,7 +165,7 @@ function ThemeRow({
           {theme.name}
         </span>
         <span className="flex items-center gap-1.5 truncate text-[11px] text-zinc-500 dark:text-zinc-400">
-          {isDarkTheme(theme.spec) ? "escuro" : "claro"}
+          {isDarkTheme(theme.spec) ? t("common.dark") : t("common.light")}
           {onEdit && !theme.published ? " · privado" : ""}
           {!onEdit && theme.author ? ` · ${theme.author.displayName}` : ""}
           <span className="flex items-center gap-0.5">
@@ -170,7 +175,7 @@ function ThemeRow({
           {theme.price > 0 && (
             <span className="flex items-center gap-0.5 text-amber-600 dark:text-amber-400">
               <BsCoin className="h-3 w-3 shrink-0" />
-              {theme.price.toLocaleString("pt-BR")}
+              {theme.price.toLocaleString(formatLocale())}
             </span>
           )}
         </span>
@@ -191,7 +196,7 @@ function ThemeRow({
       {theme.published && (
         <CopyButton
           value={themeLink(theme.id)}
-          label="Copiar link do tema"
+          label={t("themeHubDialog.copyTheThemeSLink")}
           compact
           className="flex shrink-0 items-center rounded-lg px-2 py-1.5 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
         />
@@ -200,7 +205,7 @@ function ThemeRow({
         <button
           type="button"
           onClick={onLike}
-          aria-label={theme.liked ? "Remover curtida" : "Curtir tema"}
+          aria-label={theme.liked ? t("common.removeLike") : t("common.likeTheme")}
           aria-pressed={theme.liked}
           className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-zinc-500 transition hover:bg-zinc-100 hover:text-rose-500 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-900"
         >
@@ -218,7 +223,7 @@ function ThemeRow({
           onClick={onEdit}
           className="shrink-0 rounded-lg border border-zinc-300 px-2 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
         >
-          Editar
+          {t("common.edit")}
         </button>
       )}
       {/* One verb, and which one is a fact the server sends (`owned`): a price
@@ -235,7 +240,7 @@ function ThemeRow({
               : "bg-zinc-950 text-white hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
           }`}
         >
-          {worn ? "Remover" : "Usar"}
+          {worn ? t("common.remove") : t("themeHubDialog.use")}
         </button>
       ) : (
         <button
@@ -245,7 +250,7 @@ function ThemeRow({
           className="flex shrink-0 items-center gap-1 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-600 disabled:opacity-60"
         >
           <BsCoin className="h-3.5 w-3.5 shrink-0" />
-          {theme.price.toLocaleString("pt-BR")}
+          {theme.price.toLocaleString(formatLocale())}
         </button>
       )}
     </li>
@@ -253,6 +258,7 @@ function ThemeRow({
 }
 
 export function ThemeHubDialog({ closePopup }: { closePopup: (hasAction?: boolean) => void }) {
+  const t = useT();
   const { account, refresh } = useAuth();
   const { openPopup } = useNtPopups();
   const [tab, setTab] = useState<TabId>("workshop");
@@ -395,11 +401,11 @@ export function ThemeHubDialog({ closePopup }: { closePopup: (hasAction?: boolea
     <div className="flex w-96 max-w-[calc(100vw-1rem)] flex-col bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">
       <div className="flex items-center gap-2 border-b border-zinc-200 px-5 py-4 dark:border-zinc-800">
         <MdPalette className="h-5 w-5 shrink-0 text-indigo-500" />
-        <h2 className="flex-1 text-base font-semibold tracking-tight">Temas</h2>
+        <h2 className="flex-1 text-base font-semibold tracking-tight">{t("common.themes")}</h2>
         <button
           type="button"
           onClick={() => closePopup(false)}
-          aria-label="Fechar"
+          aria-label={t("common.close")}
           className="-mr-1 rounded-lg p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-900 dark:hover:text-zinc-200"
         >
           ×
@@ -440,7 +446,7 @@ export function ThemeHubDialog({ closePopup }: { closePopup: (hasAction?: boolea
               <MdBlock className="h-6 w-6 text-red-500" />
             </span>
             <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-              Criação de temas bloqueada
+              {t("themeHubDialog.themeCreationBlocked")}
             </p>
             <p className="max-w-xs text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
               {THEME_BAN_MESSAGE}
@@ -452,8 +458,8 @@ export function ThemeHubDialog({ closePopup }: { closePopup: (hasAction?: boolea
             onLeave={() => closePopup(false)}
             what={
               tab === "create"
-                ? "Monte a sua própria paleta — as cores da sala inteira, um destaque e até uma imagem de fundo. O tema fica só seu."
-                : "Publique os seus temas no Descobrir e deixe qualquer pessoa usar o que você criou."
+                ? t("themeHubDialog.buildYourOwnPaletteTheColours")
+                : t("themeHubDialog.publishYourThemesOnDiscoverAnd")
             }
           />
         ) : tab === "workshop" ? (
@@ -464,7 +470,7 @@ export function ThemeHubDialog({ closePopup }: { closePopup: (hasAction?: boolea
             {myThemes.length > 0 && (
               <div>
                 <p className="mb-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                  Seus temas
+                  {t("common.yourThemes")}
                 </p>
                 <ul className="flex flex-col gap-1.5">
                   {myThemes.map((theme) => (
@@ -485,14 +491,14 @@ export function ThemeHubDialog({ closePopup }: { closePopup: (hasAction?: boolea
 
             {myThemes.length > 0 && others.length > 0 && (
               <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                Da comunidade
+                {t("common.fromTheCommunity")}
               </p>
             )}
             {loading ? (
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">Carregando…</p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">{t("common.loading")}</p>
             ) : others.length === 0 ? (
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                Ainda não há temas publicados por outras pessoas.
+                {t("themeHubDialog.thereAreNoThemesPublishedBy")}
               </p>
             ) : (
               <ul className="flex flex-col gap-1.5">
@@ -517,14 +523,14 @@ export function ThemeHubDialog({ closePopup }: { closePopup: (hasAction?: boolea
             <div className="flex items-center justify-between gap-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
               <span className="flex items-center gap-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">
                 <MdCheck className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
-                Vale nas salas sem tema próprio
+                {t("themeHubDialog.itAppliesInRoomsWithNo")}
               </span>
               <Link
                 href="/workshop"
                 target="_blank"
                 className="shrink-0 text-xs font-medium text-zinc-500 underline underline-offset-2 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
               >
-                Ver tudo
+                {t("themeHubDialog.seeEverything")}
               </Link>
             </div>
           </div>
@@ -541,7 +547,7 @@ export function ThemeHubDialog({ closePopup }: { closePopup: (hasAction?: boolea
             {tab === "publish" && unpublished.length > 0 && (
               <div>
                 <p className="mb-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                  Publicar um que você já tem
+                  {t("themeHubDialog.publishOneYouAlreadyHave")}
                 </p>
                 <ul className="flex flex-col gap-1.5">
                   {unpublished.map((theme) => (
@@ -567,7 +573,7 @@ export function ThemeHubDialog({ closePopup }: { closePopup: (hasAction?: boolea
                           {theme.name}
                         </span>
                         <span className="block truncate text-[11px] text-zinc-500 dark:text-zinc-400">
-                          {isDarkTheme(theme.spec) ? "escuro" : "claro"} · privado
+                          {isDarkTheme(theme.spec) ? t("common.dark") : t("common.light")} · privado
                         </span>
                       </span>
                       {/* Opens the editor on that theme with "publicar"
@@ -579,7 +585,7 @@ export function ThemeHubDialog({ closePopup }: { closePopup: (hasAction?: boolea
                         onClick={() => editTheme(theme, true)}
                         className="shrink-0 rounded-lg bg-zinc-950 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
                       >
-                        Publicar
+                        {t("themeHubDialog.publish")}
                       </button>
                     </li>
                   ))}
@@ -597,15 +603,15 @@ export function ThemeHubDialog({ closePopup }: { closePopup: (hasAction?: boolea
               </span>
               <p className="max-w-xs text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
                 {tab === "create"
-                  ? "As cores vão sendo aplicadas na sala enquanto você mexe. Cancelar volta tudo como estava."
-                  : "Um tema publicado aparece no Descobrir com o seu nome, e qualquer pessoa pode usar."}
+                  ? t("themeHubDialog.theColoursAreAppliedToThe")
+                  : t("themeHubDialog.aPublishedThemeAppearsOnDiscover")}
               </p>
               <button
                 type="button"
                 onClick={() => openEditor(tab === "publish")}
                 className="rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
               >
-                {tab === "create" ? "Criar um tema" : "Criar e publicar um novo"}
+                {tab === "create" ? t("themeHubDialog.createATheme") : t("themeHubDialog.createAndPublishANewOne")}
               </button>
             </div>
           </div>

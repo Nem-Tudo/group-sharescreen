@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { GiftRedirect } from "./GiftRedirect";
 import { pageMetadata } from "@/lib/seo";
+import { translate } from "@/lib/i18n";
 
 // The link a present travels as: golive.../gift/ABCD…
 //
@@ -58,7 +59,7 @@ async function loadGift(code: string): Promise<GiftCard | null> {
       from?: { displayName?: string } | null;
     };
     return {
-      planTitle: data.planTitle ?? "GoLive Pro",
+      planTitle: data.planTitle ?? translate("common.golivePro"),
       days: typeof data.days === "number" ? data.days : 0,
       fromName: data.from?.displayName ?? null,
     };
@@ -76,24 +77,24 @@ export async function generateMetadata(
   // Who it is from, when the API said. It is the half that makes a preview
   // land as a present rather than as an advertisement.
   const subtitle = gift
-    ? `${gift.fromName ? `${gift.fromName} te deu` : "Alguém te deu"} ${
+    ? `${gift.fromName ? `${gift.fromName} te deu` : translate("gift.someoneGaveYou")} ${
         gift.days > 0 ? `${gift.days} dias de ` : ""
       }${gift.planTitle}.`
-    : "Abra o link para ver o que é e resgatar.";
+    : translate("gift.openTheLinkToSeeWhat");
 
   return pageMetadata({
     path: `/gift/${code}`,
-    title: "Você recebeu um presente!",
+    title: translate("gift.youReceivedAGift"),
     description: subtitle,
     // Never indexed, and this is the one page where that is about more than
     // tidiness: a code in a search result is a present anybody can walk off
     // with. Shareable and unsearchable are different things.
     noindex: true,
     card: {
-      title: "Você recebeu um presente!",
+      title: translate("gift.youReceivedAGift"),
       subtitle,
       tone: "gift",
-      badge: "Presente",
+      badge: translate("common.gift"),
     },
   });
 }

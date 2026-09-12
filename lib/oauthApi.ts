@@ -3,6 +3,7 @@
 import { getSignalingHttpBase } from "./roomsApi";
 import { getAccountToken, setAccountToken } from "./accountApi";
 import { createOAuthNonce, desktopOAuthReturnPath, getDesktopBridge } from "./desktop";
+import { translate } from "@/lib/i18n";
 
 // Client half of the social login. The whole OAuth dance happens on the API
 // (see the API's server/oauthRoutes.ts) — this module only opens it, waits
@@ -222,16 +223,16 @@ async function startDesktopOAuthLogin(
 export function oauthErrorMessage(error: string): string {
   switch (error) {
     case "cancelled":
-      return "Login cancelado.";
+      return translate("oauthApi.signInCancelled");
     case "state_mismatch":
-      return "A sessão de login expirou ou os cookies estão bloqueados. Tente novamente.";
+      return translate("oauthApi.theSignInSessionExpiredOr");
     case "provider_failed":
-      return "Não foi possível falar com o provedor. Tente de novo em instantes.";
+      return translate("oauthApi.couldNotReachTheProviderTry");
     case "identity_taken":
-      return "Essa conta já está vinculada a outro usuário do GoLive.";
+      return translate("oauthApi.thatAccountIsAlreadyLinkedTo");
     case "account_gone":
-      return "Sua conta não foi encontrada. Entre novamente.";
+      return translate("oauthApi.yourAccountWasNotFoundSign");
     default:
-      return "Falha no login. Tente novamente.";
+      return translate("oauthApi.signInFailedTryAgain");
   }
 }

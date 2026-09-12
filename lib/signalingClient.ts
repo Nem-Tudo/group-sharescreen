@@ -22,6 +22,7 @@ import { isUserMentionedInMessage, containsBroadcastMention } from "./chatMentio
 import { showNotification } from "./notifications";
 import { isObsClient } from "./browserEnv";
 import { getSignalingWsUrl } from "./roomsApi";
+import { translate } from "@/lib/i18n";
 
 // `role: "moderator"` marks a moderator silently watching for moderation
 // (see server/signaling.ts's "admin-join") — present in the peer list so
@@ -1575,7 +1576,7 @@ class SignalingClient {
                         ? "rate-limited"
                         : "generic";
         this.setState({
-          joinError: (msg.message as string) ?? "Não foi possível entrar nesta sala.",
+          joinError: (msg.message as string) ?? translate("signalingClient.couldNotJoinThisRoom"),
           joinErrorKind: kind,
           // A refusal ends any pending question about it.
           deviceConflict: null,
@@ -1645,7 +1646,7 @@ class SignalingClient {
         if (this.isObsSourceJoin || isObsClient()) {
           this.desiredRoom = null;
           this.setState({
-            joinError: (msg.message as string) ?? "Acesso de transmissão bloqueado por verificação.",
+            joinError: (msg.message as string) ?? translate("signalingClient.broadcastAccessBlockedByVerification"),
             joinErrorKind: "captcha",
           });
           break;
@@ -1660,7 +1661,7 @@ class SignalingClient {
         const skippedToken = !this.lastJoinSentToken;
         this.markCaptchaVerified(null);
         const captchaMessage =
-          (msg.message as string) ?? "Não foi possível verificar a segurança da sala.";
+          (msg.message as string) ?? translate("signalingClient.couldNotVerifyTheRoomS");
         const captchaReason = typeof msg.reason === "string" ? msg.reason : "";
 
         this.joinRetryCount += 1;
@@ -1819,7 +1820,7 @@ class SignalingClient {
         } else if (typeof msg.token === "string" && msg.token) {
           pending.resolve(msg.token);
         } else {
-          pending.reject(new Error("Token de transmissão inválido retornado pelo servidor."));
+          pending.reject(new Error(translate("signalingClient.invalidBroadcastTokenReturnedByThe")));
         }
         break;
       }
@@ -1836,7 +1837,7 @@ class SignalingClient {
             message:
               typeof msg.message === "string"
                 ? msg.message
-                : "A administração desativou isso para os participantes.",
+                : translate("signalingClient.theAdministrationHasTurnedThisOff"),
           },
           permissionDeniedSeq: this.state.permissionDeniedSeq + 1,
         });
@@ -2118,8 +2119,8 @@ class SignalingClient {
           lastGiftRedeemed: {
             giftId: String(msg.giftId ?? ""),
             byId: typeof msg.byId === "string" ? msg.byId : null,
-            byName: typeof msg.byName === "string" ? msg.byName : "Alguém",
-            planTitle: typeof msg.planTitle === "string" ? msg.planTitle : "Pro",
+            byName: typeof msg.byName === "string" ? msg.byName : translate("common.someone"),
+            planTitle: typeof msg.planTitle === "string" ? msg.planTitle : translate("common.pro"),
             days: typeof msg.days === "number" ? msg.days : 0,
           },
         });
@@ -2143,7 +2144,7 @@ class SignalingClient {
             groupId: msg.groupId,
             channelId: msg.channelId,
             messageId: msg.messageId,
-            title: typeof msg.title === "string" ? msg.title : "Nova mensagem",
+            title: typeof msg.title === "string" ? msg.title : translate("signalingClient.newMessage"),
             body: typeof msg.body === "string" ? msg.body : "",
             url: msg.url,
             icon: typeof msg.icon === "string" ? msg.icon : null,
@@ -2158,7 +2159,7 @@ class SignalingClient {
             themeId: String(msg.themeId ?? ""),
             themeName: typeof msg.themeName === "string" ? msg.themeName : "seu tema",
             byId: typeof msg.byId === "string" ? msg.byId : null,
-            byName: typeof msg.byName === "string" ? msg.byName : "Alguém",
+            byName: typeof msg.byName === "string" ? msg.byName : translate("common.someone"),
           },
         });
         break;
@@ -2167,7 +2168,7 @@ class SignalingClient {
           lastGift: {
             giftId: String(msg.giftId ?? ""),
             fromId: typeof msg.fromId === "string" ? msg.fromId : null,
-            planTitle: typeof msg.planTitle === "string" ? msg.planTitle : "Pro",
+            planTitle: typeof msg.planTitle === "string" ? msg.planTitle : translate("common.pro"),
             days: typeof msg.days === "number" ? msg.days : 0,
           },
           giftSeq: this.state.giftSeq + 1,
@@ -2249,7 +2250,7 @@ class SignalingClient {
         break;
       }
       case "chat-blocked":
-        this.setState({ chatBlockedMessage: (msg.message as string) ?? "Mensagem bloqueada." });
+        this.setState({ chatBlockedMessage: (msg.message as string) ?? translate("signalingClient.messageBlocked") });
         break;
       case "chat-message": {
         let replyTo: ChatReplyTo | undefined = undefined;
@@ -2335,20 +2336,20 @@ class SignalingClient {
     const body =
       message.text.trim() ||
       (message.kind === "gif"
-        ? "enviou um GIF"
+        ? translate("signalingClient.sentAGif")
         : message.images && message.images.length > 0
           ? "enviou uma imagem"
           : isReplyToMe
-            ? "respondeu à sua mensagem"
+            ? translate("signalingClient.repliedToYourMessage")
             : isBroadcast
               ? "mencionou todos"
-              : "mencionou você");
+              : translate("signalingClient.mentionedYou"));
 
     const title = isReplyToMe
-      ? `${message.name} respondeu você`
+      ? translate("signalingClient.nameRepliedToYou", { name: message.name })
       : isBroadcast
         ? `${message.name} mencionou todos`
-        : `${message.name} mencionou você`;
+        : translate("signalingClient.nameMentionedYou", { name: message.name });
 
     void showNotification({
       title,
@@ -2637,7 +2638,7 @@ class SignalingClient {
       const requestId = Math.random().toString(36).slice(2, 11);
       const timer = setTimeout(() => {
         this.pendingObsTokenRequests.delete(requestId);
-        reject(new Error("Tempo esgotado ao gerar o token de transmissão."));
+        reject(new Error(translate("signalingClient.timedOutWhileGeneratingTheBroadcast")));
       }, 7000);
 
       this.pendingObsTokenRequests.set(requestId, { resolve, reject, timer });
@@ -2834,7 +2835,7 @@ class SignalingClient {
     this.desiredRoom = null;
     this.setState({
       deviceConflict: null,
-      joinError: "Você continua conectado nesta sala no outro dispositivo.",
+      joinError: translate("signalingClient.youAreStillConnectedToThis"),
       joinErrorKind: "generic",
     });
   }

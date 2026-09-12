@@ -8,6 +8,7 @@ import { prewarmCaptcha } from "@/lib/turnstile";
 import { OAuthButtons } from "./OAuthButtons";
 import { CompleteOAuthSignupForm } from "./CompleteOAuthSignupForm";
 import type { OAuthResult } from "@/lib/oauthApi";
+import { useT } from "@/lib/useI18n";
 
 const inputClass =
   "rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50";
@@ -39,6 +40,7 @@ export function LoginForm({
   // identity area); leaving it out renders that step here instead.
   onTicket?: (ticket: Extract<OAuthResult, { kind: "ticket" }>) => void;
 }) {
+  const t = useT();
   const { login } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -69,7 +71,7 @@ export function LoginForm({
       trackEvent("account_login");
       onSuccess?.();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Usuário ou senha inválidos.");
+      setFormError(err instanceof Error ? err.message : t("common.invalidUsernameOrPassword"));
     } finally {
       setSubmitting(false);
     }
@@ -103,7 +105,7 @@ export function LoginForm({
     <div className="mt-8 flex flex-col gap-3">
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
         <label htmlFor="login-username" className={labelClass}>
-          Usuário
+          {t("common.username")}
         </label>
         <input
           id="login-username"
@@ -114,7 +116,7 @@ export function LoginForm({
           className={inputClass}
         />
         <label htmlFor="login-password" className={labelClass}>
-          Senha
+          {t("common.password")}
         </label>
         <input
           id="login-password"
@@ -132,15 +134,15 @@ export function LoginForm({
             className={`flex flex-1 items-center justify-center gap-2 ${primaryButtonClass}`}
           >
             {submitting && <ButtonSpinner />}
-            {submitting ? "Entrando..." : "Entrar"}
+            {submitting ? t("common.joining") : t("common.signIn")}
           </button>
           <button type="button" onClick={onCancel} className={secondaryButtonClass}>
-            Voltar
+            {t("common.back")}
           </button>
         </div>
         {onSwitchToCreate && (
           <button type="button" onClick={onSwitchToCreate} className={linkButtonClass}>
-            Criar uma conta
+            {t("common.createAnAccount")}
           </button>
         )}
       </form>

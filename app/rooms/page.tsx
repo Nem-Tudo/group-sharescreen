@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import { RoomsPageClient } from "./RoomsPageClient";
+import { translate } from "@/lib/i18n";
 
 export const metadata: Metadata = {
-  title: "Salas públicas de transmissão de tela",
-  description:
-    "Veja as salas públicas de transmissão de tela em grupo ativas agora no GoLive e entre para assistir ou compartilhar sua tela ao vivo, sem cadastro.",
+  get title() { return translate("rooms.publicScreenSharingRooms"); },
+  get description() { return translate("rooms.seeThePublicGroupScreenSharing"); },
   alternates: {
     canonical: "/rooms",
   },

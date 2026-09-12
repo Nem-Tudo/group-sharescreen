@@ -9,6 +9,8 @@ import { Tooltip } from "@/components/Tooltip";
 import { isIosDevice, isStandaloneDisplay } from "@/lib/browserEnv";
 import { isDesktopApp } from "@/lib/desktop";
 import { detectDownloadPlatform, type DownloadPlatform } from "@/lib/downloadTargets";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
 
 // Fired by Chromium browsers (Chrome/Edge on Android, desktop Chrome) when
 // the page meets PWA installability criteria (manifest + icons + served
@@ -22,9 +24,9 @@ type BeforeInstallPromptEvent = Event & {
 const DISMISSED_STORAGE_KEY = "sharescreen:installPromptDismissed";
 
 const LABEL: Record<DownloadPlatform, string> = {
-  win: "Baixar para Windows",
-  mac: "Baixar para macOS",
-  linux: "Baixar para Linux",
+  get win() { return translate("common.downloadForWindows"); },
+  get mac() { return translate("common.downloadForMacos"); },
+  get linux() { return translate("common.downloadForLinux"); },
 };
 
 // Small floating, dismissible control for "get GoLive as an app" — a
@@ -44,6 +46,7 @@ const LABEL: Record<DownloadPlatform, string> = {
 // Once installed (running standalone), already inside the desktop app, or
 // dismissed, it stays gone — this is a one-time nudge, not a recurring nag.
 export function InstallAppButton() {
+  const t = useT();
   const pathname = usePathname();
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [showIosHint, setShowIosHint] = useState(false);
@@ -145,20 +148,20 @@ export function InstallAppButton() {
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">
-          {downloadPlatform ? "Baixar o app do GoLive" : "Instalar o GoLive"}
+          {downloadPlatform ? t("installAppButton.downloadTheGoliveApp") : t("installAppButton.installGolive")}
         </p>
         {downloadPlatform ? (
           <p className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">
-            Remova o eco de transmissões, obtenha melhor desempenho e mais.
+            {t("installAppButton.removeTheEchoFromBroadcastsGet")}
           </p>
         ) : showIosHint ? (
           <p className="mt-0.5 flex flex-wrap items-center gap-1 text-xs text-zinc-600 dark:text-zinc-400">
-            Toque em
+            {t("installAppButton.tapOn")}
             <ShareIcon className="h-3.5 w-3.5 shrink-0" />
-            e depois em &quot;Adicionar à Tela de Início&quot;
+            {t("installAppButton.andThenOnAddToHome")}
           </p>
         ) : (
-          <p className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">Acesso rápido, direto da tela inicial.</p>
+          <p className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">{t("installAppButton.quickAccessStraightFromTheHome")}</p>
         )}
       </div>
       {downloadPlatform ? (
@@ -178,7 +181,7 @@ export function InstallAppButton() {
           title={LABEL[downloadPlatform]}
           className="shrink-0 rounded-lg bg-zinc-950 px-3 py-1.5 text-xs font-semibold text-white transition hover:opacity-90 dark:bg-zinc-50 dark:text-zinc-950"
         >
-          Baixar
+          {t("installAppButton.download")}
         </Link>
       ) : (
         !showIosHint && (
@@ -187,15 +190,15 @@ export function InstallAppButton() {
             onClick={handleInstallClick}
             className="shrink-0 rounded-lg bg-zinc-950 px-3 py-1.5 text-xs font-semibold text-white transition hover:opacity-90 dark:bg-zinc-50 dark:text-zinc-950"
           >
-            Instalar
+            {t("installAppButton.install")}
           </button>
         )
       )}
-      <Tooltip content="Fechar">
+      <Tooltip content={t("common.close")}>
         <button
           type="button"
           onClick={dismiss}
-          aria-label="Fechar"
+          aria-label={t("common.close")}
           className="shrink-0 text-lg leading-none text-zinc-400 transition hover:text-zinc-700 dark:hover:text-zinc-200"
         >
           ×

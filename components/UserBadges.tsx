@@ -5,6 +5,7 @@ import { Tooltip } from "./Tooltip";
 import { getUserBadges, useBadgesCatalog, type BadgeDefinition } from "@/lib/badges";
 import type { ProfileThemeStyle } from "@/lib/profileTheme";
 import type { Account } from "@/lib/accountApi";
+import { useT } from "@/lib/useI18n";
 
 interface UserBadgesProps {
   account: Pick<Account, "id" | "username" | "flags" | "createdAt" | "premium" | "features">;
@@ -57,12 +58,13 @@ export function UserBadges({ account, isOwner, className, theme }: UserBadgesPro
  * invisible and illegible once there is a gradient behind it.
  */
 function BadgesHelp({ theme }: { theme?: ProfileThemeStyle }) {
+  const t = useT();
   return (
-    <Tooltip content="O que são essas badges?" placement="top">
+    <Tooltip content={t("userBadges.whatAreTheseBadges")} placement="top">
       <Link
         href="/badges"
         target="_blank"
-        aria-label="Saiba mais sobre as badges"
+        aria-label={t("userBadges.learnMoreAboutTheBadges")}
         style={
           theme
             ? { color: theme.faint, borderColor: theme.border, textShadow: theme.textShadow }
@@ -80,6 +82,7 @@ function BadgesHelp({ theme }: { theme?: ProfileThemeStyle }) {
 }
 
 function BadgeItem({ badge }: { badge: BadgeDefinition }) {
+  const t = useT();
   const tooltipContent = (
     <div className="flex flex-col gap-1 p-1 max-w-[220px] text-left">
       <div className="flex items-center gap-2">

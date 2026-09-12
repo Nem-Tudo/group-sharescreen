@@ -32,6 +32,7 @@
 
 import { Capacitor } from "@capacitor/core";
 import { getDesktopBridge } from "./desktop";
+import { translate } from "@/lib/i18n";
 
 export type NotificationPermissionState = "granted" | "denied" | "default" | "unsupported";
 
@@ -393,8 +394,8 @@ export async function testNotification(): Promise<boolean> {
     await requestNotificationPermission();
   }
   return showNotification({
-    title: "Notificação de teste",
-    body: "Se você está vendo isso, as notificações funcionam.",
+    title: translate("notifications.testNotification"),
+    body: translate("notifications.ifYouAreSeeingThisNotifications"),
     tag: "notifications-test",
     skipWhenFocused: false,
     ignoreMutePreference: true,

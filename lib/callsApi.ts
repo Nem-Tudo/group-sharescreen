@@ -3,6 +3,7 @@
 import { getAccountToken } from "./accountApi";
 import { getSignalingHttpBase } from "./roomsApi";
 import type { CallWire } from "./signalingClient";
+import { translate } from "@/lib/i18n";
 
 // The calls client.
 //
@@ -87,13 +88,13 @@ export async function startCall(userId: string, room?: string): Promise<CallResu
     });
     const data = (await res.json().catch(() => ({}))) as { call?: CallWire; error?: string };
     if (!res.ok || !data.call) {
-      return { ok: false, error: data.error ?? "Não foi possível ligar." };
+      return { ok: false, error: data.error ?? translate("common.couldNotCall") };
     }
     // This tab is the one that walks into the room if it is answered.
     markOwnCall(data.call.id);
     return { ok: true, call: data.call };
   } catch {
-    return { ok: false, error: "Sem conexão com o servidor." };
+    return { ok: false, error: translate("common.noConnectionToTheServer") };
   }
 }
 
@@ -118,11 +119,11 @@ export async function acceptCall(
       error?: string;
     };
     if (!res.ok || !data.roomHandle) {
-      return { ok: false, error: data.error ?? "Essa chamada não está mais tocando." };
+      return { ok: false, error: data.error ?? translate("callsApi.thatCallIsNoLongerRinging") };
     }
     return { ok: true, roomHandle: data.roomHandle };
   } catch {
-    return { ok: false, error: "Sem conexão com o servidor." };
+    return { ok: false, error: translate("common.noConnectionToTheServer") };
   }
 }
 

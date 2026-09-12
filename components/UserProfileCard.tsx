@@ -32,6 +32,8 @@ import { MdCheck, MdEdit, MdPhotoCamera, MdDeleteOutline } from "react-icons/md"
 import useNtPopups from "ntpopups";
 import { UserBadges } from "@/components/UserBadges";
 import { useOpenPro } from "@/lib/proModal";
+import { useI18n } from "@/lib/useI18n";
+import { formatLocale } from "@/lib/i18n";
 
 // A person's public profile, as a self-contained card.
 //
@@ -121,6 +123,7 @@ function InlineEdit({
   label: string;
   children: React.ReactNode;
 }) {
+  const { t, tc } = useI18n();
   if (!editable) return <>{children}</>;
   if (open) {
     return (
@@ -129,7 +132,7 @@ function InlineEdit({
         <button
           type="button"
           onClick={onClose}
-          aria-label={`Concluir ${label.toLowerCase()}`}
+          aria-label={t("userProfileCard.completeValue", { value: label.toLowerCase() })}
           className="mt-1 shrink-0 cursor-pointer rounded-lg p-1 text-emerald-600 transition hover:bg-black/10 dark:text-emerald-400"
         >
           <MdCheck className="h-4 w-4" />
@@ -276,6 +279,7 @@ function PlanLink({
   label?: string;
   className?: string;
 }) {
+  const { t, tc } = useI18n();
   // The plan's own mark beside the words, so "which plan is this" is answered
   // by the same badge the subscriber wears — gold for Pro Max, blue for Pro
   // (see components/planIcons). A sentence alone made every locked control
@@ -296,7 +300,7 @@ function PlanLink({
       className={`inline-flex cursor-pointer items-center gap-1 underline underline-offset-2 transition hover:text-zinc-800 dark:hover:text-zinc-200 ${className}`}
     >
       <Mark className={`h-3.5 w-3.5 shrink-0 ${mark.className}`} />
-      {label ?? `Disponível no ${tier === "proMax" ? "Pro Max" : "Pro"}.`}
+      {label ?? t("userProfileCard.availableOnValue", { value: tier === "proMax" ? "Pro Max" : "Pro" })}
     </button>
   );
 }
@@ -375,6 +379,7 @@ export function UserProfileCard({
    */
   autoPlaySong?: boolean;
 }) {
+  const { t, tc } = useI18n();
   // Starts from the last answer read for this id when there is one (see
   // peekUserProfile), so a profile opened again — or warmed on hover — draws at
   // once; the read below always still happens and replaces it.
@@ -407,7 +412,7 @@ export function UserProfileCard({
     return (
       <div className="rounded-xl border border-zinc-200 bg-white p-6 text-center dark:border-zinc-800 dark:bg-zinc-950">
         <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-          Não foi possível encontrar esse perfil.
+          {t("userProfileCard.couldNotFindThatProfile")}
         </p>
       </div>
     );
@@ -439,11 +444,12 @@ export function UserProfileCard({
 const SKELETON_BLOCK = "animate-pulse rounded-md bg-zinc-200/80 dark:bg-zinc-800/80";
 
 function ProfileSkeleton() {
+  const { t, tc } = useI18n();
   return (
     <div
       className="overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950"
       aria-busy="true"
-      aria-label="Carregando perfil"
+      aria-label={t("userProfileCard.loadingProfile")}
     >
       <div className={`h-32 w-full rounded-none sm:h-44 ${SKELETON_BLOCK}`} />
       <div className="relative -mt-12 flex items-end justify-between px-5 sm:-mt-16 sm:px-6">
@@ -495,6 +501,7 @@ function ProfileContent({
    */
   autoPlaySong?: boolean;
 }) {
+  const { t, tc } = useI18n();
   const { account: authAccount, updateProfile, refresh: refreshAuth } = useAuth();
   const state = useSignaling();
   const { openPopup } = useNtPopups();
@@ -582,12 +589,12 @@ function ProfileContent({
         // Shown in the panel rather than swallowed: this list is the only
         // content the pencil has, so losing it quietly looks like a dead
         // button.
-        if (!cancelled) setAvatarOptionsError("Não foi possível carregar os avatares.");
+        if (!cancelled) setAvatarOptionsError(t("userProfileCard.couldNotLoadTheAvatars"));
       });
     return () => {
       cancelled = true;
     };
-  }, [isEditing, isOwner]);
+  }, [isEditing, isOwner, t]);
 
   // Closing the picker: a click anywhere outside it, or Escape. Bound only
   // while it is open, so a closed panel costs no listeners.
@@ -634,7 +641,7 @@ function ProfileContent({
     if (!file) return;
     setError(null);
     if (file.size > AVATAR_IMAGE_MAX_BYTES) {
-      setError(`A imagem deve ter no máximo ${Math.round(AVATAR_IMAGE_MAX_BYTES / (1024 * 1024))} MB.`);
+      setError(t("userProfileCard.theImageMustBeAtMost", { value: Math.round(AVATAR_IMAGE_MAX_BYTES / (1024 * 1024)) }));
       return;
     }
     try {
@@ -642,7 +649,7 @@ function ProfileContent({
       setPreviewAvatar(prepared.dataUrl);
       setAvatarDataUrl(prepared.dataUrl);
     } catch {
-      setError("Não foi possível processar a foto selecionada.");
+      setError(t("userProfileCard.couldNotProcessTheSelectedPhoto"));
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
@@ -653,7 +660,7 @@ function ProfileContent({
     if (!file) return;
     setError(null);
     if (file.size > AVATAR_IMAGE_MAX_BYTES) {
-      setError(`O banner deve ter no máximo ${Math.round(AVATAR_IMAGE_MAX_BYTES / (1024 * 1024))} MB.`);
+      setError(t("userProfileCard.theBannerMustBeAtMost", { value: Math.round(AVATAR_IMAGE_MAX_BYTES / (1024 * 1024)) }));
       return;
     }
     try {
@@ -664,7 +671,7 @@ function ProfileContent({
       setPreviewBanner(prepared.dataUrl);
       setBannerDataUrl(prepared.dataUrl);
     } catch {
-      setError("Não foi possível processar o banner selecionado.");
+      setError(t("userProfileCard.couldNotProcessTheSelectedBanner"));
     } finally {
       if (bannerInputRef.current) bannerInputRef.current.value = "";
     }
@@ -702,7 +709,7 @@ function ProfileContent({
     e.preventDefault();
     const trimmedName = editDisplayName.trim();
     if (!trimmedName) {
-      setError("O nome de exibição não pode ficar vazio.");
+      setError(t("userProfileCard.theDisplayNameCannotBeEmpty"));
       return;
     }
     setSaving(true);
@@ -743,7 +750,7 @@ function ProfileContent({
 
       setIsEditing(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao salvar as alterações.");
+      setError(err instanceof Error ? err.message : t("userProfileCard.couldNotSaveTheChanges"));
     } finally {
       setSaving(false);
     }
@@ -757,9 +764,9 @@ function ProfileContent({
   const pendingSongId = songValue ? parseYouTubeId(songValue) : null;
   // A link that is not a YouTube video, said beside the field. It used to be
   // discovered only by pressing save and having the whole profile refused.
-  const songError = songValue && !pendingSongId ? "Esse link não é um vídeo do YouTube." : null;
+  const songError = songValue && !pendingSongId ? t("userProfileCard.thatLinkIsNotAYoutube") : null;
 
-  const memberSince = new Date(account.createdAt).toLocaleDateString("pt-BR", {
+  const memberSince = new Date(account.createdAt).toLocaleDateString(formatLocale(), {
     day: "numeric",
     month: "long",
     year: "numeric",
@@ -857,7 +864,7 @@ function ProfileContent({
               className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-black/50 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-sm transition-colors hover:bg-black/70"
             >
               <MdPhotoCamera className="h-3.5 w-3.5" />
-              Alterar banner
+              {t("userProfileCard.changeBanner")}
             </button>
             {bannerPickerOpen && (
               <div
@@ -868,7 +875,7 @@ function ProfileContent({
               >
               <div className="flex items-center justify-between gap-2">
                 <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300" style={themedLabel}>
-                  Alterar banner
+                  {t("userProfileCard.changeBanner")}
                 </label>
                 <button
                   type="button"
@@ -876,7 +883,7 @@ function ProfileContent({
                   className="flex items-center gap-1 text-xs font-medium text-emerald-600 transition hover:text-emerald-700 hover:underline dark:text-emerald-400 dark:hover:text-emerald-300"
                 >
                   <BsShop className="h-3 w-3" />
-                  Loja de cosméticos
+                  {t("common.cosmeticsShop")}
                 </button>
               </div>
               {/* The gold ring, same as every other Pro Max control. Only
@@ -892,7 +899,7 @@ function ProfileContent({
                   className="flex items-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-800 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
                 >
                   <MdPhotoCamera className="h-3.5 w-3.5" />
-                  Enviar banner
+                  {t("userProfileCard.uploadBanner")}
                 </button>
                 {previewBanner && canUploadBanner && (
                   <button
@@ -901,7 +908,7 @@ function ProfileContent({
                     className="flex items-center gap-1 text-xs font-medium text-red-600 transition hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
                   >
                     <MdDeleteOutline className="h-4 w-4" />
-                    Remover banner
+                    {t("userProfileCard.removeBanner")}
                   </button>
                 )}
                 {!canUploadBanner && (
@@ -919,7 +926,7 @@ function ProfileContent({
                   }`}
                 >
                   <span className="h-4 w-4 rounded-full bg-gradient-to-br from-zinc-800 to-emerald-500 border border-zinc-300 dark:border-zinc-700" />
-                  Padrão
+                  {t("userProfileCard.default")}
                 </button>
 
                 {ownedBgColors.map((colorProduct) => (
@@ -944,13 +951,13 @@ function ProfileContent({
 
               {ownedBgColors.length === 0 && (
                 <div className="flex items-center justify-between gap-2 rounded-lg border border-zinc-200 bg-zinc-50 p-2.5 text-xs text-zinc-500 dark:border-zinc-800/80 dark:bg-zinc-900/50 dark:text-zinc-400">
-                  <span>Você ainda não possui cores de banner compradas na loja.</span>
+                  <span>{t("userProfileCard.youHaveNotBoughtAnyBanner")}</span>
                   <button
                     type="button"
                     onClick={() => openPopup("cosmetics_store", { data: {} })}
                     className="shrink-0 font-semibold text-emerald-600 underline hover:text-emerald-700 dark:text-emerald-400"
                   >
-                    Comprar cores
+                    {t("userProfileCard.buyColours")}
                   </button>
                 </div>
               )}
@@ -990,7 +997,7 @@ function ProfileContent({
               type="button"
               onClick={() => setAvatarPickerOpen((open) => !open)}
               aria-expanded={avatarPickerOpen}
-              aria-label="Alterar foto de perfil"
+              aria-label={t("userProfileCard.changeProfilePicture")}
               className="absolute inset-0 flex cursor-pointer items-center justify-center bg-black/30 text-white transition-colors hover:bg-black/60 focus-visible:bg-black/60"
             >
               <MdEdit className="h-6 w-6 drop-shadow" />
@@ -1024,7 +1031,7 @@ function ProfileContent({
             Escape, and a second way out only takes room from the options. */}
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
-            Foto de perfil
+            {t("userProfileCard.profilePicture")}
           </span>
           {/* Lost when the old form went away — it lived in that form's
               header. It belongs here anyway: this is where the picture is
@@ -1036,7 +1043,7 @@ function ProfileContent({
               className="flex items-center gap-1 text-xs font-medium text-red-600 transition hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
             >
               <MdDeleteOutline className="h-4 w-4" />
-              Remover
+              {t("common.remove")}
             </button>
           )}
         </div>
@@ -1051,7 +1058,7 @@ function ProfileContent({
             that one asks whether there is a stored picture to clear,
             which is a different question. */}
         <AvatarRow
-          label="Padrão"
+          label={t("userProfileCard.default")}
           paths={avatarOptions.defaults}
           selected={currentAvatar}
           onPick={handlePickPreset}
@@ -1061,12 +1068,12 @@ function ProfileContent({
           <div className={planRowClass(!avatarOptions.canUseGallery, "")}>
             <PlanRing tier="pro" locked={!avatarOptions.canUseGallery} />
             <AvatarRow
-            label="Avatares Pro"
+            label={t("userProfileCard.proAvatars")}
             paths={avatarOptions.gallery}
             selected={currentAvatar}
             onPick={handlePickPreset}
             locked={!avatarOptions.canUseGallery}
-            lockedHint="Disponível no Pro"
+            lockedHint={t("userProfileCard.availableOnPro")}
               lockedTier="pro"
             />
           </div>
@@ -1083,7 +1090,7 @@ function ProfileContent({
             className="flex items-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-800 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
           >
             <MdPhotoCamera className="h-3.5 w-3.5" />
-            Enviar minha imagem
+            {t("userProfileCard.uploadMyImage")}
           </button>
           {!avatarOptions.canUpload && (
               <PlanLink tier="proMax" className="text-xs text-zinc-500 dark:text-zinc-400" />
@@ -1092,7 +1099,7 @@ function ProfileContent({
       </div>
                   ) : (
                     <p className="text-xs text-zinc-500 dark:text-zinc-400" style={themedHint}>
-                      {avatarOptionsError ?? "Carregando os avatares…"}
+                      {avatarOptionsError ?? t("userProfileCard.loadingTheAvatars")}
                     </p>
                   )}
           </div>
@@ -1121,7 +1128,7 @@ function ProfileContent({
             className="pointer-events-auto flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 shadow-sm transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
           >
             <MdEdit className="h-3.5 w-3.5 text-zinc-500" />
-            Editar perfil
+            {t("userProfileCard.editProfile")}
           </button>
         )}
       </div>
@@ -1140,7 +1147,7 @@ function ProfileContent({
                   open={openField === "name"}
                   onOpen={() => setOpenField("name")}
                   onClose={() => setOpenField(null)}
-                  label="Editar nome"
+                  label={t("userProfileCard.editName")}
                   editor={
                     <input
                       autoFocus
@@ -1191,7 +1198,7 @@ function ProfileContent({
                 style={theme ? { borderColor: theme.border, background: theme.surface, color: theme.text } : undefined}
               >
                 <BsCoin className="h-4 w-4 shrink-0" />
-                {account.points ?? 0} pontos
+                {tc("common.pointsCount", account.points ?? 0)}
               </span>
             </div>
 
@@ -1202,8 +1209,8 @@ function ProfileContent({
                 className="mt-4 flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2.5 text-sm font-medium text-emerald-700 transition hover:bg-emerald-500/20 dark:text-emerald-400"
               >
                 <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-emerald-500" />
-                Está numa sala pública agora — {live.peopleCount}{" "}
-                {live.peopleCount === 1 ? "pessoa" : "pessoas"}, entrar em &quot;{live.room}&quot;
+                {t("userProfileCard.isInAPublicRoomRight")} {live.peopleCount}{" "}
+                {tc("common.personNoun", live.peopleCount)}{t("userProfileCard.goInto")}{live.room}&quot;
               </Link>
             )}
 
@@ -1213,7 +1220,7 @@ function ProfileContent({
                 open={openField === "bio"}
                 onOpen={() => setOpenField("bio")}
                 onClose={() => setOpenField(null)}
-                label="Editar descrição"
+                label={t("userProfileCard.editDescription")}
                 editor={
                   <textarea
                     autoFocus
@@ -1221,7 +1228,7 @@ function ProfileContent({
                     maxLength={300}
                     value={editBio}
                     onChange={(e) => setEditBio(e.target.value)}
-                    placeholder="Escreva algo sobre você..."
+                    placeholder={t("userProfileCard.writeSomethingAboutYourself")}
                     className="themed-field w-full resize-none rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
                     style={themedField}
                   />
@@ -1231,7 +1238,7 @@ function ProfileContent({
                   className="whitespace-pre-line text-sm text-zinc-700 dark:text-zinc-300"
                   style={theme ? { color: theme.muted, textShadow: theme.textShadow } : undefined}
                 >
-                  {(isEditing ? editBio : account.bio) || "Sem descrição."}
+                  {(isEditing ? editBio : account.bio) || t("userProfileCard.noDescription")}
                 </p>
               </InlineEdit>
             </div>
@@ -1254,7 +1261,7 @@ function ProfileContent({
                   open={openField === "song"}
                   onOpen={() => setOpenField("song")}
                   onClose={() => setOpenField(null)}
-                  label="Editar música"
+                  label={t("userProfileCard.editMusic")}
                   editor={
                     <div className="flex flex-col gap-1">
                       <input
@@ -1276,7 +1283,7 @@ function ProfileContent({
                         className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400"
                         style={themedHint}
                       >
-                        Volume
+                        {t("userProfileCard.volume")}
                         <input
                           type="range"
                           min={0}
@@ -1319,7 +1326,7 @@ function ProfileContent({
                       className="flex flex-wrap items-center gap-1.5 text-sm text-zinc-500 dark:text-zinc-400"
                       style={themedHint}
                     >
-                      Sem música no perfil.
+                      {t("userProfileCard.noMusicOnTheProfile")}
                       {isEditing && !canEditSong && <PlanLink tier="proMax" className="text-xs" />}
                     </p>
                   )}
@@ -1331,19 +1338,19 @@ function ProfileContent({
               <StatCard
                 theme={theme}
                 icon={<BsClock className="h-3.5 w-3.5" />}
-                label="Tempo em call"
+                label={t("userProfileCard.timeInACall")}
                 seconds={account.callSeconds ?? 0}
               />
               <StatCard
                 theme={theme}
                 icon={<MicIcon className="h-3.5 w-3.5" />}
-                label="Tempo com o mic aberto"
+                label={t("userProfileCard.timeWithTheMicOpen")}
                 seconds={account.micSeconds ?? 0}
               />
               <StatCard
                 theme={theme}
                 icon={<ScreenIcon className="h-3.5 w-3.5" />}
-                label="Tempo compartilhando tela"
+                label={t("userProfileCard.timeSharingAScreen")}
                 seconds={account.shareSeconds ?? 0}
               />
             </div>
@@ -1364,14 +1371,14 @@ function ProfileContent({
               className="mt-5 text-xs text-zinc-400 dark:text-zinc-600"
               style={theme ? { color: theme.faint, textShadow: theme.textShadow } : undefined}
             >
-              No GoLive desde {memberSince}.
+              {t("userProfileCard.onGoliveSince")} {memberSince}.
             </p>
 
         {isEditing && (
           <form onSubmit={handleSave} className="mt-5 flex flex-col gap-4">
             <PlanSection
               tier="proMax"
-              title="Fundo do perfil"
+              title={t("userProfileCard.profileBackground")}
               locked={!canEditTheme}
               titleStyle={themedLabel}
               neutralStyle={themedDivider}
@@ -1392,7 +1399,7 @@ function ProfileContent({
                       className="flex flex-col gap-1 text-xs text-zinc-600 dark:text-zinc-400"
                       style={themedHint}
                     >
-                      Cor 1
+                      {t("userProfileCard.colour1")}
                       <input
                         type="color"
                         value={isHexColor(editTheme?.from ?? "") ? editTheme!.from : "#18181b"}
@@ -1410,7 +1417,7 @@ function ProfileContent({
                       className="flex flex-col gap-1 text-xs text-zinc-600 dark:text-zinc-400"
                       style={themedHint}
                     >
-                      Cor 2
+                      {t("userProfileCard.colour2")}
                       <input
                         type="color"
                         value={isHexColor(editTheme?.to ?? "") ? editTheme!.to : "#10b981"}
@@ -1428,7 +1435,7 @@ function ProfileContent({
                       className="flex flex-1 flex-col gap-1 text-xs text-zinc-600 dark:text-zinc-400"
                       style={themedHint}
                     >
-                      Direção
+                      {t("common.direction")}
                       <select
                         value={editTheme?.angle ?? 135}
                         onChange={(e) =>
@@ -1466,7 +1473,7 @@ function ProfileContent({
                       onClick={() => setEditTheme(null)}
                       className="self-start text-xs font-medium text-red-600 transition hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
                     >
-                      Voltar ao fundo padrão
+                      {t("userProfileCard.backToTheDefaultBackground")}
                     </button>
                   )}
                 </>
@@ -1487,14 +1494,14 @@ function ProfileContent({
                 onClick={handleCancel}
                 className="rounded-lg border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
               >
-                Cancelar
+                {t("common.cancel")}
               </button>
               <button
                 type="submit"
                 disabled={saving || !editDisplayName.trim()}
                 className="flex items-center gap-1.5 rounded-lg bg-zinc-950 px-4 py-2 text-xs font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
               >
-                {saving ? "Salvando foto e perfil..." : "Salvar alterações"}
+                {saving ? t("userProfileCard.savingPhotoAndProfile") : t("userProfileCard.saveChanges")}
               </button>
             </div>
           </form>

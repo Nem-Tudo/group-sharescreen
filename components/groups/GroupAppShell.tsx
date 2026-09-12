@@ -43,6 +43,7 @@ import { onGroupRemoved, refreshGroups, resetGroups, useGroupDetail } from "@/li
 import { LG_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 import { useHeaderFit } from "@/lib/headerFit";
 import { useRoomTheme } from "@/lib/useRoomTheme";
+import { useT } from "@/lib/useI18n";
 
 // The rooms column's gap-3, between the rooms and the ad under them.
 const ASIDE_GAP_PX = 12;
@@ -71,6 +72,7 @@ const ASIDE_GAP_PX = 12;
 // nothing, and exist so that a reload or a shared link resolves.
 
 export function GroupAppShell({ children }: { children: ReactNode }) {
+  const t = useT();
   // Off the path, never useParams: after a shallow navigation the params still
   // describe whichever page the server last rendered.
   const route = parseGroupsPath(usePathname());
@@ -174,13 +176,13 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
         navigation.replace("/groups");
         const message =
           reason === "deleted"
-            ? "Este grupo foi apagado pelo dono."
+            ? t("groups.groupAppShell.thisGroupWasDeletedByIts")
             : reason === "banned"
-              ? "Você foi banido deste grupo."
-              : "Você foi removido deste grupo.";
-        void openPopup("generic", { data: { title: "Você saiu do grupo", message } });
+              ? t("groups.groupAppShell.youHaveBeenBannedFromThis")
+              : t("groups.groupAppShell.youHaveBeenRemovedFromThis");
+        void openPopup("generic", { data: { title: t("groups.groupAppShell.youLeftTheGroup"), message } });
       }),
-    [groupId, navigation, openPopup]
+    [groupId, navigation, openPopup, t]
   );
 
   // Leaving /groups does *not* hang up any more. The room is mounted at the
@@ -237,10 +239,10 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
             }
           >
             <div className="flex min-w-0 flex-1 items-center gap-2">
-              <Tooltip content="Voltar ao início" placement="bottom">
+              <Tooltip content={t("common.backToHome")} placement="bottom">
                 <Link
                   href="/"
-                  aria-label="Início"
+                  aria-label={t("common.home")}
                   className="flex shrink-0 items-center justify-center rounded-lg p-1.5 text-lg text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
                 >
                   <MdHome />
@@ -285,7 +287,7 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
                   className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-zinc-300 px-2.5 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 lg:hidden dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
                 >
                   <MdViewList className="h-4 w-4" />
-                  <span className="hidden sm:inline">Salas</span>
+                  <span className="hidden sm:inline">{t("common.rooms")}</span>
                 </button>
               )}
               {detail && <GroupActions detail={detail} />}
@@ -385,14 +387,14 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
             room's own "Mais opções" does on a phone. */}
         {navOpen && groupId && (
           <div className="fixed inset-0 z-40 lg:hidden">
-            <button type="button" aria-label="Fechar" onClick={closeNav} className="absolute inset-0 bg-black/40" />
+            <button type="button" aria-label={t("common.close")} onClick={closeNav} className="absolute inset-0 bg-black/40" />
             <div className="absolute inset-x-0 bottom-0 flex max-h-[80dvh] flex-col rounded-t-2xl bg-white p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-2xl dark:bg-zinc-950">
               <div className="mb-2 flex items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Salas</p>
+                <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t("common.rooms")}</p>
                 <button
                   type="button"
                   onClick={closeNav}
-                  aria-label="Fechar"
+                  aria-label={t("common.close")}
                   className="cursor-pointer text-xl leading-none text-zinc-400 transition hover:text-zinc-700 dark:hover:text-zinc-200"
                 >
                   ×
@@ -402,7 +404,7 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
                 {detail ? (
                   <GroupRoomsPanel bare detail={detail} activeChannelId={roomId} onNavigate={closeNav} />
                 ) : (
-                  <p className="py-4 text-center text-sm text-zinc-500">Carregando…</p>
+                  <p className="py-4 text-center text-sm text-zinc-500">{t("common.loading")}</p>
                 )}
               </div>
             </div>

@@ -6,6 +6,8 @@ import { MdCheckCircle, MdDownload, MdPhoneAndroid } from "react-icons/md";
 import { isDesktopApp } from "@/lib/desktop";
 import { detectDownloadPlatform, type DownloadPlatform } from "@/lib/downloadTargets";
 import { trackDownloadClick } from "@/lib/analytics";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
 
 // The download area of /app.
 //
@@ -30,9 +32,9 @@ const PLATFORMS: {
   file: string;
   Icon: typeof FaWindows;
 }[] = [
-  { id: "win", name: "Windows", file: ".exe", Icon: FaWindows },
+  { id: "win", get name() { return translate("common.windows"); }, file: ".exe", Icon: FaWindows },
   { id: "mac", name: "macOS", file: ".dmg", Icon: FaApple },
-  { id: "linux", name: "Linux", file: ".AppImage", Icon: FaLinux },
+  { id: "linux", get name() { return translate("common.linux"); }, file: ".AppImage", Icon: FaLinux },
 ];
 
 // "unknown" is a phone or anything with no build; null is "not resolved yet",
@@ -40,6 +42,7 @@ const PLATFORMS: {
 type Detected = DownloadPlatform | "unknown" | "in-app" | null;
 
 export function DownloadPanel() {
+  const t = useT();
   const [detected, setDetected] = useState<Detected>(null);
 
   useEffect(() => {
@@ -60,10 +63,10 @@ export function DownloadPanel() {
       <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-5">
         <p className="flex items-center gap-2 font-semibold text-emerald-700 dark:text-emerald-300">
           <MdCheckCircle className="h-5 w-5 shrink-0" />
-          Você já está usando o app
+          {t("app.downloadPanel.youAreAlreadyUsingTheApp")}
         </p>
         <p className="mt-1 text-sm text-emerald-800/80 dark:text-emerald-200/70">
-          Ele se atualiza sozinho, então não há nada pra baixar aqui.
+          {t("app.downloadPanel.itUpdatesItselfSoThereIs")}
         </p>
       </div>
     );
@@ -80,7 +83,7 @@ export function DownloadPanel() {
           className="inline-flex w-full items-center justify-center gap-2.5 rounded-xl bg-zinc-950 px-6 py-4 text-base font-semibold text-white shadow-sm transition hover:bg-zinc-800 sm:w-auto dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
         >
           <main.Icon className="h-5 w-5 shrink-0" />
-          Baixar para {main.name}
+          {t("app.downloadPanel.downloadFor")} {main.name}
         </a>
       ) : (
         // Reserves the button's height while detection resolves, so the hero
@@ -90,12 +93,10 @@ export function DownloadPanel() {
             <div className="rounded-2xl border border-black/10 bg-white p-5 dark:border-white/10 dark:bg-zinc-950">
               <p className="flex items-center gap-2 font-semibold text-zinc-950 dark:text-zinc-50">
                 <MdPhoneAndroid className="h-5 w-5 shrink-0" />
-                O app é para computador
+                {t("app.downloadPanel.theAppIsForComputers")}
               </p>
               <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                No celular o GoLive funciona direto no navegador, sem instalar nada — e dá pra
-                adicionar à tela de início como um aplicativo. Guarde esta página pra quando
-                estiver no PC.
+                {t("app.downloadPanel.onMobileGoliveWorksRightIn")}
               </p>
             </div>
           )}
@@ -125,7 +126,7 @@ export function DownloadPanel() {
           className="inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium text-zinc-500 underline underline-offset-2 transition hover:text-zinc-900 dark:hover:text-zinc-100"
         >
           <MdDownload className="h-4 w-4 shrink-0" />
-          Todos os arquivos
+          {t("app.downloadPanel.allFiles")}
         </a>
       </div>
     </div>

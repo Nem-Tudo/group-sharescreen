@@ -13,6 +13,8 @@ import {
 import { BetaMark } from "./BetaMark";
 import { LocalMediaPicker } from "./LocalMediaPicker";
 import type { LocalMediaSlot } from "@/lib/localMediaSource";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
 
 export type AddVideoSourcePopupData = {
   onSubmit: (kind: VideoSourceKind, url: string, controlMode: "owner" | "anyone") => void;
@@ -39,9 +41,9 @@ export type AddVideoSourcePopupData = {
 type PickerKind = VideoSourceKind | "local";
 
 const INVALID_LINK_MESSAGE: Record<VideoSourceKind, string> = {
-  youtube: "Cole um link de vídeo, live ou playlist do YouTube.",
-  twitch: "Cole um link ou o nome de um canal da Twitch.",
-  kick: "Cole um link ou o nome de um canal da Kick.",
+  get youtube() { return translate("addVideoSourceModal.pasteAYoutubeVideoLiveStream"); },
+  get twitch() { return translate("addVideoSourceModal.pasteALinkOrTheName"); },
+  get kick() { return translate("addVideoSourceModal.pasteALinkOrTheName2"); },
 };
 
 const PLATFORMS: {
@@ -53,21 +55,21 @@ const PLATFORMS: {
 }[] = [
   {
     id: "youtube",
-    label: "YouTube",
+    get label() { return translate("common.youtube"); },
     placeholder: "https://youtube.com/watch?v=... ou playlist",
     icon: FaYoutube,
     activeClassName: "border-red-600 bg-red-600/10 text-red-600 dark:text-red-500",
   },
   {
     id: "twitch",
-    label: "Twitch",
+    get label() { return translate("addVideoSourceModal.twitch"); },
     placeholder: "https://twitch.tv/canal",
     icon: FaTwitch,
     activeClassName: "border-[#9146FF] bg-[#9146FF]/10 text-[#9146FF]",
   },
   {
     id: "kick",
-    label: "Kick",
+    get label() { return translate("addVideoSourceModal.kick"); },
     placeholder: "https://kick.com/canal",
     icon: SiKick,
     activeClassName:
@@ -75,7 +77,7 @@ const PLATFORMS: {
   },
   {
     id: "local",
-    label: "Arquivo",
+    get label() { return translate("common.file"); },
     // Never used: the local branch replaces the link field entirely.
     placeholder: "",
     icon: MdFolderOpen,
@@ -97,6 +99,7 @@ export function AddVideoSourceModal({
   closePopup: (hasAction?: boolean) => void;
   data: AddVideoSourcePopupData;
 }) {
+  const t = useT();
   const [kind, setKind] = useState<PickerKind | null>("youtube");
   // Defaults to "owner" — whoever adds a source keeping the wheel unless
   // they deliberately open it up is the same rule the room has always had,
@@ -145,12 +148,12 @@ export function AddVideoSourceModal({
     >
       <div className="flex items-start justify-between gap-2">
         <p className="text-sm font-semibold">
-          <BetaMark /> Adicionar vídeo, playlist ou live
+          <BetaMark /> {t("addVideoSourceModal.addAVideoPlaylistOrLive")}
         </p>
         <button
           type="button"
           onClick={() => closePopup(false)}
-          aria-label="Fechar"
+          aria-label={t("common.close")}
           className="-mr-1 -mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-lg leading-none opacity-60 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
         >
           ×
@@ -158,7 +161,7 @@ export function AddVideoSourceModal({
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Plataforma</p>
+        <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{t("addVideoSourceModal.platform")}</p>
         <div className="grid grid-cols-4 gap-2">
           {PLATFORMS.map((p) => {
             const Icon = p.icon;
@@ -190,7 +193,7 @@ export function AddVideoSourceModal({
       {/* A local file has no "who can control": it is playing on this machine,
           so whoever is at this machine is the only one who could. */}
       <div className={`flex-col gap-1.5 ${local ? "hidden" : "flex"}`}>
-        <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Quem pode controlar</p>
+        <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{t("common.whoCanControl")}</p>
         <label
           className={`flex items-center gap-2 text-sm ${
             keptToMyself ? "" : "cursor-not-allowed opacity-50"
@@ -203,11 +206,11 @@ export function AddVideoSourceModal({
             disabled={!keptToMyself}
             onChange={() => setControlMode("owner")}
           />
-          Só eu posso controlar
+          {t("common.onlyICanControl")}
         </label>
         {!hasAccount && (
           <p className="-mt-1 pl-6 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
-            Utilize uma conta para controlar exclusivamente.
+            {t("common.useAnAccountToControlIt")}
           </p>
         )}
         <label className="flex items-center gap-2 text-sm">
@@ -217,7 +220,7 @@ export function AddVideoSourceModal({
             checked={controlMode === "anyone" || !keptToMyself}
             onChange={() => setControlMode("anyone")}
           />
-          Qualquer um pode controlar
+          {t("addVideoSourceModal.anyoneCanControl")}
         </label>
       </div>
 
@@ -235,7 +238,7 @@ export function AddVideoSourceModal({
       ) : (
         <>
       <div className="flex flex-col gap-1.5">
-        <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Link</p>
+        <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{t("common.link")}</p>
         <input
           value={link}
           onChange={(e) => {
@@ -243,8 +246,8 @@ export function AddVideoSourceModal({
             setError(null);
           }}
           disabled={!kind}
-          placeholder={platform ? platform.placeholder : "Escolha uma plataforma primeiro"}
-          aria-label="Link do vídeo"
+          placeholder={platform ? platform.placeholder : t("addVideoSourceModal.chooseAPlatformFirst")}
+          aria-label={t("addVideoSourceModal.videoLink")}
           className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-950 outline-none focus:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
         />
         {error && <p className="text-xs text-red-500">{error}</p>}
@@ -255,7 +258,7 @@ export function AddVideoSourceModal({
         disabled={!kind || !link.trim()}
         className="w-full rounded-lg bg-zinc-950 px-3 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
       >
-        Adicionar
+        {t("common.add")}
       </button>
         </>
       )}

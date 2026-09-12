@@ -20,32 +20,32 @@ test("obsToken: gera e valida token assinado com sucesso", async () => {
   assert.equal(result.payload?.authorName, authorName);
 });
 
-test("obsToken: rejeita token para sala diferente", async () => {
+test("obsToken: rejects a token for a different room", async () => {
   const token = await createObsSecurityToken("sala-original", "screen:peer-1", "user-1");
   const result = await verifyObsSecurityToken(token, "sala-diferente");
 
   assert.equal(result.valid, false);
-  assert.match(result.error ?? "", /não pertence a esta sala/i);
+  assert.match(result.error ?? "", /does not belong to this room/i);
 });
 
-test("obsToken: rejeita token adulterado", async () => {
+test("obsToken: rejects a tampered token", async () => {
   const token = await createObsSecurityToken("minha-sala", "screen:peer-1", "user-1");
   const [payloadB64, sigB64] = token.split(".");
 
-  // Modifica o payload
+  // Tamper with the payload
   const tamperedPayload = payloadB64.slice(0, -2) + "==";
   const result = await verifyObsSecurityToken(`${tamperedPayload}.${sigB64}`, "minha-sala");
 
   assert.equal(result.valid, false);
 });
 
-test("obsToken: rejeita geração sem authorId", async () => {
+test("obsToken: rejects generation without an authorId", async () => {
   await assert.rejects(async () => {
     await createObsSecurityToken("sala", "target", "");
-  }, /authorId é obrigatório/i);
+  }, /authorId is required/i);
 });
 
-test("obsToken: rejeita token nulo ou vazio", async () => {
+test("obsToken: rejects a null or empty token", async () => {
   const resultNull = await verifyObsSecurityToken(null, "sala");
   assert.equal(resultNull.valid, false);
 

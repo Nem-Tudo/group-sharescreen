@@ -74,6 +74,8 @@ import {
 import { setPreferredAudioSink } from "./audioContext";
 import { startExcludedSystemAudio, prewarmExcludedSystemAudio } from "./desktopSystemAudio";
 import { captureAndroidScreen, isAndroidScreenCaptureAvailable } from "./androidScreenCapture";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
 
 // "file1".."file3" are local video or audio files played into the room (see
 // lib/localMediaSource.ts). Each is a full sibling of screen and camera — its
@@ -284,7 +286,7 @@ export const SHARE_RESOLUTION_OPTIONS: {
 }[] = [
   { value: "576p", label: "576p" },
   { value: "720p", label: "720p" },
-  { value: "1080p", label: "Full HD (1080p)" },
+  { value: "1080p", get label() { return translate("useRoomMedia.fullHd1080p"); } },
   { value: "1440p", label: "2K (1440p)", feature: "quality_2160p" },
   { value: "2160p", label: "4K (2160p)", feature: "quality_2160p" },
 ];
@@ -314,22 +316,22 @@ export const SHARE_PROFILE_OPTIONS: {
   label: string;
   hint: string;
 }[] = [
-  { value: "text", label: "Texto / código", hint: "prioriza nitidez" },
-  { value: "balanced", label: "Equilibrado", hint: "nitidez e fluidez" },
-  { value: "motion", label: "Vídeo / jogo", hint: "prioriza fluidez" },
+  { value: "text", get label() { return translate("useRoomMedia.textCode"); }, hint: "prioriza nitidez" },
+  { value: "balanced", get label() { return translate("useRoomMedia.balanced"); }, hint: "nitidez e fluidez" },
+  { value: "motion", get label() { return translate("useRoomMedia.videoGame"); }, hint: "prioriza fluidez" },
 ];
 
 export const SHARE_BITRATE_OPTIONS: { value: ShareBitrate; label: string; feature?: Feature }[] = [
-  { value: "low", label: "Bitrate baixo (~700 kbps)" },
-  { value: "medium", label: "Bitrate médio (~2 Mbps)" },
-  { value: "high", label: "Bitrate alto (~4 Mbps)" },
-  { value: "ultra", label: "Bitrate ultra (~8 Mbps)" },
-  { value: "maximo", label: "Bitrate máximo (~16 Mbps)", feature: "bitrate_maximo" },
+  { value: "low", get label() { return translate("useRoomMedia.lowBitrate700Kbps"); } },
+  { value: "medium", get label() { return translate("useRoomMedia.mediumBitrate2Mbps"); } },
+  { value: "high", get label() { return translate("useRoomMedia.highBitrate4Mbps"); } },
+  { value: "ultra", get label() { return translate("useRoomMedia.ultraBitrate8Mbps"); } },
+  { value: "maximo", get label() { return translate("useRoomMedia.maximumBitrate16Mbps"); }, feature: "bitrate_maximo" },
   // Same key as "máximo" above, for the same reason 240 fps shares fps_120:
   // both are the paid rung, and anyone allowed 16 Mbps is allowed 32. Kept as
   // a separate step rather than raising "máximo" because 32 Mbps is a lot of
   // upload to spend by accident — somebody should have to reach for it.
-  { value: "extremo", label: "Bitrate extremo (~32 Mbps)", feature: "bitrate_maximo" },
+  { value: "extremo", get label() { return translate("useRoomMedia.extremeBitrate32Mbps"); }, feature: "bitrate_maximo" },
 ];
 
 /**
@@ -453,6 +455,7 @@ function useLocalFileChannel(
   quality: QualityPreset,
   fpsRef: { current: number }
 ) {
+  const t = useT();
   return useBroadcastChannel(
     slot,
     room,
@@ -465,8 +468,8 @@ function useLocalFileChannel(
     // Whether the element can actually be captured is checked inside
     // captureStream, which is the only place that knows.
     () => true,
-    "Este navegador não permite tocar arquivos locais para a sala.",
-    "Não foi possível tocar esse arquivo para a sala.",
+    t("useRoomMedia.thisBrowserDoesNotAllowPlaying"),
+    t("useRoomMedia.couldNotPlayThatFileTo"),
     forceRelayIce,
     autoJoin,
     // Motion, always — see the contentHint block in start().
@@ -2538,6 +2541,7 @@ export function useScreenShareMode() {
 }
 
 export function useRoomMedia(room: string) {
+  const t = useT();
   // "Impedir conexões diretas": forces every peer connection this client
   // creates — sending or receiving, any channel — through the TURN relay
   // instead of negotiating a direct P2P path. Declared first because
@@ -2819,7 +2823,7 @@ export function useRoomMedia(room: string) {
           }
           if (activationLost && isActivationRefusal(err)) {
             throw new ShareStartError(
-              "A preparação do áudio do sistema demorou demais. Clique em compartilhar de novo."
+              t("useRoomMedia.preparingTheSystemAudioTookToo")
             );
           }
           throw err;
@@ -2846,8 +2850,8 @@ export function useRoomMedia(room: string) {
       return stream;
     },
     () => hasDisplayCapture() || isAndroidScreenCaptureAvailable() || hasCameraCapture(),
-    "Seu navegador não suporta compartilhamento de tela nem câmera.",
-    "Não foi possível iniciar o compartilhamento. Verifique as permissões do navegador.",
+    t("useRoomMedia.yourBrowserSupportsNeitherScreenSharing"),
+    t("useRoomMedia.couldNotStartSharingCheckThe"),
     forceRelayIce,
     autoJoin,
     screenQualityPreset
@@ -2874,8 +2878,8 @@ export function useRoomMedia(room: string) {
       );
     },
     () => hasCameraCapture(),
-    "Seu navegador não suporta câmera.",
-    "Não foi possível iniciar a câmera. Verifique as permissões do navegador.",
+    t("useRoomMedia.yourBrowserDoesNotSupportA"),
+    t("useRoomMedia.couldNotStartTheCameraCheck"),
     forceRelayIce,
     autoJoin,
     cameraQualityPreset
@@ -3237,8 +3241,8 @@ export function useRoomMedia(room: string) {
       return stream;
     },
     () => Boolean(navigator.mediaDevices?.getUserMedia),
-    "Seu navegador não suporta microfone.",
-    "Não foi possível ativar o microfone. Verifique a permissão do navegador.",
+    t("useRoomMedia.yourBrowserDoesNotSupportA2"),
+    t("useRoomMedia.couldNotTurnOnTheMicrophone"),
     forceRelayIce,
     true, // autoJoin: mic always auto-connects, this setting is screen/camera only
     undefined, // videoQuality: audio has none

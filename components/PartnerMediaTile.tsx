@@ -12,6 +12,7 @@ import {
 } from "@/lib/partner";
 import { signalingClient } from "@/lib/signalingClient";
 import { trackEvent } from "@/lib/analytics";
+import { useT } from "@/lib/useI18n";
 
 export function PartnerMediaTile({
   partner,
@@ -22,6 +23,7 @@ export function PartnerMediaTile({
   fill?: boolean;
   compact?: boolean;
 }) {
+  const t = useT();
   const { openPopup } = useNtPopups();
   const [, bumpRewardState] = useState(0);
 
@@ -123,7 +125,7 @@ export function PartnerMediaTile({
           handleClick(e as unknown as MouseEvent);
         }
       }}
-      aria-label={`Anúncio patrocinado: ${partner.title}`}
+      aria-label={t("partnerMediaTile.sponsoredAdTitle", { title: partner.title })}
       className={`group relative flex w-full cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-zinc-200 shadow-xs transition select-none hover:ring-2 hover:ring-emerald-500/50 dark:border-zinc-800 ${
         compact
           ? "h-full aspect-video"
@@ -187,8 +189,8 @@ export function PartnerMediaTile({
           <Tooltip
             content={
               rewardClaimedLocally
-                ? "Assistir vídeo de novo"
-                : `Assistir vídeo para ganhar ${partner.rewardPoints} pontos`
+                ? t("partnerMediaTile.watchTheVideoAgain")
+                : t("partnerMediaTile.watchTheVideoToEarnRewardpoints", { rewardPoints: partner.rewardPoints })
             }
           >
             <button
@@ -197,8 +199,8 @@ export function PartnerMediaTile({
               onClick={handlePlayVideo}
               aria-label={
                 rewardClaimedLocally
-                  ? "Assistir vídeo de novo"
-                  : `Assistir vídeo e ganhar ${partner.rewardPoints} pontos`
+                  ? t("partnerMediaTile.watchTheVideoAgain")
+                  : t("partnerMediaTile.watchTheVideoAndEarnRewardpoints", { rewardPoints: partner.rewardPoints })
               }
               className={`pointer-events-auto group/play flex items-center rounded-full border border-white/20 bg-black/35 shadow-lg backdrop-blur-[2px] transition duration-200 hover:scale-105 hover:bg-black/65 hover:border-white/40 active:scale-95 ${
                 compact
@@ -238,7 +240,7 @@ export function PartnerMediaTile({
               ) : (
                 <span className="flex items-center gap-0.5 text-[10px] font-medium text-emerald-300 sm:text-xs">
                   <BsCheckCircleFill className="h-2.5 w-2.5 sm:h-3.5 sm:w-3.5" />
-                  <span>Resgatado</span>
+                  <span>{t("partnerMediaTile.redeemed")}</span>
                 </span>
               )}
             </button>
@@ -261,7 +263,7 @@ export function PartnerMediaTile({
         </span>
         {!compact && (
           <span className="shrink-0 rounded-full bg-emerald-600/90 px-2 py-0.5 text-[11px] font-semibold text-white shadow-xs drop-shadow-sm sm:text-xs">
-            Patrocinado
+            {t("common.sponsored")}
           </span>
         )}
       </div>

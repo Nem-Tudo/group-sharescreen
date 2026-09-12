@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { translate } from "@/lib/i18n";
 
 // What a shared link looks like, per page.
 //
@@ -88,7 +89,7 @@ export function pageMetadata({
       type: "website",
       locale: "pt_BR",
       url,
-      siteName: "GoLive",
+      siteName: translate("common.golive"),
       title,
       description,
       // A thumbnail's size is whatever it was uploaded at; the generated card

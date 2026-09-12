@@ -16,11 +16,12 @@ import type { SocialUser } from "@/lib/socialApi";
 import { useSocialGraph } from "@/lib/useSocialGraph";
 import { openDirectMessages } from "@/lib/dmWindow";
 import { startCall } from "@/lib/callsApi";
+import { useT } from "@/lib/useI18n";
 
 // The friends list beside the home page's room form.
 //
 // The whole point is the two buttons on each row: the people somebody opens
-// GoLive to talk to were already one page away (/amigos) and one page away is
+// GoLive to talk to were already one page away (/friends) and one page away is
 // exactly far enough that the home page's answer to "call a friend" was "type
 // a room name and send them the link". This is the same list that page shows,
 // with the same faces and the same name colors a room's participant list
@@ -32,7 +33,7 @@ import { startCall } from "@/lib/callsApi";
 // the corner would be the same request twice on one screen. A guest simply
 // sees the page they always saw.
 //
-// Deliberately not everything /amigos does: no blocks, no accept/decline, no
+// Deliberately not everything /friends does: no blocks, no accept/decline, no
 // remove. Those are the page's job, and a sidebar that grows them is a second
 // copy of that page which has to stay in step with the first. What it does
 // carry is a pointer when somebody is waiting on an answer, because that is
@@ -83,6 +84,7 @@ function FriendRow({
   onCall: () => void;
   onOpenProfile: () => void;
 }) {
+  const t = useT();
   return (
     <li className="flex items-center gap-2.5 rounded-lg border border-zinc-200 bg-white px-2.5 py-2 dark:border-zinc-800 dark:bg-zinc-950">
       {/* A button, not a link, and for the same reason the room's participant
@@ -98,7 +100,7 @@ function FriendRow({
       <button
         type="button"
         onClick={onOpenProfile}
-        aria-label={`Ver o perfil de ${user.displayName}`}
+        aria-label={t("common.seeDisplaynameSProfile", { displayName: user.displayName })}
         className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-left"
       >
         <UserAvatar
@@ -125,22 +127,22 @@ function FriendRow({
         </span>
       </button>
       <span className="flex shrink-0 items-center gap-1.5">
-        <Tooltip content={`Ligar para ${user.displayName}`}>
+        <Tooltip content={t("common.callDisplayname", { displayName: user.displayName })}>
           <button
             type="button"
             disabled={busy}
             onClick={onCall}
-            aria-label={`Ligar para ${user.displayName}`}
+            aria-label={t("common.callDisplayname", { displayName: user.displayName })}
             className={`${ICON_ACTION} border-emerald-600/40 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-500/40 dark:text-emerald-400 dark:hover:bg-emerald-950/40`}
           >
             <MdCall className="h-4 w-4" />
           </button>
         </Tooltip>
-        <Tooltip content={`Conversar com ${user.displayName}`}>
+        <Tooltip content={t("common.chatWithDisplayname", { displayName: user.displayName })}>
           <button
             type="button"
             onClick={() => openDirectMessages(user.id)}
-            aria-label={`Conversar com ${user.displayName}`}
+            aria-label={t("common.chatWithDisplayname", { displayName: user.displayName })}
             className={`${ICON_ACTION} border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900`}
           >
             <MdChatBubbleOutline className="h-4 w-4" />
@@ -152,6 +154,7 @@ function FriendRow({
 }
 
 export function HomeFriendsPanel({ className = "" }: { className?: string }) {
+  const t = useT();
   // Whose profile is open, if any. Held here rather than per row so there is
   // one dialog on the page instead of one per friend — the same arrangement
   // the room uses (see WatchRoom's profileUserId).
@@ -183,7 +186,7 @@ export function HomeFriendsPanel({ className = "" }: { className?: string }) {
     setBusyId(user.id);
     setError(null);
     const result = await startCall(user.id);
-    if (!result.ok) setError(result.error ?? "Não foi possível ligar.");
+    if (!result.ok) setError(result.error ?? t("common.couldNotCall"));
     setBusyId(null);
   }
 
@@ -193,27 +196,27 @@ export function HomeFriendsPanel({ className = "" }: { className?: string }) {
     >
       <div className="flex items-baseline justify-between gap-2">
         <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-          Amigos
+          {t("common.friends")}
           {graph.friends.length > 0 && (
             <span className="ml-1.5 font-normal text-zinc-400">{graph.friends.length}</span>
           )}
         </h2>
         <span className="flex shrink-0 items-center gap-2">
-          <Tooltip content="Adicionar amigo">
+          <Tooltip content={t("common.addFriend")}>
             <button
               type="button"
               onClick={() => setAdding(true)}
-              aria-label="Adicionar amigo"
+              aria-label={t("common.addFriend")}
               className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-300 text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900"
             >
               <MdPersonAdd className="h-4 w-4" />
             </button>
           </Tooltip>
           <Link
-            href="/amigos"
+            href="/friends"
             className="text-xs font-medium text-zinc-500 underline underline-offset-2 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
           >
-            Ver todos
+            {t("common.seeAll")}
           </Link>
         </span>
       </div>
@@ -223,7 +226,7 @@ export function HomeFriendsPanel({ className = "" }: { className?: string }) {
           is a pointer and not a second set of buttons. */}
       {graph.incoming.length > 0 && (
         <Link
-          href="/amigos"
+          href="/friends"
           className="mt-3 block rounded-lg border border-emerald-600/30 bg-emerald-50 px-2.5 py-2 text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-500/30 dark:bg-emerald-950/30 dark:text-emerald-400 dark:hover:bg-emerald-950/60"
         >
           {graph.incoming.length === 1
@@ -242,16 +245,16 @@ export function HomeFriendsPanel({ className = "" }: { className?: string }) {
       )}
 
       {loading ? (
-        <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">Carregando…</p>
+        <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">{t("common.loading")}</p>
       ) : graph.friends.length === 0 ? (
         <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-          Você ainda não tem amigos aqui.{" "}
+          {t("common.youDonTHaveAnyFriends")}{" "}
           <button
             type="button"
             onClick={() => setAdding(true)}
             className="font-medium underline underline-offset-2 hover:text-zinc-900 dark:hover:text-zinc-100"
           >
-            Adicionar alguém
+            {t("homeFriendsPanel.addSomeone")}
           </button>
           , ou adicione pelo perfil e pela lista de participantes de uma sala.
         </p>

@@ -1,4 +1,5 @@
 import { getSignalingHttpBase } from "./roomsApi";
+import { translate } from "@/lib/i18n";
 
 // The parts of groups that have to work on the server as well as in the
 // browser: the shape of their links, and the one read an invite page makes
@@ -174,14 +175,14 @@ export async function fetchPublicGroupPreview(
 
 /** What an invite's lifetime says, in words — "expira em 3 h", "nunca expira". */
 export function describeInviteExpiry(expiresAt: number | null, now = Date.now()): string {
-  if (expiresAt === null) return "Nunca expira";
+  if (expiresAt === null) return translate("common.neverExpires");
   const left = expiresAt - now;
-  if (left <= 0) return "Expirado";
+  if (left <= 0) return translate("common.expired");
   const minutes = Math.ceil(left / 60_000);
-  if (minutes < 60) return `Expira em ${minutes} min`;
+  if (minutes < 60) return translate("groupLinks.expiresInMinutesMin", { minutes });
   const hours = Math.round(minutes / 60);
-  if (hours < 48) return `Expira em ${hours} h`;
-  return `Expira em ${Math.round(hours / 24)} dias`;
+  if (hours < 48) return translate("groupLinks.expiresInHoursH", { hours });
+  return translate("groupLinks.expiresInValueDays", { value: Math.round(hours / 24) });
 }
 
 /** Initials for a group with no icon: the first letter of up to two words. */

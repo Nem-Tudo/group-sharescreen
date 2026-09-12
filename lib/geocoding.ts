@@ -1,4 +1,5 @@
 "use client";
+import { translate } from "@/lib/i18n";
 
 // Place search for the world maps (see components/WorldMap) — "belo
 // horizonte", "tokyo", "rua tal, 123".
@@ -75,7 +76,7 @@ export async function searchPlaces(query: string, signal?: AbortSignal): Promise
   if (trimmed.length < 2) return [];
   const url = `${PHOTON_URL}?q=${encodeURIComponent(trimmed)}&limit=${RESULT_LIMIT}`;
   const res = await fetch(url, { signal });
-  if (!res.ok) throw new Error(`Falha na busca (status ${res.status})`);
+  if (!res.ok) throw new Error(translate("geocoding.searchFailedStatusStatus", { status: res.status }));
   const data = (await res.json()) as { features?: PhotonFeature[] };
   const features = Array.isArray(data.features) ? data.features : [];
   const results: PlaceResult[] = [];

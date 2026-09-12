@@ -8,6 +8,7 @@ import { ThemeMenuButton } from "@/components/ThemeToggle";
 import { UpdateAppButton } from "@/components/UpdateAppButton";
 import { usePublicRoomMarkers } from "@/lib/usePublicRoomMarkers";
 import { useGroupMapMarkers } from "@/lib/useGroupMapMarkers";
+import { useT } from "@/lib/useI18n";
 
 // What the map shows: everything, or one of its two kinds of pin. Live rooms
 // (green) come and go with the people in them; groups (blue) stay where their
@@ -15,6 +16,7 @@ import { useGroupMapMarkers } from "@/lib/useGroupMapMarkers";
 type MapFilter = "all" | "rooms" | "groups";
 
 export function RoomsMapClient() {
+  const t = useT();
   // The same pins the location picker inside a room shows (see
   // ManageRoomModal) — one definition of what a room looks like on a map.
   const { rooms, markers: roomMarkers, error } = usePublicRoomMarkers();
@@ -58,14 +60,14 @@ export function RoomsMapClient() {
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-black/10 px-4 py-3 dark:border-white/10">
         <div className="min-w-0">
           <h1 className="text-xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-            Mapa de salas e grupos
+            {t("worldmap.roomsMapClient.roomsAndGroupsMap")}
           </h1>
           <p className="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">
             {loading
-              ? "Carregando..."
+              ? t("common.loading2")
               : roomMarkers.length + groupMarkers.length === 0
-                ? "Nenhuma sala ou grupo definiu seu local no mundo ainda."
-                : "Encontre salas e grupos no seu país, cidade ou bairro"}
+                ? t("worldmap.roomsMapClient.noRoomOrGroupHasSet")
+                : t("worldmap.roomsMapClient.findRoomsAndGroupsInYour")}
           </p>
           {/* Says what a pin is before anybody has to guess. A map of dots
               over cities reads as "these are people's locations" unless it is
@@ -74,9 +76,7 @@ export function RoomsMapClient() {
               anyone: the app never calls the geolocation API, and no
               participant's position is known to it in the first place. */}
           <p className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">
-            Cada alfinete é onde o dono da sala ou do grupo escolheu marcá-lo, na mão. Ninguém tem a
-            localização detectada. Salas ativas (verde) somem quando esvaziam; grupos (azul) ficam até o
-            dono tirar do mapa.
+            {t("worldmap.roomsMapClient.eachPinIsWhereTheRoom")}
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -90,13 +90,13 @@ export function RoomsMapClient() {
             className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
           >
             <GlobeIcon className="h-4 w-4" />
-            Ver em lista
+            {t("worldmap.roomsMapClient.seeAsAList")}
           </Link>
           <Link
             href="/"
             className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
           >
-            Início
+            {t("common.home")}
           </Link>
         </div>
       </header>
@@ -106,12 +106,12 @@ export function RoomsMapClient() {
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-black/10 px-4 py-2 dark:border-white/10">
         <div
           role="group"
-          aria-label="O que mostrar no mapa"
+          aria-label={t("worldmap.roomsMapClient.whatToShowOnTheMap")}
           className="inline-flex gap-0.5 rounded-lg bg-zinc-200/70 p-0.5 dark:bg-zinc-900"
         >
-          {filterButton("all", "Tudo", null)}
-          {filterButton("rooms", "Salas ativas", rooms === null ? null : roomMarkers.length, "#059669")}
-          {filterButton("groups", "Grupos", groups === null ? null : groupMarkers.length, "#2563eb")}
+          {filterButton("all", t("worldmap.roomsMapClient.everything"), null)}
+          {filterButton("rooms", t("worldmap.roomsMapClient.activeRooms"), rooms === null ? null : roomMarkers.length, "#059669")}
+          {filterButton("groups", t("common.groups"), groups === null ? null : groupMarkers.length, "#2563eb")}
         </div>
       </div>
 

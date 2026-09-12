@@ -1,4 +1,5 @@
 import type { GroupReaction } from "./groupsApi";
+import { translate, translateCount } from "@/lib/i18n";
 
 // A message's reactions, changed on this screen ahead of the server — the
 // chip lights up on the click, the way Discord's does — and then replaced by
@@ -28,7 +29,7 @@ export function toggleReaction(
 }
 
 /**
- * Who reacted, for the chip's tooltip: "Você, Bia e Caio reagiram com 👍",
+ * Who reacted, for the chip's tooltip: "You, Bia and Caio reacted with 👍",
  * naming five at most.
  */
 export function describeReaction(reaction: GroupReaction, nameOf: (userId: string) => string): string {
@@ -37,9 +38,15 @@ export function describeReaction(reaction: GroupReaction, nameOf: (userId: strin
   const rest = names.length - shown.length;
   const list =
     rest > 0
-      ? `${shown.join(", ")} e mais ${rest}`
+      ? translate("groupReactions.andMore", { names: shown.join(", "), rest })
       : shown.length > 1
-        ? `${shown.slice(0, -1).join(", ")} e ${shown[shown.length - 1]}`
+        ? translate("groupReactions.nameListLast", {
+            names: shown.slice(0, -1).join(", "),
+            last: shown[shown.length - 1],
+          })
         : shown[0] ?? "";
-  return `${list} ${names.length === 1 ? "reagiu" : "reagiram"} com ${reaction.emoji}`;
+  return translateCount("groupReactions.reacted", names.length, {
+    list,
+    emoji: reaction.emoji,
+  });
 }

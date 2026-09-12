@@ -2,6 +2,7 @@
 
 import { SpeakerIcon, SpeakerMuteIcon } from "./icons";
 import { Tooltip } from "./Tooltip";
+import { useT } from "@/lib/useI18n";
 
 function clampVolume(value: number, max: number) {
   return Math.min(max, Math.max(0, value));
@@ -31,6 +32,7 @@ export function VolumeSlider({
   className?: string;
   max?: number;
 }) {
+  const t = useT();
   const normalizedValue = clampVolume(value, max);
   const icon =
     muted || normalizedValue === 0 ? (
@@ -52,13 +54,13 @@ export function VolumeSlider({
       {showIcon &&
         (onToggleMute ? (
           <Tooltip
-            content={muted || normalizedValue === 0 ? "Reativar áudio" : "Silenciar áudio"}
+            content={muted || normalizedValue === 0 ? t("volumeSlider.unmuteAudio") : t("volumeSlider.muteAudio")}
           >
             <button
               type="button"
               onClick={handleIconClick}
               aria-label={
-                muted || normalizedValue === 0 ? "Reativar áudio" : "Silenciar áudio"
+                muted || normalizedValue === 0 ? t("volumeSlider.unmuteAudio") : t("volumeSlider.muteAudio")
               }
               className="rounded p-1 transition hover:text-zinc-700 dark:hover:text-zinc-200"
             >

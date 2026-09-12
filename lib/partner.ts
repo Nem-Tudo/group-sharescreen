@@ -54,10 +54,9 @@ export type PartnerCardData = {
 };
 
 export const FALLBACK_PARTNER: PartnerCardData = {
-  title: "Anuncie aqui pra todo mundo!",
-  description:
-    "Esse site é visitado por mais de 50 mil pessoas por dia!\n\nAbra um ticket no meu Discord e vamos combinar um anúncio",
-  buttonLabel: "Abrir ticket no Discord",
+  get title() { return translate("partner.advertiseHereForEveryoneToSee"); },
+  get description() { return translate("partner.thisSiteIsVisitedByMore"); },
+  get buttonLabel() { return translate("partner.openATicketOnDiscord"); },
   buttonUrl: "https://go.nemtudo.me/golive-partner-nemtudodiscord",
   backgroundColor: "#111827",
   textColor: "#f4f4f5",
@@ -66,10 +65,9 @@ export const FALLBACK_PARTNER: PartnerCardData = {
 };
 
 export const EXAMPLE_PARTNER: PartnerCardData = {
-  title: "Me segue no Twitter!",
-  description:
-    "Posto updates dos meus projetos, coisas aleatórias, coisas da vida, eventos, etc.\n\nSegue aí gay",
-  buttonLabel: "Sou lindo e vou seguir",
+  get title() { return translate("partner.followMeOnTwitter"); },
+  get description() { return translate("partner.iPostUpdatesAboutMyProjects"); },
+  get buttonLabel() { return translate("partner.iMGorgeousAndILl"); },
   imageUrl:
     "https://cdn.nemtudo.me/f/nemtudo/MjAyNi8wOC8yMC9JTUFHRS8wMl8yOF8wMl9fMTc4NzIwMzY4MjQyNC02NzMxNDIwNTI.webp",
   buttonUrl: "https://go.nemtudo.me/golive-partner-twitter",
@@ -85,7 +83,7 @@ export async function fetchPartner(
 ): Promise<PartnerCardData | null> {
   const query = currentId ? `?current=${encodeURIComponent(currentId)}` : "";
   const res = await fetch(`${getSignalingHttpBase()}/partner${query}`, { signal });
-  if (!res.ok) throw new Error(`Falha ao carregar parceiro (status ${res.status})`);
+  if (!res.ok) throw new Error(translate("partner.couldNotLoadPartnerStatusStatus", { status: res.status }));
   const data = (await res.json()) as { partner: PartnerCardData | null };
   return data.partner;
 }
@@ -113,6 +111,7 @@ export function clickRewardAppliesTo(
 import { getAccountToken } from "./accountApi";
 import { getStoredGuestToken } from "./guestToken";
 import { getSignalingHttpBase } from "./roomsApi";
+import { translate } from "@/lib/i18n";
 
 // Claims a partner ad's reward for whoever is here — an account when there's
 // one, otherwise this browser's guest identity, whose points the API holds
@@ -135,7 +134,7 @@ async function claimPartnerReward(
   );
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const message = (data && typeof data === "object" && "error" in data && String(data.error)) || "Falha ao resgatar a recompensa.";
+    const message = (data && typeof data === "object" && "error" in data && String(data.error)) || translate("common.couldNotRedeemTheReward");
     throw new Error(message);
   }
   return data as { points: number | null };
@@ -146,7 +145,7 @@ export function claimPartnerVideoReward(partnerId: string): Promise<{ points: nu
   return claimPartnerReward(
     partnerId,
     "claim-reward",
-    "Escolha um nome para entrar antes de resgatar pontos assistindo."
+    translate("partner.chooseANameToJoinBefore")
   );
 }
 
@@ -156,7 +155,7 @@ export function claimPartnerClickReward(partnerId: string): Promise<{ points: nu
   return claimPartnerReward(
     partnerId,
     "claim-click-reward",
-    "Escolha um nome para entrar antes de resgatar pontos clicando."
+    translate("partner.chooseANameToJoinBefore2")
   );
 }
 

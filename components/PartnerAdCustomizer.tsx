@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { trackEvent } from "@/lib/analytics";
 import { Tooltip } from "@/components/Tooltip";
+import { useT } from "@/lib/useI18n";
 
 // Kept separate from PartnerCard's PartnerCardData on purpose — every field
 // here is a plain required string so each input can stay a normal
@@ -36,6 +37,7 @@ export function PartnerAdCustomizer({
   initial: AdForm;
   onClose: () => void;
 }) {
+  const t = useT();
   const [form, setForm] = useState<AdForm>(initial);
 
   function update<K extends keyof AdForm>(key: K, value: AdForm[K]) {
@@ -54,18 +56,17 @@ export function PartnerAdCustomizer({
         <div className="flex items-start justify-between gap-3 border-b border-zinc-200 px-5 py-4 dark:border-zinc-800">
           <div>
             <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">
-              Veja como vai ficar o seu anúncio
+              {t("partnerAdCustomizer.seeHowYourAdWillLook")}
             </h2>
             <p className="mt-1 text-xs text-emerald-500 dark:text-emerald-400">
-              A gente aceita fazer modificações na estrutura do código do anúncio pra incluir/modificar elementos
-              que você imaginou e a gente ainda não pensou. Chama no Discord que nós resolvemos tudo
+              {t("partnerAdCustomizer.weAreHappyToMakeChanges")}
             </p>
           </div>
-          <Tooltip content="Fechar">
+          <Tooltip content={t("common.close")}>
             <button
               type="button"
               onClick={onClose}
-              aria-label="Fechar"
+              aria-label={t("common.close")}
               className="shrink-0 text-2xl leading-none text-zinc-400 transition hover:text-zinc-700 dark:hover:text-zinc-200"
             >
               ×
@@ -75,7 +76,7 @@ export function PartnerAdCustomizer({
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
           <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-500">
-            Pré-visualização
+            {t("partnerAdCustomizer.preview")}
           </p>
           <div
             className="mb-5 w-72 max-w-full overflow-hidden rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
@@ -83,28 +84,28 @@ export function PartnerAdCustomizer({
           >
             <div className="mb-2 flex items-center">
               <span className="rounded-full bg-black/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide opacity-70 dark:bg-white/10">
-                Patrocinado
+                {t("common.sponsored")}
               </span>
             </div>
             {form.imageUrl && (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={form.imageUrl} alt="" className="mb-2 max-h-32 w-full rounded-lg object-cover" />
             )}
-            <p className="text-sm font-semibold">{form.title || "Título do anúncio"}</p>
+            <p className="text-sm font-semibold">{form.title || t("common.adTitle")}</p>
             <p className="mt-1 whitespace-pre-line text-xs opacity-80">
-              {form.description || "Descrição do anúncio"}
+              {form.description || t("common.adDescription")}
             </p>
             <div
               className="mt-3 rounded-lg px-3 py-2 text-center text-sm font-semibold"
               style={{ backgroundColor: form.buttonBackgroundColor, color: form.buttonTextColor }}
             >
-              {form.buttonLabel || "Botão"}
+              {form.buttonLabel || t("common.button")}
             </div>
           </div>
 
           <div className="flex flex-col gap-3">
             <div>
-              <label className={labelClass}>Título</label>
+              <label className={labelClass}>{t("common.title")}</label>
               <input
                 className={inputClass}
                 maxLength={60}
@@ -113,7 +114,7 @@ export function PartnerAdCustomizer({
               />
             </div>
             <div>
-              <label className={labelClass}>Descrição</label>
+              <label className={labelClass}>{t("common.description")}</label>
               <textarea
                 className={`${inputClass} resize-none`}
                 rows={3}
@@ -123,7 +124,7 @@ export function PartnerAdCustomizer({
               />
             </div>
             <div>
-              <label className={labelClass}>Imagem (URL, opcional)</label>
+              <label className={labelClass}>{t("partnerAdCustomizer.imageUrlOptional")}</label>
               <input
                 className={inputClass}
                 value={form.imageUrl}
@@ -133,7 +134,7 @@ export function PartnerAdCustomizer({
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className={labelClass}>Texto do botão</label>
+                <label className={labelClass}>{t("common.buttonText")}</label>
                 <input
                   className={inputClass}
                   maxLength={30}
@@ -142,7 +143,7 @@ export function PartnerAdCustomizer({
                 />
               </div>
               <div>
-                <label className={labelClass}>Link do botão</label>
+                <label className={labelClass}>{t("common.buttonLink")}</label>
                 <input
                   className={inputClass}
                   value={form.buttonUrl}
@@ -153,7 +154,7 @@ export function PartnerAdCustomizer({
             </div>
             <div className="grid grid-cols-4 gap-3">
               <div>
-                <label className={labelClass}>Fundo</label>
+                <label className={labelClass}>{t("common.background")}</label>
                 <input
                   type="color"
                   className={colorInputClass}
@@ -162,7 +163,7 @@ export function PartnerAdCustomizer({
                 />
               </div>
               <div>
-                <label className={labelClass}>Texto</label>
+                <label className={labelClass}>{t("common.text")}</label>
                 <input
                   type="color"
                   className={colorInputClass}
@@ -171,7 +172,7 @@ export function PartnerAdCustomizer({
                 />
               </div>
               <div>
-                <label className={labelClass}>Botão</label>
+                <label className={labelClass}>{t("common.button")}</label>
                 <input
                   type="color"
                   className={colorInputClass}
@@ -180,7 +181,7 @@ export function PartnerAdCustomizer({
                 />
               </div>
               <div>
-                <label className={labelClass}>Texto botão</label>
+                <label className={labelClass}>{t("partnerAdCustomizer.buttonText")}</label>
                 <input
                   type="color"
                   className={colorInputClass}
@@ -200,7 +201,7 @@ export function PartnerAdCustomizer({
             onClick={() => trackEvent("partner_customizer_discord_clicked")}
             className="block rounded-lg bg-[#5865f2] px-4 py-2.5 text-center text-sm font-semibold text-white transition hover:opacity-90"
           >
-            Gostei! Falar no Discord pra anunciar
+            {t("partnerAdCustomizer.iLikeItTalkOnDiscord")}
           </a>
         </div>
       </div>

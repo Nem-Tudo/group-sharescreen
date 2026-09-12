@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import { StreamViewer } from "./StreamViewer";
+import { translate } from "@/lib/i18n";
 
 export const metadata: Metadata = {
-  title: "GoLive · Fonte de Transmissão",
+  get title() { return translate("stream.goliveBroadcastSource"); },
   robots: { index: false, follow: false },
 };
 

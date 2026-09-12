@@ -27,6 +27,9 @@ import {
   bucketFullLabel,
   formatCount,
 } from "./charts";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
+import { formatLocale } from "@/lib/i18n";
 
 // How long to wait after one refresh lands before asking for the next. Half a
 // second: the page promises "em tempo real", and this is close enough to it
@@ -42,7 +45,7 @@ import {
 // requests a minute this produces (see GET /partner-report/:token).
 const POLL_INTERVAL_MS = 500;
 
-const dateTimeFormat = new Intl.DateTimeFormat("pt-BR", {
+const dateTimeFormat = () => new Intl.DateTimeFormat(formatLocale(), {
   day: "2-digit",
   month: "2-digit",
   year: "numeric",
@@ -53,11 +56,12 @@ const dateTimeFormat = new Intl.DateTimeFormat("pt-BR", {
 function relativeSeconds(ms: number): string {
   const seconds = Math.max(0, Math.round(ms / 1000));
   if (seconds < 5) return "agora mesmo";
-  if (seconds < 60) return `há ${seconds}s`;
-  return `há ${Math.round(seconds / 60)}min`;
+  if (seconds < 60) return translate("common.secondsSAgo", { seconds });
+  return translate("common.valueMinAgo", { value: Math.round(seconds / 60) });
 }
 
 export function PartnerReportClient({ token }: { token: string }) {
+  const t = useT();
   const [range, setRange] = useState<PartnerReportRange>("24h");
   // undefined = the first load hasn't landed yet. A failed *poll* deliberately
   // keeps the last report on screen (see the effect below): a blank page is a
@@ -94,7 +98,7 @@ export function PartnerReportClient({ token }: { token: string }) {
           return;
         }
         // Transient — say so in the corner and keep the last numbers up.
-        setError("Sem conexão com o servidor. Tentando de novo...");
+        setError(t("ad.partnerReportClient.noConnectionToTheServerTrying"));
       }
     }
 
@@ -112,15 +116,14 @@ export function PartnerReportClient({ token }: { token: string }) {
       controller.abort();
       if (timer) clearTimeout(timer);
     };
-  }, [token, range]);
+  }, [token, range, t]);
 
   if (notFound) {
     return (
       <main className="mx-auto flex w-full max-w-md grow flex-col items-center justify-center gap-3 px-4 py-20 text-center">
-        <h1 className="text-xl font-semibold text-zinc-950 dark:text-zinc-50">Link inválido</h1>
+        <h1 className="text-xl font-semibold text-zinc-950 dark:text-zinc-50">{t("ad.partnerReportClient.invalidLink")}</h1>
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          Esse relatório não existe mais — o anúncio pode ter sido removido, ou o link foi digitado
-          errado. Peça um novo link para quem te enviou esse.
+          {t("ad.partnerReportClient.thisReportNoLongerExistsThe")}
         </p>
       </main>
     );
@@ -130,7 +133,7 @@ export function PartnerReportClient({ token }: { token: string }) {
     return (
       <main className="mx-auto flex w-full max-w-md grow flex-col items-center justify-center gap-3 px-4 py-20 text-center">
         <span className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-300 border-t-transparent dark:border-zinc-700 dark:border-t-transparent" />
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">Carregando o relatório...</p>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">{t("ad.partnerReportClient.loadingTheReport")}</p>
       </main>
     );
   }
@@ -182,16 +185,16 @@ export function PartnerReportClient({ token }: { token: string }) {
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-3)]">
-            Relatório do anúncio
+            {t("common.adReport")}
           </p>
           <h1 className="mt-0.5 text-2xl font-semibold tracking-tight text-[var(--ink-1)]">
             {ad.title}
           </h1>
           <p className="mt-1 text-xs text-[var(--ink-3)]">
-            No ar desde {dateTimeFormat.format(ad.createdAt)}
+            {t("ad.partnerReportClient.liveSince")} {dateTimeFormat().format(ad.createdAt)}
             {ad.expiresAt
-              ? ` · ${ad.active ? "expira" : "expirou"} em ${dateTimeFormat.format(ad.expiresAt)}`
-              : " · sem data para acabar"}
+              ? t("ad.partnerReportClient.valueOnValue2", { value: ad.active ? t("common.expiresVerb") : t("common.expiredVerb"), value2: dateTimeFormat().format(ad.expiresAt) })
+              : t("ad.partnerReportClient.noEndDate")}
           </p>
         </div>
         <div className="flex flex-col items-end gap-1.5">
@@ -201,15 +204,15 @@ export function PartnerReportClient({ token }: { token: string }) {
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-75" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
               </span>
-              No ar agora
+              {t("ad.partnerReportClient.liveNow")}
             </span>
           ) : (
             <span className="rounded-full bg-zinc-500/10 px-2.5 py-1 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
-              Campanha encerrada
+              {t("ad.partnerReportClient.campaignEnded")}
             </span>
           )}
           <span className="text-[11px] text-[var(--ink-3)]">
-            {error ?? `Atualizado ${relativeSeconds(Math.max(0, now - updatedAt))}`}
+            {error ?? t("common.updatedValue", { value: relativeSeconds(Math.max(0, now - updatedAt)) })}
           </span>
         </div>
       </header>
@@ -217,38 +220,38 @@ export function PartnerReportClient({ token }: { token: string }) {
       {/* ── Números principais ────────────────────────────────────────── */}
       <section className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatTile
-          label="Impressões"
+          label={t("ad.partnerReportClient.impressions")}
           icon={<MdOutlineRemoveRedEye />}
           accent="--series-1"
           value={formatCount(stats.views)}
-          hint="Cada vez que o anúncio apareceu para alguém"
+          hint={t("ad.partnerReportClient.everyTimeTheAdAppearedTo")}
         />
         <StatTile
-          label="Pessoas alcançadas"
+          label={t("ad.partnerReportClient.peopleReached")}
           icon={<MdOutlinePeopleAlt />}
           accent="--series-3"
           value={formatCount(stats.uniqueViews)}
-          hint="Gente diferente que viu o anúncio pelo menos uma vez"
+          hint={t("ad.partnerReportClient.differentPeopleWhoSawTheAd")}
         />
         <StatTile
-          label="Cliques"
+          label={t("ad.partnerReportClient.clicks")}
           icon={<MdOutlineAdsClick />}
           accent="--series-2"
           value={formatCount(clicks)}
-          hint="Cliques no botão, no card e dentro do vídeo somados"
+          hint={t("ad.partnerReportClient.clicksOnTheButtonOnThe")}
         />
         <StatTile
-          label="Taxa de clique"
+          label={t("ad.partnerReportClient.clickThroughRate")}
           icon={<MdOutlineShowChart />}
           value={ctr === null ? "—" : `${ctr.toFixed(1)}%`}
-          hint="Dos que foram alcançados, quantos clicaram"
+          hint={t("ad.partnerReportClient.ofThoseReachedHowManyClicked")}
         />
       </section>
 
       {/* ── Ao longo do tempo ─────────────────────────────────────────── */}
       <section className="mt-4 rounded-2xl border border-[var(--hairline)] bg-[var(--surface)] p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold text-[var(--ink-1)]">Ao longo do tempo</h2>
+          <h2 className="text-sm font-semibold text-[var(--ink-1)]">{t("common.overTime")}</h2>
           <div className="flex gap-1 rounded-lg bg-[var(--track)] p-0.5">
             {PARTNER_REPORT_RANGES.map((option) => (
               <button
@@ -273,15 +276,15 @@ export function PartnerReportClient({ token }: { token: string }) {
           <TimeSeriesChart
             buckets={history.buckets}
             step={history.step}
-            emptyLabel="Nenhuma impressão nesse período"
-            series={{ label: "Impressões", color: "--series-1", valueOf: (b) => b.views }}
+            emptyLabel={t("ad.partnerReportClient.noImpressionInThatPeriod")}
+            series={{ label: t("ad.partnerReportClient.impressions"), color: "--series-1", valueOf: (b) => b.views }}
           />
           <TimeSeriesChart
             buckets={history.buckets}
             step={history.step}
-            emptyLabel="Nenhum clique nesse período"
+            emptyLabel={t("ad.partnerReportClient.noClickInThatPeriod")}
             series={{
-              label: "Cliques",
+              label: t("ad.partnerReportClient.clicks"),
               color: "--series-2",
               valueOf: (b) => b.clicks + b.clicksByVideo,
             }}
@@ -294,7 +297,7 @@ export function PartnerReportClient({ token }: { token: string }) {
           className="mt-3 flex items-center gap-1.5 text-xs font-medium text-[var(--ink-2)] underline underline-offset-2 hover:text-[var(--ink-1)]"
         >
           <MdOutlineTableChart className="h-3.5 w-3.5" />
-          {showTable ? "Esconder os números" : "Ver os números em tabela"}
+          {showTable ? t("ad.partnerReportClient.hideTheNumbers") : t("ad.partnerReportClient.seeTheNumbersAsATable")}
         </button>
 
         {showTable && (
@@ -303,13 +306,13 @@ export function PartnerReportClient({ token }: { token: string }) {
               <thead className="sticky top-0 bg-[var(--surface)] text-[var(--ink-3)]">
                 <tr>
                   <th scope="col" className="px-3 py-2 font-medium">
-                    {history.step === "hour" ? "Hora" : "Dia"}
+                    {history.step === "hour" ? t("ad.partnerReportClient.hour") : t("ad.partnerReportClient.day")}
                   </th>
                   <th scope="col" className="px-3 py-2 text-right font-medium">
-                    Impressões
+                    {t("ad.partnerReportClient.impressions")}
                   </th>
                   <th scope="col" className="px-3 py-2 text-right font-medium">
-                    Cliques
+                    {t("ad.partnerReportClient.clicks")}
                   </th>
                 </tr>
               </thead>
@@ -337,34 +340,33 @@ export function PartnerReportClient({ token }: { token: string }) {
       <section className="mt-4 grid gap-4 lg:grid-cols-[1fr_auto]">
         <div className="flex flex-col gap-4">
           <div className="rounded-2xl border border-[var(--hairline)] bg-[var(--surface)] p-4">
-            <h2 className="text-sm font-semibold text-[var(--ink-1)]">De onde vieram os cliques</h2>
+            <h2 className="text-sm font-semibold text-[var(--ink-1)]">{t("ad.partnerReportClient.whereTheClicksCameFrom")}</h2>
             <p className="mt-0.5 mb-3 text-xs text-[var(--ink-3)]">
-              O mesmo botão aparece no card da sala e dentro do popup do vídeo. São dois cliques
-              diferentes de gente em situações diferentes, então ficam separados.
+              {t("ad.partnerReportClient.theSameButtonAppearsOnThe")}
             </p>
             <SplitBar
               parts={[
-                { label: "No card", value: stats.clicks, color: "--series-2" },
-                { label: "No vídeo", value: stats.clicksByVideo, color: "--series-3" },
+                { label: t("ad.partnerReportClient.onTheCard"), value: stats.clicks, color: "--series-2" },
+                { label: t("ad.partnerReportClient.onTheVideo"), value: stats.clicksByVideo, color: "--series-3" },
               ]}
             />
             <dl className="mt-4 grid grid-cols-2 gap-3 border-t border-[var(--hairline)] pt-3 text-xs">
               <div>
-                <dt className="text-[var(--ink-3)]">Sessões alcançadas</dt>
+                <dt className="text-[var(--ink-3)]">{t("ad.partnerReportClient.sessionsReached")}</dt>
                 <dd className="mt-0.5 text-base font-semibold tabular-nums text-[var(--ink-1)]">
                   {formatCount(stats.sessionViews)}
                 </dd>
                 <p className="text-[10px] leading-snug text-[var(--ink-3)]">
-                  Uma por aba aberta — entre as impressões e as pessoas
+                  {t("ad.partnerReportClient.onePerOpenTabBetweenThe")}
                 </p>
               </div>
               <div>
-                <dt className="text-[var(--ink-3)]">Minimizações</dt>
+                <dt className="text-[var(--ink-3)]">{t("ad.partnerReportClient.minimises")}</dt>
                 <dd className="mt-0.5 text-base font-semibold tabular-nums text-[var(--ink-1)]">
                   {formatCount(stats.minimizes)}
                 </dd>
                 <p className="text-[10px] leading-snug text-[var(--ink-3)]">
-                  Vezes que alguém recolheu a barra lateral com o anúncio aberto
+                  {t("ad.partnerReportClient.timesSomeoneCollapsedTheSidebarWith")}
                 </p>
               </div>
             </dl>
@@ -374,21 +376,21 @@ export function PartnerReportClient({ token }: { token: string }) {
             <div className="rounded-2xl border border-[var(--hairline)] bg-[var(--surface)] p-4">
               <h2 className="flex items-center gap-1.5 text-sm font-semibold text-[var(--ink-1)]">
                 <BsCoin className="h-3.5 w-3.5 text-amber-500" />
-                Recompensas
+                {t("ad.partnerReportClient.rewards")}
               </h2>
               {hasVideoReward && (
                 <div className="mt-3">
                   <p className="mb-2 text-xs text-[var(--ink-3)]">
-                    Quem assiste o vídeo inteiro ganha {formatCount(ad.rewardPoints ?? 0)} pontos.
+                    {t("ad.partnerReportClient.whoeverWatchesTheWholeVideoEarns")} {formatCount(ad.rewardPoints ?? 0)} {t("ad.partnerReportClient.points")}
                   </p>
                   <FunnelChart
                     stages={[
-                      { label: "Abriram o vídeo", value: stats.rewardVideoOpens },
-                      { label: "Assistiram até o fim", value: stats.rewardVideoCompletions },
+                      { label: t("ad.partnerReportClient.openedTheVideo"), value: stats.rewardVideoOpens },
+                      { label: t("ad.partnerReportClient.watchedToTheEnd"), value: stats.rewardVideoCompletions },
                       {
-                        label: "Resgataram os pontos",
+                        label: t("ad.partnerReportClient.redeemedThePoints"),
                         value: stats.rewardClaims,
-                        hint: "Contas diferentes — ninguém resgata duas vezes",
+                        hint: t("ad.partnerReportClient.differentAccountsNobodyRedeemsTwice"),
                       },
                     ]}
                   />
@@ -399,8 +401,7 @@ export function PartnerReportClient({ token }: { token: string }) {
                   <strong className="text-base font-semibold tabular-nums text-[var(--ink-1)]">
                     {formatCount(stats.clickRewardClaims)}
                   </strong>{" "}
-                  contas resgataram os {formatCount(ad.clickRewardPoints ?? 0)} pontos por clicar no
-                  botão.
+                  contas resgataram os {formatCount(ad.clickRewardPoints ?? 0)} {t("ad.partnerReportClient.pointsForClickingTheButton")}
                 </p>
               )}
             </div>
@@ -412,7 +413,7 @@ export function PartnerReportClient({ token }: { token: string }) {
             leitor nunca viu. */}
         <div className="lg:w-72">
           <div className="rounded-2xl border border-[var(--hairline)] bg-[var(--surface)] p-4">
-            <h2 className="text-sm font-semibold text-[var(--ink-1)]">Como ele aparece</h2>
+            <h2 className="text-sm font-semibold text-[var(--ink-1)]">{t("ad.partnerReportClient.howItLooks")}</h2>
             <div
               className="mt-3 overflow-hidden rounded-xl p-4"
               style={{
@@ -421,7 +422,7 @@ export function PartnerReportClient({ token }: { token: string }) {
               }}
             >
               <span className="rounded-full bg-black/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide opacity-70 dark:bg-white/10">
-                Patrocinado
+                {t("common.sponsored")}
               </span>
               {ad.imageUrl && (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -457,9 +458,7 @@ export function PartnerReportClient({ token }: { token: string }) {
       </section>
 
       <p className="mt-6 text-center text-[11px] leading-relaxed text-[var(--ink-3)]">
-        Os números se atualizam sozinhos, quase em tempo real, direto do servidor do GoLive.
-        Qualquer pessoa com esse link vê essa página — ela não dá acesso a mais nada da conta nem a
-        outros anúncios.
+        {t("ad.partnerReportClient.theNumbersUpdateOnTheirOwn")}
       </p>
     </main>
   );

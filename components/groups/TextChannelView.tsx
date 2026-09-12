@@ -82,6 +82,9 @@ import {
 import { prefetchUserProfile } from "@/lib/userProfile";
 import { useGroupNavigation } from "@/lib/groupNavigation";
 import { UNKNOWN_ROOM, UNKNOWN_USER, plainTokens, splitTokens } from "@/lib/messageTokens";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
+import { formatLocale } from "@/lib/i18n";
 
 // One text room of a group: its history, read a page at a time and extended
 // live, and the box to write in. Drawn as a panel in the same family as the
@@ -109,7 +112,7 @@ const MAX_LIVE_MESSAGES = 400;
 const MAX_FOUND = 200;
 
 function timeLabel(ts: number): string {
-  return new Date(ts).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  return new Date(ts).toLocaleTimeString(formatLocale(), { hour: "2-digit", minute: "2-digit" });
 }
 
 function dayKey(ts: number): string {
@@ -119,9 +122,9 @@ function dayKey(ts: number): string {
 
 function dayLabel(ts: number): string {
   const now = Date.now();
-  if (dayKey(ts) === dayKey(now)) return "Hoje";
-  if (dayKey(ts) === dayKey(now - 86_400_000)) return "Ontem";
-  return new Date(ts).toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" });
+  if (dayKey(ts) === dayKey(now)) return translate("common.today");
+  if (dayKey(ts) === dayKey(now - 86_400_000)) return translate("common.yesterday");
+  return new Date(ts).toLocaleDateString(formatLocale(), { weekday: "long", day: "numeric", month: "long" });
 }
 
 const LINK_SPLIT = /(https?:\/\/[^\s]+|www\.[^\s]+)/g;
@@ -183,6 +186,7 @@ const reactionChipMine =
 const EVERYONE_CANDIDATE: MentionCandidate = { id: EVERYONE_MENTION, name: "everyone", avatarUrl: null };
 
 export function TextChannelView({ detail, channelId }: { detail: GroupDetail; channelId: string }) {
+  const t = useT();
   const { openPopup } = useNtPopups();
   const groupId = detail.group.id;
   const channel = detail.channels.find((c) => c.id === channelId) ?? null;
@@ -228,7 +232,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
         // Nothing held and nothing read: say so. With a cached page on
         // screen, a failed refresh is not worth replacing it with an error.
         setMessages((prev) => {
-          if (prev === null) setLoadError("Não foi possível carregar as mensagens.");
+          if (prev === null) setLoadError(t("groups.textChannelView.couldNotLoadTheMessages"));
           return prev ?? [];
         });
         return;
@@ -241,7 +245,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
     return () => {
       cancelled = true;
     };
-  }, [groupId, channelId, detail.chatAvailable]);
+  }, [groupId, channelId, detail.chatAvailable, t]);
 
   // Everything this room holds goes back into the cache as it changes, so the
   // next visit opens on exactly what was on screen when this one ended.
@@ -553,7 +557,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
     return (
       personById.get(message.from) ?? {
         id: message.from,
-        name: message.fromName || "Alguém",
+        name: message.fromName || t("common.someone"),
         username: null,
         avatarUrl: null,
         nameColor: null,
@@ -639,7 +643,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
               openGroupProfile({ id: person.id, name: person.name, avatarUrl: person.avatarUrl, guest: person.guest })
             }
             onMouseEnter={() => !person.guest && prefetchUserProfile(person.id)}
-            title="Ver perfil"
+            title={t("common.viewProfile")}
             className="cursor-pointer rounded font-semibold text-blue-600 hover:underline dark:text-blue-400"
           >
             {token.value}
@@ -678,7 +682,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
           openGroupProfile({ id: person.id, name: person.name, avatarUrl: person.avatarUrl, guest: person.guest })
         }
         onMouseEnter={() => !person.guest && prefetchUserProfile(person.id)}
-        title="Ver perfil"
+        title={t("common.viewProfile")}
         className="cursor-pointer rounded font-semibold text-blue-600 hover:underline dark:text-blue-400"
       >
         {label}
@@ -707,7 +711,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
         key={key}
         type="button"
         onClick={() => navigation.push(`/groups/${groupId}/${room.id}`)}
-        title={room.kind === "voice" ? "Entrar na sala de voz" : "Abrir a sala"}
+        title={room.kind === "voice" ? t("groups.textChannelView.joinTheVoiceRoom") : t("groups.textChannelView.openTheRoom")}
         className="inline-flex cursor-pointer items-baseline gap-0.5 rounded bg-blue-500/10 px-1 font-semibold text-blue-600 hover:underline dark:text-blue-400"
       >
         {room.kind === "voice" ? <MdVolumeUp className="h-3.5 w-3.5 self-center" /> : "#"}
@@ -767,16 +771,16 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
   function confirmDelete(message: GroupMessage) {
     void openPopup("confirm", {
       data: {
-        title: "Apagar mensagem?",
-        message: "Isso não pode ser desfeito.",
-        cancelLabel: "Cancelar",
-        confirmLabel: "Apagar",
-        confirmStyle: "Danger",
+        title: t("groups.textChannelView.deleteMessage"),
+        message: t("groups.textChannelView.thisCannotBeUndone"),
+        cancelLabel: t("common.cancel"),
+        confirmLabel: t("common.delete"),
+        confirmStyle: t("common.danger"),
         onChoose: async (confirmed: boolean) => {
           if (!confirmed) return;
           const result = await deleteGroupMessage(groupId, channelId, message.id);
           if (result.ok) setMessages((prev) => prev?.filter((m) => m.id !== message.id) ?? prev);
-          else void openPopup("generic", { data: { title: "Não deu", message: result.error } });
+          else void openPopup("generic", { data: { title: t("common.didnTWork"), message: result.error } });
         },
       },
     });
@@ -798,12 +802,12 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
       return;
     }
     apply(before);
-    void openPopup("generic", { data: { title: "Não deu", message: result.error } });
+    void openPopup("generic", { data: { title: t("common.didnTWork"), message: result.error } });
   }
 
   function reactorName(userId: string): string {
-    if (userId === selfId) return "Você";
-    return personById.get(userId)?.name ?? "Alguém";
+    if (userId === selfId) return t("common.you");
+    return personById.get(userId)?.name ?? t("common.someone");
   }
 
   /** The emoji picker for one message, opened from `where`. */
@@ -814,13 +818,13 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
         open={pickerFor === key}
         onClose={() => setPickerFor(null)}
         placement="bottom-end"
-        tooltip="Adicionar reação"
+        tooltip={t("groups.textChannelView.addReaction")}
         content={<ReactionPicker onSelect={(emoji) => void toggleReaction(message, emoji)} />}
       >
         <button
           type="button"
           onClick={() => setPickerFor((open) => (open === key ? null : key))}
-          aria-label="Adicionar reação"
+          aria-label={t("groups.textChannelView.addReaction")}
           className={
             where === "actions"
               ? rowAction
@@ -844,18 +848,18 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
 
   // ── Render ───────────────────────────────────────────────────────────
 
-  const channelName = channel?.name ?? "sala";
+  const channelName = channel?.name ?? t("common.room");
 
   function actionsFor(message: GroupMessage) {
     const canDelete = message.from === selfId || canManageMessages;
     return (
       <span className="flex shrink-0 items-center">
         {can("addReactions") && reactionPicker(message, "actions", <MdOutlineAddReaction className="h-3.5 w-3.5" />)}
-        <button type="button" onClick={() => startReply(message)} aria-label="Responder" title="Responder" className={rowAction}>
+        <button type="button" onClick={() => startReply(message)} aria-label={t("common.reply")} title={t("common.reply")} className={rowAction}>
           <MdReply className="h-3.5 w-3.5" />
         </button>
         {canDelete && (
-          <button type="button" onClick={() => confirmDelete(message)} aria-label="Apagar" title="Apagar" className={rowAction}>
+          <button type="button" onClick={() => confirmDelete(message)} aria-label={t("common.delete")} title={t("common.delete")} className={rowAction}>
             <MdDeleteOutline className="h-3.5 w-3.5" />
           </button>
         )}
@@ -867,7 +871,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
   if (!detail.chatAvailable) {
     body = (
       <p className="my-auto p-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
-        As salas de texto não estão disponíveis nesta instalação.
+        {t("groups.textChannelView.textRoomsAreNotAvailableIn")}
       </p>
     );
   } else if (messages === null) {
@@ -961,7 +965,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
                   })
                 }
                 onMouseEnter={() => !author.guest && prefetchUserProfile(author.id)}
-                title="Ver perfil"
+                title={t("common.viewProfile")}
                 className="flex min-w-0 cursor-pointer items-center gap-1.5 text-left"
               >
                 <UserAvatar
@@ -996,7 +1000,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
                   type="button"
                   onClick={() => setPreview({ src: message.url!, alt: "GIF" })}
                   className="mt-1 block cursor-zoom-in"
-                  aria-label="Ampliar o GIF"
+                  aria-label={t("common.enlargeTheGif")}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={message.url} alt="GIF" onLoad={onMediaLoad} className="max-h-48 rounded-lg" />
@@ -1008,14 +1012,14 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
                     <button
                       key={index}
                       type="button"
-                      onClick={() => setPreview({ src: url, alt: "Imagem", images: message.images, currentIndex: index })}
+                      onClick={() => setPreview({ src: url, alt: t("common.image"), images: message.images, currentIndex: index })}
                       className="block cursor-zoom-in overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800"
-                      aria-label="Ampliar a imagem"
+                      aria-label={t("common.enlargeTheImage")}
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={url}
-                        alt="Imagem"
+                        alt={t("common.image")}
                         onLoad={onMediaLoad}
                         className={`w-full object-cover ${message.images!.length > 1 ? "aspect-square" : "max-h-64 object-contain"}`}
                       />
@@ -1059,25 +1063,25 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
               )}
               {outgoing?.status === "failed" && (
                 <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-red-500">
-                  <span>Não enviada{outgoing.error ? ` — ${outgoing.error}` : "."}</span>
+                  <span>{t("common.notSent")}{outgoing.error ? ` — ${outgoing.error}` : "."}</span>
                   <button
                     type="button"
                     onClick={() => retryGroupMessage(channelId, outgoing.nonce)}
                     className="cursor-pointer font-medium underline underline-offset-2"
                   >
-                    Tentar de novo
+                    {t("common.tryAgain2")}
                   </button>
                   <button
                     type="button"
                     onClick={() => discardGroupMessage(channelId, outgoing.nonce)}
                     className="cursor-pointer text-zinc-500 underline underline-offset-2 dark:text-zinc-400"
                   >
-                    Descartar
+                    {t("common.discard")}
                   </button>
                 </p>
               )}
               {outgoing?.status === "sending" && outgoing.retrying && (
-                <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">Não foi de primeira — tentando enviar de novo…</p>
+                <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{t("groups.textChannelView.itDidNotGoThroughFirst")}</p>
               )}
             </div>
             {grouped && !outgoing && actionsFor(message)}
@@ -1092,14 +1096,14 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
         <ul className="flex min-h-full flex-col justify-end">
           {!hasMore && (
             <li className="mb-3 pt-6 text-center">
-              <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Começo de {channelName}</p>
+              <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("groups.textChannelView.theBeginningOf")} {channelName}</p>
               <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-                O que for dito aqui fica salvo para todo mundo do grupo.
+                {t("groups.textChannelView.whateverIsSaidHereIsSaved")}
               </p>
             </li>
           )}
           {loadingOlder && (
-            <li className="py-2 text-center text-xs text-zinc-500 dark:text-zinc-400">Carregando mensagens antigas…</li>
+            <li className="py-2 text-center text-xs text-zinc-500 dark:text-zinc-400">{t("groups.textChannelView.loadingOldMessages")}</li>
           )}
           {loadError && <li className="py-2 text-center text-sm text-red-500">{loadError}</li>}
           {rows}
@@ -1118,11 +1122,11 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
           <MdChatBubbleOutline className="h-4 w-4 shrink-0 text-zinc-500" />
           <span className="truncate">{channelName}</span>
         </h2>
-        <Tooltip content="Membros do grupo">
+        <Tooltip content={t("groups.textChannelView.groupMembers")}>
           <button
             type="button"
             onClick={openMembers}
-            aria-label="Membros do grupo"
+            aria-label={t("groups.textChannelView.groupMembers")}
             // From lg up the members are the column on the right (see GroupMembersPanel).
             className="flex shrink-0 cursor-pointer items-center gap-1 rounded-lg px-1.5 py-1 text-xs text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 lg:hidden dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
           >
@@ -1163,7 +1167,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
           replyingTo={replyTo}
           onCancelReply={() => setReplyTo(null)}
           onSend={send}
-          disabledReason={can("sendMessages") ? null : "Você não pode enviar mensagens nesta sala."}
+          disabledReason={can("sendMessages") ? null : t("groups.textChannelView.youCannotSendMessagesInThis")}
           allow={{ gifs: can("sendGifs"), images: can("sendImages") }}
           onTypingChange={can("sendMessages") ? announceTyping : undefined}
         />

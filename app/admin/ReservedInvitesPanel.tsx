@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { fetchReservedInvites, setReservedInvites } from "@/lib/adminApi";
+import { useT } from "@/lib/useI18n";
 
 // The names no group may take as its custom invite link (/invite/<nome>) — so
 // a link can never pass for the site's own. Kept in the database by the API
@@ -10,6 +11,7 @@ import { fetchReservedInvites, setReservedInvites } from "@/lib/adminApi";
 // still set these names on a group they run.
 
 export function ReservedInvitesPanel() {
+  const t = useT();
   // undefined = still loading the current list from the server.
   const [names, setNames] = useState<string | undefined>(undefined);
   const [saving, setSaving] = useState(false);
@@ -49,7 +51,7 @@ export function ReservedInvitesPanel() {
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao salvar a lista.");
+      setError(err instanceof Error ? err.message : t("common.couldNotSaveTheList"));
     } finally {
       setSaving(false);
     }
@@ -57,13 +59,11 @@ export function ReservedInvitesPanel() {
 
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-      <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Convites reservados</h2>
+      <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">{t("admin.reservedInvitesPanel.reservedInvites")}</h2>
       <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-        Um nome por linha. Nenhum grupo pode usar esses nomes como link personalizado (
-        <span className="font-mono">/invite/nome</span>) — exceto quem tem a flag{" "}
-        <span className="font-mono">GROUP_SET_RESERVED_CUSTOM_INVITES</span>, num grupo que administra. Um grupo que
-        já tem um desses nomes continua com ele. Maiúsculas não importam; o que não puder ser um link (3 a 32 letras,
-        números ou hífen) é descartado ao salvar.
+        {t("admin.reservedInvitesPanel.oneNamePerLineNoGroup")}
+        <span className="font-mono">/invite/nome</span>{t("admin.reservedInvitesPanel.exceptWhoeverHasTheFlag")}{" "}
+        <span className="font-mono">GROUP_SET_RESERVED_CUSTOM_INVITES</span>{t("admin.reservedInvitesPanel.inAGroupTheyAdministerA")}
       </p>
 
       <form onSubmit={handleSave} className="mt-3 flex flex-col gap-2">
@@ -72,7 +72,7 @@ export function ReservedInvitesPanel() {
           onChange={(e) => setNames(e.target.value)}
           disabled={names === undefined}
           rows={8}
-          placeholder={"Ex:\ngolive\nsuporte"}
+          placeholder={t("admin.reservedInvitesPanel.exGoliveSupport")}
           className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-950 outline-none focus:border-zinc-500 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
         />
         {error && <p className="text-sm text-red-500">{error}</p>}
@@ -82,9 +82,9 @@ export function ReservedInvitesPanel() {
             disabled={saving || names === undefined}
             className="self-start rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
           >
-            {saving ? "Salvando..." : "Salvar lista"}
+            {saving ? t("common.saving") : t("common.saveList")}
           </button>
-          {saved && <span className="text-sm text-emerald-600 dark:text-emerald-400">Salvo!</span>}
+          {saved && <span className="text-sm text-emerald-600 dark:text-emerald-400">{t("common.saved")}</span>}
         </div>
       </form>
     </div>

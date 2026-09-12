@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from "react";
 import { getSignalingHttpBase } from "./roomsApi";
 import { getCaptchaToken, type CaptchaAction } from "./turnstile";
+import { translate } from "@/lib/i18n";
 
 export type Account = {
   id: string;
@@ -195,7 +196,7 @@ export async function checkUsernameAvailable(
     `${getSignalingHttpBase()}/auth/username-available?username=${encodeURIComponent(username)}`,
     { signal }
   );
-  if (!res.ok) throw new Error("Não foi possível verificar o usuário.");
+  if (!res.ok) throw new Error(translate("accountApi.couldNotCheckTheUsername"));
   return (await res.json()) as UsernameCheck;
 }
 
@@ -238,7 +239,7 @@ export async function registerAccount(
       ...(await captchaFieldFor("register_account")),
     }),
   });
-  if (!res.ok) throw new Error(await parseErrorMessage(res, "Falha ao criar conta."));
+  if (!res.ok) throw new Error(await parseErrorMessage(res, translate("common.couldNotCreateTheAccount")));
   const data = (await res.json()) as { token: string; account: Account };
   setAccountToken(data.token);
   return data;
@@ -257,7 +258,7 @@ export async function loginAccount(
       ...(await captchaFieldFor("login")),
     }),
   });
-  if (!res.ok) throw new Error(await parseErrorMessage(res, "Usuário ou senha inválidos."));
+  if (!res.ok) throw new Error(await parseErrorMessage(res, translate("common.invalidUsernameOrPassword")));
   const data = (await res.json()) as { token: string; account: Account };
   setAccountToken(data.token);
   return data;
@@ -282,7 +283,7 @@ export async function completeOAuthSignup(
       ...(await captchaFieldFor("oauth_signup")),
     }),
   });
-  if (!res.ok) throw new Error(await parseErrorMessage(res, "Falha ao criar conta."));
+  if (!res.ok) throw new Error(await parseErrorMessage(res, translate("common.couldNotCreateTheAccount")));
   const data = (await res.json()) as { token: string; account: Account };
   setAccountToken(data.token);
   return data;
@@ -310,7 +311,7 @@ export async function linkOAuthToExistingAccount(
       ...(await captchaFieldFor("login")),
     }),
   });
-  if (!res.ok) throw new Error(await parseErrorMessage(res, "Usuário ou senha inválidos."));
+  if (!res.ok) throw new Error(await parseErrorMessage(res, translate("common.invalidUsernameOrPassword")));
   const data = (await res.json()) as { token: string; account: Account };
   setAccountToken(data.token);
   return data;
@@ -375,7 +376,7 @@ export async function fetchMe(): Promise<{
       setAccountToken(null);
       return null;
     }
-    throw new Error(`auth/me indisponível (${res.status})`);
+    throw new Error(translate("accountApi.authMeUnavailableStatus", { status: res.status }));
   }
   const data = (await res.json()) as { account: Account; connections?: AccountConnections };
   return {
@@ -391,12 +392,12 @@ export async function fetchMe(): Promise<{
 // here as the thrown message.
 export async function unlinkOAuthProvider(provider: string): Promise<void> {
   const token = getAccountToken();
-  if (!token) throw new Error("Você não está conectado.");
+  if (!token) throw new Error(translate("accountApi.youAreNotSignedIn"));
   const res = await fetch(`${getSignalingHttpBase()}/auth/oauth/${provider}/link`, {
     method: "DELETE",
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!res.ok) throw new Error(await parseErrorMessage(res, "Falha ao desconectar."));
+  if (!res.ok) throw new Error(await parseErrorMessage(res, translate("common.couldNotDisconnect")));
 }
 
 export type UpdateProfileInput = {
@@ -416,7 +417,7 @@ export type UpdateProfileInput = {
 
 export async function updateProfile(input: UpdateProfileInput): Promise<Account> {
   const token = getAccountToken();
-  if (!token) throw new Error("Você não está conectado.");
+  if (!token) throw new Error(translate("accountApi.youAreNotSignedIn"));
 
   const res = await fetch(`${getSignalingHttpBase()}/account/profile`, {
     method: "PATCH",
@@ -427,7 +428,7 @@ export async function updateProfile(input: UpdateProfileInput): Promise<Account>
     body: JSON.stringify(input),
   });
 
-  if (!res.ok) throw new Error(await parseErrorMessage(res, "Falha ao atualizar perfil."));
+  if (!res.ok) throw new Error(await parseErrorMessage(res, translate("accountApi.couldNotUpdateTheProfile")));
   const data = (await res.json()) as { account: Account };
   return data.account;
 }
@@ -454,11 +455,11 @@ export type AvatarOptions = {
 
 export async function fetchMyBots(): Promise<{ bots: Account[]; max: number }> {
   const token = getAccountToken();
-  if (!token) throw new Error("Você não está conectado.");
+  if (!token) throw new Error(translate("accountApi.youAreNotSignedIn"));
   const res = await fetch(`${getSignalingHttpBase()}/account/bots`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!res.ok) throw new Error(await parseErrorMessage(res, "Falha ao carregar seus bots."));
+  if (!res.ok) throw new Error(await parseErrorMessage(res, translate("accountApi.couldNotLoadYourBots")));
   return (await res.json()) as { bots: Account[]; max: number };
 }
 
@@ -467,25 +468,25 @@ export async function createBot(
   displayName: string
 ): Promise<{ bot: Account; token: string }> {
   const token = getAccountToken();
-  if (!token) throw new Error("Você não está conectado.");
+  if (!token) throw new Error(translate("accountApi.youAreNotSignedIn"));
   const res = await fetch(`${getSignalingHttpBase()}/account/bots`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ username, displayName }),
   });
-  if (!res.ok) throw new Error(await parseErrorMessage(res, "Falha ao criar o bot."));
+  if (!res.ok) throw new Error(await parseErrorMessage(res, translate("common.couldNotCreateTheBot")));
   return (await res.json()) as { bot: Account; token: string };
 }
 
 /** Issues a new token for one of your bots — the old one stops working at once. */
 export async function regenerateBotToken(botId: string): Promise<string> {
   const token = getAccountToken();
-  if (!token) throw new Error("Você não está conectado.");
+  if (!token) throw new Error(translate("accountApi.youAreNotSignedIn"));
   const res = await fetch(`${getSignalingHttpBase()}/account/bots/${encodeURIComponent(botId)}/token`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!res.ok) throw new Error(await parseErrorMessage(res, "Falha ao gerar um novo token."));
+  if (!res.ok) throw new Error(await parseErrorMessage(res, translate("common.couldNotGenerateANewToken")));
   return ((await res.json()) as { token: string }).token;
 }
 
@@ -494,6 +495,6 @@ export async function fetchAvatarOptions(): Promise<AvatarOptions> {
   const res = await fetch(`${getSignalingHttpBase()}/account/avatars`, {
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
   });
-  if (!res.ok) throw new Error(await parseErrorMessage(res, "Falha ao carregar os avatares."));
+  if (!res.ok) throw new Error(await parseErrorMessage(res, translate("accountApi.couldNotLoadTheAvatars")));
   return (await res.json()) as AvatarOptions;
 }

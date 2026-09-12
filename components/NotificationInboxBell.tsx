@@ -19,6 +19,7 @@ import {
   useNotificationInbox,
   type InboxNotification,
 } from "@/lib/notificationInbox";
+import { useT } from "@/lib/useI18n";
 
 // The bell, and what is behind it.
 //
@@ -89,9 +90,10 @@ function Item({
 }
 
 export function NotificationInboxBell({ className = "" }: { className?: string }) {
+  const t = useT();
   const items = useNotificationInbox();
   const [open, setOpen] = useState(false);
-  // Opened from a notification instead of navigating to /amigos. Inside a
+  // Opened from a notification instead of navigating to /friends. Inside a
   // room, navigating would end the call to answer two buttons — see
   // FriendRequestsModal.
   const [requestsOpen, setRequestsOpen] = useState(false);
@@ -104,18 +106,18 @@ export function NotificationInboxBell({ className = "" }: { className?: string }
       open={open}
       onClose={() => setOpen(false)}
       placement="bottom-end"
-      tooltip="Notificações"
+      tooltip={t("common.notifications")}
       content={
         <div className="flex max-h-[70vh] w-80 max-w-[calc(100vw-1rem)] flex-col rounded-xl border border-zinc-200 bg-white p-2 shadow-2xl dark:border-zinc-800 dark:bg-zinc-950">
           <div className="flex items-center justify-between px-1 pb-1">
-            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Notificações</p>
+            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t("common.notifications")}</p>
             {items.length > 0 && (
               <button
                 type="button"
                 onClick={clearNotifications}
                 className="text-xs font-medium text-zinc-500 underline-offset-2 transition hover:underline dark:text-zinc-400"
               >
-                Limpar
+                {t("notificationInboxBell.clear")}
               </button>
             )}
           </div>
@@ -140,12 +142,12 @@ export function NotificationInboxBell({ className = "" }: { className?: string }
               className="mb-1 flex w-full items-center gap-2 rounded-lg bg-zinc-100 px-2 py-2 text-left text-xs font-medium text-zinc-700 transition hover:bg-zinc-200 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
             >
               <MdNotificationsNone className="h-4 w-4 shrink-0" />
-              Ativar notificações neste aparelho
+              {t("notificationInboxBell.turnOnNotificationsOnThisDevice")}
             </button>
           )}
           {items.length === 0 ? (
             <p className="px-2 py-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
-              Nada por aqui ainda.
+              {t("notificationInboxBell.nothingHereYet")}
             </p>
           ) : (
             <div className="flex flex-col gap-0.5 overflow-y-auto">
@@ -182,7 +184,7 @@ export function NotificationInboxBell({ className = "" }: { className?: string }
           if (!open) markAllRead();
           setOpen((current) => !current);
         }}
-        aria-label={unread > 0 ? `Notificações (${unread} não lidas)` : "Notificações"}
+        aria-label={unread > 0 ? t("notificationInboxBell.notificationsUnreadUnread", { unread }) : t("common.notifications")}
         className={`relative shrink-0 rounded-lg p-2 text-zinc-500 transition hover:bg-zinc-200/60 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50 ${className}`}
       >
         <MdNotificationsNone className="h-5 w-5" />

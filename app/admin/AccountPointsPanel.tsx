@@ -7,6 +7,8 @@ import {
   type AdminAccountHit,
   type PointsMode,
 } from "@/lib/adminApi";
+import { useI18n } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
 
 // Changing somebody's points.
 //
@@ -18,12 +20,13 @@ import {
 // that problem, which is why adding is the default here.
 
 const MODES: { id: PointsMode; label: string; verb: string }[] = [
-  { id: "add", label: "Adicionar", verb: "Adicionar" },
-  { id: "remove", label: "Remover", verb: "Remover" },
-  { id: "set", label: "Definir", verb: "Definir como" },
+  { id: "add", get label() { return translate("common.add"); }, get verb() { return translate("common.add"); } },
+  { id: "remove", get label() { return translate("common.remove"); }, get verb() { return translate("common.remove"); } },
+  { id: "set", get label() { return translate("admin.accountPointsPanel.set"); }, get verb() { return translate("admin.accountPointsPanel.setTo"); } },
 ];
 
 export function AccountPointsPanel() {
+  const { t, tc } = useI18n();
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<AdminAccountHit[]>([]);
   const [selected, setSelected] = useState<AdminAccountHit | null>(null);
@@ -76,9 +79,9 @@ export function AccountPointsPanel() {
         current.map((hit) => (hit.id === selected.id ? { ...hit, points: total } : hit))
       );
       setAmount("");
-      setDone(`Novo total: ${total} pontos.`);
+      setDone(t("admin.accountPointsPanel.newTotalTotalPoints", { total }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao salvar.");
+      setError(err instanceof Error ? err.message : t("common.couldNotSave"));
     } finally {
       setBusy(false);
     }
@@ -89,10 +92,9 @@ export function AccountPointsPanel() {
 
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-      <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Pontos</h2>
+      <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">{t("common.points")}</h2>
       <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-        Procure alguém e ajuste os pontos. Fica registrado na aba Registros, como toda ação de
-        admin.
+        {t("admin.accountPointsPanel.findSomeoneAndAdjustTheirPoints")}
       </p>
 
       <div className="mt-3 flex flex-col gap-3">
@@ -101,7 +103,7 @@ export function AccountPointsPanel() {
             htmlFor="points-search"
             className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400"
           >
-            Pessoa
+            {t("common.person")}
           </label>
           <input
             id="points-search"
@@ -110,7 +112,7 @@ export function AccountPointsPanel() {
               setSelected(null);
               setQuery(e.target.value);
             }}
-            placeholder="Nome ou @usuário"
+            placeholder={t("common.nameOrUsername")}
             className={inputClass}
           />
           {!selected && hits.length > 0 && (
@@ -126,7 +128,7 @@ export function AccountPointsPanel() {
                       {hit.displayName}
                     </span>
                     <span className="block truncate text-xs text-zinc-500 dark:text-zinc-400">
-                      @{hit.username} · {hit.points} pontos
+                      @{hit.username} · {tc("common.pointsCount", hit.points)}
                     </span>
                   </button>
                 </li>
@@ -134,18 +136,18 @@ export function AccountPointsPanel() {
             </ul>
           )}
           {!selected && query.trim().length >= 2 && hits.length === 0 && (
-            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Ninguém encontrado.</p>
+            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t("common.nobodyFound")}</p>
           )}
         </div>
 
         {selected && (
           <>
             <p className="text-sm text-zinc-700 dark:text-zinc-300">
-              Saldo atual:{" "}
+              {t("admin.accountPointsPanel.currentBalance")}{" "}
               <span className="font-semibold text-zinc-950 dark:text-zinc-50">
                 {selected.points}
               </span>{" "}
-              pontos
+              {t("common.pointsNoun")}
             </p>
 
             <div className="flex flex-wrap gap-2">
@@ -187,7 +189,7 @@ export function AccountPointsPanel() {
               {mode === "remove" && (
                 <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                   {/* Said before the save rather than discovered after it. */}
-                  Remover mais do que a pessoa tem deixa o saldo em zero, nunca negativo.
+                  {t("admin.accountPointsPanel.removingMoreThanThePersonHas")}
                 </p>
               )}
             </div>
@@ -199,7 +201,7 @@ export function AccountPointsPanel() {
                 disabled={busy || !validAmount}
                 className="rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
               >
-                {busy ? "Salvando..." : "Aplicar"}
+                {busy ? t("common.saving") : t("admin.accountPointsPanel.apply")}
               </button>
               {done && (
                 <span className="text-sm text-emerald-600 dark:text-emerald-500">{done}</span>

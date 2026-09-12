@@ -45,6 +45,7 @@
 // mode this migration existed to remove), and "Invisible" hides the widget
 // even when it needs interaction.
 import { isObsClient } from "./browserEnv";
+import { translate } from "@/lib/i18n";
 
 const SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
@@ -269,12 +270,12 @@ function ensureOverlay(): HTMLDivElement {
   const body = document.createElement("div");
 
   const title = document.createElement("h2");
-  title.textContent = "Confirme que você não é um robô";
+  title.textContent = translate("turnstile.confirmThatYouAreNotA");
   title.style.cssText = "margin:0;font-size:1.125rem;font-weight:600;";
 
   const subtitle = document.createElement("p");
   subtitle.textContent =
-    "Isso aparece só quando a verificação automática não tem certeza. É rápido.";
+    translate("turnstile.thisOnlyAppearsWhenTheAutomatic");
   subtitle.style.cssText = "margin:0;font-size:0.875rem;line-height:1.4;";
 
   overlayHost = document.createElement("div");
@@ -460,7 +461,7 @@ function mintToken(action: CaptchaAction): InflightMint {
             // invalid sitekey, 400xxx a configuration mismatch. Without it a
             // misconfigured key is indistinguishable from a suspicious
             // visitor, which is a very expensive thing to have to guess at.
-            console.warn(`[captcha] Turnstile falhou (${code ?? "sem código"}) em "${action}".`);
+            console.warn(translate("turnstile.captchaTurnstileFailedValueOnAction", { value: code ?? "no code", action }));
             settle(null);
           },
           // Went stale before it was spent — only reachable for a challenge

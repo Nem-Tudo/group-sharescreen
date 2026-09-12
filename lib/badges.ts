@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { getSignalingHttpBase } from "./roomsApi";
+import { translate } from "@/lib/i18n";
 
 export type BadgeId =
   | "staff"
@@ -46,9 +47,9 @@ export const EARLY_SUPPORTER_CUTOFF_MS = new Date("2026-10-19T00:00:00-03:00").g
 export const DEFAULT_BADGES: BadgeDefinition[] = [
   {
     id: "staff",
-    name: "Staff",
+    get name() { return translate("badges.staff"); },
     flagTag: "STAFF",
-    description: "Equipe do Go Live",
+    get description() { return translate("badges.goLiveTeam"); },
     iconUrl:
       "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f43f5e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/%3E%3Cpath d='m9 12 2 2 4-4'/%3E%3C/svg%3E",
     chipClass:
@@ -61,8 +62,8 @@ export const DEFAULT_BADGES: BadgeDefinition[] = [
   },
   {
     id: "pro",
-    name: "Pro",
-    description: "Assinante GoLive Pro",
+    get name() { return translate("common.pro"); },
+    get description() { return translate("badges.goliveProSubscriber"); },
     iconUrl:
       "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23f59e0b'%3E%3Cpath d='M13 2 3 14h9l-1 8 10-12h-9l1-8z'/%3E%3C/svg%3E",
     chipClass:
@@ -75,9 +76,9 @@ export const DEFAULT_BADGES: BadgeDefinition[] = [
   },
   {
     id: "bug_hunter",
-    name: "Bug Hunter",
+    get name() { return translate("badges.bugHunter"); },
     flagTag: "BUG_HUNTER",
-    description: "Quem reporta bugs",
+    get description() { return translate("badges.whoeverReportsBugs"); },
     iconUrl:
       "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2310b981' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='8' height='14' x='8' y='6' rx='4'/%3E%3Cpath d='m19 7-3 2'/%3E%3Cpath d='m5 7 3 2'/%3E%3Cpath d='m19 19-3-2'/%3E%3Cpath d='m5 19 3-2'/%3E%3Cpath d='M20 13h-4'/%3E%3Cpath d='M4 13h4'/%3E%3Cpath d='m10 4 1 2'/%3E%3Cpath d='m14 4-1 2'/%3E%3C/svg%3E",
     chipClass:
@@ -90,9 +91,9 @@ export const DEFAULT_BADGES: BadgeDefinition[] = [
   },
   {
     id: "contributor",
-    name: "Contribuidor",
+    get name() { return translate("badges.contributor"); },
     flagTag: "CONTRIBUITOR",
-    description: "Quem faz PR no app",
+    get description() { return translate("badges.whoeverOpensAPrOnThe"); },
     iconUrl:
       "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236366f1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='18' cy='18' r='3'/%3E%3Ccircle cx='6' cy='6' r='3'/%3E%3Cpath d='M13 6h3a2 2 0 0 1 2 2v7'/%3E%3Cline x1='6' y1='9' x2='6' y2='21'/%3E%3C/svg%3E",
     chipClass:
@@ -105,9 +106,9 @@ export const DEFAULT_BADGES: BadgeDefinition[] = [
   },
   {
     id: "beta_mobile",
-    name: "Mobile Beta",
+    get name() { return translate("badges.mobileBeta"); },
     flagTag: "BETA_MOBILE",
-    description: "Quem tem o app mobile em Beta",
+    get description() { return translate("badges.whoeverHasTheMobileAppIn"); },
     iconUrl:
       "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230ea5e9' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='14' height='20' x='5' y='2' rx='2' ry='2'/%3E%3Cpath d='M12 18h.01'/%3E%3C/svg%3E",
     chipClass:
@@ -120,9 +121,9 @@ export const DEFAULT_BADGES: BadgeDefinition[] = [
   },
   {
     id: "beta_tester",
-    name: "Beta Tester",
+    get name() { return translate("badges.betaTester"); },
     flagTag: "BETA_TESTER",
-    description: "Todas as contas criadas antes do dia 10/09/2026",
+    get description() { return translate("badges.everyAccountCreatedBefore1009"); },
     iconUrl:
       "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a855f7' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z'/%3E%3Cpath d='m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z'/%3E%3Cpath d='M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0'/%3E%3Cpath d='M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5'/%3E%3C/svg%3E",
     chipClass:

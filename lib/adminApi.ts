@@ -14,6 +14,7 @@ import type {
 } from "./announcement";
 import type { Partner, PartnerClickRewardPlacement } from "./partner";
 import type { Supporter } from "./supporter";
+import { translate } from "@/lib/i18n";
 
 export type {
   Announcement,
@@ -115,11 +116,11 @@ export async function adminLogin(user: string, password: string): Promise<void> 
   });
   if (!res.ok) {
     const data = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(data?.error || "Usuário ou senha inválidos.");
+    throw new Error(data?.error || translate("common.invalidUsernameOrPassword"));
   }
   const data = (await res.json()) as { token: string; account: { flags: string[] } };
   if (!data.account.flags.includes("ADMIN")) {
-    throw new Error("Essa conta não tem permissão de administrador.");
+    throw new Error(translate("adminApi.thisAccountDoesNotHaveAdministrator"));
   }
   setAdminToken(data.token);
 }
@@ -157,7 +158,7 @@ export async function fetchCurrentAnnouncement(signal?: AbortSignal): Promise<An
     setAdminToken(null);
     throw new Error("unauthorized");
   }
-  if (!res.ok) throw new Error(`Falha ao carregar aviso (status ${res.status})`);
+  if (!res.ok) throw new Error(translate("adminApi.couldNotLoadTheNoticeStatus", { status: res.status }));
   return (await res.json()) as AnnouncementState;
 }
 
@@ -203,7 +204,7 @@ async function postOrPutAnnouncement(
     const data = await res.json().catch(() => null);
     throw new Error(
       (data && typeof data === "object" && "error" in data && String(data.error)) ||
-        `Falha ao salvar aviso (status ${res.status})`
+        translate("adminApi.couldNotSaveTheNoticeStatus", { status: res.status })
     );
   }
   return (await res.json()) as AnnouncementState;
@@ -236,7 +237,7 @@ export async function clearAnnouncement(): Promise<void> {
     setAdminToken(null);
     throw new Error("unauthorized");
   }
-  if (!res.ok) throw new Error(`Falha ao remover aviso (status ${res.status})`);
+  if (!res.ok) throw new Error(translate("adminApi.couldNotRemoveTheNoticeStatus", { status: res.status }));
 }
 
 // Shared by every admin fetch below: attaches the bearer token, treats a 401
@@ -261,7 +262,7 @@ async function adminFetch<T>(path: string, init?: RequestInit): Promise<T> {
   if (res.status === 204) return undefined as T;
   if (!res.ok) {
     const data = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(data?.error ?? `Erro ${res.status}`);
+    throw new Error(data?.error ?? translate("adminApi.errorStatus", { status: res.status }));
   }
   return (await res.json()) as T;
 }
@@ -326,8 +327,8 @@ export type BanSubject = "ip" | "account" | "fingerprint";
 
 export const BAN_SUBJECT_LABELS: Record<BanSubject, string> = {
   ip: "IP",
-  account: "Conta",
-  fingerprint: "Navegador",
+  get account() { return translate("adminApi.account"); },
+  get fingerprint() { return translate("common.browser"); },
 };
 
 export type Ban = {
@@ -444,7 +445,7 @@ export async function setAntiSpamEnabled(enabled: boolean): Promise<boolean> {
 // API pushes the new value down every open socket before answering.
 export async function fetchAdsterraEnabled(): Promise<boolean> {
   const res = await fetch(`${getSignalingHttpBase()}/ads/config`);
-  if (!res.ok) throw new Error("Não foi possível ler a configuração de anúncios.");
+  if (!res.ok) throw new Error(translate("adminApi.couldNotReadTheAdSettings"));
   const data = (await res.json()) as { adsterraEnabled?: unknown };
   return data.adsterraEnabled !== false;
 }
@@ -494,7 +495,7 @@ export async function setSupporters(supporters: Supporter[]): Promise<Supporter[
 export type AdminPartner = Partner & {
   weight: number;
   createdAt: number;
-  // Key to this ad's public report page (/anuncio/[token]) — the link the
+  // Key to this ad's public report page (/ad/[token]) — the link the
   // admin hands an advertiser so they can watch their own numbers without an
   // account. Optional here only for a server that predates reports; every ad
   // gets one backfilled at startup (see the API's Partner.reportToken).
@@ -642,36 +643,36 @@ export const EVAL_DEVICE_OPTIONS = [
 ] as const;
 
 export const EVAL_FIELDS: readonly EvalFieldDef[] = [
-  { key: "version", label: "Build (commit)", kind: "string", placeholder: "ex: 0.1.17-abc1234" },
-  { key: "room", label: "Sala", kind: "string", placeholder: "handle da sala" },
-  { key: "inRoom", label: "Está numa sala", kind: "bool" },
-  { key: "path", label: "Página atual", kind: "string", placeholder: "ex: /watch/" },
-  { key: "platform", label: "Dispositivo", kind: "string", options: EVAL_DEVICE_OPTIONS },
-  { key: "name", label: "Nome", kind: "string" },
-  { key: "userId", label: "ID (conta ou convidado)", kind: "string" },
-  { key: "accountId", label: "ID da conta", kind: "string" },
-  { key: "guestId", label: "ID de convidado", kind: "string" },
-  { key: "account", label: "É conta logada", kind: "bool" },
-  { key: "registered", label: "Já registrou nome", kind: "bool" },
-  { key: "flag", label: "Flag da conta", kind: "string", placeholder: "ex: VERIFIED, ADMIN" },
-  { key: "sharing", label: "Transmitindo (tela ou câmera)", kind: "bool" },
-  { key: "sharingScreen", label: "Transmitindo a tela", kind: "bool" },
-  { key: "sharingCamera", label: "Transmitindo a câmera", kind: "bool" },
-  { key: "mic", label: "Microfone ligado", kind: "bool" },
+  { key: "version", get label() { return translate("adminApi.buildCommit"); }, kind: "string", placeholder: "ex: 0.1.17-abc1234" },
+  { key: "room", get label() { return translate("common.room"); }, kind: "string", placeholder: "handle da sala" },
+  { key: "inRoom", get label() { return translate("adminApi.isInARoom"); }, kind: "bool" },
+  { key: "path", get label() { return translate("adminApi.currentPage"); }, kind: "string", placeholder: "ex: /watch/" },
+  { key: "platform", get label() { return translate("adminApi.device"); }, kind: "string", options: EVAL_DEVICE_OPTIONS },
+  { key: "name", get label() { return translate("common.name"); }, kind: "string" },
+  { key: "userId", get label() { return translate("adminApi.idAccountOrGuest"); }, kind: "string" },
+  { key: "accountId", get label() { return translate("adminApi.accountId"); }, kind: "string" },
+  { key: "guestId", get label() { return translate("adminApi.guestId"); }, kind: "string" },
+  { key: "account", get label() { return translate("adminApi.isASignedInAccount"); }, kind: "bool" },
+  { key: "registered", get label() { return translate("adminApi.hasRegisteredAName"); }, kind: "bool" },
+  { key: "flag", get label() { return translate("adminApi.accountFlag"); }, kind: "string", get placeholder() { return translate("adminApi.eGVerifiedAdmin"); } },
+  { key: "sharing", get label() { return translate("adminApi.broadcastingScreenOrCamera"); }, kind: "bool" },
+  { key: "sharingScreen", get label() { return translate("adminApi.broadcastingTheScreen"); }, kind: "bool" },
+  { key: "sharingCamera", get label() { return translate("adminApi.broadcastingTheCamera"); }, kind: "bool" },
+  { key: "mic", get label() { return translate("adminApi.microphoneOn"); }, kind: "bool" },
   { key: "ip", label: "IP", kind: "string" },
-  { key: "fingerprint", label: "Fingerprint", kind: "string" },
+  { key: "fingerprint", get label() { return translate("adminApi.fingerprint"); }, kind: "string" },
 ] as const;
 
 // Which ops each value kind offers, in menu order.
 export const EVAL_STRING_OPS: { value: EvalOp; label: string }[] = [
-  { value: "eq", label: "é igual a" },
-  { value: "neq", label: "é diferente de" },
-  { value: "contains", label: "contém" },
+  { value: "eq", get label() { return translate("adminApi.isEqualTo"); } },
+  { value: "neq", get label() { return translate("adminApi.isDifferentFrom"); } },
+  { value: "contains", get label() { return translate("adminApi.contains"); } },
   { value: "regex", label: "casa regex" },
-  { value: "exists", label: "existe (não vazio)" },
+  { value: "exists", get label() { return translate("adminApi.existsNotEmpty"); } },
 ];
 export const EVAL_BOOL_OPS: { value: EvalOp; label: string }[] = [
-  { value: "is", label: "é" },
+  { value: "is", get label() { return translate("adminApi.is"); } },
 ];
 
 export function evalFieldDef(key: string): EvalFieldDef | undefined {

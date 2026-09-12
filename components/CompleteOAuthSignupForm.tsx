@@ -6,6 +6,8 @@ import { trackEvent } from "@/lib/analytics";
 import { ButtonSpinner } from "@/components/ButtonSpinner";
 import { prewarmCaptcha } from "@/lib/turnstile";
 import type { OAuthProviderId } from "@/lib/oauthApi";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
 
 // Mirrors server-side validation (see the API's USERNAME_RE) — duplicated
 // here only so a bad username is caught before a round trip, same as
@@ -23,8 +25,8 @@ const linkButtonClass =
   "text-sm font-medium underline underline-offset-2 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100";
 
 const PROVIDER_LABEL: Record<OAuthProviderId, string> = {
-  discord: "Discord",
-  google: "Google",
+  get discord() { return translate("completeOAuthSignupForm.discord"); },
+  get google() { return translate("completeOAuthSignupForm.google"); },
 };
 
 // The second (and last) step of a *first* login with Discord/Google: the
@@ -51,6 +53,7 @@ export function CompleteOAuthSignupForm({
   onSuccess?: () => void;
   onCancel?: () => void;
 }) {
+  const t = useT();
   const { completeOAuthSignup, linkOAuthToExisting } = useAuth();
   const [username, setUsername] = useState(suggestedUsername);
   const [displayName, setDisplayName] = useState(suggestedDisplayName);
@@ -92,7 +95,7 @@ export function CompleteOAuthSignupForm({
       // The realistic failure is the name being taken — the ticket is still
       // good, so the user just picks another one right here instead of
       // starting the whole provider flow over.
-      setFormError(err instanceof Error ? err.message : "Falha ao criar conta.");
+      setFormError(err instanceof Error ? err.message : t("common.couldNotCreateTheAccount"));
     } finally {
       setSubmitting(false);
     }
@@ -109,7 +112,7 @@ export function CompleteOAuthSignupForm({
       trackEvent("account_login_oauth_linked");
       onSuccess?.();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Usuário ou senha inválidos.");
+      setFormError(err instanceof Error ? err.message : t("common.invalidUsernameOrPassword"));
     } finally {
       setSubmitting(false);
     }
@@ -127,15 +130,14 @@ export function CompleteOAuthSignupForm({
       <form onSubmit={handleClaimSubmit} className="flex flex-col gap-3">
         <div>
           <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">
-            Entrar na conta que você já tem
+            {t("completeOAuthSignupForm.signInToTheAccountYou")}
           </h2>
           <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-            Confirme sua senha e o {PROVIDER_LABEL[provider]} fica conectado a ela — da próxima
-            vez, o botão entra direto.
+            {t("completeOAuthSignupForm.confirmYourPasswordAndThe")} {PROVIDER_LABEL[provider]} {t("completeOAuthSignupForm.staysConnectedToItNextTime")}
           </p>
         </div>
         <label htmlFor="claim-username" className={labelClass}>
-          Usuário
+          {t("common.username")}
         </label>
         <input
           id="claim-username"
@@ -147,7 +149,7 @@ export function CompleteOAuthSignupForm({
           className={inputClass}
         />
         <label htmlFor="claim-password" className={labelClass}>
-          Senha
+          {t("common.password")}
         </label>
         <input
           id="claim-password"
@@ -165,7 +167,7 @@ export function CompleteOAuthSignupForm({
             className={`flex flex-1 items-center justify-center gap-2 ${primaryButtonClass}`}
           >
             {submitting && <ButtonSpinner />}
-            {submitting ? "Entrando..." : "Entrar e conectar"}
+            {submitting ? t("common.joining") : t("completeOAuthSignupForm.signInAndConnect")}
           </button>
           <button
             type="button"
@@ -175,7 +177,7 @@ export function CompleteOAuthSignupForm({
             }}
             className={secondaryButtonClass}
           >
-            Voltar
+            {t("common.back")}
           </button>
         </div>
       </form>
@@ -188,11 +190,11 @@ export function CompleteOAuthSignupForm({
     const trimmedUser = username.trim();
     const trimmedDisplay = displayName.trim();
     if (!USERNAME_RE.test(trimmedUser)) {
-      setFormError("Usuário deve ter 3 a 20 letras, números ou _.");
+      setFormError(t("common.usernameMustHave3To20"));
       return;
     }
     if (!trimmedDisplay) {
-      setFormError("Escolha um nome de exibição.");
+      setFormError(t("common.chooseADisplayName"));
       return;
     }
     void submitSignup();
@@ -202,14 +204,14 @@ export function CompleteOAuthSignupForm({
     <form onSubmit={handleSubmit} className="flex flex-col gap-3">
       <div>
         <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">
-          Quase lá
+          {t("completeOAuthSignupForm.almostThere")}
         </h2>
         <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-          Conectado com {PROVIDER_LABEL[provider]}. Escolha como você vai aparecer no GoLive.
+          {t("completeOAuthSignupForm.connectedWith")} {PROVIDER_LABEL[provider]}{t("completeOAuthSignupForm.chooseHowYouWillAppearOn")}
         </p>
       </div>
       <label htmlFor="oauth-username" className={labelClass}>
-        Usuário
+        {t("common.username")}
       </label>
       <input
         id="oauth-username"
@@ -221,7 +223,7 @@ export function CompleteOAuthSignupForm({
         className={inputClass}
       />
       <label htmlFor="oauth-display-name" className={labelClass}>
-        Nome de exibição
+        {t("common.displayName")}
       </label>
       <input
         id="oauth-display-name"
@@ -245,7 +247,7 @@ export function CompleteOAuthSignupForm({
         }}
         className={`self-start ${linkButtonClass}`}
       >
-        Já tenho uma conta no GoLive
+        {t("completeOAuthSignupForm.iAlreadyHaveAGoliveAccount")}
       </button>
       <div className="mt-2 flex gap-2">
         <button
@@ -254,11 +256,11 @@ export function CompleteOAuthSignupForm({
           className={`flex flex-1 items-center justify-center gap-2 ${primaryButtonClass}`}
         >
           {submitting && <ButtonSpinner />}
-            {submitting ? "Criando..." : "Criar conta"}
+            {submitting ? t("common.creating2") : t("common.createAccount")}
         </button>
         {onCancel && (
           <button type="button" onClick={onCancel} className={secondaryButtonClass}>
-            Cancelar
+            {t("common.cancel")}
           </button>
         )}
       </div>

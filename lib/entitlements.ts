@@ -1,6 +1,7 @@
 "use client";
 
 import { DEFAULT_PLAN_ICON_ID, PLAN_ICONS } from "@/components/planIcons";
+import { translate } from "@/lib/i18n";
 
 // The client's half of the entitlement table — the mirror of the API's
 // server/entitlements.ts.
@@ -130,9 +131,9 @@ export function lockTier(
  */
 export const TIER_NAMES: Record<FeatureTier, string> = {
   free: "",
-  account: "conta necessária",
-  premium: "Pro",
-  premium_max: "Pro Max",
+  get account() { return translate("entitlements.accountRequired"); },
+  get premium() { return translate("common.pro"); },
+  get premium_max() { return translate("common.proMax"); },
 };
 
 /** What the missing tier is called, in words. Null when nothing is missing. */
@@ -201,7 +202,7 @@ export function isThemeBanned(flags: readonly string[] | undefined | null): bool
 
 /** What a banned author is told. Matches the API's wording. */
 export const THEME_BAN_MESSAGE =
-  "Sua conta está impedida de criar ou publicar temas. Fale com a moderação se achar que é engano.";
+  translate("entitlements.yourAccountIsBlockedFromCreating");
 
 /**
  * Which rung an account stands on, read from the flags every name already

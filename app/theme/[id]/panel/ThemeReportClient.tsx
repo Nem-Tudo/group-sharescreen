@@ -19,7 +19,7 @@ import {
   TimeSeriesChart,
   bucketFullLabel,
   formatCount,
-} from "@/app/anuncio/[token]/charts";
+} from "@/app/ad/[token]/charts";
 import {
   THEME_REPORT_RANGES,
   ThemeReportDeniedError,
@@ -30,10 +30,13 @@ import {
   type ThemeReportRange,
 } from "@/lib/themeReport";
 import { gradientCss, isDarkTheme } from "@/lib/roomThemes";
+import { useI18n } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
+import { formatLocale } from "@/lib/i18n";
 
 // A theme's dashboard, for the person who made it.
 //
-// Built on the advertiser report's own charts (see app/anuncio/[token]) rather
+// Built on the advertiser report's own charts (see app/ad/[token]) rather
 // than beside them: they are the same job — somebody who made a thing wanting
 // to know how it is doing — and two pages that answer it in two visual
 // languages is how a site stops looking like one site.
@@ -46,7 +49,7 @@ import { gradientCss, isDarkTheme } from "@/lib/roomThemes";
 
 const POLL_INTERVAL_MS = 4000;
 
-const dateTimeFormat = new Intl.DateTimeFormat("pt-BR", {
+const dateTimeFormat = () => new Intl.DateTimeFormat(formatLocale(), {
   day: "2-digit",
   month: "2-digit",
   year: "numeric",
@@ -55,11 +58,12 @@ const dateTimeFormat = new Intl.DateTimeFormat("pt-BR", {
 function relativeSeconds(ms: number): string {
   const seconds = Math.max(0, Math.round(ms / 1000));
   if (seconds < 5) return "agora mesmo";
-  if (seconds < 60) return `há ${seconds}s`;
-  return `há ${Math.round(seconds / 60)}min`;
+  if (seconds < 60) return translate("common.secondsSAgo", { seconds });
+  return translate("common.valueMinAgo", { value: Math.round(seconds / 60) });
 }
 
 export function ThemeReportClient({ id }: { id: string }) {
+  const { t, tc } = useI18n();
   const [range, setRange] = useState<ThemeReportRange>("24h");
   // undefined = the first load has not landed. A failed *poll* keeps the last
   // report on screen: numbers four seconds old beat a blank page.
@@ -92,7 +96,7 @@ export function ThemeReportClient({ id }: { id: string }) {
           setDenied(true);
           return;
         }
-        setError("Sem conexão — mostrando os últimos números.");
+        setError(t("theme.panel.themeReportClient.noConnectionShowingTheLatestNumbers"));
       }
       // Scheduled only once the previous one settled, so a slow connection
       // cannot end up racing itself and landing answers out of order.
@@ -105,22 +109,22 @@ export function ThemeReportClient({ id }: { id: string }) {
       controller.abort();
       if (timer) clearTimeout(timer);
     };
-  }, [id, range]);
+  }, [id, range, t]);
 
   if (denied) {
     return (
       <main className="mx-auto w-full max-w-md grow px-4 py-16 text-center">
         <h1 className="text-xl font-semibold text-zinc-950 dark:text-zinc-50">
-          Este painel não é seu
+          {t("theme.panel.themeReportClient.thisDashboardIsNotYours")}
         </h1>
         <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-          Só quem criou um tema vê os números dele.
+          {t("theme.panel.themeReportClient.onlyWhoeverCreatedAThemeSees")}
         </p>
         <Link
           href="/workshop"
           className="mt-4 inline-block rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white dark:bg-zinc-50 dark:text-zinc-950"
         >
-          Ver o Descobrir
+          {t("common.seeDiscover")}
         </Link>
       </main>
     );
@@ -129,7 +133,7 @@ export function ThemeReportClient({ id }: { id: string }) {
   if (!report) {
     return (
       <main className="mx-auto w-full max-w-5xl grow px-4 py-16">
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">Carregando…</p>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">{t("common.loading")}</p>
       </main>
     );
   }
@@ -195,15 +199,15 @@ export function ThemeReportClient({ id }: { id: string }) {
           </span>
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-3)]">
-              Painel do tema
+              {t("common.themeDashboard")}
             </p>
             <h1 className="mt-0.5 truncate text-2xl font-semibold tracking-tight text-[var(--ink-1)]">
               {theme.name}
             </h1>
             <p className="mt-1 text-xs text-[var(--ink-3)]">
-              Criado em {dateTimeFormat.format(theme.createdAt)} ·{" "}
-              {isDarkTheme(theme.spec) ? "escuro" : "claro"}
-              {theme.price > 0 ? ` · ${formatPoints(theme.price)} pontos` : " · grátis"}
+              {t("theme.panel.themeReportClient.createdOn")} {dateTimeFormat().format(theme.createdAt)} ·{" "}
+              {isDarkTheme(theme.spec) ? t("common.dark") : t("common.light")}
+              {theme.price > 0 ? t("theme.panel.themeReportClient.valuePoints", { value: formatPoints(theme.price) }) : t("theme.panel.themeReportClient.free")}
             </p>
           </div>
         </div>
@@ -214,83 +218,83 @@ export function ThemeReportClient({ id }: { id: string }) {
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-75" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
               </span>
-              No Descobrir
+              {t("theme.panel.themeReportClient.onDiscover")}
             </span>
           ) : (
             <span className="rounded-full bg-zinc-500/10 px-2.5 py-1 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
-              Privado
+              {t("common.private")}
             </span>
           )}
           <span className="text-[11px] text-[var(--ink-3)]">
-            {error ?? `Atualizado ${relativeSeconds(Math.max(0, now - updatedAt))}`}
+            {error ?? t("common.updatedValue", { value: relativeSeconds(Math.max(0, now - updatedAt)) })}
           </span>
         </div>
       </header>
 
       {/* ── Agora ─────────────────────────────────────────────────────── */}
       <section className="mt-5">
-        <h2 className="mb-2 text-sm font-semibold text-[var(--ink-1)]">Agora</h2>
+        <h2 className="mb-2 text-sm font-semibold text-[var(--ink-1)]">{t("theme.panel.themeReportClient.now")}</h2>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <StatTile
-            label="Usando"
+            label={t("theme.panel.themeReportClient.using")}
             icon={<MdOutlinePeopleAlt />}
             accent="--series-3"
             value={formatCount(live.wearing)}
-            hint="Contas com o seu tema escolhido neste momento"
+            hint={t("theme.panel.themeReportClient.accountsWithYourThemeSelectedRight")}
           />
           <StatTile
-            label="Online agora"
+            label={t("theme.panel.themeReportClient.onlineNow")}
             icon={<MdOutlinePodcasts />}
             accent="--series-1"
             value={formatCount(live.online)}
-            hint="Dessas, quantas estão com o GoLive aberto"
+            hint={t("theme.panel.themeReportClient.ofThoseHowManyHaveGolive")}
           />
           <StatTile
-            label="Salas com o tema"
+            label={t("theme.panel.themeReportClient.roomsWithTheTheme")}
             icon={<MdOutlineMeetingRoom />}
             accent="--series-2"
             value={formatCount(live.rooms)}
-            hint="Salas ao vivo em que alguém colocou o seu tema para todos"
+            hint={t("theme.panel.themeReportClient.liveRoomsWhereSomeoneAppliedYour")}
           />
           <StatTile
-            label="Ficaram com ele"
+            label={t("theme.panel.themeReportClient.keptIt")}
             icon={<MdOutlineShowChart />}
             value={totals.retention === null ? "—" : `${Math.round(totals.retention * 100)}%`}
-            hint="De todo mundo que já usou, quantos ainda estão usando"
+            hint={t("theme.panel.themeReportClient.ofEveryoneWhoHasUsedIt")}
           />
         </div>
       </section>
 
       {/* ── Sempre ────────────────────────────────────────────────────── */}
       <section className="mt-4">
-        <h2 className="mb-2 text-sm font-semibold text-[var(--ink-1)]">Desde o começo</h2>
+        <h2 className="mb-2 text-sm font-semibold text-[var(--ink-1)]">{t("theme.panel.themeReportClient.sinceTheBeginning")}</h2>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <StatTile
-            label="Pessoas diferentes"
+            label={t("theme.panel.themeReportClient.distinctPeople")}
             icon={<MdOutlinePeopleAlt />}
             accent="--series-1"
             value={formatCount(totals.adopters)}
-            hint="Gente distinta que colocou o tema pelo menos uma vez"
+            hint={t("theme.panel.themeReportClient.distinctPeopleWhoAppliedTheTheme")}
           />
           <StatTile
-            label="Vezes que puseram"
+            label={t("theme.panel.themeReportClient.timesItWasApplied")}
             icon={<MdOutlineAddCircleOutline />}
             accent="--series-3"
             value={formatCount(totals.applies)}
-            hint="Inclui quem tirou e voltou a colocar"
+            hint={t("theme.panel.themeReportClient.includesWhoeverRemovedItAndApplied")}
           />
           <StatTile
-            label="Vezes que tiraram"
+            label={t("theme.panel.themeReportClient.timesItWasRemoved")}
             icon={<MdOutlineRemoveCircleOutline />}
             accent="--series-2"
             value={formatCount(totals.removes)}
-            hint="Trocar por outro tema também conta aqui"
+            hint={t("theme.panel.themeReportClient.switchingToAnotherThemeCountsHere")}
           />
           <StatTile
-            label="Curtidas"
+            label={t("theme.panel.themeReportClient.likes")}
             icon={<MdOutlineFavoriteBorder />}
             value={formatCount(totals.likes)}
-            hint="Uma por pessoa"
+            hint={t("theme.panel.themeReportClient.onePerPerson")}
           />
         </div>
       </section>
@@ -301,18 +305,18 @@ export function ThemeReportClient({ id }: { id: string }) {
       {theme.price > 0 && (
         <section className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <StatTile
-            label="Vendas"
+            label={t("theme.panel.themeReportClient.sales")}
             icon={<BsCoin />}
             accent="--series-3"
             value={formatCount(totals.sales)}
-            hint="Quantas pessoas compraram o tema"
+            hint={t("theme.panel.themeReportClient.howManyPeopleBoughtTheTheme")}
           />
           <StatTile
-            label="Pontos ganhos"
+            label={t("theme.panel.themeReportClient.pointsEarned")}
             icon={<BsCoin />}
             accent="--series-1"
             value={formatPoints(totals.earned)}
-            hint="A sua parte das vendas, já creditada"
+            hint={t("theme.panel.themeReportClient.yourShareOfTheSalesAlready")}
           />
         </section>
       )}
@@ -320,7 +324,7 @@ export function ThemeReportClient({ id }: { id: string }) {
       {/* ── Ao longo do tempo ─────────────────────────────────────────── */}
       <section className="mt-4 rounded-2xl border border-[var(--hairline)] bg-[var(--surface)] p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold text-[var(--ink-1)]">Ao longo do tempo</h2>
+          <h2 className="text-sm font-semibold text-[var(--ink-1)]">{t("common.overTime")}</h2>
           <div className="flex gap-1 rounded-lg bg-[var(--track)] p-0.5">
             {THEME_REPORT_RANGES.map((option) => (
               <button
@@ -340,32 +344,31 @@ export function ThemeReportClient({ id }: { id: string }) {
           </div>
         </div>
         <p className="mt-1 text-xs text-[var(--ink-3)]">
-          {formatCount(win.people)} pessoa{win.people === 1 ? "" : "s"} colocaram o tema neste
-          período.
+          {formatCount(win.people)} {tc("common.personNoun", win.people)} {t("theme.panel.themeReportClient.appliedTheThemeInThisPeriod")}
         </p>
         <div className="mt-3">
           <TimeSeriesChart<ThemeReportBucket>
             buckets={win.buckets}
             step={win.step}
             series={{
-              label: "Colocaram o tema",
+              label: t("theme.panel.themeReportClient.appliedTheTheme"),
               valueOf: (bucket) => bucket.applies,
               color: "--series-1",
             }}
-            emptyLabel="Ninguém colocou o tema neste período."
+            emptyLabel={t("theme.panel.themeReportClient.nobodyAppliedTheThemeInThis")}
           />
         </div>
         <div className="mt-4">
-          <p className="mb-1 text-xs font-medium text-[var(--ink-2)]">Tiraram</p>
+          <p className="mb-1 text-xs font-medium text-[var(--ink-2)]">{t("theme.panel.themeReportClient.removedIt")}</p>
           <TimeSeriesChart<ThemeReportBucket>
             buckets={win.buckets}
             step={win.step}
             series={{
-              label: "Tiraram o tema",
+              label: t("theme.panel.themeReportClient.removedTheTheme"),
               valueOf: (bucket) => bucket.removes,
               color: "--series-2",
             }}
-            emptyLabel="Ninguém tirou o tema neste período."
+            emptyLabel={t("theme.panel.themeReportClient.nobodyRemovedTheThemeInThis")}
           />
         </div>
         {/* Only when there is a last bucket to name. The fallback used to be
@@ -374,7 +377,7 @@ export function ThemeReportClient({ id }: { id: string }) {
             buckets there is nothing to say about the last one. */}
         {lastBucket && (
           <p className="mt-2 text-[11px] text-[var(--ink-3)]">
-            Cada ponto é {win.step === "hour" ? "uma hora" : "um dia"} — o último vai até{" "}
+            {t("theme.panel.themeReportClient.eachPointIs")} {win.step === "hour" ? "uma hora" : "um dia"} {t("theme.panel.themeReportClient.theLastOneRunsUntil")}{" "}
             {bucketFullLabel(lastBucket.t, win.step)}.
           </p>
         )}
@@ -383,27 +386,27 @@ export function ThemeReportClient({ id }: { id: string }) {
       {/* ── O caminho ─────────────────────────────────────────────────── */}
       <section className="mt-4 grid gap-3 lg:grid-cols-2">
         <div className="rounded-2xl border border-[var(--hairline)] bg-[var(--surface)] p-4">
-          <h2 className="text-sm font-semibold text-[var(--ink-1)]">Do primeiro clique até agora</h2>
+          <h2 className="text-sm font-semibold text-[var(--ink-1)]">{t("theme.panel.themeReportClient.fromTheFirstClickUntilNow")}</h2>
           <p className="mt-1 text-xs text-[var(--ink-3)]">
-            Quanta gente sobra em cada passo.
+            {t("theme.panel.themeReportClient.howManyPeopleAreLeftAt")}
           </p>
           <div className="mt-3">
             <FunnelChart
               stages={[
                 {
-                  label: "Já usaram",
+                  label: t("theme.panel.themeReportClient.haveUsedIt"),
                   value: totals.adopters,
-                  hint: "Pessoas diferentes que colocaram o tema alguma vez",
+                  hint: t("theme.panel.themeReportClient.distinctPeopleWhoAppliedTheTheme2"),
                 },
                 {
-                  label: "Ainda usando",
+                  label: t("theme.panel.themeReportClient.stillUsingIt"),
                   value: live.wearing,
-                  hint: "Continuam com ele escolhido",
+                  hint: t("theme.panel.themeReportClient.stillHaveItSelected"),
                 },
                 {
-                  label: "Online agora",
+                  label: t("theme.panel.themeReportClient.onlineNow"),
                   value: live.online,
-                  hint: "E estão com o GoLive aberto neste momento",
+                  hint: t("theme.panel.themeReportClient.andHaveGoliveOpenRightNow"),
                 },
               ]}
             />
@@ -411,33 +414,31 @@ export function ThemeReportClient({ id }: { id: string }) {
         </div>
 
         <div className="rounded-2xl border border-[var(--hairline)] bg-[var(--surface)] p-4">
-          <h2 className="text-sm font-semibold text-[var(--ink-1)]">Quem ficou e quem saiu</h2>
+          <h2 className="text-sm font-semibold text-[var(--ink-1)]">{t("theme.panel.themeReportClient.whoStayedAndWhoLeft")}</h2>
           <p className="mt-1 text-xs text-[var(--ink-3)]">
-            Das pessoas que já colocaram o tema alguma vez.
+            {t("theme.panel.themeReportClient.ofThePeopleWhoHaveApplied")}
           </p>
           <div className="mt-4">
             <SplitBar
               parts={[
-                { label: "Ficaram", value: live.wearing, color: "var(--series-3)" },
-                { label: "Saíram", value: dropped, color: "var(--series-2)" },
+                { label: t("theme.panel.themeReportClient.stayed"), value: live.wearing, color: "var(--series-3)" },
+                { label: t("theme.panel.themeReportClient.left"), value: dropped, color: "var(--series-2)" },
               ]}
             />
           </div>
           {totals.adopters === 0 && (
             <p className="mt-3 text-xs text-[var(--ink-3)]">
-              Ninguém usou o tema ainda.
+              {t("theme.panel.themeReportClient.nobodyHasUsedTheThemeYet")}
               {theme.published
-                ? " Ele já está no Descobrir."
-                : " Publique no Descobrir para que outras pessoas possam usar."}
+                ? t("theme.panel.themeReportClient.itIsAlreadyOnDiscover")
+                : t("theme.panel.themeReportClient.publishItOnDiscoverSoOther")}
             </p>
           )}
         </div>
       </section>
 
       <p className="mt-4 text-[11px] text-[var(--ink-3)]">
-        Os números de &quot;Agora&quot; são contados no momento em que a página pergunta e mudam
-        sozinhos. Ninguém além de você vê este painel, e ele nunca mostra *quem* está usando o seu
-        tema — apenas quantos.
+        {t("theme.panel.themeReportClient.theNowNumbersAreCountedAt")}
       </p>
     </main>
   );

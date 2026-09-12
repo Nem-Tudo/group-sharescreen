@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useT } from "@/lib/useI18n";
 
 export type MediaDeviceOption = { deviceId: string; label: string };
 
@@ -27,6 +28,7 @@ export function setElementSinkId(el: HTMLMediaElement, sinkId: string): Promise<
 // "Microfone N" / "Saída N" / "Câmera N" so the picker still has something
 // to show before that.
 export function useMediaDevices() {
+  const t = useT();
   const [mics, setMics] = useState<MediaDeviceOption[]>([]);
   const [speakers, setSpeakers] = useState<MediaDeviceOption[]>([]);
   const [cameras, setCameras] = useState<MediaDeviceOption[]>([]);
@@ -50,11 +52,11 @@ export function useMediaDevices() {
         const nextCameras: MediaDeviceOption[] = [];
         for (const d of devices) {
           if (d.kind === "audioinput") {
-            nextMics.push({ deviceId: d.deviceId, label: d.label || `Microfone ${nextMics.length + 1}` });
+            nextMics.push({ deviceId: d.deviceId, label: d.label || t("useMediaDevices.microphoneValue", { value: nextMics.length + 1 }) });
           } else if (d.kind === "audiooutput") {
-            nextSpeakers.push({ deviceId: d.deviceId, label: d.label || `Saída ${nextSpeakers.length + 1}` });
+            nextSpeakers.push({ deviceId: d.deviceId, label: d.label || t("useMediaDevices.outputValue", { value: nextSpeakers.length + 1 }) });
           } else if (d.kind === "videoinput") {
-            nextCameras.push({ deviceId: d.deviceId, label: d.label || `Câmera ${nextCameras.length + 1}` });
+            nextCameras.push({ deviceId: d.deviceId, label: d.label || t("common.cameraValue", { value: nextCameras.length + 1 }) });
           }
         }
         setMics(nextMics);
@@ -71,7 +73,7 @@ export function useMediaDevices() {
       cancelled = true;
       navigator.mediaDevices.removeEventListener("devicechange", refresh);
     };
-  }, []);
+  }, [t]);
 
   return { mics, speakers, cameras, canSelectSpeaker };
 }

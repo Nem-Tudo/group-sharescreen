@@ -7,6 +7,7 @@ import {
   type AdSlot,
 } from "@/lib/adsterra";
 
+
 // Serves the little HTML document an ad slot's iframe loads.
 //
 // Its whole reason to exist is the origin. The same markup used to be handed

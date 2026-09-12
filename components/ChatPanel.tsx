@@ -45,6 +45,9 @@ import {
 } from "@/lib/chatMentions";
 import { hasVerifiedBadge, verifiedBadge } from "@/lib/entitlements";
 import { formatTypingLabel } from "@/lib/typing";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
+import { formatLocale } from "@/lib/i18n";
 
 type ChatAttachment = {
   id: number;
@@ -72,7 +75,7 @@ export type ChatPeer = {
 };
 
 function formatTime(ts: number): string {
-  return new Date(ts).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  return new Date(ts).toLocaleTimeString(formatLocale(), { hour: "2-digit", minute: "2-digit" });
 }
 
 const URL_PATTERN = /(https?:\/\/[^\s]+|www\.[^\s]+)/g;
@@ -100,7 +103,7 @@ function linkifyText(
                 key={`mention-${i}-${j}`}
                 type="button"
                 onClick={open}
-                title="Ver perfil"
+                title={translate("common.viewProfile")}
                 className="cursor-pointer rounded font-medium text-blue-600 hover:underline dark:text-blue-400"
               >
                 {token.value}
@@ -269,6 +272,7 @@ export function ChatPanel({
   onAuthorContextMenu?: (from: string, name: string) => void;
   onRequestAccount?: () => void;
 }) {
+  const t = useT();
   const [input, setInput] = useState("");
   // Which message's author menu is open, by message id — one at a time, and
   // keyed on the message rather than the person so two messages from the same
@@ -490,7 +494,7 @@ export function ChatPanel({
         name: "todos",
         aliases: ["everyone"],
         isBroadcast: true,
-        description: "Mencionar todos na chamada",
+        description: t("chatPanel.mentionEveryoneInTheCall"),
       },
     ];
 
@@ -517,7 +521,7 @@ export function ChatPanel({
       }
     }
     return [...broadcastOptions, ...Array.from(map.values())];
-  }, [peers, selfName, selfId]);
+  }, [peers, selfName, selfId, t]);
 
   // Filtered and ranked autocomplete candidates based on user input after "@"
   const filteredCandidates = useMemo(() => {
@@ -626,7 +630,7 @@ export function ChatPanel({
     const total = ready.reduce((sum, entry) => sum + entry.byteLength, 0);
     if (total > CHAT_IMAGE_TOTAL_MAX_BYTES) {
       const mb = Math.round(CHAT_IMAGE_TOTAL_MAX_BYTES / (1024 * 1024));
-      setImageError(`As imagens somam mais do que o limite de ${mb} MB por mensagem.`);
+      setImageError(t("chatPanel.theImagesAddUpToMore", { mb }));
       return;
     }
 
@@ -646,7 +650,7 @@ export function ChatPanel({
         setAttachments([]);
         clearComposer();
       } else {
-        setImageError(result.error ?? "Não foi possível enviar a imagem.");
+        setImageError(result.error ?? t("common.couldNotSendTheImage"));
       }
     } finally {
       setSendingImages(false);
@@ -788,19 +792,19 @@ export function ChatPanel({
 
     const room = CHAT_IMAGE_MAX_PER_MESSAGE - attachments.length;
     if (room <= 0) {
-      setImageError(`Máximo de ${CHAT_IMAGE_MAX_PER_MESSAGE} imagens por mensagem.`);
+      setImageError(t("chatPanel.maximumOfChatImageMaxPer", { CHAT_IMAGE_MAX_PER_MESSAGE }));
       return;
     }
     // Takes what fits and says so, rather than refusing the whole drop: three
     // of five pictures is closer to what was asked for than none of them.
     const accepted = files.slice(0, room);
     if (files.length > accepted.length) {
-      setImageError(`Máximo de ${CHAT_IMAGE_MAX_PER_MESSAGE} imagens por mensagem.`);
+      setImageError(t("chatPanel.maximumOfChatImageMaxPer", { CHAT_IMAGE_MAX_PER_MESSAGE }));
     }
 
     for (const file of accepted) {
       if (!isSupportedChatImage(file)) {
-        setImageError("Formato não suportado. Envie PNG, JPG, WEBP, GIF ou AVIF.");
+        setImageError(t("chatPanel.unsupportedFormatSendPngJpgWebp"));
         continue;
       }
       const id = (attachmentSeqRef.current += 1);
@@ -821,7 +825,7 @@ export function ChatPanel({
         const prepared = await prepareChatImage(file);
         if (prepared.byteLength > CHAT_IMAGE_MAX_BYTES) {
           const mb = Math.round(CHAT_IMAGE_MAX_BYTES / (1024 * 1024));
-          setImageError(`Imagem muito grande (máximo ${mb} MB por imagem).`);
+          setImageError(t("chatPanel.imageTooLargeMaximumMbMb", { mb }));
           setAttachments((current) => current.filter((entry) => entry.id !== id));
           continue;
         }
@@ -833,7 +837,7 @@ export function ChatPanel({
           )
         );
       } catch {
-        setImageError("Não foi possível ler essa imagem.");
+        setImageError(t("common.couldNotReadThatImage"));
         setAttachments((current) => current.filter((entry) => entry.id !== id));
       }
     }
@@ -872,7 +876,7 @@ export function ChatPanel({
       style={{ minHeight: "180px" }}
     >
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
-        <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Chat</h2>
+        <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">{t("common.chat")}</h2>
         <div className="flex items-center gap-1.5">
           {messages.length > 0 && (
             <span className="text-xs tabular-nums text-zinc-400 dark:text-zinc-600">
@@ -881,11 +885,11 @@ export function ChatPanel({
           )}
           <NotificationBell />
           {onCollapse && (
-            <Tooltip content="Ocultar chat e perfil">
+            <Tooltip content={t("chatPanel.hideChatAndProfile")}>
               <button
                 type="button"
                 onClick={onCollapse}
-                aria-label="Ocultar chat e perfil"
+                aria-label={t("chatPanel.hideChatAndProfile")}
                 className="rounded-lg p-1 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
               >
                 <LuPanelRightClose className="h-4 w-4" />
@@ -905,7 +909,7 @@ export function ChatPanel({
         >
           {messages.length === 0 ? (
             <p className="my-auto text-center text-sm text-zinc-500 dark:text-zinc-500">
-              Nenhuma mensagem ainda.
+              {t("chatPanel.noMessageYet")}
             </p>
           ) : (
             messages.map((m, i) => {
@@ -955,7 +959,7 @@ export function ChatPanel({
                         }
                       : undefined
                   }
-                  title={hasMenu ? "Clique com o botão direito para ver as ações" : undefined}
+                  title={hasMenu ? t("common.rightClickToSeeTheActions") : undefined}
                   className={`group relative -mx-1.5 rounded-lg px-2 text-sm transition-colors duration-150 ${
                     grouped ? "pb-0.5" : "mt-2.5 pb-0.5 first:mt-0"
                   } ${
@@ -978,7 +982,7 @@ export function ChatPanel({
                         scrollToMessage(m.replyTo!.id);
                       }}
                       className="group/reply mb-1 flex max-w-full cursor-pointer items-center gap-1.5 text-xs text-zinc-500 select-none hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
-                      title="Clique para ir para a mensagem original"
+                      title={t("chatPanel.clickToGoToTheOriginal")}
                     >
                       <div className="flex items-center text-zinc-400 dark:text-zinc-600">
                         <svg
@@ -1004,7 +1008,7 @@ export function ChatPanel({
                         ) : (m.replyTo.images && m.replyTo.images.length > 0) || m.replyTo.kind === "image" ? (
                           <span className="italic">[Imagem]</span>
                         ) : (
-                          <span className="italic">[Mensagem]</span>
+                          <span className="italic">{t("chatPanel.message")}</span>
                         )}
                       </span>
                     </div>
@@ -1078,12 +1082,12 @@ export function ChatPanel({
                             e.stopPropagation();
                             startReply(m);
                           }}
-                          aria-label={`Responder a ${m.name}`}
-                          title="Responder"
+                          aria-label={t("chatPanel.replyToName", { name: m.name })}
+                          title={t("common.reply")}
                           className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-400 opacity-100 transition hover:bg-zinc-200/70 hover:text-zinc-800 focus:opacity-100 active:scale-95 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 sm:group-focus-within:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
                         >
                           <MdReply className="h-3.5 w-3.5" />
-                          <span className="text-[11px] font-medium sm:hidden">Responder</span>
+                          <span className="text-[11px] font-medium sm:hidden">{t("common.reply")}</span>
                         </button>
                       )}
                     </div>
@@ -1102,8 +1106,8 @@ export function ChatPanel({
                               currentIndex: 0,
                             });
                           }}
-                          title="Clique para ampliar o GIF"
-                          aria-label="Clique para ampliar o GIF"
+                          title={t("chatPanel.clickToEnlargeTheGif")}
+                          aria-label={t("chatPanel.clickToEnlargeTheGif")}
                           className="mt-1 inline-block cursor-pointer rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 transition hover:opacity-90 text-left"
                         >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1129,19 +1133,19 @@ export function ChatPanel({
                                     e.stopPropagation();
                                     setImageModalPreview({
                                       src: url,
-                                      alt: "Imagem enviada no chat",
+                                      alt: t("chatPanel.imageSentInTheChat"),
                                       images: messageImages(m),
                                       currentIndex: index,
                                     });
                                   }}
-                                  title="Clique para ampliar a imagem"
-                                  aria-label="Clique para ampliar a imagem"
+                                  title={t("chatPanel.clickToEnlargeTheImage")}
+                                  aria-label={t("chatPanel.clickToEnlargeTheImage")}
                                   className="inline-block cursor-pointer rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 transition hover:opacity-90 text-left"
                                 >
                                   {/* eslint-disable-next-line @next/next/no-img-element */}
                                   <img
                                     src={url}
-                                    alt="Imagem enviada no chat"
+                                    alt={t("chatPanel.imageSentInTheChat")}
                                     loading="lazy"
                                     className="max-h-56 max-w-full rounded-md border border-zinc-200 dark:border-zinc-800"
                                   />
@@ -1159,12 +1163,12 @@ export function ChatPanel({
                           e.stopPropagation();
                           startReply(m);
                         }}
-                        aria-label={`Responder a ${m.name}`}
-                        title="Responder"
+                        aria-label={t("chatPanel.replyToName", { name: m.name })}
+                        title={t("common.reply")}
                         className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-400 opacity-100 transition hover:bg-zinc-200/70 hover:text-zinc-800 focus:opacity-100 active:scale-95 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 sm:group-focus-within:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
                       >
                         <MdReply className="h-3.5 w-3.5" />
-                        <span className="text-[11px] font-medium sm:hidden">Responder</span>
+                        <span className="text-[11px] font-medium sm:hidden">{t("common.reply")}</span>
                       </button>
                     )}
                   </div>
@@ -1211,7 +1215,7 @@ export function ChatPanel({
           >
             {pendingBelow > 0
               ? `${pendingBelow} nova${pendingBelow > 1 ? "s" : ""} mensage${pendingBelow > 1 ? "ns" : "m"}`
-              : "Ir para o final"}
+              : t("chatPanel.goToTheEnd")}
             <span aria-hidden>↓</span>
           </button>
         )}
@@ -1242,11 +1246,11 @@ export function ChatPanel({
             <div
               ref={mentionMenuRef}
               role="listbox"
-              aria-label="Membros para mencionar"
+              aria-label={t("chatPanel.membersToMention")}
               className="absolute bottom-full left-2 mb-1.5 flex w-60 max-w-[calc(100vw-2rem)] max-h-48 flex-col overflow-y-auto rounded-lg border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-800 dark:bg-zinc-900 z-30 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
             >
               <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-                Membros na sala
+                {t("chatPanel.membersInTheRoom")}
               </div>
               {filteredCandidates.map((peer, idx) => {
                 const isSelected = idx === selectedIndex;
@@ -1274,7 +1278,7 @@ export function ChatPanel({
                           @{peer.name}
                         </span>
                         <span className="truncate text-[11px] text-zinc-400 dark:text-zinc-500">
-                          {peer.description ?? "Mencionar todos"}
+                          {peer.description ?? t("chatPanel.mentionEveryone")}
                         </span>
                       </div>
                     ) : (
@@ -1288,7 +1292,7 @@ export function ChatPanel({
                       />
                     )}
                     <span className="shrink-0 text-[10px] text-zinc-400 dark:text-zinc-500 font-mono">
-                      Tab ↵
+                      {t("chatPanel.tab")}
                     </span>
                   </button>
                 );
@@ -1302,7 +1306,7 @@ export function ChatPanel({
               <div className="flex min-w-0 items-center gap-1.5">
                 <MdReply className="h-4 w-4 shrink-0 text-zinc-400 dark:text-zinc-500" />
                 <span className="shrink-0 text-zinc-500 dark:text-zinc-400">
-                  Respondendo a{" "}
+                  {t("common.replyingTo")}{" "}
                   <span className="font-semibold text-zinc-800 dark:text-zinc-200">
                     @{replyingTo.name}
                   </span>
@@ -1317,11 +1321,11 @@ export function ChatPanel({
                         : ""}
                 </span>
               </div>
-              <Tooltip content="Cancelar resposta (Esc)">
+              <Tooltip content={t("chatPanel.cancelReplyEsc")}>
                 <button
                   type="button"
                   onClick={cancelReply}
-                  aria-label="Cancelar resposta"
+                  aria-label={t("common.cancelReply")}
                   className="cursor-pointer rounded-md p-1 text-zinc-400 transition hover:bg-zinc-200 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
                 >
                   <MdClose className="h-4 w-4" />
@@ -1344,7 +1348,7 @@ export function ChatPanel({
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={attachment.dataUrl}
-                      alt={attachment.name || "Imagem anexada"}
+                      alt={attachment.name || t("chatPanel.attachedImage")}
                       className="h-full w-full object-cover"
                     />
                   ) : (
@@ -1359,7 +1363,7 @@ export function ChatPanel({
                     type="button"
                     onClick={() => removeAttachment(attachment.id)}
                     disabled={sendingImages}
-                    aria-label={`Remover ${attachment.name || "imagem"}`}
+                    aria-label={t("chatPanel.removeValue", { value: attachment.name || "imagem" })}
                     className="absolute right-0.5 top-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-zinc-950/70 text-xs text-white transition hover:bg-zinc-950 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <MdClose aria-hidden />
@@ -1381,15 +1385,15 @@ export function ChatPanel({
               content={<GifPicker onSelect={handleGifSelect} />}
               tooltip={
                 onSendGif
-                  ? "Adicionar GIF"
-                  : (gifDisabledReason ?? "Utilize uma conta para enviar GIFs")
+                  ? t("chatPanel.addGif")
+                  : (gifDisabledReason ?? t("chatPanel.useAnAccountToSendGifs"))
               }
             >
               <span className="inline-flex shrink-0">
                 <button
                   type="button"
                   onClick={onSendGif ? () => setPickerOpen((open) => !open) : onRequestAccount}
-                  aria-label="Adicionar GIF"
+                  aria-label={t("chatPanel.addGif")}
                   className={`inline-flex h-8 shrink-0 items-center justify-center rounded-lg border px-2.5 text-xs font-semibold transition ${
                     onSendGif
                       ? "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
@@ -1420,10 +1424,10 @@ export function ChatPanel({
               wrapperClassName="inline-flex shrink-0"
               tooltip={
                 !onSendImages
-                  ? (imageDisabledReason ?? "Utilize uma conta para enviar imagens")
+                  ? (imageDisabledReason ?? t("chatPanel.useAnAccountToSendImages"))
                   : trayFull
-                    ? `Máximo de ${CHAT_IMAGE_MAX_PER_MESSAGE} imagens por mensagem`
-                    : "Anexar imagem (ou cole com Ctrl+V)"
+                    ? t("chatPanel.maximumOfChatImageMaxPer2", { CHAT_IMAGE_MAX_PER_MESSAGE })
+                    : t("chatPanel.attachImageOrPasteWithCtrl")
               }
               content={
                 <div className="flex w-52 flex-col rounded-lg border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
@@ -1436,7 +1440,7 @@ export function ChatPanel({
                     className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
                   >
                     <MdPhotoLibrary className="h-4 w-4 shrink-0" aria-hidden />
-                    Escolher dos arquivos
+                    {t("chatPanel.chooseFromFiles")}
                   </button>
                   <button
                     type="button"
@@ -1447,7 +1451,7 @@ export function ChatPanel({
                     className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
                   >
                     <MdCameraAlt className="h-4 w-4 shrink-0" aria-hidden />
-                    Tirar uma foto agora
+                    {t("chatPanel.takeAPhotoNow")}
                   </button>
                 </div>
               }
@@ -1461,7 +1465,7 @@ export function ChatPanel({
                       ? () => setAttachMenuOpen((open) => !open)
                       : undefined
                 }
-                aria-label="Anexar imagem"
+                aria-label={t("chatPanel.attachImage")}
                 className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border text-base transition ${
                   canAttach
                     ? "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
@@ -1486,17 +1490,17 @@ export function ChatPanel({
               placeholder={
                 sendDisabledReason ??
                 (replyingTo
-                  ? `Responder a @${replyingTo.name}...`
+                  ? t("chatPanel.replyToName2", { name: replyingTo.name })
                   : attachments.length > 0
-                    ? "Escreva algo junto (opcional)..."
-                    : "Digite uma mensagem...")
+                    ? t("chatPanel.writeSomethingAlongWithItOptional")
+                    : t("chatPanel.typeAMessage"))
               }
               className="min-h-8 min-w-0 flex-1 resize-none rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-base sm:text-sm leading-5 text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-white/10"
             />
             <button
               type="submit"
               disabled={!canSend}
-              aria-label="Enviar"
+              aria-label={t("common.send")}
               className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-950 text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
             >
               {sendingImages ? (

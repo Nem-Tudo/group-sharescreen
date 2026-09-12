@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { fetchPublicRooms, type PublicRoom } from "@/lib/roomsApi";
 import type { WorldMapMarker } from "@/components/WorldMap";
 import { roomCategory } from "@/lib/roomCategories";
+import { useT } from "@/lib/useI18n";
 
 // Same cadence as the plain /rooms list — a room appearing or emptying out is
 // worth seeing without a reload, and neither page is expensive to serve.
@@ -25,6 +26,7 @@ export function usePublicRoomMarkers(options?: {
   // a bug rather than as a room.
   excludeHandle?: string;
 }): { rooms: PublicRoom[] | null; markers: WorldMapMarker[]; error: string | null } {
+  const t = useT();
   const excludeHandle = options?.excludeHandle;
   const [rooms, setRooms] = useState<PublicRoom[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +42,7 @@ export function usePublicRoomMarkers(options?: {
         setRooms(data);
         setError(null);
       } catch {
-        if (!cancelled) setError("Não foi possível carregar as salas públicas.");
+        if (!cancelled) setError(t("common.couldNotLoadThePublicRooms"));
       }
     }
 
@@ -51,7 +53,7 @@ export function usePublicRoomMarkers(options?: {
       controller.abort();
       clearInterval(interval);
     };
-  }, []);
+  }, [t]);
 
   const markers = useMemo<WorldMapMarker[]>(
     () =>

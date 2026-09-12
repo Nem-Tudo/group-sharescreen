@@ -2,6 +2,8 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { fetchAdminSupporters, setSupporters, type Supporter } from "@/lib/adminApi";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
 
 function supportersToText(supporters: Supporter[]): string {
   return supporters.map((s) => `${s.name},${s.amount}`).join("\n");
@@ -16,12 +18,12 @@ function parseSupportersText(text: string): Supporter[] {
   for (const line of lines) {
     const commaIndex = line.lastIndexOf(",");
     if (commaIndex === -1) {
-      throw new Error(`Linha inválida (use "Nome,Valor"): ${line}`);
+      throw new Error(translate("admin.supportersPanel.invalidLineUseNameValueLine", { line }));
     }
     const name = line.slice(0, commaIndex).trim();
     const amount = Number(line.slice(commaIndex + 1).trim());
     if (!name || !Number.isFinite(amount) || amount < 0) {
-      throw new Error(`Linha inválida (use "Nome,Valor"): ${line}`);
+      throw new Error(translate("admin.supportersPanel.invalidLineUseNameValueLine", { line }));
     }
     parsed.push({ name, amount });
   }
@@ -29,6 +31,7 @@ function parseSupportersText(text: string): Supporter[] {
 }
 
 export function SupportersPanel() {
+  const t = useT();
   // undefined = still loading the current list from the server.
   const [text, setText] = useState<string | undefined>(undefined);
   const [saving, setSaving] = useState(false);
@@ -61,7 +64,7 @@ export function SupportersPanel() {
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao salvar a lista.");
+      setError(err instanceof Error ? err.message : t("common.couldNotSaveTheList"));
     } finally {
       setSaving(false);
     }
@@ -69,11 +72,9 @@ export function SupportersPanel() {
 
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-      <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Apoiadores</h2>
+      <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">{t("admin.supportersPanel.supporters")}</h2>
       <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-        Um apoiador por linha, no formato <span className="font-mono">Nome,Valor</span>. Mostrados
-        no card do botão &quot;Apoiar projeto&quot;, em ordem decrescente de valor. Todo mundo
-        conectado recebe a lista atualizada em tempo real.
+        {t("admin.supportersPanel.oneSupporterPerLineInThe")} <span className="font-mono">{t("admin.supportersPanel.nameValue")}</span>{t("admin.supportersPanel.shownOnTheSupportTheProject")}
       </p>
 
       <form onSubmit={handleSave} className="mt-3 flex flex-col gap-2">
@@ -82,7 +83,7 @@ export function SupportersPanel() {
           onChange={(e) => setText(e.target.value)}
           disabled={text === undefined}
           rows={8}
-          placeholder={"Ex:\nMaria,50\nJoão,25.50"}
+          placeholder={t("admin.supportersPanel.exMaria50John2550")}
           className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-950 outline-none focus:border-zinc-500 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
         />
         {error && <p className="text-sm text-red-500">{error}</p>}
@@ -92,9 +93,9 @@ export function SupportersPanel() {
             disabled={saving || text === undefined}
             className="self-start rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
           >
-            {saving ? "Salvando..." : "Salvar lista"}
+            {saving ? t("common.saving") : t("common.saveList")}
           </button>
-          {saved && <span className="text-sm text-emerald-600 dark:text-emerald-400">Salvo!</span>}
+          {saved && <span className="text-sm text-emerald-600 dark:text-emerald-400">{t("common.saved")}</span>}
         </div>
       </form>
     </div>

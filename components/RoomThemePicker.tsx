@@ -12,6 +12,7 @@ import {
   isDarkTheme,
   type RoomTheme,
 } from "@/lib/roomThemes";
+import { useT } from "@/lib/useI18n";
 
 // "Trocar o tema da sala" — the Pro Max control that repaints a room for
 // everybody in it.
@@ -36,6 +37,7 @@ function ThemeRow({
   current: boolean;
   onPick: () => void;
 }) {
+  const t = useT();
   const { palette, accent } = theme.spec;
   return (
     <li>
@@ -65,13 +67,13 @@ function ThemeRow({
             {theme.name}
           </span>
           <span className="block truncate text-[11px] text-zinc-500 dark:text-zinc-400">
-            {isDarkTheme(theme.spec) ? "escuro" : "claro"}
+            {isDarkTheme(theme.spec) ? t("common.dark") : t("common.light")}
             {theme.author ? ` · ${theme.author.displayName}` : ""}
           </span>
         </span>
         {current && (
           <span className="shrink-0 text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
-            atual
+            {t("common.current")}
           </span>
         )}
       </button>
@@ -97,6 +99,7 @@ export function RoomThemePicker({
   closePopup: (hasAction?: boolean) => void;
   data?: RoomThemePopupData;
 }) {
+  const t = useT();
   const current = data?.currentThemeId ?? null;
   const groupId = data?.groupId ?? null;
   const [error, setError] = useState<string | null>(null);
@@ -146,18 +149,18 @@ export function RoomThemePicker({
         <div>
           <h2 className="flex items-center gap-1.5 text-base font-semibold tracking-tight">
             <MdPalette className="h-5 w-5 shrink-0 text-indigo-500" />
-            {groupId ? "Tema do grupo" : "Tema da sala"}
+            {groupId ? t("common.groupTheme") : t("common.roomTheme")}
           </h2>
           <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
             {groupId
-              ? "Todo mundo no grupo vai ver o tema escolhido, em todas as salas."
-              : "Todo mundo na sala vai ver o tema escolhido."}
+              ? t("roomThemePicker.everyoneInTheGroupWillSee")
+              : t("roomThemePicker.everyoneInTheRoomWillSee")}
           </p>
         </div>
         <button
           type="button"
           onClick={() => closePopup(false)}
-          aria-label="Fechar"
+          aria-label={t("common.close")}
           className="-mr-1 rounded-lg p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-900 dark:hover:text-zinc-200"
         >
           <MdClose className="h-5 w-5" />
@@ -179,16 +182,16 @@ export function RoomThemePicker({
               : "border-zinc-200 hover:border-zinc-400 dark:border-zinc-800 dark:hover:border-zinc-600"
           }`}
         >
-          <span className="block font-medium text-zinc-900 dark:text-zinc-100">Sem tema</span>
+          <span className="block font-medium text-zinc-900 dark:text-zinc-100">{t("roomThemePicker.noTheme")}</span>
           <span className="block text-[11px] text-zinc-500 dark:text-zinc-400">
-            Cada um vê o tema que escolheu para si
+            {t("roomThemePicker.eachPersonSeesTheThemeThey")}
           </span>
         </button>
 
         {mine.length > 0 && (
           <div>
             <p className="mb-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-              Seus temas
+              {t("common.yourThemes")}
             </p>
             <ul className="flex flex-col gap-1.5">
               {mine.map((theme) => (
@@ -206,7 +209,7 @@ export function RoomThemePicker({
         {others.length > 0 && (
           <div>
             <p className="mb-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-              Mais usados no Descobrir
+              {t("roomThemePicker.mostUsedOnDiscover")}
             </p>
             <ul className="flex flex-col gap-1.5">
               {others.map((theme) => (
@@ -226,7 +229,7 @@ export function RoomThemePicker({
           target="_blank"
           className="self-start text-xs font-medium text-zinc-500 underline underline-offset-2 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
         >
-          Ver o Descobrir inteiro
+          {t("roomThemePicker.seeTheWholeOfDiscover")}
         </Link>
       </div>
     </div>

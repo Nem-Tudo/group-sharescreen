@@ -35,11 +35,13 @@ const BUTTON_BASE =
  * came to the profile wanting.
  */
 const DISABLED_ACTIONS = [
-  { label: "Mensagem", Icon: MdChatBubbleOutline },
-  { label: "Ligar", Icon: MdCall },
-  { label: "Adicionar", Icon: MdPersonAdd },
+  { get label() { return translate("common.message"); }, Icon: MdChatBubbleOutline },
+  { get label() { return translate("common.turnOn"); }, Icon: MdCall },
+  { get label() { return translate("common.add"); }, Icon: MdPersonAdd },
 ] as const;
 import { relationshipWith, useSocialGraph } from "@/lib/useSocialGraph";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
 
 // The friend/block controls for one person, wherever that person is shown.
 //
@@ -90,6 +92,7 @@ export function SocialActions({
    */
   unavailable?: string;
 }) {
+  const t = useT();
   const { account } = useAuth();
   const { graph, refresh } = useSocialGraph();
   const [busy, setBusy] = useState(false);
@@ -104,7 +107,7 @@ export function SocialActions({
   // The caller's reason is about the *other* person; a missing account here is
   // about you, and is the one of the two that can be fixed from this screen.
   const guestViewer = !account;
-  const blocked = unavailable ?? (guestViewer ? "Você precisa criar uma conta para isso" : null);
+  const blocked = unavailable ?? (guestViewer ? t("socialActions.youNeedToCreateAnAccount") : null);
 
   if (blocked) {
     return (
@@ -125,13 +128,13 @@ export function SocialActions({
         </div>
         {guestViewer && (
           <p className="text-xs text-zinc-500 dark:text-zinc-400">
-            Você precisa criar uma conta para realizar essas ações.{" "}
+            {t("socialActions.youNeedToCreateAnAccount2")}{" "}
             <button
               type="button"
               onClick={() => setAccountModal("create")}
               className="font-medium underline underline-offset-2"
             >
-              Criar conta
+              {t("common.createAccount")}
             </button>
           </p>
         )}
@@ -147,7 +150,7 @@ export function SocialActions({
     setBusy(true);
     setError(null);
     const result = await action();
-    if (!result.ok) setError(result.error ?? "Não foi possível concluir.");
+    if (!result.ok) setError(result.error ?? t("common.couldNotComplete"));
     // Re-read either way. A failure is often a failure *because* the graph
     // moved — they accepted while this button was being pressed — and the
     // screen showing the old state is what made the button wrong.
@@ -166,7 +169,7 @@ export function SocialActions({
             className={`${BUTTON_BASE} border border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900`}
           >
             <MdBlock className="h-4 w-4 shrink-0" />
-            Desbloquear
+            {t("common.unblock")}
           </button>
         ) : (
           <>
@@ -182,7 +185,7 @@ export function SocialActions({
               className={`${BUTTON_BASE} border border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900`}
             >
               <MdChatBubbleOutline className="h-4 w-4 shrink-0" />
-              Mensagem
+              {t("common.message")}
             </button>
 
             {/* Calling is gated exactly like messaging: a block refuses it and
@@ -206,7 +209,7 @@ export function SocialActions({
               className={`${BUTTON_BASE} border border-emerald-600/40 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-500/40 dark:text-emerald-400 dark:hover:bg-emerald-950/40`}
             >
               <MdCall className="h-4 w-4 shrink-0" />
-              Ligar
+              {t("common.turnOn")}
             </button>
 
             {relationship === "none" && (
@@ -217,7 +220,7 @@ export function SocialActions({
                 className={`${BUTTON_BASE} bg-zinc-950 text-white hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200`}
               >
                 <MdPersonAdd className="h-4 w-4 shrink-0" />
-                Adicionar
+                {t("common.add")}
               </button>
             )}
 
@@ -230,7 +233,7 @@ export function SocialActions({
                   className={`${BUTTON_BASE} bg-emerald-600 text-white hover:bg-emerald-700`}
                 >
                   <MdCheck className="h-4 w-4 shrink-0" />
-                  Aceitar
+                  {t("common.accept")}
                 </button>
                 <button
                   type="button"
@@ -239,7 +242,7 @@ export function SocialActions({
                   className={`${BUTTON_BASE} border border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900`}
                 >
                   <MdClose className="h-4 w-4 shrink-0" />
-                  Recusar
+                  {t("common.decline")}
                 </button>
               </>
             )}
@@ -252,7 +255,7 @@ export function SocialActions({
                 className={`${BUTTON_BASE} border border-zinc-300 text-zinc-500 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900`}
               >
                 <MdClose className="h-4 w-4 shrink-0" />
-                Cancelar pedido
+                {t("socialActions.cancelRequest")}
               </button>
             )}
 
@@ -264,7 +267,7 @@ export function SocialActions({
                 className={`${BUTTON_BASE} border border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900`}
               >
                 <MdPersonRemove className="h-4 w-4 shrink-0" />
-                Desfazer amizade
+                {t("socialActions.unfriend")}
               </button>
             )}
 
@@ -275,13 +278,13 @@ export function SocialActions({
               // away an existing friendship (see the API's blockAccount) and
               // there is no undo that gets it back.
               onClick={() => {
-                if (!window.confirm(`Bloquear ${displayName}?`)) return;
+                if (!window.confirm(t("socialActions.blockDisplayname", { displayName }))) return;
                 void run(() => blockUser(userId));
               }}
               className={`${BUTTON_BASE} text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40`}
             >
               <MdBlock className="h-4 w-4 shrink-0" />
-              Bloquear
+              {t("socialActions.block")}
             </button>
           </>
         )}

@@ -10,6 +10,8 @@ import { AccountMenu } from "@/components/AccountMenu";
 import { NotificationInboxBell } from "@/components/NotificationInboxBell";
 import { UpdateAppButton } from "@/components/UpdateAppButton";
 import { useAuth } from "@/lib/AuthContext";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
 
 // The site's top bar: everything GoLive offers besides the room form itself,
 // in one place, on every page that isn't a room.
@@ -67,8 +69,8 @@ const SECONDARY: SecondaryItem[] = [
     key: "square",
     href: "https://go.nemtudo.me/square-link",
     target: "_blank",
-    label: "Square Cloud",
-    short: "Square",
+    get label() { return translate("siteHeader.squareCloud"); },
+    get short() { return translate("siteHeader.square"); },
     Icon: SquareIcon,
     desktopOnly: true,
   },
@@ -78,22 +80,23 @@ const SECONDARY: SecondaryItem[] = [
     key: "workshop",
     href: "/workshop",
     target: "",
-    label: "Temas",
-    short: "Temas",
+    get label() { return translate("common.themes"); },
+    get short() { return translate("common.themes"); },
     Icon: MdPalette,
   },
-  { key: "app", href: "/app", label: "App para PC", target: "", short: "App", Icon: MdMonitor },
+  { key: "app", href: "/app", get label() { return translate("common.desktopApp"); }, target: "", get short() { return translate("siteHeader.app"); }, Icon: MdMonitor },
   {
     key: "bot",
     href: "/discord-bot",
-    label: "Bot para Discord",
+    get label() { return translate("common.discordBot"); },
     target: "",
-    short: "Bot",
+    get short() { return translate("siteHeader.bot"); },
     Icon: FaDiscord,
   },
 ];
 
 export function SiteHeader() {
+  const t = useT();
   const pathname = usePathname();
   const { account } = useAuth();
   const { openPopup } = useNtPopups();
@@ -124,12 +127,12 @@ export function SiteHeader() {
         // dialog rendered inside a `backdrop-filter` is a dialog whose backdrop
         // covers the bar instead of the page (see GiftPlanDialog).
         onClick: () => void openPopup("gift_plan", { data: {} }),
-        label: "Presentear Pro",
+        label: t("common.giftPro"),
         // The only row whose two labels differ in *words* rather than in
         // length. It has to: "Presentear Pro" beside an account menu is most
         // of a phone's bar, and the verb alone is the half that says what
         // happens.
-        short: "Presentear",
+        short: t("common.sendAsAGift"),
         Icon: MdCardGiftcard,
         iconClassName: "text-emerald-500",
         alwaysVisible: true,
@@ -137,10 +140,10 @@ export function SiteHeader() {
     : flags.includes("PRO")
       ? {
           key: "pro",
-          href: "/pro?plano=premium_max",
+          href: "/pro?plan=premium_max",
           target: "",
-          label: "Pro Max",
-          short: "Pro Max",
+          label: t("common.proMax"),
+          short: t("common.proMax"),
           // The plan's own mark, which carries its colour in its gradients and
           // therefore takes no colour class of its own.
           Icon: GoldVerifiedBadgeIcon,
@@ -150,8 +153,8 @@ export function SiteHeader() {
           key: "pro",
           href: "/pro",
           target: "",
-          label: "Pro",
-          short: "Pro",
+          label: t("common.pro"),
+          short: t("common.pro"),
           // The same blue badge that marks a verified name (see
           // DisplayUserName) — it keeps its own colour rather than inheriting
           // the row's grey, because it only reads as *that* badge if it looks
@@ -173,14 +176,14 @@ export function SiteHeader() {
         <Link
           href="/"
           className="flex shrink-0 items-center gap-2 transition hover:opacity-80"
-          aria-label="Início do GoLive"
+          aria-label={t("siteHeader.goliveHome")}
         >
           {/* The same red square every Discord embed of the site shows (see
               the openGraph image in app/layout.tsx) — the mark people already
               associate with GoLive, rather than a second one invented here. */}
           <img src="/icon.png" alt="site icon" style={{ width: "20px" }} />
           <span className="hidden text-base font-semibold tracking-tight text-zinc-950 sm:inline dark:text-zinc-50">
-            GoLive
+            {t("common.golive")}
           </span>
         </Link>
 

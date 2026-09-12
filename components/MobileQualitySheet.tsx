@@ -3,6 +3,8 @@
 import { createPortal } from "react-dom";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import type { ShareFps, ShareResolution } from "@/lib/useRoomMedia";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
 
 // The quality question, asked once, at the moment somebody starts
 // transmitting from a phone.
@@ -37,22 +39,22 @@ export type MobileQualityChoice = {
 export const MOBILE_QUALITY_CHOICES: MobileQualityChoice[] = [
   {
     id: "alta",
-    label: "Alta",
-    detail: "1080p · 30fps — melhor imagem, precisa de boa conexão",
+    get label() { return translate("mobileQualitySheet.high"); },
+    get detail() { return translate("mobileQualitySheet.n1080p30fpsBestPictureNeedsA"); },
     resolution: "1080p",
     fps: 30,
   },
   {
     id: "media",
-    label: "Média",
-    detail: "720p · 30fps — equilíbrio entre nitidez e estabilidade",
+    get label() { return translate("mobileQualitySheet.medium"); },
+    get detail() { return translate("mobileQualitySheet.n720p30fpsABalanceBetweenSharpness"); },
     resolution: "720p",
     fps: 30,
   },
   {
     id: "baixa",
-    label: "Baixa",
-    detail: "576p · 24fps — para conexão fraca ou economizar bateria",
+    get label() { return translate("mobileQualitySheet.low"); },
+    get detail() { return translate("mobileQualitySheet.n576p24fpsForAWeakConnection"); },
     resolution: "576p",
     fps: 24,
   },
@@ -61,7 +63,7 @@ export const MOBILE_QUALITY_CHOICES: MobileQualityChoice[] = [
 const subscribeNothing = () => () => {};
 
 export function MobileQualitySheet({
-  title = "Qualidade da transmissão",
+  title = translate("common.broadcastQuality"),
   currentResolution,
   onChoose,
   onCancel,
@@ -74,6 +76,7 @@ export function MobileQualitySheet({
   onChoose: (choice: MobileQualityChoice) => void;
   onCancel: () => void;
 }) {
+  const t = useT();
   // Portalled to the body for the same reason the captcha overlay is: this
   // opens from a control that lives inside the room's header, and `fixed`
   // resolves against a transformed ancestor rather than the viewport.
@@ -108,7 +111,7 @@ export function MobileQualitySheet({
       >
         <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">{title}</h2>
         <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-          Dá para mudar depois nas configurações.
+          {t("mobileQualitySheet.youCanChangeItLaterIn")}
         </p>
 
         <div className="mt-4 flex flex-col gap-2">
@@ -153,7 +156,7 @@ export function MobileQualitySheet({
           onClick={onCancel}
           className="mt-3 w-full rounded-xl border border-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
         >
-          Cancelar
+          {t("common.cancel")}
         </button>
       </div>
     </div>,

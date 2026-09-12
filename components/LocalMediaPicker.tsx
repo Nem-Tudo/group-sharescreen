@@ -10,6 +10,7 @@ import {
   type LocalMediaControlMode,
   type LocalMediaSlot,
 } from "@/lib/localMediaSource";
+import { useT } from "@/lib/useI18n";
 
 // The "pick something off your own disk" half of both add-source popups (see
 // AddVideoSourceModal and AddMusicSourceModal). One component rather than a
@@ -46,6 +47,7 @@ export function LocalMediaPicker({
   // still counts it as something the user asked for.
   onReady: (slot: LocalMediaSlot, trackCount: number) => void;
 }) {
+  const t = useT();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const zipInputRef = useRef<HTMLInputElement>(null);
@@ -74,8 +76,8 @@ export function LocalMediaPicker({
       if (queue.length === 0) {
         setError(
           files.some((f) => f.name.toLowerCase().endsWith(".zip"))
-            ? "Não encontrei nenhum vídeo ou música dentro desse zip."
-            : "Nenhum desses arquivos é um vídeo ou uma música que o navegador toque."
+            ? t("localMediaPicker.iCouldNotFindAnyVideo")
+            : t("localMediaPicker.noneOfThoseFilesIsA")
         );
         return;
       }
@@ -85,7 +87,7 @@ export function LocalMediaPicker({
       setError(
         err instanceof ZipError
           ? err.message
-          : "Não foi possível abrir esses arquivos. Tente de novo."
+          : t("localMediaPicker.couldNotOpenThoseFilesTry")
       );
     } finally {
       setLoading(false);
@@ -100,10 +102,10 @@ export function LocalMediaPicker({
       <p className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
         {blockedReason ??
           (full
-            ? "Você já está tocando o máximo de arquivos ao mesmo tempo. Tire um da sala para colocar outro."
+            ? t("localMediaPicker.youAreAlreadyPlayingTheMaximum")
             : music
-          ? "Uma pasta ou um zip vira uma fila em ordem de nome."
-              : "Uma pasta ou um zip vira uma fila em ordem de nome.")}
+          ? t("localMediaPicker.aFolderOrAZipBecomes")
+              : t("localMediaPicker.aFolderOrAZipBecomes"))}
       </p>
 
       {/* The same choice the rest of the app offers, with the restricted half
@@ -113,7 +115,7 @@ export function LocalMediaPicker({
           way the file plays on *this* machine, and everyone else's buttons
           work by relaying what they press back to this browser. */}
       <div className={`flex-col gap-1.5 ${blocked ? "hidden" : "flex"}`}>
-        <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Quem pode controlar</p>
+        <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{t("common.whoCanControl")}</p>
         <label
           className={`flex items-center gap-2 text-sm ${
             hasAccount ? "" : "cursor-not-allowed opacity-50"
@@ -126,11 +128,11 @@ export function LocalMediaPicker({
             disabled={!hasAccount}
             onChange={() => setControlMode("owner")}
           />
-          {music ? "Só o dono e os administradores" : "Só eu posso controlar"}
+          {music ? t("common.onlyTheOwnerAndTheAdministrators") : t("common.onlyICanControl")}
         </label>
         {!hasAccount && (
           <p className="-mt-1 pl-6 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
-            Utilize uma conta para controlar exclusivamente.
+            {t("common.useAnAccountToControlIt")}
           </p>
         )}
         <label className="flex items-center gap-2 text-sm">
@@ -140,35 +142,35 @@ export function LocalMediaPicker({
             checked={controlMode === "anyone" || !hasAccount}
             onChange={() => setControlMode("anyone")}
           />
-          Todos podem controlar
+          {t("common.everyoneCanControl")}
         </label>
       </div>
 
       <div className="flex flex-col gap-2">
         <PickerButton
           icon={<MdInsertDriveFile className="h-4 w-4 shrink-0 text-sky-500" />}
-          label="Escolher arquivos"
-          hint={music ? "Uma ou várias músicas" : "Um ou vários vídeos ou músicas"}
+          label={t("localMediaPicker.chooseFiles")}
+          hint={music ? t("localMediaPicker.oneOrSeveralPiecesOfMusic") : t("localMediaPicker.oneOrSeveralVideosOrPieces")}
           disabled={loading || blocked}
           onClick={() => fileInputRef.current?.click()}
         />
         <PickerButton
           icon={<MdFolderOpen className="h-4 w-4 shrink-0 text-amber-500" />}
-          label="Escolher uma pasta"
-          hint="Toca tudo que der, em ordem"
+          label={t("localMediaPicker.chooseAFolder")}
+          hint={t("localMediaPicker.playsEverythingItCanInOrder")}
           disabled={loading || blocked}
           onClick={() => folderInputRef.current?.click()}
         />
         <PickerButton
           icon={<MdFolderZip className="h-4 w-4 shrink-0 text-violet-500" />}
-          label="Escolher um .zip"
-          hint="Aberto aqui mesmo, sem extrair antes"
+          label={t("localMediaPicker.chooseAZip")}
+          hint={t("localMediaPicker.openedRightHereWithNoExtracting")}
           disabled={loading || blocked}
           onClick={() => zipInputRef.current?.click()}
         />
       </div>
 
-      {loading && <p className="text-xs text-zinc-500 dark:text-zinc-400">Abrindo os arquivos...</p>}
+      {loading && <p className="text-xs text-zinc-500 dark:text-zinc-400">{t("localMediaPicker.openingTheFiles")}</p>}
       {error && <p className="text-xs text-red-500">{error}</p>}
 
       {/* The three inputs are the actual pickers; the buttons above are what

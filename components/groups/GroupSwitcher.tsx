@@ -10,6 +10,7 @@ import { GroupName } from "@/components/groups/GroupName";
 import { useAuth } from "@/lib/AuthContext";
 import { groupPath } from "@/lib/groupLinks";
 import { prefetchGroup, useMyGroups } from "@/lib/useGroups";
+import { useT } from "@/lib/useI18n";
 
 // Which group is open, and the way to every other one — a switcher in the top
 // bar, the same place the room shows its own name. One control instead of a
@@ -32,6 +33,7 @@ export function GroupSwitcher({
   fallbackIconUrl?: string | null;
   fallbackFlags?: string[] | null;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const { groups } = useMyGroups();
   const { account } = useAuth();
@@ -53,10 +55,10 @@ export function GroupSwitcher({
       placement="bottom-start"
       content={
         <div className="flex w-72 max-w-[calc(100vw-1.5rem)] flex-col gap-0.5 rounded-xl border border-zinc-200 bg-white p-1.5 shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
-          <p className="px-2 pb-1 pt-0.5 text-xs font-semibold text-zinc-500 dark:text-zinc-400">Seus grupos</p>
-          {groups === null && <p className="px-2 py-1.5 text-sm text-zinc-500">Carregando…</p>}
+          <p className="px-2 pb-1 pt-0.5 text-xs font-semibold text-zinc-500 dark:text-zinc-400">{t("common.yourGroups")}</p>
+          {groups === null && <p className="px-2 py-1.5 text-sm text-zinc-500">{t("common.loading")}</p>}
           {groups?.length === 0 && (
-            <p className="px-2 py-1.5 text-sm text-zinc-500 dark:text-zinc-400">Você ainda não está em nenhum grupo.</p>
+            <p className="px-2 py-1.5 text-sm text-zinc-500 dark:text-zinc-400">{t("common.youAreNotInAnyGroup")}</p>
           )}
           <div className="flex max-h-72 flex-col gap-0.5 overflow-y-auto">
             {groups?.map((group) => (
@@ -77,13 +79,13 @@ export function GroupSwitcher({
                 {group.suspended ? (
                   <span className="shrink-0 text-[11px] font-medium text-amber-600 dark:text-amber-400">suspenso</span>
                 ) : group.id === activeGroupId ? (
-                  <MdCheck className="h-4 w-4 shrink-0 text-emerald-600" aria-label="Aberto" />
+                  <MdCheck className="h-4 w-4 shrink-0 text-emerald-600" aria-label={t("groups.groupSwitcher.open")} />
                 ) : group.mentions > 0 ? (
                   <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-red-600 px-1 text-[11px] font-bold text-white">
                     {group.mentions}
                   </span>
                 ) : group.unread ? (
-                  <span className="h-2 w-2 shrink-0 rounded-full bg-zinc-950 dark:bg-zinc-50" aria-label="Mensagens novas" />
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-zinc-950 dark:bg-zinc-50" aria-label={t("common.newMessages")} />
                 ) : null}
               </GroupLink>
             ))}
@@ -91,12 +93,12 @@ export function GroupSwitcher({
           <div className="my-1 border-t border-zinc-200 dark:border-zinc-800" />
           <GroupLink href="/groups" onClick={close} className={itemClass}>
             <MdGroups className="h-4 w-4 shrink-0 opacity-70" />
-            Todos os grupos
+            {t("groups.groupSwitcher.allGroups")}
           </GroupLink>
           <button
             type="button"
             disabled={!account}
-            title={account ? undefined : "Crie uma conta para criar grupos"}
+            title={account ? undefined : t("common.createAnAccountToCreateGroups")}
             onClick={() => {
               close();
               void openPopup("create_group", { data: {} });
@@ -104,7 +106,7 @@ export function GroupSwitcher({
             className={itemClass}
           >
             <MdAdd className="h-4 w-4 shrink-0 text-emerald-600" />
-            Novo grupo
+            {t("common.newGroup")}
           </button>
           <button
             type="button"
@@ -115,7 +117,7 @@ export function GroupSwitcher({
             className={itemClass}
           >
             <MdLink className="h-4 w-4 shrink-0 opacity-70" />
-            Entrar com convite
+            {t("common.joinWithAnInvite")}
           </button>
         </div>
       }
@@ -123,7 +125,7 @@ export function GroupSwitcher({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        aria-label="Trocar de grupo"
+        aria-label={t("groups.groupSwitcher.switchGroup")}
         className="flex min-w-0 cursor-pointer items-center gap-2 rounded-lg px-1.5 py-1 transition hover:bg-zinc-100 dark:hover:bg-zinc-900"
       >
         {name ? (
@@ -132,13 +134,13 @@ export function GroupSwitcher({
           <MdGroups className="h-6 w-6 shrink-0 text-zinc-600 dark:text-zinc-400" />
         )}
         <GroupName
-          name={name ?? "Grupos"}
+          name={name ?? t("common.groups")}
           flags={name ? flags : null}
           className="text-base font-semibold text-zinc-950 sm:text-lg dark:text-zinc-50"
           badgeClassName="h-5 w-5"
         />
         {elsewhereUnread && (
-          <span className="h-2 w-2 shrink-0 rounded-full bg-red-500" aria-label="Novidades em outros grupos" />
+          <span className="h-2 w-2 shrink-0 rounded-full bg-red-500" aria-label={t("groups.groupSwitcher.newsInOtherGroups")} />
         )}
         <MdUnfoldMore className="h-4 w-4 shrink-0 text-zinc-500" />
       </button>

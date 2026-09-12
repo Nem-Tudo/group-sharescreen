@@ -5,15 +5,18 @@ import { getSignalingHttpBase } from "@/lib/roomsApi";
 import { useSignaling } from "@/lib/useSignaling";
 import type { Supporter } from "@/lib/supporter";
 import { VerifiedBadgeIcon } from "./icons";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
+import { formatLocale } from "@/lib/i18n";
 
 async function fetchSupporters(signal?: AbortSignal): Promise<Supporter[]> {
   const res = await fetch(`${getSignalingHttpBase()}/supporters`, { signal });
-  if (!res.ok) throw new Error(`Falha ao carregar apoiadores (status ${res.status})`);
+  if (!res.ok) throw new Error(translate("supportersTooltip.couldNotLoadSupportersStatusStatus", { status: res.status }));
   const data = (await res.json()) as { supporters: Supporter[] };
   return data.supporters;
 }
 
-const currencyFormatter = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+const currencyFormatter = () => new Intl.NumberFormat(formatLocale(), { style: "currency", currency: "BRL" });
 
 // What a supporter gets, said at the top of the card rather than left to be
 // discovered — it is the reason to click the button, so it goes above the
@@ -24,11 +27,12 @@ const currencyFormatter = new Intl.NumberFormat("pt-BR", { style: "currency", cu
 const VERIFIED_THRESHOLD_BRL = 5;
 
 function SupportPerk() {
+  const t = useT();
   return (
     <div className="mb-2 flex items-start gap-1.5 rounded-md bg-blue-500/10 px-2 py-1.5 text-[0.7rem] leading-snug text-zinc-200">
       <VerifiedBadgeIcon className="mt-px h-3.5 w-3.5 shrink-0 text-blue-400" />
       <span>
-        Doações acima de {currencyFormatter.format(VERIFIED_THRESHOLD_BRL)} ganham um{" "}
+        {t("supportersTooltip.donationsAbove")} {currencyFormatter().format(VERIFIED_THRESHOLD_BRL)} ganham um{" "}
         <span className="font-semibold">verificado</span> no site como agradecimento. (Coloque seu username na mensagem)
       </span>
     </div>
@@ -42,6 +46,7 @@ function SupportPerk() {
 // pre-sorted descending by amount (server/signaling.ts's sortSupporters),
 // so there's no client-side re-sort here.
 export function SupportersTooltipContent() {
+  const t = useT();
   const signalingState = useSignaling();
   const [supporters, setSupporters] = useState<Supporter[]>([]);
   const lastHandledSeq = useRef(0);
@@ -73,7 +78,7 @@ export function SupportersTooltipContent() {
     return (
       <div className="w-56">
         <SupportPerk />
-        <p className="px-0.5">Apoiar o projeto no LivePix</p>
+        <p className="px-0.5">{t("supportersTooltip.supportTheProjectOnLivepix")}</p>
       </div>
     );
   }
@@ -82,12 +87,12 @@ export function SupportersTooltipContent() {
     <div className="max-h-60 w-56 overflow-y-auto">
       <SupportPerk />
       <p className="mb-1.5 px-0.5 text-[0.65rem] font-semibold tracking-wide text-zinc-400 uppercase">
-        Rank dos apoiadores (R$20+)
+        {t("supportersTooltip.supportersRankingR20")}
       </p>
       <ul className="flex flex-col gap-1">
         {supporters.map((s, i) => (
           <li key={`${s.name}-${i}`}>
-            <span className="font-semibold">{s.name}</span> doou {currencyFormatter.format(s.amount)}
+            <span className="font-semibold">{s.name}</span> doou {currencyFormatter().format(s.amount)}
           </li>
         ))}
       </ul>

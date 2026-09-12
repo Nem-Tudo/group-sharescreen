@@ -14,6 +14,8 @@ import {
   type GiftCodeInfo,
   type RedeemFailure,
 } from "@/lib/premiumApi";
+import { useT } from "@/lib/useI18n";
+import { formatLocale } from "@/lib/i18n";
 
 // "Você recebeu um presente."
 //
@@ -43,7 +45,7 @@ import {
 /** dd de mês de aaaa, for the confirmation line. */
 function periodEndLabel(timestamp: number): string {
   try {
-    return new Date(timestamp).toLocaleDateString("pt-BR", {
+    return new Date(timestamp).toLocaleDateString(formatLocale(), {
       day: "2-digit",
       month: "long",
       year: "numeric",
@@ -111,6 +113,7 @@ export function GiftClaimDialog({
   closePopup: (hasAction?: boolean) => void;
   data?: GiftClaimPopupData;
 }) {
+  const t = useT();
   const code = data?.code ?? "";
   const { account, loading: resolvingAccount, refresh } = useAuth();
   const [state, setState] = useState<ClaimState>({ kind: "loading" });
@@ -171,7 +174,7 @@ export function GiftClaimDialog({
         <button
           type="button"
           onClick={() => closePopup(false)}
-          aria-label="Fechar"
+          aria-label={t("common.close")}
           className={`absolute right-3 top-3 z-10 rounded-full p-1.5 transition ${
             gift
               ? "bg-black/20 text-white/90 hover:bg-black/35 hover:text-white"
@@ -187,18 +190,17 @@ export function GiftClaimDialog({
               <MdCardGiftcard className="h-7 w-7 text-zinc-400" />
             </span>
             <p className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
-              Esse presente não está mais aqui
+              {t("giftClaimDialog.thisGiftIsNoLongerHere")}
             </p>
             <p className="text-sm text-zinc-500 dark:text-zinc-400">
-              O código não existe ou o pagamento ainda não foi confirmado. Se acabaram de te
-              mandar, tente de novo em um minuto.
+              {t("giftClaimDialog.theCodeDoesNotExistOr")}
             </p>
             <button
               type="button"
               onClick={() => closePopup(false)}
               className="mt-1 rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
             >
-              Fechar
+              {t("common.close")}
             </button>
           </div>
         ) : state.kind === "loading" || !gift ? (
@@ -217,7 +219,7 @@ export function GiftClaimDialog({
 
             <div className="px-6 pb-6 pt-5">
               <p className="text-center text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500">
-                {state.kind === "done" ? "Presente resgatado" : "Você recebeu um presente"}
+                {state.kind === "done" ? t("giftClaimDialog.giftRedeemed") : t("giftClaimDialog.youReceivedAGift")}
               </p>
 
               <h2 className="mt-1.5 flex items-center justify-center gap-1.5 text-center text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
@@ -246,7 +248,7 @@ export function GiftClaimDialog({
                   />
                   <span className="min-w-0 flex-1">
                     <span className="block text-[11px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-                      de
+                      {t("common.fromWord")}
                     </span>
                     <DisplayUserName
                       name={gift.from.displayName}
@@ -264,28 +266,28 @@ export function GiftClaimDialog({
                   <MdCheckCircle className="h-9 w-9 text-emerald-500" />
                   <p className="text-sm text-zinc-600 dark:text-zinc-400">
                     {state.until > 0
-                      ? `Está tudo seu até ${periodEndLabel(state.until)}. Aproveite.`
-                      : "Está tudo seu. Aproveite."}
+                      ? t("giftClaimDialog.itIsAllYoursUntilValue", { value: periodEndLabel(state.until) })
+                      : t("giftClaimDialog.itIsAllYoursEnjoy")}
                   </p>
                   <button
                     type="button"
                     onClick={() => closePopup(true)}
                     className="mt-1 w-full rounded-xl bg-zinc-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
                   >
-                    Começar a usar
+                    {t("giftClaimDialog.startUsingIt")}
                   </button>
                 </div>
               ) : alreadyTaken ? (
                 <div className="mt-5 flex flex-col gap-3 text-center">
                   <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                    Esse presente já foi resgatado.
+                    {t("giftClaimDialog.thisGiftHasAlreadyBeenRedeemed")}
                   </p>
                   <button
                     type="button"
                     onClick={() => closePopup(false)}
                     className="w-full rounded-xl border border-zinc-300 px-4 py-3 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
                   >
-                    Fechar
+                    {t("common.close")}
                   </button>
                 </div>
               ) : outranks ? (
@@ -296,18 +298,17 @@ export function GiftClaimDialog({
                 // still use it.
                 <div className="mt-5 flex flex-col gap-3 text-center">
                   <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                    Você já tem um plano maior que esse, então ele não te daria nada de novo.
+                    {t("giftClaimDialog.youAlreadyHaveABiggerPlan")}
                   </p>
                   <p className="text-xs text-zinc-500 dark:text-zinc-500">
-                    O presente continua valendo — o link ainda pode ser resgatado por outra
-                    pessoa.
+                    {t("giftClaimDialog.theGiftIsStillValidThe")}
                   </p>
                   <button
                     type="button"
                     onClick={() => closePopup(false)}
                     className="w-full rounded-xl border border-zinc-300 px-4 py-3 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
                   >
-                    Fechar
+                    {t("common.close")}
                   </button>
                 </div>
               ) : !resolvingAccount && !account ? (
@@ -326,14 +327,14 @@ export function GiftClaimDialog({
                         : "bg-blue-600 hover:bg-blue-700"
                     }`}
                   >
-                    Criar conta e resgatar
+                    {t("giftClaimDialog.createAnAccountAndRedeem")}
                   </button>
                   <button
                     type="button"
                     onClick={() => setAccountModal("login")}
                     className="w-full rounded-xl px-4 py-2 text-sm font-medium text-zinc-500 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
                   >
-                    Já tenho conta
+                    {t("common.iAlreadyHaveAnAccount2")}
                   </button>
                 </div>
               ) : (
@@ -348,7 +349,7 @@ export function GiftClaimDialog({
                         : "bg-blue-600 hover:bg-blue-700"
                     }`}
                   >
-                    {busy ? "Resgatando…" : "Resgatar presente"}
+                    {busy ? t("giftClaimDialog.redeeming") : t("giftClaimDialog.redeemGift")}
                   </button>
                   {/* Quiet, and it should be: it is the answer nobody is
                       hoping for, and giving it equal weight would turn a
@@ -358,7 +359,7 @@ export function GiftClaimDialog({
                     onClick={() => closePopup(false)}
                     className="w-full rounded-xl px-4 py-2 text-sm font-medium text-zinc-500 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
                   >
-                    Recusar
+                    {t("common.decline")}
                   </button>
                 </div>
               )}
@@ -371,7 +372,7 @@ export function GiftClaimDialog({
                   {error}
                   {failure === "card_subscription" && (
                     <span className="mt-1 block text-xs text-zinc-500 dark:text-zinc-400">
-                      Cancele a assinatura no cartão e volte aqui — o presente continua valendo.
+                      {t("giftClaimDialog.cancelTheCardSubscriptionAndCome")}
                     </span>
                   )}
                 </p>

@@ -21,6 +21,7 @@ import {
   type PremiumPlan,
   type PurchasedGift,
 } from "@/lib/premiumApi";
+import { useI18n } from "@/lib/useI18n";
 
 // "Presentear": buy a plan for somebody else.
 //
@@ -112,6 +113,7 @@ function PersonRow({ user, onSelect }: { user: SocialUser; onSelect: () => void 
  * no address has been given a puzzle.
  */
 function CodeRow({ code, label }: { code: string; label?: string }) {
+  const { t, tc } = useI18n();
   const [copied, setCopied] = useState(false);
   const [shown, setShown] = useState(false);
 
@@ -152,7 +154,7 @@ function CodeRow({ code, label }: { code: string; label?: string }) {
           ) : (
             <MdContentCopy className="h-3.5 w-3.5 shrink-0" />
           )}
-          {copied ? "Copiado" : "Copiar"}
+          {copied ? t("common.copied") : t("common.copy")}
         </button>
       </div>
     </div>
@@ -177,6 +179,7 @@ export function GiftPlanDialog({
   closePopup: (hasAction?: boolean) => void;
   data?: GiftPlanPopupData;
 }) {
+  const { t, tc } = useI18n();
   const initialPlanId = data?.initialPlanId;
   const { account } = useAuth();
   const { graph } = useSocialGraph();
@@ -308,8 +311,8 @@ export function GiftPlanDialog({
           paid={settled}
           paidMessage={
             addressed
-              ? `Presente entregue! ${addressed.displayName} já está com o ${plan?.title ?? "plano"}.`
-              : "Pagamento confirmado. Agora é só mandar o link para quem vai ganhar."
+              ? t("giftPlanDialog.giftDeliveredDisplaynameAlreadyHasValue", { displayName: addressed.displayName, value: plan?.title ?? t("common.plan") })
+              : t("giftPlanDialog.paymentConfirmedNowJustSendThe")
           }
           paidExtra={
             // The link, at the one moment the buyer is certainly looking. It
@@ -338,16 +341,16 @@ export function GiftPlanDialog({
             <div>
               <h2 className="flex items-center gap-1.5 text-lg font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
                 <MdCardGiftcard className="h-5 w-5 shrink-0 text-emerald-500" />
-                Presentear um plano
+                {t("giftPlanDialog.giftAPlan")}
               </h2>
               <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-                Você paga uma vez e a pessoa recebe os dias na hora.
+                {t("giftPlanDialog.youPayOnceAndThePerson")}
               </p>
             </div>
             <button
               type="button"
               onClick={() => closePopup(false)}
-              aria-label="Fechar"
+              aria-label={t("common.close")}
               className="rounded-lg p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-900 dark:hover:text-zinc-200"
             >
               <MdClose className="h-5 w-5" />
@@ -373,7 +376,7 @@ export function GiftPlanDialog({
                       : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
                   }`}
                 >
-                  {option === "link" ? "Gerar um link" : "Escolher alguém"}
+                  {option === "link" ? t("giftPlanDialog.generateALink") : t("giftPlanDialog.chooseSomeone")}
                 </button>
               );
             })}
@@ -381,7 +384,7 @@ export function GiftPlanDialog({
 
           {mode === "link" ? (
             <p className="mt-3 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
-              Você recebe um link para mandar por onde quiser. Quem abrir resgata na hora.
+              {t("giftPlanDialog.youGetALinkToSend")}
             </p>
           ) : recipient ? (
             <div className="mt-3 flex items-center gap-2.5 rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-2 dark:border-zinc-800 dark:bg-zinc-900/60">
@@ -414,7 +417,7 @@ export function GiftPlanDialog({
                 onClick={() => setRecipient(null)}
                 className="shrink-0 text-xs font-medium text-zinc-500 underline-offset-2 transition hover:underline disabled:cursor-not-allowed disabled:opacity-40 dark:text-zinc-400"
               >
-                Trocar
+                {t("common.change")}
               </button>
             </div>
           ) : (
@@ -424,15 +427,15 @@ export function GiftPlanDialog({
                 <input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Procurar por nome de usuário"
+                  placeholder={t("giftPlanDialog.searchByUsername")}
                   className="w-full rounded-lg border border-zinc-300 py-2 pl-9 pr-3 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
                 />
               </div>
               {choices.length === 0 ? (
                 <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
                   {searchable
-                    ? "Ninguém encontrado com esse nome."
-                    : "Procure pelo nome de usuário de quem vai receber."}
+                    ? t("common.nobodyFoundWithThatName")
+                    : t("giftPlanDialog.searchByTheUsernameOfWhoever")}
                 </p>
               ) : (
                 <ul className="mt-3 flex max-h-56 flex-col gap-1.5 overflow-y-auto">
@@ -504,7 +507,7 @@ export function GiftPlanDialog({
                             : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
                         }`}
                       >
-                        {entry.periodDays} dias
+                        {tc("common.dayCount", entry.periodDays)}
                       </button>
                     );
                   })}
@@ -513,7 +516,7 @@ export function GiftPlanDialog({
 
               {needsEmail && (
                 <label className="flex flex-col gap-1 text-sm text-zinc-700 dark:text-zinc-300">
-                  <span>E-mail para o pagamento</span>
+                  <span>{t("common.emailForThePayment")}</span>
                   <input
                     type="email"
                     value={email}
@@ -523,7 +526,7 @@ export function GiftPlanDialog({
                     className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
                   />
                   <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                    Usado só para a cobrança no Mercado Pago. Não é salvo na sua conta.
+                    {t("common.usedOnlyForTheChargeOn")}
                   </span>
                 </label>
               )}
@@ -541,21 +544,20 @@ export function GiftPlanDialog({
                 >
                   <PixIcon className="h-4 w-4 shrink-0" />
                   {busy
-                    ? "Gerando…"
-                    : `Presentear por ${pricing?.pixPriceLabel ?? plan?.pixPriceLabel ?? ""}`}
+                    ? t("common.generating")
+                    : t("giftPlanDialog.giftItForValue", { value: pricing?.pixPriceLabel ?? plan?.pixPriceLabel ?? "" })}
                 </button>
               )}
               {plan && !plan.available && (
                 <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  Esse plano está indisponível no momento.
+                  {t("giftPlanDialog.thisPlanIsUnavailableAtThe")}
                 </p>
               )}
               {plan && (
                 <p className="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
                   <mark.Icon className={`h-3.5 w-3.5 shrink-0 ${mark.className}`} />
-                  {addressed ? addressed.displayName : "Quem resgatar"} recebe{" "}
-                  {pricing?.periodDays ?? 30} dias de {plan.title}. Não renova sozinho e nada é
-                  cobrado de novo.
+                  {addressed ? addressed.displayName : t("giftPlanDialog.whoRedeemsIt")} recebe{" "}
+                  {pricing?.periodDays ?? 30} dias de {plan.title}{t("giftPlanDialog.itDoesNotRenewOnIts")}
                 </p>
               )}
             </div>
@@ -573,14 +575,14 @@ export function GiftPlanDialog({
           {unclaimed.length > 0 && !charge && (
             <div className="mt-6 border-t border-zinc-200 pt-4 dark:border-zinc-800">
               <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                Presentes que ainda não foram resgatados
+                {t("giftPlanDialog.giftsThatHaveNotBeenRedeemed")}
               </p>
               <div className="mt-2 flex flex-col gap-3">
                 {unclaimed.map((gift) => (
                   <CodeRow
                     key={gift.id}
                     code={gift.code as string}
-                    label={`${gift.planTitle} · ${gift.days} dias`}
+                    label={t("giftPlanDialog.plantitleDaysDays", { planTitle: gift.planTitle, days: gift.days })}
                   />
                 ))}
               </div>

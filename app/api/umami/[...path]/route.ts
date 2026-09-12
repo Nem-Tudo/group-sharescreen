@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { translate } from "@/lib/i18n";
 
 const UMAMI_URL = process.env.UMAMI_URL;
 
@@ -10,7 +11,7 @@ const UMAMI_URL = process.env.UMAMI_URL;
 // through this same handler automatically.
 async function proxy(request: NextRequest, path: string[]) {
   if (!UMAMI_URL) {
-    return NextResponse.json({ error: "Umami proxy not configured" }, { status: 404 });
+    return NextResponse.json({ error: translate("api.umami.route.umamiProxyNotConfigured") }, { status: 404 });
   }
 
   const base = UMAMI_URL.endsWith("/") ? UMAMI_URL : `${UMAMI_URL}/`;

@@ -16,6 +16,7 @@ import {
   type ShortcutDefinition,
 } from "@/lib/keyboardShortcuts";
 import { isDesktopApp } from "@/lib/desktop";
+import { useT } from "@/lib/useI18n";
 
 export function KeyboardShortcutsModal({
   open,
@@ -28,6 +29,7 @@ export function KeyboardShortcutsModal({
   hasAccount: boolean;
   onRequestAccount: () => void;
 }) {
+  const t = useT();
   const { shortcuts, updateShortcut, resetShortcuts } = useShortcuts();
 
   if (!open) return null;
@@ -55,12 +57,12 @@ export function KeyboardShortcutsModal({
               href="https://golive.nemtudo.me/app"
               target="_blank"
               rel="noopener noreferrer"
-              title="Baixar aplicativo GoLive"
+              title={t("common.downloadTheGoliveApp")}
               style={{ width: "fit-content", textWrap: "nowrap" }}
               className="flex w-fit shrink-0 items-center gap-1 rounded-md bg-indigo-50 px-2 py-0.5 text-[11px] font-medium whitespace-nowrap text-indigo-700 transition hover:bg-indigo-100 hover:text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-400 dark:hover:bg-indigo-900/60 dark:hover:text-indigo-300"
             >
               <MdOutlineDesktopWindows className="h-3 w-3" />
-              Apenas no app
+              {t("keyboardShortcutsModal.appOnly")}
             </a>
           )}
         </div>
@@ -69,10 +71,10 @@ export function KeyboardShortcutsModal({
             const isAppOnlyDisabled = Boolean(def.appOnly && !isDesktop);
             const isDisabled = !hasAccount || isAppOnlyDisabled;
             const placeholder = isAppOnlyDisabled
-              ? "Apenas no app"
+              ? t("keyboardShortcutsModal.appOnly")
               : !hasAccount
-                ? "Conta necessária"
-                : "Clique para gravar";
+                ? t("keyboardShortcutsModal.accountRequired")
+                : t("common.clickToRecord");
             const onDisabledClick = isAppOnlyDisabled
               ? () => window.open("https://golive.nemtudo.me/app", "_blank")
               : !hasAccount
@@ -131,17 +133,17 @@ export function KeyboardShortcutsModal({
             </div>
             <div>
               <h3 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
-                Atalhos de Teclado
+                {t("keyboardShortcutsModal.keyboardShortcuts")}
               </h3>
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                Configure teclas de atalho para controlar áudio, vídeo e música
+                {t("keyboardShortcutsModal.setUpShortcutKeysToControl")}
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Fechar"
+            aria-label={t("common.close")}
             className="rounded-lg p-1.5 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-900 dark:hover:text-zinc-200"
           >
             <MdClose className="h-5 w-5" />
@@ -154,10 +156,10 @@ export function KeyboardShortcutsModal({
             <div className="mb-5 flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 sm:flex-row sm:items-center sm:justify-between dark:border-amber-900/60 dark:bg-amber-950/30">
               <div>
                 <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
-                  Conta necessária
+                  {t("keyboardShortcutsModal.accountRequired")}
                 </p>
                 <p className="text-xs text-amber-700 dark:text-amber-400">
-                  Utilize uma conta para configurar e utilizar atalhos de teclado.
+                  {t("keyboardShortcutsModal.useAnAccountToSetUp")}
                 </p>
               </div>
               <button
@@ -169,7 +171,7 @@ export function KeyboardShortcutsModal({
                 className="flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-zinc-950 px-3 py-2 text-xs font-semibold text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
               >
                 <MdLogin className="h-4 w-4" />
-                Criar conta ou entrar
+                {t("common.createAnAccountOrSignIn")}
               </button>
             </div>
           )}
@@ -178,18 +180,18 @@ export function KeyboardShortcutsModal({
             {/* The browser/app split is what somebody outside needs to know
                 and what somebody inside has already resolved. */}
             {renderGroup(
-              isDesktop ? "Áudio" : "Áudio (Navegador e Aplicativo)",
+              isDesktop ? t("keyboardShortcutsModal.audio") : t("keyboardShortcutsModal.audioBrowserAndApp"),
               audioShortcuts,
               false
             )}
-            {renderGroup("Transmissão & Câmera", videoShortcuts, true)}
-            {renderGroup("Música", musicShortcuts, true)}
+            {renderGroup(t("keyboardShortcutsModal.broadcastCamera"), videoShortcuts, true)}
+            {renderGroup(t("common.music"), musicShortcuts, true)}
           </div>
 
           <div className="mt-5 rounded-xl border border-zinc-200/80 bg-zinc-50 p-3.5 text-xs leading-relaxed text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/50 dark:text-zinc-400">
             <div className="flex items-center gap-1.5 font-medium text-zinc-700 dark:text-zinc-300">
               <MdInfoOutline className="h-4 w-4 text-zinc-500 dark:text-zinc-400 shrink-0" />
-              <span>Informações sobre os atalhos:</span>
+              <span>{t("keyboardShortcutsModal.aboutTheShortcuts")}</span>
             </div>
             <ul className="mt-1.5 list-disc pl-5 space-y-1">
               {/* Which shortcuts exist where, for somebody who might not have
@@ -198,17 +200,17 @@ export function KeyboardShortcutsModal({
               {!isDesktop && (
                 <>
                   <li>
-                    Os atalhos de áudio (microfone e fone) funcionam tanto no navegador quanto no aplicativo do computador.
+                    {t("keyboardShortcutsModal.theAudioShortcutsMicrophoneAndHeadphones")}
                   </li>
                   <li>
-                    Os atalhos de transmissão, câmera e música funcionam no{" "}
+                    {t("keyboardShortcutsModal.theBroadcastCameraAndMusicShortcuts")}{" "}
                     <a
                       href="https://golive.nemtudo.me/app"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="font-medium text-indigo-600 underline hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
                     >
-                      aplicativo GoLive para computador
+                      {t("keyboardShortcutsModal.goliveDesktopApp")}
                     </a>.
                   </li>
                 </>
@@ -218,14 +220,14 @@ export function KeyboardShortcutsModal({
                   but inside the app it does not need to name it. */}
               <li>
                 {isDesktop
-                  ? "Os atalhos funcionam globalmente, mesmo com o foco em outros programas ou jogos."
-                  : "No aplicativo GoLive, os atalhos funcionam globalmente, mesmo com o foco em outros programas ou jogos."}
+                  ? t("keyboardShortcutsModal.theShortcutsWorkGloballyEvenWith")
+                  : t("keyboardShortcutsModal.inTheGoliveAppTheShortcuts")}
               </li>
               <li>
-                Atalhos nativos do sistema (como <kbd className="font-mono font-semibold">Ctrl+C</kbd> ou <kbd className="font-mono font-semibold">Ctrl+V</kbd>) continuam funcionando normalmente.
+                {t("keyboardShortcutsModal.theSystemSNativeShortcutsSuch")} <kbd className="font-mono font-semibold">{t("keyboardShortcutsModal.ctrlC")}</kbd> {t("common.or")} <kbd className="font-mono font-semibold">{t("keyboardShortcutsModal.ctrlV")}</kbd>) {t("keyboardShortcutsModal.keepWorkingNormally")}
               </li>
               <li>
-                Clique com o botão direito nos botões de controle para editar o atalho rapidamente.
+                {t("keyboardShortcutsModal.rightClickTheControlButtonsTo")}
               </li>
             </ul>
           </div>
@@ -233,7 +235,7 @@ export function KeyboardShortcutsModal({
 
         {/* Footer */}
         <div className="flex items-center justify-between border-t border-zinc-100 px-5 py-3.5 dark:border-zinc-800">
-          <Tooltip content={!hasAccount ? "Utilize uma conta para limpar os atalhos" : undefined}>
+          <Tooltip content={!hasAccount ? t("keyboardShortcutsModal.useAnAccountToClearThe") : undefined}>
             <button
               type="button"
               onClick={() => {
@@ -247,7 +249,7 @@ export function KeyboardShortcutsModal({
               className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
             >
               <MdRestartAlt className="h-4 w-4" />
-              Limpar todos os atalhos
+              {t("keyboardShortcutsModal.clearAllShortcuts")}
             </button>
           </Tooltip>
 
@@ -256,7 +258,7 @@ export function KeyboardShortcutsModal({
             onClick={onClose}
             className="rounded-lg bg-zinc-900 px-4 py-2 text-xs font-semibold text-white transition hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-zinc-200"
           >
-            Concluído
+            {t("common.done")}
           </button>
         </div>
       </div>

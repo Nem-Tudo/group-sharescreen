@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { signalingClient, type PeerInfo, type PresenceInfo, type PresenceState } from "./signalingClient";
 import { useSignalingSelector } from "./useSignalingSelector";
 import { selectPresence } from "./signalingSelectors";
+import { translate } from "@/lib/i18n";
 
 // Who is around right now — the green/blue dot beside a person's face.
 //
@@ -127,14 +128,14 @@ export function peerPresence(peer: Pick<PeerInfo, "presence" | "presenceDevice">
 }
 
 export const PRESENCE_LABELS: Record<PresenceState, string> = {
-  online: "Online",
-  away: "Online, mas em outra aba",
-  background: "Com o app aberto em segundo plano",
-  offline: "Offline",
+  get online() { return translate("common.online"); },
+  get away() { return translate("presence.onlineButInAnotherTab"); },
+  get background() { return translate("presence.withTheAppOpenInThe"); },
+  get offline() { return translate("common.offline"); },
 };
 
 const DEVICE_LABELS: Record<NonNullable<PresenceInfo["device"]>, string> = {
-  app: "no app do PC",
+  get app() { return translate("presence.inTheDesktopApp"); },
   mobile: "no celular",
 };
 

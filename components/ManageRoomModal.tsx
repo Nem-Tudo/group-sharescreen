@@ -35,6 +35,8 @@ import { useOpenChannelSettings } from "@/components/groups/ChannelSettingsDialo
 import { MicIcon, ScreenIcon, CameraIcon } from "./icons";
 import Link from "next/link";
 import { hasVerifiedBadge, verifiedBadge } from "@/lib/entitlements";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
 
 // The room-level switches, in the order they're shown. Each label is phrased
 // as what it *permits*, so it reads true when the toggle is on — and the note
@@ -45,23 +47,23 @@ const PERMISSION_ROWS: {
   label: string;
   icon: ComponentType<{ className?: string }>;
 }[] = [
-  { key: "mic", label: "Permitir que todos liguem o microfone", icon: MicIcon },
-  { key: "screen", label: "Permitir que todos compartilhem sua tela", icon: ScreenIcon },
-  { key: "camera", label: "Permitir que todos liguem sua câmera", icon: CameraIcon },
+  { key: "mic", get label() { return translate("manageRoomModal.allowEveryoneToTurnOnTheir"); }, icon: MicIcon },
+  { key: "screen", get label() { return translate("manageRoomModal.allowEveryoneToShareTheirScreen"); }, icon: ScreenIcon },
+  { key: "camera", get label() { return translate("manageRoomModal.allowEveryoneToTurnOnTheir2"); }, icon: CameraIcon },
   {
     key: "videoSource",
-    label: "Permitir que todos adicionem uma fonte de vídeo",
+    get label() { return translate("manageRoomModal.allowEveryoneToAddAVideo"); },
     icon: MdOutlineOndemandVideo,
   },
-  { key: "chat", label: "Permitir que todos enviem mensagens no chat", icon: MdOutlineChat },
-  { key: "gif", label: "Permitir que todos enviem GIFS", icon: MdGif },
-  { key: "image", label: "Permitir que todos enviem imagens", icon: MdOutlineImage },
+  { key: "chat", get label() { return translate("manageRoomModal.allowEveryoneToSendMessagesIn"); }, icon: MdOutlineChat },
+  { key: "gif", get label() { return translate("manageRoomModal.allowEveryoneToSendGifs"); }, icon: MdGif },
+  { key: "image", get label() { return translate("manageRoomModal.allowEveryoneToSendImages"); }, icon: MdOutlineImage },
   // The one switch here that is also gated on a plan: only Pro Max can change
   // a room's theme at all (see the server's "room-theme-set"), so turning this
   // off is the room saying "not even them". Worth knowing when reading a
   // report that it "does nothing" — for everybody without the plan, it never
   // did.
-  { key: "theme", label: "Permitir que Pro Max troquem o tema da sala", icon: MdPalette },
+  { key: "theme", get label() { return translate("manageRoomModal.allowProMaxMembersToChange"); }, icon: MdPalette },
 ];
 
 type View = "menu" | "admins" | "permissions" | "location" | "bans" | "limit";
@@ -109,6 +111,7 @@ export function ManageRoomModal({
   closePopup: (hasAction?: boolean) => void;
   data?: ManageRoomPopupData;
 }) {
+  const t = useT();
   const state = useSignaling();
   const [view, setView] = useState<View>(data?.initialView ?? "menu");
   // Where the pin currently sits in the "Definir local do mundo" view —
@@ -171,20 +174,20 @@ export function ManageRoomModal({
 
   const title =
     view === "admins"
-      ? "Gerenciar administradores"
+      ? t("manageRoomModal.manageAdministrators")
       : view === "permissions"
-        ? "Gerenciar permissões"
+        ? t("manageRoomModal.managePermissions")
         : view === "limit"
-          ? "Limite de participantes"
+          ? t("manageRoomModal.participantLimit")
           : view === "bans"
-            ? "Banimentos"
+            ? t("common.bans")
             : view === "location"
               ? celebrating
-                ? "Você criou uma sala pública!"
+                ? t("manageRoomModal.youCreatedAPublicRoom")
                 : canEditLocation
-                  ? "Definir local do mundo"
-                  : "Local da sala no mundo"
-              : "Gerenciar sala";
+                  ? t("manageRoomModal.setAPlaceInTheWorld")
+                  : t("manageRoomModal.theRoomSPlaceInThe")
+              : t("common.manageRoom");
 
 
   return (
@@ -207,7 +210,7 @@ export function ManageRoomModal({
             <button
               type="button"
               onClick={() => setView("menu")}
-              aria-label="Voltar"
+              aria-label={t("common.back")}
               className="-ml-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full opacity-60 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
             >
               <MdArrowBack className="h-4 w-4" />
@@ -227,7 +230,7 @@ export function ManageRoomModal({
         <button
           type="button"
           onClick={() => closePopup(false)}
-          aria-label="Fechar"
+          aria-label={t("common.close")}
           className="-mr-1 -mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-lg leading-none opacity-60 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
         >
           ×
@@ -244,7 +247,7 @@ export function ManageRoomModal({
             >
               <span className="flex items-center gap-2">
                 <FaCrown className="h-4 w-4 shrink-0 text-amber-500" />
-                Gerenciar administradores
+                {t("manageRoomModal.manageAdministrators")}
               </span>
               <MdChevronRight className="h-4 w-4 shrink-0 opacity-50" />
             </button>
@@ -256,7 +259,7 @@ export function ManageRoomModal({
           >
             <span className="flex items-center gap-2">
               <MdGroups className="h-4 w-4 shrink-0 text-sky-500" />
-              Limite de participantes
+              {t("manageRoomModal.participantLimit")}
             </span>
             <span className="flex items-center gap-1 text-xs font-normal text-zinc-500 dark:text-zinc-400">
               {state.roomMemberLimit ?? "sem limite"}
@@ -271,7 +274,7 @@ export function ManageRoomModal({
             >
               <span className="flex items-center gap-2">
                 <MdGavel className="h-4 w-4 shrink-0 text-red-500" />
-                Banimentos
+                {t("common.bans")}
               </span>
               <MdChevronRight className="h-4 w-4 shrink-0 opacity-50" />
             </button>
@@ -293,15 +296,15 @@ export function ManageRoomModal({
           >
             <span className="flex items-center gap-2">
               <BsGearFill className="h-4 w-4 shrink-0 opacity-70" />
-              Gerenciar permissões
+              {t("manageRoomModal.managePermissions")}
             </span>
             <MdChevronRight className="h-4 w-4 shrink-0 opacity-50" />
           </button>
           {!canManageAdmins && (
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
               {inGroupRoom
-                ? "Os administradores e banimentos desta sala são os do grupo — gerencie pelas configurações do grupo."
-                : "Só o dono da sala pode adicionar ou remover administradores."}
+                ? t("manageRoomModal.thisRoomSAdministratorsAndBans")
+                : t("manageRoomModal.onlyTheRoomSOwnerCan")}
             </p>
           )}
         </div>
@@ -311,12 +314,11 @@ export function ManageRoomModal({
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
             <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-              Administradores ({state.roomAdmins.length})
+              {t("manageRoomModal.administrators")}{state.roomAdmins.length})
             </p>
             {state.roomAdmins.length === 0 ? (
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                Ninguém por enquanto. Um administrador pode mudar as permissões da sala e não é
-                afetado por elas.
+                {t("manageRoomModal.nobodyForNowAnAdministratorCan")}
               </p>
             ) : (
               <ul className="flex flex-col gap-1">
@@ -332,7 +334,7 @@ export function ManageRoomModal({
                       <span className="flex min-w-0 items-center gap-1.5">
                         <FaCrown className="h-3 w-3 shrink-0 text-zinc-400 dark:text-zinc-500" />
                         <DisplayUserName
-                          name={live?.name || admin.name || "Participante"}
+                          name={live?.name || admin.name || t("manageRoomModal.participant")}
                           isGuest={live?.isGuest}
                           verified={verifiedBadge(live?.flags)}
                           bot={live?.bot}
@@ -350,7 +352,7 @@ export function ManageRoomModal({
                         onClick={() => signalingClient.removeRoomAdmin(admin.id)}
                         className="shrink-0 rounded-md border border-red-300 px-2 py-1 text-xs font-medium text-red-600 transition hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
                       >
-                        Remover
+                        {t("common.remove")}
                       </button>
                     </li>
                   );
@@ -361,11 +363,11 @@ export function ManageRoomModal({
 
           <div className="flex flex-col gap-1.5">
             <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-              Participantes da sala
+              {t("manageRoomModal.roomParticipants")}
             </p>
             {promotablePeers.length === 0 ? (
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                Não há mais ninguém na sala para promover.
+                {t("manageRoomModal.thereIsNobodyElseInThe")}
               </p>
             ) : (
               <ul className="flex flex-col gap-1">
@@ -390,7 +392,7 @@ export function ManageRoomModal({
                         onClick={() => signalingClient.addRoomAdmin(peer.userId)}
                         className="shrink-0 rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-900"
                       >
-                        {alreadyAdmin ? "Já é admin" : "Tornar admin"}
+                        {alreadyAdmin ? t("manageRoomModal.alreadyAnAdmin") : t("manageRoomModal.makeAdmin")}
                       </button>
                     </li>
                   );
@@ -412,27 +414,24 @@ export function ManageRoomModal({
           >
             {celebrating ? (
               <>
-                Sua sala já está no ar e aparece na lista de{" "}
+                {t("manageRoomModal.yourRoomIsAlreadyLiveAnd")}{" "}
                 <Link style={{ color: "#25baff" }} href="/rooms" target="_blank">
-                  salas públicas
+                  {t("common.publicRooms2")}
                 </Link>
-                . Marque no mapa abaixo de onde ela é — bairro, cidade ou país, o quanto você
-                quiser dizer — e ela também passa a aparecer no{" "}
+                {t("manageRoomModal.markOnTheMapBelowWhere")}{" "}
                 <Link style={{ color: "#25baff" }} href="/worldmap" target="_blank">
                   mapa de salas
                 </Link>
-                , onde quem está perto de você encontra ela primeiro. Dá para mudar ou tirar do
-                mapa quando quiser.
+                {t("manageRoomModal.whereWhoeverIsNearYouFinds")}
               </>
             ) : canEditLocation ? (
               <>
-                Defina um lugar para que a sala fique visível no <Link style={{color: "#25baff"}} href={"/worldmap"} target="_blank">mapa de salas</Link>. Pessoas que moram perto podem começar aparecer.
+                {t("manageRoomModal.setAPlaceSoTheRoom")} <Link style={{color: "#25baff"}} href={"/worldmap"} target="_blank">mapa de salas</Link>{t("manageRoomModal.peopleWhoLiveNearbyMayStart")}
               </>
             ) : (
               <>
-                Onde o dono da sala colocou ela no{" "}
-                <span className="font-medium">mapa de salas</span>. Só o dono e os administradores
-                podem mudar.
+                {t("manageRoomModal.whereTheRoomSOwnerPlaced")}{" "}
+                <span className="font-medium">mapa de salas</span>{t("manageRoomModal.onlyTheOwnerAndTheAdministrators")}
               </>
             )}
           </p>
@@ -446,14 +445,12 @@ export function ManageRoomModal({
               text typed into it (see lib/geocoding.ts). */}
           <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-2.5 text-[11px] leading-relaxed text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
             <p className="mb-1 font-medium text-zinc-700 dark:text-zinc-300">
-              Privacidade: Nada aqui é detectado automaticamente.
+              {t("manageRoomModal.privacyNothingHereIsDetectedAutomatically")}
             </p>
             <p>
-              O lugar é só o que {canEditLocation ? "você clicar" : "clicaram"} no mapa. O site
-              nunca pede nem lê a localização do seu aparelho, e o alfinete marca a{" "}
-              <span className="font-medium">sala</span>. Pode ser
-              tão vago quanto quiser: um país, uma cidade, um bairro.
-              {canEditLocation && " E dá para tirar do mapa a qualquer momento."}
+              {t("manageRoomModal.thePlaceIsOnlyWhat")} {canEditLocation ? t("manageRoomModal.youClick") : t("manageRoomModal.theyClicked")} {t("manageRoomModal.onTheMapTheSiteNever")}{" "}
+              <span className="font-medium">{t("common.room")}</span>{t("manageRoomModal.itCanBeAsVagueAs")}
+              {canEditLocation && t("manageRoomModal.andYouCanTakeItOff")}
             </p>
           </div>
 
@@ -486,21 +483,21 @@ export function ManageRoomModal({
               <>
                 <span className="font-medium text-zinc-600 dark:text-zinc-300">
                   {markers.length}{" "}
-                  {markers.length === 1 ? "outra sala já está" : "outras salas já estão"} no mapa
+                  {markers.length === 1 ? t("manageRoomModal.anotherRoomIsAlready") : t("manageRoomModal.otherRoomsAreAlready")} no mapa
                 </span>
                 {" · "}
               </>
             )}
             {pick ? (
               <>
-                {canEditLocation ? "Alfinete em" : "Sala em"}{" "}
+                {canEditLocation ? t("common.pinAt") : t("manageRoomModal.roomIn")}{" "}
                 <span className="font-mono text-zinc-700 dark:text-zinc-300">
                   {formatCoordinate(pick.lat)}, {formatCoordinate(pick.lng)}
                 </span>
                 {canEditLocation && !pinMoved && " (local salvo)"}
               </>
             ) : (
-              "Esta sala ainda não tem um local no mundo."
+              t("manageRoomModal.thisRoomDoesNotHaveA")
             )}
           </p>
 
@@ -519,7 +516,7 @@ export function ManageRoomModal({
                 }}
                 className="flex-1 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {saved ? "Salvar novo local" : "Salvar local"}
+                {saved ? t("common.saveNewLocation") : t("common.saveLocation")}
               </button>
               {/* Only in the popup nobody asked for. Everywhere else the ×
                   is the way out and a second one would just be noise. */}
@@ -529,7 +526,7 @@ export function ManageRoomModal({
                   onClick={() => closePopup(false)}
                   className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900"
                 >
-                  Agora não
+                  {t("common.notNow")}
                 </button>
               )}
               {/* Only offered once there is something to take off the map —
@@ -543,7 +540,7 @@ export function ManageRoomModal({
                   }}
                   className="rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-600 transition hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
                 >
-                  Remover do mapa
+                  {t("common.removeFromTheMap")}
                 </button>
               )}
             </div>
@@ -554,11 +551,10 @@ export function ManageRoomModal({
       {view === "limit" && (
         <div className="flex flex-col gap-3">
           <p className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
-            Quantas pessoas cabem na sala ao mesmo tempo. Quem chega depois de cheia vê um aviso
-            e não entra. Você e os administradores nunca são barrados pelo próprio limite.
+            {t("manageRoomModal.howManyPeopleFitInThe")}
           </p>
           <p className="text-xs text-zinc-500 dark:text-zinc-400">
-            Agora: <span className="font-medium text-zinc-700 dark:text-zinc-300">
+            {t("manageRoomModal.now")} <span className="font-medium text-zinc-700 dark:text-zinc-300">
               {state.peers.filter((p) => p.role !== "moderator" && !isObsPeer(p)).length + 1}
             </span>{" "}
             na sala.
@@ -570,8 +566,8 @@ export function ManageRoomModal({
               max={MAX_ROOM_MEMBER_LIMIT}
               value={limitInput}
               onChange={(e) => setLimitInput(e.target.value)}
-              placeholder="Sem limite"
-              aria-label="Limite de participantes"
+              placeholder={t("common.noLimit")}
+              aria-label={t("manageRoomModal.participantLimit")}
               className="w-28 rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
             />
             <button
@@ -584,7 +580,7 @@ export function ManageRoomModal({
               }}
               className="flex-1 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700"
             >
-              Salvar
+              {t("common.save")}
             </button>
           </div>
           {/* Only offered once there is one to lift — "remover" on a room that
@@ -598,12 +594,11 @@ export function ManageRoomModal({
               }}
               className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900"
             >
-              Tirar o limite
+              {t("manageRoomModal.removeTheLimit")}
             </button>
           )}
           <p className="text-[11px] leading-relaxed text-zinc-400 dark:text-zinc-500">
-            Entre {MIN_ROOM_MEMBER_LIMIT} e {MAX_ROOM_MEMBER_LIMIT}. Baixar o limite não expulsa
-            quem já está aqui — vale de agora em diante.
+            {t("manageRoomModal.between")} {MIN_ROOM_MEMBER_LIMIT} {t("common.andWord")} {MAX_ROOM_MEMBER_LIMIT}{t("manageRoomModal.loweringTheLimitDoesNotKick")}
           </p>
         </div>
       )}
@@ -611,12 +606,11 @@ export function ManageRoomModal({
       {view === "bans" && (
         <div className="flex flex-col gap-2">
           <p className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
-            Quem foi banido não consegue entrar nesta sala. Banir é pelo botão direito na pessoa,
-            na lista de participantes ou numa mensagem dela no chat. Só o dono desfaz.
+            {t("manageRoomModal.whoeverHasBeenBannedCannotJoin")}
           </p>
           {state.roomBans.length === 0 ? (
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Ninguém banido desta sala.
+              {t("manageRoomModal.nobodyBannedFromThisRoom")}
             </p>
           ) : (
             <ul className="flex max-h-72 flex-col gap-1 overflow-y-auto">
@@ -631,7 +625,7 @@ export function ManageRoomModal({
                     onClick={() => signalingClient.unbanMember(ban.id)}
                     className="shrink-0 rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium transition hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
                   >
-                    Desbanir
+                    {t("common.unban")}
                   </button>
                 </li>
               ))}
@@ -643,8 +637,7 @@ export function ManageRoomModal({
       {view === "permissions" && (
         <div className="flex flex-col gap-2">
           <p className="text-xs text-zinc-500 dark:text-zinc-400">
-            Ao desativar uma opção, só o dono e os administradores da sala continuam podendo fazer
-            aquilo.
+            {t("manageRoomModal.whenYouTurnAnOptionOff")}
           </p>
           <ul className="flex flex-col gap-1">
             {PERMISSION_ROWS.map(({ key, label, icon: Icon }) => {

@@ -3,13 +3,15 @@
 import { useState, useEffect, useRef } from "react";
 import { MdClose, MdKeyboard } from "react-icons/md";
 import { eventToShortcutString } from "@/lib/keyboardShortcuts";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
 
 export function ShortcutRecorder({
   value,
   onChange,
   disabled = false,
   onDisabledClick,
-  placeholder = "Clique para gravar",
+  placeholder = translate("common.clickToRecord"),
 }: {
   value: string;
   onChange: (combo: string) => void;
@@ -17,6 +19,7 @@ export function ShortcutRecorder({
   onDisabledClick?: () => void;
   placeholder?: string;
 }) {
+  const t = useT();
   const [isRecording, setIsRecording] = useState(false);
   const [heldModifiers, setHeldModifiers] = useState<string[]>([]);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -115,7 +118,7 @@ export function ShortcutRecorder({
             <span className="animate-pulse font-semibold">
               {heldModifiers.length > 0
                 ? `${heldModifiers.join("+")}+...`
-                : "Pressione as teclas..."}
+                : t("shortcutRecorder.pressTheKeys")}
             </span>
           ) : value ? (
             <kbd className="font-mono tracking-tight">{value}</kbd>
@@ -129,8 +132,8 @@ export function ShortcutRecorder({
         <button
           type="button"
           onClick={() => onChange("")}
-          aria-label="Remover atalho"
-          title="Remover atalho"
+          aria-label={t("shortcutRecorder.removeShortcut")}
+          title={t("shortcutRecorder.removeShortcut")}
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-zinc-200 text-zinc-400 transition hover:border-red-300 hover:bg-red-50 hover:text-red-600 dark:border-zinc-800 dark:text-zinc-500 dark:hover:border-red-900 dark:hover:bg-red-950/40 dark:hover:text-red-400"
         >
           <MdClose className="h-3.5 w-3.5" />

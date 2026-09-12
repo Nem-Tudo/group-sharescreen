@@ -1,4 +1,5 @@
-// The "this is happening" mark for a button that has been pressed.
+
+import { translate } from "@/lib/i18n";// The "this is happening" mark for a button that has been pressed.
 //
 // Every action button in the app used to fall into one of two states on
 // click: some swapped their label ("Criando..."), and the ones that navigate
@@ -21,7 +22,7 @@ export function ButtonSpinner({ className = "" }: { className?: string }) {
       // only thing announcing that anything happened. The label beside it
       // says what; this says that it is under way.
       role="status"
-      aria-label="Carregando"
+      aria-label={translate("buttonSpinner.loading")}
       className={`inline-block h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent ${className}`}
     />
   );

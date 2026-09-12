@@ -11,6 +11,7 @@ import {
   setStoredOpenInAppDismissed,
 } from "@/lib/mediaPreferences";
 import { DownloadAppButton } from "./DownloadAppButton";
+import { useT } from "@/lib/useI18n";
 
 // The offer, for somebody the site has never seen use the app.
 //
@@ -23,6 +24,7 @@ import { DownloadAppButton } from "./DownloadAppButton";
 // actually losing the screen), the question moves in front of the door and
 // this banner stops appearing — there is nothing left for it to find out.
 export function OpenInAppBanner() {
+  const t = useT();
   // Every decision here depends on localStorage and on whether we are inside
   // the app, neither of which exists during the server render — so the banner
   // renders nothing until after mount rather than hydrating into a mismatch.
@@ -53,8 +55,7 @@ export function OpenInAppBanner() {
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-black/10 bg-zinc-100 px-3 py-2 text-sm dark:border-white/10 dark:bg-zinc-900 sm:px-4">
       <MdOutlineDesktopWindows className="h-4 w-4 shrink-0 text-zinc-500 dark:text-zinc-400" />
       <span className="text-zinc-700 dark:text-zinc-300">
-        Não ouça eco (ouvir sua própria voz na transmissão do amigo) utilizando o app oficial do Go
-        Live!
+        {t("openInAppBanner.avoidHearingAnEchoHearingYour")}
       </span>
       <span className="ml-auto flex items-center gap-2">
         <DownloadAppButton source="room-banner" />
@@ -69,7 +70,7 @@ export function OpenInAppBanner() {
           }}
           className="rounded-lg bg-zinc-950 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
         >
-          Abrir no app
+          {t("common.openInTheApp")}
         </button>
         <button
           type="button"
@@ -79,7 +80,7 @@ export function OpenInAppBanner() {
           }}
           className="rounded-lg px-2 py-1.5 text-xs font-medium text-zinc-500 transition hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
         >
-          Agora não
+          {t("common.notNow")}
         </button>
       </span>
     </div>

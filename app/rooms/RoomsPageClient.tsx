@@ -9,6 +9,8 @@ import { UpdateAppButton } from "@/components/UpdateAppButton";
 import { CameraIcon, MicIcon, ScreenIcon, VideoSourceIcon } from "@/components/icons";
 import { roomCategory } from "@/lib/roomCategories";
 import { AdsterraNative } from "@/components/AdsterraNative";
+import { useI18n } from "@/lib/useI18n";
+import { translate, translateCount } from "@/lib/i18n";
 
 const POLL_INTERVAL_MS = 8000;
 
@@ -17,11 +19,11 @@ const POLL_INTERVAL_MS = 8000;
 // walking into, and a big idle room full of parked tabs is not — head count
 // alone can't tell those apart, so it's the tiebreaker instead of the key.
 const SORT_OPTIONS = [
-  { value: "mic", label: "Maior número de microfones ativos" },
-  { value: "people", label: "Mais gente conectada" },
+  { value: "mic", get label() { return translate("rooms.roomsPageClient.mostActiveMicrophones"); } },
+  { value: "people", get label() { return translate("rooms.roomsPageClient.mostPeopleConnected"); } },
   // Screens only — a room full of cameras is a different room, and the
   // server counts the two channels apart for exactly that reason.
-  { value: "screen", label: "Mais transmissão de tela" },
+  { value: "screen", get label() { return translate("rooms.roomsPageClient.mostScreenSharing"); } },
 ] as const;
 
 type SortValue = (typeof SORT_OPTIONS)[number]["value"];
@@ -47,13 +49,13 @@ function sortRooms(rooms: PublicRoom[], sort: SortValue): PublicRoom[] {
 
 function formatActiveFor(createdAt: number): string {
   const seconds = Math.max(0, Math.floor((Date.now() - createdAt) / 1000));
-  if (seconds < 60) return "há poucos segundos";
+  if (seconds < 60) return translate("rooms.roomsPageClient.aFewSecondsAgo");
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `há ${minutes} ${minutes === 1 ? "minuto" : "minutos"}`;
+  if (minutes < 60) return translate("rooms.roomsPageClient.minutesValueAgo", { minutes, value: translateCount("common.minuteNoun", minutes) });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `há ${hours} ${hours === 1 ? "hora" : "horas"}`;
+  if (hours < 24) return translate("rooms.roomsPageClient.hoursValueAgo", { hours, value: translateCount("common.hourNoun", hours) });
   const days = Math.floor(hours / 24);
-  return `há ${days} ${days === 1 ? "dia" : "dias"}`;
+  return translate("rooms.roomsPageClient.daysValueAgo", { days, value: translateCount("common.dayNoun", days) });
 }
 
 // One counter on a room's card. Dimmed at zero rather than hidden: the three
@@ -86,6 +88,7 @@ function RoomStat({
 }
 
 export function RoomsPageClient() {
+  const { t, tc } = useI18n();
   const [rooms, setRooms] = useState<PublicRoom[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -102,7 +105,7 @@ export function RoomsPageClient() {
         setRooms(data);
         setError(null);
       } catch {
-        if (!cancelled) setError("Não foi possível carregar as salas públicas.");
+        if (!cancelled) setError(t("common.couldNotLoadThePublicRooms"));
       }
     }
 
@@ -113,7 +116,7 @@ export function RoomsPageClient() {
       controller.abort();
       clearInterval(interval);
     };
-  }, []);
+  }, [t]);
 
   // Sorted before filtering so the order is a property of the list itself and
   // not of whatever happens to be typed in the search box.
@@ -131,10 +134,10 @@ export function RoomsPageClient() {
         <div className="flex items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-              Salas públicas
+              {t("common.publicRooms")}
             </h1>
             <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-              Salas com pelo menos uma pessoa conectada agora.
+              {t("rooms.roomsPageClient.roomsWithAtLeastOnePerson")}
             </p>
           </div>
           {/* This page has no SiteHeader to hang the theme switch off, and
@@ -150,7 +153,7 @@ export function RoomsPageClient() {
               href="/"
               className="shrink-0 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
             >
-              Início
+              {t("common.home")}
             </Link>
           </div>
         </div>
@@ -159,11 +162,11 @@ export function RoomsPageClient() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Pesquisar sala por nome..."
+            placeholder={t("rooms.roomsPageClient.searchRoomByName")}
             className="w-full min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
           />
           <label className="flex shrink-0 items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
-            <span className="shrink-0">Ordenar por</span>
+            <span className="shrink-0">{t("rooms.roomsPageClient.sortBy")}</span>
             <select
               value={sort}
               onChange={(e) => setSort(e.target.value as SortValue)}
@@ -186,14 +189,14 @@ export function RoomsPageClient() {
           )}
 
           {!error && rooms === null && (
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">Carregando...</p>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">{t("common.loading2")}</p>
           )}
 
           {!error && rooms !== null && filtered.length === 0 && (
             <p className="text-sm text-zinc-500 dark:text-zinc-400">
               {rooms.length === 0
-                ? "Nenhuma sala pública ativa no momento."
-                : "Nenhuma sala encontrada para essa pesquisa."}
+                ? t("rooms.roomsPageClient.noPublicRoomActiveAtThe")
+                : t("rooms.roomsPageClient.noRoomFoundForThatSearch")}
             </p>
           )}
 
@@ -238,7 +241,7 @@ export function RoomsPageClient() {
                     </p>
                   )}
                   <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-                    {room.peopleCount} {room.peopleCount === 1 ? "pessoa" : "pessoas"} · ativa{" "}
+                    {tc("common.personCount", room.peopleCount)} {t("rooms.roomsPageClient.active")}{" "}
                     {formatActiveFor(room.createdAt)}
                   </p>
                   {/* Microfones, telas, câmeras e vídeos. Screens and cameras
@@ -249,22 +252,22 @@ export function RoomsPageClient() {
                     <RoomStat
                       icon={<MicIcon className="h-3.5 w-3.5" />}
                       value={roomActivity(room, "micCount")}
-                      label="Microfones ativos"
+                      label={t("rooms.roomsPageClient.activeMicrophones")}
                     />
                     <RoomStat
                       icon={<ScreenIcon className="h-3.5 w-3.5" />}
                       value={roomActivity(room, "screenCount")}
-                      label="Telas transmitidas"
+                      label={t("rooms.roomsPageClient.screensBroadcast")}
                     />
                     <RoomStat
                       icon={<CameraIcon className="h-3.5 w-3.5" />}
                       value={roomActivity(room, "cameraCount")}
-                      label="Câmeras ligadas"
+                      label={t("rooms.roomsPageClient.camerasOn")}
                     />
                     <RoomStat
                       icon={<VideoSourceIcon className="h-3.5 w-3.5" />}
                       value={roomActivity(room, "videoSourceCount")}
-                      label="Fontes de vídeo"
+                      label={t("rooms.roomsPageClient.videoSources")}
                     />
                   </div>
                 </div>
@@ -272,7 +275,7 @@ export function RoomsPageClient() {
                   href={`/watch/${room.handle}`}
                   className="shrink-0 rounded-lg bg-zinc-950 px-3 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
                 >
-                  Entrar
+                  {t("common.signIn")}
                 </Link>
               </li>
               );

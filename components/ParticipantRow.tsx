@@ -23,6 +23,7 @@ import { UserAvatar } from "./UserAvatar";
 import type { PresenceInfo } from "@/lib/signalingClient";
 import { Tooltip, Popover } from "./Tooltip";
 import { MAX_GAIN } from "@/lib/audioGain";
+import { useT } from "@/lib/useI18n";
 
 export function ParticipantRow({
   name,
@@ -138,6 +139,7 @@ export function ParticipantRow({
   renderMenu?: (close: () => void) => ReactNode;
   onContextMenu?: () => void;
 }) {
+  const t = useT();
   const speaking = useSpeaking(micOn ? micStream : null);
   const [menuOpen, setMenuOpen] = useState(false);
   const hasMenu = Boolean(renderMenu || onContextMenu);
@@ -192,7 +194,7 @@ export function ParticipantRow({
       // leaving a right click to be discovered. A pointer cursor and a hover
       // on the *container* — not just on the name — because the row is the
       // target: the actions are about the person, not about the word.
-      title={hasMenu ? "Clique com o botão direito para ver as ações" : undefined}
+      title={hasMenu ? t("common.rightClickToSeeTheActions") : undefined}
       className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm ${
         isSelf ? "bg-zinc-100 dark:bg-zinc-900" : "text-zinc-700 dark:text-zinc-300"
       } ${
@@ -239,14 +241,14 @@ export function ParticipantRow({
           nameElement
         )}
         {isOwner ? (
-          <Tooltip content={`${name} é o dono da sala`}>
+          <Tooltip content={t("participantRow.nameIsTheRoomSOwner", { name })}>
             <span className="flex shrink-0 items-center self-center">
               <FaCrown className="h-3.5 w-3.5 text-amber-500" />
             </span>
           </Tooltip>
         ) : (
           isAdmin && (
-            <Tooltip content={`${name} é administrador da sala`}>
+            <Tooltip content={t("participantRow.nameIsAnAdministratorOfThe", { name })}>
               <span className="flex shrink-0 items-center self-center">
                 <FaCrown className="h-3 w-3 text-zinc-400 dark:text-zinc-500" />
               </span>
@@ -254,14 +256,14 @@ export function ParticipantRow({
           )
         )}
         {isApp ? (
-          <Tooltip content={`${name} está usando o aplicativo do GoLive no PC`}>
+          <Tooltip content={t("participantRow.nameIsUsingTheGoliveApp", { name })}>
             <span className="flex shrink-0 items-center self-center">
               <MdOutlineDesktopWindows className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
             </span>
           </Tooltip>
         ) : (
           isMobileApp && (
-            <Tooltip content={`${name} está usando o aplicativo do GoLive no celular`}>
+            <Tooltip content={t("participantRow.nameIsUsingTheGoliveApp2", { name })}>
               <span className="flex shrink-0 items-center self-center">
                 {/* Same size and colour as the desktop one on purpose: they
                     are the same fact about a person, and a different colour
@@ -271,7 +273,7 @@ export function ParticipantRow({
             </Tooltip>
           )
         )}
-        {isSelf && <span className="shrink-0 text-xs font-normal text-zinc-500">(você)</span>}
+        {isSelf && <span className="shrink-0 text-xs font-normal text-zinc-500">{t("participantRow.you")}</span>}
       </span>
       <span className="flex shrink-0 items-center gap-2 text-zinc-400 dark:text-zinc-500">
         {micOn ? (
@@ -285,7 +287,7 @@ export function ParticipantRow({
             worth being able to see at a glance. Red rather than the muted grey
             the mic-off icon uses, because this one is the surprising state. */}
         {micsMuted && (
-          <Tooltip content={`${name} silenciou os microfones e não está ouvindo ninguém`}>
+          <Tooltip content={t("participantRow.nameHasMutedTheMicrophonesAnd", { name })}>
             <span className="flex shrink-0 items-center">
               <HeadphonesOffIcon className="h-4 w-4 text-zinc-500" />
             </span>
@@ -294,14 +296,14 @@ export function ParticipantRow({
         {knowsChannels ? (
           <>
             {screen && (
-              <Tooltip content={`${name} está transmitindo a tela`}>
+              <Tooltip content={t("participantRow.nameIsBroadcastingTheirScreen", { name })}>
                 <span className="flex shrink-0 items-center">
                   <ScreenIcon className="h-4 w-4 text-emerald-500" />
                 </span>
               </Tooltip>
             )}
             {camera && (
-              <Tooltip content={`${name} está transmitindo a câmera`}>
+              <Tooltip content={t("participantRow.nameIsBroadcastingTheirCamera", { name })}>
                 <span className="flex shrink-0 items-center">
                   <CameraIcon className="h-4 w-4 text-violet-500" />
                 </span>
@@ -312,7 +314,7 @@ export function ParticipantRow({
           sharing && <ScreenIcon className="h-4 w-4 text-emerald-500" />
         )}
         {sharingVideo && (
-          <Tooltip content={`${name} adicionou uma ou mais fontes de vídeo`}>
+          <Tooltip content={t("participantRow.nameAddedOneOrMoreVideo", { name })}>
             <span className="flex shrink-0 items-center">
               <MdOutlineOndemandVideo className="h-4 w-4 text-red-500" />
             </span>
@@ -321,7 +323,7 @@ export function ParticipantRow({
         {!isSelf && onVolumeChange && (
           <VolumeSlider
             value={volume}
-            label={`Volume do áudio de ${name}`}
+            label={t("common.nameSAudioVolume", { name })}
             onChange={onVolumeChange}
             muted={muted}
             onToggleMute={onToggleMute}

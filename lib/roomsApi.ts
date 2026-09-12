@@ -1,4 +1,5 @@
-/**
+
+import { translate } from "@/lib/i18n";/**
  * Dynamically resolves the WebSocket signaling URL.
  * In development, if NEXT_PUBLIC_SIGNALING_URL points to localhost/127.0.0.1,
  * but the app is accessed via a remote or LAN IP (e.g. 100.101.38.69),
@@ -256,7 +257,7 @@ export async function roomExists(handle: string, signal?: AbortSignal): Promise<
     `${getSignalingHttpBase()}/rooms/${encodeURIComponent(handle)}/exists`,
     { signal }
   );
-  if (!res.ok) throw new Error(`Falha ao verificar a sala (status ${res.status})`);
+  if (!res.ok) throw new Error(translate("roomsApi.couldNotCheckTheRoomStatus", { status: res.status }));
   const data = (await res.json()) as { exists: boolean };
   return data.exists;
 }
@@ -300,7 +301,7 @@ export function roomActivity(
 
 export async function fetchPublicRooms(signal?: AbortSignal): Promise<PublicRoom[]> {
   const res = await fetch(`${getSignalingHttpBase()}/rooms`, { signal });
-  if (!res.ok) throw new Error(`Falha ao carregar salas (status ${res.status})`);
+  if (!res.ok) throw new Error(translate("roomsApi.couldNotLoadRoomsStatusStatus", { status: res.status }));
   const data = (await res.json()) as { rooms: PublicRoom[] };
   return data.rooms;
 }
@@ -309,7 +310,7 @@ export async function fetchPublicRooms(signal?: AbortSignal): Promise<PublicRoom
 // server only ever returns the aggregate count here, never room handles.
 export async function fetchPeopleOnline(signal?: AbortSignal): Promise<number> {
   const res = await fetch(`${getSignalingHttpBase()}/stats`, { signal });
-  if (!res.ok) throw new Error(`Falha ao carregar estatísticas (status ${res.status})`);
+  if (!res.ok) throw new Error(translate("roomsApi.couldNotLoadStatsStatusStatus", { status: res.status }));
   const data = (await res.json()) as { peopleOnline: number };
   return data.peopleOnline;
 }

@@ -16,8 +16,10 @@
 
 import { Tooltip } from "./Tooltip";
 import { useNotifications } from "@/lib/useNotifications";
+import { useT } from "@/lib/useI18n";
 
 export function NotificationBell({ className = "" }: { className?: string }) {
+  const t = useT();
   const { supported, permission, muted, enable, setMuted } = useNotifications();
 
   if (!supported) return null;
@@ -27,12 +29,12 @@ export function NotificationBell({ className = "" }: { className?: string }) {
 
   const tooltip =
     permission === "denied"
-      ? "Notificações bloqueadas nas configurações do navegador"
+      ? t("notificationBell.notificationsBlockedInTheBrowserSettings")
       : permission === "default"
-        ? "Ativar notificações"
+        ? t("notificationBell.turnOnNotifications")
         : muted
-          ? "Notificações silenciadas — clique para ativar"
-          : "Notificações ativas — clique para silenciar";
+          ? t("notificationBell.notificationsMutedClickToTurnOn")
+          : t("notificationBell.notificationsOnClickToMute");
 
   function onClick() {
     if (permission === "default") {

@@ -19,6 +19,7 @@ import {
   useAdsterraBlocked,
 } from "@/lib/adsterraFill";
 import { useAdsAllowed } from "@/lib/useAdsAllowed";
+import { useT } from "@/lib/useI18n";
 
 // A fixed-size Adsterra banner, in a sandboxed iframe. See lib/adsterra.ts for
 // why the iframe is not optional.
@@ -37,6 +38,7 @@ export function AdsterraBanner({
   label?: boolean;
   slot?: "desktop" | "mobile" | "room";
 }) {
+  const t = useT();
   const allowed = useAdsAllowed();
   // Once anything has established that Adsterra cannot get through, this slot
   // stops rendering rather than holding a box open around nothing. That is
@@ -116,7 +118,7 @@ export function AdsterraBanner({
     <div className={`flex flex-col items-center gap-1 ${className}`}>
       {label && (
         <span className="text-[10px] uppercase tracking-wide text-zinc-400 dark:text-zinc-600">
-          Publicidade
+          {t("common.advertising")}
         </span>
       )}
       {/* Sized on the wrapper as well as the iframe so the space is reserved
@@ -133,7 +135,7 @@ export function AdsterraBanner({
           // actually fetches the other slot's document instead of resizing
           // the box around the one already loaded.
           key={`${unit.key}-${unit.width}x${unit.height}`}
-          title="Publicidade"
+          title={t("common.advertising")}
           // A URL on this site rather than srcDoc — that is what gives the ad
           // script an origin, its cookies and a referrer Adsterra recognises.
           // See lib/adsterra.ts's header for what happened without it.

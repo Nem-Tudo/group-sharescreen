@@ -1,4 +1,5 @@
 import { GoldVerifiedBadgeIcon, VerifiedBadgeIcon } from "@/components/icons";
+import { translate } from "@/lib/i18n";
 
 // What a plan's `iconId` resolves to on screen.
 //
@@ -35,7 +36,7 @@ export const PLAN_ICONS: Record<PlanIconId, PlanIcon> = {
     Icon: VerifiedBadgeIcon,
     className: "text-blue-500",
     glyph: "✔",
-    label: "Verificado",
+    get label() { return translate("common.verified"); },
   },
   // The same mark in the top plan's colour. Kept in step with the badge that
   // plan's subscribers wear beside their name — see lib/entitlements'
@@ -46,7 +47,7 @@ export const PLAN_ICONS: Record<PlanIconId, PlanIcon> = {
     // gradients, so a text colour here would do nothing.
     className: "",
     glyph: "✔",
-    label: "Verificado Pro Max",
+    get label() { return translate("planIcons.proMaxVerified"); },
   },
 };
 

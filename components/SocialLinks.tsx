@@ -1,4 +1,5 @@
 import { FaDiscord, FaInstagram, FaXTwitter } from "react-icons/fa6";
+import { translate } from "@/lib/i18n";
 
 // The three places to follow the project, in one component so a new one (or a
 // changed handle) is a single edit rather than a hunt through every footer.
@@ -9,7 +10,7 @@ import { FaDiscord, FaInstagram, FaXTwitter } from "react-icons/fa6";
 // contact address in the terms.
 const LINKS = [
   {
-    label: "discord.gg/nemtudo",
+    get label() { return translate("common.discordGgNemtudo"); },
     href: "https://discord.gg/nemtudo",
     Icon: FaDiscord,
     // Brand colors on hover only. At rest the row stays in the page's own
@@ -40,7 +41,7 @@ const LINKS = [
  * surface that already says what they are.
  */
 export function SocialLinks({
-  title = "Acompanhe o GoLive",
+  title = translate("socialLinks.followGolive"),
   className = "",
 }: {
   title?: string | null;

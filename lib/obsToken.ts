@@ -1,4 +1,5 @@
-// Token de segurança assinado para links de OBS (Browser Source).
+
+import { translate } from "@/lib/i18n";// Token de segurança assinado para links de OBS (Browser Source).
 // Usa HMAC-SHA256 com a Web Crypto API padrão (disponível em browsers, OBS Studio e Node.js 18+).
 
 const OBS_TOKEN_SECRET =
@@ -219,7 +220,7 @@ export async function createObsSecurityToken(
   authorName?: string
 ): Promise<string> {
   if (!authorId || typeof authorId !== "string" || !authorId.trim()) {
-    throw new Error("authorId é obrigatório para gerar o token de transmissão.");
+    throw new Error(translate("obsToken.authoridIsRequiredToGenerateThe"));
   }
 
   const payload: ObsTokenPayload = {
@@ -250,12 +251,12 @@ export async function verifyObsSecurityToken(
   expectedRoom: string
 ): Promise<{ valid: boolean; payload?: ObsTokenPayload; error?: string }> {
   if (!token || typeof token !== "string") {
-    return { valid: false, error: "Token não fornecido." };
+    return { valid: false, error: translate("common.tokenNotProvided") };
   }
 
   const parts = token.trim().split(".");
   if (parts.length !== 2) {
-    return { valid: false, error: "Formato de token inválido." };
+    return { valid: false, error: translate("obsToken.invalidTokenFormat") };
   }
 
   const [payloadB64, sigB64] = parts;
@@ -265,7 +266,7 @@ export async function verifyObsSecurityToken(
     const isValidSig = await verifyHmacSignature(OBS_TOKEN_SECRET, payloadB64, sigBytes);
 
     if (!isValidSig) {
-      return { valid: false, error: "Assinatura do token inválida." };
+      return { valid: false, error: translate("obsToken.invalidTokenSignature") };
     }
 
     const payloadBytes = base64UrlDecode(payloadB64);
@@ -273,19 +274,19 @@ export async function verifyObsSecurityToken(
     const payload = JSON.parse(payloadStr) as ObsTokenPayload;
 
     if (payload.room !== expectedRoom.trim().toLowerCase()) {
-      return { valid: false, error: "Token não pertence a esta sala." };
+      return { valid: false, error: translate("obsToken.tokenDoesNotBelongToThis") };
     }
 
     if (!payload.authorId || typeof payload.authorId !== "string" || !payload.authorId.trim()) {
-      return { valid: false, error: "Token sem identificação do autor." };
+      return { valid: false, error: translate("obsToken.tokenWithNoAuthorIdentification") };
     }
 
     if (Date.now() > payload.exp) {
-      return { valid: false, error: "Token expirado." };
+      return { valid: false, error: translate("obsToken.tokenExpired") };
     }
 
     return { valid: true, payload };
   } catch {
-    return { valid: false, error: "Erro ao processar o token de segurança." };
+    return { valid: false, error: translate("obsToken.errorProcessingTheSecurityToken") };
   }
 }

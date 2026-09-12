@@ -7,6 +7,8 @@ import { isDesktopApp } from "@/lib/desktop";
 import { detectDownloadPlatform, type DownloadPlatform } from "@/lib/downloadTargets";
 import { trackDownloadClick, type DownloadSource } from "@/lib/analytics";
 import { Tooltip } from "./Tooltip";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
 
 // Offers the desktop build, labelled for the machine the visitor is on.
 //
@@ -20,9 +22,9 @@ import { Tooltip } from "./Tooltip";
 // the label and the file can never disagree about what "your system" means.
 
 const LABEL: Record<DownloadPlatform, { text: string; Icon: typeof FaWindows }> = {
-  win: { text: "Baixar para Windows", Icon: FaWindows },
-  mac: { text: "Baixar para macOS", Icon: FaApple },
-  linux: { text: "Baixar para Linux", Icon: FaLinux },
+  win: { get text() { return translate("common.downloadForWindows"); }, Icon: FaWindows },
+  mac: { get text() { return translate("common.downloadForMacos"); }, Icon: FaApple },
+  linux: { get text() { return translate("common.downloadForLinux"); }, Icon: FaLinux },
 };
 
 export function DownloadAppButton({
@@ -34,6 +36,7 @@ export function DownloadAppButton({
   source: DownloadSource;
   className?: string;
 }) {
+  const t = useT();
   // navigator does not exist during the server render, so the platform is
   // resolved after mount. Deferred by a tick rather than set synchronously
   // in the effect body — the cascading-render pattern React 19 warns about,
@@ -57,7 +60,7 @@ export function DownloadAppButton({
     // told what it is before a 100 MB installer starts downloading. /app
     // keeps the same platform detection, so the button they find there is
     // the one this label promised.
-    <Tooltip content="Remova o eco, obtenha melhor desempenho e mais.">
+    <Tooltip content={t("downloadAppButton.removeTheEchoGetBetterPerformance")}>
       <Link
         href="/app"
         target="_blank"

@@ -12,6 +12,8 @@ import { ObsSourceIcon } from "@/components/icons";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { BetaMark } from "@/components/BetaMark";
 import { DEFAULT_AVATAR_PATH } from "@/components/UserAvatar";
+import { useT } from "@/lib/useI18n";
+import { formatLocale } from "@/lib/i18n";
 
 // Who you are, at the foot of the room's chat column (see WatchRoom, from lg
 // up). It used to be a chip wedged into the header between "Compartilhar
@@ -50,6 +52,7 @@ export function RoomAccountCard({
   streamerMode?: boolean;
   onToggleStreamerMode?: () => void;
 }) {
+  const t = useT();
   const state = useSignaling();
   const { account, points } = useAuth();
   const { openPopup } = useNtPopups();
@@ -99,7 +102,7 @@ export function RoomAccountCard({
       {/* The second line is the first thing to go when the card has to be
           short: "@fulano" is context, and the name above it is the point. */}
       <span className="truncate text-xs text-zinc-500 [@media(max-height:46rem)]:hidden dark:text-zinc-400">
-        {account ? `@${account.username}` : "Convidado"}
+        {account ? `@${account.username}` : t("common.guest")}
       </span>
     </div>
   );
@@ -114,7 +117,7 @@ export function RoomAccountCard({
             profile, so theirs is the same block without the link rather than
             a link that lands nowhere. */}
         {account && onOpenProfile ? (
-          <Tooltip content="Ver seu perfil" placement="top">
+          <Tooltip content={t("common.seeYourProfile")} placement="top">
             {/* Your own profile opens the same way everybody else's does —
                 see WatchRoom's UserProfileDialog. It was the one name in the
                 room that still took you out to a new tab. A button rather
@@ -130,7 +133,7 @@ export function RoomAccountCard({
             </button>
           </Tooltip>
         ) : account ? (
-          <Tooltip content="Ver seu perfil" placement="top">
+          <Tooltip content={t("common.seeYourProfile")} placement="top">
             <Link
               href={`/user/${account.username}`}
               target="_blank"
@@ -159,11 +162,11 @@ export function RoomAccountCard({
             was the wrong gate on the wrong thing — wearing a theme somebody
             published is free to any account, and the two paid doors behind it
             explain themselves (see ThemeHubDialog). */}
-        <Tooltip content="Temas" placement="top">
+        <Tooltip content={t("common.themes")} placement="top">
           <button
             type="button"
             onClick={() => openPopup("theme_hub", { data: {} })}
-            aria-label="Temas"
+            aria-label={t("common.themes")}
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-zinc-200 text-zinc-600 transition hover:bg-zinc-100 [@media(max-height:52rem)]:h-7 [@media(max-height:52rem)]:w-7 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-900"
           >
             <MdPalette className="h-4 w-4 shrink-0 [@media(max-height:52rem)]:h-3.5 [@media(max-height:52rem)]:w-3.5" />
@@ -173,11 +176,11 @@ export function RoomAccountCard({
         {/* Beside the identity block rather than its own row, so it never
             competes with the points chip's own wrap behavior — see the
             comment on the card's outer div. */}
-        <Tooltip content="Loja de cosméticos" placement="top">
+        <Tooltip content={t("common.cosmeticsShop")} placement="top">
           <button
             type="button"
             onClick={() => openPopup("cosmetics_store", { data: {} })}
-            aria-label="Loja de cosméticos"
+            aria-label={t("common.cosmeticsShop")}
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-zinc-200 text-zinc-600 transition hover:bg-zinc-100 [@media(max-height:52rem)]:h-7 [@media(max-height:52rem)]:w-7 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-900"
           >
             <BsShop className="h-4 w-4 shrink-0 [@media(max-height:52rem)]:h-3.5 [@media(max-height:52rem)]:w-3.5" />
@@ -191,18 +194,18 @@ export function RoomAccountCard({
         <Tooltip
           content={
             isAccount
-              ? "Pontos ganhos assistindo aos anúncios dos parceiros"
-              : "Seus pontos de convidado ficam salvos só neste navegador. Limpar os dados do site, ou entrar de outro navegador, começa do zero — crie uma conta para não perdê-los."
+              ? t("roomAccountCard.pointsEarnedByWatchingPartnerAds")
+              : t("common.yourGuestPointsAreSavedOnly")
           }
           placement="top"
         >
           <div className="flex shrink-0 basis-full items-center gap-1.5 rounded-lg bg-zinc-100 px-3 py-2 [@media(max-height:52rem)]:basis-auto [@media(max-height:52rem)]:px-2 [@media(max-height:52rem)]:py-1 dark:bg-zinc-900">
             <BsCoin className="h-3.5 w-3.5 shrink-0 text-amber-500" />
             <span className="text-xs font-medium text-zinc-600 [@media(max-height:52rem)]:hidden dark:text-zinc-400">
-              Pontos
+              {t("common.points")}
             </span>
             <span className="text-sm font-semibold tabular-nums text-zinc-900 [@media(max-height:52rem)]:text-xs dark:text-zinc-100">
-              {points.toLocaleString("pt-BR")}
+              {points.toLocaleString(formatLocale())}
             </span>
           </div>
         </Tooltip>
@@ -213,15 +216,15 @@ export function RoomAccountCard({
         <Tooltip
           content={
             streamerMode
-              ? "Modo Streamer ativo: código da sala oculto e transmissão externa liberada (clique para desativar)"
-              : "Ativar Modo Streamer: esconde o código da sala e libera transmissão externa (apenas para você)"
+              ? t("roomAccountCard.streamerModeOnRoomCodeHidden")
+              : t("roomAccountCard.turnOnStreamerModeHidesThe")
           }
           placement="top"
         >
           <button
             type="button"
             onClick={onToggleStreamerMode}
-            aria-label={streamerMode ? "Desativar Modo Streamer" : "Ativar Modo Streamer"}
+            aria-label={streamerMode ? t("roomAccountCard.turnOffStreamerMode") : t("roomAccountCard.turnOnStreamerMode")}
             className={`mt-2 flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs font-medium transition [@media(max-height:52rem)]:mt-1.5 [@media(max-height:52rem)]:py-1.5 ${
               streamerMode
                 ? "border-purple-500 bg-purple-600 text-white shadow-sm shadow-purple-500/25 hover:bg-purple-700"
@@ -230,7 +233,7 @@ export function RoomAccountCard({
           >
             <div className="flex items-center gap-2">
               <ObsSourceIcon className="h-4 w-4 shrink-0" />
-              <span className="font-semibold">Modo Streamer</span>
+              <span className="font-semibold">{t("common.streamerMode")}</span>
               <span className="text-[10px] font-bold"><BetaMark /></span>
             </div>
             <div className="flex items-center gap-1.5">
@@ -241,7 +244,7 @@ export function RoomAccountCard({
                     : "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
                 }`}
               >
-                {streamerMode ? "Ativo" : "Desativado"}
+                {streamerMode ? t("roomAccountCard.active") : t("common.off")}
               </span>
               {streamerMode && (
                 <span className="relative flex h-2 w-2 shrink-0">
@@ -266,8 +269,8 @@ export function RoomAccountCard({
           className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-zinc-950 bg-zinc-950 px-3 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 [@media(max-height:52rem)]:mt-1.5 [@media(max-height:52rem)]:py-1.5 [@media(max-height:52rem)]:text-xs dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
         >
           <MdLogin className="h-4 w-4 shrink-0" />
-          <span className="[@media(max-height:52rem)]:hidden">Criar conta ou entrar</span>
-          <span className="hidden [@media(max-height:52rem)]:inline">Criar conta</span>
+          <span className="[@media(max-height:52rem)]:hidden">{t("common.createAnAccountOrSignIn")}</span>
+          <span className="hidden [@media(max-height:52rem)]:inline">{t("common.createAccount")}</span>
         </button>
       )}
     </div>

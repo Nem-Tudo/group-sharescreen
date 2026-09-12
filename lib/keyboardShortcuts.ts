@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore, useEffect, useCallback } from "react";
 import { getDesktopBridge, isDesktopApp } from "./desktop";
+import { translate } from "@/lib/i18n";
 
 export type ShortcutAction =
   | "toggleDeafen"
@@ -23,50 +24,50 @@ export interface ShortcutDefinition {
 export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
   {
     id: "toggleDeafen",
-    label: "Escutar / Parar de escutar",
-    description: "Silencia ou reativa o áudio de todos na sala",
+    get label() { return translate("keyboardShortcuts.listenStopListening"); },
+    get description() { return translate("keyboardShortcuts.mutesOrUnmutesEveryoneSAudio"); },
     category: "audio",
     appOnly: false,
   },
   {
     id: "toggleMute",
-    label: "Falar / Mutar",
-    description: "Liga ou desliga o seu microfone",
+    get label() { return translate("keyboardShortcuts.talkMute"); },
+    get description() { return translate("keyboardShortcuts.turnsYourMicrophoneOnOrOff"); },
     category: "audio",
     appOnly: false,
   },
   {
     id: "toggleScreenShare",
-    label: "Iniciar / Fechar transmissão",
-    description: "Inicia ou encerra o compartilhamento de tela",
+    get label() { return translate("keyboardShortcuts.startCloseBroadcast"); },
+    get description() { return translate("keyboardShortcuts.startsOrEndsScreenSharing"); },
     category: "video",
     appOnly: true,
   },
   {
     id: "toggleCamera",
-    label: "Iniciar / Fechar câmera",
-    description: "Liga ou desliga a sua câmera",
+    get label() { return translate("keyboardShortcuts.startCloseCamera"); },
+    get description() { return translate("keyboardShortcuts.turnsYourCameraOnOrOff"); },
     category: "video",
     appOnly: true,
   },
   {
     id: "toggleMusicPlay",
-    label: "Pausar / Play música",
-    description: "Alterna entre tocar e pausar a música da sala / mídia local",
+    get label() { return translate("keyboardShortcuts.pausePlayMusic"); },
+    get description() { return translate("keyboardShortcuts.togglesBetweenPlayingAndPausingThe"); },
     category: "music",
     appOnly: true,
   },
   {
     id: "nextMusic",
-    label: "Pular música",
-    description: "Avança para a próxima faixa da música local",
+    get label() { return translate("keyboardShortcuts.skipMusic"); },
+    get description() { return translate("keyboardShortcuts.skipsToTheNextLocalMusic"); },
     category: "music",
     appOnly: true,
   },
   {
     id: "previousMusic",
-    label: "Voltar música",
-    description: "Volta para a faixa anterior da música local",
+    get label() { return translate("keyboardShortcuts.previousMusic"); },
+    get description() { return translate("keyboardShortcuts.goesBackToThePreviousLocal"); },
     category: "music",
     appOnly: true,
   },
@@ -205,17 +206,17 @@ export function eventToShortcutString(e: KeyboardEvent): string | null {
 
   // Format special keys nicely
   if (keyName === " ") {
-    keyName = "Espaço";
+    keyName = translate("keyboardShortcuts.space");
   } else if (keyName === "ArrowUp") {
-    keyName = "Seta Cima";
+    keyName = translate("keyboardShortcuts.arrowUp");
   } else if (keyName === "ArrowDown") {
-    keyName = "Seta Baixo";
+    keyName = translate("keyboardShortcuts.arrowDown");
   } else if (keyName === "ArrowLeft") {
-    keyName = "Seta Esquerda";
+    keyName = translate("keyboardShortcuts.arrowLeft");
   } else if (keyName === "ArrowRight") {
-    keyName = "Seta Direita";
+    keyName = translate("keyboardShortcuts.arrowRight");
   } else if (keyName === "Escape") {
-    keyName = "Esc";
+    keyName = translate("keyboardShortcuts.esc");
   } else if (keyName.length === 1) {
     keyName = keyName.toUpperCase();
   }
@@ -233,17 +234,17 @@ export function shortcutToElectronAccelerator(combo: string): string {
     switch (part.trim()) {
       case "Ctrl":
         return "CommandOrControl";
-      case "Espaço":
+      case translate("keyboardShortcuts.space"):
         return "Space";
-      case "Seta Cima":
+      case translate("keyboardShortcuts.arrowUp"):
         return "Up";
-      case "Seta Baixo":
+      case translate("keyboardShortcuts.arrowDown"):
         return "Down";
-      case "Seta Esquerda":
+      case translate("keyboardShortcuts.arrowLeft"):
         return "Left";
-      case "Seta Direita":
+      case translate("keyboardShortcuts.arrowRight"):
         return "Right";
-      case "Esc":
+      case translate("keyboardShortcuts.esc"):
         return "Escape";
       default:
         return part.trim();

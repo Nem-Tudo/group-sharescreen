@@ -2,6 +2,7 @@
 
 import { getSignalingHttpBase } from "./roomsApi";
 import type { ChatReplyTo } from "./signalingClient";
+import { translate } from "@/lib/i18n";
 
 // Everything here is about getting a picture *to our API*. The upload to the
 // CDN happens there and only there (see the API's server/uploadToCDN.ts):
@@ -58,7 +59,7 @@ function readAsDataUrl(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error ?? new Error("Falha ao ler o arquivo."));
+    reader.onerror = () => reject(reader.error ?? new Error(translate("common.couldNotReadTheFile")));
     reader.readAsDataURL(file);
   });
 }
@@ -89,7 +90,7 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("Não foi possível abrir a imagem."));
+    img.onerror = () => reject(new Error(translate("common.couldNotOpenTheImage")));
     img.src = src;
   });
 }
@@ -122,7 +123,7 @@ export async function prepareChatImage(file: File): Promise<PreparedChatImage> {
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("canvas indisponível");
+    if (!ctx) throw new Error(translate("common.canvasUnavailable"));
     ctx.drawImage(img, 0, 0, width, height);
 
     // WebP keeps transparency and is markedly smaller than JPEG at the same
@@ -185,13 +186,13 @@ export async function sendChatImages(params: {
       | { urls?: string[]; error?: string }
       | null;
     if (!res.ok || !data?.urls) {
-      return { ok: false, error: data?.error ?? "Não foi possível enviar a imagem." };
+      return { ok: false, error: data?.error ?? translate("common.couldNotSendTheImage") };
     }
     return { ok: true, urls: data.urls };
   } catch (err) {
     if ((err as Error)?.name === "AbortError") {
-      return { ok: false, error: "Envio cancelado." };
+      return { ok: false, error: translate("chatImage.uploadCancelled") };
     }
-    return { ok: false, error: "Não foi possível enviar a imagem." };
+    return { ok: false, error: translate("common.couldNotSendTheImage") };
   }
 }

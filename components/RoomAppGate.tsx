@@ -14,6 +14,7 @@ import {
   setStoredOpenInAppDismissed,
   setStoredOpenRoomsInApp,
 } from "@/lib/mediaPreferences";
+import { useT } from "@/lib/useI18n";
 
 // Where a room decides whether it is a room at all yet.
 //
@@ -66,6 +67,7 @@ function openInApp(handle: string) {
 }
 
 export function RoomAppGate({ handle, children }: { handle: string; children: ReactNode }) {
+  const t = useT();
   // Every decision depends on localStorage and on whether we are inside the
   // app, neither of which exists during the server render — so this starts
   // undecided rather than guessing and hydrating into a mismatch.
@@ -163,7 +165,7 @@ export function RoomAppGate({ handle, children }: { handle: string; children: Re
       <>
         <RoomSkeleton />
         <p className="sr-only" role="status">
-          Abrindo a sala...
+          {t("roomAppGate.openingTheRoom")}
         </p>
       </>
     );
@@ -172,15 +174,15 @@ export function RoomAppGate({ handle, children }: { handle: string; children: Re
   if (handoffCount > 0) {
     return (
       <GateCard
-        title="Sala aberta no app"
-        body="Você saiu da sala aqui no navegador para não entrar duas vezes. Se o app não abriu, ele pode não estar instalado nesta máquina."
+        title={t("roomAppGate.roomOpenedInTheApp")}
+        body={t("roomAppGate.youLeftTheRoomHereIn")}
       >
         <button
           type="button"
           onClick={requestAppHandoff}
           className="rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
         >
-          Abrir no app de novo
+          {t("roomAppGate.openInTheAppAgain")}
         </button>
         <button
           type="button"
@@ -195,7 +197,7 @@ export function RoomAppGate({ handle, children }: { handle: string; children: Re
           }}
           className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
         >
-          Abrir no navegador
+          {t("roomAppGate.openInTheBrowser")}
         </button>
         <DownloadAppButton source="room-gate" />
       </GateCard>
@@ -204,8 +206,8 @@ export function RoomAppGate({ handle, children }: { handle: string; children: Re
 
   return (
     <GateCard
-      title="Abrir esta sala no app?"
-      body="No app do GoLive você não ouve eco da sua própria voz na transmissão de outra pessoa, e o desempenho é melhor."
+      title={t("roomAppGate.openThisRoomInTheApp")}
+      body={t("roomAppGate.inTheGoliveAppYouDo")}
     >
       <button
         type="button"
@@ -213,14 +215,14 @@ export function RoomAppGate({ handle, children }: { handle: string; children: Re
         className="flex items-center gap-2 rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
       >
         <MdOutlineDesktopWindows className="h-4 w-4 shrink-0" />
-        Abrir no app
+        {t("common.openInTheApp")}
       </button>
       <button
         type="button"
         onClick={enterBrowser}
         className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
       >
-        Continuar no navegador
+        {t("roomAppGate.continueInTheBrowser")}
       </button>
       <button
         type="button"
@@ -233,7 +235,7 @@ export function RoomAppGate({ handle, children }: { handle: string; children: Re
         }}
         className="rounded-lg px-3 py-2 text-sm font-medium text-zinc-500 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
       >
-        Não perguntar mais
+        {t("roomAppGate.doNotAskAgain")}
       </button>
     </GateCard>
   );

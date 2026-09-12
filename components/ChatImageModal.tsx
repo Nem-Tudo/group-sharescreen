@@ -9,6 +9,7 @@ import {
   MdChevronLeft,
   MdChevronRight,
 } from "react-icons/md";
+import { useT } from "@/lib/useI18n";
 
 export interface ChatImagePreviewState {
   src: string;
@@ -25,6 +26,7 @@ export interface ChatImageModalProps {
 const subscribeNothing = () => () => {};
 
 export function ChatImageModal({ preview, onClose }: ChatImageModalProps) {
+  const t = useT();
   const onClient = useSyncExternalStore(subscribeNothing, () => true, () => false);
 
   const images = preview?.images && preview.images.length > 0 ? preview.images : preview?.src ? [preview.src] : [];
@@ -94,7 +96,7 @@ export function ChatImageModal({ preview, onClose }: ChatImageModalProps) {
       onClick={onClose}
       role="dialog"
       aria-modal="true"
-      aria-label="Visualização de imagem"
+      aria-label={t("chatImageModal.imagePreview")}
     >
       {/* Top action bar */}
       <div className="absolute top-4 inset-x-4 flex items-center justify-between pointer-events-none z-10">
@@ -110,8 +112,8 @@ export function ChatImageModal({ preview, onClose }: ChatImageModalProps) {
             href={currentSrc}
             target="_blank"
             rel="noopener noreferrer"
-            title="Abrir imagem original em nova guia"
-            aria-label="Abrir imagem original em nova guia"
+            title={t("chatImageModal.openTheOriginalImageInA")}
+            aria-label={t("chatImageModal.openTheOriginalImageInA")}
             className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-900/80 text-zinc-200 transition hover:bg-zinc-800 hover:text-white backdrop-blur border border-white/10 shadow-lg"
           >
             <MdOpenInNew className="h-5 w-5" />
@@ -119,8 +121,8 @@ export function ChatImageModal({ preview, onClose }: ChatImageModalProps) {
           <button
             type="button"
             onClick={() => handleDownload(currentSrc)}
-            title="Baixar imagem"
-            aria-label="Baixar imagem"
+            title={t("chatImageModal.downloadImage")}
+            aria-label={t("chatImageModal.downloadImage")}
             className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full bg-zinc-900/80 text-zinc-200 transition hover:bg-zinc-800 hover:text-white backdrop-blur border border-white/10 shadow-lg"
           >
             <MdDownload className="h-5 w-5" />
@@ -128,8 +130,8 @@ export function ChatImageModal({ preview, onClose }: ChatImageModalProps) {
           <button
             type="button"
             onClick={onClose}
-            title="Fechar (Esc)"
-            aria-label="Fechar"
+            title={t("common.closeEsc")}
+            aria-label={t("common.close")}
             className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full bg-zinc-900/80 text-zinc-200 transition hover:bg-zinc-800 hover:text-white backdrop-blur border border-white/10 shadow-lg"
           >
             <MdClose className="h-5 w-5" />
@@ -146,8 +148,8 @@ export function ChatImageModal({ preview, onClose }: ChatImageModalProps) {
               e.stopPropagation();
               showPrev();
             }}
-            title="Imagem anterior (Seta para esquerda)"
-            aria-label="Imagem anterior"
+            title={t("chatImageModal.previousImageLeftArrow")}
+            aria-label={t("chatImageModal.previousImage")}
             className="absolute left-3 top-1/2 -translate-y-1/2 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full bg-zinc-900/80 text-zinc-200 transition hover:bg-zinc-800 hover:text-white backdrop-blur border border-white/10 shadow-lg z-10"
           >
             <MdChevronLeft className="h-7 w-7" />
@@ -158,8 +160,8 @@ export function ChatImageModal({ preview, onClose }: ChatImageModalProps) {
               e.stopPropagation();
               showNext();
             }}
-            title="Próxima imagem (Seta para direita)"
-            aria-label="Próxima imagem"
+            title={t("chatImageModal.nextImageRightArrow")}
+            aria-label={t("chatImageModal.nextImage")}
             className="absolute right-3 top-1/2 -translate-y-1/2 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full bg-zinc-900/80 text-zinc-200 transition hover:bg-zinc-800 hover:text-white backdrop-blur border border-white/10 shadow-lg z-10"
           >
             <MdChevronRight className="h-7 w-7" />
@@ -176,7 +178,7 @@ export function ChatImageModal({ preview, onClose }: ChatImageModalProps) {
         <img
           key={currentSrc}
           src={currentSrc}
-          alt={preview.alt || "Imagem do chat"}
+          alt={preview.alt || t("chatImageModal.chatImage")}
           className="max-h-[85vh] max-w-[92vw] rounded-lg object-contain shadow-2xl transition-all"
         />
       </div>

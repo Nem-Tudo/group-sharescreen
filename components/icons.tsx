@@ -605,8 +605,9 @@ export function HyperfocusIcon({ className }: IconProps) {
  * that one's colour is gradients that are part of the mark itself.
  */
 export function VerifiedBadgeIcon({ className }: IconProps) {
+  const t = useT();
   return (
-    <Tooltip content="Verificado">
+    <Tooltip content={t("common.verified")}>
       <svg
         viewBox="0 0 22 22"
         fill="currentColor"
@@ -629,6 +630,7 @@ export function VerifiedBadgeIcon({ className }: IconProps) {
 // the paths with the official SVG rather than nudging these.
 
 import { FaPix } from "react-icons/fa6";
+import { useT } from "@/lib/useI18n";
 export function PixIcon({ className }: IconProps) {
   return (<FaPix className={className}/>);
 }
@@ -685,11 +687,12 @@ export function ObsSourceIcon({ className }: IconProps) {
  * point: gold is what the mark *is*.
  */
 export function GoldVerifiedBadgeIcon({ className }: IconProps) {
+  const t = useT();
   const uid = useId();
   const outer = `gold-verified-outer-${uid}`;
   const inner = `gold-verified-inner-${uid}`;
   return (
-    <Tooltip content="Verificado">
+    <Tooltip content={t("common.verified")}>
       <svg viewBox="0 0 22 22" className={className} aria-hidden="true">
         <linearGradient
           gradientUnits="userSpaceOnUse"

@@ -1,6 +1,8 @@
 "use client";
 
 import { readZipEntries, readZipEntryBlob, ZipError } from "./zipReader";
+import { translate } from "@/lib/i18n";
+import { formatLocale } from "@/lib/i18n";
 
 // Playing a file from your own disk into the room.
 //
@@ -104,7 +106,7 @@ function mimeForName(name: string): string {
 // after "9", and case ignored. A folder of tracks is almost always numbered,
 // and plain lexicographic order puts track 10 second.
 function compareNames(a: string, b: string): number {
-  return a.localeCompare(b, "pt-BR", { numeric: true, sensitivity: "base" });
+  return a.localeCompare(b, formatLocale(), { numeric: true, sensitivity: "base" });
 }
 
 let idCounter = 0;
@@ -280,8 +282,8 @@ class LocalMediaSource {
     el.addEventListener("error", () => {
       const item = this.current;
       this.failed = item
-        ? `O navegador não conseguiu tocar "${item.name}".`
-        : "O navegador não conseguiu tocar esse arquivo.";
+        ? translate("localMediaSource.theBrowserCouldNotPlayName", { name: item.name })
+        : translate("localMediaSource.theBrowserCouldNotPlayThat");
       this.refresh();
       // One bad file in a folder of fifty should not end the session — move
       // on, the same way any player does.
@@ -332,7 +334,7 @@ class LocalMediaSource {
     ctx.font = `400 ${Math.round(canvas.height / 28)}px system-ui, sans-serif`;
     ctx.fillStyle = "#a1a1aa";
     ctx.fillText(
-      this.queue.length > 1 ? `${this.index + 1} de ${this.queue.length}` : "áudio",
+      this.queue.length > 1 ? `${this.index + 1} de ${this.queue.length}` : translate("localMediaSource.audio"),
       canvas.width / 2,
       canvas.height / 2 + canvas.height / 10,
       canvas.width * 0.9
@@ -342,12 +344,12 @@ class LocalMediaSource {
   // The live stream of whatever is playing. Called by useRoomMedia's capture
   // when the share source is "file", inside the click that started the share.
   async captureStream(fps: number): Promise<MediaStream> {
-    if (!this.hasQueue) throw new Error("Escolha um arquivo para transmitir primeiro.");
+    if (!this.hasQueue) throw new Error(translate("localMediaSource.chooseAFileToBroadcastFirst"));
     const el = this.ensureElement();
     if (this.stream) return this.stream;
 
     if (typeof AudioContext === "undefined") {
-      throw new Error("Este navegador não permite transmitir arquivos locais.");
+      throw new Error(translate("localMediaSource.thisBrowserDoesNotAllowBroadcasting"));
     }
 
     // Music carries no picture at all. Skipping the canvas is not a cosmetic

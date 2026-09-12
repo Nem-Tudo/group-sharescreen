@@ -1,5 +1,6 @@
 import { FaDiscord } from "react-icons/fa";
 import { FcGoogle } from "react-icons/fc";
+import { translate } from "@/lib/i18n";
 
 // The small drawings at the top of each card on /app, and the screen/faces
 // inside the app-window mock in the hero.
@@ -36,12 +37,12 @@ function WeightArt() {
   return (
     <Frame>
       <div className="flex h-full flex-col justify-center gap-2.5 px-4">
-        <Caption>memória em uso</Caption>
+        <Caption>{translate("app.featureArt.memoryInUse")}</Caption>
         {[
-          { name: "GoLive", width: "22%", fill: "bg-emerald-500" },
+          { name: translate("common.golive"), width: "22%", fill: "bg-emerald-500" },
           // Clearly darker than the track behind it in both themes — a bar
           // you cannot see is not a comparison.
-          { name: "De sempre", width: "88%", fill: "bg-zinc-400 dark:bg-zinc-500" },
+          { name: translate("app.featureArt.theUsualOnes"), width: "88%", fill: "bg-zinc-400 dark:bg-zinc-500" },
         ].map(({ name, width, fill }) => (
           <div key={name} className="flex items-center gap-2">
             <span className="w-14 shrink-0 text-[10px] font-medium text-zinc-500 dark:text-zinc-400">
@@ -60,9 +61,9 @@ function WeightArt() {
 /** The picker's mute list, in miniature: two apps ticked out, one left in. */
 function AudioPickArt() {
   const rows = [
-    { name: "Spotify", out: true },
-    { name: "WhatsApp", out: true },
-    { name: "Jogo", out: false },
+    { name: translate("common.spotify"), out: true },
+    { name: translate("common.whatsapp"), out: true },
+    { name: translate("app.featureArt.game"), out: false },
   ];
   return (
     <Frame>
@@ -148,7 +149,7 @@ function EchoArt() {
         </div>
         <div className="flex items-center gap-1.5">
           <span className="rounded bg-white px-1.5 py-0.5 text-[9px] font-semibold text-zinc-500 line-through dark:bg-zinc-950 dark:text-zinc-500">
-            GoLive
+            {translate("common.golive")}
           </span>
           <span className="text-[9px] text-zinc-400 dark:text-zinc-600">nunca sai junto</span>
         </div>
@@ -164,10 +165,10 @@ function PickerArt() {
       <div className="flex h-full flex-col justify-center gap-2 px-4">
         <div className="flex gap-1">
           <span className="rounded bg-white px-1.5 py-0.5 text-[9px] font-semibold text-zinc-700 dark:bg-zinc-950 dark:text-zinc-200">
-            Telas
+            {translate("app.featureArt.screens")}
           </span>
           <span className="rounded px-1.5 py-0.5 text-[9px] font-medium text-zinc-400 dark:text-zinc-600">
-            Janelas
+            {translate("app.featureArt.windows")}
           </span>
         </div>
         <div className="flex gap-2">
@@ -186,11 +187,11 @@ function OAuthArt() {
       <div className="flex h-full flex-col justify-center gap-1.5 px-4">
         <span className="flex items-center gap-2 rounded-md bg-[#5865F2] px-2.5 py-1.5 text-[10px] font-semibold text-white">
           <FaDiscord className="h-3 w-3" />
-          Entrar com Discord
+          {translate("app.featureArt.signInWithDiscord")}
         </span>
         <span className="flex items-center gap-2 rounded-md bg-white px-2.5 py-1.5 text-[10px] font-semibold text-zinc-700 shadow-sm dark:bg-zinc-950 dark:text-zinc-200">
           <FcGoogle className="h-3 w-3" />
-          Entrar com Google
+          {translate("app.featureArt.signInWithGoogle")}
         </span>
       </div>
     </Frame>
@@ -214,7 +215,7 @@ function WindowArt() {
             <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
             <span className="ml-1 text-[9px] font-medium text-zinc-500 dark:text-zinc-400">
-              GoLive
+              {translate("common.golive")}
             </span>
           </div>
           <div className="h-5" />
@@ -242,7 +243,7 @@ function UpdateArt() {
           <span className="block h-full w-1/3 rounded-full bg-emerald-500 transition-[width] duration-[1200ms] ease-out group-hover:w-full" />
         </span>
         <p className="text-[9px] text-zinc-400 dark:text-zinc-600">
-          aplica quando você fecha a janela
+          {translate("app.featureArt.appliesWhenYouCloseTheWindow")}
         </p>
       </div>
     </Frame>

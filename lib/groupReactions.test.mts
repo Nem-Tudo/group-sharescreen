@@ -37,12 +37,12 @@ assert.deepEqual(start, [
 // The tooltip.
 const names: Record<string, string> = { me: "Você", a: "Ana", b: "Bia", c: "Caio", d: "Duda", e: "Enzo", f: "Fê" };
 const nameOf = (id: string) => names[id] ?? "Alguém";
-assert.equal(describeReaction({ emoji: "👍", users: ["me"] }, nameOf), "Você reagiu com 👍");
-assert.equal(describeReaction({ emoji: "👍", users: ["a", "b"] }, nameOf), "Ana e Bia reagiram com 👍");
-assert.equal(describeReaction({ emoji: "👍", users: ["me", "a", "b"] }, nameOf), "Você, Ana e Bia reagiram com 👍");
+assert.equal(describeReaction({ emoji: "👍", users: ["me"] }, nameOf), "Você reacted with 👍");
+assert.equal(describeReaction({ emoji: "👍", users: ["a", "b"] }, nameOf), "Ana and Bia reacted with 👍");
+assert.equal(describeReaction({ emoji: "👍", users: ["me", "a", "b"] }, nameOf), "Você, Ana and Bia reacted with 👍");
 assert.equal(
   describeReaction({ emoji: "🔥", users: ["a", "b", "c", "d", "e", "f", "me"] }, nameOf),
-  "Ana, Bia, Caio, Duda, Enzo e mais 2 reagiram com 🔥"
+  "Ana, Bia, Caio, Duda, Enzo and 2 more reacted with 🔥"
 );
 
 console.log("groupReactions ok");

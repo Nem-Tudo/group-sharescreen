@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { translate } from "@/lib/i18n";
 
 const GIPHY_API_KEY = process.env.GIPHY_API_KEY;
 const GIPHY_BASE_URL = "https://api.giphy.com/v1/gifs";
@@ -33,7 +34,7 @@ export type GifResult = {
 // use.
 export async function GET(request: NextRequest) {
   if (!GIPHY_API_KEY) {
-    return NextResponse.json({ error: "GIF search not configured" }, { status: 404 });
+    return NextResponse.json({ error: translate("api.giphy.search.route.gifSearchNotConfigured") }, { status: 404 });
   }
 
   const query = (request.nextUrl.searchParams.get("q") ?? "").trim().slice(0, QUERY_MAX_LEN);
@@ -48,10 +49,10 @@ export async function GET(request: NextRequest) {
   try {
     response = await fetch(upstream, { signal: AbortSignal.timeout(8000) });
   } catch {
-    return NextResponse.json({ error: "GIF search unavailable" }, { status: 502 });
+    return NextResponse.json({ error: translate("api.giphy.search.route.gifSearchUnavailable") }, { status: 502 });
   }
   if (!response.ok) {
-    return NextResponse.json({ error: "GIF search unavailable" }, { status: 502 });
+    return NextResponse.json({ error: translate("api.giphy.search.route.gifSearchUnavailable") }, { status: 502 });
   }
 
   const body = (await response.json()) as { data?: GiphyGif[] };

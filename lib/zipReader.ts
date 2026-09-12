@@ -1,4 +1,5 @@
 "use client";
+import { translate } from "@/lib/i18n";
 
 // A minimal ZIP reader, written here rather than pulled in as a dependency.
 // What it has to do is narrow — list the entries of a zip someone picked off
@@ -112,22 +113,22 @@ async function findCentralDirectory(
     // ZIP64: the locator sits immediately before the EOCD and points at the
     // real record, which holds the 64-bit values.
     const locatorAt = file.size - tailSize + i - 20;
-    if (locatorAt < 0) throw new ZipError("Zip inválido: diretório não encontrado.");
+    if (locatorAt < 0) throw new ZipError(translate("zipReader.invalidZipDirectoryNotFound"));
     const locator = await readSlice(file, locatorAt, locatorAt + 20);
     if (locator.getUint32(0, true) !== ZIP64_EOCD_LOCATOR_SIGNATURE) {
-      throw new ZipError("Zip inválido: diretório não encontrado.");
+      throw new ZipError(translate("zipReader.invalidZipDirectoryNotFound"));
     }
     const zip64At = Number(locator.getBigUint64(8, true));
     const zip64 = await readSlice(file, zip64At, zip64At + 56);
     if (zip64.getUint32(0, true) !== ZIP64_EOCD_SIGNATURE) {
-      throw new ZipError("Zip inválido: diretório não encontrado.");
+      throw new ZipError(translate("zipReader.invalidZipDirectoryNotFound"));
     }
     return {
       entryCount: Number(zip64.getBigUint64(32, true)),
       offset: Number(zip64.getBigUint64(48, true)),
     };
   }
-  throw new ZipError("Isso não parece ser um arquivo .zip.");
+  throw new ZipError(translate("zipReader.thatDoesNotLookLikeA"));
 }
 
 // The entry list, read from the central directory alone — no entry data is
@@ -198,13 +199,13 @@ export async function readZipEntryBlob(
   entry: ZipEntry,
   type: string
 ): Promise<Blob> {
-  if (entry.encrypted) throw new ZipError(`"${entry.name}" está protegido por senha.`);
+  if (entry.encrypted) throw new ZipError(translate("zipReader.nameIsPasswordProtected", { name: entry.name }));
   if (entry.method !== METHOD_STORED && entry.method !== METHOD_DEFLATE) {
-    throw new ZipError(`"${entry.name}" usa uma compressão que o navegador não abre.`);
+    throw new ZipError(translate("zipReader.nameUsesACompressionTheBrowser", { name: entry.name }));
   }
   const header = await readSlice(file, entry.localHeaderOffset, entry.localHeaderOffset + 30);
   if (header.getUint32(0, true) !== LOCAL_FILE_SIGNATURE) {
-    throw new ZipError(`"${entry.name}" está corrompido dentro do zip.`);
+    throw new ZipError(translate("zipReader.nameIsCorruptedInsideTheZip", { name: entry.name }));
   }
   const nameLength = header.getUint16(26, true);
   const extraLength = header.getUint16(28, true);
@@ -212,7 +213,7 @@ export async function readZipEntryBlob(
   const data = file.slice(dataStart, dataStart + entry.compressedSize);
   if (entry.method === METHOD_STORED) return data.slice(0, data.size, type);
   if (typeof DecompressionStream === "undefined") {
-    throw new ZipError("Este navegador não sabe descompactar zip. Extraia a pasta e escolha ela.");
+    throw new ZipError(translate("zipReader.thisBrowserCannotUnzipFilesExtract"));
   }
   // "deflate-raw" and not "deflate": a zip entry holds the bare deflate
   // stream, with none of the zlib header/checksum that "deflate" expects.

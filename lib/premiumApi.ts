@@ -3,6 +3,7 @@
 import { getAccountToken } from "./accountApi";
 import type { PremiumState } from "./accountApi";
 import { getSignalingHttpBase } from "./roomsApi";
+import { translate } from "@/lib/i18n";
 
 // The subscription's client half. Four calls, and none of them decides
 // anything: the price comes from the API, the checkout happens at Mercado
@@ -168,13 +169,13 @@ export async function startPremiumCheckout(
     if (!res.ok || !data.checkoutUrl) {
       return {
         ok: false,
-        error: data.error ?? "Não foi possível iniciar o pagamento.",
+        error: data.error ?? translate("premiumApi.couldNotStartThePayment"),
         needsEmail: data.needsEmail,
       };
     }
     return { ok: true, checkoutUrl: data.checkoutUrl };
   } catch {
-    return { ok: false, error: "Sem conexão com o servidor." };
+    return { ok: false, error: translate("common.noConnectionToTheServer") };
   }
 }
 
@@ -230,13 +231,13 @@ export async function startPixPayment(
     if (!res.ok || !data.paymentId) {
       return {
         ok: false,
-        error: data.error ?? "Não foi possível gerar o Pix.",
+        error: data.error ?? translate("premiumApi.couldNotGenerateThePix"),
         needsEmail: data.needsEmail,
       };
     }
     return { ok: true, charge: data as PixCharge };
   } catch {
-    return { ok: false, error: "Sem conexão com o servidor." };
+    return { ok: false, error: translate("common.noConnectionToTheServer") };
   }
 }
 
@@ -306,13 +307,13 @@ export async function startGiftPix(options: {
     if (!res.ok || !data.paymentId || !data.giftId) {
       return {
         ok: false,
-        error: data.error ?? "Não foi possível gerar o Pix do presente.",
+        error: data.error ?? translate("premiumApi.couldNotGenerateTheGiftS"),
         needsEmail: data.needsEmail,
       };
     }
     return { ok: true, charge: data as GiftCharge };
   } catch {
-    return { ok: false, error: "Sem conexão com o servidor." };
+    return { ok: false, error: translate("common.noConnectionToTheServer") };
   }
 }
 
@@ -461,7 +462,7 @@ export async function redeemGiftCode(code: string): Promise<RedeemGiftResult> {
     if (!res.ok || !data.ok) {
       return {
         ok: false,
-        error: data.error ?? "Não foi possível resgatar agora.",
+        error: data.error ?? translate("premiumApi.couldNotRedeemRightNow"),
         reason: data.reason ?? "unknown",
       };
     }
@@ -472,7 +473,7 @@ export async function redeemGiftCode(code: string): Promise<RedeemGiftResult> {
       currentPeriodEnd: data.currentPeriodEnd ?? 0,
     };
   } catch {
-    return { ok: false, error: "Sem conexão com o servidor.", reason: "unknown" };
+    return { ok: false, error: translate("common.noConnectionToTheServer"), reason: "unknown" };
   }
 }
 
@@ -510,11 +511,11 @@ export async function cancelPremium(): Promise<{ ok: boolean; error?: string }> 
     });
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Não foi possível cancelar agora." };
+      return { ok: false, error: data.error ?? translate("common.couldNotCancelRightNow") };
     }
     return { ok: true };
   } catch {
-    return { ok: false, error: "Sem conexão com o servidor." };
+    return { ok: false, error: translate("common.noConnectionToTheServer") };
   }
 }
 

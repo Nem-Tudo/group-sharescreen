@@ -28,6 +28,9 @@ import {
   type PixCharge,
   type PremiumPlan,
 } from "@/lib/premiumApi";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
+import { formatLocale } from "@/lib/i18n";
 
 // The Pro subscription page: what it costs, what it unlocks, and the one
 // button that starts or stops it.
@@ -56,26 +59,26 @@ import {
 // happened to the two avatar features — added to the ladder, never given a
 // sentence.
 const FEATURE_LABELS: Partial<Record<Feature, string>> = {
-  verified_badge: "Seja verificado e ganhe um selo de autenticidade",
-  quality_2160p: "Transmita em até 4K (2160p)",
-  quality_1440p: "Transmita em 2K (1440p)",
-  fps_120: "Até 240 quadros por segundo",
-  bitrate_maximo: "Bitrate de até 32 Mbps",
-  no_ads: "Navegue sem anúncios",
-  avatar_gallery: "Avatares exclusivos para a sua foto de perfil",
-  avatar_upload: "Use qualquer imagem sua como foto de perfil",
-  banner_upload: "Envie o seu próprio banner de perfil",
-  profile_gradient: "Escolha as cores de fundo do seu perfil",
-  profile_song: "Coloque uma música no seu perfil",
-  room_theme: "Crie temas e deixe as salas com a sua cara",
-  room_theme_publish: "Publique seus temas no Descobrir para todo mundo usar",
-  room_theme_set: "Troque o tema de qualquer sala em que você estiver",
-  room_theme_gradient: "Use degradê no fundo dos seus temas",
+  get verified_badge() { return translate("pro.proPanel.beVerifiedAndGetAnAuthenticity"); },
+  get quality_2160p() { return translate("pro.proPanel.broadcastInUpTo4k2160p"); },
+  get quality_1440p() { return translate("pro.proPanel.broadcastIn2k1440p"); },
+  get fps_120() { return translate("pro.proPanel.upTo240FramesPerSecond"); },
+  get bitrate_maximo() { return translate("pro.proPanel.bitrateOfUpTo32Mbps"); },
+  get no_ads() { return translate("pro.proPanel.browseWithNoAds"); },
+  get avatar_gallery() { return translate("pro.proPanel.exclusiveAvatarsForYourProfilePicture"); },
+  get avatar_upload() { return translate("pro.proPanel.useAnyImageOfYoursAs"); },
+  get banner_upload() { return translate("pro.proPanel.uploadYourOwnProfileBanner"); },
+  get profile_gradient() { return translate("pro.proPanel.chooseYourProfileSBackgroundColours"); },
+  get profile_song() { return translate("pro.proPanel.putASongOnYourProfile"); },
+  get room_theme() { return translate("pro.proPanel.createThemesAndGiveRoomsYour"); },
+  get room_theme_publish() { return translate("pro.proPanel.publishYourThemesOnDiscoverFor"); },
+  get room_theme_set() { return translate("pro.proPanel.changeTheThemeOfAnyRoom"); },
+  get room_theme_gradient() { return translate("pro.proPanel.useAGradientInYourThemes"); },
 };
 
 function periodEndLabel(timestamp: number): string {
   try {
-    return new Date(timestamp).toLocaleDateString("pt-BR", {
+    return new Date(timestamp).toLocaleDateString(formatLocale(), {
       day: "2-digit",
       month: "long",
       year: "numeric",
@@ -143,6 +146,7 @@ export function ProPanel({
   initialPlanId?: string;
   onClose?: () => void;
 } = {}) {
+  const t = useT();
   const { account, loading: resolvingAccount, refresh } = useAuth();
   // Read once, in an initializer: Date.now() during render is an impure call
   // and React 19 rejects it. A deadline this far out does not need to tick —
@@ -152,7 +156,7 @@ export function ProPanel({
   const [cycle, setCycle] = useState<BillingCycle>("monthly");
   const [plans, setPlans] = useState<PremiumPlan[]>([]);
   // Which plan the page opens on, when whatever linked here named one:
-  // /pro?plano=premium_max is where the header sends somebody who already has
+  // /pro?plan=premium_max is where the header sends somebody who already has
   // Pro, and landing them on the cheapest plan would be answering "what is
   // above what I pay for?" with the thing they already bought.
   //
@@ -166,7 +170,7 @@ export function ProPanel({
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(() => {
     if (initialPlanId) return initialPlanId;
     if (typeof window === "undefined") return null;
-    return new URLSearchParams(window.location.search).get("plano");
+    return new URLSearchParams(window.location.search).get("plan");
   });
   // "Presentear" is a popup owned by the library rather than markup on this
   // page, which is what lets it be offered from every state below — and what
@@ -316,7 +320,7 @@ export function ProPanel({
     return included ? (
       row
     ) : (
-      <Tooltip key={feature} content="Disponível em outro plano" placement="top-start">
+      <Tooltip key={feature} content={t("pro.proPanel.availableOnAnotherPlan")} placement="top-start">
         {row}
       </Tooltip>
     );
@@ -349,7 +353,7 @@ export function ProPanel({
         >
           <MdCheck className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-500" />
           <BsCoin className="-mr-0.5 h-4 w-4 shrink-0 text-amber-500" />
-          Mais {entry.dailyPoints} pontos por dia de assinatura
+          {t("pro.proPanel.more")} {entry.dailyPoints} pontos por dia de assinatura
         </li>
       ) : null,
     ].filter(Boolean);
@@ -585,10 +589,10 @@ export function ProPanel({
     setBusy(true);
     setError(null);
     const result = await cancelPremium();
-    if (!result.ok) setError(result.error ?? "Não foi possível cancelar agora.");
+    if (!result.ok) setError(result.error ?? t("common.couldNotCancelRightNow"));
     await refresh();
     setBusy(false);
-  }, [refresh]);
+  }, [refresh, t]);
 
 
 
@@ -598,7 +602,7 @@ export function ProPanel({
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-            {plan?.title ?? "GoLive Pro"}
+            {plan?.title ?? t("common.golivePro")}
             {/* The plan's own mark, chosen by its `iconId` in the database (see
                 components/planIcons.tsx). Rendered from the plan rather than
                 hardcoded here for the same reason the price is read from it: the
@@ -606,14 +610,14 @@ export function ProPanel({
             <PlanMark className={`h-6 w-6 shrink-0 ${mark.className}`} />
           </h1>
           <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-            {plan?.description ?? "Mais qualidade na sua transmissão."}
+            {plan?.description ?? t("pro.proPanel.moreQualityInYourBroadcast")}
           </p>
         </div>
         {onClose && (
           <button
             type="button"
             onClick={onClose}
-            aria-label="Fechar"
+            aria-label={t("common.close")}
             className="rounded-lg p-1.5 text-zinc-400 transition hover:bg-zinc-200 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 cursor-pointer"
           >
             <MdClose className="h-5 w-5" />
@@ -636,11 +640,9 @@ export function ProPanel({
           />
           <BsStars className="relative mt-0.5 h-5 w-5 shrink-0 text-emerald-500" />
           <p className="relative text-sm leading-relaxed text-emerald-900 dark:text-emerald-200">
-            <span className="font-semibold">Apoiador Inicial:</span> quem assinar qualquer plano
-            até <span className="font-semibold">18 de outubro</span> ganha a badge de Apoiador
-            Inicial no perfil, para sempre.{" "}
+            <span className="font-semibold">{t("pro.proPanel.earlySupporter")}</span> {t("pro.proPanel.whoeverSubscribesToAnyPlanUntil")} <span className="font-semibold">18 de outubro</span> {t("pro.proPanel.getsTheEarlySupporterBadgeOn")}{" "}
             <Link href="/badges" target="_blank" className="underline underline-offset-2">
-              Ver as badges
+              {t("pro.proPanel.seeTheBadges")}
             </Link>
           </p>
         </div>
@@ -674,7 +676,7 @@ export function ProPanel({
                       a month would be comparing two different things. */}
                   <span className="block text-xs opacity-80">
                     {(entry.cycles?.find((c) => c.cycle === cycle)?.priceLabel ?? entry.priceLabel)}{" "}
-                    {cycle === "yearly" ? "/ ano" : "/ mês"}
+                    {cycle === "yearly" ? "/ ano" : t("pro.proPanel.month")}
                   </span>
                 </span>
               </button>
@@ -685,10 +687,10 @@ export function ProPanel({
 
       <div className="mt-6 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
         {loadingPlan ? (
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">Carregando o plano…</p>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">{t("pro.proPanel.loadingThePlan")}</p>
         ) : !plan ? (
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            Não foi possível carregar o plano agora. Tente recarregar a página.
+            {t("pro.proPanel.couldNotLoadThePlanRight")}
           </p>
         ) : (
           <>
@@ -710,7 +712,7 @@ export function ProPanel({
                           : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
                       }`}
                     >
-                      {entry.cycle === "yearly" ? "Anual" : "Mensal"}
+                      {entry.cycle === "yearly" ? t("pro.proPanel.yearly") : t("pro.proPanel.monthly")}
                       {/* The saving on the tab itself, so the reason to look
                           at the yearly option is visible before opening it. */}
                       {entry.cycle === "yearly" && entry.discountPercent > 0 && (
@@ -743,7 +745,7 @@ export function ProPanel({
                 {pricing?.priceLabel ?? plan.priceLabel}
               </span>
               <span className="text-sm text-zinc-500 dark:text-zinc-400">
-                {cycle === "yearly" ? "/ ano" : "/ mês"}
+                {cycle === "yearly" ? "/ ano" : t("pro.proPanel.month")}
               </span>
               {pricing && pricing.discountPercent > 0 && (
                 <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
@@ -755,7 +757,7 @@ export function ProPanel({
               <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                 {/* The per-month figure, because a yearly total and a monthly
                     one cannot be compared as they stand. */}
-                Equivale a {pricing.monthlyEquivalentLabel} por mês.
+                {t("pro.proPanel.equivalentTo")} {pricing.monthlyEquivalentLabel} {t("pro.proPanel.perMonth")}
               </p>
             )}
 
@@ -773,16 +775,16 @@ export function ProPanel({
                 <div className="mb-4 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200">
                   <p className="font-medium">
                     {premium.lastRefusal.reason.startsWith("cc_rejected")
-                      ? "O pagamento no cartão foi recusado."
-                      : "O último pagamento não foi concluído."}
+                      ? t("pro.proPanel.theCardPaymentWasDeclined")
+                      : t("pro.proPanel.theLastPaymentWasNotCompleted")}
                   </p>
                   <p className="mt-1 text-red-700 dark:text-red-300/90">
-                    Nada foi cobrado. Você pode tentar outro cartão ou pagar por Pix aqui mesmo.
+                    {t("pro.proPanel.nothingWasChargedYouCanTry")}
                   </p>
                 </div>
               )}
               {resolvingAccount ? (
-                <p className="text-sm text-zinc-500 dark:text-zinc-400">Carregando…</p>
+                <p className="text-sm text-zinc-500 dark:text-zinc-400">{t("common.loading")}</p>
               ) : !account ? (
                 <div className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
                   <MdLock className="h-4 w-4 shrink-0" />
@@ -790,13 +792,13 @@ export function ProPanel({
                       clearing the browser, and a guest identity deliberately
                       does not. */}
                   <span>
-                    É preciso ter uma conta para assinar.{" "}
+                    {t("pro.proPanel.youNeedAnAccountToSubscribe")}{" "}
                     <button
                       type="button"
                       onClick={() => setAccountModal("create")}
                       className="font-medium underline underline-offset-2"
                     >
-                      Criar conta
+                      {t("common.createAccount")}
                     </button>
                   </span>
                 </div>
@@ -807,7 +809,7 @@ export function ProPanel({
                 // period already paid for.
                 <div className="flex flex-col gap-3">
                   <p className="text-sm text-zinc-700 dark:text-zinc-300">
-                    {`Assinatura ativa — renova em ${periodEndLabel(premium!.currentPeriodEnd)}.`}
+                    {t("pro.proPanel.activeSubscriptionRenewsOnValue", { value: periodEndLabel(premium!.currentPeriodEnd) })}
                   </p>
                   <button
                     type="button"
@@ -815,12 +817,12 @@ export function ProPanel({
                     disabled={busy}
                     className="self-start rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
                   >
-                    {busy ? "Cancelando…" : "Cancelar assinatura"}
+                    {busy ? t("pro.proPanel.cancelling") : t("pro.proPanel.cancelSubscription")}
                   </button>
                 </div>
               ) : !plan.available ? (
                 <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                  As assinaturas estão indisponíveis no momento.
+                  {t("pro.proPanel.subscriptionsAreUnavailableAtTheMoment")}
                 </p>
               ) : (
                 <div className="flex flex-col gap-3">
@@ -830,8 +832,8 @@ export function ProPanel({
                         ? // No renewal to mention: this ends, and saying
                           // "renova em" would promise a charge that is never
                           // coming.
-                          `Acesso ativo até ${periodEndLabel(premium!.currentPeriodEnd)}. Pago com Pix, não renova sozinho.`
-                        : `Assinatura cancelada — seu acesso continua até ${periodEndLabel(premium!.currentPeriodEnd)}.`}
+                          t("pro.proPanel.accessActiveUntilValuePaidWith", { value: periodEndLabel(premium!.currentPeriodEnd) })
+                        : t("pro.proPanel.subscriptionCancelledYourAccessContinues", { value: periodEndLabel(premium!.currentPeriodEnd) })}
                     </p>
                   )}
                   {checkoutUrl && (
@@ -847,11 +849,10 @@ export function ProPanel({
                           aria-hidden
                           className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent"
                         />
-                        Pagamento aberto em outra janela
+                        {t("pro.proPanel.paymentOpenedInAnotherWindow")}
                       </div>
                       <p className="text-amber-800 dark:text-amber-300/90">
-                        Conclua o pagamento por lá. Esta página se atualiza sozinha assim que a
-                        assinatura for confirmada.
+                        {t("pro.proPanel.completeThePaymentOverThereThis")}
                       </p>
                       <div className="flex flex-wrap gap-2">
                         <button
@@ -859,14 +860,14 @@ export function ProPanel({
                           onClick={handleReopenCheckout}
                           className="rounded-lg border border-amber-400 px-3 py-1.5 text-xs font-medium transition hover:bg-amber-100 dark:border-amber-500/50 dark:hover:bg-amber-500/15"
                         >
-                          Reabrir janela
+                          {t("pro.proPanel.reopenWindow")}
                         </button>
                         <button
                           type="button"
                           onClick={() => void syncStatus(true)}
                           className="rounded-lg border border-amber-400 px-3 py-1.5 text-xs font-medium transition hover:bg-amber-100 dark:border-amber-500/50 dark:hover:bg-amber-500/15"
                         >
-                          Já paguei, verificar
+                          {t("common.iAlreadyPaidCheck")}
                         </button>
                         {/* An escape hatch, because this state can otherwise
                             only be left by paying: a person who changed their
@@ -881,14 +882,14 @@ export function ProPanel({
                           }}
                           className="rounded-lg px-3 py-1.5 text-xs font-medium underline-offset-2 transition hover:underline"
                         >
-                          Cancelar
+                          {t("common.cancel")}
                         </button>
                       </div>
                     </div>
                   )}
                   {needsEmail && (
                     <label className="flex flex-col gap-1 text-sm text-zinc-700 dark:text-zinc-300">
-                      <span>E-mail para o pagamento</span>
+                      <span>{t("common.emailForThePayment")}</span>
                       <input
                         type="email"
                         value={email}
@@ -900,7 +901,7 @@ export function ProPanel({
                       <span className="text-xs text-zinc-500 dark:text-zinc-400">
                         {/* Said plainly because an email box on a payment page
                             invites the question, and the answer is short. */}
-                        Usado só para a cobrança no Mercado Pago. Não é salvo na sua conta.
+                        {t("common.usedOnlyForTheChargeOn")}
                       </span>
                     </label>
                   )}
@@ -931,10 +932,10 @@ export function ProPanel({
                         className="rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
                       >
                         {busy
-                          ? "Abrindo o pagamento…"
-                          : `${activeHere ? "Renovar" : active ? "Trocar" : "Assinar"} por ${
+                          ? t("pro.proPanel.openingThePayment")
+                          : `${activeHere ? t("pro.proPanel.renew") : active ? t("common.change") : t("pro.proPanel.subscribe")} por ${
                               pricing?.priceLabel ?? plan.priceLabel
-                            }${cycle === "yearly" ? "/ano" : "/mês"}`}
+                            }${cycle === "yearly" ? "/ano" : t("pro.proPanel.month2")}`}
                       </button>
                       {/* Pix's own teal rather than the page's neutral: it is
                           the colour people recognise the method by, and it is
@@ -950,7 +951,7 @@ export function ProPanel({
                       >
                         <PixIcon className="h-4 w-4 shrink-0" />
                         {busy
-                          ? "Gerando…"
+                          ? t("common.generating")
                           : `${pricing?.pixPriceLabel ?? plan.pixPriceLabel} por ${
                               pricing?.periodDays ?? 30
                             } dias`}
@@ -961,8 +962,7 @@ export function ProPanel({
                       moves rather than discovered after it. */}
                   {active && !activeHere && !checkoutUrl && !pixPending && (
                     <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                      Ao concluir, este plano substitui o atual — a cobrança anterior é
-                      encerrada e o período recomeça.
+                      {t("pro.proPanel.onCompletionThisPlanReplacesThe")}
                     </p>
                   )}
                 </div>
@@ -983,7 +983,7 @@ export function ProPanel({
                 className="mt-4 flex cursor-pointer items-center gap-2 text-sm font-medium text-zinc-600 underline-offset-2 transition hover:underline dark:text-zinc-400"
               >
                 <MdCardGiftcard className="h-4 w-4 shrink-0 text-emerald-500" />
-                Presentear alguém com um plano
+                {t("pro.proPanel.giftSomeoneAPlan")}
               </button>
             )}
 
@@ -1017,8 +1017,7 @@ export function ProPanel({
       />
 
       <p className="mt-4 text-xs text-zinc-400 dark:text-zinc-500">
-        O pagamento é processado pelo Mercado Pago. A cobrança é mensal e pode ser cancelada a
-        qualquer momento.
+        {t("pro.proPanel.thePaymentIsProcessedByMercado")}
       </p>
     </div>
   );

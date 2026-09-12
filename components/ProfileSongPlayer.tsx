@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { MdPause, MdPlayArrow } from "react-icons/md";
 import type { ProfileThemeStyle } from "@/lib/profileTheme";
+import { useT } from "@/lib/useI18n";
 
 // The song on somebody's profile: a name and a play control, never a video.
 //
@@ -51,6 +52,7 @@ export function ProfileSongPlayer({
   theme?: ProfileThemeStyle | null;
   className?: string;
 }) {
+  const t = useT();
   const frameRef = useRef<HTMLIFrameElement>(null);
   // Two states, not one. `started` is whether the embed exists; `playing` is
   // whether it is running. They were the same flag, and that is what made
@@ -61,7 +63,7 @@ export function ProfileSongPlayer({
   // are commands sent to it — see toggle — so it keeps its place.
   const [started, setStarted] = useState(autoPlay);
   const [playing, setPlaying] = useState(autoPlay);
-  const title = song.title || "Música do perfil";
+  const title = song.title || t("profileSongPlayer.profileSong");
   const Icon = playing ? MdPause : MdPlayArrow;
 
   /**
@@ -106,7 +108,7 @@ export function ProfileSongPlayer({
       <button
         type="button"
         onClick={toggle}
-        aria-label={playing ? `Parar ${title}` : `Tocar ${title}`}
+        aria-label={playing ? t("profileSongPlayer.stopTitle", { title }) : t("profileSongPlayer.playTitle", { title })}
         className={`flex w-full cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm font-medium transition ${
           theme
             ? ""

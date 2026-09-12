@@ -8,6 +8,7 @@ import { playFriendRequestSound } from "@/lib/soundEffects";
 import { useSocialGraph } from "@/lib/useSocialGraph";
 import { useSignalingSelector } from "@/lib/useSignalingSelector";
 import { selectAlertTarget } from "@/lib/signalingSelectors";
+import { translate } from "@/lib/i18n";
 
 // Turns changes in the social graph into things in the bell.
 //
@@ -37,9 +38,9 @@ export function SocialNotifier() {
       const isNew = pushNotification({
         id: `friend-request:${user.id}`,
         kind: "friend-request",
-        title: "Novo pedido de amizade",
+        title: translate("socialNotifier.newFriendRequest"),
         body: `${user.displayName} quer ser seu amigo.`,
-        href: "/amigos",
+        href: "/friends",
       });
       if (!isNew) continue;
       arrived += 1;
@@ -63,13 +64,13 @@ export function SocialNotifier() {
     // page is focused and visible, so this does not double up with the bell
     // the person is looking straight at.
     void showNotification({
-      title: arrived === 1 ? "Novo pedido de amizade" : `${arrived} pedidos de amizade`,
+      title: arrived === 1 ? translate("socialNotifier.newFriendRequest") : `${arrived} pedidos de amizade`,
       body:
         arrived === 1 && last
           ? `${last.name} quer ser seu amigo.`
-          : "Abra o GoLive para responder.",
+          : translate("socialNotifier.openGoliveToReply"),
       tag: "friend-requests",
-      onClick: () => router.push("/amigos"),
+      onClick: () => router.push("/friends"),
     });
     // alertTarget is read, not reacted to: a sweep re-run because the answer
     // moved finds nothing new in the bell, so it cannot chime twice.

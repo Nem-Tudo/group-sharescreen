@@ -9,6 +9,7 @@ import { selectRoom } from "@/lib/signalingSelectors";
 import { isActiveGroupVoiceRoom } from "@/lib/groupVoiceSession";
 import { DisplayUserName } from "./DisplayUserName";
 import type { VerifiedTone } from "@/lib/entitlements";
+import { useT } from "@/lib/useI18n";
 
 export type MemberActions = {
   // The stable user id (see the server's stableUserId) — what every room
@@ -84,6 +85,7 @@ export function MemberActionsMenu({
   onDone: () => void;
   showHeader?: boolean;
 }) {
+  const t = useT();
   const [confirmingBan, setConfirmingBan] = useState(false);
   // In a group's voice room, admins and bans are the group's (see the API's
   // syncGroupRoomManagers) and the server refuses both from inside the room —
@@ -103,7 +105,7 @@ export function MemberActionsMenu({
           <button
             type="button"
             onClick={onDone}
-            aria-label="Fechar"
+            aria-label={t("common.close")}
             className="-mr-1 -mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-lg leading-none opacity-60 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
           >
             ×
@@ -128,12 +130,12 @@ export function MemberActionsMenu({
               <FaCrown className="h-4 w-4 shrink-0 text-amber-500" />
               <span className="min-w-0">
                 <span className="block text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                  {isAdmin ? "Remover administrador" : "Tornar administrador"}
+                  {isAdmin ? t("memberActionsModal.removeAdministrator") : t("memberActionsModal.makeAdministrator")}
                 </span>
                 <span className="block text-[11px] text-zinc-500 dark:text-zinc-400">
                   {isAdmin
-                    ? "Volta a ser um participante comum"
-                    : "Pode expulsar, banir e gerenciar a sala"}
+                    ? t("memberActionsModal.goesBackToBeingAnOrdinary")
+                    : t("memberActionsModal.canKickBanAndManageThe")}
                 </span>
               </span>
             </button>
@@ -149,9 +151,9 @@ export function MemberActionsMenu({
             >
               <MdLogout className="h-4 w-4 shrink-0 text-amber-500" />
               <span className="min-w-0">
-                <span className="block text-sm font-medium">Expulsar da sala</span>
+                <span className="block text-sm font-medium">{t("memberActionsModal.kickFromTheRoom")}</span>
                 <span className="block text-[11px] text-zinc-500 dark:text-zinc-400">
-                  Sai agora, mas pode voltar
+                  {t("memberActionsModal.leavesNowButCanComeBack")}
                 </span>
               </span>
             </button>
@@ -161,8 +163,7 @@ export function MemberActionsMenu({
             (confirmingBan ? (
               <div className="rounded-lg border border-red-300 p-3 dark:border-red-900">
                 <p className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-300">
-                  Banir tira {name} da sala e impede que volte. Só o dono da sala pode desfazer,
-                  na aba <span className="font-medium">Banimentos</span> de Gerenciar sala.
+                  {t("memberActionsModal.banningRemoves")} {name} {t("memberActionsModal.fromTheRoomAndStopsThem")} <span className="font-medium">{t("common.bans")}</span> {t("memberActionsModal.tabOfManageRoom")}
                 </p>
                 <div className="mt-3 flex gap-2">
                   <button
@@ -173,14 +174,14 @@ export function MemberActionsMenu({
                     }}
                     className="flex-1 rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-700"
                   >
-                    Banir
+                    {t("common.ban")}
                   </button>
                   <button
                     type="button"
                     onClick={() => setConfirmingBan(false)}
                     className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900"
                   >
-                    Cancelar
+                    {t("common.cancel")}
                   </button>
                 </div>
               </div>
@@ -193,10 +194,10 @@ export function MemberActionsMenu({
                 <MdGavel className="h-4 w-4 shrink-0 text-red-500" />
                 <span className="min-w-0">
                   <span className="block text-sm font-medium text-red-600 dark:text-red-400">
-                    Banir da sala
+                    {t("memberActionsModal.banFromTheRoom")}
                   </span>
                   <span className="block text-[11px] text-zinc-500 dark:text-zinc-400">
-                    Sai agora e não consegue voltar
+                    {t("memberActionsModal.leavesNowAndCannotComeBack")}
                   </span>
                 </span>
               </button>

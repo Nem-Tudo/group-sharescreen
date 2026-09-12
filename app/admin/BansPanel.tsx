@@ -10,29 +10,32 @@ import {
   type BanSubject,
 } from "@/lib/adminApi";
 import { Tooltip } from "@/components/Tooltip";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
+import { formatLocale } from "@/lib/i18n";
 
 const POLL_INTERVAL_MS = 5000;
 
 const SUBJECTS: { value: BanSubject; placeholder: string; hint: string }[] = [
   {
     value: "ip",
-    placeholder: "Endereço IP",
-    hint: "Bloqueia a conexão com o site inteiro — quem estiver conectado cai na hora. É o mais fácil de contornar: um IP é compartilhado por todo mundo atrás do mesmo provedor e muda sozinho em rede móvel.",
+    get placeholder() { return translate("common.ipAddress"); },
+    get hint() { return translate("admin.bansPanel.blocksTheConnectionToTheWhole"); },
   },
   {
     value: "account",
-    placeholder: "Id da conta",
-    hint: "A conta não consegue mais entrar nem usar um token já emitido. Não impede a pessoa de voltar como convidado ou criar outra conta.",
+    get placeholder() { return translate("admin.bansPanel.accountId"); },
+    get hint() { return translate("admin.bansPanel.theAccountCanNoLongerSign"); },
   },
   {
     value: "fingerprint",
-    placeholder: "Fingerprint do navegador",
-    hint: "Bloqueia o navegador/aparelho: sobrevive a limpar dados, trocar de conta e mudar de IP. Não é infalível — um cliente modificado pode omitir o valor, e navegadores idênticos podem colidir.",
+    get placeholder() { return translate("admin.bansPanel.browserFingerprint"); },
+    get hint() { return translate("admin.bansPanel.blocksTheBrowserDeviceItSurvives"); },
   },
 ];
 
 function formatBanTime(ts: number): string {
-  return new Date(ts).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+  return new Date(ts).toLocaleString(formatLocale(), { dateStyle: "short", timeStyle: "short" });
 }
 
 const SUBJECT_BADGE_CLASS: Record<BanSubject, string> = {
@@ -48,6 +51,7 @@ function banKey(ban: Ban): string {
 }
 
 export function BansPanel() {
+  const t = useT();
   const [bans, setBans] = useState<Ban[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [removingKey, setRemovingKey] = useState<string | null>(null);
@@ -72,7 +76,7 @@ export function BansPanel() {
       } catch (err) {
         if (cancelled) return;
         if (err instanceof Error && err.message === "unauthorized") return;
-        setError("Não foi possível carregar os banimentos.");
+        setError(t("admin.bansPanel.couldNotLoadTheBans"));
       }
     }
 
@@ -82,7 +86,7 @@ export function BansPanel() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, []);
+  }, [t]);
 
   async function handleBan(e: FormEvent) {
     e.preventDefault();
@@ -101,7 +105,7 @@ export function BansPanel() {
       setReason("");
       setDurationMinutes("");
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Falha ao banir.");
+      setFormError(err instanceof Error ? err.message : t("admin.bansPanel.couldNotBan"));
     } finally {
       setBanning(false);
     }
@@ -113,7 +117,7 @@ export function BansPanel() {
       await removeBan(ban.subject, ban.value);
       setBans((prev) => (prev ?? []).filter((b) => banKey(b) !== banKey(ban)));
     } catch {
-      setError("Falha ao remover o banimento.");
+      setError(t("admin.bansPanel.couldNotRemoveTheBan"));
     } finally {
       setRemovingKey(null);
     }
@@ -123,10 +127,9 @@ export function BansPanel() {
 
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-      <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Banimentos</h2>
+      <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">{t("common.bans")}</h2>
       <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-        Um banimento vale na hora: quem já estiver conectado é desconectado imediatamente. Também
-        dá para banir direto da aba Moderação, na linha de cada pessoa.
+        {t("admin.bansPanel.aBanAppliesImmediatelyAnyoneAlready")}
       </p>
 
       <div className="mt-3 flex flex-wrap gap-1.5">
@@ -158,16 +161,16 @@ export function BansPanel() {
         <input
           value={reason}
           onChange={(e) => setReason(e.target.value)}
-          placeholder="Motivo (opcional)"
+          placeholder={t("admin.bansPanel.reasonOptional")}
           className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
         />
-        <Tooltip content="Duração em minutos — deixe vazio para um banimento permanente">
+        <Tooltip content={t("admin.bansPanel.durationInMinutesLeaveEmptyFor")}>
           <input
             value={durationMinutes}
             onChange={(e) => setDurationMinutes(e.target.value)}
             type="number"
             min={1}
-            placeholder="Minutos (vazio = permanente)"
+            placeholder={t("admin.bansPanel.minutesEmptyPermanent")}
             className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
           />
         </Tooltip>
@@ -176,7 +179,7 @@ export function BansPanel() {
           disabled={banning || !value.trim()}
           className="shrink-0 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {banning ? "Banindo..." : "Banir"}
+          {banning ? t("admin.bansPanel.banning") : t("common.ban")}
         </button>
       </form>
       {formError && <p className="mt-1 text-sm text-red-500">{formError}</p>}
@@ -188,10 +191,10 @@ export function BansPanel() {
           </p>
         )}
         {!error && bans === null && (
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">Carregando...</p>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">{t("common.loading2")}</p>
         )}
         {!error && bans !== null && bans.length === 0 && (
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">Nenhum banimento no momento.</p>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">{t("admin.bansPanel.noBansAtTheMoment")}</p>
         )}
         <ul className="flex flex-col gap-2">
           {(bans ?? []).map((ban) => (
@@ -213,8 +216,8 @@ export function BansPanel() {
                   </span>
                 </p>
                 <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  {ban.reason || "Sem motivo informado"} · banido em {formatBanTime(ban.createdAt)}
-                  {ban.expiresAt ? ` · expira em ${formatBanTime(ban.expiresAt)}` : " · permanente"}
+                  {ban.reason || t("admin.bansPanel.noReasonGiven")} {t("admin.bansPanel.bannedOn")} {formatBanTime(ban.createdAt)}
+                  {ban.expiresAt ? t("admin.bansPanel.expiresOnValue", { value: formatBanTime(ban.expiresAt) }) : " · permanente"}
                 </p>
               </div>
               <button
@@ -223,7 +226,7 @@ export function BansPanel() {
                 disabled={removingKey === banKey(ban)}
                 className="shrink-0 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
               >
-                {removingKey === banKey(ban) ? "Removendo..." : "Remover banimento"}
+                {removingKey === banKey(ban) ? t("common.removing") : t("admin.bansPanel.removeBan")}
               </button>
             </li>
           ))}

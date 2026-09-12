@@ -2,6 +2,7 @@ import { VerifiedBadge } from "./VerifiedBadge";
 import type { VerifiedTone } from "@/lib/entitlements";
 import { Tooltip } from "./Tooltip";
 import { BotTag } from "./BotTag";
+import { translate } from "@/lib/i18n";
 
 // Single place that renders a person's display name — every "name" shown
 // anywhere in the app (participant list, video tile labels, chat messages,
@@ -58,9 +59,9 @@ export function DisplayUserName({
       {bot && <BotTag className="ml-1" />}
       {isGuest && <span className="font-normal text-zinc-500" style={{ marginLeft: "4px" }}>(guest)</span>}
       {connectionLost && (
-        <Tooltip content="Conexão perdida com essa pessoa — tentando reconectar">
+        <Tooltip content={translate("displayUserName.connectionLostWithThisPersonTrying")}>
           <span
-            aria-label="Conexão perdida"
+            aria-label={translate("displayUserName.connectionLost")}
             className="ml-1.5 inline-block h-2 w-2 shrink-0 rounded-full bg-red-500 align-middle"
           />
         </Tooltip>

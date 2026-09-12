@@ -2,6 +2,7 @@
 
 import { MdClose, MdCheck, MdContentCopy } from "react-icons/md";
 import { ObsSourceIcon } from "./icons";
+import { useT } from "@/lib/useI18n";
 
 /**
  * Tutorial modal that opens after the OBS Browser Source link is copied.
@@ -20,6 +21,7 @@ export function ObsBrowserSourceModal({
   url: string;
   onClose: () => void;
 }) {
+  const t = useT();
   if (!open) return null;
 
   return (
@@ -35,12 +37,12 @@ export function ObsBrowserSourceModal({
         <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
           <span className="flex items-center gap-2 text-base font-semibold text-zinc-900 dark:text-white">
             <ObsSourceIcon className="h-5 w-5" />
-            Link de Transmissão (Browser Source)
+            {t("obsBrowserSourceModal.broadcastLinkBrowserSource")}
           </span>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Fechar"
+            aria-label={t("common.close")}
             className="rounded-full p-1.5 text-zinc-500 transition hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
           >
             <MdClose className="h-5 w-5" />
@@ -52,7 +54,7 @@ export function ObsBrowserSourceModal({
           {/* Success banner */}
           <div className="mb-5 flex items-center gap-2.5 rounded-xl bg-emerald-500/10 px-4 py-3 text-sm font-medium text-emerald-700 dark:text-emerald-400">
             <MdCheck className="h-5 w-5 shrink-0" />
-            Link copiado para a área de transferência!
+            {t("obsBrowserSourceModal.linkCopiedToTheClipboard")}
           </div>
 
           {/* URL preview */}
@@ -72,8 +74,8 @@ export function ObsBrowserSourceModal({
                 1
               </span>
               <span>
-                Abra este link diretamente no <strong>navegador web</strong> ou adicione como{" "}
-                <strong>&quot;Navegador&quot; (Browser Source)</strong> em seu programa de transmissão (OBS, Streamlabs, etc.).
+                {t("obsBrowserSourceModal.openThisLinkDirectlyInThe")} <strong>navegador web</strong> ou adicione como{" "}
+                <strong>{t("obsBrowserSourceModal.browserBrowserSource")}</strong> {t("obsBrowserSourceModal.inYourBroadcastingProgramObsStreamlabs")}
               </span>
             </li>
             <li className="flex gap-3">
@@ -81,7 +83,7 @@ export function ObsBrowserSourceModal({
                 2
               </span>
               <span>
-                Cole o link copiado na barra de endereços ou no campo <strong>&quot;URL&quot;</strong> da fonte.
+                {t("obsBrowserSourceModal.pasteTheCopiedLinkIntoThe")} <strong>{t("obsBrowserSourceModal.url")}</strong> da fonte.
               </span>
             </li>
             <li className="flex gap-3">
@@ -89,8 +91,7 @@ export function ObsBrowserSourceModal({
                 3
               </span>
               <span>
-                Defina a <strong>largura</strong> e <strong>altura</strong> desejadas
-                (ex: 1920 × 1080).
+                {t("common.setThe")} <strong>{t("common.width")}</strong> {t("common.andWord")} <strong>{t("common.height")}</strong> {t("obsBrowserSourceModal.youWantEG19201080")}
               </span>
             </li>
             <li className="flex gap-3">
@@ -98,7 +99,7 @@ export function ObsBrowserSourceModal({
                 4
               </span>
               <span>
-                A transmissão aparecerá diretamente na tela do navegador ou na cena de transmissão.
+                {t("obsBrowserSourceModal.theBroadcastWillAppearDirectlyOn")}
               </span>
             </li>
           </ol>
@@ -106,10 +107,10 @@ export function ObsBrowserSourceModal({
           {/* Tip */}
           <div className="mt-5 space-y-2">
             <div className="rounded-xl bg-purple-500/10 px-4 py-3 text-sm text-purple-700 dark:text-purple-300">
-              <strong>Segurança:</strong> Este link está vinculado à sua conta de administrador. Por privacidade e controle, a transmissão só funciona enquanto você estiver conectado nesta chamada.
+              <strong>{t("obsBrowserSourceModal.security")}</strong> {t("obsBrowserSourceModal.thisLinkIsTiedToYour")}
             </div>
             <div className="rounded-xl bg-blue-500/10 px-4 py-3 text-sm text-blue-700 dark:text-blue-400">
-              <strong>Dica:</strong> Cada transmissão da sala tem seu próprio link. Adicione várias fontes &quot;Navegador&quot; para compor sua cena com múltiplas transmissões ao mesmo tempo.
+              <strong>{t("obsBrowserSourceModal.tip")}</strong> {t("obsBrowserSourceModal.eachOfTheRoomSBroadcasts")}
             </div>
           </div>
         </div>
@@ -121,7 +122,7 @@ export function ObsBrowserSourceModal({
             onClick={onClose}
             className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
           >
-            Concluído
+            {t("common.done")}
           </button>
         </div>
       </div>

@@ -9,6 +9,7 @@ import {
   THEME_VIEW_ROOM_NAME,
   toPrivateRoomHandle,
 } from "./roomsApi";
+import { translate } from "@/lib/i18n";
 
 // Room themes: what one is, and how one is put on a screen.
 //
@@ -71,14 +72,14 @@ export interface RoomThemeSpec {
 
 /** The eight directions the picker offers — the profile gradient's own list. */
 export const GRADIENT_DIRECTIONS: { angle: number; label: string }[] = [
-  { angle: 180, label: "Para baixo" },
-  { angle: 0, label: "Para cima" },
-  { angle: 90, label: "Para a direita" },
-  { angle: 270, label: "Para a esquerda" },
-  { angle: 135, label: "Diagonal ↘" },
-  { angle: 225, label: "Diagonal ↙" },
-  { angle: 45, label: "Diagonal ↗" },
-  { angle: 315, label: "Diagonal ↖" },
+  { angle: 180, get label() { return translate("common.downwards"); } },
+  { angle: 0, get label() { return translate("common.upwards"); } },
+  { angle: 90, get label() { return translate("common.toTheRight"); } },
+  { angle: 270, get label() { return translate("common.toTheLeft"); } },
+  { angle: 135, get label() { return translate("common.diagonal"); } },
+  { angle: 225, get label() { return translate("common.diagonal2"); } },
+  { angle: 45, get label() { return translate("common.diagonal3"); } },
+  { angle: 315, get label() { return translate("common.diagonal4"); } },
 ];
 
 /** The CSS a gradient becomes, or null when there is none. */
@@ -146,14 +147,14 @@ export const THEME_AUTHOR_SHARE = 0.85;
 
 /** What each slot is called, and what it actually paints. For the editor. */
 export const PALETTE_LABELS: Record<keyof RoomThemePalette, { label: string; hint: string }> = {
-  page: { label: "Fundo", hint: "A página atrás de tudo" },
-  surface: { label: "Superfície", hint: "Cards, cabeçalho, chat" },
-  raised: { label: "Elevado", hint: "Controles sobre uma superfície" },
-  border: { label: "Borda", hint: "Linhas e divisórias" },
-  input: { label: "Campo", hint: "Caixas de texto e preenchimentos discretos" },
-  text: { label: "Texto", hint: "O texto principal" },
-  textSoft: { label: "Texto secundário", hint: "@usuário, rótulos, segunda linha" },
-  muted: { label: "Texto discreto", hint: "Dicas, horários, avisos vazios" },
+  page: { get label() { return translate("common.background"); }, get hint() { return translate("roomThemes.thePageBehindEverything"); } },
+  surface: { get label() { return translate("roomThemes.surface"); }, get hint() { return translate("roomThemes.cardsHeaderChat"); } },
+  raised: { get label() { return translate("roomThemes.raised"); }, get hint() { return translate("roomThemes.controlsOnTopOfASurface"); } },
+  border: { get label() { return translate("roomThemes.border"); }, get hint() { return translate("roomThemes.linesAndDividers"); } },
+  input: { get label() { return translate("roomThemes.field"); }, get hint() { return translate("roomThemes.textBoxesAndSubtleFills"); } },
+  text: { get label() { return translate("common.text"); }, get hint() { return translate("roomThemes.theMainText"); } },
+  textSoft: { get label() { return translate("roomThemes.secondaryText"); }, get hint() { return translate("roomThemes.usernameLabelsSecondLine"); } },
+  muted: { get label() { return translate("roomThemes.subtleText"); }, get hint() { return translate("roomThemes.hintsTimestampsEmptyNotices"); } },
 };
 
 /** The look a room has when nobody chose anything — the site's own dark. */
@@ -823,7 +824,7 @@ export function themeViewRoomLink(themeId: string): string {
  * there is no host to read and no clipboard to copy to.
  */
 export function themeLink(id: string): string {
-  const path = `/tema/${encodeURIComponent(id)}`;
+  const path = `/theme/${encodeURIComponent(id)}`;
   if (typeof window === "undefined") return path;
   return `${window.location.origin}${path}`;
 }
@@ -881,7 +882,7 @@ async function saveRequest(url: string, method: string, input: SaveThemeInput) {
   });
   const data = (await res.json().catch(() => ({}))) as { theme?: RoomTheme; error?: string };
   if (!res.ok || !data.theme) {
-    return { ok: false as const, error: data.error ?? "Não foi possível salvar o tema." };
+    return { ok: false as const, error: data.error ?? translate("roomThemes.couldNotSaveTheTheme") };
   }
   return { ok: true as const, theme: data.theme };
 }
@@ -890,7 +891,7 @@ export async function createTheme(input: SaveThemeInput): Promise<SaveThemeResul
   try {
     return await saveRequest(`${getSignalingHttpBase()}/themes`, "POST", input);
   } catch {
-    return { ok: false, error: "Sem conexão com o servidor." };
+    return { ok: false, error: translate("common.noConnectionToTheServer") };
   }
 }
 
@@ -902,7 +903,7 @@ export async function updateTheme(id: string, input: SaveThemeInput): Promise<Sa
       input
     );
   } catch {
-    return { ok: false, error: "Sem conexão com o servidor." };
+    return { ok: false, error: translate("common.noConnectionToTheServer") };
   }
 }
 
@@ -968,10 +969,10 @@ export async function buyTheme(id: string): Promise<BuyThemeResult> {
     });
     const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
     if (!res.ok || !data.ok) {
-      return { ok: false, error: data.error ?? "Não foi possível comprar agora." };
+      return { ok: false, error: data.error ?? translate("roomThemes.couldNotBuyRightNow") };
     }
     return { ok: true };
   } catch {
-    return { ok: false, error: "Sem conexão com o servidor." };
+    return { ok: false, error: translate("common.noConnectionToTheServer") };
   }
 }

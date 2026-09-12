@@ -65,6 +65,9 @@ import {
   withFreshPage,
   withOlderPage,
 } from "@/lib/dmThread";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
+import { formatLocale } from "@/lib/i18n";
 
 // Private messages, in a dialog.
 //
@@ -133,7 +136,7 @@ function getClockServer(): number {
 // ─── Labels ─────────────────────────────────────────────────────────────
 
 function timeLabel(ts: number): string {
-  return new Date(ts).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  return new Date(ts).toLocaleTimeString(formatLocale(), { hour: "2-digit", minute: "2-digit" });
 }
 
 function dayKey(ts: number): string {
@@ -143,9 +146,9 @@ function dayKey(ts: number): string {
 
 /** The separator above the first message of each day. */
 function dayLabel(ts: number, now: number): string {
-  if (dayKey(ts) === dayKey(now)) return "Hoje";
-  if (dayKey(ts) === dayKey(now - DAY_MS)) return "Ontem";
-  const label = new Date(ts).toLocaleDateString("pt-BR", {
+  if (dayKey(ts) === dayKey(now)) return translate("common.today");
+  if (dayKey(ts) === dayKey(now - DAY_MS)) return translate("common.yesterday");
+  const label = new Date(ts).toLocaleDateString(formatLocale(), {
     weekday: "long",
     day: "numeric",
     month: "long",
@@ -156,8 +159,8 @@ function dayLabel(ts: number, now: number): string {
 /** The list's right-hand column: a time today, a word yesterday, a date after. */
 function listTimeLabel(ts: number, now: number): string {
   if (dayKey(ts) === dayKey(now)) return timeLabel(ts);
-  if (dayKey(ts) === dayKey(now - DAY_MS)) return "Ontem";
-  return new Date(ts).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  if (dayKey(ts) === dayKey(now - DAY_MS)) return translate("common.yesterday");
+  return new Date(ts).toLocaleDateString(formatLocale(), { day: "2-digit", month: "2-digit" });
 }
 
 /**
@@ -169,7 +172,7 @@ function summary(message: Pick<DirectMessage, "text" | "kind" | "images">): stri
   if (message.kind === "gif") return "GIF";
   const count = message.images?.length ?? 0;
   if (count > 1) return `${count} imagens`;
-  if (count === 1 || message.kind === "image") return "Imagem";
+  if (count === 1 || message.kind === "image") return translate("common.image");
   return "";
 }
 
@@ -262,11 +265,12 @@ type Bubble = {
 // ─── Pieces ─────────────────────────────────────────────────────────────
 
 function ReplyButton({ target, onReply }: { target: DmReplyTo; onReply: (r: DmReplyTo) => void }) {
+  const t = useT();
   return (
     <button
       type="button"
-      aria-label="Responder"
-      title="Responder"
+      aria-label={t("common.reply")}
+      title={t("common.reply")}
       onClick={() => onReply(target)}
       className="shrink-0 self-center rounded-full p-1.5 text-zinc-400 opacity-100 transition hover:bg-zinc-100 hover:text-zinc-700 focus:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 dark:hover:bg-zinc-900 dark:hover:text-zinc-200"
     >
@@ -292,6 +296,7 @@ function MessageBubble({
   onDiscard: (clientId: string) => void;
   onMediaLoad: () => void;
 }) {
+  const t = useT();
   const { mine, status } = bubble;
   const failed = status === "failed";
   const images = bubble.images ?? [];
@@ -324,7 +329,7 @@ function MessageBubble({
             >
               <span className="block font-medium">@{bubble.replyTo.name}</span>
               <span className="line-clamp-2 break-words">
-                {bubble.replyTo.text || (bubble.replyTo.kind === "gif" ? "GIF" : "Imagem")}
+                {bubble.replyTo.text || (bubble.replyTo.kind === "gif" ? "GIF" : t("common.image"))}
               </span>
             </span>
           )}
@@ -332,7 +337,7 @@ function MessageBubble({
             <button
               type="button"
               onClick={() => onOpenImage([bubble.url!], 0, "GIF")}
-              aria-label="Ampliar o GIF"
+              aria-label={t("common.enlargeTheGif")}
               className="-mx-1 mb-1 block cursor-zoom-in rounded-lg text-left transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -352,14 +357,14 @@ function MessageBubble({
                 <button
                   key={`${index}:${url.slice(-24)}`}
                   type="button"
-                  onClick={() => onOpenImage(images, index, "Imagem")}
-                  aria-label="Ampliar a imagem"
+                  onClick={() => onOpenImage(images, index, t("common.image"))}
+                  aria-label={t("common.enlargeTheImage")}
                   className="block cursor-zoom-in overflow-hidden rounded-lg text-left transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={url}
-                    alt="Imagem"
+                    alt={t("common.image")}
                     onLoad={onMediaLoad}
                     className={`w-full rounded-lg object-cover ${
                       images.length > 1 ? "aspect-square" : "max-h-64 object-contain"
@@ -377,7 +382,7 @@ function MessageBubble({
               mine ? "text-white/60 dark:text-zinc-950/60" : "text-zinc-400"
             }`}
           >
-            {status === "sending" && <MdSchedule className="h-3 w-3" aria-label="Enviando" />}
+            {status === "sending" && <MdSchedule className="h-3 w-3" aria-label={t("directMessagesModal.sending")} />}
             {timeLabel(bubble.ts)}
           </span>
         </div>
@@ -387,21 +392,21 @@ function MessageBubble({
           <span className="mt-1 flex flex-wrap items-center justify-end gap-x-2 text-[11px] text-red-600 dark:text-red-400">
             <span className="flex items-center gap-1">
               <MdErrorOutline className="h-3.5 w-3.5 shrink-0" />
-              {bubble.error ?? "Não enviada"}
+              {bubble.error ?? t("common.notSent")}
             </span>
             <button
               type="button"
               onClick={() => onRetry(bubble.clientId!)}
               className="font-semibold underline underline-offset-2"
             >
-              Tentar de novo
+              {t("common.tryAgain2")}
             </button>
             <button
               type="button"
               onClick={() => onDiscard(bubble.clientId!)}
               className="text-zinc-500 underline underline-offset-2 dark:text-zinc-400"
             >
-              Descartar
+              {t("common.discard")}
             </button>
           </span>
         )}
@@ -457,6 +462,7 @@ export function DirectMessagesModal({
    */
   openWith?: string | null;
 }) {
+  const t = useT();
   const { account } = useAuth();
   const recentDms = useSignalingSelector(selectRecentDms);
   const now = useSyncExternalStore(subscribeClock, getClock, getClockServer);
@@ -794,7 +800,7 @@ export function DirectMessagesModal({
     const prepared: string[] = [];
     for (const file of picked) {
       if (!isSupportedChatImage(file)) {
-        setError({ userId: to, value: "Formato de imagem não suportado." });
+        setError({ userId: to, value: t("common.unsupportedImageFormat") });
         continue;
       }
       try {
@@ -803,7 +809,7 @@ export function DirectMessagesModal({
         const image = await prepareChatImage(file);
         prepared.push(image.dataUrl);
       } catch {
-        setError({ userId: to, value: "Não foi possível preparar a imagem." });
+        setError({ userId: to, value: t("directMessagesModal.couldNotPrepareTheImage") });
       }
     }
     if (prepared.length === 0) return;
@@ -917,7 +923,7 @@ export function DirectMessagesModal({
         ts: message.ts,
         replyTarget: {
           id: message.id,
-          name: mine ? "Você" : active?.displayName ?? "",
+          name: mine ? t("common.you") : active?.displayName ?? "",
           // Snapshotted from what is on screen. The API re-validates every
           // field before storing (see parseDmReplyTo).
           ...(message.text ? { text: message.text } : {}),
@@ -994,7 +1000,7 @@ export function DirectMessagesModal({
         <div
           role="dialog"
           aria-modal="true"
-          aria-label={active ? `Conversa com ${active.displayName}` : "Mensagens"}
+          aria-label={active ? t("directMessagesModal.conversationWithDisplayname", { displayName: active.displayName }) : t("common.messages")}
           // Full screen on a phone, where a floating card is mostly margin and
           // the keyboard would cover half of it; a card from `sm` up.
           className="flex h-dvh w-full flex-col overflow-hidden bg-white shadow-2xl sm:h-[min(44rem,88dvh)] sm:max-w-lg sm:rounded-2xl sm:border sm:border-black/10 dark:bg-zinc-950 sm:dark:border-white/10"
@@ -1005,8 +1011,8 @@ export function DirectMessagesModal({
               <button
                 type="button"
                 onClick={backToList}
-                aria-label="Voltar para as conversas"
-                title="Voltar"
+                aria-label={t("directMessagesModal.backToTheConversations")}
+                title={t("common.back")}
                 className="rounded-full p-1.5 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
               >
                 <MdArrowBack className="h-5 w-5" />
@@ -1036,7 +1042,7 @@ export function DirectMessagesModal({
               </div>
             ) : (
               <h2 className="flex-1 truncate px-1 text-base font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-                {activeId ? "Carregando…" : "Mensagens"}
+                {activeId ? t("common.loading") : t("common.messages")}
               </h2>
             )}
             {/* Only inside a thread, and only once we know who it is with.
@@ -1047,8 +1053,8 @@ export function DirectMessagesModal({
               <button
                 type="button"
                 onClick={() => void startCall(activeId)}
-                aria-label={`Ligar para ${active.displayName}`}
-                title={`Ligar para ${active.displayName}`}
+                aria-label={t("common.callDisplayname", { displayName: active.displayName })}
+                title={t("common.callDisplayname", { displayName: active.displayName })}
                 className="rounded-full p-1.5 text-emerald-600 transition hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
               >
                 <MdCall className="h-5 w-5" />
@@ -1057,8 +1063,8 @@ export function DirectMessagesModal({
             <button
               type="button"
               onClick={close}
-              aria-label="Fechar"
-              title="Fechar"
+              aria-label={t("common.close")}
+              title={t("common.close")}
               className="rounded-full p-1.5 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
             >
               <MdClose className="h-5 w-5" />
@@ -1072,14 +1078,14 @@ export function DirectMessagesModal({
                 listFailed ? (
                   <div className="flex flex-col items-center gap-2 px-6 py-12 text-center">
                     <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                      Não foi possível carregar as conversas.
+                      {t("directMessagesModal.couldNotLoadTheConversations")}
                     </p>
                     <button
                       type="button"
                       onClick={() => setListSeq((n) => n + 1)}
                       className="text-sm font-medium text-zinc-900 underline underline-offset-2 dark:text-zinc-100"
                     >
-                      Tentar de novo
+                      {t("common.tryAgain2")}
                     </button>
                   </div>
                 ) : (
@@ -1087,7 +1093,7 @@ export function DirectMessagesModal({
                 )
               ) : liveConversations.length === 0 ? (
                 <p className="px-6 py-12 text-center text-sm text-zinc-500 dark:text-zinc-400">
-                  Nenhuma conversa ainda. Abra o perfil de alguém para começar.
+                  {t("directMessagesModal.noConversationYetOpenSomeoneS")}
                 </p>
               ) : (
                 <ul className="flex flex-col gap-0.5 p-2">
@@ -1138,7 +1144,7 @@ export function DirectMessagesModal({
                                     : "text-zinc-500 dark:text-zinc-400"
                                 }`}
                               >
-                                {mine ? `Você: ${line}` : line}
+                                {mine ? t("directMessagesModal.youLine", { line }) : line}
                               </span>
                               {unread > 0 && (
                                 <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500 px-1.5 text-[11px] font-semibold text-white">
@@ -1170,14 +1176,14 @@ export function DirectMessagesModal({
                     threadFailed === activeId ? (
                       <div className="flex flex-col items-center gap-2 py-12 text-center">
                         <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                          Não foi possível abrir a conversa.
+                          {t("directMessagesModal.couldNotOpenTheConversation")}
                         </p>
                         <button
                           type="button"
                           onClick={() => setThreadSeq((n) => n + 1)}
                           className="text-sm font-medium text-zinc-900 underline underline-offset-2 dark:text-zinc-100"
                         >
-                          Tentar de novo
+                          {t("common.tryAgain2")}
                         </button>
                       </div>
                     ) : (
@@ -1194,7 +1200,7 @@ export function DirectMessagesModal({
                         />
                       )}
                       <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                        Diga oi para {active?.displayName ?? "essa pessoa"}.
+                        {t("directMessagesModal.sayHiTo")} {active?.displayName ?? "essa pessoa"}.
                       </p>
                     </div>
                   ) : (
@@ -1207,7 +1213,7 @@ export function DirectMessagesModal({
                             disabled={loadingOlder}
                             className="rounded-full px-3 py-1 text-xs font-medium text-zinc-500 transition hover:bg-zinc-100 disabled:opacity-60 dark:text-zinc-400 dark:hover:bg-zinc-900"
                           >
-                            {loadingOlder ? "Carregando…" : "Carregar mensagens anteriores"}
+                            {loadingOlder ? t("common.loading") : t("directMessagesModal.loadEarlierMessages")}
                           </button>
                         </div>
                       )}
@@ -1222,7 +1228,7 @@ export function DirectMessagesModal({
                     className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-zinc-950 px-3 py-1.5 text-xs font-medium text-white shadow-lg transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
                   >
                     <MdKeyboardArrowDown className="h-4 w-4" />
-                    Novas mensagens
+                    {t("directMessagesModal.newMessages")}
                   </button>
                 )}
               </div>
@@ -1232,16 +1238,16 @@ export function DirectMessagesModal({
                   <MdReply className="h-4 w-4 shrink-0 text-zinc-500" />
                   <span className="min-w-0 flex-1">
                     <span className="block font-medium text-zinc-700 dark:text-zinc-300">
-                      Respondendo a {replyingTo.name}
+                      {t("common.replyingTo")} {replyingTo.name}
                     </span>
                     <span className="block truncate text-zinc-500 dark:text-zinc-400">
-                      {replyingTo.text || (replyingTo.kind === "gif" ? "GIF" : "Imagem")}
+                      {replyingTo.text || (replyingTo.kind === "gif" ? "GIF" : t("common.image"))}
                     </span>
                   </span>
                   <button
                     type="button"
                     onClick={() => setReply(null)}
-                    aria-label="Cancelar resposta"
+                    aria-label={t("common.cancelReply")}
                     className="shrink-0 rounded-full p-1 text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800"
                   >
                     <MdClose className="h-4 w-4" />
@@ -1257,7 +1263,7 @@ export function DirectMessagesModal({
                   {attached.map((dataUrl, index) => (
                     <span key={`${index}:${dataUrl.slice(-24)}`} className="relative">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={dataUrl} alt="Anexo" className="h-14 w-14 rounded-lg object-cover" />
+                      <img src={dataUrl} alt={t("common.attachment")} className="h-14 w-14 rounded-lg object-cover" />
                       <button
                         type="button"
                         onClick={() =>
@@ -1267,7 +1273,7 @@ export function DirectMessagesModal({
                             value: attached.filter((_, i) => i !== index),
                           })
                         }
-                        aria-label="Remover imagem"
+                        aria-label={t("common.removeImage")}
                         className="absolute -right-1.5 -top-1.5 rounded-full bg-zinc-950 p-0.5 text-white shadow dark:bg-zinc-50 dark:text-zinc-950"
                       >
                         <MdClose className="h-3.5 w-3.5" />
@@ -1302,8 +1308,8 @@ export function DirectMessagesModal({
                   type="button"
                   onClick={() => fileRef.current?.click()}
                   disabled={attached.length >= CHAT_IMAGE_MAX_PER_MESSAGE}
-                  aria-label="Enviar imagem"
-                  title="Imagem"
+                  aria-label={t("common.sendImage")}
+                  title={t("common.image")}
                   className={iconButton}
                 >
                   <MdImage className="h-5 w-5" />
@@ -1331,7 +1337,7 @@ export function DirectMessagesModal({
                   <button
                     type="button"
                     onClick={() => setGifOpen((current) => !current)}
-                    aria-label="Enviar GIF"
+                    aria-label={t("common.sendGif")}
                     className={iconButton}
                   >
                     <MdGif className="h-5 w-5" />
@@ -1359,16 +1365,16 @@ export function DirectMessagesModal({
                     for (const file of files) list.items.add(file);
                     void handleFiles(list.files);
                   }}
-                  placeholder={attached.length > 0 ? "Legenda (opcional)…" : "Mensagem…"}
+                  placeholder={attached.length > 0 ? t("directMessagesModal.captionOptional") : t("directMessagesModal.message")}
                   maxLength={MAX_LENGTH}
-                  aria-label="Mensagem"
+                  aria-label={t("common.message")}
                   className="max-h-36 min-h-[2.5rem] min-w-0 flex-1 resize-none rounded-2xl border border-zinc-300 bg-white px-3.5 py-2 text-sm leading-5 text-zinc-950 outline-none transition focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
                 />
                 <button
                   type="submit"
                   disabled={!canSend}
-                  aria-label="Enviar"
-                  title="Enviar (Enter)"
+                  aria-label={t("common.send")}
+                  title={t("directMessagesModal.sendEnter")}
                   className="shrink-0 rounded-full bg-zinc-950 p-2.5 text-white transition hover:bg-zinc-800 disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
                 >
                   <MdSend className="h-5 w-5" />

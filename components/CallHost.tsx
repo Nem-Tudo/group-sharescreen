@@ -15,6 +15,8 @@ import { startRingtone, stopRingtone } from "@/lib/soundEffects";
 import { DEFAULT_AVATAR_PATH, UserAvatar } from "@/components/UserAvatar";
 import { isCallRoomHandle } from "@/lib/roomsApi";
 import { recentRoomPresentation } from "@/lib/recentRooms";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
 
 // The ringing screen — both directions of it.
 //
@@ -58,12 +60,13 @@ function absoluteAvatar(avatarUrl: string | null): string | null {
  * and the caller learning nobody picked up.
  */
 function noticeFor(reason: string | null): string | null {
-  if (reason === "declined") return "Chamada recusada.";
-  if (reason === "timeout") return "Ninguém atendeu.";
+  if (reason === "declined") return translate("callHost.callDeclined");
+  if (reason === "timeout") return translate("callHost.nobodyAnswered");
   return null;
 }
 
 export function CallHost() {
+  const t = useT();
   const { account } = useAuth();
   const router = useRouter();
   const {
@@ -158,7 +161,7 @@ export function CallHost() {
     const explained =
       !mine && !answered && callEnded?.reason === "declined" && callEnded.note
         ? {
-            name: callEnded.by?.displayName ?? "Alguém",
+            name: callEnded.by?.displayName ?? t("common.someone"),
             avatarUrl: callEnded.by?.avatarUrl ?? null,
             note: callEnded.note,
           }
@@ -277,8 +280,8 @@ export function CallHost() {
       if (announcedRef.current.has(call.id)) continue;
       announcedRef.current.add(call.id);
       void showNotification({
-        title: `${call.from.displayName} está te ligando`,
-        body: "Toque para atender.",
+        title: t("callHost.displaynameIsCallingYou", { displayName: call.from.displayName }),
+        body: t("callHost.tapToAnswer"),
         // Per call, so a second caller does not silently replace the first
         // one's notification the way a shared tag would.
         tag: `${CALL_NOTIFICATION_TAG}:${call.id}`,
@@ -291,7 +294,7 @@ export function CallHost() {
         onClick: () => window.focus(),
       });
     }
-  }, [incomingCalls, alertTarget]);
+  }, [incomingCalls, alertTarget, t]);
 
   // ─── Walking into the room ──────────────────────────────────────────────
   //
@@ -363,11 +366,11 @@ export function CallHost() {
         if (!result.noteDropped) return;
         setNotice((current) => ({
           ...current,
-          text: "Recusada, mas seu motivo não pôde ser enviado.",
+          text: t("callHost.declinedButYourReasonCouldNot"),
         }));
       });
     },
-    [incomingCall]
+    [incomingCall, t]
   );
 
   const onCancel = useCallback(() => {
@@ -405,11 +408,11 @@ export function CallHost() {
     upsertNotification({
       id: `call-missed:${caller.id}`,
       kind: "call-missed",
-      title: "Chamada perdida",
+      title: t("callHost.missedCall"),
       body: `${caller.displayName} te ligou.`,
       userId: caller.id,
     });
-  }, [account, callEnded, callEndedSeq]);
+  }, [account, callEnded, callEndedSeq, t]);
 
   // ─── Answered from the shell's own window ───────────────────────────────
   //
@@ -501,8 +504,8 @@ export function CallHost() {
               <p className="truncate text-sm text-zinc-500 dark:text-zinc-400">
                 {isIncoming
                   ? invitedRoom
-                    ? `está te chamando para a sala ${invitedRoom}`
-                    : "está te ligando…"
+                    ? t("callHost.isInvitingYouToTheRoom", { invitedRoom })
+                    : t("callHost.isCallingYou")
                   : "chamando…"}
               </p>
               {/* Only ever shown while somebody really is waiting behind this
@@ -549,8 +552,8 @@ export function CallHost() {
                     onDecline(reasonText.trim() || undefined);
                   }}
                   maxLength={500}
-                  placeholder="Motivo da recusa (opcional)"
-                  aria-label="Motivo da recusa (opcional)"
+                  placeholder={t("callHost.reasonForDecliningOptional")}
+                  aria-label={t("callHost.reasonForDecliningOptional")}
                   className="w-full resize-none rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-zinc-500"
                 />
 
@@ -561,7 +564,7 @@ export function CallHost() {
                     className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl bg-zinc-100 px-4 py-2.5 font-medium text-zinc-700 transition hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
                   >
                     <MdCallEnd className="h-5 w-5" />
-                    Recusar
+                    {t("common.decline")}
                   </button>
                   <button
                     type="button"
@@ -570,7 +573,7 @@ export function CallHost() {
                     className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 font-medium text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <MdCall className="h-5 w-5" />
-                    Atender
+                    {t("callHost.answer")}
                   </button>
                 </div>
 
@@ -582,7 +585,7 @@ export function CallHost() {
                 className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 font-medium text-white transition hover:bg-red-500"
               >
                 <MdCallEnd className="h-5 w-5" />
-                Cancelar
+                {t("common.cancel")}
               </button>
             )}
           </div>
@@ -620,7 +623,7 @@ export function CallHost() {
               onClick={() => setNotice((current) => ({ ...current, declined: null }))}
               className="w-full cursor-pointer rounded-xl bg-zinc-900 px-4 py-2.5 font-medium text-white transition hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
             >
-              Entendi
+              {t("callHost.gotIt")}
             </button>
           </div>
         </div>

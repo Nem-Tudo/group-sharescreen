@@ -15,6 +15,7 @@ import {
   type ShortcutAction,
 } from "@/lib/keyboardShortcuts";
 import { isDesktopApp } from "@/lib/desktop";
+import { useT } from "@/lib/useI18n";
 
 export function ShortcutQuickPopover({
   action,
@@ -33,6 +34,7 @@ export function ShortcutQuickPopover({
   onOpenAllShortcuts?: () => void;
   children: ReactElement<{ ref?: Ref<Element> }>;
 }) {
+  const t = useT();
   const { shortcuts, updateShortcut } = useShortcuts();
   const definition = SHORTCUT_DEFINITIONS.find((d) => d.id === action);
 
@@ -59,7 +61,7 @@ export function ShortcutQuickPopover({
             <div className="flex items-center gap-1.5">
               <MdKeyboard className="h-4 w-4 text-zinc-500 dark:text-zinc-400" />
               <h3 className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">
-                Atalho: {definition?.label ?? "Ação"}
+                {t("shortcutQuickPopover.shortcut")} {definition?.label ?? t("common.action")}
               </h3>
             </div>
             {/* Only outside the app — same reasoning as the modal's category
@@ -73,12 +75,12 @@ export function ShortcutQuickPopover({
                 href="https://golive.nemtudo.me/app"
                 target="_blank"
                 rel="noopener noreferrer"
-                title="Baixar aplicativo GoLive"
+                title={t("common.downloadTheGoliveApp")}
                 style={{ width: "fit-content", textWrap: "nowrap" }}
                 className="flex w-fit shrink-0 items-center gap-1 rounded-md bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium whitespace-nowrap text-indigo-700 transition hover:bg-indigo-100 hover:text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-400 dark:hover:bg-indigo-900/60 dark:hover:text-indigo-300"
               >
                 <MdOutlineDesktopWindows className="h-3 w-3" />
-                No app
+                {t("shortcutQuickPopover.inTheApp")}
               </a>
             )}
           </div>
@@ -97,13 +99,13 @@ export function ShortcutQuickPopover({
               >
                 <MdOutlineDesktopWindows className="mb-1.5 h-6 w-6 text-zinc-400 transition group-hover:text-indigo-600 dark:text-zinc-500 dark:group-hover:text-indigo-400" />
                 <p className="text-xs font-semibold text-zinc-800 transition group-hover:text-indigo-600 dark:text-zinc-200 dark:group-hover:text-indigo-400">
-                  Disponível no aplicativo
+                  {t("shortcutQuickPopover.availableInTheApp")}
                 </p>
                 <p className="mt-1 text-[11px] text-zinc-500 transition group-hover:text-zinc-700 dark:text-zinc-400 dark:group-hover:text-zinc-300">
-                  Este atalho só pode ser configurado e utilizado no aplicativo GoLive. Clique para baixar.
+                  {t("shortcutQuickPopover.thisShortcutCanOnlyBeSet")}
                 </p>
                 <span className="mt-2 inline-flex items-center gap-1 rounded-md bg-zinc-900 px-2.5 py-1 text-[11px] font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-zinc-200">
-                  Baixar aplicativo
+                  {t("shortcutQuickPopover.downloadTheApp")}
                 </span>
               </a>
 
@@ -118,7 +120,7 @@ export function ShortcutQuickPopover({
                     className="flex w-full items-center justify-center gap-1.5 rounded-lg py-1 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
                   >
                     <MdOutlineSettings className="h-3.5 w-3.5" />
-                    Ver todos os atalhos
+                    {t("shortcutQuickPopover.seeAllTheShortcuts")}
                   </button>
                 </div>
               )}
@@ -126,7 +128,7 @@ export function ShortcutQuickPopover({
           ) : !hasAccount ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 dark:border-amber-900/50 dark:bg-amber-950/30">
               <p className="mb-2 text-xs font-medium text-amber-800 dark:text-amber-300">
-                Utilize uma conta para configurar atalhos de teclado.
+                {t("shortcutQuickPopover.useAnAccountToSetUp")}
               </p>
               <button
                 type="button"
@@ -137,7 +139,7 @@ export function ShortcutQuickPopover({
                 className="flex w-full items-center justify-center gap-1.5 rounded-md bg-zinc-950 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
               >
                 <MdLogin className="h-3.5 w-3.5" />
-                Criar conta ou entrar
+                {t("common.createAnAccountOrSignIn")}
               </button>
             </div>
           ) : (
@@ -169,7 +171,7 @@ export function ShortcutQuickPopover({
                     className="flex w-full items-center justify-center gap-1.5 rounded-lg py-1 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
                   >
                     <MdOutlineSettings className="h-3.5 w-3.5" />
-                    Ver todos os atalhos
+                    {t("shortcutQuickPopover.seeAllTheShortcuts")}
                   </button>
                 </div>
               )}

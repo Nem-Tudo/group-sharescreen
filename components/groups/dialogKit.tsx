@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { useT } from "@/lib/useI18n";
 
 // The frame and the buttons every group popup is drawn with — GroupDialogs and
 // ChannelSettingsDialog — so the two files look like one set.
@@ -27,6 +28,7 @@ export function DialogFrame({
   children: ReactNode;
   wide?: boolean;
 }) {
+  const t = useT();
   return (
     <div
       className={`flex max-h-[90dvh] max-w-full flex-col gap-4 overflow-y-auto bg-white p-5 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50 ${
@@ -38,7 +40,7 @@ export function DialogFrame({
         <button
           type="button"
           onClick={onClose}
-          aria-label="Fechar"
+          aria-label={t("common.close")}
           className="-mr-1 -mt-1 flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-xl leading-none opacity-60 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
         >
           ×
@@ -81,6 +83,7 @@ export function DialogTabs<T extends string>({
 
 /** An on/off pill — the look the room's own permission switches have (see ManageRoomModal). */
 export function TogglePill({ on }: { on: boolean }) {
+  const t = useT();
   return (
     <span className={`relative h-5 w-9 shrink-0 rounded-full transition ${on ? "bg-emerald-600" : "bg-zinc-300 dark:bg-zinc-700"}`}>
       <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all ${on ? "left-[1.125rem]" : "left-0.5"}`} />

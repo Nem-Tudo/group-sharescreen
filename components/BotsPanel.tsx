@@ -5,6 +5,8 @@ import { MdAdd, MdArrowBack, MdContentCopy, MdCheck } from "react-icons/md";
 import { createBot, fetchMyBots, regenerateBotToken, type Account } from "@/lib/accountApi";
 import { DEFAULT_AVATAR_PATH } from "@/components/UserAvatar";
 import { BotTag } from "@/components/BotTag";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
 
 // The bots this account created, from the header's account menu (see
 // AccountMenu). A bot is an ordinary account that logs in with a token instead
@@ -33,10 +35,11 @@ const BOT_USERNAME_BASE_MAX = 20 - BOT_USERNAME_SUFFIX.length;
 // the Authorization header, so copying anything less would only invite a
 // "401" from somebody who pasted the bare token.
 function credentialFor(token: string): string {
-  return `Bot ${token}`;
+  return translate("botsPanel.botToken", { token });
 }
 
 export function BotsPanel({ onBack }: { onBack: () => void }) {
+  const t = useT();
   const [bots, setBots] = useState<Account[] | null>(null);
   const [max, setMax] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -66,12 +69,12 @@ export function BotsPanel({ onBack }: { onBack: () => void }) {
       <button
         type="button"
         onClick={onBack}
-        aria-label="Voltar"
+        aria-label={t("common.back")}
         className="rounded-md p-1 text-zinc-500 transition hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
       >
         <MdArrowBack className="h-4 w-4" />
       </button>
-      <p className="flex-1 text-sm font-semibold text-zinc-950 dark:text-zinc-50">Meus bots</p>
+      <p className="flex-1 text-sm font-semibold text-zinc-950 dark:text-zinc-50">{t("botsPanel.myBots")}</p>
       {bots && (
         <span className="text-xs text-zinc-500 tabular-nums dark:text-zinc-400">
           {bots.length}/{max}
@@ -111,10 +114,10 @@ export function BotsPanel({ onBack }: { onBack: () => void }) {
       {loadError ? (
         <p className="text-xs text-red-500">{loadError}</p>
       ) : !bots ? (
-        <p className="py-3 text-center text-xs text-zinc-500 dark:text-zinc-400">Carregando…</p>
+        <p className="py-3 text-center text-xs text-zinc-500 dark:text-zinc-400">{t("common.loading")}</p>
       ) : bots.length === 0 ? (
         <p className="text-xs text-zinc-500 dark:text-zinc-400">
-          Um bot é uma conta que entra no GoLive por código, com um token em vez de senha.
+          {t("botsPanel.aBotIsAnAccountThat")}
         </p>
       ) : (
         <ul className="flex max-h-64 flex-col gap-1 overflow-y-auto">
@@ -130,7 +133,7 @@ export function BotsPanel({ onBack }: { onBack: () => void }) {
           className={`flex items-center justify-center gap-1.5 ${primaryButtonClass}`}
         >
           <MdAdd className="h-4 w-4" />
-          Criar bot
+          {t("common.createBot")}
         </button>
       )}
     </div>
@@ -138,6 +141,7 @@ export function BotsPanel({ onBack }: { onBack: () => void }) {
 }
 
 function BotRow({ bot, onToken }: { bot: Account; onToken: (token: string) => void }) {
+  const t = useT();
   // Two presses, because the first one is not what it looks like: a new token
   // is also the end of the old one, and whatever is running on it stops.
   const [confirming, setConfirming] = useState(false);
@@ -150,7 +154,7 @@ function BotRow({ bot, onToken }: { bot: Account; onToken: (token: string) => vo
     try {
       onToken(await regenerateBotToken(bot.id));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao gerar um novo token.");
+      setError(err instanceof Error ? err.message : t("common.couldNotGenerateANewToken"));
       setBusy(false);
       setConfirming(false);
     }
@@ -175,7 +179,7 @@ function BotRow({ bot, onToken }: { bot: Account; onToken: (token: string) => vo
       {confirming ? (
         <div className="mt-2 flex flex-col gap-1.5">
           <p className="text-xs text-amber-600 dark:text-amber-400">
-            O token atual para de funcionar na hora. Continuar?
+            {t("botsPanel.theCurrentTokenStopsWorkingImmediately")}
           </p>
           <div className="flex gap-1.5">
             <button
@@ -184,7 +188,7 @@ function BotRow({ bot, onToken }: { bot: Account; onToken: (token: string) => vo
               onClick={regenerate}
               className={`flex-1 !py-1 !text-xs ${primaryButtonClass}`}
             >
-              {busy ? "Gerando…" : "Gerar novo token"}
+              {busy ? t("common.generating") : t("botsPanel.generateANewToken")}
             </button>
             <button
               type="button"
@@ -192,7 +196,7 @@ function BotRow({ bot, onToken }: { bot: Account; onToken: (token: string) => vo
               onClick={() => setConfirming(false)}
               className={`!py-1 !text-xs ${secondaryButtonClass}`}
             >
-              Cancelar
+              {t("common.cancel")}
             </button>
           </div>
         </div>
@@ -202,7 +206,7 @@ function BotRow({ bot, onToken }: { bot: Account; onToken: (token: string) => vo
           onClick={() => setConfirming(true)}
           className={`mt-2 w-full !py-1 !text-xs ${secondaryButtonClass}`}
         >
-          Gerar novo token
+          {t("botsPanel.generateANewToken")}
         </button>
       )}
       {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
@@ -217,6 +221,7 @@ function CreateBotForm({
   onCancel: () => void;
   onCreated: (bot: Account, token: string) => void;
 }) {
+  const t = useT();
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -229,7 +234,7 @@ function CreateBotForm({
     // does the same.
     if (trimmed.endsWith(BOT_USERNAME_SUFFIX)) trimmed = trimmed.slice(0, -BOT_USERNAME_SUFFIX.length);
     if (!new RegExp(`^[a-z0-9_]{1,${BOT_USERNAME_BASE_MAX}}$`).test(trimmed)) {
-      setError(`Use até ${BOT_USERNAME_BASE_MAX} letras, números ou _.`);
+      setError(t("botsPanel.useUpToBotUsernameBase", { BOT_USERNAME_BASE_MAX }));
       return;
     }
     setBusy(true);
@@ -238,7 +243,7 @@ function CreateBotForm({
       const { bot, token } = await createBot(trimmed, displayName.trim());
       onCreated(bot, token);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao criar o bot.");
+      setError(err instanceof Error ? err.message : t("common.couldNotCreateTheBot"));
       setBusy(false);
     }
   }
@@ -246,7 +251,7 @@ function CreateBotForm({
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-2">
       <label htmlFor="bot-username" className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
-        Usuário do bot
+        {t("botsPanel.botUsername")}
       </label>
       <div className="flex items-stretch">
         <input
@@ -264,24 +269,24 @@ function CreateBotForm({
         </span>
       </div>
       <label htmlFor="bot-display-name" className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
-        Nome de exibição
+        {t("common.displayName")}
       </label>
       <input
         id="bot-display-name"
         value={displayName}
         onChange={(e) => setDisplayName(e.target.value)}
         maxLength={24}
-        placeholder={username.trim() || "Meu"}
+        placeholder={username.trim() || t("botsPanel.my")}
         autoComplete="off"
         className={inputClass}
       />
       {error && <p className="text-xs text-red-500">{error}</p>}
       <div className="mt-1 flex gap-2">
         <button type="submit" disabled={busy || !username.trim()} className={`flex-1 ${primaryButtonClass}`}>
-          {busy ? "Criando…" : "Criar bot"}
+          {busy ? t("common.creating") : t("common.createBot")}
         </button>
         <button type="button" onClick={onCancel} disabled={busy} className={secondaryButtonClass}>
-          Cancelar
+          {t("common.cancel")}
         </button>
       </div>
     </form>
@@ -289,6 +294,7 @@ function CreateBotForm({
 }
 
 function TokenReveal({ bot, token, onDone }: { bot: Account; token: string; onDone: () => void }) {
+  const t = useT();
   const [copied, setCopied] = useState(false);
   const credential = credentialFor(token);
 
@@ -306,8 +312,7 @@ function TokenReveal({ bot, token, onDone }: { bot: Account; token: string; onDo
   return (
     <div className="flex flex-col gap-2">
       <p className="text-xs text-zinc-600 dark:text-zinc-400">
-        Token de <span className="font-semibold">@{bot.username}</span>. Guarde agora — ele não
-        aparece de novo.
+        {t("botsPanel.tokenFor")} <span className="font-semibold">@{bot.username}</span>{t("botsPanel.saveItNowItWillNot")}
       </p>
       <div className="flex items-stretch gap-1.5">
         <input
@@ -319,19 +324,18 @@ function TokenReveal({ bot, token, onDone }: { bot: Account; token: string; onDo
         <button
           type="button"
           onClick={copy}
-          aria-label="Copiar token"
+          aria-label={t("botsPanel.copyToken")}
           className={`flex shrink-0 items-center !px-2 ${secondaryButtonClass}`}
         >
           {copied ? <MdCheck className="h-4 w-4 text-emerald-500" /> : <MdContentCopy className="h-4 w-4" />}
         </button>
       </div>
       <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-        Envie no cabeçalho <code className="font-mono">Authorization</code>, ou como{" "}
-        <code className="font-mono">token</code> no <code className="font-mono">register</code> do
-        WebSocket.
+        {t("botsPanel.sendItInTheHeader")} <code className="font-mono">Authorization</code>, ou como{" "}
+        <code className="font-mono">token</code> no <code className="font-mono">register</code> {t("botsPanel.ofTheWebsocket")}
       </p>
       <button type="button" onClick={onDone} className={primaryButtonClass}>
-        Pronto
+        {t("botsPanel.done")}
       </button>
     </div>
   );

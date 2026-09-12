@@ -7,6 +7,7 @@ import {
   type AdminGift,
   type AdminPlanOption,
 } from "@/lib/adminApi";
+import { useI18n } from "@/lib/useI18n";
 
 // Minting a gift link nobody paid for.
 //
@@ -39,6 +40,7 @@ function giftLink(code: string): string {
 
 /** One minted code, with the button that matters. */
 function GiftRow({ gift }: { gift: AdminGift }) {
+  const { t, tc } = useI18n();
   const [copied, setCopied] = useState(false);
 
   async function copy() {
@@ -55,7 +57,7 @@ function GiftRow({ gift }: { gift: AdminGift }) {
   return (
     <li className="flex flex-col gap-1.5 rounded-lg border border-zinc-200 p-2.5 dark:border-zinc-800">
       <span className="text-xs text-zinc-500 dark:text-zinc-400">
-        {gift.planTitle} · {gift.days} dias
+        {gift.planTitle} · {tc("common.dayCount", gift.days)}
       </span>
       <div className="flex items-center gap-2">
         {/* Selectable and wrapped rather than truncated: if the clipboard is
@@ -69,7 +71,7 @@ function GiftRow({ gift }: { gift: AdminGift }) {
           onClick={() => void copy()}
           className="shrink-0 rounded-lg bg-zinc-950 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
         >
-          {copied ? "Copiado" : "Copiar"}
+          {copied ? t("common.copied") : t("common.copy")}
         </button>
       </div>
     </li>
@@ -77,6 +79,7 @@ function GiftRow({ gift }: { gift: AdminGift }) {
 }
 
 export function GiftPanel() {
+  const { t, tc } = useI18n();
   const [plans, setPlans] = useState<AdminPlanOption[]>([]);
   const [planId, setPlanId] = useState("");
   const [days, setDays] = useState(DEFAULT_DAYS);
@@ -94,12 +97,12 @@ export function GiftPanel() {
         setPlanId((current) => current || loaded[0]?.id || "");
       })
       .catch(() => {
-        if (!cancelled) setError("Não foi possível carregar os planos.");
+        if (!cancelled) setError(t("common.couldNotLoadThePlans"));
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [t]);
 
   async function handleGenerate() {
     if (!planId || busy || days < 1) return;
@@ -109,7 +112,7 @@ export function GiftPanel() {
       const gift = await createAdminGift(planId, days);
       setMinted((current) => [gift, ...current]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao gerar.");
+      setError(err instanceof Error ? err.message : t("admin.giftPanel.couldNotGenerate"));
     } finally {
       setBusy(false);
     }
@@ -120,11 +123,9 @@ export function GiftPanel() {
 
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-      <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Gerar presente</h2>
+      <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">{t("admin.giftPanel.generateGift")}</h2>
       <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-        Cria um link de presente sem cobrança. Quem abrir escolhe resgatar, e os dias entram na
-        conta dele — some ao que já tiver, e é recusado se a pessoa já tem um plano maior. Vale
-        uma vez só. Para dar direto a alguém que você já sabe quem é, use “Conceder plano” acima.
+        {t("admin.giftPanel.createsAGiftLinkWithNo")}
       </p>
 
       <div className="mt-3 flex flex-wrap gap-3">
@@ -133,7 +134,7 @@ export function GiftPanel() {
             htmlFor="gift-plan"
             className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400"
           >
-            Plano
+            {t("common.plan")}
           </label>
           <select
             id="gift-plan"
@@ -143,7 +144,7 @@ export function GiftPanel() {
           >
             {plans.map((plan) => (
               <option key={plan.id} value={plan.id}>
-                {plan.title} ({plan.priceLabel}){plan.active ? "" : " — fora de venda"}
+                {plan.title} ({plan.priceLabel}){plan.active ? "" : t("common.notForSale")}
               </option>
             ))}
           </select>
@@ -154,7 +155,7 @@ export function GiftPanel() {
             htmlFor="gift-days"
             className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400"
           >
-            Duração
+            {t("common.duration")}
           </label>
           {/* The preset and the number are one control in two halves, exactly
               as in "Conceder plano": the list is what is picked nine times out
@@ -172,10 +173,10 @@ export function GiftPanel() {
             >
               {DAY_PRESETS.map((preset) => (
                 <option key={preset} value={preset}>
-                  {preset} dias
+                  {tc("common.dayCount", preset)}
                 </option>
               ))}
-              <option value="custom">Outro…</option>
+              <option value="custom">{t("common.other")}</option>
             </select>
             <input
               type="number"
@@ -183,7 +184,7 @@ export function GiftPanel() {
               max={3650}
               value={days}
               onChange={(e) => setDays(Number(e.target.value))}
-              aria-label="Dias"
+              aria-label={t("common.days")}
               className={`${inputClass} w-24`}
             />
           </div>
@@ -197,7 +198,7 @@ export function GiftPanel() {
           disabled={!planId || busy || days < 1}
           className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {busy ? "Gerando..." : "Gerar link"}
+          {busy ? t("admin.giftPanel.generating") : t("admin.giftPanel.generateLink")}
         </button>
         {error && <span className="text-sm text-red-500">{error}</span>}
       </div>
@@ -205,7 +206,7 @@ export function GiftPanel() {
       {minted.length > 0 && (
         <div className="mt-4 border-t border-zinc-200 pt-3 dark:border-zinc-800">
           <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
-            Gerados agora — copie antes de sair da página
+            {t("admin.giftPanel.generatedNowCopyThemBeforeLeaving")}
           </p>
           <ul className="mt-2 flex flex-col gap-2">
             {minted.map((gift) => (

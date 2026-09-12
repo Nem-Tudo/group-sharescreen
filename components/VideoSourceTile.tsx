@@ -14,6 +14,8 @@ import {
 } from "@/lib/youtubePlayer";
 import { signalingClient } from "@/lib/signalingClient";
 import { BetaMark } from "./BetaMark";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
 
 // How far out of step with the room this player may drift before it is
 // pulled back, and how often that is checked. Tight: a third of a second is
@@ -152,9 +154,9 @@ function loadTwitchApi(): Promise<TwitchNamespace> {
     script.async = true;
     script.onload = () => {
       if (window.Twitch?.Player) resolve(window.Twitch);
-      else reject(new Error("Twitch API carregada sem Player"));
+      else reject(new Error(translate("videoSourceTile.twitchApiLoadedWithNoPlayer")));
     };
-    script.onerror = () => reject(new Error("Falha ao carregar o player da Twitch"));
+    script.onerror = () => reject(new Error(translate("videoSourceTile.couldNotLoadTheTwitchPlayer")));
     document.head.appendChild(script);
   }).catch((err) => {
     twitchApiPromise = null;
@@ -237,7 +239,7 @@ function buildKickPlayer(
 ): EmbeddedPlayer {
   const iframe = document.createElement("iframe");
   iframe.src = kickPlayerSrc(channel, options);
-  iframe.title = `Kick: ${channel}`;
+  iframe.title = translate("videoSourceTile.kickChannel", { channel });
   iframe.allow = "autoplay; fullscreen; picture-in-picture; encrypted-media";
   iframe.setAttribute("allowfullscreen", "true");
   iframe.setAttribute("scrolling", "no");
@@ -371,6 +373,7 @@ export function VideoSourceTile({
   onObsSource?: () => void;
   isObsActive?: boolean;
 }) {
+  const t = useT();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mountRef = useRef<HTMLDivElement | null>(null);
   // Twitch.Player is constructed against an element *id* rather than the
@@ -936,7 +939,7 @@ export function VideoSourceTile({
           </span>
           {isObsActive && (
             <span
-              title="Este vídeo está ativo em transmissão externa"
+              title={t("videoSourceTile.thisVideoIsActiveInAn")}
               className="flex items-center gap-1 rounded-full border border-purple-400/40 bg-purple-950/80 px-1.5 py-0.5 text-[10px] font-semibold text-purple-200 shadow-sm"
             >
               <span className="relative flex h-2 w-2 shrink-0 items-center justify-center">
@@ -944,7 +947,7 @@ export function VideoSourceTile({
                 <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-purple-400" />
               </span>
               <ObsSourceIcon className="h-3 w-3 shrink-0 text-purple-300" />
-              <span className="hidden sm:inline">Transmissão</span>
+              <span className="hidden sm:inline">{t("common.broadcast")}</span>
             </span>
           )}
         </span>
@@ -956,7 +959,7 @@ export function VideoSourceTile({
               see the `volume` prop. */}
           <VolumeSlider
             value={isMuted ? 0 : effectiveVolume}
-            label="Volume desse vídeo"
+            label={t("videoSourceTile.volumeOfThisVideo")}
             onChange={handleVolumeChange}
             muted={isMuted}
             onToggleMute={() => setIsMuted((m) => !m)}
@@ -970,10 +973,10 @@ export function VideoSourceTile({
             <Tooltip
               content={
                 showNativeControls
-                  ? "Voltar ao player sem controles"
+                  ? t("videoSourceTile.backToThePlayerWithNo")
                   : source.kind === "twitch"
-                    ? "Mostra os controles da Twitch pra você ajustar qualidade e afins. Você continua sem controlar a reprodução: play e pause seguem quem adicionou o vídeo."
-                    : "Mostra os controles do YouTube pra você ajustar legenda, qualidade e afins. Você continua sem controlar a reprodução: play, pause e avanço seguem quem adicionou o vídeo."
+                    ? t("videoSourceTile.showsTheTwitchControlsSoYou")
+                    : t("videoSourceTile.showsTheYoutubeControlsSoYou")
               }
             >
               <button
@@ -1001,9 +1004,9 @@ export function VideoSourceTile({
               content={
                 source.controlMode === "anyone"
                   ? canRestrictControl
-                    ? "Todos podem controlar. Clique para deixar só você"
-                    : "Utilize uma conta para restringir o controle"
-                  : "Só você controla. Clique para liberar para todos"
+                    ? t("videoSourceTile.everyoneCanControlItClickTo")
+                    : t("common.useAnAccountToRestrictControl")
+                  : t("videoSourceTile.onlyYouControlItClickTo")
               }
             >
               <button
@@ -1017,7 +1020,7 @@ export function VideoSourceTile({
                           source.controlMode === "anyone" ? "owner" : "anyone"
                         )
                 }
-                aria-label="Quem pode controlar esse vídeo"
+                aria-label={t("videoSourceTile.whoCanControlThisVideo")}
                 aria-pressed={source.controlMode !== "anyone"}
                 className={`rounded-full p-1.5 text-white transition ${
                   source.controlMode === "anyone" && !canRestrictControl
@@ -1034,11 +1037,11 @@ export function VideoSourceTile({
             </Tooltip>
           )}
           {onFocus && (
-            <Tooltip content={isSpotlighted ? "Remover destaque" : "Focar nesse vídeo"}>
+            <Tooltip content={isSpotlighted ? t("common.removeHighlight") : t("videoSourceTile.focusOnThisVideo")}>
               <button
                 type="button"
                 onClick={onFocus}
-                aria-label={isSpotlighted ? "Remover destaque" : "Focar nesse vídeo"}
+                aria-label={isSpotlighted ? t("common.removeHighlight") : t("videoSourceTile.focusOnThisVideo")}
                 aria-pressed={isSpotlighted}
                 className={`rounded-full p-1.5 text-white transition ${
                   isSpotlighted ? "bg-emerald-600 hover:bg-emerald-700" : "hover:bg-white/10"
@@ -1052,14 +1055,14 @@ export function VideoSourceTile({
             <Tooltip
               content={
                 !hasAccount
-                  ? "Utilize uma conta para usar o hiperfoco"
-                  : "Hiperfoco nesse vídeo. Esconde as outras transmissões"
+                  ? t("common.useAnAccountToUseHyperfocus")
+                  : t("videoSourceTile.hyperfocusOnThisVideoHidesThe")
               }
             >
               <button
                 type="button"
                 onClick={!hasAccount ? (onRequestAccount ?? onHyperfocus) : onHyperfocus}
-                aria-label={`Hiperfoco nesse vídeo${!hasAccount ? " (requer conta)" : ""}`}
+                aria-label={t("videoSourceTile.hyperfocusOnThisVideoValue", { value: !hasAccount ? " (requer conta)" : "" })}
                 aria-pressed={isHyperfocused}
                 className={`rounded-full p-1.5 text-white transition ${
                   !hasAccount
@@ -1077,16 +1080,16 @@ export function VideoSourceTile({
             <Tooltip
               content={
                 isObsActive
-                  ? "Este vídeo está sendo compartilhado externamente (Clique para ver/copiar o link)"
+                  ? t("videoSourceTile.thisVideoIsBeingSharedExternally")
                   : !hasAccount
-                  ? "Utilize uma conta para exportar a transmissão"
-                  : "Copiar link de transmissão para esse vídeo"
+                  ? t("common.useAnAccountToExportThe")
+                  : t("videoSourceTile.copyTheBroadcastLinkForThis")
               }
             >
               <button
                 type="button"
                 onClick={!hasAccount ? (onRequestAccount ?? onObsSource) : onObsSource}
-                aria-label={`Copiar link de transmissão para esse vídeo${!hasAccount ? " (requer conta)" : ""}`}
+                aria-label={t("videoSourceTile.copyTheBroadcastLinkForThis2", { value: !hasAccount ? " (requer conta)" : "" })}
                 className={`rounded-full p-1.5 text-white transition ${
                   isObsActive
                     ? "bg-purple-600 hover:bg-purple-700 active:bg-purple-800 ring-2 ring-purple-400/60 shadow-lg"
@@ -1099,11 +1102,11 @@ export function VideoSourceTile({
               </button>
             </Tooltip>
           )}
-          <Tooltip content={isFullscreen ? "Sair da tela cheia" : "Tela cheia"}>
+          <Tooltip content={isFullscreen ? t("common.exitFullScreen") : t("common.fullScreen")}>
             <button
               type="button"
               onClick={toggleFullscreen}
-              aria-label={isFullscreen ? "Sair da tela cheia" : "Tela cheia"}
+              aria-label={isFullscreen ? t("common.exitFullScreen") : t("common.fullScreen")}
               className="rounded-full p-1.5 text-white transition hover:bg-white/10"
             >
               {isFullscreen ? (
@@ -1121,22 +1124,22 @@ export function VideoSourceTile({
               "anyone" hands out play/pause/seek, not the power to end it for
               the room. */}
           {isOwner ? (
-            <Tooltip content="Remover esse vídeo da sala (para todos)">
+            <Tooltip content={t("common.removeThisVideoFromTheRoom")}>
               <button
                 type="button"
                 onClick={onRemove}
-                aria-label="Remover esse vídeo da sala"
+                aria-label={t("videoSourceTile.removeThisVideoFromTheRoom")}
                 className="rounded-full p-1.5 transition hover:bg-white/10"
               >
                 <MdClose className="h-4 w-4" style={{color: "red"}} />
               </button>
             </Tooltip>
           ) : (
-            <Tooltip content="Sair desse vídeo">
+            <Tooltip content={t("videoSourceTile.leaveThisVideo")}>
               <button
                 type="button"
                 onClick={onLeave}
-                aria-label="Sair desse vídeo"
+                aria-label={t("videoSourceTile.leaveThisVideo")}
                 className="rounded-full p-1.5 text-white transition hover:bg-white/10"
               >
                 <EyeOffIcon className="h-4 w-4" />
@@ -1173,10 +1176,10 @@ export function VideoSourceTile({
           <div className="absolute inset-0 flex items-center justify-center px-4 text-center">
             <p className="text-sm text-zinc-300">
               {source.kind === "kick"
-                ? "Não foi possível carregar esse canal da Kick."
+                ? t("videoSourceTile.couldNotLoadThatKickChannel")
                 : source.kind === "twitch"
-                  ? "Não foi possível carregar esse canal da Twitch."
-                  : "Não foi possível carregar esse vídeo do YouTube."}
+                  ? t("videoSourceTile.couldNotLoadThatTwitchChannel")
+                  : t("videoSourceTile.couldNotLoadThatYoutubeVideo")}
             </p>
           </div>
         )}

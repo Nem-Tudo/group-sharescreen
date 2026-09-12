@@ -1,4 +1,5 @@
 "use client";
+import { translate } from "@/lib/i18n";
 
 // Everything here is about preparing an avatar / profile picture to send to the API,
 // which in turn uploads it to the CDN.
@@ -36,7 +37,7 @@ function readAsDataUrl(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error ?? new Error("Falha ao ler o arquivo."));
+    reader.onerror = () => reject(reader.error ?? new Error(translate("common.couldNotReadTheFile")));
     reader.readAsDataURL(file);
   });
 }
@@ -67,7 +68,7 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("Não foi possível abrir a imagem."));
+    img.onerror = () => reject(new Error(translate("common.couldNotOpenTheImage")));
     img.src = src;
   });
 }
@@ -95,7 +96,7 @@ export async function prepareAvatarImage(file: File): Promise<PreparedAvatarImag
     canvas.width = destSize;
     canvas.height = destSize;
     const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("canvas indisponível");
+    if (!ctx) throw new Error(translate("common.canvasUnavailable"));
     ctx.drawImage(img, sx, sy, size, size, 0, 0, destSize, destSize);
 
     const mimeType = supportsWebpEncoding() ? "image/webp" : "image/jpeg";

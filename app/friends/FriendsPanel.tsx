@@ -13,6 +13,7 @@ import { useSocialGraph } from "@/lib/useSocialGraph";
 import { openDirectMessages } from "@/lib/dmWindow";
 import { startCall } from "@/lib/callsApi";
 import { useState } from "react";
+import { useT } from "@/lib/useI18n";
 
 // The friends page: who you are friends with, who is waiting on you, who you
 // are waiting on, and who you have blocked.
@@ -88,6 +89,7 @@ function Section({
 }
 
 export function FriendsPanel() {
+  const t = useT();
   const { account, loading: resolvingAccount } = useAuth();
   const { graph, loading, refresh } = useSocialGraph();
   const [accountModal, setAccountModal] = useState<AccountModalMode | null>(null);
@@ -109,7 +111,7 @@ export function FriendsPanel() {
     setBusyId(userId);
     setError(null);
     const result = (await action()) as { ok?: boolean; error?: string } | undefined;
-    if (result && result.ok === false) setError(result.error ?? "Não foi possível concluir.");
+    if (result && result.ok === false) setError(result.error ?? t("common.couldNotComplete"));
     // Re-read either way. A failure is often a failure *because* the graph
     // moved — the same reasoning as components/SocialActions.
     refresh();
@@ -120,18 +122,18 @@ export function FriendsPanel() {
     return (
       <div className="mx-auto w-full max-w-2xl px-4 py-10">
         <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-          Amigos
+          {t("common.friends")}
         </h1>
         <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
           {/* A friendship has to attach to something that survives clearing a
               browser, and a guest identity by design does not. */}
-          É preciso ter uma conta para adicionar amigos.{" "}
+          {t("friends.friendsPanel.youNeedAnAccountToAdd")}{" "}
           <button
             type="button"
             onClick={() => setAccountModal("create")}
             className="font-medium underline underline-offset-2"
           >
-            Criar conta
+            {t("common.createAccount")}
           </button>
         </p>
         <AccountModal mode={accountModal} onModeChange={setAccountModal} />
@@ -142,10 +144,10 @@ export function FriendsPanel() {
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-10">
       <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-        Amigos
+        {t("common.friends")}
       </h1>
       <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-        Adicione alguém pelo perfil, ou pela lista de participantes de uma sala.
+        {t("friends.friendsPanel.addSomeoneFromTheirProfileOr")}
       </p>
 
       {error && (
@@ -158,13 +160,13 @@ export function FriendsPanel() {
       )}
 
       {loading ? (
-        <p className="mt-6 text-sm text-zinc-500 dark:text-zinc-400">Carregando…</p>
+        <p className="mt-6 text-sm text-zinc-500 dark:text-zinc-400">{t("common.loading")}</p>
       ) : (
         <>
           <Section
-            title="Pedidos recebidos"
+            title={t("friends.friendsPanel.receivedRequests")}
             count={graph.incoming.length}
-            empty="Nenhum pedido esperando por você."
+            empty={t("common.noRequestsWaitingForYou")}
           >
             {graph.incoming.map((user) => (
               <Row key={user.id} user={user}>
@@ -175,7 +177,7 @@ export function FriendsPanel() {
                   className={`${ACTION} bg-emerald-600 text-white hover:bg-emerald-700`}
                 >
                   <MdCheck className="h-3.5 w-3.5" />
-                  Aceitar
+                  {t("common.accept")}
                 </button>
                 <button
                   type="button"
@@ -184,16 +186,16 @@ export function FriendsPanel() {
                   className={`${ACTION} border border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900`}
                 >
                   <MdClose className="h-3.5 w-3.5" />
-                  Recusar
+                  {t("common.decline")}
                 </button>
               </Row>
             ))}
           </Section>
 
           <Section
-            title="Seus amigos"
+            title={t("friends.friendsPanel.yourFriends")}
             count={graph.friends.length}
-            empty="Você ainda não tem amigos aqui."
+            empty={t("common.youDonTHaveAnyFriends")}
           >
             {graph.friends.map((user) => (
               <Row key={user.id} user={user}>
@@ -209,20 +211,20 @@ export function FriendsPanel() {
                       return result.ok ? { ok: true } : { ok: false, error: result.error };
                     })
                   }
-                  aria-label={`Ligar para ${user.displayName}`}
+                  aria-label={t("common.callDisplayname", { displayName: user.displayName })}
                   className={`${ACTION} border border-emerald-600/40 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-500/40 dark:text-emerald-400 dark:hover:bg-emerald-950/40`}
                 >
                   <MdCall className="h-3.5 w-3.5" />
-                  Ligar
+                  {t("common.turnOn")}
                 </button>
                 <button
                   type="button"
                   onClick={() => openDirectMessages(user.id)}
-                  aria-label={`Conversar com ${user.displayName}`}
+                  aria-label={t("common.chatWithDisplayname", { displayName: user.displayName })}
                   className={`${ACTION} border border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900`}
                 >
                   <MdChatBubbleOutline className="h-3.5 w-3.5" />
-                  Mensagem
+                  {t("common.message")}
                 </button>
                 <button
                   type="button"
@@ -231,16 +233,16 @@ export function FriendsPanel() {
                   className={`${ACTION} border border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900`}
                 >
                   <MdPersonRemove className="h-3.5 w-3.5" />
-                  Remover
+                  {t("common.remove")}
                 </button>
               </Row>
             ))}
           </Section>
 
           <Section
-            title="Pedidos enviados"
+            title={t("friends.friendsPanel.sentRequests")}
             count={graph.outgoing.length}
-            empty="Nenhum pedido enviado."
+            empty={t("friends.friendsPanel.noRequestSent")}
           >
             {graph.outgoing.map((user) => (
               <Row key={user.id} user={user}>
@@ -251,16 +253,16 @@ export function FriendsPanel() {
                   className={`${ACTION} border border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900`}
                 >
                   <MdClose className="h-3.5 w-3.5" />
-                  Cancelar
+                  {t("common.cancel")}
                 </button>
               </Row>
             ))}
           </Section>
 
           <Section
-            title="Bloqueados"
+            title={t("friends.friendsPanel.blocked")}
             count={graph.blocked.length}
-            empty="Ninguém bloqueado."
+            empty={t("friends.friendsPanel.nobodyBlocked")}
           >
             {graph.blocked.map((user) => (
               <Row key={user.id} user={user}>
@@ -271,7 +273,7 @@ export function FriendsPanel() {
                   className={`${ACTION} border border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900`}
                 >
                   <MdBlock className="h-3.5 w-3.5" />
-                  Desbloquear
+                  {t("common.unblock")}
                 </button>
               </Row>
             ))}

@@ -1,4 +1,5 @@
 "use client";
+import { translate } from "@/lib/i18n";
 
 // The YouTube IFrame API, shared by everything in the app that embeds one:
 // the room's video-source tiles (components/VideoSourceTile) and the room's
@@ -101,12 +102,12 @@ export function loadYouTubeApi(): Promise<YTNamespace> {
     window.onYouTubeIframeAPIReady = () => {
       previous?.();
       if (window.YT?.Player) resolve(window.YT);
-      else reject(new Error("YouTube API carregada sem Player"));
+      else reject(new Error(translate("youtubePlayer.youtubeApiLoadedWithNoPlayer")));
     };
     const script = document.createElement("script");
     script.src = "https://www.youtube.com/iframe_api";
     script.async = true;
-    script.onerror = () => reject(new Error("Falha ao carregar o player do YouTube"));
+    script.onerror = () => reject(new Error(translate("youtubePlayer.couldNotLoadTheYoutubePlayer")));
     document.head.appendChild(script);
   }).catch((err) => {
     // Let a later caller retry rather than caching the failure forever.

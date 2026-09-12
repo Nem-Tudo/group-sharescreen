@@ -11,6 +11,7 @@ import type { InvitePreview } from "@/lib/groupLinks";
 import { signalingClient } from "@/lib/signalingClient";
 import { useSignalingSelector } from "@/lib/useSignalingSelector";
 import { selectName } from "@/lib/signalingSelectors";
+import { useI18n } from "@/lib/useI18n";
 
 // The card that lets somebody into a group: which group, how many people, and
 // the one button. Drawn by an invite link (InviteClient) and by a public
@@ -44,6 +45,7 @@ export function GroupJoinCard({
   /** Does the joining; `name` is a guest's, null for an account. Resolves when done, or with the error to show. */
   join: (name: string | null) => Promise<{ ok: true } | { ok: false; error: string }>;
 }) {
+  const { t, tc } = useI18n();
   const { account, loading } = useAuth();
   const guestToken = useGuestToken();
   const registeredName = useSignalingSelector(selectName);
@@ -105,25 +107,25 @@ export function GroupJoinCard({
         </span>
         <span className="flex items-center gap-1.5">
           <span className="h-2.5 w-2.5 rounded-full bg-zinc-400" />
-          {group.memberCount} {group.memberCount === 1 ? "membro" : "membros"}
+          {tc("common.memberCount", group.memberCount)}
         </span>
       </p>
 
       <div className="mt-4 w-full">
         {member ? (
           <button type="button" onClick={onOpen} className={primaryClass}>
-            Você já está aqui — abrir o grupo
+            {t("groups.groupJoinCard.youAreAlreadyHereOpenThe")}
           </button>
         ) : blocked ? (
           <p className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">{blocked}</p>
         ) : loading ? (
-          <p className="text-sm text-zinc-500">Carregando…</p>
+          <p className="text-sm text-zinc-500">{t("common.loading")}</p>
         ) : hasIdentity && !joinWhenReady ? (
           <button type="button" onClick={() => void accept()} disabled={busy} className={primaryClass}>
-            {busy ? "Entrando…" : account ? acceptLabel : `${acceptLabel} como ${registeredName}`}
+            {busy ? t("common.joining2") : account ? acceptLabel : `${acceptLabel} como ${registeredName}`}
           </button>
         ) : joinWhenReady ? (
-          <p className="text-sm text-zinc-500">Entrando…</p>
+          <p className="text-sm text-zinc-500">{t("common.joining2")}</p>
         ) : mode === "login" ? (
           <div className="text-left">
             <LoginForm onCancel={() => setMode("guest")} onSwitchToCreate={() => setMode("create")} />
@@ -139,7 +141,7 @@ export function GroupJoinCard({
         ) : (
           <form onSubmit={submitGuestName} className="flex flex-col gap-2 text-left">
             <label htmlFor="join-name" className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              Como quer ser chamado?
+              {t("groups.groupJoinCard.whatShouldWeCallYou")}
             </label>
             <div className="flex gap-2">
               <input
@@ -148,20 +150,20 @@ export function GroupJoinCard({
                 value={nameInput}
                 onChange={(e) => setNameInput(e.target.value)}
                 maxLength={24}
-                placeholder="Ex: Maria"
+                placeholder={t("common.exMaria")}
                 className="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
               />
               <button type="submit" disabled={!nameInput.trim()} className={`${primaryBase} shrink-0`}>
-                Entrar
+                {t("common.signIn")}
               </button>
             </div>
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
               <button type="button" onClick={() => setMode("create")} className="cursor-pointer font-medium underline underline-offset-2">
-                Criar conta
+                {t("common.createAccount")}
               </button>{" "}
               ·{" "}
               <button type="button" onClick={() => setMode("login")} className="cursor-pointer font-medium underline underline-offset-2">
-                Já tenho conta
+                {t("common.iAlreadyHaveAnAccount2")}
               </button>
             </p>
           </form>

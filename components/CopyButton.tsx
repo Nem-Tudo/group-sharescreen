@@ -2,6 +2,8 @@
 
 import { useCallback, useState } from "react";
 import { MdCheck, MdContentCopy, MdLink } from "react-icons/md";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
 
 // "Copiar link", with the one thing that makes a copy button trustworthy: it
 // says whether it worked.
@@ -15,8 +17,8 @@ import { MdCheck, MdContentCopy, MdLink } from "react-icons/md";
 
 export function CopyButton({
   value,
-  label = "Copiar link",
-  copiedLabel = "Link copiado!",
+  label = translate("common.copyLink"),
+  copiedLabel = translate("common.linkCopied"),
   className,
   icon,
   compact,
@@ -33,6 +35,7 @@ export function CopyButton({
    */
   compact?: boolean;
 }) {
+  const t = useT();
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
   const Icon = icon === "copy" ? MdContentCopy : MdLink;
 
@@ -56,7 +59,7 @@ export function CopyButton({
     return (
       <span className="flex min-w-0 flex-col gap-1">
         <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
-          Copie o link à mão:
+          {t("copyButton.copyTheLinkByHand")}
         </span>
         <code className="break-all rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-[11px] leading-snug text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
           {value}

@@ -6,6 +6,8 @@ import { Popover } from "@/components/Tooltip";
 import { useTheme } from "@/lib/useTheme";
 import { trackEvent } from "@/lib/analytics";
 import type { ThemePreference } from "@/lib/theme";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
 
 // All three, always visible — a switch that only cycles hides what it will do
 // next, and with "sistema" in the loop that is three unlabelled states to
@@ -15,20 +17,21 @@ const OPTIONS: {
   label: string;
   Icon: typeof MdOutlineLightMode;
 }[] = [
-  { value: "light", label: "Claro", Icon: MdOutlineLightMode },
-  { value: "dark", label: "Escuro", Icon: MdOutlineDarkMode },
-  { value: "system", label: "Sistema", Icon: MdOutlineComputer },
+  { value: "light", get label() { return translate("themeToggle.light"); }, Icon: MdOutlineLightMode },
+  { value: "dark", get label() { return translate("themeToggle.dark"); }, Icon: MdOutlineDarkMode },
+  { value: "system", get label() { return translate("themeToggle.system"); }, Icon: MdOutlineComputer },
 ];
 
 // The segmented control itself. Used on its own inside the room's "Mais
 // opções" panel, and as the body of the icon button below.
 export function ThemeSegmented({ className = "" }: { className?: string }) {
+  const t = useT();
   const { theme, setTheme } = useTheme();
 
   return (
     <div
       role="radiogroup"
-      aria-label="Tema do site"
+      aria-label={t("themeToggle.siteTheme")}
       className={`flex items-center gap-1 rounded-lg border border-zinc-200 bg-zinc-100 p-1 dark:border-zinc-800 dark:bg-zinc-900 ${className}`}
     >
       {OPTIONS.map(({ value, label, Icon }) => {
@@ -64,18 +67,21 @@ export function ThemeSegmented({ className = "" }: { className?: string }) {
 //
 // The icon is the *resolved* theme, not the preference — on "sistema" what
 // someone wants to see at a glance is which one they're actually looking at,
-// and the open panel is where the distinction between "escuro" and "sistema,
-// que agora está escuro" belongs.
+// and the open panel is where the distinction between "dark" and "system,
+// which is currently dark" belongs.
 export function ThemeMenuButton({ className = "" }: { className?: string }) {
+  const t = useT();
   const { theme, resolvedTheme } = useTheme();
   const [open, setOpen] = useState(false);
   const Icon = resolvedTheme === "dark" ? MdOutlineDarkMode : MdOutlineLightMode;
   const label =
     theme === "system"
-      ? `Tema: sistema (${resolvedTheme === "dark" ? "escuro" : "claro"})`
+      ? t("themeToggle.themeSystemValue", {
+          value: resolvedTheme === "dark" ? t("common.dark") : t("common.light"),
+        })
       : theme === "dark"
-        ? "Tema: escuro"
-        : "Tema: claro";
+        ? t("themeToggle.themeDark")
+        : t("themeToggle.themeLight");
 
   return (
     <Popover
@@ -89,7 +95,7 @@ export function ThemeMenuButton({ className = "" }: { className?: string }) {
       content={
         <div className="w-65 max-w-[calc(100vw-1rem)] rounded-xl border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-800 dark:bg-zinc-950">
           <p className="mb-1.5 px-1 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
-            Tema
+            {t("common.theme")}
           </p>
           <ThemeSegmented />
         </div>

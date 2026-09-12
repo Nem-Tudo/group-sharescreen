@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { SiteHeader } from "@/components/SiteHeader";
 import { ThemePageClient } from "./ThemePageClient";
 import { pageMetadata } from "@/lib/seo";
+import { translate } from "@/lib/i18n";
+import { formatLocale } from "@/lib/i18n";
 
 // One theme, at an address — which is what makes a theme shareable at all.
 //
@@ -9,7 +11,7 @@ import { pageMetadata } from "@/lib/seo";
 // this one" meant "open the workshop and scroll", and a link pasted into a
 // conversation could only point at the whole shop.
 //
-// The author's numbers are one level down, at /tema/[id]/painel. Same object,
+// The author's numbers are one level down, at /theme/[id]/panel. Same object,
 // two audiences: this page is for anybody, that one is for the person who made
 // it.
 
@@ -47,7 +49,7 @@ async function loadTheme(id: string): Promise<ThemeCard | null> {
     };
     if (!data.theme) return null;
     return {
-      name: data.theme.name ?? "Tema",
+      name: data.theme.name ?? translate("common.theme"),
       description: data.theme.description ?? "",
       author: data.theme.author?.displayName ?? null,
       price: data.theme.price ?? 0,
@@ -57,32 +59,32 @@ async function loadTheme(id: string): Promise<ThemeCard | null> {
   }
 }
 
-export async function generateMetadata(props: PageProps<"/tema/[id]">): Promise<Metadata> {
+export async function generateMetadata(props: PageProps<"/theme/[id]">): Promise<Metadata> {
   const { id } = await props.params;
   const theme = await loadTheme(id);
 
-  const title = theme ? `${theme.name} — tema para o GoLive` : "Tema do GoLive";
+  const title = theme ? translate("theme.nameAThemeForGolive", { name: theme.name }) : translate("theme.goliveTheme");
   const subtitle = theme
     ? theme.description ||
-      `${theme.author ? `Um tema de ${theme.author}. ` : ""}${
-        theme.price > 0 ? `${theme.price.toLocaleString("pt-BR")} pontos.` : "Grátis para usar."
+      `${theme.author ? translate("theme.aThemeByAuthor", { author: theme.author }) : ""}${
+        theme.price > 0 ? translate("theme.valuePoints", { value: theme.price.toLocaleString(formatLocale()) }) : translate("theme.freeToUse")
       }`
-    : "Temas de sala feitos pela comunidade do GoLive.";
+    : translate("theme.roomThemesMadeByTheGolive");
 
   return pageMetadata({
-    path: `/tema/${id}`,
+    path: `/theme/${id}`,
     title,
     description: subtitle,
     card: {
-      title: theme?.name ?? "Tema do GoLive",
+      title: theme?.name ?? translate("theme.goliveTheme"),
       subtitle,
       tone: "theme",
-      badge: theme?.author ? `Tema de ${theme.author}` : "Tema",
+      badge: theme?.author ? translate("theme.themeByAuthor", { author: theme.author }) : translate("common.theme"),
     },
   });
 }
 
-export default async function ThemePage(props: PageProps<"/tema/[id]">) {
+export default async function ThemePage(props: PageProps<"/theme/[id]">) {
   const { id } = await props.params;
   return (
     <div className="flex min-h-dvh flex-col bg-zinc-50 dark:bg-black">

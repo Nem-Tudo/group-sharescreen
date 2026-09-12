@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { translate } from "@/lib/i18n";
 
 // Served at /manifest.webmanifest (see get-metadata-route.js's naming for
 // the "manifest" special case) — layout.tsx's `metadata.manifest` is what
@@ -6,10 +7,10 @@ import type { MetadataRoute } from "next";
 // just from this file existing.
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "GoLive — Transmissão de Tela em Grupo Online Grátis",
-    short_name: "GoLive",
+    name: translate("common.goliveFreeOnlineGroupScreenSharing"),
+    short_name: translate("common.golive"),
     description:
-      "Transmita sua tela para várias pessoas ao mesmo tempo, direto do navegador. Crie uma sala em 4 cliques sem cadastro.",
+      translate("manifest.broadcastYourScreenToSeveralPeople"),
     start_url: "/",
     scope: "/",
     display: "standalone",

@@ -3,6 +3,7 @@
 import { MdPersonOutline } from "react-icons/md";
 import { SocialActions } from "@/components/SocialActions";
 import { UserAvatar } from "@/components/UserAvatar";
+import { useT } from "@/lib/useI18n";
 
 // The profile of somebody who has no profile.
 //
@@ -27,6 +28,7 @@ export function GuestProfileCard({
   name: string;
   avatarUrl?: string | null;
 }) {
+  const t = useT();
   return (
     <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
       {/* A flat band where a real profile has its banner. Not an empty banner
@@ -50,13 +52,12 @@ export function GuestProfileCard({
           </h2>
           <span className="inline-flex items-center gap-1 rounded-full border border-zinc-300 px-2 py-0.5 text-xs font-medium text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
             <MdPersonOutline className="h-3.5 w-3.5" />
-            Convidado
+            {t("common.guest")}
           </span>
         </div>
 
         <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-          Está na sala sem uma conta, então não tem perfil, histórico nem tempo
-          registrado.
+          {t("guestProfileCard.theyAreInTheRoomWithout")}
         </p>
 
         {/* The same three buttons every other profile has, disabled and saying

@@ -35,6 +35,8 @@ import {
   type RoomTheme,
 } from "@/lib/roomThemes";
 import { useSyncExternalStore } from "react";
+import { useT } from "@/lib/useI18n";
+import { formatLocale } from "@/lib/i18n";
 
 // One theme, on a page of its own — the thing a shared link opens.
 //
@@ -49,6 +51,7 @@ import { useSyncExternalStore } from "react";
 // click away for browsing, and this page is not a browsing page.
 
 export function ThemePageClient({ id }: { id: string }) {
+  const t = useT();
   const { account, refresh } = useAuth();
   const router = useRouter();
   const [theme, setTheme] = useState<RoomTheme | null | undefined>(undefined);
@@ -86,12 +89,12 @@ export function ThemePageClient({ id }: { id: string }) {
     const ok = await applyTheme(next);
     if (!ok) {
       setWornOverride(undefined);
-      setError("Não foi possível aplicar o tema.");
+      setError(t("theme.themePageClient.couldNotApplyTheTheme"));
       return;
     }
     await refresh();
     setWornOverride(undefined);
-  }, [theme, account, wearing, refresh]);
+  }, [theme, account, wearing, refresh, t]);
 
   async function buy() {
     if (!theme || busy) return;
@@ -126,7 +129,7 @@ export function ThemePageClient({ id }: { id: string }) {
   if (theme === undefined) {
     return (
       <main className="mx-auto w-full max-w-3xl grow px-4 py-16">
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">Carregando…</p>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">{t("common.loading")}</p>
       </main>
     );
   }
@@ -135,16 +138,16 @@ export function ThemePageClient({ id }: { id: string }) {
     return (
       <main className="mx-auto w-full max-w-md grow px-4 py-16 text-center">
         <h1 className="text-xl font-semibold text-zinc-950 dark:text-zinc-50">
-          Tema não encontrado
+          {t("theme.themePageClient.themeNotFound")}
         </h1>
         <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-          Ele pode ter sido apagado, ou nunca ter sido publicado.
+          {t("theme.themePageClient.itMayHaveBeenDeletedOr")}
         </p>
         <Link
           href="/workshop"
           className="mt-4 inline-block rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white dark:bg-zinc-50 dark:text-zinc-950"
         >
-          Ver o Descobrir
+          {t("common.seeDiscover")}
         </Link>
       </main>
     );
@@ -213,12 +216,12 @@ export function ThemePageClient({ id }: { id: string }) {
           <h1 className="flex flex-wrap items-center gap-2 text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
             {theme.name}
             <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
-              {isDarkTheme(theme.spec) ? "escuro" : "claro"}
+              {isDarkTheme(theme.spec) ? t("common.dark") : t("common.light")}
             </span>
             {theme.price > 0 && (
               <span className="flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-600 dark:text-amber-400">
                 <BsCoin className="h-3 w-3 shrink-0" />
-                {theme.price.toLocaleString("pt-BR")}
+                {theme.price.toLocaleString(formatLocale())}
               </span>
             )}
           </h1>
@@ -283,7 +286,7 @@ export function ThemePageClient({ id }: { id: string }) {
             }`}
           >
             <MdPalette className="h-4 w-4 shrink-0" />
-            {wearing ? "Em uso — remover" : "Usar tema"}
+            {wearing ? t("common.inUseRemove") : t("common.useTheme")}
           </button>
         ) : (
           <button
@@ -293,7 +296,7 @@ export function ThemePageClient({ id }: { id: string }) {
             className="flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:opacity-60"
           >
             <BsCoin className="h-4 w-4 shrink-0" />
-            {busy ? "Comprando…" : `Comprar por ${theme.price.toLocaleString("pt-BR")}`}
+            {busy ? t("theme.themePageClient.buying") : t("theme.themePageClient.buyForValue", { value: theme.price.toLocaleString(formatLocale()) })}
           </button>
         )}
 
@@ -311,21 +314,21 @@ export function ThemePageClient({ id }: { id: string }) {
           className="flex items-center gap-2 rounded-lg border border-zinc-300 px-4 py-2.5 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
         >
           <MdVisibility className="h-4 w-4 shrink-0" />
-          Visualizar tema
+          {t("common.previewTheme")}
         </button>
 
         {/* The point of the page. Sits with the actions rather than in a corner:
             somebody who just decided they like a theme is the person most
             likely to send it to somebody else. */}
-        <CopyButton value={themeLink(theme.id)} label="Copiar link" />
+        <CopyButton value={themeLink(theme.id)} label={t("common.copyLink")} />
 
         {mine && (
           <Link
-            href={`/tema/${theme.id}/painel`}
+            href={`/theme/${theme.id}/panel`}
             className="flex items-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
           >
             <MdOutlineShowChart className="h-4 w-4 shrink-0" />
-            Ver os números
+            {t("theme.themePageClient.seeTheNumbers")}
           </Link>
         )}
       </div>
@@ -337,9 +340,9 @@ export function ThemePageClient({ id }: { id: string }) {
       )}
 
       <p className="mt-6 text-xs text-zinc-400 dark:text-zinc-500">
-        Um tema muda as cores das salas em que você entrar.{" "}
+        {t("theme.themePageClient.aThemeChangesTheColoursOf")}{" "}
         <Link href="/workshop" className="underline underline-offset-2">
-          Ver outros temas
+          {t("theme.themePageClient.seeOtherThemes")}
         </Link>
         .
       </p>

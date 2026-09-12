@@ -9,6 +9,7 @@ import { ButtonSpinner } from "@/components/ButtonSpinner";
 import { verifiedBadge } from "@/lib/entitlements";
 import { acceptFriend, addFriend, searchPeople, type SocialSearchHit } from "@/lib/socialApi";
 import { useSocialGraph } from "@/lib/useSocialGraph";
+import { useT } from "@/lib/useI18n";
 
 // "Adicionar amigo": type a username, add whoever comes back.
 //
@@ -44,6 +45,7 @@ function HitRow({
   onAdd: () => void;
   onAccept: () => void;
 }) {
+  const t = useT();
   const identity = (
     <>
       <UserAvatar
@@ -87,9 +89,9 @@ function HitRow({
           should say what it is about to do. */}
       <span className="shrink-0">
         {hit.relationship === "friends" ? (
-          <span className="text-xs font-medium text-zinc-400 dark:text-zinc-500">Já é amigo</span>
+          <span className="text-xs font-medium text-zinc-400 dark:text-zinc-500">{t("addFriendDialog.alreadyAFriend")}</span>
         ) : hit.relationship === "outgoing" ? (
-          <span className="text-xs font-medium text-zinc-400 dark:text-zinc-500">Pedido enviado</span>
+          <span className="text-xs font-medium text-zinc-400 dark:text-zinc-500">{t("addFriendDialog.requestSent")}</span>
         ) : hit.relationship === "incoming" ? (
           <button
             type="button"
@@ -98,7 +100,7 @@ function HitRow({
             className={`${ACTION} bg-emerald-600 text-white hover:bg-emerald-700`}
           >
             {busy ? <ButtonSpinner /> : <MdCheck className="h-3.5 w-3.5" />}
-            Aceitar
+            {t("common.accept")}
           </button>
         ) : (
           <button
@@ -108,7 +110,7 @@ function HitRow({
             className={`${ACTION} bg-zinc-950 text-white hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200`}
           >
             {busy ? <ButtonSpinner /> : <MdPersonAdd className="h-3.5 w-3.5" />}
-            Adicionar
+            {t("common.add")}
           </button>
         )}
       </span>
@@ -133,6 +135,7 @@ export function AddFriendDialog({
    */
   inRoom?: boolean;
 }) {
+  const t = useT();
   const { refresh } = useSocialGraph();
   const [query, setQuery] = useState("");
   // The last answer, tagged with the query that produced it. Tagged rather
@@ -190,7 +193,7 @@ export function AddFriendDialog({
     setError(null);
     const outcome = await action();
     if (!outcome.ok) {
-      setError(outcome.error ?? "Não foi possível concluir.");
+      setError(outcome.error ?? t("common.couldNotComplete"));
     } else {
       // Patched in place rather than re-searched: the row is still under the
       // person's cursor, and re-running the query would reorder the list
@@ -232,22 +235,22 @@ export function AddFriendDialog({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Adicionar amigo"
+        aria-label={t("common.addFriend")}
         className="flex max-h-[80vh] w-full max-w-md flex-col rounded-2xl border border-black/10 bg-white p-6 shadow-xl dark:border-white/10 dark:bg-zinc-950"
       >
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-              Adicionar amigo
+              {t("common.addFriend")}
             </h2>
             <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-              Procure pelo nome de usuário.
+              {t("addFriendDialog.searchByUsername")}
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Fechar"
+            aria-label={t("common.close")}
             className="rounded-lg p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-900 dark:hover:text-zinc-200"
           >
             <MdClose className="h-5 w-5" />
@@ -262,9 +265,9 @@ export function AddFriendDialog({
             onChange={(e) => setQuery(e.target.value)}
             // A search box, not a form: there is nothing to submit — the
             // results are already there by the time a key would be pressed.
-            placeholder="Ex: maria"
+            placeholder={t("addFriendDialog.exMaria")}
             maxLength={32}
-            aria-label="Nome de usuário"
+            aria-label={t("addFriendDialog.username")}
             className="w-full rounded-lg border border-zinc-300 bg-white py-2.5 pl-9 pr-3 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
           />
         </div>
@@ -281,13 +284,13 @@ export function AddFriendDialog({
         <div className="mt-3 min-h-24 flex-1 overflow-y-auto">
           {!searchable ? (
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Digite pelo menos duas letras.
+              {t("addFriendDialog.typeAtLeastTwoLetters")}
             </p>
           ) : hits === null ? (
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">Procurando…</p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">{t("addFriendDialog.searching")}</p>
           ) : hits.length === 0 ? (
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Ninguém encontrado com esse nome.
+              {t("common.nobodyFoundWithThatName")}
             </p>
           ) : (
             <ul className="flex flex-col gap-1.5">

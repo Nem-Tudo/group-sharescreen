@@ -27,6 +27,7 @@ import {
   type EmbeddedPlayer,
 } from "@/lib/youtubePlayer";
 import { getStoredMusicVolume, setStoredMusicVolume } from "@/lib/mediaPreferences";
+import { useT } from "@/lib/useI18n";
 
 // Where the YouTube player itself lives: a node of its own at the end of the
 // document, which nothing ever moves.
@@ -151,6 +152,7 @@ export function MusicBar({
    */
   keepPlayerInPlace?: boolean;
 }) {
+  const t = useT();
   const mountRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<EmbeddedPlayer | null>(null);
   const [ready, setReady] = useState(false);
@@ -542,8 +544,8 @@ export function MusicBar({
             <Tooltip content={title ?? undefined}>
               <p className="truncate text-xs font-semibold leading-tight">
                 {loadError
-                  ? "Não foi possível carregar a música"
-                  : (title ?? (ready ? "Música da sala" : "Carregando música..."))}
+                  ? t("musicBar.couldNotLoadTheMusic")
+                  : (title ?? (ready ? t("musicBar.roomMusic") : t("musicBar.loadingMusic")))}
               </p>
             </Tooltip>
             <p className="truncate text-[11px] leading-tight opacity-80">
@@ -556,7 +558,7 @@ export function MusicBar({
         <div className="flex shrink-0 items-center gap-0.5">
           {hasPlaylist && (
             <MusicButton
-              label="Faixa anterior"
+              label={t("musicBar.previousTrack")}
               disabled={disabledControl}
               onClick={() => skip(-1)}
             >
@@ -564,7 +566,7 @@ export function MusicBar({
             </MusicButton>
           )}
           <MusicButton
-            label="Voltar 10 segundos"
+            label={t("common.back10Seconds")}
             disabled={disabledControl}
             onClick={() => seekTo(position - 10)}
             className="hidden sm:flex"
@@ -572,14 +574,14 @@ export function MusicBar({
             <MdReplay10 className="h-5 w-5" />
           </MusicButton>
           <MusicButton
-            label={music.playing ? "Pausar" : "Tocar"}
+            label={music.playing ? t("common.pause") : t("common.play")}
             disabled={disabledControl}
             onClick={togglePlay}
           >
             {music.playing ? <MdPause className="h-5 w-5" /> : <MdPlayArrow className="h-5 w-5" />}
           </MusicButton>
           <MusicButton
-            label="Avançar 10 segundos"
+            label={t("common.forward10Seconds")}
             disabled={disabledControl}
             onClick={() => seekTo(position + 10)}
             className="hidden sm:flex"
@@ -587,7 +589,7 @@ export function MusicBar({
             <MdForward10 className="h-5 w-5" />
           </MusicButton>
           {hasPlaylist && (
-            <MusicButton label="Próxima faixa" disabled={disabledControl} onClick={() => skip(1)}>
+            <MusicButton label={t("musicBar.nextTrack")} disabled={disabledControl} onClick={() => skip(1)}>
               <MdSkipNext className="h-5 w-5" />
             </MusicButton>
           )}
@@ -607,7 +609,7 @@ export function MusicBar({
             step={1}
             value={Math.min(shownPosition, duration > 0 ? duration : 100)}
             disabled={disabledControl || duration <= 0}
-            aria-label="Posição da música"
+            aria-label={t("musicBar.musicPosition")}
             onChange={(e) => setScrubbing(Number(e.target.value))}
             onPointerUp={() => {
               if (scrubbing !== null) seekTo(scrubbing);
@@ -631,12 +633,12 @@ export function MusicBar({
               onClick={activateAudio}
               className="rounded-md bg-white px-2 py-1 text-[11px] font-semibold text-sky-700 transition hover:bg-sky-50"
             >
-              Ativar som
+              {t("common.turnOnSound")}
             </button>
           )}
           <VolumeSlider
             value={volume}
-            label="Volume da música"
+            label={t("common.musicVolume")}
             onChange={changeVolume}
             className="hidden w-24 sm:flex"
           />
@@ -644,8 +646,8 @@ export function MusicBar({
             <MusicButton
               label={
                 music.controlMode === "anyone"
-                  ? "Todos podem controlar. Clique para deixar só com a administração"
-                  : "Só o dono e os administradores controlam. Clique para liberar para todos"
+                  ? t("musicBar.everyoneCanControlItClickTo")
+                  : t("musicBar.onlyTheOwnerAndTheAdministrators")
               }
               onClick={() =>
                 signalingClient.setMusicControlMode(
@@ -662,11 +664,11 @@ export function MusicBar({
           )}
           {isRoomManager && (
             <>
-              <MusicButton label="Trocar música" onClick={onReplace}>
+              <MusicButton label={t("common.changeMusic")} onClick={onReplace}>
                 <MdMusicNote className="h-4 w-4" />
               </MusicButton>
               <MusicButton
-                label="Tirar a música da sala"
+                label={t("common.removeTheMusicFromTheRoom")}
                 onClick={() => signalingClient.clearMusicSource()}
               >
                 <MdClose className="h-4 w-4" />

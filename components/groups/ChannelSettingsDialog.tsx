@@ -37,6 +37,7 @@ import {
 import { groupPath } from "@/lib/groupLinks";
 import { useGroupNavigation } from "@/lib/groupNavigation";
 import { refreshGroup, useGroupDetail } from "@/lib/useGroups";
+import { useT } from "@/lib/useI18n";
 
 // One room's own settings — the gear beside a room in the group's list opens
 // this (see GroupSidebar), as does the "Salas" tab of the group's settings.
@@ -63,6 +64,7 @@ export function ChannelSettingsDialog({
   closePopup,
   data,
 }: PopupProps<{ groupId: string; channelId: string; tab?: ChannelTab }>) {
+  const t = useT();
   const groupId = data?.groupId ?? "";
   const { detail } = useGroupDetail(groupId || null);
   const channel = detail?.channels.find((c) => c.id === data?.channelId) ?? null;
@@ -71,8 +73,8 @@ export function ChannelSettingsDialog({
 
   if (!detail || !channel) {
     return (
-      <DialogFrame title="Sala" onClose={() => closePopup(false)} wide>
-        <p className="text-sm text-zinc-500">{detail ? "Essa sala não existe mais." : "Carregando…"}</p>
+      <DialogFrame title={t("common.room")} onClose={() => closePopup(false)} wide>
+        <p className="text-sm text-zinc-500">{detail ? t("groups.channelSettingsDialog.thisRoomNoLongerExists") : t("common.loading")}</p>
       </DialogFrame>
     );
   }
@@ -90,13 +92,13 @@ export function ChannelSettingsDialog({
       wide
     >
       {!isManager ? (
-        <p className="text-sm text-zinc-500">Você não tem permissão para mexer nas configurações das salas.</p>
+        <p className="text-sm text-zinc-500">{t("groups.channelSettingsDialog.youDoNotHavePermissionTo")}</p>
       ) : (
         <>
           <DialogTabs
             tabs={[
-              { id: "general" as const, label: "Geral" },
-              { id: "permissions" as const, label: "Permissões" },
+              { id: "general" as const, label: t("common.general") },
+              { id: "permissions" as const, label: t("groups.channelSettingsDialog.permissions") },
             ]}
             current={tab}
             onChange={setTab}
@@ -112,6 +114,7 @@ export function ChannelSettingsDialog({
 // ─── Geral ────────────────────────────────────────────────────────────────
 
 function GeneralTab({ detail, channel, onDeleted }: { detail: GroupDetail; channel: GroupChannel; onDeleted: () => void }) {
+  const t = useT();
   const navigation = useGroupNavigation();
   const groupId = detail.group.id;
   const [name, setName] = useState(channel.name);
@@ -126,7 +129,7 @@ function GeneralTab({ detail, channel, onDeleted }: { detail: GroupDetail; chann
     setBusy(true);
     const result = await renameChannel(groupId, channel.id, name.trim());
     setBusy(false);
-    setMessage(result.ok ? { ok: true, text: "Salvo." } : { ok: false, text: result.error });
+    setMessage(result.ok ? { ok: true, text: t("common.saved2") } : { ok: false, text: result.error });
     if (result.ok) {
       setName(result.channel.name);
       void refreshGroup(groupId);
@@ -153,34 +156,34 @@ function GeneralTab({ detail, channel, onDeleted }: { detail: GroupDetail; chann
   return (
     <div className="flex flex-col gap-5">
       <form onSubmit={save} className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Nome da sala</span>
+        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("common.roomName")}</span>
         <div className="flex gap-2">
           <input value={name} onChange={(e) => setName(e.target.value)} maxLength={32} className={inputClass} />
           <button type="submit" disabled={busy || !name.trim() || name.trim() === channel.name} className={`${primaryButton} shrink-0`}>
-            Salvar
+            {t("common.save")}
           </button>
         </div>
         <span className="text-xs text-zinc-500 dark:text-zinc-400">
-          {channel.kind === "text" ? "Sala de texto" : "Sala de voz"}
+          {channel.kind === "text" ? t("common.textRoom") : t("common.voiceRoom")}
         </span>
       </form>
 
       <div className="flex flex-col gap-2 rounded-lg border border-red-200 p-3 dark:border-red-900/60">
-        <p className="text-sm font-medium text-red-600 dark:text-red-400">Apagar sala</p>
+        <p className="text-sm font-medium text-red-600 dark:text-red-400">{t("groups.channelSettingsDialog.deleteRoom")}</p>
         <p className="text-xs text-zinc-500 dark:text-zinc-400">
           {lastTextRoom
-            ? "Esta é a única sala de texto do grupo — crie outra antes de apagar esta."
+            ? t("groups.channelSettingsDialog.thisIsTheGroupSOnly")
             : channel.kind === "text"
-              ? "Apaga a sala e todas as mensagens dela, para todo mundo. Não dá pra desfazer."
-              : "Apaga a sala para todo mundo. Quem estiver na chamada sai dela."}
+              ? t("groups.channelSettingsDialog.deletesTheRoomAndAllIts")
+              : t("groups.channelSettingsDialog.deletesTheRoomForEveryoneWhoever")}
         </p>
         {confirmDelete ? (
           <div className="flex flex-wrap gap-2">
             <button type="button" disabled={busy} onClick={() => void remove()} className={dangerButton}>
-              Sim, apagar {channel.kind === "text" ? `#${channel.name}` : channel.name}
+              {t("common.yesDelete")} {channel.kind === "text" ? `#${channel.name}` : channel.name}
             </button>
             <button type="button" onClick={() => setConfirmDelete(false)} className={secondaryButton}>
-              Cancelar
+              {t("common.cancel")}
             </button>
           </div>
         ) : (
@@ -190,7 +193,7 @@ function GeneralTab({ detail, channel, onDeleted }: { detail: GroupDetail; chann
             onClick={() => setConfirmDelete(true)}
             className={`${secondaryButton} self-start !border-red-300 !text-red-600 dark:!border-red-900 dark:!text-red-400`}
           >
-            Apagar sala
+            {t("groups.channelSettingsDialog.deleteRoom")}
           </button>
         )}
       </div>
@@ -218,10 +221,11 @@ function TriStateControl({
   onChange: (next: TriState) => void;
   disabled?: boolean;
 }) {
+  const t = useT();
   const options: { id: TriState; label: string; icon: typeof MdCheck; active: string }[] = [
-    { id: "off", label: "Desativada", icon: MdClose, active: "bg-red-600 text-white" },
-    { id: "neutral", label: "Neutra", icon: MdRemove, active: "bg-zinc-500 text-white dark:bg-zinc-600" },
-    { id: "on", label: "Ativada", icon: MdCheck, active: "bg-emerald-600 text-white" },
+    { id: "off", label: t("groups.channelSettingsDialog.disabled"), icon: MdClose, active: "bg-red-600 text-white" },
+    { id: "neutral", label: t("groups.channelSettingsDialog.neutral"), icon: MdRemove, active: "bg-zinc-500 text-white dark:bg-zinc-600" },
+    { id: "on", label: t("groups.channelSettingsDialog.enabled"), icon: MdCheck, active: "bg-emerald-600 text-white" },
   ];
   return (
     <div role="radiogroup" className="inline-flex shrink-0 overflow-hidden rounded-lg border border-zinc-300 dark:border-zinc-700">
@@ -251,6 +255,7 @@ function TriStateControl({
 const EVERYONE = "@everyone";
 
 function ChannelPermissionsTab({ detail, channel }: { detail: GroupDetail; channel: GroupChannel }) {
+  const t = useT();
   const roles = rolesInOrder(detail);
   // Whose overrides are being edited: @everyone, or one role.
   const [target, setTarget] = useState<string>(EVERYONE);
@@ -263,9 +268,7 @@ function ChannelPermissionsTab({ detail, channel }: { detail: GroupDetail; chann
   return (
     <div className="flex flex-col gap-3">
       <p className="text-sm text-zinc-600 dark:text-zinc-400">
-        O que cada um pode fazer nesta sala. Escolha <b>@everyone</b> (todo mundo) ou um cargo. <b>Neutra</b> não muda
-        nada; <b>ativada</b> ou <b>desativada</b> vale só aqui. Se um cargo ativa e outro desativa, quem tem os dois
-        pode. O dono e os administradores podem tudo, sempre.
+        {t("groups.channelSettingsDialog.whatEachOneCanDoIn")} <b>@everyone</b> {t("groups.channelSettingsDialog.everyoneOrARole")} <b>{t("groups.channelSettingsDialog.neutral")}</b> {t("groups.channelSettingsDialog.changesNothing")} <b>{t("common.enabledFem")}</b> {t("common.or")} <b>{t("common.disabledFem")}</b> {t("groups.channelSettingsDialog.appliesOnlyHereIfOneRole")}
       </p>
       <div className="flex flex-wrap gap-1.5">
         {[{ id: EVERYONE, name: "@everyone", color: null as string | null }, ...roles].map((option) => {
@@ -286,7 +289,7 @@ function ChannelPermissionsTab({ detail, channel }: { detail: GroupDetail; chann
                 <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: option.color ?? "#99aab5" }} />
               )}
               <span className="truncate">{option.name}</span>
-              {overridden && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-500" title="Tem ajustes nesta sala" />}
+              {overridden && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-500" title={t("groups.channelSettingsDialog.hasSettingsInThisRoom")} />}
             </button>
           );
         })}
@@ -320,6 +323,7 @@ function OverridesEditor({
   initial: ChannelPermissionOverrides;
   locked: boolean;
 }) {
+  const t = useT();
   const openGroupSettings = useOpenGroupSettings();
   const groupId = detail.group.id;
   // What was last sent, shown at once rather than after the round trip.
@@ -352,9 +356,9 @@ function OverridesEditor({
   // The same sections as the group's own: the general switches, then this
   // room's kind.
   const sections: { title: string; keys: readonly GroupPermissionKey[] }[] = [
-    { title: "Gerais", keys: GENERAL_PERMISSION_KEYS },
+    { title: t("common.general2"), keys: GENERAL_PERMISSION_KEYS },
     {
-      title: channel.kind === "text" ? "Sala de texto" : "Sala de voz",
+      title: channel.kind === "text" ? t("common.textRoom") : t("common.voiceRoom"),
       keys: channel.kind === "text" ? TEXT_PERMISSION_KEYS : VOICE_PERMISSION_KEYS,
     },
   ];
@@ -364,7 +368,7 @@ function OverridesEditor({
       {locked && (
         <p className="flex items-center gap-1.5 rounded-lg bg-zinc-100 px-3 py-2 text-xs text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
           <MdLockOutline className="h-4 w-4 shrink-0" />
-          Este cargo está no mesmo nível ou acima do seu — só dá pra ver.
+          {t("common.thisRoleIsAtTheSame")}
         </p>
       )}
       {sections.map((section) => (
@@ -387,12 +391,12 @@ function OverridesEditor({
                     <p className="text-xs text-zinc-500 dark:text-zinc-400">
                       {value === "neutral" ? (
                         role ? (
-                          <>Não muda nada para {roleName}</>
+                          <>{t("groups.channelSettingsDialog.changesNothingFor")} {roleName}</>
                         ) : (
                           <>
-                            Segue o grupo:{" "}
+                            {t("groups.channelSettingsDialog.followsTheGroup")}{" "}
                             <span className={inherited ? "text-emerald-600 dark:text-emerald-500" : "text-red-500"}>
-                              {inherited ? "ativada" : "desativada"}
+                              {inherited ? t("common.enabledFem") : t("common.disabledFem")}
                             </span>
                           </>
                         )
@@ -400,11 +404,11 @@ function OverridesEditor({
                         <span className={effective ? "text-emerald-600 dark:text-emerald-500" : "text-red-500"}>
                           {effective
                             ? role
-                              ? `Ativada para ${roleName} nesta sala`
-                              : "Ativada nesta sala"
+                              ? t("groups.channelSettingsDialog.enabledForRolenameInThisRoom", { roleName })
+                              : t("groups.channelSettingsDialog.enabledInThisRoom")
                             : role
-                              ? `Desativada para ${roleName} nesta sala`
-                              : "Desativada nesta sala"}
+                              ? t("groups.channelSettingsDialog.disabledForRolenameInThisRoom", { roleName })
+                              : t("groups.channelSettingsDialog.disabledInThisRoom")}
                         </span>
                       )}
                       {hint && <> · {hint}</>}
@@ -424,11 +428,11 @@ function OverridesEditor({
           onClick={() => openGroupSettings(groupId, "roles")}
           className="cursor-pointer text-sm font-medium text-zinc-600 underline underline-offset-2 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-50"
         >
-          Cargos e permissões do grupo
+          {t("groups.channelSettingsDialog.groupRolesAndPermissions")}
         </button>
         {overridden && !locked && (
           <button type="button" onClick={() => void send({})} className={secondaryButton}>
-            Deixar tudo neutro
+            {t("groups.channelSettingsDialog.setEverythingToNeutral")}
           </button>
         )}
       </div>

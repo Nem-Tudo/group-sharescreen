@@ -23,6 +23,8 @@ import {
 } from "@/lib/localMediaSource";
 import { signalingClient, type SharedFile } from "@/lib/signalingClient";
 import { formatMusicTime } from "@/lib/musicSource";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
 
 // The transport for a local file being played into the room, drawn inside its
 // own tile (see VideoTile's `transport` slot).
@@ -65,6 +67,7 @@ export function LocalMediaControls({
   // else "controlar" means play/pause/skip, never ending someone's broadcast.
   onStop: () => void;
 }) {
+  const t = useT();
   const source = localMediaSources[slot];
   const state = useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot);
   const [volume, setVolume] = useState(1);
@@ -113,7 +116,7 @@ export function LocalMediaControls({
       // film off and putting it on again.
       controlMode={state.controlMode}
       restrictedLabel={
-        state.mode === "music" ? "Só você e a administração da sala" : "Só você"
+        state.mode === "music" ? t("localMediaControls.onlyYouAndTheRoomS") : t("localMediaControls.onlyYou")
       }
       canRestrictControl={canRestrictControl}
       onRequestAccount={onRequestAccount}
@@ -208,7 +211,7 @@ function Transport({
   disabled = false,
   onStop,
   controlMode,
-  restrictedLabel = "Só você",
+  restrictedLabel = translate("localMediaControls.onlyYou"),
   canRestrictControl = false,
   onRequestAccount,
   onControlModeChange,
@@ -239,6 +242,7 @@ function Transport({
   volume?: number;
   onVolumeChange?: (value: number) => void;
 }) {
+  const t = useT();
   const total = queue?.length ?? count ?? 1;
   const many = total > 1;
 
@@ -280,7 +284,7 @@ function Transport({
         <div className="flex shrink-0 items-center gap-0.5">
           {many && (
             <ControlButton
-              label="Anterior"
+              label={t("localMediaControls.previous")}
               disabled={disabled}
               onClick={() => onAction({ action: "previous" })}
             >
@@ -288,7 +292,7 @@ function Transport({
             </ControlButton>
           )}
           <ControlButton
-            label="Voltar 10 segundos"
+            label={t("common.back10Seconds")}
             disabled={disabled}
             onClick={() => onAction({ action: "seek", seconds: position - 10 })}
             className="hidden sm:flex"
@@ -296,14 +300,14 @@ function Transport({
             <MdReplay10 className="h-4 w-4" />
           </ControlButton>
           <ControlButton
-            label={playing ? "Pausar" : "Tocar"}
+            label={playing ? t("common.pause") : t("common.play")}
             disabled={disabled}
             onClick={() => onAction({ action: "toggle" })}
           >
             {playing ? <MdPause className="h-4 w-4" /> : <MdPlayArrow className="h-4 w-4" />}
           </ControlButton>
           <ControlButton
-            label="Avançar 10 segundos"
+            label={t("common.forward10Seconds")}
             disabled={disabled}
             onClick={() => onAction({ action: "seek", seconds: position + 10 })}
             className="hidden sm:flex"
@@ -312,7 +316,7 @@ function Transport({
           </ControlButton>
           {many && (
             <ControlButton
-              label="Próximo"
+              label={t("localMediaControls.next")}
               disabled={disabled}
               onClick={() => onAction({ action: "next" })}
             >
@@ -337,7 +341,7 @@ function Transport({
           step={1}
           value={Math.min(position, duration > 0 ? duration : 100)}
           disabled={disabled || duration <= 0}
-          aria-label={`Posição de ${title}`}
+          aria-label={t("localMediaControls.positionOfTitle", { title })}
           onChange={(e) => setScrubbing(Number(e.target.value))}
           onPointerUp={() => {
             if (scrubbing !== null) onAction({ action: "seek", seconds: scrubbing });
@@ -355,7 +359,7 @@ function Transport({
 
         <div className="flex shrink-0 items-center gap-0.5">
           {queue && many && (
-            <ControlButton label="Ver a fila" onClick={() => setListOpen((open) => !open)}>
+            <ControlButton label={t("localMediaControls.seeTheQueue")} onClick={() => setListOpen((open) => !open)}>
               <MdPlaylistPlay className="h-4 w-4" />
             </ControlButton>
           )}
@@ -365,7 +369,7 @@ function Transport({
           {volume !== undefined && onVolumeChange && (
             <VolumeSlider
               value={volume}
-              label="Volume no seu computador (não muda para a sala)"
+              label={t("localMediaControls.volumeOnYourComputerItDoes")}
               onChange={onVolumeChange}
               className="hidden w-20 lg:flex"
             />
@@ -375,9 +379,9 @@ function Transport({
               label={
                 controlMode === "anyone"
                   ? canRestrictControl
-                    ? `Todos podem controlar. Clique para deixar ${restrictedLabel.toLowerCase()}`
-                    : "Utilize uma conta para restringir o controle"
-                  : `${restrictedLabel} controla. Clique para liberar para todos`
+                    ? t("localMediaControls.everyoneCanControlItClickTo", { value: restrictedLabel.toLowerCase() })
+                    : t("common.useAnAccountToRestrictControl")
+                  : t("localMediaControls.restrictedlabelControlsItClickToOpen", { restrictedLabel })
               }
               disabled={controlMode === "anyone" && !canRestrictControl}
               onClick={
@@ -395,7 +399,7 @@ function Transport({
           )}
           {onStop && (
             <ControlButton
-              label={music ? "Tirar a música da sala" : "Remover esse vídeo da sala (para todos)"}
+              label={music ? t("common.removeTheMusicFromTheRoom") : t("common.removeThisVideoFromTheRoom")}
               onClick={onStop}
             >
               <MdClose className="h-4 w-4" style={{ color: "red" }} />
@@ -420,6 +424,7 @@ function ControlButton({
   className?: string;
   children: ReactNode;
 }) {
+  const t = useT();
   return (
     // Wrapped, so the hint still opens on a disabled button — which emits no
     // pointer events of its own, and is exactly the one that needs explaining.

@@ -219,6 +219,8 @@ import {
   THEME_EDITOR_PARAM,
   wantsThemeEditor,
 } from "@/lib/roomThemes";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
 
 // Mirrors server/signaling.ts's HANDLE_RE — must match exactly, or a name
 // this lets through but the server rejects lands the user in a dead room
@@ -314,12 +316,13 @@ function MicGainRow({
   onChange: (value: number) => void;
   disabled: boolean;
 }) {
+  const t = useT();
   return (
     <div className="-mx-1 mt-1 border-t border-zinc-200 px-3 pb-2 pt-2.5 dark:border-zinc-800">
       <div className="flex items-center justify-between gap-2">
         <span className="flex items-center gap-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-400">
           <MicIcon className="h-3.5 w-3.5 shrink-0" />
-          Volume do microfone
+          {t("watch.watchRoom.microphoneVolume")}
         </span>
         <span className="text-xs font-semibold tabular-nums text-zinc-700 dark:text-zinc-300">
           {Math.round(value * 100)}%
@@ -337,15 +340,15 @@ function MicGainRow({
         disabled={disabled}
         onChange={(event) => onChange(Number(event.target.value))}
         onDoubleClick={() => onChange(DEFAULT_MIC_GAIN)}
-        aria-label="Volume do microfone"
+        aria-label={t("watch.watchRoom.microphoneVolume")}
         className="mt-2 h-1.5 w-full cursor-pointer accent-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
       />
       <p className="mt-1.5 text-[11px] leading-snug text-zinc-500 dark:text-zinc-500">
         {disabled
-          ? "Indisponível nesta configuração de áudio"
+          ? t("watch.watchRoom.unavailableWithThisAudioSetup")
           : value > 1
-            ? "Acima de 100% o ruído de fundo também aumenta"
-            : "Clique duas vezes na barra para voltar a 100%"}
+            ? t("watch.watchRoom.above100TheBackgroundNoiseIncreases")
+            : t("watch.watchRoom.doubleClickTheBarToGo")}
       </p>
     </div>
   );
@@ -393,6 +396,7 @@ function MicUsageHint({
   wrapperClassName: string;
   children: ReactElement<{ ref?: Ref<Element> }>;
 }) {
+  const t = useT();
   return (
     <Popover
       open={open}
@@ -407,12 +411,10 @@ function MicUsageHint({
         <div className="w-64 max-w-[calc(100vw-1rem)] rounded-lg border border-zinc-300 bg-white p-3 text-left shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
           <p className="flex items-center gap-1.5 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
             <MicIcon className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-500" />
-            Fale com a sala
+            {t("watch.watchRoom.talkToTheRoom")}
           </p>
           <p className="mt-1 text-xs leading-relaxed text-zinc-600 dark:text-zinc-300">
-            Ligue o microfone aqui para conversar com quem está na sala. O áudio
-            do site é feito para isso — com cancelamento de ruído e volume por
-            pessoa — e a sala fica bem melhor de acompanhar do que só assistindo.
+            {t("watch.watchRoom.turnTheMicrophoneOnHereTo")}
           </p>
           <div className="mt-3 flex gap-2">
             <button
@@ -420,14 +422,14 @@ function MicUsageHint({
               onClick={onEnableMic}
               className="flex-1 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-700"
             >
-              Ativar microfone
+              {t("common.turnOnMicrophone")}
             </button>
             <button
               type="button"
               onClick={onDismiss}
               className="rounded-md px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
             >
-              Agora não
+              {t("common.notNow")}
             </button>
           </div>
         </div>
@@ -475,6 +477,7 @@ function QualityControls({
   | "meshCapacity"
   | "meshTopology"
 > & { features: readonly string[] }) {
+  const t = useT();
   return (
     <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
       <div className="flex flex-col gap-3">
@@ -487,18 +490,16 @@ function QualityControls({
           />
           <span>
             <span className="font-medium text-zinc-900 dark:text-zinc-100">
-              Ativar controle inteligente de qualidade
+              {t("watch.watchRoom.turnOnSmartQualityControl")}
             </span>
             <br />
-            Envia para cada pessoa só a qualidade que a tela dela realmente usa — quem
-            está num quadradinho não recebe 1080p à toa. Economiza sua internet e seu
-            processador. As opções abaixo viram o teto.
+            {t("watch.watchRoom.sendsEachPersonOnlyTheQuality")}
           </span>
         </label>
 
         <div>
           <span className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-            O que você está compartilhando
+            {t("watch.watchRoom.whatYouAreSharing")}
           </span>
           {/* One column on a phone rather than three cramped ones: the hints
               are what make these choosable, and they are the first thing to
@@ -530,15 +531,13 @@ function QualityControls({
               already there, and needs the same threshold. */}
           {shareProfile === "text" && shareFps > 30 && (
             <p className="mt-1 text-xs text-amber-600 dark:text-amber-500">
-              Acima de 30fps, escolha &quot;Equilibrado&quot; ou &quot;Vídeo /
-              jogo&quot; — no modo texto o navegador descarta quadros para
-              manter a nitidez.
+              {t("watch.watchRoom.above30fpsChooseBalancedOrVideo")}
             </p>
           )}
         </div>
 
         <QualitySelect
-          label="Resolução"
+          label={t("watch.watchRoom.resolution")}
           value={shareResolution}
           options={SHARE_RESOLUTION_OPTIONS}
           features={features}
@@ -546,7 +545,7 @@ function QualityControls({
         />
 
         <QualitySelect
-          label="Taxa de quadros"
+          label={t("watch.watchRoom.frameRate")}
           value={shareFps}
           options={SHARE_FPS_OPTIONS}
           features={features}
@@ -554,7 +553,7 @@ function QualityControls({
         />
 
         <QualitySelect
-          label="Bitrate"
+          label={t("watch.watchRoom.bitrate")}
           value={shareBitrate}
           options={SHARE_BITRATE_OPTIONS}
           features={features}
@@ -567,22 +566,22 @@ function QualityControls({
         {isSharing && meshCapacity.sampledAt > 0 && (
           <div className="rounded-md border border-zinc-200 bg-white p-2 text-xs text-zinc-600 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-400">
             <div className="flex justify-between gap-2">
-              <span>Sua banda de subida</span>
+              <span>{t("watch.watchRoom.yourUploadBandwidth")}</span>
               <span className="font-medium text-zinc-900 tabular-nums dark:text-zinc-100">
                 {meshCapacity.availableOutgoingKbps > 0
-                  ? `${(meshCapacity.availableOutgoingKbps / 1000).toFixed(1)} Mbps`
+                  ? t("watch.watchRoom.valueMbps", { value: (meshCapacity.availableOutgoingKbps / 1000).toFixed(1) })
                   : "medindo…"}
               </span>
             </div>
             <div className="flex justify-between gap-2">
-              <span>Em uso agora</span>
+              <span>{t("watch.watchRoom.inUseNow")}</span>
               <span className="font-medium text-zinc-900 tabular-nums dark:text-zinc-100">
-                {(meshCapacity.usedOutgoingKbps / 1000).toFixed(1)} Mbps
+                {(meshCapacity.usedOutgoingKbps / 1000).toFixed(1)} {t("watch.watchRoom.mbps")}
               </span>
             </div>
             {meshCapacity.cpuPressure > 0.25 && (
               <p className="mt-1 text-amber-600 dark:text-amber-500">
-                Seu processador está no limite — baixe a resolução ou os fps.
+                {t("watch.watchRoom.yourProcessorIsAtItsLimit")}
               </p>
             )}
             {meshTopology.reason && (
@@ -704,6 +703,7 @@ function ShareControls({
   // anywhere but the bar.
   extraMotion?: string;
 }) {
+  const t = useT();
   const segment =
     "flex items-center px-3 py-2 text-white transition disabled:cursor-not-allowed disabled:opacity-50";
   const live = "bg-red-600 hover:bg-red-700";
@@ -712,19 +712,19 @@ function ShareControls({
   const screenBlocked = !screenSharing && Boolean(screenBlockedReason);
   const cameraBlocked = !cameraSharing && Boolean(cameraBlockedReason);
   const screenLabel = screenSharing
-    ? "Parar de compartilhar a tela"
+    ? t("watch.watchRoom.stopSharingTheScreen")
     : screenBlockedReason
       ? screenBlockedReason
       : screenSupported
-        ? "Compartilhar tela"
-        : "Seu navegador não permite compartilhar a tela";
+        ? t("watch.watchRoom.shareScreen")
+        : t("watch.watchRoom.yourBrowserDoesNotAllowSharing");
   const cameraLabel = cameraSharing
-    ? "Parar câmera"
+    ? t("watch.watchRoom.stopCamera")
     : cameraBlockedReason
       ? cameraBlockedReason
       : cameraSupported
-        ? "Compartilhar câmera"
-        : "Seu navegador não permite usar a câmera";
+        ? t("watch.watchRoom.shareCamera")
+        : t("watch.watchRoom.yourBrowserDoesNotAllowUsing");
 
   // Same job as WatchRoom's dockExtra, for the two pieces of this segment the
   // compact bar leaves out.
@@ -745,7 +745,7 @@ function ShareControls({
         open={open}
         onClose={() => setOpen(false)}
         placement="bottom-end"
-        tooltip="Qualidade da transmissão"
+        tooltip={t("common.broadcastQuality")}
         content={
           <div className="w-80 max-w-[calc(100vw-1rem)]">
             <QualityControls {...quality} />
@@ -755,7 +755,7 @@ function ShareControls({
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
-          aria-label="Qualidade da transmissão"
+          aria-label={t("common.broadcastQuality")}
           className="flex items-center border-r border-black/15 bg-emerald-600 px-2 text-white transition hover:bg-emerald-700"
         >
           <BsGearFill className="h-3.5 w-3.5" />
@@ -827,8 +827,8 @@ function ShareControls({
         <Tooltip
           content={
             cameraFacing === "environment"
-              ? "Usar a câmera frontal"
-              : "Usar a câmera traseira"
+              ? t("watch.watchRoom.useTheFrontCamera")
+              : t("watch.watchRoom.useTheRearCamera")
           }
           placement="bottom"
         >
@@ -837,7 +837,7 @@ function ShareControls({
             onClick={() =>
               setCameraFacing(cameraFacing === "environment" ? "user" : "environment")
             }
-            aria-label="Virar a câmera"
+            aria-label={t("watch.watchRoom.flipTheCamera")}
             className={`flex items-center border-l border-black/15 px-2 text-white transition ${cameraSharing ? live : idle}`}
           >
             <MdFlipCameraAndroid className="h-4 w-4" />
@@ -848,11 +848,11 @@ function ShareControls({
           open={cameraMenuOpen}
           onClose={() => setCameraMenuOpen(false)}
           placement="bottom-end"
-          tooltip="Escolher câmera"
+          tooltip={t("common.chooseCamera")}
           content={
             <div className="w-64 max-w-[calc(100vw-1rem)] rounded-lg border border-zinc-300 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
               <DeviceMenuOption
-                label="Padrão do sistema"
+                label={t("watch.watchRoom.systemDefault")}
                 selected={cameraDeviceId === null}
                 onClick={() => {
                   setCameraDevice(null);
@@ -876,7 +876,7 @@ function ShareControls({
           <button
             type="button"
             onClick={() => setCameraMenuOpen((o) => !o)}
-            aria-label="Escolher câmera"
+            aria-label={t("common.chooseCamera")}
             className={`flex items-center border-l border-black/15 px-1 text-white transition ${cameraSharing ? live : idle}`}
           >
             <ChevronDownIcon className="h-3.5 w-3.5" />
@@ -904,19 +904,20 @@ function SwitchRoomFields({
   switchError: string | null;
   onSubmit: (e: FormEvent) => void;
 }) {
+  const t = useT();
   return (
     <form
       onSubmit={onSubmit}
       className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 shadow-lg dark:border-zinc-800 dark:bg-zinc-900"
     >
       <label className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-        Nova sala
+        {t("watch.watchRoom.newRoom")}
       </label>
       <input
         autoFocus
         value={switchInput}
         onChange={(e) => setSwitchInput(e.target.value)}
-        placeholder="Ex: reuniao-time ou priv-familia-123456"
+        placeholder={t("watch.watchRoom.exTeamMeetingOrPrivFamily")}
         className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
       />
       <label className="mt-2 flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
@@ -926,12 +927,12 @@ function SwitchRoomFields({
           onChange={(e) => setSwitchIsPrivate(e.target.checked)}
           className="h-3.5 w-3.5 rounded border-zinc-300 dark:border-zinc-700"
         />
-        Criar sala privada (gera um código)
+        {t("watch.watchRoom.createAPrivateRoomGeneratesA")}
       </label>
       {/* Says what the box above already accepts, so nobody assumes the
           only way back into a private room is the home page. */}
       <p className="mt-1 text-[11px] leading-snug text-zinc-500 dark:text-zinc-500">
-        Para entrar numa sala privada que já existe, cole o nome.
+        {t("watch.watchRoom.toJoinAPrivateRoomThat")}
       </p>
       {switchError && <p className="mt-1 text-xs text-red-500">{switchError}</p>}
       <button
@@ -939,13 +940,13 @@ function SwitchRoomFields({
         disabled={!switchInput.trim()}
         className="mt-2 w-full rounded-md bg-zinc-950 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
       >
-        Ir para a sala
+        {t("common.goToTheRoom")}
       </button>
       <Link
         href="/rooms"
         className="mt-2 block text-center text-xs font-medium text-zinc-500 underline underline-offset-2 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
       >
-        Ver salas públicas ativas
+        {t("watch.watchRoom.seeActivePublicRooms")}
       </Link>
     </form>
   );
@@ -2350,9 +2351,9 @@ export function WatchRoom({
   const planFlags = account?.flags ?? [];
   const proButton = planFlags.includes("PRO_MAX")
     ? {
-        label: "Presentear",
-        tooltip: "Presentear alguém com o GoLive Pro",
-        ariaLabel: "Presentear Pro",
+        label: translate("common.sendAsAGift"),
+        tooltip: translate("watch.watchRoom.giftSomeoneGolivePro"),
+        ariaLabel: translate("common.giftPro"),
         Icon: MdCardGiftcard,
         // Carries its own colour, like the badges below: green is what the
         // gift control is everywhere else on the site.
@@ -2363,9 +2364,9 @@ export function WatchRoom({
       }
     : planFlags.includes("PRO")
       ? {
-          label: "Pro Max",
-          tooltip: "GoLive Pro Max — temas, presentes e todo o resto do Pro",
-          ariaLabel: "GoLive Pro Max",
+          label: translate("common.proMax"),
+          tooltip: translate("watch.watchRoom.goliveProMaxThemesGiftsAnd"),
+          ariaLabel: translate("common.goliveProMax"),
           // The plan's own mark, which carries its colour in its gradients and
           // therefore takes no colour class of its own.
           Icon: GoldVerifiedBadgeIcon,
@@ -2377,9 +2378,9 @@ export function WatchRoom({
           onPress: () => openProModal("premium_max"),
         }
       : {
-          label: "Pro",
-          tooltip: "GoLive Pro — Seja Verificado, transmita em 4K/120fps e muito mais!",
-          ariaLabel: "GoLive Pro",
+          label: translate("common.pro"),
+          tooltip: translate("watch.watchRoom.goliveProGetVerifiedBroadcastIn"),
+          ariaLabel: translate("common.golivePro"),
           // Blue rather than inheriting the label's colour: this is the same
           // badge that appears next to a verified name (see DisplayUserName),
           // and it only reads as that badge if it keeps its own.
@@ -2394,7 +2395,7 @@ export function WatchRoom({
   // Populated only for the ones this viewer is actually blocked on, so a
   // control can use `?? undefined` and get its ordinary label back.
   function roomBlockReason(key: RoomPermissionKey, what: string): string | null {
-    return canUseRoomPermission(key) ? null : `Você não tem permissão para utilizar ${what} nesta sala.`;
+    return canUseRoomPermission(key) ? null : translate("watch.watchRoom.youDoNotHavePermissionTo", { what });
   }
   // Only public rooms are on the map at all (see the server's
   // "room-location-set" and its /rooms listing, which filters private rooms
@@ -2403,16 +2404,16 @@ export function WatchRoom({
   // A group's room belongs to its group's members and is on no map either.
   const privateRoomCannotBeMapped = isPrivateRoomHandle(handle) || Boolean(group);
   const roomLocationTooltip = privateRoomCannotBeMapped
-    ? "Apenas salas públicas podem definir uma localização no Mapa Mundi"
+    ? translate("watch.watchRoom.onlyPublicRoomsCanSetA")
     : isRoomManager
-      ? "Escolha onde esta sala fica no mapa do mundo"
-      : "Veja onde esta sala fica no mapa do mundo";
+      ? translate("watch.watchRoom.chooseWhereThisRoomSitsOn")
+      : translate("watch.watchRoom.seeWhereThisRoomSitsOn");
   const micBlockedReason = roomBlockReason("mic", "o microfone");
   const screenBlockedReason = roomBlockReason("screen", "o compartilhamento de tela");
-  const cameraBlockedReason = roomBlockReason("camera", "a câmera");
-  const videoSourceBlockedReason = roomBlockReason("videoSource", "adicionar fontes de vídeo");
+  const cameraBlockedReason = roomBlockReason("camera", translate("watch.watchRoom.theCamera"));
+  const videoSourceBlockedReason = roomBlockReason("videoSource", translate("watch.watchRoom.addVideoSources"));
   const chatBlockedReason = roomBlockReason("chat", "o chat");
-  const gifBlockedReason = roomBlockReason("gif", "o envio de GIFs");
+  const gifBlockedReason = roomBlockReason("gif", translate("watch.watchRoom.sendingGifs"));
   const imageBlockedReason = roomBlockReason("image", "o envio de imagens");
 
   // The top dial positions are gated (see each SHARE_*_OPTIONS' `feature`),
@@ -2726,7 +2727,7 @@ export function WatchRoom({
         return;
       }
       const authorId = state.selfUserId;
-      const authorName = state.account.username || state.name || "Administrador";
+      const authorName = state.account.username || state.name || translate("common.administrator");
       let exportId = id;
       if (id.endsWith(`:${SELF_TILE_OWNER}`)) {
         const selfIdentifier = state.selfUserId ?? state.selfId;
@@ -2855,7 +2856,7 @@ export function WatchRoom({
       fullHandle = trimmed;
     } else if (switchIsPrivate) {
       if (trimmed.length > MAX_PRIVATE_ROOM_NAME_LENGTH) {
-        setSwitchError(`O nome pode ter no máximo ${MAX_PRIVATE_ROOM_NAME_LENGTH} caracteres.`);
+        setSwitchError(translate("common.theNameCanHaveAtMost", { MAX_PRIVATE_ROOM_NAME_LENGTH }));
         return;
       }
       fullHandle = toPrivateRoomHandle(trimmed, generateRoomCode());
@@ -2863,7 +2864,7 @@ export function WatchRoom({
       fullHandle = toRoomHandle(trimmed, false);
     }
     if (!HANDLE_RE.test(fullHandle)) {
-      setSwitchError("Use de 1 a 32 letras, números, - e _.");
+      setSwitchError(translate("common.use1To32LettersNumbers"));
       return;
     }
     setSwitching(false);
@@ -2877,10 +2878,10 @@ export function WatchRoom({
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4 text-center">
         <p className="text-lg font-medium text-zinc-900 dark:text-zinc-100">
-          Essa sala não é válida.
+          {translate("watch.watchRoom.thatRoomIsNotValid")}
         </p>
         <Link href="/" className="text-sm font-medium underline underline-offset-4">
-          Voltar para o início
+          {translate("watch.watchRoom.backToHome")}
         </Link>
       </div>
     );
@@ -2896,7 +2897,7 @@ export function WatchRoom({
       <>
         <RoomSkeleton />
         <p className="sr-only" role="status">
-          Entrando na sala...
+          {translate("watch.watchRoom.joiningTheRoom")}
         </p>
       </>
     );
@@ -2912,17 +2913,17 @@ export function WatchRoom({
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4 text-center">
         <p className="text-lg font-medium text-zinc-900 dark:text-zinc-100">
-          Essa sessão foi aberta em outra aba ou dispositivo.
+          {translate("common.thisSessionWasOpenedInAnother")}
         </p>
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
-          Só é possível ficar conectado com o mesmo nome em um lugar por vez.
+          {translate("common.youCanOnlyStayConnectedWith")}
         </p>
         <button
           type="button"
           onClick={() => state.name && signalingClient.register(state.name)}
           className="rounded-lg bg-zinc-950 px-4 py-2.5 font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
         >
-          Usar esta aba
+          {translate("common.useThisTab")}
         </button>
       </div>
     );
@@ -2936,15 +2937,15 @@ export function WatchRoom({
       <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4 text-center">
         <p className="text-lg font-medium text-zinc-900 dark:text-zinc-100">
           {state.bannedReason
-            ? `Você foi banido do site: ${state.bannedReason}`
-            : "Você foi temporariamente banido do site pelo AntiSpam. Duração: 1h. Faz o L"}
+            ? translate("common.youHaveBeenBannedFromThe", { bannedReason: state.bannedReason })
+            : translate("watch.watchRoom.youHaveBeenTemporarilyBannedFrom")}
         </p>
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
-          Se você acredita que isso é um engano, abra um ticket em <a
+          {translate("common.ifYouThinkThisIsA")} <a
             href="https://discord.gg/nemtudo"
             target="_blank"
             className="text-sm font-medium text-blue-600 hover:text-blue-700 dark:text-blue-500 dark:hover:text-blue-400"
-          >discord.gg/nemtudo</a>
+          >{translate("common.discordGgNemtudo")}</a>
         </p>
       </div>
     );
@@ -2960,11 +2961,11 @@ export function WatchRoom({
       <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4 text-center">
         <p className="text-lg font-medium text-zinc-900 dark:text-zinc-100">
           {state.roomRemoval.banned
-            ? "Você foi banido desta sala."
-            : "Você foi removido desta sala."}
+            ? translate("watch.watchRoom.youHaveBeenBannedFromThis")
+            : translate("watch.watchRoom.youHaveBeenRemovedFromThis")}
         </p>
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
-          {!state.roomRemoval.banned && "Você pode entrar de novo, se quiser."}
+          {!state.roomRemoval.banned && translate("watch.watchRoom.youCanJoinAgainIfYou")}
         </p>
         <div className="flex flex-wrap items-center justify-center gap-2">
           {!state.roomRemoval.banned && (
@@ -2973,14 +2974,14 @@ export function WatchRoom({
               onClick={() => signalingClient.joinRoom(handle)}
               className="rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
             >
-              Entrar de novo
+              {translate("watch.watchRoom.joinAgain")}
             </button>
           )}
           <Link
             href="/rooms"
             className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
           >
-            Ver outras salas
+            {translate("watch.watchRoom.seeOtherRooms")}
           </Link>
         </div>
       </div>
@@ -3016,17 +3017,16 @@ export function WatchRoom({
             {"\u{1F4BB}"}
           </div>
           <h1 className="mt-4 text-xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-            Você está conectado nesta sala com outro dispositivo.
+            {translate("watch.watchRoom.youAreConnectedToThisRoom")}
           </h1>
           <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
             {devices === 1
-              ? "Entrar aqui não desconecta o outro — vocês dois ficam na sala."
-              : `Entrar aqui não desconecta os outros ${devices} — todos ficam na sala.`}{" "}
-            Na lista e no chat, cada um aparece com um número para dar para
-            diferenciar.
+              ? translate("watch.watchRoom.joiningHereDoesNotDisconnectThe")
+              : translate("watch.watchRoom.joiningHereDoesNotDisconnectThe2", { devices })}{" "}
+            {translate("watch.watchRoom.inTheListAndInThe")}
           </p>
           <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
-            {afterJoining} de {maxDevices} dispositivos.
+            {translate("watch.watchRoom.afterjoiningOfMaxdevicesDevices", { afterJoining, maxDevices })}
           </p>
 
           <div className="mt-6 flex flex-col gap-2">
@@ -3036,14 +3036,14 @@ export function WatchRoom({
               onClick={() => signalingClient.confirmDeviceJoin()}
               className="rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
             >
-              Entrar mesmo assim
+              {translate("watch.watchRoom.joinAnyway")}
             </button>
             <button
               type="button"
               onClick={() => signalingClient.dismissDeviceJoin()}
               className="rounded-lg border border-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
             >
-              Cancelar
+              {translate("common.cancel")}
             </button>
           </div>
         </main>
@@ -3062,20 +3062,20 @@ export function WatchRoom({
       retry: boolean;
     } =
       kind === "name"
-        ? { icon: "\u{1F464}", title: "Esse nome já está em uso", retry: false }
+        ? { icon: "\u{1F464}", title: translate("watch.watchRoom.thatNameIsAlreadyInUse"), retry: false }
         : kind === "full"
-          ? { icon: "\u{1F6AA}", title: "Esta sala está cheia", retry: true }
+          ? { icon: "\u{1F6AA}", title: translate("watch.watchRoom.thisRoomIsFull"), retry: true }
           : kind === "banned"
-            ? { icon: "\u{1F6D1}", title: "Você foi banido desta sala", retry: false }
+            ? { icon: "\u{1F6D1}", title: translate("watch.watchRoom.youHaveBeenBannedFromThis2"), retry: false }
             : kind === "captcha"
-              ? { icon: "\u{1F6E1}\uFE0F", title: "Verificação de segurança", retry: true }
+              ? { icon: "\u{1F6E1}\uFE0F", title: translate("watch.watchRoom.securityCheck"), retry: true }
               : kind === "device-limit"
                 ? // Retryable on purpose, unlike a ban: the fix is on another
                   // screen the person can go and close, and coming back here
                   // to press a button is the whole of what they then have to
                   // do. The message already says how many and what to do.
-                  { icon: "\u{1F4BB}", title: "Dispositivos demais nesta sala", retry: true }
-                : { icon: "\u26A0\uFE0F", title: "Não foi possível entrar na sala", retry: true };
+                  { icon: "\u{1F4BB}", title: translate("watch.watchRoom.tooManyDevicesInThisRoom"), retry: true }
+                : { icon: "\u26A0\uFE0F", title: translate("watch.watchRoom.couldNotJoinTheRoom"), retry: true };
 
     return (
       <div className="flex flex-1 items-center justify-center px-4 py-16">
@@ -3100,7 +3100,7 @@ export function WatchRoom({
                 htmlFor="join-error-name"
                 className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
               >
-                Escolha outro nome
+                {translate("watch.watchRoom.chooseAnotherName")}
               </label>
               <div className="flex gap-2">
                 <input
@@ -3109,7 +3109,7 @@ export function WatchRoom({
                   value={nameInput}
                   onChange={(e) => setNameInput(e.target.value)}
                   maxLength={24}
-                  placeholder="Ex: Maria"
+                  placeholder={translate("common.exMaria")}
                   className="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
                 />
                 <button
@@ -3117,7 +3117,7 @@ export function WatchRoom({
                   disabled={!nameInput.trim()}
                   className="shrink-0 rounded-lg bg-zinc-950 px-4 py-2.5 font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
                 >
-                  Entrar
+                  {translate("common.signIn")}
                 </button>
               </div>
             </form>
@@ -3130,7 +3130,7 @@ export function WatchRoom({
                 onClick={() => signalingClient.joinRoom(handle)}
                 className="rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
               >
-                Tentar novamente
+                {translate("common.tryAgain")}
               </button>
             )}
             <div className="flex gap-2">
@@ -3138,13 +3138,13 @@ export function WatchRoom({
                 href="/"
                 className="flex-1 rounded-lg border border-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
               >
-                Início
+                {translate("common.home")}
               </Link>
               <Link
                 href="/rooms"
                 className="flex-1 rounded-lg border border-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
               >
-                Outras salas
+                {translate("watch.watchRoom.otherRooms")}
               </Link>
             </div>
             <a
@@ -3153,7 +3153,7 @@ export function WatchRoom({
               rel="noopener noreferrer"
               className="rounded-lg px-4 py-2 text-sm font-medium text-blue-600 transition hover:text-blue-700 dark:text-blue-500 dark:hover:text-blue-400"
             >
-              Precisa de ajuda? Fale com o suporte no Discord
+              {translate("watch.watchRoom.needHelpTalkToSupportOn")}
             </a>
           </div>
         </main>
@@ -3166,12 +3166,12 @@ export function WatchRoom({
       <div className="flex flex-1 items-center justify-center px-4 py-16">
         <main className="w-full max-w-md rounded-2xl border border-black/10 bg-white p-8 shadow-sm dark:border-white/10 dark:bg-zinc-950">
           <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-            Entrar na sala {privateRoomParts ? privateRoomParts.name : handle}
+            {translate("common.joinTheRoom")} {privateRoomParts ? privateRoomParts.name : handle}
           </h1>
           <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
             {appShell
-              ? "No aplicativo é preciso ter uma conta para entrar numa sala."
-              : "Escolha um nome para entrar nesta sala."}
+              ? translate("watch.watchRoom.inTheAppYouNeedAn")
+              : translate("watch.watchRoom.chooseANameToJoinThis")}
           </p>
           {/* The app has no guest mode — this shell is account-only, so the
               name box here would be a form whose only outcome is an identity
@@ -3190,7 +3190,7 @@ export function WatchRoom({
                     onClick={() => void retryIdentity()}
                     className="text-sm font-medium text-zinc-500 underline underline-offset-2 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
                   >
-                    Tentar novamente
+                    {translate("common.tryAgain")}
                   </button>
                 </div>
               )}
@@ -3199,14 +3199,14 @@ export function WatchRoom({
                 onClick={() => setCreatingAccount(true)}
                 className="rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
               >
-                Criar uma conta
+                {translate("common.createAnAccount")}
               </button>
               <button
                 type="button"
                 onClick={() => setSigningIn(true)}
                 className="text-sm font-medium text-zinc-500 underline underline-offset-2 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
               >
-                Já tenho uma conta
+                {translate("common.iAlreadyHaveAnAccount")}
               </button>
             </div>
           ) : signingIn ? (
@@ -3227,7 +3227,7 @@ export function WatchRoom({
           ) : (
             <form onSubmit={handleNameSubmit} className="mt-8 flex flex-col gap-3">
               <label htmlFor="name" className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                Seu nome
+                {translate("common.yourName")}
               </label>
               <div className="flex gap-2">
                 <input
@@ -3236,7 +3236,7 @@ export function WatchRoom({
                   value={nameInput}
                   onChange={(e) => setNameInput(e.target.value)}
                   maxLength={24}
-                  placeholder="Ex: Maria"
+                  placeholder={translate("common.exMaria")}
                   className="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
                 />
                 <button
@@ -3244,7 +3244,7 @@ export function WatchRoom({
                   disabled={!nameInput.trim()}
                   className="shrink-0 rounded-lg bg-zinc-950 px-4 py-2.5 font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
                 >
-                  Entrar na sala
+                  {translate("common.joinTheRoom")}
                 </button>
               </div>
               {state.nameError && <p className="text-sm text-red-500">{state.nameError}</p>}
@@ -3253,7 +3253,7 @@ export function WatchRoom({
                 onClick={() => setCreatingAccount(true)}
                 className="rounded-lg border border-zinc-300 px-4 py-2.5 font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
               >
-                Criar uma conta
+                {translate("common.createAnAccount")}
               </button>
             </form>
           )}
@@ -3272,7 +3272,7 @@ export function WatchRoom({
       <>
         <RoomSkeleton />
         <p className="sr-only" role="status">
-          Entrando na sala...
+          {translate("watch.watchRoom.joiningTheRoom")}
         </p>
       </>
     );
@@ -3415,7 +3415,7 @@ export function WatchRoom({
       (cameraDevices.findIndex((d) => d.deviceId === cameraDeviceId) + 1) %
         Math.max(cameraDevices.length, 1)
     ] ?? null;
-  const nextCameraLabel = nextCamera ? `Mudar para ${nextCamera.label}` : "Trocar câmera";
+  const nextCameraLabel = nextCamera ? translate("watch.watchRoom.switchToLabel", { label: nextCamera.label }) : translate("watch.watchRoom.switchCamera");
   function switchToNextCamera() {
     if (nextCamera) setCameraDevice(nextCamera.deviceId);
   }
@@ -3437,8 +3437,8 @@ export function WatchRoom({
   const canSwitchCamera = flipsByFacing || cameraDevices.length > 1;
   const switchCameraLabel = flipsByFacing
     ? cameraFacing === "environment"
-      ? "Usar a câmera frontal"
-      : "Usar a câmera traseira"
+      ? translate("watch.watchRoom.useTheFrontCamera")
+      : translate("watch.watchRoom.useTheRearCamera")
     : nextCameraLabel;
   function switchCamera() {
     if (flipsByFacing) {
@@ -3450,9 +3450,9 @@ export function WatchRoom({
 
   const canManageMusic = isRoomManager && Boolean(state.account);
   const musicBlockedReason = !isRoomManager
-    ? "Só o dono e os administradores da sala podem colocar música."
+    ? translate("watch.watchRoom.onlyTheRoomSOwnerAnd")
     : !state.account
-      ? "Utilize uma conta para colocar música na sala."
+      ? translate("watch.watchRoom.useAnAccountToPlayMusic")
       : null;
 
   function startLocalMediaShare(slot: LocalMediaSlot) {
@@ -3523,10 +3523,10 @@ export function WatchRoom({
       blockedReason: allowed
         ? null
         : targetIsOwner
-          ? "Ninguém pode expulsar ou banir o dono da sala."
+          ? translate("watch.watchRoom.nobodyCanKickOrBanThe")
           : targetIsAdmin
-            ? "Só o dono da sala pode expulsar ou banir um administrador."
-            : "Só o dono e os administradores da sala podem expulsar ou banir.",
+            ? translate("watch.watchRoom.onlyTheRoomSOwnerCan")
+            : translate("watch.watchRoom.onlyTheRoomSOwnerAnd2"),
     };
   }
 
@@ -3724,9 +3724,9 @@ export function WatchRoom({
           // screen, so releasing it would cost a black tile on the way back and
           // save nothing on the machine that matters.
           detachWhenHidden={false}
-          label="Você"
-          accessibleLabel="Você"
-          badge={shareSource === "camera" ? "câmera" : "transmitindo"}
+          label={translate("common.you")}
+          accessibleLabel={translate("common.you")}
+          badge={shareSource === "camera" ? translate("watch.watchRoom.camera") : "transmitindo"}
           muted
           allowUnmute={false}
           fill={fill}
@@ -3761,9 +3761,9 @@ export function WatchRoom({
           // screen, so releasing it would cost a black tile on the way back and
           // save nothing on the machine that matters.
           detachWhenHidden={false}
-          label="Você"
-          accessibleLabel="Você"
-          badge="câmera"
+          label={translate("common.you")}
+          accessibleLabel={translate("common.you")}
+          badge={translate("watch.watchRoom.camera")}
           muted
           allowUnmute={false}
           fill={fill}
@@ -3796,7 +3796,7 @@ export function WatchRoom({
     if (!stream) continue;
     const snap = localMediaSnapshots[slot];
     const raw = snap.queue[snap.index]?.name ?? null;
-    const name = raw ? raw.split("/").pop() ?? raw : "Arquivo do computador";
+    const name = raw ? raw.split("/").pop() ?? raw : translate("watch.watchRoom.fileFromTheComputer");
     const id = tileId("file", `${slot}:${SELF_TILE_OWNER}`);
     tiles.push({
       id,
@@ -3805,8 +3805,8 @@ export function WatchRoom({
           stream={stream}
           label={name}
           accessibleLabel={name}
-          badge="você adicionou"
-          badgeClassName="bg-sky-500/90"
+          badge={translate("watch.watchRoom.youAdded")}
+          badgeClassName={"bg-sky-500/90"}
           transport={
             <LocalMediaControls
               slot={slot}
@@ -3852,10 +3852,10 @@ export function WatchRoom({
       render: (fill, compact, overlayRightOffset) => (
         <VideoTile
           stream={stream}
-          label={shared?.name ?? `arquivo de ${peer?.name ?? "alguém"}`}
-          accessibleLabel={shared?.name ?? "Arquivo"}
-          badge={`${peer?.name ?? "alguém"} adicionou`}
-          badgeClassName="bg-sky-500/90"
+          label={shared?.name ?? `arquivo de ${peer?.name ?? translate("common.someone2")}`}
+          accessibleLabel={shared?.name ?? translate("common.file")}
+          badge={`${peer?.name ?? translate("common.someone2")} adicionou`}
+          badgeClassName={"bg-sky-500/90"}
           // Shown to everybody watching, and disabled for anyone its owner
           // did not open it up to: the position, the length and which of how
           // many it is are worth knowing whoever holds the wheel. Whether the
@@ -3977,7 +3977,7 @@ export function WatchRoom({
       id: tileId("video-source", videoSource.id),
       render: (fill) => (
         <StoppedPeerTile
-          label={`vídeo de ${videoSource.addedByName}`}
+          label={translate("watch.watchRoom.videoFromAddedbyname", { addedByName: videoSource.addedByName })}
           fill={fill}
           onResume={() =>
             setLeftVideoSourceIds((prev) => {
@@ -4002,15 +4002,15 @@ export function WatchRoom({
           stream={stream}
           label={
             <DisplayUserName
-              name={peer?.name ?? "Alguém"}
+              name={peer?.name ?? translate("common.someone")}
               isGuest={peer?.isGuest}
               verified={verifiedBadge(peer?.flags)}
               bot={peer?.bot}
               color={peer?.nameColor}
             />
           }
-          accessibleLabel={peer?.name ?? "Alguém"}
-          badge="ao vivo · tela"
+          accessibleLabel={peer?.name ?? translate("common.someone")}
+          badge={translate("watch.watchRoom.liveScreen")}
           muted
           volume={transmissionVolumes[volumeKey] ?? 1}
           onVolumeChange={(volume) => setTransmissionVolume(volumeKey, volume)}
@@ -4049,15 +4049,15 @@ export function WatchRoom({
           stream={stream}
           label={
             <DisplayUserName
-              name={peer?.name ?? "Alguém"}
+              name={peer?.name ?? translate("common.someone")}
               isGuest={peer?.isGuest}
               verified={verifiedBadge(peer?.flags)}
               bot={peer?.bot}
               color={peer?.nameColor}
             />
           }
-          accessibleLabel={peer?.name ?? "Alguém"}
-          badge="ao vivo · câmera"
+          accessibleLabel={peer?.name ?? translate("common.someone")}
+          badge={translate("watch.watchRoom.liveCamera")}
           muted
           volume={transmissionVolumes[volumeKey] ?? 1}
           onVolumeChange={(volume) => setTransmissionVolume(volumeKey, volume)}
@@ -4346,11 +4346,11 @@ export function WatchRoom({
   const menuItems = (
     <>
       <div className="mb-1 flex items-center justify-between gap-2 sm:hidden">
-        <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Mais opções</p>
+        <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{translate("watch.watchRoom.moreOptions")}</p>
         <button
           type="button"
           onClick={closeMenu}
-          aria-label="Fechar"
+          aria-label={translate("common.close")}
           className="text-xl leading-none text-zinc-400 transition hover:text-zinc-700 dark:hover:text-zinc-200"
         >
           ×
@@ -4363,7 +4363,7 @@ export function WatchRoom({
             isPrivateRoomHandle(handle) ? "bg-red-600" : "bg-emerald-600"
           }`}
         >
-          {isPrivateRoomHandle(handle) ? "Sala privada" : "Sala pública"}
+          {isPrivateRoomHandle(handle) ? translate("common.privateRoom") : translate("watch.watchRoom.publicRoom")}
         </span>
       )}
 
@@ -4381,7 +4381,7 @@ export function WatchRoom({
         (isRoomManager || state.roomDescription || state.roomCategory) && (
         <div className="mb-1">
           <p className="mb-1.5 px-1 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
-            Sobre a sala
+            {translate("watch.watchRoom.aboutTheRoom")}
           </p>
           <RoomInfoControls
             description={state.roomDescription}
@@ -4404,7 +4404,7 @@ export function WatchRoom({
           }`}
       >
         {linkCopied ? <CheckIcon className="h-4 w-4" /> : <LinkIcon className="h-4 w-4" />}
-        {linkCopied ? "Link copiado!" : "Compartilhar sala"}
+        {linkCopied ? translate("common.linkCopied") : translate("watch.watchRoom.shareRoom")}
       </button>
 
       <a
@@ -4413,7 +4413,7 @@ export function WatchRoom({
         rel="noopener noreferrer"
         className="rounded-lg px-2 py-2 text-sm font-medium text-red-600 transition hover:bg-red-50 dark:text-red-500 dark:hover:bg-red-950/40"
       >
-        Reportar bug
+        {translate("watch.watchRoom.reportABug")}
       </a>
 
       <button
@@ -4425,7 +4425,7 @@ export function WatchRoom({
         className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900"
       >
         <MdOutlineKeyboard className="h-4 w-4 shrink-0 text-zinc-500 dark:text-zinc-400" />
-        Atalhos de teclado
+        {translate("watch.watchRoom.keyboardShortcuts")}
       </button>
 
       <div className="my-2 border-t border-zinc-200 dark:border-zinc-800" />
@@ -4437,7 +4437,7 @@ export function WatchRoom({
           components/SiteHeader.tsx) — a room has no such header, which is
           exactly why it needs a copy in here. */}
       <div className="mb-1 px-1">
-        <p className="mb-1.5 text-xs font-semibold text-zinc-500 dark:text-zinc-400">Tema</p>
+        <p className="mb-1.5 text-xs font-semibold text-zinc-500 dark:text-zinc-400">{translate("common.theme")}</p>
         <ThemeSegmented />
       </div>
 
@@ -4448,15 +4448,15 @@ export function WatchRoom({
           da sala" reads as a thing you are turning off, where "sempre usar o
           meu" would read as a second theme picker. */}
       <MenuToggleRow
-        label="Usar o tema da sala"
+        label={translate("watch.watchRoom.useTheRoomSTheme")}
         active={!roomThemeOptedOut}
         onToggle={() => setRoomThemeOptedOut(!roomThemeOptedOut)}
         activeIcon={<MdPalette className="h-4 w-4" />}
         inactiveIcon={<MdPalette className="h-4 w-4" />}
         hint={
           roomThemeOptedOut
-            ? "As salas nunca vão trocar o seu tema. Vale para este navegador."
-            : "Desligue para nunca ficar com o tema que a sala escolher."
+            ? translate("watch.watchRoom.roomsWillNeverChangeYourTheme")
+            : translate("watch.watchRoom.turnItOffToNeverEnd")
         }
       />
 
@@ -4480,7 +4480,7 @@ export function WatchRoom({
               className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:text-zinc-300 dark:hover:bg-zinc-900"
             >
               <MdMusicNote className="h-4 w-4 shrink-0 text-emerald-500" />
-              {state.music || myMusicSlot ? "Trocar a música da sala" : "Colocar música na sala"}
+              {state.music || myMusicSlot ? translate("common.changeTheRoomSMusic") : translate("common.playMusicInTheRoom")}
               <BetaMark />
             </button>
           </Tooltip>
@@ -4490,46 +4490,46 @@ export function WatchRoom({
       )}
 
       <MenuToggleRow
-        label="Duplo clique para deixar em foco"
+        label={translate("watch.watchRoom.doubleClickToFocus")}
         active={doubleClickFocus}
         onToggle={toggleDoubleClickFocus}
-        hint="Quando desligado, focar em um vídeo é apenas pelo botão"
+        hint={translate("watch.watchRoom.whenOffFocusingAVideoIs")}
         activeIcon={<FocusIcon className="h-4 w-4" />}
         inactiveIcon={<EyeOffIcon className="h-4 w-4" />}
       />
       <MenuToggleRow
-        label="Música nos perfis"
+        label={translate("watch.watchRoom.musicOnProfiles")}
         active={profileSongAutoplay}
         onToggle={toggleProfileSongAutoplay}
-        hint="Quando desligado, a música de um perfil só toca se você apertar o play"
+        hint={translate("watch.watchRoom.whenOffAProfileSMusic")}
         activeIcon={<SpeakerIcon className="h-4 w-4" />}
         inactiveIcon={<SpeakerMuteIcon className="h-4 w-4" />}
       />
       <MenuToggleRow
-        label="Efeitos sonoros do site"
+        label={translate("watch.watchRoom.siteSoundEffects")}
         active={soundEffectsOn}
         onToggle={toggleSoundEffects}
         activeIcon={<SpeakerIcon className="h-4 w-4" />}
         inactiveIcon={<SpeakerMuteIcon className="h-4 w-4" />}
       />
       <MenuToggleRow
-        label="Supressão de ruído"
+        label={translate("watch.watchRoom.noiseSuppression")}
         active={noiseSuppressionOn}
         onToggle={toggleNoiseSuppression}
         disabled={isMicOn && !noiseSuppressionAvailable}
         hint={
           isMicOn && !noiseSuppressionAvailable
-            ? "Supressão de ruído indisponível nesta configuração de áudio"
+            ? translate("watch.watchRoom.noiseSuppressionUnavailableWithThisAudio")
             : undefined
         }
         activeIcon={<NoiseSuppressionIcon className="h-4 w-4" />}
         inactiveIcon={<NoiseSuppressionOffIcon className="h-4 w-4" />}
       />
       <MenuToggleRow
-        label="Entrar em transmissões automaticamente"
+        label={translate("watch.watchRoom.joinBroadcastsAutomatically")}
         active={autoJoin}
         onToggle={toggleAutoJoin}
-        hint="Quando desligado, uma nova tela/câmera só conecta depois que você clicar pra assistir"
+        hint={translate("watch.watchRoom.whenOffANewScreenCamera")}
         activeIcon={<EyeIcon className="h-4 w-4" />}
         inactiveIcon={<EyeOffIcon className="h-4 w-4" />}
       />
@@ -4543,42 +4543,42 @@ export function WatchRoom({
           app without ever using the banner. */}
       {mounted && !isDesktopApp() && (
         <MenuToggleRow
-          label="Perguntar antes de abrir salas"
+          label={translate("watch.watchRoom.askBeforeOpeningRooms")}
           active={openRoomsInApp}
           onToggle={toggleOpenRoomsInApp}
-          hint="Ao abrir um link de sala, pergunta se você quer usar o aplicativo antes de entrar pelo navegador. Liga sozinho quando você abre uma sala no app."
+          hint={translate("watch.watchRoom.whenYouOpenARoomLink")}
           activeIcon={<MdOutlineDesktopWindows className="h-4 w-4" />}
           inactiveIcon={<MdOutlineDesktopWindows className="h-4 w-4 opacity-50" />}
         />
       )}
       <MenuToggleRow
-        label="Impedir conexões diretas"
+        label={translate("watch.watchRoom.preventDirectConnections")}
         active={forceRelayIce}
         onToggle={toggleForceRelayIce}
         disabled={!TURN_CONFIGURED}
         hint={
           TURN_CONFIGURED
-            ? "Força suas conexões a passar por um servidor TURN em vez de P2P direto, sem revelar seu IP para outros participantes"
-            : "Indisponível: nenhum servidor TURN configurado neste site"
+            ? translate("watch.watchRoom.forcesYourConnectionsThroughATurn")
+            : translate("watch.watchRoom.unavailableNoTurnServerConfiguredOn")
         }
         activeIcon={<ShieldIcon className="h-4 w-4" />}
         inactiveIcon={<ShieldOffIcon className="h-4 w-4" />}
       />
       {forceRelayIce && (
         <p className="mb-1 px-2 text-xs text-amber-600 dark:text-amber-500">
-          Suas conexões passam sempre por um servidor intermediário, sem revelar seu IP a quem você assiste ou transmite. Isso pode deixar a transmissão com mais atraso e piorar a qualidade.
+          {translate("watch.watchRoom.yourConnectionsAlwaysGoThroughAn")}
         </p>
       )}
       <div className="my-2 border-t border-zinc-200 dark:border-zinc-800" />
 
       <div className="sm:hidden">
-        <Tooltip content="Qualidade da transmissão — reduza se a sala estiver travando">
+        <Tooltip content={translate("watch.watchRoom.broadcastQualityLowerItIfThe")}>
           <button
             type="button"
             onClick={() => setQualityOpen((q) => !q)}
             className="rounded-lg px-2 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900"
           >
-            Qualidade: {shareResolution} · {shareFps}fps
+            {translate("watch.watchRoom.quality")} {shareResolution} · {shareFps}fps
           </button>
         </Tooltip>
         {qualityOpen && (
@@ -4607,7 +4607,7 @@ export function WatchRoom({
             }}
             className="rounded-lg px-2 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900"
           >
-            Mudar nome
+            {translate("watch.watchRoom.changeName")}
           </button>
           {renaming && (
             <form
@@ -4615,14 +4615,14 @@ export function WatchRoom({
               className="mx-2 mb-1 rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900"
             >
               <label className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                Novo nome
+                {translate("common.newName")}
               </label>
               <input
                 autoFocus
                 value={renameInput}
                 onChange={(e) => setRenameInput(e.target.value)}
                 maxLength={24}
-                placeholder="Ex: Maria"
+                placeholder={translate("common.exMaria")}
                 className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
               />
               {state.nameError && <p className="mt-1 text-xs text-red-500">{state.nameError}</p>}
@@ -4631,7 +4631,7 @@ export function WatchRoom({
                 disabled={!renameInput.trim() || renameInput.trim() === state.name}
                 className="mt-2 w-full rounded-md bg-zinc-950 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
               >
-                Salvar nome
+                {translate("watch.watchRoom.saveName")}
               </button>
             </form>
           )}
@@ -4650,7 +4650,7 @@ export function WatchRoom({
           onClick={() => setSwitching((s) => !s)}
           className="w-full rounded-lg px-2 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900"
         >
-          Trocar de sala
+          {translate("watch.watchRoom.switchRoom")}
         </button>
         {switching && (
           <div className="mx-2 mb-1">
@@ -4704,11 +4704,11 @@ export function WatchRoom({
           open={micDeviceMenuOpen}
           onClose={() => setMicDeviceMenuOpen(false)}
           placement="bottom-start"
-          tooltip="Escolher microfone"
+          tooltip={translate("watch.watchRoom.chooseMicrophone")}
           content={
             <div className="w-64 max-w-[calc(100vw-1rem)] rounded-lg border border-zinc-300 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
               <DeviceMenuOption
-                label="Padrão do sistema"
+                label={translate("watch.watchRoom.systemDefault")}
                 selected={micDeviceId === null}
                 onClick={() => {
                   setMicDevice(null);
@@ -4740,7 +4740,7 @@ export function WatchRoom({
           <button
             type="button"
             onClick={() => setMicDeviceMenuOpen((o) => !o)}
-            aria-label="Escolher microfone"
+            aria-label={translate("watch.watchRoom.chooseMicrophone")}
             className={`rounded-l-lg border-r border-black/15 px-1 text-white transition ${isMicOn ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700"
               }`}
           >
@@ -4762,8 +4762,8 @@ export function WatchRoom({
             onEnableMic={enableMicFromHint}
             tooltip={
               isMicOn
-                ? "Desativar microfone"
-                : (micBlockedReason ?? "Ativar microfone")
+                ? translate("common.turnOffMicrophone")
+                : (micBlockedReason ?? translate("common.turnOnMicrophone"))
             }
             wrapperClassName="flex"
           >
@@ -4777,7 +4777,7 @@ export function WatchRoom({
               // Only turning it *on* is blocked — see ShareControls'
               // screenBlockedReason for the same reasoning.
               disabled={!isMicOn && Boolean(micBlockedReason)}
-              aria-label={isMicOn ? "Desativar microfone" : "Ativar microfone"}
+              aria-label={isMicOn ? translate("common.turnOffMicrophone") : translate("common.turnOnMicrophone")}
               className={`${dockCompact ? "rounded-lg" : "rounded-r-lg"} p-2 text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${isMicOn ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700"
                 }`}
             >
@@ -4793,11 +4793,11 @@ export function WatchRoom({
             open={speakerDeviceMenuOpen}
             onClose={() => setSpeakerDeviceMenuOpen(false)}
             placement="bottom-start"
-            tooltip="Escolher saída de áudio"
+            tooltip={translate("watch.watchRoom.chooseAudioOutput")}
             content={
               <div className="w-64 max-w-[calc(100vw-1rem)] rounded-lg border border-zinc-300 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
                 <DeviceMenuOption
-                  label="Padrão do sistema"
+                  label={translate("watch.watchRoom.systemDefault")}
                   selected={speakerDeviceId === null}
                   onClick={() => {
                     setSpeakerDevice(null);
@@ -4821,7 +4821,7 @@ export function WatchRoom({
             <button
               type="button"
               onClick={() => setSpeakerDeviceMenuOpen((o) => !o)}
-              aria-label="Escolher saída de áudio"
+              aria-label={translate("watch.watchRoom.chooseAudioOutput")}
               className={`rounded-l-lg border-r border-black/15 px-1 text-white transition ${micsMuted ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"
                 }`}
             >
@@ -4837,7 +4837,7 @@ export function WatchRoom({
           onRequestAccount={() => setAccountModal("create")}
           onOpenAllShortcuts={() => setShortcutsModalOpen(true)}
         >
-          <Tooltip content={micsMuted ? "Reativar microfones" : "Silenciar microfones"}>
+          <Tooltip content={micsMuted ? translate("common.unmuteMicrophones") : translate("common.muteMicrophones")}>
             <button
               type="button"
               onClick={toggleMicsMuted}
@@ -4845,7 +4845,7 @@ export function WatchRoom({
                 e.preventDefault();
                 setQuickShortcutAction("toggleDeafen");
               }}
-              aria-label={micsMuted ? "Reativar microfones" : "Silenciar microfones"}
+              aria-label={micsMuted ? translate("common.unmuteMicrophones") : translate("common.muteMicrophones")}
               className={`p-2 text-white transition ${canSelectSpeaker && !dockCompact ? "rounded-r-lg" : "rounded-lg"} ${micsMuted ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"
                 }`}
             >
@@ -4988,7 +4988,7 @@ export function WatchRoom({
     <div className="flex items-center justify-between gap-2">
       <div className="flex min-w-0 items-center gap-2">
         <h2 className="truncate text-sm font-semibold text-zinc-700 dark:text-zinc-300">
-          Participantes
+          {translate("watch.watchRoom.participants")}
         </h2>
         {/* Beside the heading rather than in the room's own controls: this is
             an action on *this list* — it is how somebody gets added to it —
@@ -5001,11 +5001,11 @@ export function WatchRoom({
             link still works for everyone, which is what this is a shortcut
             for. */}
         {account && (
-          <Tooltip content="Chamar um amigo para esta sala">
+          <Tooltip content={translate("watch.watchRoom.callAFriendToThisRoom")}>
             <button
               type="button"
               onClick={() => setInviting(true)}
-              aria-label="Chamar um amigo para esta sala"
+              aria-label={translate("watch.watchRoom.callAFriendToThisRoom")}
               className="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-emerald-600/40 text-emerald-700 transition hover:bg-emerald-50 dark:border-emerald-500/40 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
             >
               <MdPersonAddAlt1 className="h-3.5 w-3.5" />
@@ -5013,10 +5013,10 @@ export function WatchRoom({
           </Tooltip>
         )}
         {connectingAudioPeers && (
-          <Tooltip content="Conectando o áudio de quem está com o microfone ligado">
+          <Tooltip content={translate("watch.watchRoom.connectingTheAudioOfWhoeverHas")}>
             <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-500">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
-              Conectando
+              {translate("watch.watchRoom.connecting")}
             </span>
           </Tooltip>
         )}
@@ -5030,7 +5030,7 @@ export function WatchRoom({
         <Tooltip
           content={
             state.roomMemberLimit
-              ? `${peerCount} de ${state.roomMemberLimit} pessoas — o limite da sala`
+              ? translate("watch.watchRoom.peercountOfRoommemberlimitPeopleTheRoom", { peerCount, roomMemberLimit: state.roomMemberLimit })
               : undefined
           }
         >
@@ -5051,30 +5051,30 @@ export function WatchRoom({
           <Tooltip
             content={
               obsActiveTargets.size === 1
-                ? "1 transmissão externa ativa"
-                : `${obsActiveTargets.size} transmissões externas ativas`
+                ? translate("watch.watchRoom.n1ExternalBroadcastActive")
+                : translate("watch.watchRoom.sizeExternalBroadcastsActive", { size: obsActiveTargets.size })
             }
           >
             <span
               className="inline-flex items-center gap-1 rounded-full border border-purple-400/40 bg-purple-950/80 px-1.5 py-0.5 text-xs font-semibold text-purple-200 shadow-sm transition-all"
-              aria-label="Transmissão externa ativa"
+              aria-label={translate("watch.watchRoom.externalBroadcastActive")}
             >
               <span className="relative flex h-2 w-2 shrink-0 items-center justify-center">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-purple-400 opacity-75" />
                 <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-purple-400" />
               </span>
               <ObsSourceIcon className="h-3.5 w-3.5 shrink-0 text-purple-300" />
-              <span className="hidden 2xl:inline">Transmissão</span>
+              <span className="hidden 2xl:inline">{translate("common.broadcast")}</span>
             </span>
           </Tooltip>
         )}
 
         {isWideLayout && hasAnyMedia && (
-          <Tooltip content="Ocultar participantes">
+          <Tooltip content={translate("watch.watchRoom.hideParticipants")}>
             <button
               type="button"
               onClick={toggleLeftSidebar}
-              aria-label="Ocultar participantes"
+              aria-label={translate("watch.watchRoom.hideParticipants")}
               className="rounded-lg p-1 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
             >
               <LuPanelLeftClose className="h-4 w-4" />
@@ -5232,7 +5232,7 @@ export function WatchRoom({
                 }`}
             >
               <MdOutlineMap className="h-4 w-4 shrink-0" />
-              {state.roomLocation || !isRoomManager ? "Local no mapa" : "Definir no mapa"}
+              {state.roomLocation || !isRoomManager ? translate("watch.watchRoom.locationOnTheMap") : translate("watch.watchRoom.setOnTheMap")}
             </button>
           </Tooltip>
         )}
@@ -5251,10 +5251,10 @@ export function WatchRoom({
         <Tooltip
           content={
             !hasThemePlan
-              ? "Só quem tem Pro Max pode trocar o tema da sala."
+              ? translate("watch.watchRoom.onlyThoseWithProMaxCan")
               : !roomAllowsTheme
-                ? "A administração desativou a troca de tema para os participantes."
-                : "Muda o tema para todo mundo na sala"
+                ? translate("watch.watchRoom.theAdministrationHasTurnedOffTheme")
+                : translate("watch.watchRoom.changesTheThemeForEveryoneIn")
           }
           wrapperClassName="flex flex-1"
         >
@@ -5281,7 +5281,7 @@ export function WatchRoom({
             }`}
           >
             <MdPalette className="h-4 w-4 shrink-0" />
-            {roomTheme.fromRoom ? "Trocar tema" : "Tema da sala"}
+            {roomTheme.fromRoom ? translate("watch.watchRoom.changeTheme") : translate("common.roomTheme")}
           </button>
         </Tooltip>
         )}
@@ -5292,7 +5292,7 @@ export function WatchRoom({
             className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
           >
             <BsGearFill className="h-3.5 w-3.5 shrink-0" />
-            Gerenciar sala
+            {translate("common.manageRoom")}
           </button>
         )}
       </div>
@@ -5314,8 +5314,8 @@ export function WatchRoom({
     replyTo?: ChatReplyTo | null
   ): Promise<{ ok: boolean; error?: string }> {
     const token = getAccountToken();
-    if (!token) return { ok: false, error: "Entre com uma conta para enviar imagens." };
-    if (!state.selfId) return { ok: false, error: "Reconectando... tente de novo em instantes." };
+    if (!token) return { ok: false, error: translate("watch.watchRoom.signInWithAnAccountTo") };
+    if (!state.selfId) return { ok: false, error: translate("watch.watchRoom.reconnectingTryAgainInAMoment") };
 
     const result = await sendChatImages({
       handle,
@@ -5437,7 +5437,7 @@ export function WatchRoom({
           <RemoteMusicBar
             key={`${slot}:${peerId}`}
             peerId={peerId}
-            peerName={peer?.name ?? "alguém"}
+            peerName={peer?.name ?? translate("common.someone2")}
             file={shared}
             stream={stream}
             isRoomManager={isRoomManager}
@@ -5509,16 +5509,16 @@ export function WatchRoom({
               <button
                 type="button"
                 onClick={group.onOpenNav}
-                aria-label="Salas do grupo"
+                aria-label={translate("watch.watchRoom.groupRooms")}
                 className="flex shrink-0 items-center justify-center rounded-lg p-1.5 text-lg text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-950 lg:hidden dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
               >
                 <MdMenu />
               </button>
             ) : (
-              <Tooltip content="Voltar ao início" placement="bottom">
+              <Tooltip content={translate("common.backToHome")} placement="bottom">
                 <Link
                   href="/"
-                  aria-label="Início"
+                  aria-label={translate("common.home")}
                   className="flex shrink-0 items-center justify-center rounded-lg p-1.5 text-lg text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
                 >
                   <MdHome />
@@ -5553,21 +5553,21 @@ export function WatchRoom({
               <Tooltip
                 content={
                   streamerMode
-                    ? (privateRoomParts ? `${privateRoomParts.name} (código oculto no Modo Streamer)` : "Modo Streamer ativo")
+                    ? (privateRoomParts ? translate("watch.watchRoom.nameCodeHiddenInStreamerMode", { name: privateRoomParts.name }) : translate("watch.watchRoom.streamerModeOn"))
                     : handle
                 }
                 placement="bottom"
               >
                 <h1 className="truncate text-base font-semibold text-zinc-950 dark:text-zinc-50 sm:text-lg">
-                  {privateRoomParts ? privateRoomParts.name : (streamerMode && isPrivateRoomHandle(handle) ? "Sala Privada" : handle)}
+                  {privateRoomParts ? privateRoomParts.name : (streamerMode && isPrivateRoomHandle(handle) ? translate("watch.watchRoom.privateRoom") : handle)}
                 </h1>
               </Tooltip>
               {privateRoomParts && (
                 <Tooltip
                   content={
                     streamerMode
-                      ? "Código oculto pelo Modo Streamer"
-                      : "Código da sala privada"
+                      ? translate("watch.watchRoom.codeHiddenByStreamerMode")
+                      : translate("watch.watchRoom.privateRoomCode")
                   }
                   placement="bottom"
                 >
@@ -5581,7 +5581,7 @@ export function WatchRoom({
                   about a room, so the badge shrinks rather than disappearing
                   — the tooltip carries the word at the widths that can't. */}
               <Tooltip
-                content={isPrivateRoomHandle(handle) ? "Sala privada" : "Sala pública"}
+                content={isPrivateRoomHandle(handle) ? translate("common.privateRoom") : translate("watch.watchRoom.publicRoom")}
                 placement="bottom"
               >
                 <span
@@ -5595,7 +5595,7 @@ export function WatchRoom({
                     }`}
                   />
                   <span className="hidden xl:inline">
-                    {isPrivateRoomHandle(handle) ? "Sala privada" : "Sala pública"}
+                    {isPrivateRoomHandle(handle) ? translate("common.privateRoom") : translate("watch.watchRoom.publicRoom")}
                   </span>
                 </span>
               </Tooltip>
@@ -5658,14 +5658,14 @@ export function WatchRoom({
                   to be — picking a platform and who gets to control it needs
                   more room than a popover corner has. */}
               <Tooltip
-                content={videoSourceBlockedReason ?? "Adicionar fonte de vídeo"}
+                content={videoSourceBlockedReason ?? translate("watch.watchRoom.addVideoSource")}
                 wrapperClassName="flex"
               >
                 <button
                   type="button"
                   onClick={openAddVideoSourcePopup}
                   disabled={Boolean(videoSourceBlockedReason)}
-                  aria-label="Adicionar fonte de vídeo"
+                  aria-label={translate("watch.watchRoom.addVideoSource")}
                   className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <MdOutlineOndemandVideo className="h-5 w-5 shrink-0" />
@@ -5685,8 +5685,8 @@ export function WatchRoom({
                 content={
                   musicBlockedReason ??
                   (state.music || myMusicSlot
-                    ? "Trocar a música da sala"
-                    : "Colocar música na sala")
+                    ? translate("common.changeTheRoomSMusic")
+                    : translate("common.playMusicInTheRoom"))
                 }
                 wrapperClassName="flex"
               >
@@ -5694,7 +5694,7 @@ export function WatchRoom({
                   type="button"
                   onClick={openAddMusicPopup}
                   disabled={!canManageMusic}
-                  aria-label="Colocar música na sala"
+                  aria-label={translate("common.playMusicInTheRoom")}
                   className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <MdMusicNote className="h-5 w-5 shrink-0" />
@@ -5703,7 +5703,7 @@ export function WatchRoom({
               </Tooltip>
               </>,
               "flex items-center gap-1.5",
-              "[--call-dock-gap:0.375rem]"
+              translate("watch.watchRoom.callDockGap0375rem")
               )}
 
               {/* Leaving. Red and last in the row for the same reason every
@@ -5711,7 +5711,7 @@ export function WatchRoom({
                   the thing, and it must never be next to something pressed by
                   reflex. Navigating home is what actually disconnects —
                   unmounting this component is what calls leaveRoom(). */}
-              <Tooltip content="Sair da chamada">
+              <Tooltip content={translate("common.leaveTheCall")}>
                 <button
                   type="button"
                   onClick={() => {
@@ -5725,7 +5725,7 @@ export function WatchRoom({
                     // that now has nothing to show (see RoomCallHost).
                     onDisconnect();
                   }}
-                  aria-label="Sair da chamada"
+                  aria-label={translate("common.leaveTheCall")}
                   className="flex items-center rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-700"
                 >
                   <MdCallEnd className="h-5 w-5 shrink-0" />
@@ -5744,11 +5744,11 @@ export function WatchRoom({
                 sala" moved in there at every width — it is a once-a-session
                 action, and next to the mid-call controls it was a wide button
                 spending header space on something nobody clicks twice. */}
-            <Tooltip content={linkCopied ? "Link copiado!" : "Copiar o link desta sala"}>
+            <Tooltip content={linkCopied ? translate("common.linkCopied") : translate("watch.watchRoom.copyThisRoomSLink")}>
               <button
                 type="button"
                 onClick={handleCopyLink}
-                aria-label="Compartilhar sala"
+                aria-label={translate("watch.watchRoom.shareRoom")}
                 className={`hidden shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-2 text-sm font-medium transition sm:flex ${linkCopied
                   ? "border-emerald-600 text-emerald-600 dark:border-emerald-500 dark:text-emerald-500"
                   : "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
@@ -5756,7 +5756,7 @@ export function WatchRoom({
               >
                 {linkCopied ? <CheckIcon className="h-4 w-4" /> : <LinkIcon className="h-4 w-4" />}
                 <span data-header-label className="hidden 2xl:inline">
-                  {linkCopied ? "Copiado!" : "Compartilhar sala"}
+                  {linkCopied ? translate("common.copied2") : translate("watch.watchRoom.shareRoom")}
                 </span>
               </button>
             </Tooltip>
@@ -5777,7 +5777,7 @@ export function WatchRoom({
                 what mints the guest one. */}
             {/* Not in a group: the group's bar has the account menu. */}
             {isWideLayout || group ? null : account ? (
-              <Tooltip content="Ver seu perfil" placement="bottom">
+              <Tooltip content={translate("common.seeYourProfile")} placement="bottom">
                 {/* Your own profile opens in the room's dialog like everybody
                     else's — it was the last name here that still took you out
                     to a second tab. */}
@@ -5799,7 +5799,7 @@ export function WatchRoom({
             ) : (
               state.name && (
                 <Tooltip
-                  content="Seus pontos de convidado ficam salvos só neste navegador. Limpar os dados do site, ou entrar de outro navegador, começa do zero — crie uma conta para não perdê-los."
+                  content={translate("common.yourGuestPointsAreSavedOnly")}
                   placement="bottom"
                 >
                   <div className="flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs font-medium text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
@@ -5852,7 +5852,7 @@ export function WatchRoom({
               open={isDesktopLayout && menuOpen}
               onClose={closeMenu}
               placement="bottom-end"
-              tooltip="Mais opções"
+              tooltip={translate("watch.watchRoom.moreOptions")}
               content={
                 <div className="flex max-h-[80vh] w-80 flex-col gap-1 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-3 shadow-2xl dark:border-zinc-800 dark:bg-zinc-950">
                   {menuItems}
@@ -5862,7 +5862,7 @@ export function WatchRoom({
               <button
                 type="button"
                 onClick={() => (menuOpen ? closeMenu() : setMenuOpen(true))}
-                aria-label="Mais opções"
+                aria-label={translate("watch.watchRoom.moreOptions")}
                 className={`shrink-0 rounded-lg border p-2 transition ${menuOpen
                   ? "border-zinc-400 bg-zinc-100 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
                   : "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
@@ -5888,7 +5888,7 @@ export function WatchRoom({
                 same render instead of showing both while the signaling
                 re-registration lands. */}
             {!isWideLayout && !account && !group && (
-              <Tooltip content="Entrar ou criar uma conta" placement="bottom">
+              <Tooltip content={translate("watch.watchRoom.signInOrCreateAnAccount")} placement="bottom">
                 <button
                   type="button"
                   onClick={() => {
@@ -5903,7 +5903,7 @@ export function WatchRoom({
                   className="flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-950 bg-zinc-950 px-2 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 sm:px-3 dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
                 >
                   <MdLogin className="h-5 w-5 shrink-0" />
-                  <span className="hidden sm:inline">Entrar</span>
+                  <span className="hidden sm:inline">{translate("common.signIn")}</span>
                 </button>
               </Tooltip>
             )}
@@ -5962,26 +5962,26 @@ export function WatchRoom({
               than they explain — the offer itself, and the button beside the
               three dots, still say what this is. */}
           <p>
-            Você está usando um nome de convidado. Se quiser, você pode{" "}
+            {translate("watch.watchRoom.youAreUsingAGuestName")}{" "}
             <button
               type="button"
               onClick={() => setAccountModal("create")}
               className="font-semibold underline underline-offset-2 hover:text-blue-900 dark:hover:text-blue-200"
             >
-              Criar uma conta
+              {translate("common.createAnAccount")}
             </button>{" "}
             <span className="hidden lg:inline">
-              pra reservar seu nome e manter suas configurações. Mas só se quiser, é opcional :)
+              {translate("watch.watchRoom.toReserveYourNameAndKeep")}
             </span>
           </p>
-          <Tooltip content="Fechar aviso">
+          <Tooltip content={translate("common.closeNotice")}>
             <button
               type="button"
               onClick={() => {
                 setGuestBannerDismissed(true);
                 setStoredGuestAccountBannerDismissed(true);
               }}
-              aria-label="Fechar aviso"
+              aria-label={translate("common.closeNotice")}
               className="shrink-0 text-lg leading-none text-blue-500 transition hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-200"
             >
               ×
@@ -6000,7 +6000,7 @@ export function WatchRoom({
           <button
             type="button"
             onClick={() => signalingClient.clearPermissionDenied()}
-            aria-label="Fechar aviso"
+            aria-label={translate("common.closeNotice")}
             className="shrink-0 text-lg leading-none opacity-70 transition hover:opacity-100"
           >
             ×
@@ -6024,7 +6024,7 @@ export function WatchRoom({
           <button
             type="button"
             onClick={() => setVisibleCameraError(null)}
-            aria-label="Fechar aviso"
+            aria-label={translate("common.closeNotice")}
             className="shrink-0 text-lg leading-none opacity-70 transition hover:opacity-100"
           >
             ×
@@ -6155,11 +6155,11 @@ export function WatchRoom({
           {/* Floating expand buttons when sidebars are collapsed on wide screens */}
           {isWideLayout && leftSidebarCollapsed && !group && (
             <div className="absolute left-2 top-2 z-20">
-              <Tooltip content="Mostrar participantes" placement="right">
+              <Tooltip content={translate("watch.watchRoom.showParticipants")} placement="right">
                 <button
                   type="button"
                   onClick={toggleLeftSidebar}
-                  aria-label="Mostrar participantes"
+                  aria-label={translate("watch.watchRoom.showParticipants")}
                   className="flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-zinc-700 shadow-md backdrop-blur-xs transition hover:bg-white hover:text-zinc-950 dark:border-zinc-700 dark:bg-zinc-900/95 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-white"
                 >
                   <LuPanelLeftOpen className="h-4 w-4" />
@@ -6171,11 +6171,11 @@ export function WatchRoom({
 
           {isWideLayout && rightSidebarCollapsed && (
             <div className="absolute right-2 top-2 z-20">
-              <Tooltip content="Mostrar chat e perfil" placement="left">
+              <Tooltip content={translate("watch.watchRoom.showChatAndProfile")} placement="left">
                 <button
                   type="button"
                   onClick={toggleRightSidebar}
-                  aria-label="Mostrar chat e perfil"
+                  aria-label={translate("watch.watchRoom.showChatAndProfile")}
                   className="flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-zinc-700 shadow-md backdrop-blur-xs transition hover:bg-white hover:text-zinc-950 dark:border-zinc-700 dark:bg-zinc-900/95 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-white"
                 >
                   <LuPanelRightOpen className="h-4 w-4" />
@@ -6192,7 +6192,7 @@ export function WatchRoom({
             <div className="min-h-0 flex-1 overflow-y-auto">
               <div className="flex h-full min-h-75 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-300 bg-white/50 px-4 text-center dark:border-zinc-800 dark:bg-zinc-950/40">
                 <p className="text-zinc-600 dark:text-zinc-400">
-                  Ninguém está transmitindo ainda.
+                  {translate("watch.watchRoom.nobodyIsBroadcastingYet")}
                 </p>
                 {/* The empty pane is the one place with room for the labelled
                     version of the header's icon toggles, and the one moment
@@ -6204,7 +6204,7 @@ export function WatchRoom({
                     never "stop": see nothingToShow. */}
                 {screenShareMode === "unsupported" && (
                   <p className="text-sm text-zinc-500 dark:text-zinc-500">
-                    Seu navegador não permite compartilhar tela nem câmera.
+                    {translate("watch.watchRoom.yourBrowserDoesNotAllowSharing2")}
                   </p>
                 )}
                 <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
@@ -6220,7 +6220,7 @@ export function WatchRoom({
                       className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
                     >
                       <ScreenIcon className="h-5 w-5" />
-                      Compartilhar tela
+                      {translate("watch.watchRoom.shareScreen")}
                     </button>
                   )}
 
@@ -6231,13 +6231,13 @@ export function WatchRoom({
                       className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
                     >
                       <CameraIcon className="h-5 w-5" />
-                      Compartilhar câmera
+                      {translate("watch.watchRoom.shareCamera")}
                     </button>
                   )}
 
                   {videoSourceBlockedReason ? (
                     <p className="basis-full text-center text-sm text-zinc-500 dark:text-zinc-500">
-                      O dono da sala limitou o que os participantes podem transmitir aqui.
+                      {translate("watch.watchRoom.theRoomSOwnerHasLimited")}
                     </p>
                   ) : (
                     <div className="basis-full flex justify-center">
@@ -6247,7 +6247,7 @@ export function WatchRoom({
                         className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
                       >
                         <MdOutlineOndemandVideo className="h-5 w-5 shrink-0" />
-                        Adicionar fonte de vídeo
+                        {translate("watch.watchRoom.addVideoSource")}
                         <BetaMark />
                       </button>
                     </div>
@@ -6272,7 +6272,7 @@ export function WatchRoom({
                     onClick={() => setSpotlightId(null)}
                     className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-medium text-zinc-700 shadow-sm transition hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300 dark:hover:bg-zinc-900"
                   >
-                    Remover destaque
+                    {translate("common.removeHighlight")}
                   </button>
                 </div>
               )}
@@ -6326,7 +6326,7 @@ export function WatchRoom({
                                 <button
                                   type="button"
                                   onClick={() => setSpotlightId(tile.id)}
-                                  aria-label="Destacar esta transmissão"
+                                  aria-label={translate("watch.watchRoom.highlightThisBroadcast")}
                                   className="absolute inset-0 z-10 cursor-pointer rounded-xl ring-emerald-500 transition hover:ring-2 focus-visible:ring-2 focus-visible:outline-none"
                                 />
                               )}
@@ -6401,7 +6401,7 @@ export function WatchRoom({
               role="separator"
               aria-orientation="vertical"
               className="group absolute inset-y-0 -left-3 z-30 flex w-3 cursor-ew-resize items-center justify-center"
-              title="Arraste para redimensionar o chat (clique duas vezes para restaurar)"
+              title={translate("watch.watchRoom.dragToResizeTheChatDouble")}
             >
               <div className="h-12 w-1 rounded-full bg-zinc-300 opacity-0 transition-opacity group-hover:opacity-100 dark:bg-zinc-600" />
             </div>
@@ -6467,7 +6467,7 @@ export function WatchRoom({
                   type="button"
                   data-panel-grab-handle
                   onClick={() => closeMobilePanel()}
-                  aria-label="Fechar"
+                  aria-label={translate("common.close")}
                   className="group flex w-full shrink-0 cursor-pointer flex-col items-center justify-center py-2.5 touch-none select-none"
                 >
                   <span className="h-1.5 w-12 rounded-full bg-zinc-300 transition-colors group-hover:bg-zinc-400 group-active:bg-zinc-500 dark:bg-zinc-700 dark:group-hover:bg-zinc-600 dark:group-active:bg-zinc-500" />
@@ -6487,7 +6487,7 @@ export function WatchRoom({
             {(state.status === "connecting" || state.status === "closed") && (
               <p className="relative z-20 flex shrink-0 items-center justify-center gap-1.5 border-t border-amber-200 bg-amber-50 py-1 text-xs font-medium text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-500">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
-                Conectando...
+                {translate("common.connecting")}
               </p>
             )}
 
@@ -6505,7 +6505,7 @@ export function WatchRoom({
               <button
                 type="button"
                 onClick={toggleMobileExtraMenu}
-                aria-label={mobileExtraMenuOpen ? "Recolher opções" : "Mais opções (puxe para cima)"}
+                aria-label={mobileExtraMenuOpen ? translate("watch.watchRoom.collapseOptions") : translate("watch.watchRoom.moreOptionsPullUp")}
                 aria-expanded={mobileExtraMenuOpen}
                 className="group flex w-full cursor-pointer flex-col items-center justify-center pt-1.5 pb-0.5 text-zinc-400 transition hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300 select-none"
               >
@@ -6516,7 +6516,7 @@ export function WatchRoom({
                       mobileExtraMenuOpen ? "rotate-180" : ""
                     }`}
                   />
-                  <span>{mobileExtraMenuOpen ? "Recolher opções" : "Puxe para mais opções"}</span>
+                  <span>{mobileExtraMenuOpen ? translate("watch.watchRoom.collapseOptions") : translate("watch.watchRoom.pullForMoreOptions")}</span>
                 </div>
               </button>
 
@@ -6532,7 +6532,7 @@ export function WatchRoom({
                         setMobileExtraMenuOpen(false);
                       }}
                       disabled={Boolean(videoSourceBlockedReason)}
-                      aria-label="Adicionar fonte de vídeo"
+                      aria-label={translate("watch.watchRoom.addVideoSource")}
                       className="flex h-[4.75rem] flex-col items-center justify-center gap-1.5 rounded-xl border border-zinc-200 bg-white p-2 text-zinc-700 shadow-sm transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200"
                     >
                       <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600 dark:bg-emerald-950/70 dark:text-emerald-400">
@@ -6541,12 +6541,12 @@ export function WatchRoom({
                       <div className="flex flex-col items-center">
                         <div className="flex items-center gap-1">
                           <span className="text-center text-[11px] font-semibold leading-tight">
-                            Vídeo
+                            {translate("watch.watchRoom.video")}
                           </span>
                           <span className="text-[9px] font-bold leading-none"><BetaMark /></span>
                         </div>
                         <span className="text-[9px] font-medium leading-none text-zinc-400 dark:text-zinc-500 mt-0.5">
-                          Mídia
+                          {translate("common.media")}
                         </span>
                       </div>
                     </button>
@@ -6559,7 +6559,7 @@ export function WatchRoom({
                         setMobileExtraMenuOpen(false);
                       }}
                       disabled={!canManageMusic}
-                      aria-label={state.music || myMusicSlot ? "Trocar a música da sala" : "Colocar música na sala"}
+                      aria-label={state.music || myMusicSlot ? translate("common.changeTheRoomSMusic") : translate("common.playMusicInTheRoom")}
                       className="flex h-[4.75rem] flex-col items-center justify-center gap-1.5 rounded-xl border border-zinc-200 bg-white p-2 text-zinc-700 shadow-sm transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200"
                     >
                       <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600 dark:bg-emerald-950/70 dark:text-emerald-400">
@@ -6568,12 +6568,12 @@ export function WatchRoom({
                       <div className="flex flex-col items-center">
                         <div className="flex items-center gap-1">
                           <span className="text-center text-[11px] font-semibold leading-tight">
-                            Música
+                            {translate("common.music")}
                           </span>
                           <span className="text-[9px] font-bold leading-none"><BetaMark /></span>
                         </div>
                         <span className="text-[9px] font-medium leading-none text-zinc-400 dark:text-zinc-500 mt-0.5">
-                          {state.music || myMusicSlot ? "Tocando" : "Parado"}
+                          {state.music || myMusicSlot ? translate("watch.watchRoom.playing") : translate("watch.watchRoom.stopped")}
                         </span>
                       </div>
                     </button>
@@ -6588,7 +6588,7 @@ export function WatchRoom({
                         }
                         toggleStreamerMode();
                       }}
-                      aria-label={streamerMode ? "Desativar modo streamer" : "Ativar modo streamer"}
+                      aria-label={streamerMode ? translate("watch.watchRoom.turnOffStreamerMode") : translate("watch.watchRoom.turnOnStreamerMode")}
                       className={`flex h-[4.75rem] flex-col items-center justify-center gap-1.5 rounded-xl border p-2 shadow-sm transition active:scale-95 ${
                         streamerMode
                           ? "border-purple-500/60 bg-purple-50 text-purple-700 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300"
@@ -6607,7 +6607,7 @@ export function WatchRoom({
                       <div className="flex flex-col items-center">
                         <div className="flex items-center gap-1">
                           <span className="text-center text-[11px] font-semibold leading-tight">
-                            Stream
+                            {translate("watch.watchRoom.stream")}
                           </span>
                           <span className="text-[9px] font-bold leading-none"><BetaMark /></span>
                         </div>
@@ -6616,7 +6616,7 @@ export function WatchRoom({
                             streamerMode ? "text-purple-600 dark:text-purple-400" : "text-zinc-400 dark:text-zinc-500"
                           }`}
                         >
-                          {streamerMode ? "Ativado" : "Desativado"}
+                          {streamerMode ? translate("common.on") : translate("common.off")}
                         </span>
                       </div>
                     </button>
@@ -6633,7 +6633,7 @@ export function WatchRoom({
                     open={micHintOpen}
                     onDismiss={closeMicHint}
                     onEnableMic={enableMicFromHint}
-                    tooltip={isMicOn ? "Desativar microfone" : (micBlockedReason ?? "Ativar microfone")}
+                    tooltip={isMicOn ? translate("common.turnOffMicrophone") : (micBlockedReason ?? translate("common.turnOnMicrophone"))}
                     wrapperClassName={DOCK_SLOT}
                   >
                     <button
@@ -6641,7 +6641,7 @@ export function WatchRoom({
                       onClick={handleToggleMic}
                       disabled={!isMicOn && Boolean(micBlockedReason)}
                       aria-pressed={isMicOn}
-                      aria-label={isMicOn ? "Desativar microfone" : "Ativar microfone"}
+                      aria-label={isMicOn ? translate("common.turnOffMicrophone") : translate("common.turnOnMicrophone")}
                       className={`${DOCK_BUTTON} ${isMicOn ? DOCK_ON : DOCK_OFF}`}
                     >
                       {isMicOn ? <MicIcon className="h-5 w-5" /> : <MicOffIcon className="h-5 w-5" />}
@@ -6650,14 +6650,14 @@ export function WatchRoom({
 
                   {/* 2. [escutar] */}
                   <Tooltip
-                    content={micsMuted ? "Reativar microfones" : "Silenciar microfones"}
+                    content={micsMuted ? translate("common.unmuteMicrophones") : translate("common.muteMicrophones")}
                     wrapperClassName={DOCK_SLOT}
                   >
                     <button
                       type="button"
                       onClick={toggleMicsMuted}
                       aria-pressed={!micsMuted}
-                      aria-label={micsMuted ? "Reativar microfones" : "Silenciar microfones"}
+                      aria-label={micsMuted ? translate("common.unmuteMicrophones") : translate("common.muteMicrophones")}
                       className={`${DOCK_BUTTON} ${micsMuted ? DOCK_OFF : DOCK_ON}`}
                     >
                       {micsMuted ? (
@@ -6677,8 +6677,8 @@ export function WatchRoom({
                       <Tooltip
                         content={
                           localCameraStream
-                            ? "Parar câmera"
-                            : (cameraBlockedReason ?? "Compartilhar câmera")
+                            ? translate("watch.watchRoom.stopCamera")
+                            : (cameraBlockedReason ?? translate("watch.watchRoom.shareCamera"))
                         }
                         wrapperClassName="flex min-w-0 flex-1 items-center justify-center"
                       >
@@ -6687,7 +6687,7 @@ export function WatchRoom({
                           onClick={() => (localCameraStream ? stopCameraShare() : startCameraShare())}
                           disabled={!localCameraStream && Boolean(cameraBlockedReason)}
                           aria-pressed={Boolean(localCameraStream)}
-                          aria-label={localCameraStream ? "Parar câmera" : "Compartilhar câmera"}
+                          aria-label={localCameraStream ? translate("watch.watchRoom.stopCamera") : translate("watch.watchRoom.shareCamera")}
                           className={`${DOCK_BUTTON_BASE} ${
                             canSwitchCamera ? "rounded-r-none" : ""
                           } ${localCameraStream ? DOCK_LIVE : DOCK_ON}`}
@@ -6717,10 +6717,10 @@ export function WatchRoom({
                   <Tooltip
                     content={
                       screenShareMode !== "display"
-                        ? "Compartilhamento de tela não suportado neste navegador"
+                        ? translate("watch.watchRoom.screenSharingNotSupportedInThis")
                         : localStream
-                          ? "Parar de compartilhar a tela"
-                          : (screenBlockedReason ?? "Compartilhar tela")
+                          ? translate("watch.watchRoom.stopSharingTheScreen")
+                          : (screenBlockedReason ?? translate("watch.watchRoom.shareScreen"))
                     }
                     wrapperClassName={DOCK_SLOT}
                   >
@@ -6733,7 +6733,7 @@ export function WatchRoom({
                       }}
                       disabled={screenShareMode !== "display" || (!localStream && Boolean(screenBlockedReason))}
                       aria-pressed={Boolean(localStream)}
-                      aria-label={localStream ? "Parar de compartilhar a tela" : "Compartilhar tela"}
+                      aria-label={localStream ? translate("watch.watchRoom.stopSharingTheScreen") : translate("watch.watchRoom.shareScreen")}
                       className={`${DOCK_BUTTON} ${
                         screenShareMode !== "display"
                           ? "bg-zinc-200 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-600"
@@ -6747,14 +6747,14 @@ export function WatchRoom({
                   </Tooltip>
 
                   {/* 5. [sair] */}
-                  <Tooltip content="Sair da chamada" wrapperClassName={DOCK_SLOT}>
+                  <Tooltip content={translate("common.leaveTheCall")} wrapperClassName={DOCK_SLOT}>
                     <button
                       type="button"
                       onClick={() => {
                         playHangUpSound();
                         onDisconnect();
                       }}
-                      aria-label="Sair da chamada"
+                      aria-label={translate("common.leaveTheCall")}
                       className={`${DOCK_BUTTON} bg-red-600 hover:bg-red-700 active:bg-red-800 text-white`}
                     >
                       <MdCallEnd className="h-5 w-5" />
@@ -6781,7 +6781,7 @@ export function WatchRoom({
                         </span>
                       )}
                     </span>
-                    <span className="text-[10px] font-medium leading-none truncate max-w-full">Chat</span>
+                    <span className="text-[10px] font-medium leading-none truncate max-w-full">{translate("common.chat")}</span>
                   </button>
 
                   <button
@@ -6796,7 +6796,7 @@ export function WatchRoom({
                         {peerCount}
                       </span>
                     </span>
-                    <span className="text-[10px] font-medium leading-none truncate max-w-full">Pessoas</span>
+                    <span className="text-[10px] font-medium leading-none truncate max-w-full">{translate("watch.watchRoom.people")}</span>
                   </button>
                 </div>
               </nav>

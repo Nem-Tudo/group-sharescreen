@@ -32,6 +32,7 @@ import type { GroupReplyTo } from "@/lib/groupsApi";
 import { EVERYONE_MENTION, ROLE_MENTION_PREFIX } from "@/lib/groupPermissions";
 import { encodeMentions, userTokenIds, type Named } from "@/lib/messageTokens";
 import { createTypingAnnouncer, type TypingAnnouncer } from "@/lib/typing";
+import { useT } from "@/lib/useI18n";
 
 // The box at the bottom of a group's text room. Drawn like the room chat's own
 // composer (components/ChatPanel) — a text field and small icon buttons along
@@ -161,6 +162,7 @@ export function GroupMessageComposer({
    */
   onTypingChange?: (typing: boolean) => void;
 }) {
+  const t = useT();
   const [text, setText] = useState("");
   const [images, setImages] = useState<{ dataUrl: string; bytes: number }[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -369,7 +371,7 @@ export function GroupMessageComposer({
     // outgrow the limit once encoded — and the API would cut it, splitting a
     // token in half. Better to say so than to send a broken mention.
     if (encoded.length > MAX_LENGTH) {
-      setError("A mensagem ficou longa demais com as menções. Encurte um pouco.");
+      setError(t("groups.groupMessageComposer.theMessageGotTooLongWith"));
       return;
     }
     setError(null);
@@ -445,30 +447,30 @@ export function GroupMessageComposer({
   async function addImages(files: File[]) {
     if (files.length === 0 || disabled) return;
     if (!allow.images) {
-      setError("Você não tem permissão para enviar imagens nesta sala.");
+      setError(t("groups.groupMessageComposer.youDoNotHavePermissionTo"));
       return;
     }
     const room = CHAT_IMAGE_MAX_PER_MESSAGE - images.length;
     if (room <= 0) {
-      setError(`No máximo ${CHAT_IMAGE_MAX_PER_MESSAGE} imagens por mensagem.`);
+      setError(t("groups.groupMessageComposer.atMostChatImageMaxPer", { CHAT_IMAGE_MAX_PER_MESSAGE }));
       return;
     }
     const next = [...images];
     for (const file of files.slice(0, room)) {
       if (!isSupportedChatImage(file)) {
-        setError("Formato de imagem não suportado.");
+        setError(t("common.unsupportedImageFormat"));
         continue;
       }
       try {
         const prepared = await prepareChatImage(file);
         const total = next.reduce((n, i) => n + i.bytes, 0) + prepared.byteLength;
         if (total > CHAT_IMAGE_TOTAL_MAX_BYTES) {
-          setError("As imagens passaram do tamanho máximo por mensagem.");
+          setError(t("groups.groupMessageComposer.theImagesWentOverTheMaximum"));
           break;
         }
         next.push({ dataUrl: prepared.dataUrl, bytes: prepared.byteLength });
       } catch {
-        setError("Não foi possível ler essa imagem.");
+        setError(t("common.couldNotReadThatImage"));
       }
     }
     setImages(next);
@@ -539,13 +541,13 @@ export function GroupMessageComposer({
       {replyingTo && (
         <div className="mb-1.5 flex items-center justify-between gap-2 rounded-lg bg-zinc-100 px-2.5 py-1 text-xs text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
           <span className="min-w-0 truncate">
-            Respondendo <span className="font-medium text-zinc-900 dark:text-zinc-100">@{replyingTo.name}</span>
+            {t("groups.groupMessageComposer.replying")} <span className="font-medium text-zinc-900 dark:text-zinc-100">@{replyingTo.name}</span>
             {replyingTo.text ? ` — ${replyingTo.text}` : ""}
           </span>
           <button
             type="button"
             onClick={onCancelReply}
-            aria-label="Cancelar resposta"
+            aria-label={t("common.cancelReply")}
             className="shrink-0 cursor-pointer rounded p-0.5 hover:bg-zinc-200 dark:hover:bg-zinc-800"
           >
             <MdClose className="h-3.5 w-3.5" />
@@ -561,11 +563,11 @@ export function GroupMessageComposer({
               className="relative h-16 w-16 overflow-hidden rounded-lg border border-zinc-300 bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900"
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={image.dataUrl} alt="Anexo" className="h-full w-full object-cover" />
+              <img src={image.dataUrl} alt={t("common.attachment")} className="h-full w-full object-cover" />
               <button
                 type="button"
                 onClick={() => setImages(images.filter((_, i) => i !== index))}
-                aria-label="Remover imagem"
+                aria-label={t("common.removeImage")}
                 className="absolute right-0.5 top-0.5 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full bg-black/60 text-white"
               >
                 <MdClose className="h-3.5 w-3.5" />
@@ -577,12 +579,12 @@ export function GroupMessageComposer({
 
       <div className="flex items-end gap-1.5">
         {allow.images && (
-        <Tooltip content={disabledReason ?? "Enviar imagem"}>
+        <Tooltip content={disabledReason ?? t("common.sendImage")}>
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
             disabled={disabled}
-            aria-label="Enviar imagem"
+            aria-label={t("common.sendImage")}
             className={iconButton}
           >
             <MdOutlineImage className="h-5 w-5" />
@@ -603,13 +605,13 @@ export function GroupMessageComposer({
               }}
             />
           }
-          tooltip="Enviar GIF"
+          tooltip={t("common.sendGif")}
         >
           <button
             type="button"
             onClick={() => setGifOpen((open) => !open)}
             disabled={disabled}
-            aria-label="Enviar GIF"
+            aria-label={t("common.sendGif")}
             className={iconButton}
           >
             <MdGif className="h-6 w-6" />
@@ -626,14 +628,14 @@ export function GroupMessageComposer({
           onClick={(e) => setCursor(e.currentTarget.selectionStart ?? 0)}
           rows={1}
           disabled={disabled}
-          placeholder={disabledReason ?? `Mensagem em ${channelName}`}
+          placeholder={disabledReason ?? t("groups.groupMessageComposer.messageInChannelname", { channelName })}
           className="min-h-12 min-w-0 flex-1 resize-none overflow-y-hidden rounded-lg border border-zinc-300 bg-white px-3 py-[11px] text-base leading-6 text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-white/10"
         />
         <button
           type="button"
           onClick={() => send()}
           disabled={disabled || (!text.trim() && images.length === 0)}
-          aria-label="Enviar"
+          aria-label={t("common.send")}
           className="mb-1 flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-zinc-950 text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
         >
           <MdSend className="h-4 w-4" />

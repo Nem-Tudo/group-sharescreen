@@ -7,6 +7,7 @@ import { parseMusicUrl } from "@/lib/musicSource";
 import { BetaMark } from "./BetaMark";
 import { LocalMediaPicker } from "./LocalMediaPicker";
 import type { LocalMediaSlot } from "@/lib/localMediaSource";
+import { useT } from "@/lib/useI18n";
 
 export type AddMusicSourcePopupData = {
   onSubmit: (url: string, controlMode: "owner" | "anyone") => void;
@@ -45,6 +46,7 @@ export function AddMusicSourceModal({
   closePopup: (hasAction?: boolean) => void;
   data: AddMusicSourcePopupData;
 }) {
+  const t = useT();
   const [link, setLink] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [origin, setOrigin] = useState<"youtube" | "local">("youtube");
@@ -62,7 +64,7 @@ export function AddMusicSourceModal({
     // Only to catch an obvious paste mistake without a round trip — the
     // server parses it again, and its answer is what everyone plays.
     if (!parseMusicUrl(raw)) {
-      setError("Cole um link de vídeo ou playlist do YouTube.");
+      setError(t("addMusicSourceModal.pasteAYoutubeVideoOrPlaylist"));
       return;
     }
     onSubmit(raw, controlMode);
@@ -77,12 +79,12 @@ export function AddMusicSourceModal({
       <div className="flex items-start justify-between gap-2">
         <p className="flex items-center gap-1.5 text-sm font-semibold">
           <MdMusicNote className="h-4 w-4 shrink-0 text-emerald-600" />
-          <BetaMark /> {replacing ? "Trocar a música da sala" : "Colocar música na sala"}
+          <BetaMark /> {replacing ? t("common.changeTheRoomSMusic") : t("common.playMusicInTheRoom")}
         </p>
         <button
           type="button"
           onClick={() => closePopup(false)}
-          aria-label="Fechar"
+          aria-label={t("common.close")}
           className="-mr-1 -mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-lg leading-none opacity-60 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
         >
           ×
@@ -90,20 +92,19 @@ export function AddMusicSourceModal({
       </div>
 
       <p className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
-        A música toca para todo mundo na sala, numa barrinha acima do vídeo, e só o dono e os
-        administradores controlam.
+        {t("addMusicSourceModal.theMusicPlaysForEveryoneIn")}
         {replacing && !local && (
           <>
             {" "}
             <span className="font-medium text-amber-600 dark:text-amber-500">
-              Isso substitui a música que está tocando agora.
+              {t("addMusicSourceModal.thisReplacesTheMusicPlayingRight")}
             </span>
           </>
         )}
       </p>
 
       <div className="flex flex-col gap-1.5">
-        <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">De onde</p>
+        <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{t("addMusicSourceModal.whereFrom")}</p>
         <div className="grid grid-cols-2 gap-2">
           <OriginButton
             selected={!local}
@@ -112,7 +113,7 @@ export function AddMusicSourceModal({
               setError(null);
             }}
             icon={<FaYoutube className="h-4 w-4 shrink-0" />}
-            label="YouTube"
+            label={t("common.youtube")}
             activeClassName="border-red-600 bg-red-600/10 text-red-600 dark:text-red-500"
           />
           <OriginButton
@@ -122,7 +123,7 @@ export function AddMusicSourceModal({
               setError(null);
             }}
             icon={<MdFolderOpen className="h-4 w-4 shrink-0" />}
-            label="Do computador"
+            label={t("addMusicSourceModal.fromTheComputer")}
             activeClassName="border-sky-500 bg-sky-500/10 text-sky-600 dark:text-sky-400"
           />
         </div>
@@ -130,7 +131,7 @@ export function AddMusicSourceModal({
 
       {!local && (
         <div className="flex flex-col gap-1.5">
-          <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Quem pode controlar</p>
+          <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{t("common.whoCanControl")}</p>
           <label className="flex items-center gap-2 text-sm">
             <input
               type="radio"
@@ -138,7 +139,7 @@ export function AddMusicSourceModal({
               checked={controlMode === "owner"}
               onChange={() => setControlMode("owner")}
             />
-            Só o dono e os administradores
+            {t("common.onlyTheOwnerAndTheAdministrators")}
           </label>
           <label className="flex items-center gap-2 text-sm">
             <input
@@ -147,7 +148,7 @@ export function AddMusicSourceModal({
               checked={controlMode === "anyone"}
               onChange={() => setControlMode("anyone")}
             />
-            Todos podem controlar
+            {t("common.everyoneCanControl")}
           </label>
         </div>
       )}
@@ -167,8 +168,7 @@ export function AddMusicSourceModal({
         <>
       <div className="flex flex-col gap-1.5">
         <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-          Cole um vídeo ou, melhor ainda, uma playlist: aí a sala ganha uma fila em vez de uma
-          faixa só.
+          {t("addMusicSourceModal.pasteAVideoOrBetterStill")}
         </p>
         <input
           value={link}
@@ -178,7 +178,7 @@ export function AddMusicSourceModal({
           }}
           autoFocus
           placeholder="https://youtube.com/playlist?list=..."
-          aria-label="Link da música"
+          aria-label={t("addMusicSourceModal.musicLink")}
           className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
         />
         {error && <p className="text-xs text-red-500">{error}</p>}
@@ -189,7 +189,7 @@ export function AddMusicSourceModal({
         disabled={!link.trim()}
         className="w-full rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {replacing ? "Trocar música" : "Colocar música"}
+        {replacing ? t("common.changeMusic") : t("addMusicSourceModal.playMusic")}
       </button>
         </>
       )}

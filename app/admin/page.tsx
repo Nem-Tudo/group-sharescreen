@@ -6,6 +6,8 @@ import { AccountModal, type AccountModalMode } from "@/components/AccountModal";
 import { useAuth } from "@/lib/AuthContext";
 import { AdminLogPanel } from "./AdminLogPanel";
 import { ADMIN_SECTIONS } from "./DashboardPanel";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
 
 // Site administration: statistics, announcements, partners, supporters, the
 // desktop update nudge, anti-spam, banned words, bans, ads, comped plans — and
@@ -32,10 +34,11 @@ import { ADMIN_SECTIONS } from "./DashboardPanel";
 // rather than used.
 const TABS = [
   ...ADMIN_SECTIONS.map((section) => ({ id: section.id, label: section.label })),
-  { id: "registros", label: "Registros" },
+  { id: "registros", get label() { return translate("admin.logs"); } },
 ];
 
 export default function AdminPage() {
+  const t = useT();
   const { account, loading } = useAuth();
   const [tab, setTab] = useState<string>(ADMIN_SECTIONS[0].id);
   const [accountModal, setAccountModal] = useState<AccountModalMode | null>(null);
@@ -45,7 +48,7 @@ export default function AdminPage() {
   if (loading) {
     return (
       <div className="flex flex-1 items-center justify-center bg-zinc-50 px-4 py-16 dark:bg-black">
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">Carregando…</p>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">{t("common.loading")}</p>
       </div>
     );
   }
@@ -55,13 +58,13 @@ export default function AdminPage() {
       <div className="flex flex-1 items-center justify-center bg-zinc-50 px-4 py-16 dark:bg-black">
         <main className="w-full max-w-md rounded-2xl border border-black/10 bg-white p-8 shadow-sm dark:border-white/10 dark:bg-zinc-950">
           <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-            Administração
+            {t("common.administration")}
           </h1>
           <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
             {/* Deliberately the same message either way. "You are signed in but
                 not an administrator" tells somebody probing this URL which
                 half they got right. */}
-            Acesso restrito.
+            {t("admin.restrictedAccess")}
           </p>
           {!account && (
             <button
@@ -69,14 +72,14 @@ export default function AdminPage() {
               onClick={() => setAccountModal("login")}
               className="mt-6 w-full rounded-lg bg-zinc-950 px-4 py-2.5 font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
             >
-              Entrar
+              {t("common.signIn")}
             </button>
           )}
           <Link
             href="/"
             className="mt-3 block text-center text-sm text-zinc-500 underline underline-offset-2 hover:text-zinc-900 dark:hover:text-zinc-100"
           >
-            Voltar ao início
+            {t("common.backToHome")}
           </Link>
           <AccountModal mode={accountModal} onModeChange={setAccountModal} />
         </main>
@@ -90,17 +93,17 @@ export default function AdminPage() {
         <div className="flex items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-              Admin
+              {t("common.admin")}
             </h1>
             <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-              Conectado como @{account.username}
+              {t("admin.signedInAs")}{account.username}
             </p>
           </div>
           <Link
             href="/"
             className="shrink-0 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
           >
-            Início
+            {t("common.home")}
           </Link>
         </div>
 

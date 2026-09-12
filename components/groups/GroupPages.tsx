@@ -13,6 +13,8 @@ import { canInChannel } from "@/lib/groupPermissions";
 import { fetchPublicGroupPreview, groupPath, type PublicGroupPreview } from "@/lib/groupLinks";
 import { useGroupNavigation } from "@/lib/groupNavigation";
 import { forgetGroup, refreshGroup, refreshGroups, useGroupDetail, useMyGroups } from "@/lib/useGroups";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
 
 // The two pages inside a group. Both read the same store the shell does, so
 // they never fetch the group twice.
@@ -25,7 +27,8 @@ function Panel({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Loading({ label = "Carregando…" }: { label?: string }) {
+function Loading({ label = translate("common.loading") }: { label?: string }) {
+  const t = useT();
   return (
     <Panel>
       <span className="h-6 w-6 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-900 dark:border-zinc-700 dark:border-t-zinc-100" />
@@ -37,21 +40,22 @@ function Loading({ label = "Carregando…" }: { label?: string }) {
 }
 
 function NotFound({ status }: { status: number }) {
+  const t = useT();
   return (
     <Panel>
       <p className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">
-        {status === 401 ? "Entre para ver seus grupos" : "Grupo não encontrado"}
+        {status === 401 ? t("groups.groupPages.signInToSeeYourGroups") : t("groups.groupPages.groupNotFound")}
       </p>
       <p className="max-w-sm text-sm text-zinc-500 dark:text-zinc-400">
         {status === 401
-          ? "Use sua conta, ou abra o link de convite que te mandaram."
-          : "Ele não existe mais, ou você não faz parte dele. Para entrar, peça um convite a alguém do grupo."}
+          ? t("groups.groupPages.useYourAccountOrOpenThe")
+          : t("groups.groupPages.itNoLongerExistsOrYou")}
       </p>
       <GroupLink
         href="/groups"
         className="mt-3 rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
       >
-        Ver meus grupos
+        {t("groups.groupPages.seeMyGroups")}
       </GroupLink>
     </Panel>
   );
@@ -64,6 +68,7 @@ function NotFound({ status }: { status: number }) {
  * is itself out of use), so they are only told.
  */
 function Suspended({ groupId, message }: { groupId: string; message: string }) {
+  const t = useT();
   const navigation = useGroupNavigation();
   const { groups } = useMyGroups();
   const summary = groups?.find((g) => g.id === groupId);
@@ -86,18 +91,18 @@ function Suspended({ groupId, message }: { groupId: string; message: string }) {
     <Panel>
       <MdBlock className="h-8 w-8 text-amber-500" aria-hidden />
       <p className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">
-        {summary ? `${summary.name} está suspenso` : "Grupo suspenso"}
+        {summary ? t("groups.groupPages.nameIsSuspended", { name: summary.name }) : t("groups.groupPages.groupSuspended")}
       </p>
       <p className="max-w-sm text-sm text-zinc-500 dark:text-zinc-400">{message}</p>
       <p className="max-w-sm text-xs text-zinc-400 dark:text-zinc-500">
-        Enquanto a suspensão durar, ninguém consegue usar o grupo.
+        {t("groups.groupPages.whileTheSuspensionLastsNobodyCan")}
       </p>
       <div className="mt-3 flex flex-wrap justify-center gap-2">
         <GroupLink
           href="/groups"
           className="rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
         >
-          Ver meus grupos
+          {t("groups.groupPages.seeMyGroups")}
         </GroupLink>
         {summary && summary.role !== "owner" && (
           <button
@@ -106,7 +111,7 @@ function Suspended({ groupId, message }: { groupId: string; message: string }) {
             onClick={() => void leave()}
             className="cursor-pointer rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
           >
-            {busy ? "Saindo…" : "Sair do grupo"}
+            {busy ? t("groups.groupPages.leaving") : t("common.leaveTheGroup")}
           </button>
         )}
       </div>
@@ -122,6 +127,7 @@ function Suspended({ groupId, message }: { groupId: string; message: string }) {
  * is simply not found: the page must not say a private group exists.
  */
 function GroupGate({ groupId, status }: { groupId: string; status: number }) {
+  const t = useT();
   const accountToken = useAccountToken();
   const guestToken = useGuestToken();
   const token = accountToken ?? guestToken;
@@ -146,8 +152,8 @@ function GroupGate({ groupId, status }: { groupId: string; status: number }) {
         <GroupJoinCard
           group={read.preview.group}
           member={read.preview.member}
-          headline="Grupo público — qualquer um pode entrar"
-          acceptLabel="Entrar no grupo"
+          headline={t("groups.groupPages.publicGroupAnyoneCanJoin")}
+          acceptLabel={t("groups.groupPages.joinTheGroup")}
           onOpen={() => void refreshGroup(groupId)}
           join={async (name) => {
             const result = await joinPublicGroup(groupId, name);
@@ -165,6 +171,7 @@ function GroupGate({ groupId, status }: { groupId: string; status: number }) {
 
 /** /groups/:id — straight on to the room this group was last left on, or its first text room. */
 export function GroupIndex({ groupId }: { groupId: string }) {
+  const t = useT();
   const navigation = useGroupNavigation();
   const { detail, error } = useGroupDetail(groupId);
 
@@ -191,10 +198,9 @@ export function GroupIndex({ groupId }: { groupId: string }) {
   if (detail && textRooms.length === 0) {
     return (
       <Panel>
-        <p className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">Nenhuma sala de texto para você</p>
+        <p className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">{t("groups.groupPages.noTextRoomForYou")}</p>
         <p className="max-w-sm text-sm text-zinc-500 dark:text-zinc-400">
-          As salas de texto deste grupo não estão abertas para você. Se houver uma sala de voz aberta, entre por
-          ela na lista.
+          {t("groups.groupPages.thisGroupSTextRoomsAre")}
         </p>
       </Panel>
     );
@@ -204,6 +210,7 @@ export function GroupIndex({ groupId }: { groupId: string }) {
 
 /** /groups/:id/:room — a text room here; a voice room is drawn by the shell. */
 export function GroupRoom({ groupId, roomId }: { groupId: string; roomId: string }) {
+  const t = useT();
   const navigation = useGroupNavigation();
   const { detail, error } = useGroupDetail(groupId);
   const channel = detail?.channels.find((c) => c.id === roomId) ?? null;
@@ -232,13 +239,13 @@ export function GroupRoom({ groupId, roomId }: { groupId: string; roomId: string
     return (
       <Panel>
         <MdLock className="h-8 w-8 text-zinc-400" />
-        <p className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">{channel.name} está trancada</p>
+        <p className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">{channel.name} {t("groups.groupPages.isLocked")}</p>
         <p className="max-w-sm text-sm text-zinc-500 dark:text-zinc-400">
-          Você pode ver quem está nesta sala de voz, mas não tem permissão para entrar nela.
+          {t("groups.groupPages.youCanSeeWhoIsIn")}
         </p>
       </Panel>
     );
   }
   // The shell hides this the moment the call is up; until then, say what is happening.
-  return <Loading label={`Entrando em ${channel.name}…`} />;
+  return <Loading label={t("groups.groupPages.joiningName", { name: channel.name })} />;
 }

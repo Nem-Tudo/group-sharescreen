@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { InvitePreview, InviteState } from "./groupLinks";
 import { pageMetadata } from "./seo";
+import { translate, translateCount } from "@/lib/i18n";
 
 // What a link to a group looks like when it is pasted into a chat — an invite
 // (/invite/<code>) or the group's own address (/groups/<id>). The group's
@@ -16,16 +17,16 @@ type PreviewGroup = InvitePreview["group"];
 
 /** "Grupo oficial do Go Live · 10 membros". The count is what the description cannot say. */
 function describeGroup(group: PreviewGroup): string {
-  const members = `${group.memberCount} ${group.memberCount === 1 ? "membro" : "membros"}`;
+  const members = translateCount("common.memberCount", group.memberCount);
   const text = group.description.trim().replace(/\s+/g, " ");
-  return text ? `${text} · ${members}` : `Grupo no GoLive · ${members}`;
+  return text ? `${text} · ${members}` : translate("groupMetadata.groupOnGoliveMembers", { members });
 }
 
 /** The group's icon as the picture, or the site's card with the group's name when it has none. */
 function picture(group: PreviewGroup, subtitle: string) {
   return group.iconUrl
     ? { thumbnail: group.iconUrl }
-    : { card: { title: group.name, subtitle, badge: "Grupo" } };
+    : { card: { title: group.name, subtitle, badge: translate("common.group") } };
 }
 
 export function groupLinkMetadata({
@@ -46,31 +47,31 @@ export function groupLinkMetadata({
     return kind === "invite"
       ? pageMetadata({
           path,
-          title: "Convite para um grupo",
-          description: "Você foi convidado para um grupo no GoLive.",
+          title: translate("groupMetadata.inviteToAGroup"),
+          description: translate("groupMetadata.youHaveBeenInvitedToA"),
           noindex: true,
-          card: { title: "Convite para um grupo", subtitle: "Abra o link para ver", badge: "Grupos" },
+          card: { title: translate("groupMetadata.inviteToAGroup"), subtitle: translate("groupMetadata.openTheLinkToSee"), badge: translate("common.groups") },
         })
       : pageMetadata({
           path,
-          title: "Grupo no GoLive",
-          description: "Salas de voz e de texto permanentes com seus amigos, no GoLive.",
+          title: translate("groupMetadata.groupOnGolive"),
+          description: translate("groupMetadata.permanentVoiceAndTextRoomsWith"),
           noindex: true,
-          card: { title: "Grupo no GoLive", subtitle: "Salas de voz e de texto com seus amigos", badge: "Grupos" },
+          card: { title: translate("groupMetadata.groupOnGolive"), subtitle: translate("groupMetadata.voiceAndTextRoomsWithYour"), badge: translate("common.groups") },
         });
   }
 
   // An invite that no longer lets anybody in says so up front, rather than
   // inviting somebody into a group the link will then turn them away from.
   if (kind === "invite" && inviteState !== "ok") {
-    const description = `Este convite para "${group.name}" não vale mais — peça um novo a alguém do grupo.`;
-    return pageMetadata({ path, title: "Convite inválido", description, noindex: true, ...picture(group, description) });
+    const description = translate("groupMetadata.thisInviteToNameIsNo", { name: group.name });
+    return pageMetadata({ path, title: translate("common.invalidInvite"), description, noindex: true, ...picture(group, description) });
   }
 
   const description = describeGroup(group);
   return pageMetadata({
     path,
-    title: kind === "invite" ? `Convite para ${group.name}` : group.name,
+    title: kind === "invite" ? translate("groupMetadata.inviteToName", { name: group.name }) : group.name,
     description,
     noindex: true,
     ...picture(group, description),

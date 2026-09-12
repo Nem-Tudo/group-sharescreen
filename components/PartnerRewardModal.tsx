@@ -19,6 +19,7 @@ import { trackEvent } from "@/lib/analytics";
 import { signalingClient } from "@/lib/signalingClient";
 import { SpeakerIcon, SpeakerMuteIcon, CheckIcon } from "@/components/icons";
 import { BsCoin } from "react-icons/bs";
+import { useI18n } from "@/lib/useI18n";
 
 // Belt-and-suspenders alongside the seek guard below: on its own this
 // wouldn't stop anything (currentTime already reads high after any hack),
@@ -117,6 +118,7 @@ export function PartnerRewardModal({
   closePopup: (hasAction?: boolean) => void;
   data: PartnerRewardPopupData;
 }) {
+  const { t, tc } = useI18n();
   const { account, refresh } = useAuth();
   // Guests earn points too (see lib/partner.ts) — their guest token is the
   // identity the API credits, so having one is exactly as good as having an
@@ -358,12 +360,12 @@ export function PartnerRewardModal({
       // header) without a reload.
       await refresh();
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Falha ao resgatar a recompensa.";
+      const message = err instanceof Error ? err.message : t("common.couldNotRedeemTheReward");
       setClaimError(message);
       // The server refuses a repeat claim with this same message whether it
       // was this browser or another session that collected it first —
       // either way there's nothing left here to unlock.
-      if (message.includes("já resgatou")) {
+      if (message.includes(t("partnerRewardModal.alreadyRedeemed"))) {
         markPartnerRewardClaimedLocally(partnerId);
         setClaimed(true);
       }
@@ -389,7 +391,7 @@ export function PartnerRewardModal({
         void refresh();
       })
       .catch((err: unknown) => {
-        setClickRewardError(err instanceof Error ? err.message : "Falha ao resgatar os pontos.");
+        setClickRewardError(err instanceof Error ? err.message : t("common.couldNotRedeemThePoints"));
       });
   }
 
@@ -416,7 +418,7 @@ export function PartnerRewardModal({
           <div className="flex items-center gap-1.5">
             <p className="truncate text-sm font-semibold">{title}</p>
             <span className="shrink-0 rounded-full bg-black/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide opacity-70 dark:bg-white/10">
-              Patrocinado
+              {t("common.sponsored")}
             </span>
           </div>
           <p className="mt-0.5 line-clamp-2 whitespace-pre-line text-xs opacity-60">
@@ -428,7 +430,7 @@ export function PartnerRewardModal({
           // requireAction is on, so only closePopup(true) gets out — the
           // backdrop and Escape deliberately don't.
           onClick={() => closePopup(true)}
-          aria-label="Sair do vídeo"
+          aria-label={t("partnerRewardModal.leaveTheVideo")}
           className="-mr-1 -mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xl leading-none opacity-60 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
         >
           ×
@@ -475,12 +477,12 @@ export function PartnerRewardModal({
           <div className="absolute inset-0 flex items-center justify-center bg-black">
             {loadFailed ? (
               <p className="px-4 text-center text-sm text-white/70">
-                Não foi possível carregar o vídeo.
+                {t("partnerRewardModal.couldNotLoadTheVideo")}
               </p>
             ) : (
               <span
                 role="status"
-                aria-label="Carregando vídeo"
+                aria-label={t("partnerRewardModal.loadingVideo")}
                 className="h-9 w-9 animate-spin rounded-full border-2 border-white/25 border-t-white"
               />
             )}
@@ -501,7 +503,7 @@ export function PartnerRewardModal({
               className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/60 text-lg font-semibold text-white"
             >
               <span className="text-3xl leading-none">↻</span>
-              Rever vídeo
+              {t("partnerRewardModal.rewatchVideo")}
             </button>
           ) : needsManualPlay ? (
             <button
@@ -509,7 +511,7 @@ export function PartnerRewardModal({
               onClick={attemptPlay}
               className="absolute inset-0 flex items-center justify-center bg-black/50 text-lg font-semibold text-white"
             >
-              ▶ Reproduzir vídeo
+              {t("partnerRewardModal.playVideo")}
             </button>
           ) : (
             isPaused && (
@@ -518,7 +520,7 @@ export function PartnerRewardModal({
               <button
                 type="button"
                 onClick={togglePlayPause}
-                aria-label="Continuar vídeo"
+                aria-label={t("partnerRewardModal.continueVideo")}
                 className="absolute inset-0 flex items-center justify-center bg-black/30"
               >
                 <span className="flex h-16 w-16 items-center justify-center rounded-full bg-black/50 text-3xl leading-none text-white">
@@ -536,7 +538,7 @@ export function PartnerRewardModal({
             <button
               type="button"
               onClick={() => setMuted((m) => !m)}
-              aria-label={muted ? "Ativar som" : "Silenciar"}
+              aria-label={muted ? t("common.turnOnSound") : t("common.mute")}
               className="absolute bottom-3 left-3 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80"
             >
               {muted ? (
@@ -620,7 +622,7 @@ export function PartnerRewardModal({
               <span className="truncate">{buttonLabel}</span>
             </span>
             {clickRewardJustClaimed && (
-              <span className="absolute inset-0 flex items-center justify-center">Resgatado!</span>
+              <span className="absolute inset-0 flex items-center justify-center">{t("common.redeemed")}</span>
             )}
           </a>
           <button
@@ -647,30 +649,30 @@ export function PartnerRewardModal({
             {claimed ? (
               <>
                 <CheckIcon className="h-4 w-4 shrink-0" />
-                {points} pontos recebidos
+                {tc("common.pointsCount", points)} recebidos
               </>
             ) : alreadyClaimed ? (
               <>
                 <CheckIcon className="h-4 w-4 shrink-0" />
-                Você já resgatou essa recompensa
+                {t("partnerRewardModal.youHaveAlreadyRedeemedThisReward")}
               </>
             ) : claiming ? (
-              "Resgatando..."
+              t("partnerRewardModal.redeeming")
             ) : unlocked ? (
               <>
-                Resgatar
+                {t("common.redeem")}
                 <BsCoin className="h-4 w-4 shrink-0" />
-                {points} pontos
+                {tc("common.pointsCount", points)}
               </>
             ) : (
-              "Assista até o fim para resgatar"
+              t("partnerRewardModal.watchToTheEndToRedeem")
             )}
             </span>
           </button>
         </div>
         {claimAttemptedSignedOut && !canClaim && !claimed && !alreadyClaimed && (
           <p className="text-center text-xs text-amber-600 dark:text-amber-400">
-            Escolha um nome para entrar antes de resgatar os pontos.
+            {t("partnerRewardModal.chooseANameToJoinBefore")}
           </p>
         )}
         {clickRewardError && (

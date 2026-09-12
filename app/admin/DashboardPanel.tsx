@@ -19,6 +19,7 @@ import { DesktopUpdatePanel } from "./DesktopUpdatePanel";
 import { EvalPanel } from "./EvalPanel";
 import { GroupsPanel } from "./GroupsPanel";
 import { ReservedInvitesPanel } from "./ReservedInvitesPanel";
+import { translate } from "@/lib/i18n";
 
 // The admin area, in sections.
 //
@@ -45,8 +46,8 @@ export interface AdminSection {
 
 export const ADMIN_SECTIONS: AdminSection[] = [
   {
-    id: "visao",
-    label: "Visão geral",
+    id: "overview",
+    get label() { return translate("common.overview"); },
     Panel: () => (
       <Group>
         <StatsOverview />
@@ -54,8 +55,8 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     ),
   },
   {
-    id: "transmissao",
-    label: "Transmissão",
+    id: "broadcast",
+    get label() { return translate("common.broadcast"); },
     Panel: () => (
       <Group>
         <StreamStatsPanel />
@@ -63,8 +64,8 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     ),
   },
   {
-    id: "usuarios",
-    label: "Usuários",
+    id: "users",
+    get label() { return translate("admin.dashboardPanel.users"); },
     Panel: () => (
       <Group>
         {/* Ordered by how often they are reached for: comping a plan and
@@ -81,8 +82,8 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     ),
   },
   {
-    id: "grupos",
-    label: "Grupos",
+    id: "groups",
+    get label() { return translate("common.groups"); },
     Panel: () => (
       <div className="flex flex-col gap-4">
         <GroupsPanel />
@@ -93,8 +94,8 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     ),
   },
   {
-    id: "moderacao",
-    label: "Moderação",
+    id: "moderation",
+    get label() { return translate("admin.dashboardPanel.moderation"); },
     Panel: () => (
       <Group>
         <BansPanel />
@@ -109,7 +110,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
   },
   {
     id: "site",
-    label: "Site",
+    get label() { return translate("admin.dashboardPanel.site"); },
     Panel: () => (
       <Group>
         <AnnouncementPanel />
@@ -119,8 +120,8 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     ),
   },
   {
-    id: "anuncios",
-    label: "Anúncios",
+    id: "ads",
+    get label() { return translate("admin.dashboardPanel.ads"); },
     Panel: () => (
       <Group>
         <PartnerAdsPanel />

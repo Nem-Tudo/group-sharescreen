@@ -2,6 +2,7 @@
 
 import { getAccountToken } from "./accountApi";
 import { getSignalingHttpBase } from "./roomsApi";
+import { translate } from "@/lib/i18n";
 
 // The friends-and-blocks client. Every call here is a verb the API already
 // enforces — nothing in this file decides who may do what, it only asks.
@@ -105,11 +106,11 @@ async function act(path: string, method: "POST" | "DELETE"): Promise<{ ok: boole
     });
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Não foi possível concluir." };
+      return { ok: false, error: data.error ?? translate("common.couldNotComplete") };
     }
     return { ok: true };
   } catch {
-    return { ok: false, error: "Sem conexão com o servidor." };
+    return { ok: false, error: translate("common.noConnectionToTheServer") };
   }
 }
 

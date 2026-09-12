@@ -12,6 +12,7 @@ import {
 } from "@/lib/oauthApi";
 import { useAuth } from "@/lib/AuthContext";
 import { trackEvent } from "@/lib/analytics";
+import { useT } from "@/lib/useI18n";
 
 // Connect/disconnect Discord and Google on an account that already exists —
 // the path for everyone who registered with a username and password before
@@ -37,6 +38,7 @@ const rowButtonClass =
   "rounded-lg border px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50";
 
 export function AccountConnections() {
+  const t = useT();
   const { connections, refresh, unlinkProvider } = useAuth();
   const [providers, setProviders] = useState<OAuthProvider[] | null>(null);
   const [pending, setPending] = useState<OAuthProviderId | null>(null);
@@ -72,7 +74,7 @@ export function AccountConnections() {
       // was handed — the only realistic cause is a token that expired
       // between opening the page and clicking. Creating a *second* account
       // is never what was meant here, so the ticket is dropped.
-      setError("Sua sessão expirou. Entre novamente para vincular.");
+      setError(t("accountConnections.yourSessionExpiredSignInAgain"));
     } finally {
       setPending(null);
     }
@@ -87,7 +89,7 @@ export function AccountConnections() {
     } catch (err) {
       // Most likely the API refusing to remove the last way into the
       // account — its message says exactly that.
-      setError(err instanceof Error ? err.message : "Falha ao desconectar.");
+      setError(err instanceof Error ? err.message : t("common.couldNotDisconnect"));
     } finally {
       setPending(null);
     }
@@ -116,7 +118,7 @@ export function AccountConnections() {
         {/* Spelled out while there's nothing linked: this is the only hint
             someone with an old username/password account gets that they can
             stop typing a password. */}
-        {linkedCount === 0 ? "Vincular Discord ou Google" : "Conexões"}
+        {linkedCount === 0 ? t("accountConnections.linkDiscordOrGoogle") : t("accountConnections.connections")}
       </button>
     );
   }
@@ -126,18 +128,17 @@ export function AccountConnections() {
     // section does not shift its contents sideways.
     <div className="flex flex-col gap-2 px-3 py-2">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Conexões</h3>
+        <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("accountConnections.connections")}</h3>
         <button
           type="button"
           onClick={() => setOpen(false)}
           className="text-xs font-medium text-zinc-500 underline underline-offset-2 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
         >
-          Ocultar
+          {t("accountConnections.hide")}
         </button>
       </div>
       <p className="text-xs text-zinc-500 dark:text-zinc-400">
-        Vincule para entrar com um clique da próxima vez. É a mesma conta, seu usuário e seu
-        histórico continuam iguais.
+        {t("accountConnections.linkItToSignInWith")}
       </p>
       {providers.map((provider) => {
         const linked = connections?.providers.includes(provider.id) ?? false;
@@ -163,7 +164,7 @@ export function AccountConnections() {
                 disabled={pending !== null}
                 className={`${rowButtonClass} border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900`}
               >
-                {busy ? "..." : "Desconectar"}
+                {busy ? "..." : t("accountConnections.disconnect")}
               </button>
             ) : (
               <button
@@ -172,7 +173,7 @@ export function AccountConnections() {
                 disabled={pending !== null}
                 className={`${rowButtonClass} border-zinc-950 bg-zinc-950 text-white hover:bg-zinc-800 dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200`}
               >
-                {busy ? "Abrindo..." : "Vincular"}
+                {busy ? t("common.opening") : t("accountConnections.link")}
               </button>
             )}
           </div>

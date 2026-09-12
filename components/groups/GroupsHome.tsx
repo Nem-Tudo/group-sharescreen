@@ -11,9 +11,11 @@ import { GroupName } from "@/components/groups/GroupName";
 import { useAuth } from "@/lib/AuthContext";
 import { groupPath, inviteCodeFromInput, invitePath } from "@/lib/groupLinks";
 import { prefetchGroup, useMyGroups } from "@/lib/useGroups";
+import { useI18n } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
 
 // /groups — every group this person is in, and the two ways to get another.
-// Laid out like the site's other list pages (see /amigos): a title, a line
+// Laid out like the site's other list pages (see /friends): a title, a line
 // under it, and rows in bordered cards.
 
 const primaryButton =
@@ -21,9 +23,10 @@ const primaryButton =
 const secondaryButton =
   "inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900";
 
-const ROLE_LABEL = { owner: "Dono", admin: "Admin", member: "Membro" } as const;
+const ROLE_LABEL = { get owner() { return translate("common.owner"); }, get admin() { return translate("common.admin"); }, get member() { return translate("common.member"); } } as const;
 
 export function GroupsHome() {
+  const { t, tc } = useI18n();
   const { openPopup } = useNtPopups();
   const { account, loading } = useAuth();
   const { groups } = useMyGroups();
@@ -39,27 +42,27 @@ export function GroupsHome() {
       <div className="mx-auto w-full max-w-2xl px-4 py-8 sm:py-10">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">Seus grupos</h1>
+            <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">{t("common.yourGroups")}</h1>
             <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
               {hasGroups
-                ? `${groups!.length} ${groups!.length === 1 ? "grupo" : "grupos"}`
-                : "Várias salas de voz e de texto num lugar só, com as mesmas pessoas."}
+                ? tc("common.groupCount", groups!.length)
+                : t("groups.groupsHome.severalVoiceAndTextRoomsIn")}
             </p>
           </div>
           {hasGroups && (
             <div className="flex gap-2">
               <button type="button" onClick={() => void openPopup("join_group", { data: {} })} className={secondaryButton}>
-                Entrar com convite
+                {t("common.joinWithAnInvite")}
               </button>
               <button
                 type="button"
                 onClick={createGroup}
                 disabled={!canCreate}
-                title={canCreate ? undefined : "Crie uma conta para criar grupos"}
+                title={canCreate ? undefined : t("common.createAnAccountToCreateGroups")}
                 className={primaryButton}
               >
                 <MdAdd className="h-4 w-4" />
-                Novo grupo
+                {t("common.newGroup")}
               </button>
             </div>
           )}
@@ -67,7 +70,7 @@ export function GroupsHome() {
 
         {!loading && !account && (
           <p className="mt-4 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
-            Para criar grupos,{" "}
+            {t("groups.groupsHome.toCreateGroups")}{" "}
             <Link href="/" className="font-medium underline underline-offset-2">
               crie uma conta
             </Link>
@@ -76,7 +79,7 @@ export function GroupsHome() {
         )}
 
         {groups === null ? (
-          <p className="mt-6 text-sm text-zinc-500 dark:text-zinc-400">Carregando…</p>
+          <p className="mt-6 text-sm text-zinc-500 dark:text-zinc-400">{t("common.loading")}</p>
         ) : hasGroups ? (
           <ul className="mt-6 flex flex-col gap-2">
             {groups!.map((group) => (
@@ -98,11 +101,11 @@ export function GroupsHome() {
                     />
                     <span className="block truncate text-xs text-zinc-500 dark:text-zinc-400">
                       {group.suspended ? (
-                        <span className="font-medium text-amber-600 dark:text-amber-400">Suspenso</span>
+                        <span className="font-medium text-amber-600 dark:text-amber-400">{t("common.suspended")}</span>
                       ) : (
                         <>
                           {ROLE_LABEL[group.role]}
-                          {group.unread && " · mensagens novas"}
+                          {group.unread && t("groups.groupsHome.newMessages")}
                         </>
                       )}
                     </span>
@@ -121,26 +124,26 @@ export function GroupsHome() {
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
             <section className="flex flex-col gap-3 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
               <div>
-                <h2 className="font-semibold text-zinc-950 dark:text-zinc-50">Criar um grupo</h2>
+                <h2 className="font-semibold text-zinc-950 dark:text-zinc-50">{t("common.createAGroup")}</h2>
                 <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-                  Começa com uma sala de voz e uma de texto. Depois é só mandar o convite.
+                  {t("groups.groupsHome.itStartsWithAVoiceRoom")}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={createGroup}
                 disabled={!canCreate}
-                title={canCreate ? undefined : "Crie uma conta para criar grupos"}
+                title={canCreate ? undefined : t("common.createAnAccountToCreateGroups")}
                 className={`${primaryButton} mt-auto self-start`}
               >
                 <MdAdd className="h-4 w-4" />
-                Novo grupo
+                {t("common.newGroup")}
               </button>
             </section>
             <section className="flex flex-col gap-3 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
               <div>
-                <h2 className="font-semibold text-zinc-950 dark:text-zinc-50">Entrar em um grupo</h2>
-                <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">Cole o link de convite que te mandaram.</p>
+                <h2 className="font-semibold text-zinc-950 dark:text-zinc-50">{t("common.joinAGroup")}</h2>
+                <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{t("groups.groupsHome.pasteTheInviteLinkYouWere")}</p>
               </div>
               <JoinByInvite />
             </section>
@@ -153,6 +156,7 @@ export function GroupsHome() {
 
 /** The invite field, inline — pasting a link here beats opening a popup to paste it into. */
 function JoinByInvite() {
+  const { t, tc } = useI18n();
   const router = useRouter();
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -161,7 +165,7 @@ function JoinByInvite() {
     e.preventDefault();
     const code = inviteCodeFromInput(value);
     if (!code) {
-      setError("Isso não parece um link de convite.");
+      setError(t("groups.groupsHome.thatDoesNotLookLikeAn"));
       return;
     }
     router.push(invitePath(code));
@@ -176,11 +180,11 @@ function JoinByInvite() {
             setValue(e.target.value);
             setError(null);
           }}
-          placeholder="golive.nemtudo.me/invite/…"
+          placeholder={t("groups.groupsHome.goliveNemtudoMeInvite")}
           className="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
         />
         <button type="submit" disabled={!value.trim()} className={secondaryButton}>
-          Entrar
+          {t("common.signIn")}
         </button>
       </div>
       {error && <p className="text-xs text-red-500">{error}</p>}

@@ -27,6 +27,7 @@ import {
   isAndroidPipAvailable,
   refreshAndroidPipSupport,
 } from "@/lib/androidPictureInPicture";
+import { useT } from "@/lib/useI18n";
 
 function noopSubscribe() {
   return () => { };
@@ -173,6 +174,7 @@ export function VideoTile({
   // source is not live in that sense and says so in its own colour.
   badgeClassName?: string;
 }) {
+  const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isMuted, setIsMuted] = useState(muted);
@@ -505,7 +507,7 @@ export function VideoTile({
     }
   }
 
-  const nameForLabel = accessibleLabel ?? "essa transmissão";
+  const nameForLabel = accessibleLabel ?? t("videoTile.thisBroadcast");
   // A mouse's hover already reveals/hides controls perfectly well, in or out
   // of fullscreen, so that behavior (the `[@media(hover:hover)]` fragment
   // below) is left untouched. It's touch devices — no hover to speak of —
@@ -568,7 +570,7 @@ export function VideoTile({
         <button
           type="button"
           onClick={pinchZoom.reset}
-          aria-label="Redefinir o zoom"
+          aria-label={t("videoTile.resetTheZoom")}
           className="absolute left-1/2 top-2 z-20 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-xs font-medium text-white tabular-nums backdrop-blur-sm active:bg-black/80"
         >
           {pinchZoom.scale.toFixed(1)}x · redefinir
@@ -607,7 +609,7 @@ export function VideoTile({
         )}
         {isObsActive && !compact && (
           <span
-            title="Esta transmissão está ativa externamente"
+            title={t("videoTile.thisBroadcastIsActiveExternally")}
             className="flex items-center gap-1.5 rounded-full border border-purple-400/40 bg-purple-950/80 px-2 py-0.5 text-xs font-semibold text-purple-200 shadow-sm"
           >
             <span className="relative flex h-2 w-2 shrink-0 items-center justify-center">
@@ -615,7 +617,7 @@ export function VideoTile({
               <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-purple-400" />
             </span>
             <ObsSourceIcon className="h-3 w-3 shrink-0 text-purple-300" />
-            <span className="hidden sm:inline">Transmissão ativa</span>
+            <span className="hidden sm:inline">{t("videoTile.broadcastActive")}</span>
           </span>
         )}
       </div>
@@ -637,11 +639,11 @@ export function VideoTile({
         style={overlayRightOffset ? { right: "50px" } : undefined}
       >
         {isFullscreen && onToggleMic && (
-          <Tooltip content={isMicOn ? "Desativar microfone" : "Ativar microfone"}>
+          <Tooltip content={isMicOn ? t("common.turnOffMicrophone") : t("common.turnOnMicrophone")}>
             <button
               type="button"
               onClick={onToggleMic}
-              aria-label={isMicOn ? "Desativar microfone" : "Ativar microfone"}
+              aria-label={isMicOn ? t("common.turnOffMicrophone") : t("common.turnOnMicrophone")}
               className={`rounded-full p-2 text-white active:bg-black/80 ${isMicOn ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700"
                 }`}
             >
@@ -650,11 +652,11 @@ export function VideoTile({
           </Tooltip>
         )}
         {isFullscreen && onToggleMicsMuted && (
-          <Tooltip content={micsMuted ? "Reativar microfones" : "Silenciar microfones"}>
+          <Tooltip content={micsMuted ? t("common.unmuteMicrophones") : t("common.muteMicrophones")}>
             <button
               type="button"
               onClick={onToggleMicsMuted}
-              aria-label={micsMuted ? "Reativar microfones" : "Silenciar microfones"}
+              aria-label={micsMuted ? t("common.unmuteMicrophones") : t("common.muteMicrophones")}
               className={`rounded-full p-2 text-white active:bg-black/80 ${micsMuted ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"
                 }`}
             >
@@ -669,7 +671,7 @@ export function VideoTile({
         {allowUnmute && (
           <VolumeSlider
             value={volume ?? internalVolume}
-            label={`Volume da transmissão de ${nameForLabel}`}
+            label={t("videoTile.volumeOfNameforlabelSBroadcast", { nameForLabel })}
             onChange={handleVolumeChange}
             showIcon={false}
             max={MAX_GAIN}
@@ -677,11 +679,11 @@ export function VideoTile({
           />
         )}
         {allowUnmute && (
-          <Tooltip content={isMuted ? "Ativar som" : "Silenciar"}>
+          <Tooltip content={isMuted ? t("common.turnOnSound") : t("common.mute")}>
             <button
               type="button"
               onClick={() => setIsMuted((m) => !m)}
-              aria-label={isMuted ? "Ativar som" : "Silenciar"}
+              aria-label={isMuted ? t("common.turnOnSound") : t("common.mute")}
               className="rounded-full bg-black/60 p-2 text-white hover:bg-black/80 active:bg-black/80"
             >
               {isMuted ? (
@@ -693,11 +695,11 @@ export function VideoTile({
           </Tooltip>
         )}
         {pipSupported && (
-          <Tooltip content={isPiP ? "Sair do picture-in-picture" : "Picture-in-picture"}>
+          <Tooltip content={isPiP ? t("videoTile.exitPictureInPicture") : t("videoTile.pictureInPicture")}>
             <button
               type="button"
               onClick={togglePiP}
-              aria-label={isPiP ? "Sair do picture-in-picture" : "Picture-in-picture"}
+              aria-label={isPiP ? t("videoTile.exitPictureInPicture") : t("videoTile.pictureInPicture")}
               className="rounded-full bg-black/60 p-2 text-white hover:bg-black/80 active:bg-black/80"
             >
               {isPiP ? <PipExitIcon className="h-5 w-5" /> : <PipIcon className="h-5 w-5" />}
@@ -705,11 +707,11 @@ export function VideoTile({
           </Tooltip>
         )}
         {onFocus && (
-          <Tooltip content={isSpotlighted ? "Remover destaque" : `Focar em ${nameForLabel}`}>
+          <Tooltip content={isSpotlighted ? t("common.removeHighlight") : t("videoTile.focusOnNameforlabel", { nameForLabel })}>
             <button
               type="button"
               onClick={onFocus}
-              aria-label={isSpotlighted ? "Remover destaque" : `Focar em ${nameForLabel}`}
+              aria-label={isSpotlighted ? t("common.removeHighlight") : t("videoTile.focusOnNameforlabel", { nameForLabel })}
               aria-pressed={isSpotlighted}
               className={`rounded-full p-2 text-white active:bg-black/80 ${isSpotlighted
                 ? "bg-emerald-600 hover:bg-emerald-700"
@@ -724,14 +726,14 @@ export function VideoTile({
           <Tooltip
             content={
               !hasAccount
-                ? "Utilize uma conta para usar o hiperfoco"
-                : `Hiperfoco em ${nameForLabel}. Esconde as outras transmissões`
+                ? t("common.useAnAccountToUseHyperfocus")
+                : t("videoTile.hyperfocusOnNameforlabelHidesTheOther", { nameForLabel })
             }
           >
             <button
               type="button"
               onClick={onHyperfocus}
-              aria-label={`Hiperfoco em ${nameForLabel}${!hasAccount ? " (requer conta)" : ""}`}
+              aria-label={t("videoTile.hyperfocusOnNameforlabelValue", { nameForLabel, value: !hasAccount ? " (requer conta)" : "" })}
               aria-pressed={isHyperfocused}
               className={`rounded-full p-2 text-white transition ${
                 !hasAccount
@@ -749,16 +751,16 @@ export function VideoTile({
           <Tooltip
             content={
               isObsActive
-                ? `Esta transmissão está sendo compartilhada externamente (Clique para ver/copiar o link)`
+                ? t("videoTile.thisBroadcastIsBeingSharedExternally")
                 : !hasAccount
-                ? "Utilize uma conta para exportar a transmissão"
-                : `Copiar link de transmissão para ${nameForLabel}`
+                ? t("common.useAnAccountToExportThe")
+                : t("videoTile.copyTheBroadcastLinkForNameforlabel", { nameForLabel })
             }
           >
             <button
               type="button"
               onClick={onObsSource}
-              aria-label={`Copiar link de transmissão para ${nameForLabel}${!hasAccount ? " (requer conta)" : ""}`}
+              aria-label={t("videoTile.copyTheBroadcastLinkForNameforlabel2", { nameForLabel, value: !hasAccount ? " (requer conta)" : "" })}
               className={`rounded-full p-2 text-white transition ${
                 isObsActive
                   ? "bg-purple-600 hover:bg-purple-700 active:bg-purple-800 ring-2 ring-purple-400/60 shadow-lg"
@@ -771,11 +773,11 @@ export function VideoTile({
             </button>
           </Tooltip>
         )}
-        <Tooltip content={isFullscreen ? "Sair da tela cheia" : "Tela cheia"}>
+        <Tooltip content={isFullscreen ? t("common.exitFullScreen") : t("common.fullScreen")}>
           <button
             type="button"
             onClick={toggleFullscreen}
-            aria-label={isFullscreen ? "Sair da tela cheia" : "Tela cheia"}
+            aria-label={isFullscreen ? t("common.exitFullScreen") : t("common.fullScreen")}
             className="rounded-full bg-black/60 p-2 text-white hover:bg-black/80 active:bg-black/80"
           >
             {isFullscreen ? (
@@ -786,11 +788,11 @@ export function VideoTile({
           </button>
         </Tooltip>
         {onStopWatching && (
-          <Tooltip content="Parar de assistir">
+          <Tooltip content={t("videoTile.stopWatching")}>
             <button
               type="button"
               onClick={onStopWatching}
-              aria-label="Parar de assistir"
+              aria-label={t("videoTile.stopWatching")}
               className="rounded-full bg-black/60 p-2 text-white hover:bg-black/80 active:bg-black/80"
             >
               <EyeOffIcon className="h-5 w-5" />
@@ -831,10 +833,11 @@ export function StoppedPeerTile({
   fill?: boolean;
   onResume: () => void;
 }) {
+  const t = useT();
   return (
     <PlaceholderTile fill={fill}>
       <div className="flex flex-col items-center justify-center text-center text-sm">
-        <p className="text-zinc-300">Você saiu dessa transmissão</p>
+        <p className="text-zinc-300">{t("videoTile.youLeftThisBroadcast")}</p>
         <div className="mt-0.5 flex items-center justify-center text-center text-zinc-500">
           {label}
         </div>
@@ -845,7 +848,7 @@ export function StoppedPeerTile({
         className="flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-white/20"
       >
         <EyeIcon className="h-5 w-5" />
-        Retomar transmissão
+        {t("videoTile.resumeBroadcast")}
       </button>
     </PlaceholderTile>
   );
@@ -856,9 +859,10 @@ export function StoppedPeerTile({
 // for that stretch (no tile at all), since it's neither in stoppedPeers
 // (cleared immediately) nor in remoteStreams (nothing received yet).
 export function ResumingPeerTile({ fill = false }: { fill?: boolean }) {
+  const t = useT();
   return (
     <PlaceholderTile fill={fill}>
-      <p className="text-sm text-zinc-400">Retomando...</p>
+      <p className="text-sm text-zinc-400">{t("videoTile.resuming")}</p>
     </PlaceholderTile>
   );
 }

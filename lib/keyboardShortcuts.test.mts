@@ -56,11 +56,11 @@ assert.equal(
 );
 assert.equal(
   eventToShortcutString({ key: " ", ctrlKey: true } as KeyboardEvent),
-  "Ctrl+Espaço"
+  "Ctrl+Space"
 );
 assert.equal(
   eventToShortcutString({ key: "ArrowRight", altKey: true } as KeyboardEvent),
-  "Alt+Seta Direita"
+  "Alt+Arrow Right"
 );
 
 // 5. shortcutToElectronAccelerator conversion
@@ -69,11 +69,11 @@ assert.equal(
   "CommandOrControl+Shift+M"
 );
 assert.equal(
-  shortcutToElectronAccelerator("Ctrl+Espaço"),
+  shortcutToElectronAccelerator("Ctrl+Space"),
   "CommandOrControl+Space"
 );
 assert.equal(
-  shortcutToElectronAccelerator("Alt+Seta Direita"),
+  shortcutToElectronAccelerator("Alt+Arrow Right"),
   "Alt+Right"
 );
 assert.equal(

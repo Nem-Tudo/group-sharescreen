@@ -1,4 +1,5 @@
-// "Fulano está digitando..." — the pieces a chat needs on both ends of it.
+
+import { translate } from "@/lib/i18n";// "Fulano está digitando..." — the pieces a chat needs on both ends of it.
 
 /**
  * The line itself, shared by a room's chat (components/ChatPanel) and a
@@ -6,9 +7,9 @@
  * the same way.
  */
 export function formatTypingLabel(names: string[]): string {
-  if (names.length === 1) return `${names[0]} está digitando...`;
-  if (names.length === 2) return `${names[0]} e ${names[1]} estão digitando...`;
-  return `${names.length} pessoas estão digitando...`;
+  if (names.length === 1) return translate("typing.valueIsTyping", { value: names[0] });
+  if (names.length === 2) return translate("typing.valueAndValue2AreTyping", { value: names[0], value2: names[1] });
+  return translate("typing.lengthPeopleAreTyping", { length: names.length });
 }
 
 /**

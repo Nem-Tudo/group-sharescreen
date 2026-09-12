@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { WorldMapMarker } from "@/components/WorldMap";
 import { fetchGroupMap, type GroupMapPin } from "./groupsApi";
+import { useT } from "@/lib/useI18n";
 
 // Every group whose owner or admins placed it on the map, as pins — the group
 // half of /worldmap, beside usePublicRoomMarkers' rooms. Blue where rooms are
@@ -16,6 +17,7 @@ export function useGroupMapMarkers(options?: {
   // is already the picker's own `pick` marker (see the group settings' map tab).
   excludeId?: string;
 }): { groups: GroupMapPin[] | null; markers: WorldMapMarker[]; error: string | null } {
+  const t = useT();
   const excludeId = options?.excludeId;
   const [groups, setGroups] = useState<GroupMapPin[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -32,10 +34,10 @@ export function useGroupMapMarkers(options?: {
           setGroups(result.groups);
           setError(null);
         } else {
-          setError("Não foi possível carregar os grupos do mapa.");
+          setError(t("useGroupMapMarkers.couldNotLoadTheMapS"));
         }
       } catch {
-        if (!cancelled) setError("Não foi possível carregar os grupos do mapa.");
+        if (!cancelled) setError(t("useGroupMapMarkers.couldNotLoadTheMapS"));
       }
     }
 
@@ -46,7 +48,7 @@ export function useGroupMapMarkers(options?: {
       controller.abort();
       clearInterval(interval);
     };
-  }, []);
+  }, [t]);
 
   const markers = useMemo<WorldMapMarker[]>(
     () =>
@@ -61,17 +63,17 @@ export function useGroupMapMarkers(options?: {
           // rather than the component every React surface draws.
           label: group.flags.includes("VERIFIED") ? `${group.name} ✓` : group.name,
           peopleCount: group.memberCount,
-          countNoun: ["membro", "membros"],
-          tag: "Grupo",
+          countNoun: [t("common.memberNoun.one"), t("common.memberNoun.other")],
+          tag: t("common.group"),
           description: group.description
-            ? `${group.description} · ${group.onlineCount} online agora`
+            ? t("useGroupMapMarkers.descriptionOnlinecountOnlineNow", { description: group.description, onlineCount: group.onlineCount })
             : `${group.onlineCount} online agora`,
           // Only public groups are on the map, so this page lets anybody in
           // (see GroupPages' PublicGroupGate) — and simply opens it for a member.
           href: `/groups/${group.id}`,
-          actionLabel: "Ver grupo",
+          actionLabel: t("useGroupMapMarkers.seeGroup"),
         })),
-    [groups, excludeId]
+    [groups, excludeId, t]
   );
 
   return { groups, markers, error };

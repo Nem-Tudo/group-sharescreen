@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { RoomAppGate } from "@/components/RoomAppGate";
 import { WatchRoomStage } from "@/components/WatchRoomStage";
 import { THEME_VIEW_PARAM, viewedThemeId } from "@/lib/roomsApi";
+import { translate } from "@/lib/i18n";
 
 /** The prefix a private room's handle carries. See lib/roomsApi.ts. */
 const PRIVATE_PREFIX = "priv-";
@@ -30,10 +31,10 @@ export async function generateMetadata(
   // The title and description below are still the room's. They are what a
   // browser tab and a bookmark show, and neither of those is the embed.
   return {
-    title: secret ? "Sala privada" : `Sala ${handle}`,
+    title: secret ? translate("common.privateRoom") : translate("watch.roomHandle", { handle }),
     description: secret
-      ? "Alguém te convidou para uma sala privada no GoLive. Abra o link para entrar."
-      : `Entre na sala "${handle}" no GoLive para transmitir ou assistir tela em grupo, ao vivo e sem cadastro.`,
+      ? translate("watch.someoneInvitedYouToAPrivate")
+      : translate("watch.joinTheRoomHandleOnGolive", { handle }),
     robots: {
       index: false,
       follow: false,

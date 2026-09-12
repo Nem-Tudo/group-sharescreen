@@ -8,6 +8,7 @@ import { playDirectMessageSound } from "@/lib/soundEffects";
 import { openDirectMessages, useDirectMessagesWindow } from "@/lib/dmWindow";
 import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
 import { selectDmNudge } from "@/lib/signalingSelectors";
+import { translate } from "@/lib/i18n";
 
 // Turns an arriving private message into a chime, a bell entry and — if the
 // tab is not in front — a system notification.
@@ -53,14 +54,14 @@ export function DmNotifier() {
     }
     announcedRef.current = message.id;
 
-    const name = fromUser?.displayName ?? "Alguém";
+    const name = fromUser?.displayName ?? translate("common.someone");
     // Keyed by sender rather than by message, so a burst collapses into one
     // row. Replaced rather than added when it already exists, so the row
     // carries the newest line instead of the first one.
     upsertNotification({
       id: `dm:${message.from}`,
       kind: "dm",
-      title: `Mensagem de ${name}`,
+      title: translate("dmNotifier.messageFromName", { name }),
       body: message.text,
       userId: message.from,
     });

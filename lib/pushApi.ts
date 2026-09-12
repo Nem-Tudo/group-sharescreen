@@ -3,6 +3,7 @@
 import { getAccountToken } from "./accountApi";
 import { getSignalingHttpBase } from "./roomsApi";
 import { getDeviceId } from "./deviceId";
+import { translate } from "@/lib/i18n";
 
 // The push-subscription client: three thin calls onto the API's /push routes.
 //
@@ -92,9 +93,9 @@ export async function sendTestPush(): Promise<{ ok: boolean; error?: string }> {
       headers: authHeaders(),
     });
     const data = (await res.json().catch(() => ({}))) as { error?: string };
-    if (!res.ok) return { ok: false, error: data.error ?? "Não foi possível enviar." };
+    if (!res.ok) return { ok: false, error: data.error ?? translate("common.couldNotSend") };
     return { ok: true };
   } catch {
-    return { ok: false, error: "Sem conexão com o servidor." };
+    return { ok: false, error: translate("common.noConnectionToTheServer") };
   }
 }

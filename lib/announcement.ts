@@ -4,6 +4,7 @@
 // between the admin's preview and what real visitors actually see.
 
 import { isDesktopApp, isMobileApp } from "./desktop";
+import { translate } from "@/lib/i18n";
 
 export type AnnouncementColor = "green" | "red" | "blue";
 export type AnnouncementButtonAction = "open-new-tab" | "open-same-tab" | "reload";
@@ -36,10 +37,10 @@ export const ANNOUNCEMENT_DEVICES: AnnouncementDevice[] = [
 ];
 
 export const ANNOUNCEMENT_DEVICE_LABELS: Record<AnnouncementDevice, string> = {
-  "desktop-browser": "Navegador (PC)",
-  "desktop-app": "App (PC)",
-  "mobile-browser": "Navegador (celular)",
-  "mobile-app": "App (celular)",
+  get "desktop-browser"() { return translate("announcement.browserPc"); },
+  get "desktop-app"() { return translate("announcement.appPc"); },
+  get "mobile-browser"() { return translate("announcement.browserMobile"); },
+  get "mobile-app"() { return translate("announcement.appMobile"); },
 };
 
 export type Announcement = {
@@ -79,9 +80,9 @@ export const ANNOUNCEMENT_COLOR_PRESETS: Record<
   AnnouncementColor,
   { bg: string; text: string; label: string }
 > = {
-  green: { bg: "#065f46", text: "#ffffff", label: "Verde" },
-  red: { bg: "#7f1d1d", text: "#ffffff", label: "Vermelho" },
-  blue: { bg: "#1e3a8a", text: "#ffffff", label: "Azul" },
+  green: { bg: "#065f46", text: "#ffffff", get label() { return translate("common.green"); } },
+  red: { bg: "#7f1d1d", text: "#ffffff", get label() { return translate("common.red"); } },
+  blue: { bg: "#1e3a8a", text: "#ffffff", get label() { return translate("common.blue"); } },
 };
 
 // Announcement ids the person has already dealt with — either they clicked

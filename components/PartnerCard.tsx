@@ -25,6 +25,8 @@ import {
 import { useAuth } from "@/lib/AuthContext";
 import { useVideoDurationLabel } from "@/lib/useVideoDuration";
 import { Popover } from "@/components/Tooltip";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
 
 const STATS_DASHBOARD_URL = process.env.NEXT_PUBLIC_STATS_DASHBOARD_URL;
 
@@ -72,10 +74,10 @@ const WIDE_LAYOUT_QUERY = "(min-width: 1024px)";
 // copy of EXAMPLE_PARTNER's Twitter branding) so it reads as "your ad here"
 // rather than nudging everyone toward black-and-white.
 const CUSTOMIZER_STARTING_POINT: AdForm = {
-  title: "Sua marca aqui",
-  description: "Escreva uma descrição curta e chamativa sobre o que você quer anunciar.",
+  get title() { return translate("partnerCard.yourBrandHere"); },
+  get description() { return translate("partnerCard.writeAShortCatchyDescriptionOf"); },
   imageUrl: "",
-  buttonLabel: "Saiba mais",
+  get buttonLabel() { return translate("partnerCard.learnMore"); },
   buttonUrl: "https://",
   backgroundColor: "#111827",
   textColor: "#f4f4f5",
@@ -101,6 +103,7 @@ export function PartnerCard({
    */
   reservedAbove?: number;
 } = {}) {
+  const t = useT();
   const isControlled = externalLoaded !== undefined;
   const signalingState = useSignaling();
   const [internalPartner, setInternalPartner] = useState<PartnerCardData | null>(null);
@@ -449,7 +452,7 @@ export function PartnerCard({
         void refreshIdentity();
       })
       .catch((err: unknown) => {
-        setClickRewardError(err instanceof Error ? err.message : "Falha ao resgatar os pontos.");
+        setClickRewardError(err instanceof Error ? err.message : t("common.couldNotRedeemThePoints"));
       });
   }
   // One panel, two possible triggers (the counter inside the house ad, and
@@ -459,9 +462,7 @@ export function PartnerCard({
   const statsPanel = (
     <div className="w-72 max-w-[calc(100vw-1rem)] rounded-lg border border-zinc-200 bg-white p-3 shadow-lg dark:border-zinc-800 dark:bg-zinc-950">
       <p className="text-xs text-zinc-600 dark:text-zinc-400">
-        Curioso(a) pra saber quantas pessoas estão compartilhando tela agora, quantas
-        salas estão rolando e muito mais? Acompanhe tudo ao vivo no painel de
-        estatísticas do site!
+        {t("partnerCard.curiousToKnowHowManyPeople")}
       </p>
       {STATS_DASHBOARD_URL && (
         <a
@@ -472,7 +473,7 @@ export function PartnerCard({
           className="mt-2 flex items-center justify-center gap-1.5 rounded-lg bg-zinc-950 px-3 py-1.5 text-center text-xs font-semibold text-white transition hover:opacity-90 dark:bg-zinc-50 dark:text-zinc-950"
         >
           <ChartIcon className="h-3.5 w-3.5" />
-          Ver estatísticas ao vivo
+          {t("partnerCard.seeLiveStats")}
         </a>
       )}
     </div>
@@ -521,7 +522,7 @@ export function PartnerCard({
       >
         <span className="flex min-w-0 items-center gap-1.5">
           <span className="shrink-0 rounded-full bg-black/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide dark:bg-white/10">
-            Patrocinado
+            {t("common.sponsored")}
           </span>
           <span className="truncate">{displayData.title}</span>
         </span>
@@ -540,10 +541,10 @@ export function PartnerCard({
               className="flex items-center gap-1 text-xs font-medium text-zinc-500 transition hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
             >
               <ArrowLeftIcon className="h-3 w-3" />
-              Voltar
+              {t("common.back")}
             </button>
             <span className="text-[10px] font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-600">
-              Exemplo de anúncio
+              {t("partnerCard.exampleAd")}
             </span>
           </div>
           <button
@@ -554,7 +555,7 @@ export function PartnerCard({
             }}
             className="block w-full rounded-lg border border-emerald-500/60 bg-emerald-500/10 px-3 py-1.5 text-center text-xs font-semibold text-emerald-700 transition hover:bg-emerald-500/20 dark:border-emerald-400/50 dark:text-emerald-400 dark:hover:bg-emerald-400/10"
           >
-            Ver como vai ficar meu anúncio
+            {t("partnerCard.seeHowMyAdWillLook")}
           </button>
         </div>
       )}
@@ -589,7 +590,7 @@ export function PartnerCard({
             }}
             className="flex-1 rounded-lg bg-zinc-100 px-3 py-1.5 text-center text-xs font-semibold text-zinc-600 transition hover:bg-zinc-200 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
           >
-            Anuncie aqui também!
+            {t("partnerCard.advertiseHereToo")}
           </button>
         </div>
       )}
@@ -602,10 +603,10 @@ export function PartnerCard({
             className="flex items-center gap-1 text-xs font-medium text-zinc-500 transition hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
           >
             <ArrowLeftIcon className="h-3 w-3" />
-            Voltar
+            {t("common.back")}
           </button>
           <span className="text-[10px] font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-600">
-            Anuncie aqui
+            {t("partnerCard.advertiseHere")}
           </span>
         </div>
       )}
@@ -639,7 +640,7 @@ export function PartnerCard({
             </Popover>
           )}
           <span className="shrink-0 rounded-full bg-black/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide opacity-70 dark:bg-white/10">
-            Patrocinado
+            {t("common.sponsored")}
           </span>
         </div>
 
@@ -675,7 +676,7 @@ export function PartnerCard({
             }
             className="mt-0.5 text-xs font-semibold underline underline-offset-2 opacity-70 transition hover:opacity-100"
           >
-            {showFullDescription ? "Ler menos" : "Ler mais"}
+            {showFullDescription ? t("partnerCard.readLess") : t("partnerCard.readMore")}
           </button>
         )}
 
@@ -721,7 +722,7 @@ export function PartnerCard({
             <span className="truncate">{displayData.buttonLabel}</span>
           </span>
           {clickRewardJustClaimed && (
-            <span className="absolute inset-0 flex items-center justify-center">Resgatado!</span>
+            <span className="absolute inset-0 flex items-center justify-center">{t("common.redeemed")}</span>
           )}
         </a>
 
@@ -792,10 +793,10 @@ export function PartnerCard({
                 rewatch pay out again). */}
             <span className="flex min-w-0 items-center gap-1.5">
               {rewardClaimedLocally ? (
-                "Assistir de novo"
+                t("partnerCard.watchAgain")
               ) : (
                 <>
-                  Resgatar
+                  {t("common.redeem")}
                   <BsCoin className="h-3.5 w-3.5 shrink-0" />
                   {data.rewardPoints}
                 </>
@@ -819,7 +820,7 @@ export function PartnerCard({
             }}
             className="mt-2 block w-full rounded-lg border border-current px-3 py-1.5 text-center text-xs font-medium opacity-70 transition hover:opacity-100"
           >
-            Ver exemplo de anúncio
+            {t("partnerCard.seeAnExampleAd")}
           </button>
         )}
       </div>

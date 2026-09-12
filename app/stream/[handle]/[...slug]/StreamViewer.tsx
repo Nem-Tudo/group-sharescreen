@@ -11,6 +11,8 @@ import { verifyObsSecurityToken, type ObsTokenPayload } from "@/lib/obsToken";
 import { isBroadcastSoftware } from "@/lib/browserEnv";
 import { copyText } from "@/lib/clipboard";
 import { MdContentCopy } from "react-icons/md";
+import { useT } from "@/lib/useI18n";
+
 
 export function normalizeSlugToTile(slug: string[]): {
   kind: "screen" | "camera" | "file" | "video-source";
@@ -64,6 +66,7 @@ export function StreamViewer({
   handle: string;
   slug: string[];
 }) {
+  const t = useT();
   const [mounted, setMounted] = useState(false);
   const [isBroadcast, setIsBroadcast] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
@@ -109,7 +112,7 @@ export function StreamViewer({
 
   useEffect(() => {
     if (!token) {
-      setTokenStatus({ checking: false, valid: false, error: "Token não fornecido." });
+      setTokenStatus({ checking: false, valid: false, error: t("common.tokenNotProvided") });
       return;
     }
     let cancelled = false;
@@ -125,7 +128,7 @@ export function StreamViewer({
     return () => {
       cancelled = true;
     };
-  }, [token, handle]);
+  }, [token, handle, t]);
 
   const defaultStreamName = useMemo(
     () => `Stream-${Math.floor(100 + Math.random() * 900)}`,
@@ -300,29 +303,29 @@ export function StreamViewer({
             </div>
             <div>
               <div className="inline-flex items-center gap-1.5 rounded-full border border-purple-500/30 bg-purple-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-purple-300">
-                Software de Transmissão
+                {t("stream.streamViewer.broadcastingSoftware")}
               </div>
               <h1 className="text-xl font-bold text-white tracking-tight sm:text-2xl mt-0.5">
-                Transmissão Bloqueada no Navegador
+                {t("stream.streamViewer.broadcastBlockedInTheBrowser")}
               </h1>
             </div>
           </div>
 
           <p className="text-sm text-zinc-300 leading-relaxed">
-            Por questões de segurança e desempenho, este link <strong>não reproduz vídeo diretamente no navegador</strong>. Ele foi desenvolvido exclusivamente para ser capturado como <strong>Fonte de Navegador (Browser Source)</strong> em programas de transmissão.
+            {t("stream.streamViewer.forSecurityAndPerformanceReasonsThis")} <strong>{t("stream.streamViewer.doesNotPlayVideoDirectlyIn")}</strong>{t("stream.streamViewer.itWasBuiltExclusivelyToBe")} <strong>{t("stream.streamViewer.browserSource")}</strong> {t("stream.streamViewer.inBroadcastingPrograms")}
           </p>
 
           <div className="mt-5 space-y-3">
             <div className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-4 text-xs">
               <p className="font-semibold text-zinc-200 mb-2.5 flex items-center gap-2 text-sm">
                 <span className="flex h-5 w-5 items-center justify-center rounded-full bg-purple-600/30 text-purple-300 text-xs font-bold">1</span>
-                Como usar no OBS Studio / Streamlabs / vMix:
+                {t("stream.streamViewer.howToUseItInObs")}
               </p>
               <ol className="list-decimal list-inside space-y-2 text-zinc-400 pl-1 leading-relaxed">
-                <li>Abra o seu software de transmissão (ex: <strong>OBS Studio</strong>).</li>
-                <li>Na lista de <strong>Fontes (Sources)</strong>, clique no botão <strong>+</strong> e selecione <strong>Navegador (Browser Source)</strong>.</li>
-                <li>Copie a URL deste link no botão abaixo e cole no campo <strong>URL</strong> da fonte.</li>
-                <li>Defina a resolução para <strong className="text-zinc-200">1920x1080</strong> e clique em <strong>OK</strong>.</li>
+                <li>{t("stream.streamViewer.openYourBroadcastingSoftwareEG")} <strong>{t("stream.streamViewer.obsStudio")}</strong>).</li>
+                <li>{t("stream.streamViewer.inTheListOf")} <strong>{t("stream.streamViewer.sources")}</strong>{t("stream.streamViewer.clickTheButton")} <strong>+</strong> e selecione <strong>{t("common.browserBrowserSource")}</strong>.</li>
+                <li>{t("stream.streamViewer.copyThisLinkSUrlWith")} <strong>URL</strong> da fonte.</li>
+                <li>{t("stream.streamViewer.setTheResolutionTo")} <strong className="text-zinc-200">1920x1080</strong> e clique em <strong>OK</strong>.</li>
               </ol>
             </div>
           </div>
@@ -340,12 +343,12 @@ export function StreamViewer({
               {copiedUrl ? (
                 <>
                   <CheckIcon className="h-4 w-4" />
-                  Link copiado com sucesso!
+                  {t("stream.streamViewer.linkCopiedSuccessfully")}
                 </>
               ) : (
                 <>
                   <MdContentCopy className="h-4 w-4" />
-                  Copiar link para o OBS
+                  {t("stream.streamViewer.copyLinkForObs")}
                 </>
               )}
             </button>
@@ -354,7 +357,7 @@ export function StreamViewer({
               href={`/watch/${encodeURIComponent(handle)}`}
               className="flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl border border-zinc-700 bg-zinc-800/80 px-4 py-3 text-sm font-semibold text-zinc-200 transition hover:bg-zinc-700 hover:text-white active:scale-[0.98]"
             >
-              Ir para a sala
+              {t("common.goToTheRoom")}
             </Link>
           </div>
         </div>
@@ -370,7 +373,7 @@ export function StreamViewer({
     if (!videoSource) {
       return (
         <div className="flex h-screen w-screen items-center justify-center bg-transparent font-sans text-sm text-zinc-400">
-          Aguardando vídeo...
+          {t("stream.streamViewer.waitingForVideo")}
         </div>
       );
     }
@@ -396,7 +399,7 @@ export function StreamViewer({
   if (mounted && tokenStatus.checking) {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-transparent font-sans text-xs text-zinc-400">
-        Verificando credenciais de acesso...
+        {t("stream.streamViewer.checkingAccessCredentials")}
       </div>
     );
   }
@@ -411,11 +414,11 @@ export function StreamViewer({
           </svg>
         </div>
         <h2 className="text-base font-bold text-white">
-          {!token ? "Token de Segurança Necessário" : "Token Inválido ou Expirado"}
+          {!token ? t("stream.streamViewer.securityTokenRequired") : t("stream.streamViewer.invalidOrExpiredToken")}
         </h2>
         <p className="max-w-sm text-xs leading-relaxed text-zinc-400">
           {tokenStatus.error ??
-            "Este link de transmissão requer um token de acesso válido gerado na sala pelo administrador com o Modo Streamer ativado."}
+            t("stream.streamViewer.thisBroadcastLinkRequiresAValid")}
         </p>
       </div>
     );
@@ -425,7 +428,7 @@ export function StreamViewer({
   if (state.joinError) {
     const isStreamerModeDisabled =
       state.joinErrorKind === "streamer-mode-disabled" ||
-      state.joinError.includes("Modo Streamer");
+      state.joinError.includes(t("common.streamerMode"));
 
     if (isStreamerModeDisabled) {
       return (
@@ -433,9 +436,9 @@ export function StreamViewer({
           <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-purple-500/30 bg-purple-500/10 text-purple-400">
             <ObsSourceIcon className="h-6 w-6" />
           </div>
-          <h2 className="text-base font-bold text-white">Modo Streamer Desativado</h2>
+          <h2 className="text-base font-bold text-white">{t("stream.streamViewer.streamerModeOff")}</h2>
           <p className="max-w-sm text-xs leading-relaxed text-zinc-400">
-            A imagem desta transmissão está pausada porque o administrador não ativou o Modo Streamer na sala. A transmissão iniciará automaticamente assim que o Modo Streamer for ativado.
+            {t("stream.streamViewer.thisBroadcastSPictureIsPaused")}
           </p>
           <div className="flex flex-col items-center gap-2">
             <div className="flex items-center gap-2 text-[11px] text-zinc-500">
@@ -444,15 +447,15 @@ export function StreamViewer({
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-purple-500" />
               </span>
               {countdown !== null
-                ? `Próxima tentativa em ${countdown}s...`
-                : "Aguardando ativação pelo administrador..."}
+                ? t("stream.streamViewer.nextAttemptInCountdownS", { countdown })
+                : t("stream.streamViewer.waitingForTheAdministratorToEnable")}
             </div>
             <button
               type="button"
               onClick={handleManualRetry}
               className="mt-1 rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-700 hover:text-white active:scale-95 transition-all"
             >
-              Tentar agora
+              {t("stream.streamViewer.tryNow")}
             </button>
           </div>
         </div>
@@ -469,7 +472,7 @@ export function StreamViewer({
           </svg>
         </div>
         <h2 className="text-base font-bold text-white">
-          {isRateLimited ? "Muitas Tentativas" : "Acesso Não Autorizado"}
+          {isRateLimited ? t("stream.streamViewer.tooManyAttempts") : t("stream.streamViewer.unauthorisedAccess")}
         </h2>
         <p className="max-w-sm text-xs leading-relaxed text-zinc-400">
           {state.joinError}
@@ -477,7 +480,7 @@ export function StreamViewer({
         <div className="flex flex-col items-center gap-2">
           {countdown !== null && (
             <p className="text-[11px] text-zinc-500">
-              Reconectando automaticamente em {countdown}s...
+              {t("stream.streamViewer.reconnectingAutomaticallyIn")} {countdown}s...
             </p>
           )}
           <button
@@ -485,7 +488,7 @@ export function StreamViewer({
             onClick={handleManualRetry}
             className="rounded-lg bg-zinc-800 px-4 py-1.5 text-xs font-medium text-white hover:bg-zinc-700 active:scale-95"
           >
-            Tentar agora
+            {t("stream.streamViewer.tryNow")}
           </button>
         </div>
       </div>
@@ -495,9 +498,9 @@ export function StreamViewer({
   if (!state.room) {
     return (
       <div className="flex h-screen w-screen flex-col items-center justify-center gap-2 bg-transparent font-sans text-sm text-zinc-400">
-        <p>Conectando à transmissão...</p>
+        <p>{t("stream.streamViewer.connectingToTheBroadcast")}</p>
         {state.deviceConflict && (
-          <p className="text-xs text-amber-300">Confirmando conexão de dispositivo...</p>
+          <p className="text-xs text-amber-300">{t("stream.streamViewer.confirmingDeviceConnection")}</p>
         )}
       </div>
     );
@@ -511,9 +514,9 @@ export function StreamViewer({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
         </div>
-        <h2 className="text-base font-bold text-white">Aguardando Administrador</h2>
+        <h2 className="text-base font-bold text-white">{t("stream.streamViewer.waitingForTheAdministrator")}</h2>
         <p className="max-w-sm text-xs leading-relaxed text-zinc-400">
-          O administrador {authorName ? `(${authorName})` : ""} que gerou este link não está conectado na chamada. A transmissão continuará automaticamente assim que ele entrar na sala.
+          {t("stream.streamViewer.theAdministrator")} {authorName ? `(${authorName})` : ""} {t("stream.streamViewer.whoGeneratedThisLinkIsNot")}
         </p>
       </div>
     );
@@ -522,9 +525,9 @@ export function StreamViewer({
   if (!stream) {
     return (
       <div className="flex h-screen w-screen flex-col items-center justify-center gap-2 bg-transparent font-sans text-sm text-zinc-400">
-        <p>Aguardando transmissão de vídeo...</p>
+        <p>{t("stream.streamViewer.waitingForVideoBroadcast")}</p>
         <span className="text-xs text-zinc-500">
-          {parsed?.ownerId} ({parsed?.kind ?? "mídia"})
+          {parsed?.ownerId} ({parsed?.kind ?? t("stream.streamViewer.media")})
         </span>
       </div>
     );

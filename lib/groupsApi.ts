@@ -4,6 +4,7 @@ import { getAccountToken } from "./accountApi";
 import { getStoredGuestToken } from "./guestToken";
 import { getSignalingHttpBase } from "./roomsApi";
 import type { ChannelPermissionOverrides, GroupPermissions } from "./groupPermissions";
+import { translate } from "@/lib/i18n";
 
 // The groups client. Same division of labour as lib/dmApi.ts: **the server is
 // the group**, every list here is read over HTTP, and the socket only ever says
@@ -259,12 +260,12 @@ async function request<T extends object>(
     });
     const data = (await res.json().catch(() => ({}))) as T & { error?: string };
     if (!res.ok) {
-      return { ok: false, status: res.status, error: data.error ?? "Algo deu errado. Tente de novo." };
+      return { ok: false, status: res.status, error: data.error ?? translate("groupsApi.somethingWentWrongTryAgain") };
     }
     return { ok: true, ...data };
   } catch (err) {
     if ((err as Error)?.name === "AbortError") throw err;
-    return { ok: false, status: 0, error: "Sem conexão com o servidor." };
+    return { ok: false, status: 0, error: translate("common.noConnectionToTheServer") };
   }
 }
 

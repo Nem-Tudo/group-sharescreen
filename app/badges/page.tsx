@@ -2,17 +2,18 @@ import type { Metadata } from "next";
 import { ogImage } from "@/lib/seo";
 import { SiteHeader } from "@/components/SiteHeader";
 import { BadgesPanel } from "./BadgesPanel";
+import { translate } from "@/lib/i18n";
 
-const TITLE = "Badges do GoLive — o que cada uma significa";
+const TITLE = translate("badges.goliveBadgesWhatEachOneMeans");
 const DESCRIPTION =
-  "Todas as badges do GoLive e como cada uma é conquistada: staff, bug hunter, contribuidor, beta tester, apoiador inicial e as que vêm com o plano Pro.";
+  translate("badges.everyGoliveBadgeAndHowEach");
 
 // Its own card rather than the root's, so this link is not the home page's
 // picture with a different sentence under it. See lib/seo.ts.
 const OG_IMAGE = ogImage({
-  title: "Badges do GoLive",
-  subtitle: "O que cada uma significa e como conseguir.",
-  badge: "Badges",
+  get title() { return translate("badges.goliveBadges"); },
+  get subtitle() { return translate("badges.whatEachOneMeansAndHow"); },
+  get badge() { return translate("common.badges"); },
 });
 
 export const metadata: Metadata = {

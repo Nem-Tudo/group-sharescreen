@@ -9,6 +9,8 @@ import {
   setThemeBan,
   type AdminThemeHit,
 } from "@/lib/adminApi";
+import { useT } from "@/lib/useI18n";
+import { formatLocale } from "@/lib/i18n";
 
 // Taking a theme down, and taking away the right to make more.
 //
@@ -57,6 +59,7 @@ function ThemeRow({
   onDeleted: () => void;
   onBanChanged: (authorId: string, banned: boolean) => void;
 }) {
+  const t = useT();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Which destructive press is waiting for its second one. Held per row, so
@@ -72,7 +75,7 @@ function ThemeRow({
       if (result.banned) onBanChanged(theme.authorId, true);
       onDeleted();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao excluir.");
+      setError(err instanceof Error ? err.message : t("common.couldNotDelete"));
       setBusy(false);
       setConfirm(null);
     }
@@ -86,7 +89,7 @@ function ThemeRow({
       const banned = await setThemeBan(theme.authorId, !theme.authorBanned);
       onBanChanged(theme.authorId, banned);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao salvar.");
+      setError(err instanceof Error ? err.message : t("common.couldNotSave"));
     } finally {
       setBusy(false);
     }
@@ -108,12 +111,12 @@ function ThemeRow({
             </span>
             {!theme.published && (
               <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
-                privado
+                {t("common.privateAdj")}
               </span>
             )}
             {theme.price > 0 && (
               <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
-                {theme.price.toLocaleString("pt-BR")} pts
+                {theme.price.toLocaleString(formatLocale())} pts
               </span>
             )}
             {theme.authorBanned && (
@@ -137,11 +140,11 @@ function ThemeRow({
             everybody but its author, this panel included. */}
         {theme.published && (
           <a
-            href={`/tema/${theme.id}`}
+            href={`/theme/${theme.id}`}
             target="_blank"
             rel="noreferrer"
-            aria-label="Abrir a página do tema"
-            title="Abrir a página do tema"
+            aria-label={t("admin.themeModerationPanel.openTheThemeSPage")}
+            title={t("admin.themeModerationPanel.openTheThemeSPage")}
             className="shrink-0 rounded-lg p-1.5 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-900 dark:hover:text-zinc-200"
           >
             <MdOpenInNew className="h-4 w-4" />
@@ -158,10 +161,10 @@ function ThemeRow({
           <>
             <button type="button" onClick={() => void remove(confirm === "deleteBan")} disabled={busy} className={danger}>
               {busy
-                ? "Excluindo..."
+                ? t("common.deleting")
                 : confirm === "deleteBan"
-                  ? "Confirmar: excluir e banir"
-                  : "Confirmar exclusão"}
+                  ? t("admin.themeModerationPanel.confirmDeleteAndBan")
+                  : t("admin.themeModerationPanel.confirmDeletion")}
             </button>
             <button
               type="button"
@@ -169,19 +172,19 @@ function ThemeRow({
               disabled={busy}
               className={quiet}
             >
-              Cancelar
+              {t("common.cancel")}
             </button>
           </>
         ) : (
           <>
             <button type="button" onClick={() => setConfirm("delete")} className={danger}>
               <MdDelete className="h-4 w-4 shrink-0" />
-              Excluir
+              {t("admin.themeModerationPanel.delete")}
             </button>
             {!theme.authorBanned && (
               <button type="button" onClick={() => setConfirm("deleteBan")} className={danger}>
                 <MdBlock className="h-4 w-4 shrink-0" />
-                Excluir e banir o autor
+                {t("admin.themeModerationPanel.deleteAndBanTheAuthor")}
               </button>
             )}
             {/* The ban on its own, both ways. Lifting one is the reason this
@@ -191,12 +194,12 @@ function ThemeRow({
               {theme.authorBanned ? (
                 <>
                   <MdLockOpen className="h-4 w-4 shrink-0" />
-                  Liberar o autor
+                  {t("admin.themeModerationPanel.unblockTheAuthor")}
                 </>
               ) : (
                 <>
                   <MdBlock className="h-4 w-4 shrink-0" />
-                  Banir o autor
+                  {t("admin.themeModerationPanel.banTheAuthor")}
                 </>
               )}
             </button>
@@ -209,6 +212,7 @@ function ThemeRow({
 }
 
 export function ThemeModerationPanel() {
+  const t = useT();
   const [query, setQuery] = useState("");
   const [themes, setThemes] = useState<AdminThemeHit[]>([]);
   const [loading, setLoading] = useState(false);
@@ -265,25 +269,23 @@ export function ThemeModerationPanel() {
 
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-      <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Temas</h2>
+      <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">{t("common.themes")}</h2>
       <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-        Procure por nome do tema, @usuário do autor, ou cole o id que aparece em /tema/&lt;id&gt;.
-        Temas privados também aparecem. Banir usa a flag <code>THEME_BANNED</code>: a pessoa
-        mantém o plano e os temas que já tem, mas não cria, publica nem edita nada publicado.
+        {t("admin.themeModerationPanel.searchByThemeNameTheAuthor")} <code>THEME_BANNED</code>{t("admin.themeModerationPanel.thePersonKeepsThePlanAnd")}
       </p>
 
       <div className="mt-3 flex flex-col gap-3">
         {author ? (
           <div className="flex flex-wrap items-center gap-2 rounded-lg bg-zinc-100 px-3 py-2 text-xs dark:bg-zinc-900">
             <span className="text-zinc-600 dark:text-zinc-400">
-              Mostrando tudo de <strong className="font-medium">{author.name}</strong>.
+              {t("admin.themeModerationPanel.showingEverythingFrom")} <strong className="font-medium">{author.name}</strong>.
             </span>
             <button
               type="button"
               onClick={() => setAuthor(null)}
               className="rounded-md px-2 py-1 font-medium text-zinc-700 underline underline-offset-2 dark:text-zinc-300"
             >
-              Voltar à busca
+              {t("admin.themeModerationPanel.backToTheSearch")}
             </button>
           </div>
         ) : (
@@ -292,13 +294,13 @@ export function ThemeModerationPanel() {
               htmlFor="theme-mod-search"
               className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400"
             >
-              Busca
+              {t("admin.themeModerationPanel.search")}
             </label>
             <input
               id="theme-mod-search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Nome, @usuário ou id"
+              placeholder={t("admin.themeModerationPanel.nameUsernameOrId")}
               spellCheck={false}
               className={inputClass}
             />
@@ -307,10 +309,10 @@ export function ThemeModerationPanel() {
 
         {error && <p className="text-sm text-red-500">{error}</p>}
         {loading && themes.length === 0 && (
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">Carregando…</p>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">{t("common.loading")}</p>
         )}
         {!loading && themes.length === 0 && !error && (
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">Nenhum tema encontrado.</p>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">{t("admin.themeModerationPanel.noThemeFound")}</p>
         )}
 
         {themes.length > 0 && (
@@ -330,7 +332,7 @@ export function ThemeModerationPanel() {
                     }
                     className="self-start px-1 text-[11px] text-zinc-500 underline underline-offset-2 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
                   >
-                    Ver todos os temas de {theme.authorName}
+                    {t("admin.themeModerationPanel.seeAllThemesFrom")} {theme.authorName}
                   </button>
                 )}
               </li>

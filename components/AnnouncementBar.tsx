@@ -2,6 +2,7 @@
 
 import { ANNOUNCEMENT_COLOR_PRESETS, type Announcement } from "@/lib/announcement";
 import { Tooltip } from "@/components/Tooltip";
+import { useT } from "@/lib/useI18n";
 
 // Pure presentational — reused both by the real site-wide banner
 // (AnnouncementBanner, wired to signalingClient) and by the admin panel's
@@ -20,6 +21,7 @@ export function AnnouncementBar({
   // for a click that never really reached a visitor.
   onButtonClick?: () => void;
 }) {
+  const t = useT();
   const preset = ANNOUNCEMENT_COLOR_PRESETS[announcement.color];
 
   function handleButtonClick() {
@@ -55,11 +57,11 @@ export function AnnouncementBar({
             </button>
           )}
           {announcement.dismissible && onDismiss && (
-            <Tooltip content="Fechar aviso">
+            <Tooltip content={t("common.closeNotice")}>
               <button
                 type="button"
                 onClick={onDismiss}
-                aria-label="Fechar aviso"
+                aria-label={t("common.closeNotice")}
                 className="text-lg leading-none opacity-80 transition hover:opacity-100"
                 style={{ color: preset.text }}
               >

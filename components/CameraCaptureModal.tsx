@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { createPortal } from "react-dom";
 import { MdCameraAlt, MdCheck, MdClose, MdFlipCameraAndroid, MdVideocam } from "react-icons/md";
 import { isMobileDevice } from "@/lib/announcement";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
 
 const subscribeNothing = () => () => {};
 
@@ -17,15 +19,15 @@ const CAPTURE_QUALITY = 0.92;
 function describeCameraError(err: unknown): string {
   const name = err && typeof err === "object" && "name" in err ? String((err as Error).name) : "";
   if (name === "NotAllowedError" || name === "SecurityError") {
-    return "Permissão de câmera negada. Libere o acesso nas configurações do navegador.";
+    return translate("cameraCaptureModal.cameraPermissionDeniedAllowAccessIn");
   }
   if (name === "NotFoundError" || name === "OverconstrainedError") {
-    return "Nenhuma câmera encontrada neste dispositivo.";
+    return translate("cameraCaptureModal.noCameraFoundOnThisDevice");
   }
   if (name === "NotReadableError") {
-    return "A câmera já está em uso por outro aplicativo.";
+    return translate("cameraCaptureModal.theCameraIsAlreadyInUse");
   }
-  return "Não foi possível abrir a câmera.";
+  return translate("cameraCaptureModal.couldNotOpenTheCamera");
 }
 
 // Takes a picture with the device's camera and hands it back as a File, so the
@@ -42,6 +44,7 @@ export function CameraCaptureModal({
   // Fired once, with the still. The modal closes itself right after.
   onCapture: (file: File) => void;
 }) {
+  const t = useT();
   const onClient = useSyncExternalStore(subscribeNothing, () => true, () => false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -195,7 +198,7 @@ export function CameraCaptureModal({
       canvas.height = height;
       const ctx = canvas.getContext("2d");
       if (!ctx) {
-        setError("Não foi possível capturar a foto.");
+        setError(t("cameraCaptureModal.couldNotTakeThePhoto"));
         return;
       }
       if (mirrored) {
@@ -208,7 +211,7 @@ export function CameraCaptureModal({
         canvas.toBlob(resolve, CAPTURE_MIME, CAPTURE_QUALITY)
       );
       if (!blob) {
-        setError("Não foi possível capturar a foto.");
+        setError(t("cameraCaptureModal.couldNotTakeThePhoto"));
         return;
       }
       const file = new File([blob], `foto-${Date.now()}.jpg`, { type: CAPTURE_MIME });
@@ -226,7 +229,7 @@ export function CameraCaptureModal({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
-      aria-label="Tirar uma foto"
+      aria-label={t("cameraCaptureModal.takeAPhoto")}
       onClick={onClose}
     >
       <div
@@ -240,12 +243,12 @@ export function CameraCaptureModal({
         }}
       >
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-white">Tirar uma foto</h2>
+          <h2 className="text-sm font-semibold text-white">{t("cameraCaptureModal.takeAPhoto")}</h2>
           <button
             type="button"
             onClick={onClose}
-            title="Fechar (Esc)"
-            aria-label="Fechar"
+            title={t("common.closeEsc")}
+            aria-label={t("common.close")}
             className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-white/10 bg-zinc-900/80 text-zinc-200 backdrop-blur transition hover:bg-zinc-800 hover:text-white"
           >
             <MdClose className="h-5 w-5" />
@@ -277,8 +280,8 @@ export function CameraCaptureModal({
               <button
                 type="button"
                 onClick={() => setFacingMode((mode) => (mode === "user" ? "environment" : "user"))}
-                title="Alternar câmera"
-                aria-label="Alternar câmera"
+                title={t("cameraCaptureModal.switchCamera")}
+                aria-label={t("cameraCaptureModal.switchCamera")}
                 className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-white/10 bg-zinc-900/80 text-zinc-200 backdrop-blur transition hover:bg-zinc-800 hover:text-white"
               >
                 <MdFlipCameraAndroid className="h-5 w-5" />
@@ -293,8 +296,8 @@ export function CameraCaptureModal({
                     e.stopPropagation();
                     setCameraListOpen((listOpen) => !listOpen);
                   }}
-                  title="Escolher câmera"
-                  aria-label="Escolher câmera"
+                  title={t("common.chooseCamera")}
+                  aria-label={t("common.chooseCamera")}
                   aria-haspopup="listbox"
                   aria-expanded={cameraListOpen}
                   className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-white/10 bg-zinc-900/80 text-zinc-200 backdrop-blur transition hover:bg-zinc-800 hover:text-white"
@@ -304,14 +307,14 @@ export function CameraCaptureModal({
                 {cameraListOpen && (
                   <div
                     role="listbox"
-                    aria-label="Câmeras disponíveis"
+                    aria-label={t("cameraCaptureModal.availableCameras")}
                     className="absolute bottom-full left-1/2 mb-2 flex max-h-56 w-64 -translate-x-1/2 flex-col overflow-y-auto rounded-lg border border-white/10 bg-zinc-900 p-1 shadow-xl"
                   >
                     {cameras.map((camera, index) => {
                       // A label needs permission for *that* camera, which a
                       // machine with several does not necessarily give all at
                       // once — so an unnamed one is still listed, by position.
-                      const label = camera.label || `Câmera ${index + 1}`;
+                      const label = camera.label || t("common.cameraValue", { value: index + 1 });
                       const isActive = camera.deviceId === activeDeviceId;
                       return (
                         <button
@@ -349,7 +352,7 @@ export function CameraCaptureModal({
             className="inline-flex h-11 cursor-pointer items-center gap-2 rounded-full bg-white px-5 text-sm font-semibold text-zinc-950 transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <MdCameraAlt className="h-5 w-5" aria-hidden />
-            Tirar foto
+            {t("cameraCaptureModal.takeAPhoto2")}
           </button>
         </div>
       </div>

@@ -7,6 +7,7 @@ import { playFriendRequestSound } from "@/lib/soundEffects";
 import { useAuth } from "@/lib/AuthContext";
 import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
 import { selectGiftNudge } from "@/lib/signalingSelectors";
+import { translate } from "@/lib/i18n";
 
 // Tells somebody a plan was bought for them.
 //
@@ -46,7 +47,7 @@ export function GiftNotifier() {
     const isNew = pushNotification({
       id: `gift:${lastGift.giftId}`,
       kind: "gift",
-      title: "Você ganhou um plano!",
+      title: translate("giftNotifier.youGotAPlan"),
       body:
         lastGift.days > 0
           ? `${lastGift.planTitle} por ${lastGift.days} dias, de presente.`
@@ -60,8 +61,8 @@ export function GiftNotifier() {
     // something else. showNotification stays quiet when the page is focused,
     // so this never doubles up with the bell somebody is looking straight at.
     void showNotification({
-      title: "Você ganhou um plano!",
-      body: `${lastGift.planTitle} está liberado na sua conta.`,
+      title: translate("giftNotifier.youGotAPlan"),
+      body: translate("giftNotifier.plantitleIsUnlockedOnYourAccount", { planTitle: lastGift.planTitle }),
       tag: `gift:${lastGift.giftId}`,
     });
     // alertTarget is read, not reacted to — see SocialNotifier.
@@ -95,7 +96,7 @@ export function GiftNotifier() {
     playFriendRequestSound();
     void showNotification({
       title: `${lastGiftRedeemed.byName} resgatou seu presente!`,
-      body: `${lastGiftRedeemed.planTitle} já está com quem você presenteou.`,
+      body: translate("giftNotifier.plantitleIsAlreadyWithThePerson", { planTitle: lastGiftRedeemed.planTitle }),
       tag: `gift-redeemed:${lastGiftRedeemed.giftId}`,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps

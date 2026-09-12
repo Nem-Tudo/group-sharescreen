@@ -22,7 +22,7 @@ const twitterCard = (m: ReturnType<typeof groupLinkMetadata>) => (m.twitter as {
 {
   const m = groupLinkMetadata({ path: "/groups/j9hjobgc88", kind: "group", group });
   assert.equal(m.title, "Go Live Oficial");
-  assert.equal(m.description, "Grupo oficial do Go Live · 10 membros");
+  assert.equal(m.description, "Grupo oficial do Go Live · 10 members");
   assert.equal(m.openGraph?.title, "Go Live Oficial");
   assert.deepEqual(images(m), [{ url: group.iconUrl, alt: "Go Live Oficial" }]);
   assert.equal(twitterCard(m), "summary", "an icon is a thumbnail, not a wide card");
@@ -32,15 +32,15 @@ const twitterCard = (m: ReturnType<typeof groupLinkMetadata>) => (m.twitter as {
 // An invite to it says so in the title.
 {
   const m = groupLinkMetadata({ path: "/invite/abc", kind: "invite", group, inviteState: "ok" });
-  assert.equal(m.title, "Convite para Go Live Oficial");
+  assert.equal(m.title, "Invite to Go Live Oficial");
   assert.equal(m.openGraph?.url, "https://golive.nemtudo.me/invite/abc");
 }
 
 // A dead invite does not invite anybody.
 {
   const m = groupLinkMetadata({ path: "/invite/abc", kind: "invite", group, inviteState: "expired" });
-  assert.equal(m.title, "Convite inválido");
-  assert.match(String(m.description), /não vale mais/);
+  assert.equal(m.title, "Invalid invite");
+  assert.match(String(m.description), /is no longer valid/);
 }
 
 // No icon: the site's own card, with the group's name on it.
@@ -50,7 +50,7 @@ const twitterCard = (m: ReturnType<typeof groupLinkMetadata>) => (m.twitter as {
     kind: "group",
     group: { ...group, iconUrl: null, description: "  ", memberCount: 1 },
   });
-  assert.equal(m.description, "Grupo no GoLive · 1 membro");
+  assert.equal(m.description, "Group on GoLive · 1 member");
   const [image] = images(m);
   assert.match(image.url, /^\/api\/og\?/);
   assert.match(image.url, /title=Go\+Live\+Oficial/);
@@ -61,9 +61,9 @@ const twitterCard = (m: ReturnType<typeof groupLinkMetadata>) => (m.twitter as {
 // No public card (a private group, a dead link): nothing about the group at all.
 {
   const m = groupLinkMetadata({ path: "/groups/secret", kind: "group", group: null });
-  assert.equal(m.title, "Grupo no GoLive");
+  assert.equal(m.title, "Group on GoLive");
   const inv = groupLinkMetadata({ path: "/invite/zzz", kind: "invite", group: null });
-  assert.equal(inv.title, "Convite para um grupo");
+  assert.equal(inv.title, "Invite to a group");
 }
 
 console.log("groupMetadata ok");

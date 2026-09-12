@@ -20,6 +20,7 @@ import { groupPath } from "@/lib/groupLinks";
 import { playConnectSound } from "@/lib/soundEffects";
 import { useSignalingSelector } from "@/lib/useSignalingSelector";
 import { selectRoomRemoval, selectRoom } from "@/lib/signalingSelectors";
+import { useT } from "@/lib/useI18n";
 
 // The one room there is, mounted above every page.
 //
@@ -198,6 +199,7 @@ function CallDock({
   expanded: boolean;
   onToggle: () => void;
 }) {
+  const t = useT();
   const router = useRouter();
   const name = callNameFor(session);
 
@@ -212,7 +214,7 @@ function CallDock({
       <button
         type="button"
         onClick={() => router.push(callPath)}
-        title="Voltar para a chamada"
+        title={t("common.backToTheCall")}
         className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition hover:bg-zinc-100 dark:hover:bg-zinc-800"
       >
         <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-emerald-500" />
@@ -231,12 +233,12 @@ function CallDock({
       {/* Last in the bar, so what it opens grows out of it: the extra
           buttons slot in along the row and push this arrow right, and the
           arrow turns round to say which way closes them again. */}
-      <Tooltip content={expanded ? "Mostrar menos" : "Mostrar todos os controles"}>
+      <Tooltip content={expanded ? t("roomCallHost.showLess") : t("roomCallHost.showAllTheControls")}>
         <button
           type="button"
           onClick={onToggle}
           aria-expanded={expanded}
-          aria-label={expanded ? "Mostrar menos" : "Mostrar todos os controles"}
+          aria-label={expanded ? t("roomCallHost.showLess") : t("roomCallHost.showAllTheControls")}
           className="flex h-8 w-7 shrink-0 cursor-pointer items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 active:scale-90 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
         >
           <MdChevronRight

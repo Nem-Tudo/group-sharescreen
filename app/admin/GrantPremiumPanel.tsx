@@ -9,6 +9,8 @@ import {
   type AdminAccountHit,
   type AdminPlanOption,
 } from "@/lib/adminApi";
+import { useI18n } from "@/lib/useI18n";
+import { formatLocale } from "@/lib/i18n";
 
 // Comping somebody a plan.
 //
@@ -26,7 +28,7 @@ const DAY_PRESETS = [7, 15, 30, 90, 365];
 
 function endLabel(timestamp: number): string {
   try {
-    return new Date(timestamp).toLocaleDateString("pt-BR", {
+    return new Date(timestamp).toLocaleDateString(formatLocale(), {
       day: "2-digit",
       month: "long",
       year: "numeric",
@@ -37,6 +39,7 @@ function endLabel(timestamp: number): string {
 }
 
 export function GrantPremiumPanel() {
+  const { t, tc } = useI18n();
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<(AdminAccountHit & { active: boolean })[]>([]);
   const [selected, setSelected] = useState<AdminAccountHit | null>(null);
@@ -59,12 +62,12 @@ export function GrantPremiumPanel() {
         setPlanId((current) => current || loaded[0]?.id || "");
       })
       .catch(() => {
-        if (!cancelled) setError("Não foi possível carregar os planos.");
+        if (!cancelled) setError(t("common.couldNotLoadThePlans"));
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [t]);
 
   // Debounced, because this runs per keystroke and the answer for a
   // half-typed name is never the one being looked for.
@@ -108,7 +111,7 @@ export function GrantPremiumPanel() {
       setRefreshSeq((n) => n + 1);
       setSelected(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao conceder.");
+      setError(err instanceof Error ? err.message : t("admin.grantPremiumPanel.couldNotGrant"));
     } finally {
       setBusy(false);
     }
@@ -116,16 +119,16 @@ export function GrantPremiumPanel() {
 
   async function handleRevoke(account: AdminAccountHit) {
     if (busy) return;
-    if (!window.confirm(`Encerrar o acesso de ${account.displayName} agora?`)) return;
+    if (!window.confirm(t("admin.grantPremiumPanel.endDisplaynameSAccessNow", { displayName: account.displayName }))) return;
     setBusy(true);
     setError(null);
     setDone(null);
     try {
       await revokePremiumGrant(account.id);
-      setDone(`Acesso de ${account.displayName} encerrado.`);
+      setDone(t("admin.grantPremiumPanel.displaynameSAccessEnded", { displayName: account.displayName }));
       setRefreshSeq((n) => n + 1);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao encerrar.");
+      setError(err instanceof Error ? err.message : t("admin.grantPremiumPanel.couldNotEnd"));
     } finally {
       setBusy(false);
     }
@@ -137,12 +140,10 @@ export function GrantPremiumPanel() {
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
       <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
-        Conceder plano
+        {t("admin.grantPremiumPanel.grantPlan")}
       </h2>
       <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-        Dá acesso a alguém sem cobrança. Soma ao que a pessoa já tiver: quem está com uma semana
-        restante e recebe 30 dias fica com 37. Não mexe em assinatura paga — para essas, o
-        cancelamento é pelo Mercado Pago.
+        {t("admin.grantPremiumPanel.givesSomeoneAccessWithNoCharge")}
       </p>
 
       <div className="mt-3 flex flex-col gap-3">
@@ -151,7 +152,7 @@ export function GrantPremiumPanel() {
             htmlFor="grant-search"
             className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400"
           >
-            Pessoa
+            {t("common.person")}
           </label>
           <input
             id="grant-search"
@@ -160,7 +161,7 @@ export function GrantPremiumPanel() {
               setSelected(null);
               setQuery(e.target.value);
             }}
-            placeholder="Nome ou @usuário"
+            placeholder={t("common.nameOrUsername")}
             className={inputClass}
           />
           {!selected && hits.length > 0 && (
@@ -179,7 +180,7 @@ export function GrantPremiumPanel() {
                       </span>
                       <span className="block truncate text-xs text-zinc-500 dark:text-zinc-400">
                         @{hit.username}
-                        {active && ` · ativo até ${endLabel(hit.premium!.currentPeriodEnd)}`}
+                        {active && t("admin.grantPremiumPanel.activeUntilValue", { value: endLabel(hit.premium!.currentPeriodEnd) })}
                         {active && hit.premium?.method === "admin" && " · concedido"}
                       </span>
                     </button>
@@ -190,7 +191,7 @@ export function GrantPremiumPanel() {
                         disabled={busy}
                         className="shrink-0 rounded-lg px-2 py-1.5 text-xs font-medium text-red-600 transition hover:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-950/40"
                       >
-                        Encerrar
+                        {t("admin.grantPremiumPanel.end")}
                       </button>
                     )}
                   </li>
@@ -199,7 +200,7 @@ export function GrantPremiumPanel() {
             </ul>
           )}
           {!selected && query.trim().length >= 2 && hits.length === 0 && (
-            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Ninguém encontrado.</p>
+            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t("common.nobodyFound")}</p>
           )}
         </div>
 
@@ -209,7 +210,7 @@ export function GrantPremiumPanel() {
               htmlFor="grant-plan"
               className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400"
             >
-              Plano
+              {t("common.plan")}
             </label>
             <select
               id="grant-plan"
@@ -219,7 +220,7 @@ export function GrantPremiumPanel() {
             >
               {plans.map((plan) => (
                 <option key={plan.id} value={plan.id}>
-                  {plan.title} ({plan.priceLabel}){plan.active ? "" : " — fora de venda"}
+                  {plan.title} ({plan.priceLabel}){plan.active ? "" : t("common.notForSale")}
                 </option>
               ))}
             </select>
@@ -230,7 +231,7 @@ export function GrantPremiumPanel() {
               htmlFor="grant-days"
               className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400"
             >
-              Duração
+              {t("common.duration")}
             </label>
             <div className="flex gap-2">
               <select
@@ -244,10 +245,10 @@ export function GrantPremiumPanel() {
               >
                 {DAY_PRESETS.map((preset) => (
                   <option key={preset} value={preset}>
-                    {preset} dias
+                    {tc("common.dayCount", preset)}
                   </option>
                 ))}
-                <option value="custom">Outro…</option>
+                <option value="custom">{t("common.other")}</option>
               </select>
               <input
                 type="number"
@@ -255,7 +256,7 @@ export function GrantPremiumPanel() {
                 max={3650}
                 value={days}
                 onChange={(e) => setDays(Number(e.target.value))}
-                aria-label="Dias"
+                aria-label={t("common.days")}
                 className={`${inputClass} w-24`}
               />
             </div>
@@ -269,7 +270,7 @@ export function GrantPremiumPanel() {
             disabled={!selected || !planId || busy || days < 1}
             className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {busy ? "Concedendo..." : "Conceder"}
+            {busy ? t("admin.grantPremiumPanel.granting") : t("admin.grantPremiumPanel.grant")}
           </button>
           {done && <span className="text-sm text-emerald-600 dark:text-emerald-500">{done}</span>}
           {error && <span className="text-sm text-red-500">{error}</span>}

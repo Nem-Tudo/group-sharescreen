@@ -1,4 +1,5 @@
 import type { GroupChannel, GroupChannelKind, GroupDetail, GroupRoleInfo } from "./groupsApi";
+import { translate } from "@/lib/i18n";
 
 // What somebody may do in a group — the client's copy of the API's
 // groupPermissions.ts. Discord's model: @everyone's switches (the group's own),
@@ -107,44 +108,44 @@ export const DEFAULT_GROUP_PERMISSIONS: GroupPermissions = {
 /** Each switch in words, phrased as what it lets a member do, with a line on what it covers. */
 export const PERMISSION_LABELS: Record<AnyPermissionKey, { label: string; hint: string }> = {
   administrator: {
-    label: "Administrador",
-    hint: "Pode tudo, em todas as salas, ignorando as permissões delas. Dê com cuidado.",
+    get label() { return translate("common.administrator"); },
+    get hint() { return translate("groupPermissions.canDoEverythingInEveryRoom"); },
   },
   manageGroup: {
-    label: "Gerenciar grupo",
-    hint: "Nome, ícone, descrição, tema, mapa, link personalizado e todos os convites.",
+    get label() { return translate("groupPermissions.manageGroup"); },
+    get hint() { return translate("groupPermissions.nameIconDescriptionThemeMapCustom"); },
   },
   manageChannels: {
-    label: "Gerenciar salas",
-    hint: "Criar, renomear, apagar e organizar salas e categorias, e as permissões de cada sala.",
+    get label() { return translate("groupPermissions.manageRooms"); },
+    get hint() { return translate("groupPermissions.createRenameDeleteAndOrganiseRooms"); },
   },
   manageRoles: {
-    label: "Gerenciar cargos",
-    hint: "Criar e editar cargos abaixo do seu, dar e tirar esses cargos das pessoas e mudar o @everyone.",
+    get label() { return translate("groupPermissions.manageRoles"); },
+    get hint() { return translate("groupPermissions.createAndEditRolesBelowYours"); },
   },
-  kickMembers: { label: "Expulsar membros", hint: "Tirar do grupo quem tem um cargo abaixo do seu." },
-  banMembers: { label: "Banir membros", hint: "Tirar do grupo sem poder voltar — e desbanir." },
-  manageMessages: { label: "Gerenciar mensagens", hint: "Apagar mensagens de outras pessoas." },
-  createInvites: { label: "Criar convites", hint: "Criar links de convite para o grupo." },
-  viewChannel: { label: "Ver a sala", hint: "Sem isso, a sala nem aparece na lista — de texto ou de voz." },
-  sendMessages: { label: "Enviar mensagens", hint: "A base de todas as outras: sem ela, não dá pra escrever nada." },
-  sendGifs: { label: "Enviar GIFs", hint: "Pelo seletor de GIFs." },
-  sendImages: { label: "Enviar imagens", hint: "Anexadas ou coladas com Ctrl+V." },
-  mentionMembers: { label: "Mencionar pessoas", hint: "Um @nome avisa a pessoa." },
+  kickMembers: { get label() { return translate("groupPermissions.kickMembers"); }, get hint() { return translate("groupPermissions.removeFromTheGroupAnyoneWith"); } },
+  banMembers: { get label() { return translate("groupPermissions.banMembers"); }, get hint() { return translate("groupPermissions.removeFromTheGroupWithNo"); } },
+  manageMessages: { get label() { return translate("groupPermissions.manageMessages"); }, get hint() { return translate("groupPermissions.deleteOtherPeopleSMessages"); } },
+  createInvites: { get label() { return translate("groupPermissions.createInvites"); }, get hint() { return translate("groupPermissions.createInviteLinksForTheGroup"); } },
+  viewChannel: { get label() { return translate("groupPermissions.seeTheRoom"); }, get hint() { return translate("groupPermissions.withoutItTheRoomDoesNot"); } },
+  sendMessages: { get label() { return translate("groupPermissions.sendMessages"); }, get hint() { return translate("groupPermissions.theBasisOfAllTheOthers"); } },
+  sendGifs: { get label() { return translate("groupPermissions.sendGifs"); }, get hint() { return translate("groupPermissions.throughTheGifPicker"); } },
+  sendImages: { get label() { return translate("groupPermissions.sendImages"); }, get hint() { return translate("groupPermissions.attachedOrPastedWithCtrlV"); } },
+  mentionMembers: { get label() { return translate("groupPermissions.mentionPeople"); }, get hint() { return translate("groupPermissions.anNameNotifiesThePerson"); } },
   mentionEveryone: {
-    label: "Mencionar @everyone e todos os cargos",
-    hint: "Avisa todo mundo que vê a sala de uma vez — e permite mencionar até os cargos que não deixam.",
+    get label() { return translate("groupPermissions.mentionEveryoneAndEveryRole"); },
+    get hint() { return translate("groupPermissions.notifiesEveryoneWhoSeesTheRoom"); },
   },
-  addReactions: { label: "Adicionar reações", hint: "Colocar um emoji novo numa mensagem." },
-  react: { label: "Reagir", hint: "Entrar numa reação que já está na mensagem. Tirar a própria sempre pode." },
-  connect: { label: "Conectar", hint: "Sem isso, a sala aparece com um cadeado e não dá pra entrar." },
-  mic: { label: "Ligar o microfone", hint: "" },
-  screen: { label: "Compartilhar a tela", hint: "" },
-  camera: { label: "Ligar a câmera", hint: "" },
-  videoSource: { label: "Adicionar fontes de vídeo", hint: "" },
-  chat: { label: "Escrever no chat da chamada", hint: "" },
-  gif: { label: "Enviar GIFs no chat da chamada", hint: "" },
-  image: { label: "Enviar imagens no chat da chamada", hint: "" },
+  addReactions: { get label() { return translate("groupPermissions.addReactions"); }, get hint() { return translate("groupPermissions.putANewEmojiOnA"); } },
+  react: { get label() { return translate("groupPermissions.react"); }, get hint() { return translate("groupPermissions.joinAReactionThatIsAlready"); } },
+  connect: { get label() { return translate("groupPermissions.connect"); }, get hint() { return translate("groupPermissions.withoutItTheRoomAppearsWith"); } },
+  mic: { get label() { return translate("groupPermissions.turnTheMicrophoneOn"); }, hint: "" },
+  screen: { get label() { return translate("groupPermissions.shareTheScreen"); }, hint: "" },
+  camera: { get label() { return translate("groupPermissions.turnTheCameraOn"); }, hint: "" },
+  videoSource: { get label() { return translate("groupPermissions.addVideoSources"); }, hint: "" },
+  chat: { get label() { return translate("groupPermissions.writeInTheCallSChat"); }, hint: "" },
+  gif: { get label() { return translate("groupPermissions.sendGifsInTheCallS"); }, hint: "" },
+  image: { get label() { return translate("groupPermissions.sendImagesInTheCallS"); }, hint: "" },
 };
 
 /** The switches a room of this kind has — the general ones first, then its own. */

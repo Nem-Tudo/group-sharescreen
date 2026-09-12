@@ -9,6 +9,7 @@ import { prewarmCaptcha } from "@/lib/turnstile";
 import { OAuthButtons } from "./OAuthButtons";
 import { CompleteOAuthSignupForm } from "./CompleteOAuthSignupForm";
 import type { OAuthResult } from "@/lib/oauthApi";
+import { useT } from "@/lib/useI18n";
 
 // Mirrors server-side validation (see accountApi.ts / the account routes) —
 // duplicated here only so a bad username is caught before a round trip.
@@ -49,6 +50,7 @@ export function CreateAccountForm({
   // inline gate, which only ever offers "pick a name" or "create account").
   onSwitchToLogin?: () => void;
 }) {
+  const t = useT();
   const { register } = useAuth();
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState(initialDisplayName);
@@ -124,7 +126,7 @@ export function CreateAccountForm({
       trackEvent("account_created");
       onSuccess?.();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Falha ao criar conta.");
+      setFormError(err instanceof Error ? err.message : t("common.couldNotCreateTheAccount"));
     } finally {
       setSubmitting(false);
     }
@@ -136,22 +138,22 @@ export function CreateAccountForm({
     const trimmedUser = username.trim();
     const trimmedDisplay = displayName.trim();
     if (!USERNAME_RE.test(trimmedUser)) {
-      setFormError("Usuário deve ter 3 a 20 letras, números ou _.");
+      setFormError(t("common.usernameMustHave3To20"));
       return;
     }
     if (!trimmedDisplay) {
-      setFormError("Escolha um nome de exibição.");
+      setFormError(t("common.chooseADisplayName"));
       return;
     }
     if (password.length < 6) {
-      setFormError("Senha deve ter ao menos 6 caracteres.");
+      setFormError(t("createAccountForm.passwordMustBeAtLeast6"));
       return;
     }
     // Shape only, matching the API's own check — nothing here can prove an
     // address, and a stricter pattern would reject valid ones while letting a
     // plausible typo through just the same.
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      setFormError("Informe um e-mail válido.");
+      setFormError(t("createAccountForm.enterAValidEmail"));
       return;
     }
     void submitRegister();
@@ -178,7 +180,7 @@ export function CreateAccountForm({
     <div className="mt-8 flex flex-col gap-3">
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
         <label htmlFor="create-username" className={labelClass}>
-          Usuário
+          {t("common.username")}
         </label>
         <input
           id="create-username"
@@ -187,7 +189,7 @@ export function CreateAccountForm({
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           maxLength={20}
-          placeholder="Ex: maria123"
+          placeholder={t("createAccountForm.exMaria123")}
           className={`${inputClass} ${
             usernameTaken
               ? "border-red-400 dark:border-red-800"
@@ -202,37 +204,37 @@ export function CreateAccountForm({
           <p className="-mt-1 text-xs">
             {!usernameWellFormed ? (
               <span className="text-zinc-500 dark:text-zinc-400">
-                Use 3 a 20 letras, números ou _.
+                {t("createAccountForm.use3To20LettersNumbers")}
               </span>
             ) : !check ? (
-              <span className="text-zinc-500 dark:text-zinc-400">Verificando...</span>
+              <span className="text-zinc-500 dark:text-zinc-400">{t("common.checking")}</span>
             ) : check.available ? (
               <span className="text-emerald-600 dark:text-emerald-500">
-                @{check.username} está livre.
+                @{check.username} {t("createAccountForm.isAvailable")}
               </span>
             ) : (
-              <span className="text-red-500">@{check.username} já está em uso.</span>
+              <span className="text-red-500">@{check.username} {t("createAccountForm.isAlreadyInUse")}</span>
             )}
           </p>
         )}
         <label htmlFor="create-displayName" className={labelClass}>
-          Nome de exibição
+          {t("common.displayName")}
         </label>
         <input
           id="create-displayName"
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
           maxLength={24}
-          placeholder="Ex: Maria"
+          placeholder={t("common.exMaria")}
           className={inputClass}
         />
         {/* Worth saying out loud: it used to have to be unique, and the error
             that produced was the main reason signing up turned into a hunt. */}
         <p className="-mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-          É como seu nome aparece na sala. Pode ser igual ao de outra pessoa.
+          {t("createAccountForm.itIsHowYourNameAppears")}
         </p>
         <label htmlFor="create-email" className={labelClass}>
-          E-mail
+          {t("createAccountForm.email")}
         </label>
         <input
           id="create-email"
@@ -244,7 +246,7 @@ export function CreateAccountForm({
           className={inputClass}
         />
         <label htmlFor="create-password" className={labelClass}>
-          Senha
+          {t("common.password")}
         </label>
         <input
           id="create-password"
@@ -258,15 +260,15 @@ export function CreateAccountForm({
         <div className="mt-2 flex gap-2">
           <button type="submit" disabled={submitting} className={`flex flex-1 items-center justify-center gap-2 ${primaryButtonClass}`}>
             {submitting && <ButtonSpinner />}
-            {submitting ? "Criando..." : "Criar conta"}
+            {submitting ? t("common.creating2") : t("common.createAccount")}
           </button>
           <button type="button" onClick={onCancel} className={secondaryButtonClass}>
-            Voltar
+            {t("common.back")}
           </button>
         </div>
         {onSwitchToLogin && (
           <button type="button" onClick={onSwitchToLogin} className={linkButtonClass}>
-            Já tenho uma conta
+            {t("common.iAlreadyHaveAnAccount")}
           </button>
         )}
       </form>

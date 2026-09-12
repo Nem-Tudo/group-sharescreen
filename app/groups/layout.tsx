@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { GroupAppShell } from "@/components/groups/GroupAppShell";
+import { translate } from "@/lib/i18n";
 
 // Every page under /groups shares one shell — the rail, the rooms, and the
 // voice call that has to survive moving between them (see GroupAppShell).
@@ -7,8 +8,8 @@ import { GroupAppShell } from "@/components/groups/GroupAppShell";
 // re-mounted when the page under it changes.
 
 export const metadata: Metadata = {
-  title: "Grupos",
-  description: "Seus grupos no GoLive: salas de voz e de texto permanentes com seus amigos.",
+  get title() { return translate("common.groups"); },
+  get description() { return translate("groups.layout.yourGroupsOnGolivePermanentVoice"); },
   // A group is private to its members; there is nothing here for a search
   // engine to index.
   robots: { index: false, follow: false },

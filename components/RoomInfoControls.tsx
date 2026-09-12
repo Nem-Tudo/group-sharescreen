@@ -9,6 +9,7 @@ import {
 } from "@/lib/roomCategories";
 import { Tooltip, Popover } from "./Tooltip";
 import { ChevronDownIcon } from "./icons";
+import { useT } from "@/lib/useI18n";
 
 // How long the description input waits after the last keystroke before
 // saving. Long enough that typing a sentence is one write rather than one per
@@ -30,6 +31,7 @@ export function RoomInfoControls({
   category: string | null;
   canEdit: boolean;
 }) {
+  const t = useT();
   const [draft, setDraft] = useState(description);
   const [categoryOpen, setCategoryOpen] = useState(false);
   // What the server last told us. Used to tell "the description changed
@@ -107,7 +109,7 @@ export function RoomInfoControls({
         open={categoryOpen}
         onClose={() => setCategoryOpen(false)}
         placement="bottom-start"
-        tooltip="Categoria da sala"
+        tooltip={t("common.roomCategory")}
         content={
           <div className="flex w-52 max-w-[calc(100vw-1rem)] flex-col gap-0.5 rounded-lg border border-zinc-300 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
             {/* Deliberately first: taking a category off is as ordinary as
@@ -122,7 +124,7 @@ export function RoomInfoControls({
               className={`rounded-md px-2.5 py-1.5 text-left text-sm transition hover:bg-zinc-100 dark:hover:bg-zinc-800 ${category === null ? "font-semibold" : ""
                 }`}
             >
-              Sem categoria
+              {t("common.noCategory")}
             </button>
             {ROOM_CATEGORIES.map((c) => (
               <button
@@ -150,7 +152,7 @@ export function RoomInfoControls({
             : "border border-dashed border-zinc-300 text-zinc-500 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900"
             }`}
         >
-          {active ? active.label : "Categoria"}
+          {active ? active.label : t("common.category")}
           <ChevronDownIcon className="h-3 w-3 shrink-0 opacity-70" />
         </button>
       </Popover>
@@ -169,8 +171,8 @@ export function RoomInfoControls({
           }
         }}
         maxLength={MAX_ROOM_DESCRIPTION_LENGTH}
-        placeholder="Descrição da sala..."
-        aria-label="Descrição da sala"
+        placeholder={t("roomInfoControls.roomDescription")}
+        aria-label={t("roomInfoControls.roomDescription2")}
         className="min-w-0 max-w-96 flex-1 rounded-lg border border-zinc-300 bg-transparent px-2.5 py-1 text-xs text-zinc-700 outline-none placeholder:text-zinc-400 focus:border-zinc-500 dark:border-zinc-700 dark:text-zinc-300 dark:placeholder:text-zinc-600"
       />
     </div>

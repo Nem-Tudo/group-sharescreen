@@ -3,6 +3,7 @@
 import { getAccountToken } from "./accountApi";
 import { getSignalingHttpBase } from "./roomsApi";
 import type { SocialUser } from "./socialApi";
+import { translate } from "@/lib/i18n";
 
 // The private-messages client.
 //
@@ -123,11 +124,11 @@ export async function sendDirectMessage(
       error?: string;
     };
     if (!res.ok || !data.message) {
-      return { ok: false, error: data.error ?? "Não foi possível enviar." };
+      return { ok: false, error: data.error ?? translate("common.couldNotSend") };
     }
     return { ok: true, message: data.message };
   } catch {
-    return { ok: false, error: "Sem conexão com o servidor." };
+    return { ok: false, error: translate("common.noConnectionToTheServer") };
   }
 }
 

@@ -2,6 +2,7 @@
 
 import { MdClose } from "react-icons/md";
 import { ScreenIcon, MicIcon, CheckIcon } from "./icons";
+import { useT } from "@/lib/useI18n";
 
 // "2 horas", "1 hora", "90 minutos" — read off whatever the server actually
 // enforces rather than written into the copy, so the number in the dialog and
@@ -41,6 +42,7 @@ export function GuestBroadcastLimitModal({
   onCreateAccount: () => void;
   onClose: () => void;
 }) {
+  const t = useT();
   if (!open) return null;
 
   const limit = formatLimit(limitSeconds);
@@ -61,14 +63,14 @@ export function GuestBroadcastLimitModal({
             </span>
             <h2 className="text-base font-semibold text-zinc-900 dark:text-white">
               {ended
-                ? `Boa transmissão! Deu ${limit} 🎉`
-                : "Seu tempo de transmissão acabou"}
+                ? t("guestBroadcastLimitModal.niceBroadcastThatWasLimit", { limit })
+                : t("guestBroadcastLimitModal.yourBroadcastTimeHasRunOut")}
             </h2>
           </div>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Fechar"
+            aria-label={t("common.close")}
             className="-mr-1 shrink-0 rounded-full p-1.5 text-zinc-500 transition hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
           >
             <MdClose className="h-5 w-5" />
@@ -78,10 +80,9 @@ export function GuestBroadcastLimitModal({
         <div className="overflow-y-auto px-5 pb-5">
           <p className="text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
             {ended
-              ? `${limit} é o total que a gente libera pra quem ainda não tem conta, então paramos sua transmissão por aqui.`
-              : `Você já usou ${limit} de transmissão, que é o total pra quem ainda não tem conta.`}{" "}
-            Criar uma conta é de graça, leva menos de um minuto e tira esse
-            limite — daí você transmite o quanto quiser.
+              ? t("guestBroadcastLimitModal.limitIsTheTotalWeAllow", { limit })
+              : t("guestBroadcastLimitModal.youHaveAlreadyUsedLimitOf", { limit })}{" "}
+            {t("guestBroadcastLimitModal.creatingAnAccountIsFreeTakes")}
           </p>
 
           {/* What did *not* just happen. Being cut off feels like being
@@ -91,15 +92,15 @@ export function GuestBroadcastLimitModal({
           <ul className="mt-4 space-y-2 rounded-xl bg-zinc-50 p-3.5 text-sm text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
             <li className="flex items-start gap-2.5">
               <CheckIcon className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
-              <span>Você continua na sala, com todo mundo.</span>
+              <span>{t("guestBroadcastLimitModal.youAreStillInTheRoom")}</span>
             </li>
             <li className="flex items-start gap-2.5">
               <MicIcon className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
-              <span>Seu microfone não foi afetado — pode continuar conversando.</span>
+              <span>{t("guestBroadcastLimitModal.yourMicrophoneWasNotAffectedYou")}</span>
             </li>
             <li className="flex items-start gap-2.5">
               <CheckIcon className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
-              <span>Criando a conta, seu nome e suas configurações ficam salvos.</span>
+              <span>{t("guestBroadcastLimitModal.byCreatingTheAccountYourName")}</span>
             </li>
           </ul>
 
@@ -109,14 +110,14 @@ export function GuestBroadcastLimitModal({
               onClick={onClose}
               className="rounded-lg px-4 py-2.5 text-sm font-medium text-zinc-600 transition hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
             >
-              Agora não
+              {t("common.notNow")}
             </button>
             <button
               type="button"
               onClick={onCreateAccount}
               className="rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700"
             >
-              Criar conta grátis
+              {t("guestBroadcastLimitModal.createAFreeAccount")}
             </button>
           </div>
         </div>

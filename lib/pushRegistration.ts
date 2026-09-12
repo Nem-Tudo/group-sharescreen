@@ -8,6 +8,7 @@ import {
 } from "./pushApi";
 import { openDirectMessages } from "./dmWindow";
 import { isDesktopApp } from "./desktop";
+import { translate } from "@/lib/i18n";
 
 // Getting this device onto the list of places a notification can reach.
 //
@@ -71,8 +72,8 @@ function capacitorPush(): CapacitorPushPlugin | null {
 const ANDROID_CHANNELS = [
   {
     id: "golive-calls",
-    name: "Chamadas",
-    description: "Toca quando alguém liga para você.",
+    get name() { return translate("pushRegistration.calls"); },
+    get description() { return translate("pushRegistration.ringsWhenSomebodyCallsYou"); },
     // 5 = IMPORTANCE_HIGH: heads-up, with sound, over whatever is on screen.
     importance: 5,
     visibility: 1,
@@ -81,8 +82,8 @@ const ANDROID_CHANNELS = [
   },
   {
     id: "golive-messages",
-    name: "Mensagens",
-    description: "Mensagens privadas recebidas.",
+    get name() { return translate("common.messages"); },
+    get description() { return translate("pushRegistration.privateMessagesReceived"); },
     // 4 = IMPORTANCE_DEFAULT with a sound, but no heads-up interruption.
     importance: 4,
     visibility: 1,
@@ -278,7 +279,7 @@ async function registerWeb(vapidPublicKey: string, interactive: boolean): Promis
       keys: { p256dh: json.keys.p256dh, auth: json.keys.auth },
     });
   } catch (err) {
-    console.error("[push] Não foi possível assinar:", (err as Error).message);
+    console.error("[push] Could not subscribe:", (err as Error).message);
     return false;
   }
 }

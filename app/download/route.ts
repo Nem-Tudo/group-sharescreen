@@ -5,6 +5,7 @@ import {
   parseDownloadPlatform,
   type ReleaseAsset,
 } from "@/lib/downloadTargets";
+import { translate } from "@/lib/i18n";
 
 // Sends the visitor straight to the newest installer for whatever they are
 // running, so a single link — golive.nemtudo.me/download — can be shared
@@ -21,7 +22,7 @@ import {
 // Which platform gets which file lives in lib/downloadTargets.ts, where it
 // can be tested.
 
-const GITHUB_OWNER = "Nem-Tudo";
+const GITHUB_OWNER = translate("download.route.nemTudo");
 const GITHUB_REPO = "group-sharescreen";
 
 const RELEASES_PAGE = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;

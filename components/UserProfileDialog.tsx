@@ -7,6 +7,7 @@ import { UserProfileCard } from "./UserProfileCard";
 import { GuestProfileCard } from "./GuestProfileCard";
 import { MdClose, MdOpenInNew } from "react-icons/md";
 import { Tooltip } from "./Tooltip";
+import { useT } from "@/lib/useI18n";
 
 // Somebody's profile, shown over the room instead of in place of it.
 //
@@ -41,6 +42,7 @@ export function UserProfileDialog({
   guest?: { name: string; avatarUrl?: string | null };
   onClose: () => void;
 }) {
+  const t = useT();
   const onClient = useSyncExternalStore(subscribeNothing, () => true, () => false);
 
   useEffect(() => {
@@ -68,7 +70,7 @@ export function UserProfileDialog({
       onClick={onClose}
       role="dialog"
       aria-modal="true"
-      aria-label="Perfil"
+      aria-label={t("common.profile")}
     >
       <div className="flex min-h-full items-center justify-center">
       <div
@@ -95,22 +97,22 @@ export function UserProfileDialog({
               control that explains it goes nowhere is still a control, and
               this one has nothing to explain. */}
           {!guest && (
-            <Tooltip content="Abrir perfil em uma nova aba">
+            <Tooltip content={t("userProfileDialog.openTheProfileInANew")}>
               <Link
                 href={`/user/${userId}`}
                 target="_blank"
-                aria-label="Abrir perfil em uma nova aba"
+                aria-label={t("userProfileDialog.openTheProfileInANew")}
                 className="flex rounded-full bg-black/50 p-2 text-white transition hover:bg-black/70"
               >
                 <MdOpenInNew className="h-4 w-4" />
               </Link>
             </Tooltip>
           )}
-          <Tooltip content="Fechar">
+          <Tooltip content={t("common.close")}>
             <button
               type="button"
               onClick={onClose}
-              aria-label="Fechar perfil"
+              aria-label={t("userProfileDialog.closeProfile")}
               className="flex rounded-full bg-black/50 p-2 text-white transition hover:bg-black/70"
             >
               <MdClose className="h-4 w-4" />

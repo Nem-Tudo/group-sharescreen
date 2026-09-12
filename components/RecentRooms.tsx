@@ -13,8 +13,10 @@ import {
   recentRoomPresentation,
   subscribeRecentRooms,
 } from "@/lib/recentRooms";
+import { useT } from "@/lib/useI18n";
 
 export function RecentRooms() {
+  const t = useT();
   // useSyncExternalStore after all. The note that used to be here said this
   // hook "demands Object.is equality, which a localStorage parse cannot
   // honestly guarantee" — true of a naive reader, and not true of this one:
@@ -51,7 +53,7 @@ export function RecentRooms() {
     <div className="flex flex-col gap-2">
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-          Salas recentes
+          {t("recentRooms.recentRooms")}
         </span>
         {/* <span className="text-xs text-zinc-500 dark:text-zinc-400 sm:hidden">
           última em que você entrou
@@ -63,7 +65,7 @@ export function RecentRooms() {
       <ul className="flex flex-col gap-2 pt-1.5 pl-1.5">
         {rooms.map((room, index) => {
           const { name, isPrivate, code } = recentRoomPresentation(room.handle);
-          const visibility = isPrivate ? "privada" : "pública";
+          const visibility = isPrivate ? t("common.private") : t("recentRooms.public");
           return (
             <li
               key={room.handle}
@@ -80,7 +82,7 @@ export function RecentRooms() {
                     index,
                   });
                 }}
-                aria-label={`Entrar na sala ${visibility} ${name}`}
+                aria-label={t("recentRooms.joinTheVisibilityRoomName", { visibility, name })}
                 className="flex min-h-10 w-full items-center gap-2 rounded-lg border border-zinc-300 px-3.5 py-2 text-sm font-medium text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900"
               >
                 {isPrivate ? (
@@ -115,7 +117,7 @@ export function RecentRooms() {
                   });
                   forgetRecentRoom(room.handle);
                 }}
-                aria-label={`Remover ${name} das salas recentes`}
+                aria-label={t("recentRooms.removeNameFromTheRecentRooms", { name })}
                 className="absolute -top-1.5 -left-1.5 z-10 flex h-4 w-4 items-center justify-center rounded-full border border-zinc-300 bg-white text-zinc-500 transition hover:border-zinc-400 hover:bg-zinc-100 hover:text-zinc-800 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
               >
                 <MdClose className="h-2.5 w-2.5" aria-hidden="true" />

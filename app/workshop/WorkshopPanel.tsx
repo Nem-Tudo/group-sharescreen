@@ -45,6 +45,9 @@ import {
   type RoomTheme,
   type WorkshopSort,
 } from "@/lib/roomThemes";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
+import { formatLocale } from "@/lib/i18n";
 
 // The Workshop: everybody's themes, and yours.
 //
@@ -59,9 +62,9 @@ import {
 // mock room — the same reasoning as the editor's, written up there.
 
 const SORTS: { id: WorkshopSort; label: string }[] = [
-  { id: "popular", label: "Mais usados" },
-  { id: "liked", label: "Mais curtidos" },
-  { id: "recent", label: "Recentes" },
+  { id: "popular", get label() { return translate("workshop.workshopPanel.mostUsed"); } },
+  { id: "liked", get label() { return translate("workshop.workshopPanel.mostLiked"); } },
+  { id: "recent", get label() { return translate("workshop.workshopPanel.recent"); } },
 ];
 
 /** The palette, as the swatch strip that stands in for the theme. */
@@ -144,6 +147,7 @@ function ThemeCard({
   onOpenAuthor: () => void;
   busy: boolean;
 }) {
+  const t = useT();
   return (
     <li className="flex flex-col gap-3 rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
       {/* The heart sits on the artwork, which is where the eye already is and
@@ -158,7 +162,7 @@ function ThemeCard({
           type="button"
           onClick={onLike}
           disabled={busy || !theme.published}
-          aria-label={theme.liked ? "Remover curtida" : "Curtir tema"}
+          aria-label={theme.liked ? t("common.removeLike") : t("common.likeTheme")}
           aria-pressed={theme.liked}
           className="absolute right-2 top-2 flex items-center gap-1.5 rounded-full bg-black/50 px-2.5 py-1.5 text-xs font-semibold text-white backdrop-blur-sm transition hover:bg-black/70 disabled:cursor-not-allowed disabled:opacity-50"
         >
@@ -177,18 +181,18 @@ function ThemeCard({
               anyway, and until now it was the one thing on here that looked
               like a title and behaved like plain text. */}
           <Link
-            href={`/tema/${theme.id}`}
+            href={`/theme/${theme.id}`}
             className="truncate text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-100"
           >
             {theme.name}
           </Link>
           <span className="shrink-0 rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
-            {isDarkTheme(theme.spec) ? "escuro" : "claro"}
+            {isDarkTheme(theme.spec) ? t("common.dark") : t("common.light")}
           </span>
           {theme.price > 0 && (
             <span className="flex shrink-0 items-center gap-0.5 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
               <BsCoin className="h-2.5 w-2.5 shrink-0" />
-              {theme.price.toLocaleString("pt-BR")}
+              {theme.price.toLocaleString(formatLocale())}
             </span>
           )}
         </p>
@@ -212,7 +216,7 @@ function ThemeCard({
         <button
           type="button"
           onClick={onOpenAuthor}
-          aria-label={`Ver o perfil de ${theme.author.displayName}`}
+          aria-label={t("common.seeDisplaynameSProfile", { displayName: theme.author.displayName })}
           className="flex min-w-0 cursor-pointer items-center gap-2 text-left text-xs text-zinc-500 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
         >
           <UserAvatar
@@ -252,7 +256,7 @@ function ThemeCard({
                 : "bg-zinc-950 text-white hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
             }`}
           >
-            {worn ? "Em uso — remover" : "Usar tema"}
+            {worn ? t("common.inUseRemove") : t("common.useTheme")}
           </button>
         ) : (
           <button
@@ -262,7 +266,7 @@ function ThemeCard({
             className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-amber-600 disabled:opacity-60"
           >
             <BsCoin className="h-3.5 w-3.5 shrink-0" />
-            Comprar por {theme.price.toLocaleString("pt-BR")}
+            {t("workshop.workshopPanel.buyFor")} {theme.price.toLocaleString(formatLocale())}
           </button>
         )}
         {/* Beside the verb and the same width, because it is the other half of
@@ -274,7 +278,7 @@ function ThemeCard({
           className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
         >
           <MdVisibility className="h-3.5 w-3.5 shrink-0" />
-          Visualizar tema
+          {t("common.previewTheme")}
         </button>
       </div>
 
@@ -285,7 +289,7 @@ function ThemeCard({
             onClick={onEdit}
             className="flex-1 rounded-lg border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
           >
-            Editar
+            {t("common.edit")}
           </button>
           {/* Only on your own — the API refuses the report to anybody else,
               and a link that leads to a refusal is worse than no link.
@@ -293,9 +297,9 @@ function ThemeCard({
               panel has its own address, worth keeping open in a tab while
               the numbers move. */}
           <Link
-            href={`/tema/${theme.id}/painel`}
-            aria-label={`Ver o painel de ${theme.name}`}
-            title="Ver o painel do tema"
+            href={`/theme/${theme.id}/panel`}
+            aria-label={t("workshop.workshopPanel.seeNameSDashboard", { name: theme.name })}
+            title={t("workshop.workshopPanel.seeTheThemeSDashboard")}
             className="flex items-center justify-center rounded-lg border border-zinc-300 px-2.5 py-2 text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
           >
             <MdOutlineShowChart className="h-4 w-4 shrink-0" />
@@ -318,14 +322,14 @@ function ThemeCard({
         {theme.published && (
           <CopyButton
             value={themeLink(theme.id)}
-            label="Copiar link"
-            copiedLabel="Copiado!"
+            label={t("common.copyLink")}
+            copiedLabel={t("common.copied2")}
             className="ml-auto flex items-center gap-1 rounded-lg px-1.5 py-1 text-xs font-medium text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
           />
         )}
         {!theme.published && (
           <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
-            privado
+            {t("common.privateAdj")}
           </span>
         )}
       </div>
@@ -334,6 +338,7 @@ function ThemeCard({
 }
 
 export function WorkshopPanel() {
+  const t = useT();
   const { account, refresh } = useAuth();
   const { openPopup } = useNtPopups();
   const router = useRouter();
@@ -503,22 +508,21 @@ export function WorkshopPanel() {
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
             <MdPalette className="h-6 w-6 shrink-0 text-indigo-500" />
-            Descobrir temas
+            {t("workshop.workshopPanel.discoverThemes")}
           </h1>
           <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-            Temas feitos pela comunidade para deixar as salas com outra cara. Usar é grátis para
-            qualquer conta.
+            {t("workshop.workshopPanel.themesMadeByTheCommunityTo")}
           </p>
         </div>
         {canCreate && (
           <button
             type="button"
             onClick={createInRoom}
-            title="Abre uma sala para você ver o tema enquanto monta"
+            title={t("workshop.workshopPanel.opensARoomSoYouCan")}
             className="flex shrink-0 items-center gap-1.5 rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
           >
             <MdAdd className="h-4 w-4 shrink-0" />
-            Criar tema
+            {t("common.createTheme")}
           </button>
         )}
       </div>
@@ -531,17 +535,17 @@ export function WorkshopPanel() {
 
       {!canCreate && !banned && (
         <p className="mt-4 rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
-          Criar seus próprios temas é do{" "}
+          {t("workshop.workshopPanel.creatingYourOwnThemesIs")}{" "}
           <Link href="/pro" className="font-medium underline underline-offset-2">
-            Pro
+            {t("common.pro")}
           </Link>
-          . Publicar no Descobrir, do Pro Max.
+          {t("workshop.workshopPanel.publishingOnDiscoverIsProMax")}
         </p>
       )}
 
       {myThemes.length > 0 && (
         <section className="mt-8">
-          <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Seus temas</h2>
+          <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">{t("common.yourThemes")}</h2>
           <ul className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {myThemes.map((theme) => (
               <ThemeCard
@@ -564,7 +568,7 @@ export function WorkshopPanel() {
       <section className="mt-8">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
-            Da comunidade
+            {t("common.fromTheCommunity")}
           </h2>
           <div className="inline-flex rounded-xl border border-zinc-200 p-1 dark:border-zinc-800">
             {SORTS.map((entry) => (
@@ -586,10 +590,10 @@ export function WorkshopPanel() {
         </div>
 
         {loading ? (
-          <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">Carregando…</p>
+          <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">{t("common.loading")}</p>
         ) : themes.length === 0 ? (
           <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">
-            Ainda não há temas publicados. {canCreate && "Seja o primeiro."}
+            {t("workshop.workshopPanel.thereAreNoPublishedThemesYet")} {canCreate && t("workshop.workshopPanel.beTheFirst")}
           </p>
         ) : (
           <ul className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -622,7 +626,7 @@ export function WorkshopPanel() {
       {worn && (
         <p className="mt-8 flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
           <MdCheck className="h-4 w-4 shrink-0 text-emerald-500" />
-          Seu tema aparece nas salas que não têm um tema próprio definido.
+          {t("workshop.workshopPanel.yourThemeAppearsInRoomsThat")}
         </p>
       )}
 

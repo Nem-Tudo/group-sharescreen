@@ -95,6 +95,9 @@ import {
   rolesWithIds,
 } from "@/lib/groupPermissions";
 import { GoldVerifiedBadgeIcon } from "../icons";
+import { useI18n } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
+import { formatLocale } from "@/lib/i18n";
 
 // The group's popups, registered with ntpopups in components/NtPopups.tsx:
 //
@@ -119,6 +122,7 @@ function inviteUrl(code: string): string {
 
 /** "Copiar" that says "Copiado" for a moment once it has. */
 function CopyLinkButton({ url, disabled = false }: { url: string; disabled?: boolean }) {
+  const { t, tc } = useI18n();
   const [copied, setCopied] = useState(false);
   return (
     <button
@@ -133,7 +137,7 @@ function CopyLinkButton({ url, disabled = false }: { url: string; disabled?: boo
       className={`${copied ? "bg-emerald-600 text-white hover:bg-emerald-700" : "bg-zinc-950 text-white hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"} flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-3 text-sm font-medium transition disabled:opacity-50`}
     >
       {copied ? <MdCheck className="h-4 w-4" /> : <MdContentCopy className="h-4 w-4" />}
-      {copied ? "Copiado" : "Copiar"}
+      {copied ? t("common.copied") : t("common.copy")}
     </button>
   );
 }
@@ -154,6 +158,7 @@ function CustomInviteSection({ groupId }: { groupId: string }) {
 }
 
 function CustomInviteEditor({ detail }: { detail: GroupDetail }) {
+  const { t, tc } = useI18n();
   const groupId = detail.group.id;
   const current = detail.group.customInvite ?? null;
   const allowed = detail.group.customInviteAllowed ?? false;
@@ -166,7 +171,7 @@ function CustomInviteEditor({ detail }: { detail: GroupDetail }) {
   if (!allowed && !current) {
     return (
       <p className="rounded-lg border border-dashed border-zinc-300 px-3 py-2.5 text-xs text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
-        <span className="font-medium text-zinc-700 dark:text-zinc-300">Link personalizado</span> — Disponível quando o dono do grupo tem o <GoldVerifiedBadgeIcon className="h-3.5 w-3.5 inline"/> Pro Max.
+        <span className="font-medium text-zinc-700 dark:text-zinc-300">{t("groups.groupDialogs.customLink")}</span> {t("groups.groupDialogs.availableWhenTheGroupSOwner")} <GoldVerifiedBadgeIcon className="h-3.5 w-3.5 inline"/> {t("groups.groupDialogs.proMax")}
       </p>
     );
   }
@@ -183,7 +188,7 @@ function CustomInviteEditor({ detail }: { detail: GroupDetail }) {
       setMessage({ ok: false, text: result.error });
       return;
     }
-    setMessage({ ok: true, text: next ? "Link salvo." : "Link removido." });
+    setMessage({ ok: true, text: next ? t("groups.groupDialogs.linkSaved") : t("groups.groupDialogs.linkRemoved") });
     void refreshGroup(groupId);
   }
 
@@ -196,13 +201,12 @@ function CustomInviteEditor({ detail }: { detail: GroupDetail }) {
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Link personalizado</span>
+        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("groups.groupDialogs.customLink")}</span>
         {current && allowed && <CopyLinkButton url={inviteUrl(current)} />}
       </div>
       {current && !allowed && (
         <p className="text-xs text-amber-600 dark:text-amber-400">
-          <span className="font-mono">{prefix + current}</span> está desativado: ele volta a funcionar quando o
-          dono do grupo tiver o Pro Max. Enquanto isso, o nome continua reservado para o grupo.
+          <span className="font-mono">{prefix + current}</span> {t("groups.groupDialogs.isDisabledItWorksAgainWhen")}
         </p>
       )}
       <form onSubmit={submit} className="flex gap-2">
@@ -218,16 +222,16 @@ function CustomInviteEditor({ detail }: { detail: GroupDetail }) {
             }}
             disabled={!allowed || busy}
             placeholder="meu-grupo"
-            aria-label="Link personalizado"
+            aria-label={t("groups.groupDialogs.customLink")}
             className="min-w-0 flex-1 bg-transparent py-2 pl-3 pr-3 font-mono text-sm text-zinc-950 outline-none disabled:opacity-60 sm:pl-0 dark:text-zinc-50"
           />
         </label>
         <button type="submit" disabled={!allowed || busy || !valid || !changed} className={primaryButton}>
-          Salvar
+          {t("common.save")}
         </button>
       </form>
       <p className="text-xs text-zinc-500 dark:text-zinc-400">
-        De 3 a 32 letras minúsculas, números ou hífen. Não expira e não tem limite de usos.
+        {t("groups.groupDialogs.n3To32LowercaseLettersNumbers")}
       </p>
       {current && (
         <button
@@ -236,7 +240,7 @@ function CustomInviteEditor({ detail }: { detail: GroupDetail }) {
           onClick={() => void save(null)}
           className="self-start cursor-pointer text-xs font-medium text-red-600 underline-offset-2 hover:underline disabled:opacity-50"
         >
-          Remover link personalizado
+          {t("groups.groupDialogs.removeCustomLink")}
         </button>
       )}
       {message && <p className={`text-xs ${message.ok ? "text-emerald-600" : "text-red-500"}`}>{message.text}</p>}
@@ -264,22 +268,23 @@ function VisibilityPicker({
   onChange: (next: GroupVisibility) => void;
   disabled?: boolean;
 }) {
+  const { t, tc } = useI18n();
   const options: { id: GroupVisibility; label: string; hint: string; icon: ReactNode }[] = [
     {
       id: "private",
-      label: "Privado",
-      hint: "Só entra quem tiver um convite.",
+      label: t("common.private"),
+      hint: t("groups.groupDialogs.onlyThoseWithAnInviteGet"),
       icon: <MdLockOutline className="h-5 w-5" />,
     },
     {
       id: "public",
-      label: "Público",
-      hint: "Qualquer um pode entrar.",
+      label: t("common.public"),
+      hint: t("groups.groupDialogs.anyoneCanJoin"),
       icon: <MdPublic className="h-5 w-5" />,
     },
   ];
   return (
-    <div role="radiogroup" aria-label="Visibilidade do grupo" className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+    <div role="radiogroup" aria-label={t("groups.groupDialogs.groupVisibility")} className="grid grid-cols-1 gap-2 sm:grid-cols-2">
       {options.map((option) => {
         const selected = value === option.id;
         return (
@@ -311,6 +316,7 @@ function VisibilityPicker({
 }
 
 export function CreateGroupDialog({ closePopup }: PopupProps<object>) {
+  const { t, tc } = useI18n();
   const navigation = useGroupNavigation();
   const { openPopup } = useNtPopups();
   const [name, setName] = useState("");
@@ -325,7 +331,7 @@ export function CreateGroupDialog({ closePopup }: PopupProps<object>) {
     e.target.value = "";
     if (!file) return;
     if (!isSupportedAvatarImage(file)) {
-      setError("Use uma imagem PNG, JPEG, WebP, GIF ou AVIF.");
+      setError(t("groups.groupDialogs.useAPngJpegWebpGif"));
       return;
     }
     try {
@@ -333,7 +339,7 @@ export function CreateGroupDialog({ closePopup }: PopupProps<object>) {
       setIcon(prepared.dataUrl);
       setError(null);
     } catch {
-      setError("Não foi possível ler essa imagem.");
+      setError(t("common.couldNotReadThatImage"));
     }
   }
 
@@ -363,9 +369,9 @@ export function CreateGroupDialog({ closePopup }: PopupProps<object>) {
   }
 
   return (
-    <DialogFrame title="Criar um grupo" onClose={() => closePopup(false)}>
+    <DialogFrame title={t("common.createAGroup")} onClose={() => closePopup(false)}>
       <p className="-mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-        Um lugar permanente com salas de voz e de texto para você e seus amigos.
+        {t("groups.groupDialogs.aPermanentPlaceWithVoiceAnd")}
       </p>
       <form onSubmit={submit} className="flex flex-col gap-4">
         <div className="flex items-center gap-4">
@@ -373,46 +379,46 @@ export function CreateGroupDialog({ closePopup }: PopupProps<object>) {
             type="button"
             onClick={() => fileRef.current?.click()}
             className="relative shrink-0 cursor-pointer"
-            aria-label="Escolher ícone"
+            aria-label={t("groups.groupDialogs.chooseIcon")}
           >
             {icon ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={icon} alt="Ícone" className="h-20 w-20 rounded-2xl object-cover" />
+              <img src={icon} alt={t("groups.groupDialogs.icon")} className="h-20 w-20 rounded-2xl object-cover" />
             ) : (
               <span className="flex h-20 w-20 flex-col items-center justify-center rounded-2xl border-2 border-dashed border-zinc-300 text-xs text-zinc-500 dark:border-zinc-700">
                 <MdAddPhotoAlternate className="h-6 w-6" />
-                Ícone
+                {t("groups.groupDialogs.icon")}
               </span>
             )}
           </button>
           <input ref={fileRef} type="file" accept={AVATAR_IMAGE_ACCEPT} hidden onChange={onPickIcon} />
           <label className="flex min-w-0 flex-1 flex-col gap-1.5">
-            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Nome do grupo</span>
+            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("groups.groupDialogs.groupName")}</span>
             <input
               autoFocus
               value={name}
               onChange={(e) => setName(e.target.value)}
               maxLength={50}
-              placeholder="Ex: Galera do jogo"
+              placeholder={t("groups.groupDialogs.exGamingCrew")}
               className={inputClass}
             />
           </label>
         </div>
         <div className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Quem pode entrar?</span>
+          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("groups.groupDialogs.whoCanJoin")}</span>
           <VisibilityPicker value={visibility} onChange={setVisibility} disabled={busy} />
-          <span className="text-xs text-zinc-500 dark:text-zinc-400">Dá pra trocar depois, nas configurações.</span>
+          <span className="text-xs text-zinc-500 dark:text-zinc-400">{t("groups.groupDialogs.youCanChangeItLaterIn")}</span>
         </div>
         {error && <p className="text-sm text-red-500">{error}</p>}
         <p className="text-xs text-zinc-500 dark:text-zinc-400">
-          O grupo começa com uma sala de texto <b>#geral</b> e uma sala de voz <b>Geral</b>.
+          {t("groups.groupDialogs.theGroupStartsWithAText")} <b>#geral</b> e uma sala de voz <b>{t("common.general")}</b>.
         </p>
         <div className="flex justify-end gap-2">
           <button type="button" onClick={() => closePopup(false)} className={secondaryButton}>
-            Cancelar
+            {t("common.cancel")}
           </button>
           <button type="submit" disabled={!name.trim() || busy} className={primaryButton}>
-            {busy ? "Criando…" : "Criar grupo"}
+            {busy ? t("common.creating") : t("groups.groupDialogs.createGroup")}
           </button>
         </div>
       </form>
@@ -423,6 +429,7 @@ export function CreateGroupDialog({ closePopup }: PopupProps<object>) {
 // ─── Join ────────────────────────────────────────────────────────────────
 
 export function JoinGroupDialog({ closePopup }: PopupProps<object>) {
+  const { t, tc } = useI18n();
   const router = useRouter();
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -431,7 +438,7 @@ export function JoinGroupDialog({ closePopup }: PopupProps<object>) {
     e.preventDefault();
     const code = inviteCodeFromInput(value);
     if (!code) {
-      setError("Isso não parece um convite. Cole o link inteiro que te mandaram.");
+      setError(t("groups.groupDialogs.thatDoesNotLookLikeAn"));
       return;
     }
     closePopup(true);
@@ -439,10 +446,10 @@ export function JoinGroupDialog({ closePopup }: PopupProps<object>) {
   }
 
   return (
-    <DialogFrame title="Entrar em um grupo" onClose={() => closePopup(false)}>
+    <DialogFrame title={t("common.joinAGroup")} onClose={() => closePopup(false)}>
       <form onSubmit={submit} className="flex flex-col gap-3">
         <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Link ou código do convite</span>
+          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("groups.groupDialogs.inviteLinkOrCode")}</span>
           <input
             autoFocus
             value={value}
@@ -457,10 +464,10 @@ export function JoinGroupDialog({ closePopup }: PopupProps<object>) {
         {error && <p className="text-sm text-red-500">{error}</p>}
         <div className="flex justify-end gap-2">
           <button type="button" onClick={() => closePopup(false)} className={secondaryButton}>
-            Cancelar
+            {t("common.cancel")}
           </button>
           <button type="submit" disabled={!value.trim()} className={primaryButton}>
-            Continuar
+            {t("common.continue")}
           </button>
         </div>
       </form>
@@ -476,11 +483,12 @@ const LIFETIMES: { value: InviteLifetime; label: string }[] = [
   { value: "6h", label: "6 horas" },
   { value: "1d", label: "1 dia" },
   { value: "7d", label: "7 dias" },
-  { value: "never", label: "Nunca" },
+  { value: "never", get label() { return translate("groups.groupDialogs.never"); } },
 ];
 const MAX_USES = [0, 1, 5, 10, 25, 50, 100];
 
 export function GroupInviteDialog({ closePopup, data }: PopupProps<{ groupId: string; groupName?: string }>) {
+  const { t, tc } = useI18n();
   const groupId = data?.groupId ?? "";
   // From the store, for the badge — and the current name, should it have
   // been renamed since whoever opened this was handed one.
@@ -529,32 +537,32 @@ export function GroupInviteDialog({ closePopup, data }: PopupProps<{ groupId: st
       title={
         groupName ? (
           <span className="inline-flex min-w-0 items-center gap-1.5">
-            <span className="shrink-0">Convidar para</span>
+            <span className="shrink-0">{t("groups.groupDialogs.inviteTo")}</span>
             <GroupName name={groupName} flags={inviteDetail?.group.flags} badgeClassName="h-5 w-5" />
           </span>
         ) : (
-          "Convidar pessoas"
+          t("common.invitePeople")
         )
       }
       onClose={() => closePopup(false)}
     >
       {customUrl && (
         <div className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Link do grupo</span>
+          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("groups.groupDialogs.groupLink")}</span>
           <div className="flex gap-2">
             <input readOnly value={customUrl} className={`${inputClass} font-mono text-xs`} />
             <CopyLinkButton url={customUrl} />
           </div>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">Personalizado · nunca expira · usos ilimitados</p>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">{t("groups.groupDialogs.customNeverExpiresUnlimitedUses")}</p>
         </div>
       )}
 
       <div className="flex flex-col gap-1.5">
         <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-          {customUrl ? "Ou um link temporário" : "Link de convite"}
+          {customUrl ? t("groups.groupDialogs.orATemporaryLink") : t("groups.groupDialogs.inviteLink")}
         </span>
         <div className="flex gap-2">
-          <input readOnly value={busy && !invite ? "Gerando…" : url} className={`${inputClass} font-mono text-xs`} />
+          <input readOnly value={busy && !invite ? t("common.generating") : url} className={`${inputClass} font-mono text-xs`} />
           <button
             type="button"
             disabled={!invite}
@@ -567,20 +575,20 @@ export function GroupInviteDialog({ closePopup, data }: PopupProps<{ groupId: st
             className={`${copied ? "bg-emerald-600 text-white hover:bg-emerald-700" : "bg-zinc-950 text-white hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"} flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-3 text-sm font-medium transition disabled:opacity-50`}
           >
             {copied ? <MdCheck className="h-4 w-4" /> : <MdContentCopy className="h-4 w-4" />}
-            {copied ? "Copiado" : "Copiar"}
+            {copied ? t("common.copied") : t("common.copy")}
           </button>
         </div>
         {invite && (
           <p className="text-xs text-zinc-500 dark:text-zinc-400">
             {describeInviteExpiry(invite.expiresAt)}
-            {invite.maxUses ? ` · até ${invite.maxUses} ${invite.maxUses === 1 ? "uso" : "usos"}` : " · usos ilimitados"}
+            {invite.maxUses ? t("groups.groupDialogs.upToMaxusesValue", { maxUses: invite.maxUses, value: tc("common.useNoun", invite.maxUses) }) : t("groups.groupDialogs.unlimitedUses")}
           </p>
         )}
       </div>
 
       <div className="grid grid-cols-2 gap-3">
         <label className="flex flex-col gap-1.5">
-          <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Expira depois de</span>
+          <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{t("groups.groupDialogs.expiresAfter")}</span>
           <select value={lifetime} onChange={(e) => setLifetime(e.target.value as InviteLifetime)} className={inputClass}>
             {LIFETIMES.map((l) => (
               <option key={l.value} value={l.value}>
@@ -590,11 +598,11 @@ export function GroupInviteDialog({ closePopup, data }: PopupProps<{ groupId: st
           </select>
         </label>
         <label className="flex flex-col gap-1.5">
-          <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Número máximo de usos</span>
+          <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{t("groups.groupDialogs.maximumNumberOfUses")}</span>
           <select value={maxUses} onChange={(e) => setMaxUses(Number(e.target.value))} className={inputClass}>
             {MAX_USES.map((n) => (
               <option key={n} value={n}>
-                {n === 0 ? "Sem limite" : n === 1 ? "1 uso" : `${n} usos`}
+                {n === 0 ? t("common.noLimit") : n === 1 ? "1 uso" : `${n} usos`}
               </option>
             ))}
           </select>
@@ -603,7 +611,7 @@ export function GroupInviteDialog({ closePopup, data }: PopupProps<{ groupId: st
       {error && <p className="text-sm text-red-500">{error}</p>}
       <div className="flex justify-end">
         <button type="button" onClick={() => void generate()} disabled={busy} className={secondaryButton}>
-          Gerar novo link
+          {t("groups.groupDialogs.generateANewLink")}
         </button>
       </div>
     </DialogFrame>
@@ -622,14 +630,14 @@ export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: 
 
   // Each tab for whoever has the switch it takes (see lib/groupPermissions).
   const tabs: { id: SettingsTab; label: string; show: boolean }[] = [
-    { id: "overview", label: "Visão geral", show: can("manageGroup") },
-    { id: "channels", label: "Salas", show: can("manageChannels") },
-    { id: "roles", label: "Cargos", show: can("manageRoles") },
-    { id: "map", label: "Mapa", show: can("manageGroup") },
-    { id: "invites", label: "Convites", show: can("manageGroup") || can("createInvites") },
-    { id: "members", label: "Membros", show: true },
-    { id: "bans", label: "Banidos", show: can("banMembers") },
-    { id: "danger", label: "Zona de perigo", show: isOwner },
+    { id: "overview", label: translate("common.overview"), show: can("manageGroup") },
+    { id: "channels", label: translate("common.rooms"), show: can("manageChannels") },
+    { id: "roles", label: translate("groups.groupDialogs.roles"), show: can("manageRoles") },
+    { id: "map", label: translate("groups.groupDialogs.map"), show: can("manageGroup") },
+    { id: "invites", label: translate("groups.groupDialogs.invites"), show: can("manageGroup") || can("createInvites") },
+    { id: "members", label: translate("common.members"), show: true },
+    { id: "bans", label: translate("groups.groupDialogs.banned"), show: can("banMembers") },
+    { id: "danger", label: translate("groups.groupDialogs.dangerZone"), show: isOwner },
   ];
   const visible = tabs.filter((t) => t.show);
   // "permissions" is what the tab was called before roles — asked for by
@@ -644,8 +652,8 @@ export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: 
 
   if (!detail) {
     return (
-      <DialogFrame title="Grupo" onClose={() => closePopup(false)} wide>
-        <p className="text-sm text-zinc-500">Carregando…</p>
+      <DialogFrame title={translate("common.group")} onClose={() => closePopup(false)} wide>
+        <p className="text-sm text-zinc-500">{translate("common.loading")}</p>
       </DialogFrame>
     );
   }
@@ -681,6 +689,7 @@ export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: 
  * first that it comes off; going public offers the map straight away.
  */
 function VisibilitySection({ groupId, onGoToMap }: { groupId: string; onGoToMap: () => void }) {
+  const { t, tc } = useI18n();
   const { detail } = useGroupDetail(groupId);
   const [busy, setBusy] = useState(false);
   const [confirmPrivate, setConfirmPrivate] = useState(false);
@@ -703,14 +712,14 @@ function VisibilitySection({ groupId, onGoToMap }: { groupId: string; onGoToMap:
     setJustOpened(next === "public");
     setMessage({
       ok: true,
-      text: next === "public" ? "Agora o grupo é público." : "Agora o grupo é privado: só entra quem tiver convite.",
+      text: next === "public" ? t("groups.groupDialogs.theGroupIsPublicNow") : t("groups.groupDialogs.theGroupIsPrivateNowOnly"),
     });
     void refreshGroup(groupId);
   }
 
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Quem pode entrar?</span>
+      <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("groups.groupDialogs.whoCanJoin")}</span>
       <VisibilityPicker
         value={current}
         disabled={!isOwner || busy}
@@ -721,15 +730,15 @@ function VisibilitySection({ groupId, onGoToMap }: { groupId: string; onGoToMap:
           else void change(next);
         }}
       />
-      {!isOwner && <span className="text-xs text-zinc-500 dark:text-zinc-400">Só o dono do grupo pode mudar isso.</span>}
+      {!isOwner && <span className="text-xs text-zinc-500 dark:text-zinc-400">{t("groups.groupDialogs.onlyTheGroupSOwnerCan")}</span>}
       {confirmPrivate && (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
-          <span className="min-w-0 flex-1">Grupos privados não ficam no mapa: o grupo vai sair dele.</span>
+          <span className="min-w-0 flex-1">{t("groups.groupDialogs.privateGroupsDoNotStayOn")}</span>
           <button type="button" onClick={() => setConfirmPrivate(false)} className={secondaryButton}>
-            Cancelar
+            {t("common.cancel")}
           </button>
           <button type="button" disabled={busy} onClick={() => void change("private")} className={primaryButton}>
-            Tornar privado
+            {t("groups.groupDialogs.makeItPrivate")}
           </button>
         </div>
       )}
@@ -739,7 +748,7 @@ function VisibilitySection({ groupId, onGoToMap }: { groupId: string; onGoToMap:
           {justOpened && !detail.group.location && (
             <button type="button" onClick={onGoToMap} className={`${secondaryButton} inline-flex items-center gap-1.5`}>
               <MdOutlineMap className="h-4 w-4" />
-              Colocar no mapa
+              {t("groups.groupDialogs.putOnTheMap")}
             </button>
           )}
         </div>
@@ -749,6 +758,7 @@ function VisibilitySection({ groupId, onGoToMap }: { groupId: string; onGoToMap:
 }
 
 function OverviewTab({ groupId, onGoToMap }: { groupId: string; onGoToMap: () => void }) {
+  const { t, tc } = useI18n();
   const { detail } = useGroupDetail(groupId);
   const { openPopup } = useNtPopups();
   const { account } = useAuth();
@@ -766,7 +776,7 @@ function OverviewTab({ groupId, onGoToMap }: { groupId: string; onGoToMap: () =>
     setBusy(true);
     const result = await updateGroup(groupId, { name: name.trim(), description: description.trim() });
     setBusy(false);
-    setMessage(result.ok ? { ok: true, text: "Salvo." } : { ok: false, text: result.error });
+    setMessage(result.ok ? { ok: true, text: t("common.saved2") } : { ok: false, text: result.error });
     if (result.ok) void refreshGroup(groupId);
   }
 
@@ -775,17 +785,17 @@ function OverviewTab({ groupId, onGoToMap }: { groupId: string; onGoToMap: () =>
     e.target.value = "";
     if (!file) return;
     if (!isSupportedAvatarImage(file)) {
-      setMessage({ ok: false, text: "Use uma imagem PNG, JPEG, WebP, GIF ou AVIF." });
+      setMessage({ ok: false, text: t("groups.groupDialogs.useAPngJpegWebpGif") });
       return;
     }
     setBusy(true);
     try {
       const prepared = await prepareAvatarImage(file);
       const result = await uploadGroupIcon(groupId, prepared.dataUrl);
-      setMessage(result.ok ? { ok: true, text: "Ícone atualizado." } : { ok: false, text: result.error });
+      setMessage(result.ok ? { ok: true, text: t("groups.groupDialogs.iconUpdated") } : { ok: false, text: result.error });
       if (result.ok) void refreshGroup(groupId);
     } catch {
-      setMessage({ ok: false, text: "Não foi possível ler essa imagem." });
+      setMessage({ ok: false, text: t("common.couldNotReadThatImage") });
     }
     setBusy(false);
   }
@@ -796,7 +806,7 @@ function OverviewTab({ groupId, onGoToMap }: { groupId: string; onGoToMap: () =>
         <GroupIcon name={detail.group.name} iconUrl={detail.group.iconUrl} seed={groupId} size={80} className="rounded-2xl" />
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={() => fileRef.current?.click()} disabled={busy} className={secondaryButton}>
-            Trocar ícone
+            {t("groups.groupDialogs.changeIcon")}
           </button>
           {detail.group.iconUrl && (
             <button
@@ -808,35 +818,35 @@ function OverviewTab({ groupId, onGoToMap }: { groupId: string; onGoToMap: () =>
               }}
               className={secondaryButton}
             >
-              Remover
+              {t("common.remove")}
             </button>
           )}
           <input ref={fileRef} type="file" accept={AVATAR_IMAGE_ACCEPT} hidden onChange={onPickIcon} />
         </div>
       </div>
       <label className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Nome</span>
+        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("common.name")}</span>
         <input value={name} onChange={(e) => setName(e.target.value)} maxLength={50} className={inputClass} />
       </label>
       <label className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Descrição</span>
+        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("common.description")}</span>
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           maxLength={200}
           rows={3}
-          placeholder="Sobre o que é este grupo?"
+          placeholder={t("groups.groupDialogs.whatIsThisGroupAbout")}
           className={`${inputClass} resize-none`}
         />
       </label>
       <VisibilitySection groupId={groupId} onGoToMap={onGoToMap} />
       <div className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Tema do grupo</span>
+        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("common.groupTheme")}</span>
         <div className="flex items-center gap-3">
           <p className="min-w-0 flex-1 text-sm text-zinc-500 dark:text-zinc-400">
             {detail.group.theme
-              ? "O grupo tem um tema: todo mundo vê ele, em todas as salas."
-              : "Sem tema: cada um vê o tema que escolheu para si."}
+              ? t("groups.groupDialogs.theGroupHasAThemeEveryone")
+              : t("groups.groupDialogs.noThemeEachPersonSeesThe")}
           </p>
           <button
             type="button"
@@ -849,14 +859,14 @@ function OverviewTab({ groupId, onGoToMap }: { groupId: string; onGoToMap: () =>
             }}
             className={secondaryButton}
           >
-            {hasThemePlan ? "Escolher tema" : "Pro Max"}
+            {hasThemePlan ? t("groups.groupDialogs.chooseTheme") : t("common.proMax")}
           </button>
         </div>
       </div>
       <div className="flex items-center justify-end gap-3">
         {message && <span className={`text-sm ${message.ok ? "text-emerald-600" : "text-red-500"}`}>{message.text}</span>}
         <button type="submit" disabled={!dirty || !name.trim() || busy} className={primaryButton}>
-          Salvar
+          {t("common.save")}
         </button>
       </div>
     </form>
@@ -882,6 +892,7 @@ function LocationTab({
   celebrating?: boolean;
   onDone?: () => void;
 }) {
+  const { t, tc } = useI18n();
   const { detail } = useGroupDetail(groupId);
   const saved = detail?.group.location ?? null;
   const [pick, setPick] = useState<{ lat: number; lng: number } | null>(saved);
@@ -902,7 +913,7 @@ function LocationTab({
       return;
     }
     if (!location) setPick(null);
-    setMessage({ ok: true, text: location ? "Local salvo." : "O grupo saiu do mapa." });
+    setMessage({ ok: true, text: location ? t("groups.groupDialogs.locationSaved") : t("groups.groupDialogs.theGroupHasBeenTakenOff") });
     void refreshGroup(groupId);
     // The prompt nobody asked for is a one-shot errand: done, out of the way.
     if (celebrating && location) onDone?.();
@@ -913,15 +924,14 @@ function LocationTab({
       <div className="flex flex-col items-start gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900">
         <p className="flex items-center gap-2 text-sm font-medium text-zinc-800 dark:text-zinc-200">
           <MdLockOutline className="h-4 w-4 shrink-0" />
-          Este grupo é privado
+          {t("groups.groupDialogs.thisGroupIsPrivate")}
         </p>
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          Grupos privados não aparecem no mapa: só dá pra entrar neles com convite. Para colocar o grupo no mapa,
-          torne-o público.
+          {t("groups.groupDialogs.privateGroupsDoNotAppearOn")}
         </p>
         {detail.me.role === "owner" && onGoToOverview && (
           <button type="button" onClick={onGoToOverview} className={secondaryButton}>
-            Mudar a visibilidade
+            {t("groups.groupDialogs.changeTheVisibility")}
           </button>
         )}
       </div>
@@ -931,19 +941,17 @@ function LocationTab({
   return (
     <div className="flex flex-col gap-3">
       <p className="text-sm text-zinc-600 dark:text-zinc-400">
-        {celebrating ? "Seu grupo é público: qualquer um pode entrar. Marque no " : "Coloque o grupo no "}
+        {celebrating ? t("groups.groupDialogs.yourGroupIsPublicAnyoneCan") : t("groups.groupDialogs.putTheGroupOnThe")}
         <Link href="/worldmap" target="_blank" className="font-medium text-blue-600 underline underline-offset-2 dark:text-blue-400">
           mapa de salas e grupos
         </Link>
         {celebrating
-          ? " de onde ele é — bairro, cidade ou país — para quem é de perto achar ele. Ele fica no mapa mesmo sem ninguém em chamada."
-          : ", para quem é de perto achar ele. Diferente de uma sala, o grupo continua no mapa mesmo sem ninguém em chamada — até alguém tirar ou o grupo ser apagado."}
+          ? t("groups.groupDialogs.whereItIsFromNeighbourhoodCity")
+          : t("groups.groupDialogs.soPeopleNearbyCanFindIt")}
       </p>
       <p className="rounded-lg border border-zinc-200 bg-zinc-50 p-2.5 text-[11px] leading-relaxed text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
-        <span className="font-medium text-zinc-700 dark:text-zinc-300">Privacidade: nada aqui é detectado.</span>{" "}
-        O lugar é só o que você clicar no mapa — o site nunca lê a localização do seu aparelho. Pode ser tão vago
-        quanto quiser: um país, uma cidade, um bairro. No mapa aparecem o nome, o ícone, a descrição e quantos
-        membros o grupo tem; nunca quem são.
+        <span className="font-medium text-zinc-700 dark:text-zinc-300">{t("groups.groupDialogs.privacyNothingHereIsDetected")}</span>{" "}
+        {t("groups.groupDialogs.thePlaceIsOnlyWhatYou")}
       </p>
       <div className="h-[min(50vh,24rem)] min-h-64 overflow-hidden rounded-lg border border-zinc-300 dark:border-zinc-700">
         <WorldMap
@@ -962,14 +970,14 @@ function LocationTab({
       <p className="text-xs text-zinc-500 dark:text-zinc-400">
         {pick ? (
           <>
-            Alfinete em{" "}
+            {t("common.pinAt")}{" "}
             <span className="font-mono text-zinc-700 dark:text-zinc-300">
               {pick.lat.toFixed(4)}, {pick.lng.toFixed(4)}
             </span>
             {!moved && " (local salvo)"}
           </>
         ) : (
-          "O grupo ainda não está no mapa. Clique num lugar ou pesquise uma cidade."
+          t("groups.groupDialogs.theGroupIsNotOnThe")
         )}
       </p>
       <div className="flex flex-wrap items-center gap-2">
@@ -979,12 +987,12 @@ function LocationTab({
           onClick={() => void save(pick)}
           className="flex-1 cursor-pointer rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {saved ? "Salvar novo local" : "Salvar local"}
+          {saved ? t("common.saveNewLocation") : t("common.saveLocation")}
         </button>
         {/* Only in the prompt nobody asked for; everywhere else the × is the way out. */}
         {celebrating && (
           <button type="button" onClick={onDone} className={secondaryButton}>
-            Agora não
+            {t("common.notNow")}
           </button>
         )}
         {saved && !celebrating && (
@@ -994,7 +1002,7 @@ function LocationTab({
             onClick={() => void save(null)}
             className="cursor-pointer rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-600 transition hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
           >
-            Remover do mapa
+            {t("common.removeFromTheMap")}
           </button>
         )}
       </div>
@@ -1009,6 +1017,7 @@ function LocationTab({
  * errand a new public room is sent on (see WatchRoom's newRoomPopup).
  */
 export function GroupLocationDialog({ closePopup, data }: PopupProps<{ groupId: string; justCreated?: boolean }>) {
+  const { t, tc } = useI18n();
   const groupId = data?.groupId ?? "";
   const celebrating = Boolean(data?.justCreated);
   const { detail } = useGroupDetail(groupId || null);
@@ -1017,7 +1026,7 @@ export function GroupLocationDialog({ closePopup, data }: PopupProps<{ groupId: 
       title={
         <span className="inline-flex items-center gap-2">
           <MdOutlineMap className="h-5 w-5 shrink-0 text-blue-500" />
-          {celebrating ? "Você criou um grupo público!" : "Local do grupo no mapa"}
+          {celebrating ? t("groups.groupDialogs.youCreatedAPublicGroup") : t("groups.groupDialogs.theGroupSPlaceOnThe")}
         </span>
       }
       onClose={() => closePopup(false)}
@@ -1026,7 +1035,7 @@ export function GroupLocationDialog({ closePopup, data }: PopupProps<{ groupId: 
       {detail ? (
         <LocationTab groupId={groupId} celebrating={celebrating} onDone={() => closePopup(true)} />
       ) : (
-        <p className="text-sm text-zinc-500">Carregando…</p>
+        <p className="text-sm text-zinc-500">{t("common.loading")}</p>
       )}
     </DialogFrame>
   );
@@ -1047,6 +1056,7 @@ function ChannelsTab({
   channels: GroupChannel[];
   categories: GroupCategory[];
 }) {
+  const { t, tc } = useI18n();
   const openChannelSettings = useOpenChannelSettings();
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -1057,7 +1067,7 @@ function ChannelsTab({
 
   async function run(action: Promise<{ ok: boolean; error?: string }>) {
     const result = await action;
-    if (!result.ok) setError(result.error ?? "Algo deu errado.");
+    if (!result.ok) setError(result.error ?? t("groups.groupDialogs.somethingWentWrong"));
     else setError(null);
     void refreshGroup(groupId);
   }
@@ -1107,7 +1117,7 @@ function ChannelsTab({
             }}
           >
             <input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={32} className={`${inputClass} py-1`} />
-            <button type="submit" className="cursor-pointer rounded-md bg-emerald-600 px-2 text-white" aria-label="Salvar">
+            <button type="submit" className="cursor-pointer rounded-md bg-emerald-600 px-2 text-white" aria-label={t("common.save")}>
               <MdCheck className="h-4 w-4" />
             </button>
           </form>
@@ -1116,7 +1126,7 @@ function ChannelsTab({
             <span className="truncate text-sm">{channel.name}</span>
             {Object.keys(channel.permissions ?? {}).length > 0 && (
               <span className="shrink-0 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
-                permissões próprias
+                {t("groups.groupDialogs.itsOwnPermissions")}
               </span>
             )}
           </span>
@@ -1131,10 +1141,10 @@ function ChannelsTab({
               }}
               className="cursor-pointer rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white"
             >
-              Apagar
+              {t("common.delete")}
             </button>
             <button type="button" onClick={() => setConfirming(null)} className="cursor-pointer px-1 text-xs text-zinc-500">
-              Cancelar
+              {t("common.cancel")}
             </button>
           </span>
         ) : (
@@ -1143,11 +1153,11 @@ function ChannelsTab({
               <select
                 value={section.category?.id ?? ""}
                 onChange={(e) => commit(moveChannel(sections, channel.id, e.target.value || null, null))}
-                aria-label="Categoria da sala"
-                title="Categoria"
+                aria-label={t("common.roomCategory")}
+                title={t("common.category")}
                 className="mr-1 max-w-28 cursor-pointer rounded-md border border-zinc-300 bg-white px-1 py-0.5 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
               >
-                <option value="">Sem categoria</option>
+                <option value="">{t("common.noCategory")}</option>
                 {categoryList.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
@@ -1155,14 +1165,14 @@ function ChannelsTab({
                 ))}
               </select>
             )}
-            <IconButton label="Subir" disabled={index <= 0} onClick={() => moveWithin(section, channel, -1)}>
+            <IconButton label={t("common.moveUp")} disabled={index <= 0} onClick={() => moveWithin(section, channel, -1)}>
               <MdArrowUpward className="h-4 w-4" />
             </IconButton>
-            <IconButton label="Descer" disabled={index === list.length - 1} onClick={() => moveWithin(section, channel, 1)}>
+            <IconButton label={t("common.moveDown")} disabled={index === list.length - 1} onClick={() => moveWithin(section, channel, 1)}>
               <MdArrowDownward className="h-4 w-4" />
             </IconButton>
             <IconButton
-              label="Renomear"
+              label={t("common.rename")}
               onClick={() => {
                 setEditing(channel.id);
                 setDraft(channel.name);
@@ -1170,10 +1180,10 @@ function ChannelsTab({
             >
               <MdEdit className="h-4 w-4" />
             </IconButton>
-            <IconButton label="Permissões da sala" onClick={() => openChannelSettings(groupId, channel.id, "permissions")}>
+            <IconButton label={t("groups.groupDialogs.roomPermissions")} onClick={() => openChannelSettings(groupId, channel.id, "permissions")}>
               <MdTune className="h-4 w-4" />
             </IconButton>
-            <IconButton label="Apagar" danger onClick={() => setConfirming(channel.id)}>
+            <IconButton label={t("common.delete")} danger onClick={() => setConfirming(channel.id)}>
               <MdDeleteOutline className="h-4 w-4" />
             </IconButton>
           </span>
@@ -1196,7 +1206,7 @@ function ChannelsTab({
           }}
         >
           <input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={32} className={`${inputClass} py-1`} />
-          <button type="submit" className="cursor-pointer rounded-md bg-emerald-600 px-2 text-white" aria-label="Salvar">
+          <button type="submit" className="cursor-pointer rounded-md bg-emerald-600 px-2 text-white" aria-label={t("common.save")}>
             <MdCheck className="h-4 w-4" />
           </button>
         </form>
@@ -1207,7 +1217,7 @@ function ChannelsTab({
         <p className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-wide text-zinc-500">{category.name}</p>
         {confirming === key ? (
           <span className="flex items-center gap-1">
-            <span className="text-[11px] text-zinc-500">As salas vão pro topo.</span>
+            <span className="text-[11px] text-zinc-500">{t("groups.groupDialogs.theRoomsGoToTheTop")}</span>
             <button
               type="button"
               onClick={() => {
@@ -1216,26 +1226,26 @@ function ChannelsTab({
               }}
               className="cursor-pointer rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white"
             >
-              Apagar
+              {t("common.delete")}
             </button>
             <button type="button" onClick={() => setConfirming(null)} className="cursor-pointer px-1 text-xs text-zinc-500">
-              Cancelar
+              {t("common.cancel")}
             </button>
           </span>
         ) : (
           <span className="flex shrink-0 items-center">
-            <IconButton label="Subir categoria" disabled={index <= 0} onClick={() => moveCategoryBy(category.id, -1)}>
+            <IconButton label={t("groups.groupDialogs.moveCategoryUp")} disabled={index <= 0} onClick={() => moveCategoryBy(category.id, -1)}>
               <MdArrowUpward className="h-4 w-4" />
             </IconButton>
             <IconButton
-              label="Descer categoria"
+              label={t("groups.groupDialogs.moveCategoryDown")}
               disabled={index === categoryList.length - 1}
               onClick={() => moveCategoryBy(category.id, 1)}
             >
               <MdArrowDownward className="h-4 w-4" />
             </IconButton>
             <IconButton
-              label="Renomear categoria"
+              label={t("groups.groupDialogs.renameCategory")}
               onClick={() => {
                 setEditing(key);
                 setDraft(category.name);
@@ -1243,7 +1253,7 @@ function ChannelsTab({
             >
               <MdEdit className="h-4 w-4" />
             </IconButton>
-            <IconButton label="Apagar categoria" danger onClick={() => setConfirming(key)}>
+            <IconButton label={t("common.deleteCategory")} danger onClick={() => setConfirming(key)}>
               <MdDeleteOutline className="h-4 w-4" />
             </IconButton>
           </span>
@@ -1262,18 +1272,16 @@ function ChannelsTab({
             {section.category ? (
               categoryHeading(section.category)
             ) : categoryList.length > 0 ? (
-              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Sem categoria</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{t("common.noCategory")}</p>
             ) : null}
             {rooms.map((channel) => channelRow(section, channel))}
-            {rooms.length === 0 && <p className="px-1 text-xs text-zinc-400">Nenhuma sala nesta categoria.</p>}
+            {rooms.length === 0 && <p className="px-1 text-xs text-zinc-400">{t("groups.groupDialogs.noRoomInThisCategory")}</p>}
           </div>
         );
       })}
       {error && <p className="text-sm text-red-500">{error}</p>}
       <p className="text-xs text-zinc-500 dark:text-zinc-400">
-        Para criar uma sala ou uma categoria, use o <b>+</b> da lista de salas do grupo — o de cada categoria cria a
-        sala dentro dela. Na lista, dá pra arrastar salas e categorias. Apagar uma sala de texto apaga as mensagens
-        dela; apagar uma categoria não apaga as salas.
+        {t("groups.groupDialogs.toCreateARoomOrA")} <b>+</b> {t("groups.groupDialogs.inTheGroupSRoomList")}
       </p>
     </div>
   );
@@ -1309,6 +1317,7 @@ function IconButton({
 }
 
 function InvitesTab({ groupId, groupName }: { groupId: string; groupName: string }) {
+  const { t, tc } = useI18n();
   const { openPopup } = useNtPopups();
   const { detail } = useGroupDetail(groupId);
   // Whoever manages the group sees every invite and the group's own link;
@@ -1334,7 +1343,7 @@ function InvitesTab({ groupId, groupName }: { groupId: string; groupName: string
       {managesGroup && <CustomInviteSection groupId={groupId} />}
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
-          {managesGroup ? "Links ativos que deixam alguém entrar no grupo." : "Os links de convite que você criou."}
+          {managesGroup ? t("groups.groupDialogs.activeLinksThatLetSomeoneJoin") : t("groups.groupDialogs.theInviteLinksYouCreated")}
         </p>
         {createsInvites && (
           <button
@@ -1342,12 +1351,12 @@ function InvitesTab({ groupId, groupName }: { groupId: string; groupName: string
             onClick={() => void openPopup("group_invite", { data: { groupId, groupName }, onClose: () => setSeq((s) => s + 1) })}
             className={primaryButton}
           >
-            Novo convite
+            {t("groups.groupDialogs.newInvite")}
           </button>
         )}
       </div>
-      {invites === null && <p className="text-sm text-zinc-500">Carregando…</p>}
-      {invites?.length === 0 && <p className="text-sm text-zinc-500">Nenhum convite ativo.</p>}
+      {invites === null && <p className="text-sm text-zinc-500">{t("common.loading")}</p>}
+      {invites?.length === 0 && <p className="text-sm text-zinc-500">{t("groups.groupDialogs.noActiveInvite")}</p>}
       <ul className="flex flex-col gap-1.5">
         {invites?.map((invite) => (
           <li
@@ -1357,8 +1366,8 @@ function InvitesTab({ groupId, groupName }: { groupId: string; groupName: string
             <span className="font-mono text-xs">{invite.code}</span>
             <span className="text-xs text-zinc-500 dark:text-zinc-400">
               {invite.uses}
-              {invite.maxUses ? `/${invite.maxUses}` : ""} {invite.uses === 1 ? "uso" : "usos"} ·{" "}
-              {describeInviteExpiry(invite.expiresAt)} · por {invite.createdByName ?? "alguém"}
+              {invite.maxUses ? `/${invite.maxUses}` : ""} {tc("common.useNoun", invite.uses)} ·{" "}
+              {describeInviteExpiry(invite.expiresAt)} {t("groups.groupDialogs.by")} {invite.createdByName ?? t("common.someone2")}
             </span>
             <span className="ml-auto flex gap-1">
               <button
@@ -1371,7 +1380,7 @@ function InvitesTab({ groupId, groupName }: { groupId: string; groupName: string
                 }}
                 className="cursor-pointer rounded-md px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
-                {copied === invite.code ? "Copiado!" : "Copiar link"}
+                {copied === invite.code ? t("common.copied2") : t("common.copyLink")}
               </button>
               <button
                 type="button"
@@ -1381,7 +1390,7 @@ function InvitesTab({ groupId, groupName }: { groupId: string; groupName: string
                 }}
                 className="cursor-pointer rounded-md px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-500/10"
               >
-                Revogar
+                {t("groups.groupDialogs.revoke")}
               </button>
             </span>
           </li>
@@ -1401,14 +1410,15 @@ function RoleChip({
   color: string | null;
   onRemove?: () => void;
 }) {
+  const { t, tc } = useI18n();
   return (
     <span className="flex max-w-40 shrink-0 items-center gap-1 rounded-full border border-zinc-200 py-0.5 pl-1.5 pr-2 text-[11px] font-medium text-zinc-700 dark:border-zinc-700 dark:text-zinc-300">
       {onRemove ? (
         <button
           type="button"
           onClick={onRemove}
-          aria-label={`Tirar o cargo ${name}`}
-          title="Tirar o cargo"
+          aria-label={t("groups.groupDialogs.removeTheNameRole", { name })}
+          title={t("common.removeTheRole")}
           className="group/chip relative flex h-3 w-3 shrink-0 cursor-pointer items-center justify-center rounded-full"
           style={{ backgroundColor: color ?? "#99aab5" }}
         >
@@ -1423,6 +1433,7 @@ function RoleChip({
 }
 
 function MembersTab({ groupId }: { groupId: string }) {
+  const { t, tc } = useI18n();
   const [members, setMembers] = useState<GroupMember[] | null>(null);
   const [confirm, setConfirm] = useState<{ userId: string; action: "kick" | "ban" | "transfer" } | null>(null);
   const [adding, setAdding] = useState<string | null>(null);
@@ -1446,7 +1457,7 @@ function MembersTab({ groupId }: { groupId: string }) {
     const result = await action;
     setConfirm(null);
     setAdding(null);
-    if (!result.ok) setError(result.error ?? "Algo deu errado.");
+    if (!result.ok) setError(result.error ?? t("groups.groupDialogs.somethingWentWrong"));
     else setError(null);
     setSeq((s) => s + 1);
     void refreshGroup(groupId);
@@ -1465,7 +1476,7 @@ function MembersTab({ groupId }: { groupId: string }) {
   return (
     <div className="flex flex-col gap-2">
       {error && <p className="text-sm text-red-500">{error}</p>}
-      {members === null && <p className="text-sm text-zinc-500">Carregando…</p>}
+      {members === null && <p className="text-sm text-zinc-500">{t("common.loading")}</p>}
       <ul className="flex flex-col gap-1">
         {members?.map((member) => {
           const self = member.id === selfId;
@@ -1499,7 +1510,7 @@ function MembersTab({ groupId }: { groupId: string }) {
                   {member.role === "owner" && (
                     <span className="flex shrink-0 items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-400">
                       <FaCrown className="h-3 w-3" />
-                      Dono
+                      {t("common.owner")}
                     </span>
                   )}
                 </span>
@@ -1507,10 +1518,10 @@ function MembersTab({ groupId }: { groupId: string }) {
                   <span className="flex items-center gap-1">
                     <span className="text-xs text-zinc-500">
                       {pendingConfirm === "kick"
-                        ? "Remover do grupo?"
+                        ? t("groups.groupDialogs.removeFromTheGroup")
                         : pendingConfirm === "ban"
-                          ? "Banir do grupo?"
-                          : "Passar a posse do grupo?"}
+                          ? t("groups.groupDialogs.banFromTheGroup")
+                          : t("groups.groupDialogs.handOverOwnershipOfTheGroup")}
                     </span>
                     <button
                       type="button"
@@ -1525,10 +1536,10 @@ function MembersTab({ groupId }: { groupId: string }) {
                       }
                       className="cursor-pointer rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white"
                     >
-                      Confirmar
+                      {t("groups.groupDialogs.confirm")}
                     </button>
                     <button type="button" onClick={() => setConfirm(null)} className="cursor-pointer px-1 text-xs text-zinc-500">
-                      Cancelar
+                      {t("common.cancel")}
                     </button>
                   </span>
                 ) : (
@@ -1539,7 +1550,7 @@ function MembersTab({ groupId }: { groupId: string }) {
                         onClick={() => setConfirm({ userId: member.id, action: "transfer" })}
                         className="cursor-pointer rounded-md px-2 py-1 text-xs font-medium text-amber-600 hover:bg-amber-500/10"
                       >
-                        Passar posse
+                        {t("groups.groupDialogs.handOverOwnership")}
                       </button>
                     )}
                     {!self && above && canKick && (
@@ -1548,7 +1559,7 @@ function MembersTab({ groupId }: { groupId: string }) {
                         onClick={() => setConfirm({ userId: member.id, action: "kick" })}
                         className="cursor-pointer rounded-md px-2 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
                       >
-                        Remover
+                        {t("common.remove")}
                       </button>
                     )}
                     {!self && above && canBan && (
@@ -1557,7 +1568,7 @@ function MembersTab({ groupId }: { groupId: string }) {
                         onClick={() => setConfirm({ userId: member.id, action: "ban" })}
                         className="cursor-pointer rounded-md px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-500/10"
                       >
-                        Banir
+                        {t("common.ban")}
                       </button>
                     )}
                   </span>
@@ -1588,7 +1599,7 @@ function MembersTab({ groupId }: { groupId: string }) {
                         }}
                         className="h-6 rounded-full border border-zinc-300 bg-white px-2 text-[11px] dark:border-zinc-700 dark:bg-zinc-900"
                       >
-                        <option value="">Escolha um cargo…</option>
+                        <option value="">{t("groups.groupDialogs.chooseARole")}</option>
                         {missing.map((r) => (
                           <option key={r.id} value={r.id}>
                             {r.name}
@@ -1599,8 +1610,8 @@ function MembersTab({ groupId }: { groupId: string }) {
                       <button
                         type="button"
                         onClick={() => setAdding(member.id)}
-                        aria-label="Dar um cargo"
-                        title="Dar um cargo"
+                        aria-label={t("groups.groupDialogs.giveARole")}
+                        title={t("groups.groupDialogs.giveARole")}
                         className="flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border border-dashed border-zinc-300 text-zinc-500 hover:border-zinc-500 hover:text-zinc-800 dark:border-zinc-700 dark:hover:border-zinc-500 dark:hover:text-zinc-200"
                       >
                         <MdAdd className="h-3.5 w-3.5" />
@@ -1617,6 +1628,7 @@ function MembersTab({ groupId }: { groupId: string }) {
 }
 
 function BansTab({ groupId }: { groupId: string }) {
+  const { t, tc } = useI18n();
   const [bans, setBans] = useState<GroupBan[] | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -1629,13 +1641,13 @@ function BansTab({ groupId }: { groupId: string }) {
   }, [groupId]);
   return (
     <div className="flex flex-col gap-2">
-      {bans === null && <p className="text-sm text-zinc-500">Carregando…</p>}
-      {bans?.length === 0 && <p className="text-sm text-zinc-500">Ninguém foi banido deste grupo.</p>}
+      {bans === null && <p className="text-sm text-zinc-500">{t("common.loading")}</p>}
+      {bans?.length === 0 && <p className="text-sm text-zinc-500">{t("groups.groupDialogs.nobodyHasBeenBannedFromThis")}</p>}
       <ul className="flex flex-col gap-1">
         {bans?.map((ban) => (
           <li key={ban.userId} className="flex items-center gap-3 rounded-lg border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800">
             <span className="min-w-0 flex-1 truncate font-medium">{ban.name}</span>
-            <span className="text-xs text-zinc-500">{new Date(ban.bannedAt).toLocaleDateString("pt-BR")}</span>
+            <span className="text-xs text-zinc-500">{new Date(ban.bannedAt).toLocaleDateString(formatLocale())}</span>
             <button
               type="button"
               onClick={async () => {
@@ -1644,7 +1656,7 @@ function BansTab({ groupId }: { groupId: string }) {
               }}
               className="cursor-pointer rounded-md px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
             >
-              Desbanir
+              {t("common.unban")}
             </button>
           </li>
         ))}
@@ -1654,20 +1666,20 @@ function BansTab({ groupId }: { groupId: string }) {
 }
 
 function DangerTab({ groupId, groupName, onDone }: { groupId: string; groupName: string; onDone: () => void }) {
+  const { t, tc } = useI18n();
   const navigation = useGroupNavigation();
   const [typed, setTyped] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   return (
     <div className="flex flex-col gap-3 rounded-xl border border-red-300 p-4 dark:border-red-900">
-      <p className="font-semibold text-red-600">Apagar o grupo</p>
+      <p className="font-semibold text-red-600">{t("groups.groupDialogs.deleteTheGroup")}</p>
       <p className="text-sm text-zinc-600 dark:text-zinc-400">
-        Apaga o grupo, todas as salas, mensagens e convites, para todo mundo. Não dá para desfazer. Se você só quer
-        sair, passe a posse para outra pessoa na aba Membros.
+        {t("groups.groupDialogs.deletesTheGroupEveryRoomMessage")}
       </p>
       <label className="flex flex-col gap-1.5">
         <span className="text-xs text-zinc-500">
-          Digite <b>{groupName}</b> para confirmar
+          {t("common.type")} <b>{groupName}</b> para confirmar
         </span>
         <input value={typed} onChange={(e) => setTyped(e.target.value)} className={inputClass} />
       </label>
@@ -1691,7 +1703,7 @@ function DangerTab({ groupId, groupName, onDone }: { groupId: string; groupName:
           }}
           className={dangerButton}
         >
-          Apagar grupo para sempre
+          {t("groups.groupDialogs.deleteTheGroupForever")}
         </button>
       </div>
     </div>

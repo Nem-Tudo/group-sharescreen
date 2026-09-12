@@ -28,6 +28,7 @@ import {
 import { signalingClient, getStoredName } from "./signalingClient";
 import { useGuestToken, getStoredGuestToken } from "./guestToken";
 import { fetchGuestPoints } from "./guestPoints";
+import { useT } from "@/lib/useI18n";
 
 type AuthContextValue = {
   // The logged-in account, or null once resolved to "no account" (guest, no
@@ -466,6 +467,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 // under <AuthProvider> instead of calling accountApi directly, so the
 // /auth/me lookup only ever happens once per app load.
 export function useAuth(): AuthContextValue {
+  const t = useT();
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuth must be used within an AuthProvider");
   return ctx;

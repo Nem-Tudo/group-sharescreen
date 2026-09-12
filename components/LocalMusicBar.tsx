@@ -9,6 +9,7 @@ import { LocalMediaControls, RemoteMediaControls } from "@/components/LocalMedia
 import { localMediaSources, type LocalMediaSlot } from "@/lib/localMediaSource";
 import type { SharedFile } from "@/lib/signalingClient";
 import { getStoredMusicVolume, setStoredMusicVolume } from "@/lib/mediaPreferences";
+import { useT } from "@/lib/useI18n";
 
 // A local file put on as the room's *music* rather than as something to watch
 // (see LocalMediaPicker's mode). Same strip, and the same place, as a YouTube
@@ -38,14 +39,15 @@ export function LocalMusicBar({
   onRequestAccount?: () => void;
   onStop: () => void;
 }) {
+  const t = useT();
   const source = localMediaSources[slot];
   const snapshot = useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot);
   const current = snapshot.queue[snapshot.index] ?? null;
 
   return (
     <MusicStrip
-      title={current ? (current.name.split("/").pop() ?? current.name) : "Música do computador"}
-      byline="você colocou · do seu computador"
+      title={current ? (current.name.split("/").pop() ?? current.name) : t("localMusicBar.musicFromTheComputer")}
+      byline={t("localMusicBar.youAddedFromYourComputer")}
       hasQueue={snapshot.queue.length > 1}
       controls={
         <LocalMediaControls
@@ -79,6 +81,7 @@ export function RemoteMusicBar({
   // the machine that would act on it, which is the check that counts.
   isRoomManager: boolean;
 }) {
+  const t = useT();
   const [volume, setVolume] = useState(() => getStoredMusicVolume());
 
   return (
@@ -98,7 +101,7 @@ export function RemoteMusicBar({
       volume={
         <VolumeSlider
           value={volume}
-          label="Volume da música"
+          label={t("common.musicVolume")}
           onChange={(next) => {
             setVolume(next);
             setStoredMusicVolume(next);

@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { MdDelete } from "react-icons/md";
 import { deleteAdminLogEntry, fetchAdminLog, type AdminLogEntry } from "@/lib/adminApi";
+import { useT } from "@/lib/useI18n";
+import { formatLocale } from "@/lib/i18n";
 
 // What administrators did, in the order it happened.
 //
@@ -17,7 +19,7 @@ import { deleteAdminLogEntry, fetchAdminLog, type AdminLogEntry } from "@/lib/ad
 
 function when(ts: number): string {
   try {
-    return new Date(ts).toLocaleString("pt-BR", {
+    return new Date(ts).toLocaleString(formatLocale(), {
       day: "2-digit",
       month: "2-digit",
       year: "numeric",
@@ -36,6 +38,7 @@ function statusClass(status: number): string {
 }
 
 export function AdminLogPanel() {
+  const t = useT();
   const [entries, setEntries] = useState<AdminLogEntry[]>([]);
   const [canDelete, setCanDelete] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -72,14 +75,14 @@ export function AdminLogPanel() {
 
   async function handleDelete(entry: AdminLogEntry) {
     if (busyId) return;
-    if (!window.confirm("Apagar este registro? Isso não pode ser desfeito.")) return;
+    if (!window.confirm(t("admin.adminLogPanel.deleteThisLogEntryThisCannot"))) return;
     setBusyId(entry.id);
     setError(null);
     try {
       await deleteAdminLogEntry(entry.id);
       setEntries((current) => current.filter((item) => item.id !== entry.id));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao apagar.");
+      setError(err instanceof Error ? err.message : t("admin.adminLogPanel.couldNotDelete"));
     } finally {
       setBusyId(null);
     }
@@ -90,11 +93,10 @@ export function AdminLogPanel() {
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
-            Registro de ações
+            {t("admin.adminLogPanel.actionLog")}
           </h2>
           <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-            Toda ação que altera alguma coisa, de todos os administradores. Não pode ser editado,
-            e só quem tem a flag ADMIN_MASTER consegue apagar uma entrada.
+            {t("admin.adminLogPanel.everyActionThatChangesSomethingFrom")}
           </p>
         </div>
         <button
@@ -102,17 +104,17 @@ export function AdminLogPanel() {
           onClick={() => setReloadSeq((n) => n + 1)}
           className="shrink-0 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
         >
-          Atualizar
+          {t("admin.adminLogPanel.refresh")}
         </button>
       </div>
 
       {error && <p className="mt-3 text-sm text-red-500">{error}</p>}
 
       {loading ? (
-        <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">Carregando…</p>
+        <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">{t("common.loading")}</p>
       ) : entries.length === 0 ? (
         <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
-          Nenhuma ação registrada ainda.
+          {t("admin.adminLogPanel.noActionRecordedYet")}
         </p>
       ) : (
         <>
@@ -149,7 +151,7 @@ export function AdminLogPanel() {
                     type="button"
                     onClick={() => handleDelete(entry)}
                     disabled={busyId === entry.id}
-                    aria-label="Apagar registro"
+                    aria-label={t("admin.adminLogPanel.deleteEntry")}
                     className="shrink-0 rounded-lg p-1.5 text-red-600 transition hover:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-950/40"
                   >
                     <MdDelete className="h-4 w-4" />
@@ -163,7 +165,7 @@ export function AdminLogPanel() {
             onClick={loadMore}
             className="mt-3 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
           >
-            Carregar mais
+            {t("admin.adminLogPanel.loadMore")}
           </button>
         </>
       )}

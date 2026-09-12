@@ -2,6 +2,7 @@
 
 import { CreateAccountForm } from "@/components/CreateAccountForm";
 import { LoginForm } from "@/components/LoginForm";
+import { useT } from "@/lib/useI18n";
 
 // The "entrar / criar conta" dialog, in one place.
 //
@@ -31,6 +32,7 @@ export function AccountModal({
    */
   initialDisplayName?: string;
 }) {
+  const t = useT();
   if (!mode) return null;
 
   return (
@@ -46,7 +48,7 @@ export function AccountModal({
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="text-xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-          {mode === "login" ? "Entrar na conta" : "Criar conta"}
+          {mode === "login" ? t("accountModal.signInToYourAccount") : t("common.createAccount")}
         </h2>
         {mode === "login" ? (
           <LoginForm

@@ -13,6 +13,8 @@ import {
 } from "@/lib/oauthApi";
 import { useAuth } from "@/lib/AuthContext";
 import { trackEvent } from "@/lib/analytics";
+import { useT } from "@/lib/useI18n";
+import { translate } from "@/lib/i18n";
 
 // "Entrar com Discord/Google", wherever a login or signup form is shown.
 //
@@ -47,7 +49,7 @@ export function OAuthButtons({
   onTicket,
   // Shown above the buttons; omitted where the surrounding form already
   // makes the context obvious.
-  dividerLabel = "ou",
+  dividerLabel = translate("common.or"),
 }: {
   // Called for a plain login — the session already exists by then.
   onSuccess?: () => void;
@@ -57,6 +59,7 @@ export function OAuthButtons({
   onTicket: (ticket: Extract<OAuthResult, { kind: "ticket" }>) => void;
   dividerLabel?: string | null;
 }) {
+  const t = useT();
   const { refresh } = useAuth();
   const [providers, setProviders] = useState<OAuthProvider[] | null>(null);
   const [pending, setPending] = useState<OAuthProviderId | null>(null);
@@ -122,7 +125,7 @@ export function OAuthButtons({
             className={`flex items-center justify-center gap-2.5 rounded-lg border px-4 py-2.5 font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${style.className}`}
           >
             {style.icon}
-            {pending === provider.id ? "Abrindo..." : `Entrar com ${provider.label}`}
+            {pending === provider.id ? t("common.opening") : t("oAuthButtons.signInWithLabel", { label: provider.label })}
           </button>
         );
       })}
