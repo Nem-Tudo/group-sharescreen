@@ -865,6 +865,19 @@ function createWindow(initialUrl: string = APP_URL) {
     mainWindow = null;
   });
 
+  // Zoom in on Ctrl+= as well as Ctrl++. The default menu's "Zoom In" is bound
+  // to CmdOrCtrl+Plus, which on Windows only matches when Shift is held (and
+  // not at all on some layouts, ABNT2 included), so Ctrl+- zoomed out but the
+  // key next to it did nothing. preventDefault also skips the menu accelerator,
+  // so Ctrl+Shift+= does not zoom twice. Same 0.5 step the menu uses.
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown" || !(input.control || input.meta) || input.alt) return;
+    if (input.key !== "=" && input.key !== "+") return;
+    event.preventDefault();
+    const contents = mainWindow?.webContents;
+    if (contents) contents.setZoomLevel(contents.getZoomLevel() + 0.5);
+  });
+
   // Third-party links (Discord, the terms page, a shared YouTube URL) open
   // in the user's real browser. An in-app window for them would be a
   // browser without an address bar, which is exactly the shape a phishing

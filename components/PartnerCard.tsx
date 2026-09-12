@@ -93,9 +93,15 @@ export function PartnerCard({
   partner: externalPartner,
   loaded: externalLoaded,
   reservedAbove = RESERVED_FOR_LIST_PX,
+  onDismiss,
 }: {
   partner?: PartnerCardData | null;
   loaded?: boolean;
+  /**
+   * Draws an "x" on the ad that calls this — for the places a subscriber may
+   * put the ad away (see GroupPartnerSlot). Absent, there is no "x".
+   */
+  onDismiss?: () => void;
   /**
    * From lg up, how much of its column the list above it keeps. The room's
    * participant rows by default; a group's rooms column passes its first five
@@ -639,8 +645,23 @@ export function PartnerCard({
               </button>
             </Popover>
           )}
-          <span className="shrink-0 rounded-full bg-black/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide opacity-70 dark:bg-white/10">
-            {t("common.sponsored")}
+          <span className={`flex shrink-0 items-center gap-1 ${onDismiss ? "ml-auto" : ""}`}>
+            <span className="shrink-0 rounded-full bg-black/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide opacity-70 dark:bg-white/10">
+              {t("common.sponsored")}
+            </span>
+            {onDismiss && (
+              <button
+                type="button"
+                onClick={onDismiss}
+                aria-label={t("partnerCard.closeAd")}
+                title={t("partnerCard.closeAd")}
+                // In the ad's own text colour, like the chip beside it — the
+                // advertiser picks the background, so no fixed colour is safe.
+                className="-mr-1 flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-full text-base leading-none opacity-60 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
+              >
+                ×
+              </button>
+            )}
           </span>
         </div>
 
