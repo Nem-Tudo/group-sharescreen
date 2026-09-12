@@ -18,6 +18,8 @@ export interface SocialUser {
   username: string;
   displayName: string;
   flags: string[];
+  /** A bot account — the BOT tag after the name. Absent from an older API. */
+  bot?: boolean;
   /**
    * Their picture and equipped name color, so a list of people can be drawn
    * to look like the same people a room's participant list draws.

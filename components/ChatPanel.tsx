@@ -62,6 +62,7 @@ export type ChatPeer = {
   device?: number;
   isGuest?: boolean;
   flags?: string[];
+  bot?: boolean;
   nameColor?: string | null;
   avatarUrl?: string | null;
   role?: string;
@@ -503,6 +504,7 @@ export function ChatPanel({
             name: p.name.trim(),
             isGuest: p.isGuest,
             flags: p.flags,
+            bot: p.bot,
             nameColor: p.nameColor,
           });
         }
@@ -1049,6 +1051,7 @@ export function ChatPanel({
                               name={withDeviceSuffix(m.name, m.userId, m.device, deviceCounts)}
                               isGuest={m.isGuest}
                               verified={verifiedBadge(m?.flags)}
+                              bot={m?.bot}
                               color={m.nameColor}
                               className={"min-w-0 font-medium text-zinc-700 hover:underline dark:text-zinc-300"}
                             />
@@ -1058,6 +1061,7 @@ export function ChatPanel({
                             name={withDeviceSuffix(m.name, m.userId, m.device, deviceCounts)}
                             isGuest={m.isGuest}
                             verified={verifiedBadge(m?.flags)}
+                            bot={m?.bot}
                             color={m.nameColor}
                             className={"min-w-0 font-medium text-zinc-700 dark:text-zinc-300"}
                           />
@@ -1278,6 +1282,7 @@ export function ChatPanel({
                         name={withDeviceSuffix(peer.name, peer.userId, peer.device, deviceCounts)}
                         isGuest={peer.isGuest}
                         verified={verifiedBadge(peer?.flags)}
+                        bot={peer?.bot}
                         color={peer.nameColor}
                         className="truncate"
                       />

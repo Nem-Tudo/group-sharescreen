@@ -335,6 +335,7 @@ export function ManageRoomModal({
                           name={live?.name || admin.name || "Participante"}
                           isGuest={live?.isGuest}
                           verified={verifiedBadge(live?.flags)}
+                          bot={live?.bot}
                           color={live?.nameColor}
                           className="truncate font-medium"
                         />
@@ -379,6 +380,7 @@ export function ManageRoomModal({
                         name={peer.name}
                         isGuest={peer.isGuest}
                         verified={verifiedBadge(peer?.flags)}
+                        bot={peer?.bot}
                         color={peer.nameColor}
                         className="truncate font-medium"
                       />

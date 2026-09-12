@@ -650,6 +650,7 @@ function RoleHolders({ detail, role, editable }: { detail: GroupDetail; role: Gr
               name={m.name}
               isGuest={m.guest}
               verified={verifiedBadge(m.flags)}
+              bot={m.bot}
               color={roleColorOf(detail, { id: m.id }) ?? m.nameColor}
               className="min-w-0 flex-1 truncate text-sm"
             />

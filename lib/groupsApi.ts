@@ -169,6 +169,7 @@ export interface GroupUser {
   avatarUrl: string | null;
   nameColor: string | null;
   flags: string[];
+  bot?: boolean;
   guest: boolean;
 }
 

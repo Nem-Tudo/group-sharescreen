@@ -57,6 +57,7 @@ function HitRow({
         <DisplayUserName
           name={hit.displayName}
           verified={verifiedBadge(hit.flags)}
+          bot={hit.bot}
           color={hit.nameColor}
           className={`truncate text-sm font-medium text-zinc-900 dark:text-zinc-100 ${
             linkProfile ? "hover:underline" : ""

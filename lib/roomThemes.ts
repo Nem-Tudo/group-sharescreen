@@ -94,6 +94,7 @@ export interface ThemeAuthor {
   displayName: string;
   avatarUrl: string | null;
   flags: string[];
+  bot?: boolean;
   nameColor: string | null;
 }
 

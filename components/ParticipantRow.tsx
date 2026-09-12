@@ -43,6 +43,7 @@ export function ParticipantRow({
   onVolumeChange,
   connectionLost = false,
   verified = false,
+  bot = false,
   nameColor,
   avatarUrl,
   isOwner = false,
@@ -96,6 +97,8 @@ export function ParticipantRow({
   connectionLost?: boolean;
   // Forwarded straight to DisplayUserName — see its `verified` prop.
   verified?: VerifiedTone | boolean;
+  // Forwarded to DisplayUserName too — see its `bot` prop (the BOT tag).
+  bot?: boolean;
   // Cosmetics-store name color (see PeerInfo.nameColor) — undefined/null for
   // none equipped.
   nameColor?: string | null;
@@ -155,6 +158,7 @@ export function ParticipantRow({
       name={name}
       isGuest={isGuest}
       verified={verified}
+      bot={bot}
       // The speaking indicator (name turns green while this person's mic is
       // audibly active) has to win over a custom name color, not just sit
       // under it — DisplayUserName's color is an inline style on the name

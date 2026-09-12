@@ -91,6 +91,7 @@ function PersonRow({ user, onSelect }: { user: SocialUser; onSelect: () => void 
           <DisplayUserName
             name={user.displayName}
             verified={verifiedBadge(user.flags)}
+            bot={user.bot}
             color={user.nameColor}
             className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100"
           />
@@ -395,6 +396,7 @@ export function GiftPlanDialog({
                 <DisplayUserName
                   name={recipient.displayName}
                   verified={verifiedBadge(recipient.flags)}
+                  bot={recipient.bot}
                   color={recipient.nameColor}
                   className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100"
                 />

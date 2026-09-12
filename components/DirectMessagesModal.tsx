@@ -1025,6 +1025,7 @@ export function DirectMessagesModal({
                   <DisplayUserName
                     name={active.displayName}
                     verified={verifiedBadge(active.flags)}
+                    bot={active.bot}
                     color={active.nameColor ?? null}
                     className="block truncate text-sm font-semibold text-zinc-950 dark:text-zinc-50"
                   />
@@ -1113,6 +1114,7 @@ export function DirectMessagesModal({
                               <DisplayUserName
                                 name={user.displayName}
                                 verified={verifiedBadge(user.flags)}
+                                bot={user.bot}
                                 color={user.nameColor ?? null}
                                 className={`min-w-0 flex-1 truncate text-sm text-zinc-900 dark:text-zinc-100 ${
                                   unread > 0 ? "font-semibold" : "font-medium"

@@ -19,6 +19,7 @@ export type MemberActions = {
   name: string;
   isGuest?: boolean;
   verified?: VerifiedTone | boolean;
+  bot?: boolean;
   nameColor?: string | null;
   // What this viewer may do to them, decided by the caller — which is the
   // only place that knows both who is asking and who the room's owner and
@@ -66,6 +67,7 @@ export function MemberActionsMenu({
     name,
     isGuest,
     verified,
+    bot,
     nameColor,
     canKick,
     canBan: canBanRoom,
@@ -95,7 +97,7 @@ export function MemberActionsMenu({
     <div className="flex w-72 max-w-[calc(100vw-1rem)] flex-col gap-3 rounded-xl bg-white p-4 text-zinc-900 shadow-lg dark:bg-zinc-950 dark:text-zinc-50">
       <div className="flex items-start justify-between gap-2">
         <p className="min-w-0 text-sm font-semibold">
-          <DisplayUserName name={name} isGuest={isGuest} verified={verified} color={nameColor} className="truncate" />
+          <DisplayUserName name={name} isGuest={isGuest} verified={verified} bot={bot} color={nameColor} className="truncate" />
         </p>
         {showHeader && (
           <button

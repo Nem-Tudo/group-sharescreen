@@ -120,6 +120,9 @@ export type PeerInfo = {
   // doesn't include this yet; DisplayUserName treats both the same (no
   // badge). Only ever meaningful for a real account, never a guest name.
   flags?: string[];
+  // A bot account (see the API's accountModels.ts's AccountDoc.bot) — gets
+  // the BOT tag after its name. Undefined from an older server, read as false.
+  bot?: boolean;
   // Cosmetics-store name color (see lib/cosmetics.ts and
   // components/DisplayUserName's `color` prop) — the hex value of whichever
   // "name_color" product this peer has equipped, or null/undefined for none
@@ -333,6 +336,8 @@ export type ChatMessage = {
   isGuest?: boolean;
   // See PeerInfo.flags's doc comment.
   flags?: string[];
+  // See PeerInfo.bot — captured at send time, same as `flags`.
+  bot?: boolean;
   // See PeerInfo.nameColor's doc comment.
   nameColor?: string | null;
   // See PeerInfo.avatarUrl — captured per-message at send time, same as
@@ -360,6 +365,8 @@ export type ChatMessage = {
 export type RegisteredAccount = {
   username: string;
   flags: string[];
+  /** Absent from an older server, read as false. */
+  bot?: boolean;
 };
 
 /**
@@ -411,6 +418,7 @@ export type CallUserWire = {
   displayName: string;
   avatarUrl: string | null;
   flags: string[];
+  bot?: boolean;
 };
 
 /**
@@ -2265,6 +2273,7 @@ class SignalingClient {
           name: msg.name as string,
           isGuest: Boolean(msg.isGuest),
           flags: Array.isArray(msg.flags) ? (msg.flags as string[]) : undefined,
+          bot: msg.bot === true,
           nameColor: typeof msg.nameColor === "string" ? msg.nameColor : null,
           avatarUrl: typeof msg.avatarUrl === "string" ? msg.avatarUrl : null,
           kind: msg.kind === "gif" ? "gif" : "text",

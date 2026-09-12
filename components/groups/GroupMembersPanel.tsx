@@ -116,6 +116,7 @@ const MemberRow = memo(function MemberRow({
               name={member.name}
               isGuest={member.guest}
               verified={verifiedBadge(member.flags)}
+              bot={member.bot}
               color={color ?? member.nameColor}
               className="min-w-0 truncate text-sm font-medium text-zinc-800 dark:text-zinc-200"
             />

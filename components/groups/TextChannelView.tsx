@@ -976,6 +976,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
                     name={author.name}
                     isGuest={author.guest}
                     verified={verifiedBadge(author.flags)}
+                    bot={author.bot}
                     color={roleColorOf(detail, { id: author.id }) ?? author.nameColor}
                     className="min-w-0 font-medium text-zinc-700 hover:underline dark:text-zinc-300"
                   />

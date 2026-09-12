@@ -5,6 +5,7 @@ import Link from "next/link";
 import { fetchUserProfile, formatDuration, peekUserProfile, type UserProfile } from "@/lib/userProfile";
 import { MicIcon, ScreenIcon } from "@/components/icons";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
+import { BotTag } from "@/components/BotTag";
 import { BsCoin, BsClock, BsShop } from "react-icons/bs";
 import { SocialActions } from "@/components/SocialActions";
 import { useAuth } from "@/lib/AuthContext";
@@ -1174,6 +1175,7 @@ function ProfileContent({
                   >
                     @{account.username}
                   </p>
+                  {account.bot && <BotTag />}
                   <UserBadges account={account} isOwner={isOwner} theme={theme ?? undefined} />
                 </div>
               </div>

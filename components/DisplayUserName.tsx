@@ -1,6 +1,7 @@
 import { VerifiedBadge } from "./VerifiedBadge";
 import type { VerifiedTone } from "@/lib/entitlements";
 import { Tooltip } from "./Tooltip";
+import { BotTag } from "./BotTag";
 
 // Single place that renders a person's display name — every "name" shown
 // anywhere in the app (participant list, video tile labels, chat messages,
@@ -11,6 +12,7 @@ export function DisplayUserName({
   name,
   isGuest,
   verified,
+  bot,
   color,
   connectionLost,
   className,
@@ -25,6 +27,9 @@ export function DisplayUserName({
   // answer as one through their own props; true renders the blue mark, which
   // is what it always meant.
   verified?: VerifiedTone | boolean;
+  // A bot account (the `bot` field every person projection carries) — gets
+  // the BOT tag after the name, see components/BotTag.
+  bot?: boolean;
   // Cosmetics-store name color (see PeerInfo.nameColor / lib/cosmetics.ts) —
   // a hex value applied to the name text itself. Undefined/null for no
   // color equipped, which leaves the name at whatever color its container
@@ -50,6 +55,7 @@ export function DisplayUserName({
           className="ml-1 inline h-5.5 w-5.5 shrink-0 align-text-top"
         />
       )}
+      {bot && <BotTag className="ml-1" />}
       {isGuest && <span className="font-normal text-zinc-500" style={{ marginLeft: "4px" }}>(guest)</span>}
       {connectionLost && (
         <Tooltip content="Conexão perdida com essa pessoa — tentando reconectar">

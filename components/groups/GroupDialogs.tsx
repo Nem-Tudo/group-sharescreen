@@ -1492,6 +1492,7 @@ function MembersTab({ groupId }: { groupId: string }) {
                     name={member.name}
                     isGuest={member.guest}
                     verified={verifiedBadge(member.flags)}
+                    bot={member.bot}
                     color={roleColorOf(detail, { id: member.id, roleIds }) ?? member.nameColor}
                     className="truncate text-sm font-medium"
                   />

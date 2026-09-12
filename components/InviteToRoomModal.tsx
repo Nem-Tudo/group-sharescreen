@@ -70,6 +70,7 @@ function FriendRow({
         <DisplayUserName
           name={user.displayName}
           verified={verifiedBadge(user.flags)}
+          bot={user.bot}
           color={user.nameColor}
           className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100"
         />

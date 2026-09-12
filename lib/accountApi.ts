@@ -67,6 +67,9 @@ export type Account = {
   // option that stays locked is a support question, one that unlocks by
   // accident is a refund.
   features?: string[];
+  // A bot account (see the API's accountModels.ts's AccountDoc.bot) — the
+  // BOT tag goes after its name. Absent on an older API, read as false.
+  bot?: boolean;
   createdAt: number;
   updatedAt: number;
 };
@@ -444,6 +447,47 @@ export type AvatarOptions = {
   canUseGallery: boolean;
   canUpload: boolean;
 };
+
+// Bot accounts this account created (see the API's accountRoutes.ts). A bot
+// authenticates with `Authorization: Bot <token>`; the token only ever comes
+// back from createBot and regenerateBotToken, and the API keeps no copy of it.
+
+export async function fetchMyBots(): Promise<{ bots: Account[]; max: number }> {
+  const token = getAccountToken();
+  if (!token) throw new Error("Você não está conectado.");
+  const res = await fetch(`${getSignalingHttpBase()}/account/bots`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, "Falha ao carregar seus bots."));
+  return (await res.json()) as { bots: Account[]; max: number };
+}
+
+export async function createBot(
+  username: string,
+  displayName: string
+): Promise<{ bot: Account; token: string }> {
+  const token = getAccountToken();
+  if (!token) throw new Error("Você não está conectado.");
+  const res = await fetch(`${getSignalingHttpBase()}/account/bots`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ username, displayName }),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, "Falha ao criar o bot."));
+  return (await res.json()) as { bot: Account; token: string };
+}
+
+/** Issues a new token for one of your bots — the old one stops working at once. */
+export async function regenerateBotToken(botId: string): Promise<string> {
+  const token = getAccountToken();
+  if (!token) throw new Error("Você não está conectado.");
+  const res = await fetch(`${getSignalingHttpBase()}/account/bots/${encodeURIComponent(botId)}/token`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, "Falha ao gerar um novo token."));
+  return ((await res.json()) as { token: string }).token;
+}
 
 export async function fetchAvatarOptions(): Promise<AvatarOptions> {
   const token = getAccountToken();
