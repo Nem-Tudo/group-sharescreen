@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { signalingClient } from "./signalingClient";
+import { signalingClient, type PeerInfo } from "./signalingClient";
 import type { Feature } from "./entitlements";
 import { trackEvent } from "./analytics";
 import { iceConfigFor } from "./iceConfig";
@@ -602,6 +602,11 @@ function useBroadcastChannel(
   // peer-list-driven reconnect loop below so it doesn't just re-open a sendPC
   // that was deliberately paused the moment anyone else joins/leaves the room.
   const viewerPausedPeers = useRef<Set<string>>(new Set());
+  // The peer array the reconnect loop below last looked at, so it can tell a
+  // peer-list change from the far more common signaling messages that leave
+  // the list alone. Holds the array by identity only — never read for its
+  // contents, and never a reason to keep a stale one alive.
+  const lastScannedPeers = useRef<PeerInfo[] | null>(null);
   // Peers missing from a fresh room-state, waiting out PEER_PRUNE_GRACE_MS
   // before onRoomJoined below actually tears down their connection — see its
   // own comment for why an immediate prune is wrong right after a signaling
@@ -2217,18 +2222,30 @@ function useBroadcastChannel(
     });
 
     const unsubscribeState = signalingClient.subscribe(() => {
-      // Staggered (see STAGGER_MS's doc comment) — this fires on *every*
-      // signaling state change (chat, mic toggles, etc.), not just peer-list
-      // ones, so a big room re-scans this often; openSendPCsStaggered's own
-      // pendingStaggeredPeers dedup is what keeps that from re-queuing a
-      // peer that's already waiting on its first attempt.
-      if (activeRef.current) {
-        const readyPeerIds = signalingClient.state.peers
-          .filter((peer) => !viewerPausedPeers.current.has(peer.id))
-          .filter((peer) => !relayedAway.current.has(peer.id))
-          .map((peer) => peer.id);
-        openSendPCsStaggered(readyPeerIds);
+      // Staggered (see STAGGER_MS's doc comment). This fires on *every*
+      // signaling state change (chat, typing, presence, mic toggles), but
+      // only a change to the peer list can change the answer — and setState
+      // leaves `peers` at the same identity unless it actually replaced it,
+      // so comparing the reference skips the ~95% of messages that have
+      // nothing to do with peers. That matters more than it looks: this hook
+      // is instantiated once per broadcast channel (screen, camera, mic and
+      // three file slots), so the scan used to run six times per message.
+      //
+      // A peer property changing (someone toggling their mic) does replace
+      // the array and still gets through, which is correct and cheap —
+      // openSendPCsStaggered's own pendingStaggeredPeers dedup absorbs the
+      // repeat for peers already waiting on a first attempt.
+      if (!activeRef.current) return;
+      const peers = signalingClient.state.peers;
+      if (peers === lastScannedPeers.current) return;
+      lastScannedPeers.current = peers;
+      const readyPeerIds: string[] = [];
+      for (const peer of peers) {
+        if (viewerPausedPeers.current.has(peer.id)) continue;
+        if (relayedAway.current.has(peer.id)) continue;
+        readyPeerIds.push(peer.id);
       }
+      openSendPCsStaggered(readyPeerIds);
     });
 
     // Actually tears a peer down — the five cleanups onRoomJoined below used

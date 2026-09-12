@@ -62,6 +62,19 @@ const BUILD_VERSION = `${resolvePackageVersion()}-${resolveBuildCommit()}`
   .slice(0, 32);
 
 const nextConfig: NextConfig = {
+  // Memoizes components and hook results automatically, which this app had
+  // none of by hand — a single chat message used to re-render the whole watch
+  // room because its state comes from one big useSyncExternalStore snapshot.
+  // The compiler cannot fix that subscription (see lib/useSignalingSelector),
+  // but it does make the subtrees that did not actually change bail out.
+  reactCompiler: true,
+  experimental: {
+    // The Rust port runs natively inside Turbopack instead of through Babel
+    // in Node, which is both faster and the reason there is no
+    // babel-plugin-react-compiler in package.json: this build does not need
+    // it. Requires Next >= 16.3 and Turbopack (the default here).
+    turbopackRustReactCompiler: true,
+  },
   // Inlined into the bundle at build time, which is the only way this can be
   // right: the value describes the build, so resolving it at request time
   // would report whatever the *running container* happens to think rather

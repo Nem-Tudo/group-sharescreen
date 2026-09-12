@@ -1061,6 +1061,7 @@ class SignalingClient {
   private clockSampleRttMs = Number.POSITIVE_INFINITY;
   private clockSyncTimer: ReturnType<typeof setInterval> | null = null;
   private listeners = new Set<Listener>();
+  private notifyScheduled = false;
   private signalListeners = new Set<SignalListener>();
   private roomJoinedListeners = new Set<Listener>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1220,7 +1221,40 @@ class SignalingClient {
 
   private setState(patch: Partial<SignalingState>) {
     this.state = { ...this.state, ...patch };
-    this.listeners.forEach((l) => l());
+    this.scheduleNotify();
+  }
+
+  /**
+   * Tells the React subscribers once per frame rather than once per message.
+   *
+   * useSyncExternalStore schedules a sync-lane render per notification, so a
+   * room filling up after a reconnect — or a busy group's voice throttle
+   * firing alongside chat — used to mean one full render of every subscriber
+   * (WatchRoom included) per arriving message. Coalescing costs nothing in
+   * freshness: `state` is already updated above and getSnapshot returns it
+   * immediately, so a render triggered by anything else in the same frame
+   * still reads the newest value and nothing can tear.
+   *
+   * Deliberately not applied to the listener sets that drive WebRTC —
+   * onSignal and onRoomJoined are separate and still fire synchronously,
+   * because an offer arriving a frame late is a connection setting up slower.
+   */
+  private scheduleNotify() {
+    if (this.notifyScheduled) return;
+    this.notifyScheduled = true;
+    const fire = () => {
+      this.notifyScheduled = false;
+      this.listeners.forEach((l) => l());
+    };
+    // A hidden tab gets no rAF at all, and neither does a hidden Electron
+    // window (which runs with backgroundThrottling: false precisely so it
+    // keeps working) — so fall back to a timer rather than going silent
+    // until the page comes back.
+    if (typeof document !== "undefined" && document.visibilityState === "visible") {
+      requestAnimationFrame(fire);
+    } else {
+      setTimeout(fire, 16);
+    }
   }
 
   private clearTyping(id: string) {

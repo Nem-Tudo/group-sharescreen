@@ -202,5 +202,34 @@ assert.equal(filterMentionCandidates(broadcastCandidate, "everyone").length, 1);
 assert.equal(filterMentionCandidates(broadcastCandidate, "ev").length, 1);
 assert.equal(filterMentionCandidates(broadcastCandidate, "todos").length, 1);
 
+// Passing a prebuilt regex is equivalent to passing the names it was built
+// from — this is the path a list of messages takes, building the regex once
+// for the whole list instead of once per message.
+const prebuilt = buildMentionsRegex(names);
+for (const text of [
+  "Oi @João, tudo bem?",
+  "Atenção @todos!",
+  "nada aqui",
+  "email@joão.com",
+]) {
+  assert.equal(
+    isUserMentionedInMessage(text, "João", prebuilt!),
+    isUserMentionedInMessage(text, "João", names),
+    `prebuilt regex disagreed on: ${text}`
+  );
+}
+
+// The regex is /g, so it carries lastIndex — reusing one across messages
+// must not make the second call miss. This is the whole risk of sharing it.
+assert.ok(isUserMentionedInMessage("Oi @João!", "João", prebuilt!));
+assert.ok(isUserMentionedInMessage("Oi @João!", "João", prebuilt!));
+assert.ok(isUserMentionedInMessage("Oi @João!", "João", prebuilt!));
+
+// Same for the broadcast check, which now uses a module-level /g regex.
+assert.ok(containsBroadcastMention("@todos"));
+assert.ok(containsBroadcastMention("@todos"));
+assert.ok(!containsBroadcastMention("nem todos vieram"));
+assert.ok(containsBroadcastMention("@todos"));
+
 console.log("chatMentions: ok");
 

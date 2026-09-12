@@ -41,6 +41,14 @@ export function buildMentionsRegex(names: string[]): RegExp | null {
   return new RegExp(`(?:(?<=^|[\\s(\\[{<"']))@(${alternation})(?=$|[^\\p{L}\\p{N}_])`, "gui");
 }
 
+/**
+ * Who might be mentioned: the room's names, or a regex already built from
+ * them by buildMentionsRegex. Passing the regex is what a list of messages
+ * should do — building it is O(names log names) plus a compile, and the
+ * answer is the same for every message in the list.
+ */
+export type KnownNames = string[] | RegExp;
+
 export type MentionToken =
   | { type: "text"; value: string }
   | { type: "mention"; value: string; name: string };
@@ -88,10 +96,15 @@ export function isBroadcastMention(name: string): boolean {
   return norm === "todos" || norm === "everyone";
 }
 
+// Module scope rather than rebuilt per call: it is a constant, and this runs
+// once per arriving chat message (see useRoomSoundEffects). Being /g it
+// carries lastIndex between calls, so reset before testing.
+const BROADCAST_MENTION_RE = /(?:(?<=^|[\s(\[{<"']))@(todos|everyone)(?=$|[^\p{L}\p{N}_])/gui;
+
 export function containsBroadcastMention(text: string): boolean {
   if (!text) return false;
-  const regex = /(?:(?<=^|[\s(\[{<"']))@(todos|everyone)(?=$|[^\p{L}\p{N}_])/gui;
-  return regex.test(text);
+  BROADCAST_MENTION_RE.lastIndex = 0;
+  return BROADCAST_MENTION_RE.test(text);
 }
 
 // Checks if a specific user (selfName) is directly mentioned by name,
@@ -101,13 +114,19 @@ export function containsBroadcastMention(text: string): boolean {
 export function isUserDirectlyMentioned(
   text: string,
   selfName: string | null | undefined,
-  allKnownNames: string[] = []
+  known: KnownNames = []
 ): boolean {
   const trimmed = selfName?.trim();
   if (!trimmed || !text) return false;
 
-  const names = allKnownNames.includes(trimmed) ? allKnownNames : [...allKnownNames, trimmed];
-  const regex = buildMentionsRegex(names);
+  // A caller rendering a list of messages already built this regex once for
+  // the whole list (see ChatPanel's mentionRegex) — taking it directly saves
+  // re-escaping and re-compiling every name in the room per message. Note
+  // such a regex must already include selfName, which ChatPanel's does.
+  const regex =
+    known instanceof RegExp
+      ? known
+      : buildMentionsRegex(known.includes(trimmed) ? known : [...known, trimmed]);
   if (!regex) return false;
 
   const tokens = tokenizeMentions(text, regex);
@@ -121,7 +140,7 @@ export function isUserDirectlyMentioned(
 export function isUserMentionedInMessage(
   text: string,
   selfName: string | null | undefined,
-  allKnownNames: string[] = []
+  known: KnownNames = []
 ): boolean {
   if (!text) return false;
 
@@ -130,7 +149,7 @@ export function isUserMentionedInMessage(
     return true;
   }
 
-  return isUserDirectlyMentioned(text, selfName, allKnownNames);
+  return isUserDirectlyMentioned(text, selfName, known);
 }
 
 export interface MentionTriggerInfo {

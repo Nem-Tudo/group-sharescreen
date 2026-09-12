@@ -3230,6 +3230,14 @@ export function WatchRoom({
     { userId: state.selfUserId ?? undefined },
   ]);
   const peerCount = visiblePeers.length + (state.name ? 1 : 0);
+  // Three lookups the render used to do by scanning an array per item, which
+  // is fine at six people and quadratic at six hundred: the mic fan-out below
+  // looked up a peer per stream, the file entries did the same per slot, and
+  // every participant row asked whether that person was an admin or had a
+  // video source on screen.
+  const peersById = new Map(state.peers.map((p) => [p.id, p]));
+  const adminIds = new Set(state.roomAdmins.map((a) => a.id));
+  const videoSourceOwners = new Set(state.videoSources.map((v) => v.addedById));
   // A peer showing mic-on doesn't mean their audio is actually reaching us
   // yet — the recvPC for it still has to come up, which right after joining
   // a room that already has people talking can take a moment (everyone
@@ -3249,7 +3257,7 @@ export function WatchRoom({
   // than a fight over one, and three files are three tiles.
   const allRemoteFileEntries = LOCAL_MEDIA_SLOTS.flatMap((slot) =>
     Object.entries(fileChannels[slot].remoteStreams).map(([peerId, stream]) => {
-      const peer = state.peers.find((p) => p.id === peerId);
+      const peer = peersById.get(peerId) ?? null;
       const shared = peer?.files?.find((f) => f.channel === slot) ?? null;
       return { slot, peerId, stream, peer, shared } as const;
     })
@@ -4833,7 +4841,7 @@ export function WatchRoom({
   // icon it drives in the participant list doubles as "ask them to pause".
   function peerSharesVideo(userId: string | null | undefined): boolean {
     if (!userId) return false;
-    return state.videoSources.some((v) => v.addedById === userId);
+    return videoSourceOwners.has(userId);
   }
 
   // Opens the popup shared by both triggers below (the header's icon button
@@ -5063,7 +5071,7 @@ export function WatchRoom({
                 : undefined
             }
             isOwner={Boolean(p.userId) && p.userId === state.roomOwnerId}
-            isAdmin={state.roomAdmins.some((a) => a.id === p.userId)}
+            isAdmin={p.userId ? adminIds.has(p.userId) : false}
             isApp={p.app}
             isMobileApp={p.mobileApp}
             presence={peerPresence(p)}
@@ -5927,7 +5935,7 @@ export function WatchRoom({
       )}
 
       {Object.entries(remoteMicStreams).map(([peerId, stream]) => {
-        const volumeKey = state.peers.find((p) => p.id === peerId)?.userId ?? peerId;
+        const volumeKey = peersById.get(peerId)?.userId ?? peerId;
         return (
           <RemoteAudio
             key={peerId}

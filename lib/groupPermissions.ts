@@ -194,9 +194,29 @@ export function channelAllows(detail: GroupDetail, channel: GroupChannel, key: G
 
 // ─── Roles ────────────────────────────────────────────────────────────────
 
-/** The group's roles, highest first. */
+// Keyed on the group object rather than its id, so there is nothing to
+// invalidate: a group update replaces the object wholesale, which makes the
+// old entry unreachable and collectable. An id key would need a version
+// counter and would go stale the one time somebody forgot to bump it.
+const orderedRoles = new WeakMap<GroupDetail["group"], GroupRoleInfo[]>();
+
+/**
+ * The group's roles, highest first.
+ *
+ * Memoized because the member list asks for this order four times per
+ * rendered member (hoistedRoleOf, roleColorOf, and twice inside
+ * memberCanInChannel) — 600 members and 20 roles was 2,400 copies and sorts
+ * of the same array in a single render.
+ *
+ * The result is shared, so callers must not mutate it. rolesWithIds only
+ * filters, which is what everything else goes through.
+ */
 export function rolesInOrder(detail: GroupDetail): GroupRoleInfo[] {
-  return [...(detail.group.roles ?? [])].sort((a, b) => b.position - a.position);
+  const held = orderedRoles.get(detail.group);
+  if (held) return held;
+  const out = [...(detail.group.roles ?? [])].sort((a, b) => b.position - a.position);
+  orderedRoles.set(detail.group, out);
+  return out;
 }
 
 /** The ids of the roles somebody holds — from the detail's map, or my own list for me. */
@@ -314,8 +334,19 @@ export function roleColorOf(detail: GroupDetail | null | undefined, subject: Per
  * list itself shows.
  */
 export function membersRevalidateKey(detail: GroupDetail): string {
-  return `${detail.group.memberCount}:${detail.group.ownerId}:${JSON.stringify(detail.memberRoles ?? {})}`;
+  // Memoized on the detail object for the same reason as rolesInOrder, and
+  // more urgently: this is called *during render* by four screens, and
+  // memberRoles is a map with an entry per member — so at 600 members every
+  // render of any of them allocated four copies of a several-hundred-KB
+  // string, purely to compare it with the last one. A group update replaces
+  // `detail`, so a changed membership still produces a new key.
+  const held = revalidateKeys.get(detail);
+  if (held !== undefined) return held;
+  const key = `${detail.group.memberCount}:${detail.group.ownerId}:${JSON.stringify(detail.memberRoles ?? {})}`;
+  revalidateKeys.set(detail, key);
+  return key;
 }
+const revalidateKeys = new WeakMap<GroupDetail, string>();
 
 /** The section of the member list somebody is listed in: their highest hoisted role. */
 export function hoistedRoleOf(detail: GroupDetail, subject: PermissionSubject): GroupRoleInfo | null {

@@ -470,7 +470,15 @@ export function ChatPanel({
     return Array.from(names);
   }, [peers, selfName, messages]);
 
-  const mentionRegex = useMemo(() => buildMentionsRegex(allKnownNames), [allKnownNames]);
+  // Keyed on the names themselves, not on the array holding them:
+  // allKnownNames is rebuilt whenever a message arrives, but the names in it
+  // almost never change, and building this regex escapes and sorts every
+  // name in the room and then compiles it. Same names, same regex, no work.
+  const mentionNamesKey = allKnownNames.join(" ");
+  const mentionRegex = useMemo(
+    () => buildMentionsRegex(mentionNamesKey ? mentionNamesKey.split(" ") : []),
+    [mentionNamesKey]
+  );
 
   // Deduplicated candidate list of participants currently in the room for
   // the autocomplete popup, prepended with broadcast options.
@@ -904,7 +912,10 @@ export function ChatPanel({
                 !isSelf &&
                 typeof selfName === "string" &&
                 m.kind !== "image" &&
-                isUserMentionedInMessage(m.text, selfName, allKnownNames);
+                // The regex built once above, rather than the name list: this
+                // runs per rendered message, and handing over names made each
+                // one rebuild the same regex from scratch.
+                isUserMentionedInMessage(m.text, selfName, mentionRegex ?? []);
               const isReplyToMe =
                 !isSelf &&
                 typeof selfName === "string" &&

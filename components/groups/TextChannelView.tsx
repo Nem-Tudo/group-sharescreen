@@ -90,6 +90,10 @@ const NEAR_TOP_PX = 80;
 // and the margin on top is for the request that carries it — so this only
 // ever runs out when a "stopped" was lost: a closed tab, a dropped connection.
 const TYPING_EXPIRE_MS = TYPING_REFRESH_MS + 3000;
+// How many live messages this room keeps mounted. Above groupCache's own
+// MAX_MESSAGES_PER_CHANNEL, so what gets stored for the next visit is decided
+// there as before and this only bounds what is on screen right now.
+const MAX_LIVE_MESSAGES = 400;
 
 function timeLabel(ts: number): string {
   return new Date(ts).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
@@ -265,13 +269,31 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
     (message: GroupMessage) => {
       setMessages((prev) => {
         if (!prev) return prev;
+        const last = prev[prev.length - 1];
+        // A message arriving after the newest one held is the overwhelmingly
+        // common case, and it needs neither the duplicate scan nor the sort:
+        // both were being paid on every single arrival, over a list with no
+        // upper bound. The out-of-order path below is unchanged.
+        if (last && message.ts >= last.ts && message.id !== last.id) {
+          if (atBottomRef.current) pendingScroll.current = { type: "bottom" };
+          else if (message.from !== selfId) setUnseen((n) => n + 1);
+          const next = [...prev, message];
+          // A channel left open all day otherwise holds every message it ever
+          // saw, each one a mounted subtree. Only trimmed while there is
+          // known-older history on the server, because that is what makes the
+          // dropped ones recoverable — scrolling up calls loadOlder, which
+          // fetches by cursor from whatever is now the first message.
+          return hasMore && next.length > MAX_LIVE_MESSAGES
+            ? next.slice(next.length - MAX_LIVE_MESSAGES)
+            : next;
+        }
         if (prev.some((m) => m.id === message.id)) return prev;
         if (atBottomRef.current) pendingScroll.current = { type: "bottom" };
         else if (message.from !== selfId) setUnseen((n) => n + 1);
         return [...prev, message].sort((a, b) => a.ts - b.ts);
       });
     },
-    [selfId]
+    [selfId, hasMore]
   );
 
   // Who else is writing here right now: their name by id, each with a timer
