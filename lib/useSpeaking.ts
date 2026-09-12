@@ -1,69 +1,34 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { getSharedAudioContext, ensureSharedAudioContextRunning } from "./audioContext";
+import { useCallback, useSyncExternalStore } from "react";
+import { speakingDetector } from "./speakingDetector";
 
-const SPEAKING_THRESHOLD = 0.02;
-const HOLD_MS = 400;
-const CHECK_INTERVAL_MS = 150;
-
-// Simple RMS-based voice activity detection over a MediaStream's audio
-// track, with a short hold so brief pauses between syllables don't make the
-// "speaking" indicator flicker.
+/**
+ * Whether this stream is currently carrying speech.
+ *
+ * The measuring itself lives in lib/speakingDetector — one timer and one pass
+ * for the whole page, rather than an analyser and an interval per row. This
+ * hook keeps the same signature it always had, so the participant list and
+ * the group sidebar did not have to change.
+ *
+ * Streams are keyed by id, so two rows showing the same person (the room's
+ * list and a group's voice sidebar) share one measurement rather than each
+ * building their own graph over the same audio.
+ */
 export function useSpeaking(stream: MediaStream | null | undefined): boolean {
-  const [speaking, setSpeaking] = useState(false);
-  const lastAboveThresholdAt = useRef(0);
+  const key = stream?.id ?? null;
 
-  useEffect(() => {
-    // No setState here for the disabled case: speaking already defaults to
-    // false, and the cleanup below resets it when a previous real stream
-    // goes away, so nothing else needs to force it synchronously.
-    if (!stream || stream.getAudioTracks().length === 0) {
-      return;
-    }
+  // Acquiring the entry and subscribing to it are the same call, so the
+  // detector's ref count can never drift from its listener set — which two
+  // separate effects, each with its own cleanup, could not guarantee.
+  const subscribe = useCallback(
+    (cb: () => void) => (stream ? speakingDetector.acquire(stream, cb) : () => {}),
+    [stream]
+  );
 
-    // The app-wide context, not one of its own. This used to build a whole
-    // AudioContext per participant, which in a call of six or more hit
-    // Chrome's cap on concurrent contexts — and past that cap the
-    // constructor *throws*, so the next thing to ask for a context (the
-    // playback gain graph, the mic's noise suppression) couldn't get one
-    // either. An analyser is a node; it never needed a context of its own.
-    const audioContext = getSharedAudioContext();
-    if (!audioContext) return;
-    void ensureSharedAudioContextRunning();
-    const analyser = audioContext.createAnalyser();
-    analyser.fftSize = 512;
-    analyser.smoothingTimeConstant = 0.6;
-    const source = audioContext.createMediaStreamSource(stream);
-    source.connect(analyser);
-    const data = new Uint8Array(analyser.frequencyBinCount);
+  // A boolean, so there is no "getSnapshot should be cached" trap here: the
+  // value is a primitive and compares by identity for free.
+  const getSnapshot = useCallback(() => speakingDetector.isSpeaking(key), [key]);
 
-    const interval = setInterval(() => {
-      analyser.getByteTimeDomainData(data);
-      let sumSquares = 0;
-      for (let i = 0; i < data.length; i += 1) {
-        const normalized = (data[i] - 128) / 128;
-        sumSquares += normalized * normalized;
-      }
-      const rms = Math.sqrt(sumSquares / data.length);
-      const now = Date.now();
-      if (rms > SPEAKING_THRESHOLD) {
-        lastAboveThresholdAt.current = now;
-        setSpeaking(true);
-      } else if (now - lastAboveThresholdAt.current > HOLD_MS) {
-        setSpeaking(false);
-      }
-    }, CHECK_INTERVAL_MS);
-
-    return () => {
-      clearInterval(interval);
-      source.disconnect();
-      analyser.disconnect();
-      // Never closed here: it's shared now, and closing it would silence
-      // every other stream on the page along with this analyser.
-      setSpeaking(false);
-    };
-  }, [stream]);
-
-  return speaking;
+  return useSyncExternalStore(subscribe, getSnapshot, () => false);
 }

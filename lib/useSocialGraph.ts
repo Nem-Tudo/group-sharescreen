@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/lib/AuthContext";
-import { useSignaling } from "@/lib/useSignaling";
+import { useSignalingSelector } from "@/lib/useSignalingSelector";
+import { selectSocialSeq } from "@/lib/signalingSelectors";
 import { EMPTY_GRAPH, fetchSocialGraph, type SocialGraph } from "@/lib/socialApi";
 
 // This account's friends and blocks, kept current.
@@ -26,7 +27,7 @@ export interface SocialGraphState {
 
 export function useSocialGraph(): SocialGraphState {
   const { account, loading: resolvingAccount } = useAuth();
-  const { socialSeq } = useSignaling();
+  const socialSeq = useSignalingSelector(selectSocialSeq);
   // Null until a read lands. Distinguishing "nothing yet" from "an empty
   // graph" is what lets `loading` below be derived instead of tracked, which
   // in turn keeps this whole hook free of setState-inside-an-effect.

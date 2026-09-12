@@ -6,7 +6,8 @@ import { useAuth } from "@/lib/AuthContext";
 import { useGroupNavigation } from "@/lib/groupNavigation";
 import { showNotification } from "@/lib/notifications";
 import { playDirectMessageSound } from "@/lib/soundEffects";
-import { useSignaling } from "@/lib/useSignaling";
+import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
+import { selectGroupNudge } from "@/lib/signalingSelectors";
 
 // Turns a group message this account asked to hear about — its notification
 // level for the group, or a mention — into a chime and a notification.
@@ -21,7 +22,7 @@ import { useSignaling } from "@/lib/useSignaling";
 
 export function GroupNotifier() {
   const { account } = useAuth();
-  const { lastGroupNotify, groupNotifySeq, alertTarget } = useSignaling();
+  const { lastGroupNotify, groupNotifySeq, alertTarget } = useSignalingSelector(selectGroupNudge, shallow);
   const pathname = usePathname();
   const navigation = useGroupNavigation();
   // The last message announced — see DmNotifier's announcedRef for the bug

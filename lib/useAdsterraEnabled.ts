@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSignaling } from "@/lib/useSignaling";
+import { useSignalingSelector } from "@/lib/useSignalingSelector";
+import { selectAdsterraEnabled } from "@/lib/signalingSelectors";
 import { getSignalingHttpBase } from "@/lib/roomsApi";
 
 // The admin panel's on/off switch for the Adsterra slots, as the site sees it.
@@ -59,7 +60,7 @@ async function loadAdsConfig(): Promise<boolean | null> {
  * direction is "show them".
  */
 export function useAdsterraEnabled(): boolean {
-  const { adsterraEnabled: live } = useSignaling();
+  const live = useSignalingSelector(selectAdsterraEnabled);
   const [fetched, setFetched] = useState<boolean | null>(cachedEnabled);
 
   useEffect(() => {

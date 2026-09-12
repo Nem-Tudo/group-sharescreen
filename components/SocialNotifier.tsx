@@ -6,7 +6,8 @@ import { showNotification } from "@/lib/notifications";
 import { dismissNotification, pushNotification } from "@/lib/notificationInbox";
 import { playFriendRequestSound } from "@/lib/soundEffects";
 import { useSocialGraph } from "@/lib/useSocialGraph";
-import { useSignaling } from "@/lib/useSignaling";
+import { useSignalingSelector } from "@/lib/useSignalingSelector";
+import { selectAlertTarget } from "@/lib/signalingSelectors";
 
 // Turns changes in the social graph into things in the bell.
 //
@@ -25,7 +26,7 @@ import { useSignaling } from "@/lib/useSignaling";
 export function SocialNotifier() {
   const { graph } = useSocialGraph();
   // See DmNotifier: the bell everywhere, the noise on one connection only.
-  const { alertTarget } = useSignaling();
+  const alertTarget = useSignalingSelector(selectAlertTarget);
   const router = useRouter();
 
   useEffect(() => {

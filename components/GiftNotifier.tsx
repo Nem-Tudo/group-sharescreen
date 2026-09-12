@@ -5,7 +5,8 @@ import { pushNotification } from "@/lib/notificationInbox";
 import { showNotification } from "@/lib/notifications";
 import { playFriendRequestSound } from "@/lib/soundEffects";
 import { useAuth } from "@/lib/AuthContext";
-import { useSignaling } from "@/lib/useSignaling";
+import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
+import { selectGiftNudge } from "@/lib/signalingSelectors";
 
 // Tells somebody a plan was bought for them.
 //
@@ -28,7 +29,7 @@ import { useSignaling } from "@/lib/useSignaling";
 export function GiftNotifier() {
   const { account, refresh } = useAuth();
   // See DmNotifier: the bell everywhere, the noise on one connection only.
-  const { lastGift, lastGiftRedeemed, alertTarget } = useSignaling();
+  const { lastGift, lastGiftRedeemed, alertTarget } = useSignalingSelector(selectGiftNudge, shallow);
 
   useEffect(() => {
     if (!account || !lastGift) return;

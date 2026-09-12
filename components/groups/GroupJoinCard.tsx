@@ -9,7 +9,8 @@ import { useAuth } from "@/lib/AuthContext";
 import { useGuestToken } from "@/lib/guestToken";
 import type { InvitePreview } from "@/lib/groupLinks";
 import { signalingClient } from "@/lib/signalingClient";
-import { useSignaling } from "@/lib/useSignaling";
+import { useSignalingSelector } from "@/lib/useSignalingSelector";
+import { selectName } from "@/lib/signalingSelectors";
 
 // The card that lets somebody into a group: which group, how many people, and
 // the one button. Drawn by an invite link (InviteClient) and by a public
@@ -45,7 +46,7 @@ export function GroupJoinCard({
 }) {
   const { account, loading } = useAuth();
   const guestToken = useGuestToken();
-  const { name: registeredName } = useSignaling();
+  const registeredName = useSignalingSelector(selectName);
 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

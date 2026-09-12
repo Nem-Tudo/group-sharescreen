@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { DownloadIcon } from "@/components/icons";
 import { Tooltip } from "@/components/Tooltip";
 import { getDesktopBridge } from "@/lib/desktop";
-import { useSignaling } from "@/lib/useSignaling";
+import { useSignalingSelector } from "@/lib/useSignalingSelector";
+import { selectDesktopUpdateSeq } from "@/lib/signalingSelectors";
 import { signalingClient } from "@/lib/signalingClient";
 import { trackEvent } from "@/lib/analytics";
 
@@ -25,7 +26,7 @@ export function UpdateAppButton() {
   const [installing, setInstalling] = useState(false);
   // The admin panel's "lançar atualização" broadcast, counted (see
   // signalingClient's desktopUpdateSeq).
-  const { desktopUpdateSeq } = useSignaling();
+  const desktopUpdateSeq = useSignalingSelector(selectDesktopUpdateSeq);
 
   useEffect(() => {
     const bridge = getDesktopBridge();

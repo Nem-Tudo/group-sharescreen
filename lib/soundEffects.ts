@@ -54,8 +54,22 @@ type Note = {
 // Each note gets its own oscillator + gain envelope (quick linear attack,
 // exponential decay) so notes sound like soft chimes instead of harsh
 // on/off clicks.
-function playNotes(notes: Note[]) {
+// The shortest gap between two playings of the *same* effect. Twenty people
+// arriving at once is one event to a listener, not twenty — and before this
+// it was twenty overlapping oscillator bursts, which is both unpleasant and
+// real work on the audio thread. Per effect, so a join and a mention landing
+// together still both play.
+const MIN_REPEAT_MS = 120;
+const lastPlayedAt = new Map<string, number>();
+
+function playNotes(notes: Note[], dedupeKey?: string) {
   if (!getSoundEffectsEnabled()) return;
+  if (dedupeKey) {
+    const now = Date.now();
+    const last = lastPlayedAt.get(dedupeKey) ?? 0;
+    if (now - last < MIN_REPEAT_MS) return;
+    lastPlayedAt.set(dedupeKey, now);
+  }
   const ctx = getAudioContext();
   if (!ctx) return;
   const now = ctx.currentTime;
@@ -81,14 +95,14 @@ export function playJoinSound() {
   playNotes([
     { freq: 587, start: 0, duration: 0.12 },
     { freq: 880, start: 0.09, duration: 0.16 },
-  ]);
+  ], "join");
 }
 
 export function playLeaveSound() {
   playNotes([
     { freq: 660, start: 0, duration: 0.12 },
     { freq: 415, start: 0.09, duration: 0.18 },
-  ]);
+  ], "leave");
 }
 
 export function playShareStartSound() {
@@ -96,18 +110,18 @@ export function playShareStartSound() {
     { freq: 523, start: 0, duration: 0.09 },
     { freq: 659, start: 0.07, duration: 0.09 },
     { freq: 784, start: 0.14, duration: 0.18 },
-  ]);
+  ], "share-start");
 }
 
 export function playShareStopSound() {
-  playNotes([{ freq: 392, start: 0, duration: 0.18, type: "triangle" }]);
+  playNotes([{ freq: 392, start: 0, duration: 0.18, type: "triangle" }], "share-stop");
 }
 
 export function playMentionSound() {
   playNotes([
     { freq: 988, start: 0, duration: 0.1, gain: 0.18 },
     { freq: 988, start: 0.14, duration: 0.14, gain: 0.18 },
-  ]);
+  ], "mention");
 }
 
 // ─── Your own mic and speakers ────────────────────────────────────────────
@@ -211,7 +225,7 @@ export function playFriendRequestSound() {
   playNotes([
     { freq: 523, start: 0, duration: 0.1, gain: 0.12 },
     { freq: 784, start: 0.09, duration: 0.2, gain: 0.12 },
-  ]);
+  ], "friend-request");
 }
 
 /**
@@ -225,7 +239,7 @@ export function playDirectMessageSound() {
   playNotes([
     { freq: 700, start: 0, duration: 0.08, gain: 0.1 },
     { freq: 880, start: 0.07, duration: 0.14, gain: 0.1 },
-  ]);
+  ], "dm");
 }
 
 // Used for site-wide "top" warnings/announcements (see AnnouncementBanner).

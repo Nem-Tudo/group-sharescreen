@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { signalingClient, type PeerInfo } from "./signalingClient";
+import { speakingDetector } from "./speakingDetector";
 import type { Feature } from "./entitlements";
 import { trackEvent } from "./analytics";
 import { iceConfigFor } from "./iceConfig";
@@ -1777,6 +1778,14 @@ function useBroadcastChannel(
           }
         }
         const origin = recvOrigins.current.get(peerId) ?? peerId;
+        // Every RTP packet already carries the sender's own measured audio
+        // level, so handing the receiver over lets the speaking indicator
+        // read it instead of building an analyser per participant to measure
+        // the same thing again here. Only the mic channel: the others carry
+        // audio nobody draws a speaking ring for.
+        if (channel === "mic" && e.streams[0]) {
+          speakingDetector.attachReceiver(e.streams[0].id, e.receiver);
+        }
         setRemoteStreams((prev) => ({ ...prev, [origin]: e.streams[0] }));
         clearResuming(origin);
         // A stream is arriving from them, so neither placeholder is true any

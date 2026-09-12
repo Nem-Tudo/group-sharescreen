@@ -5,7 +5,8 @@ import { pushNotification } from "@/lib/notificationInbox";
 import { showNotification } from "@/lib/notifications";
 import { playFriendRequestSound } from "@/lib/soundEffects";
 import { useAuth } from "@/lib/AuthContext";
-import { useSignaling } from "@/lib/useSignaling";
+import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
+import { selectThemeLikeNudge } from "@/lib/signalingSelectors";
 
 // Tells an author somebody liked one of their themes.
 //
@@ -22,7 +23,7 @@ import { useSignaling } from "@/lib/useSignaling";
 export function ThemeLikeNotifier() {
   const { account } = useAuth();
   // See DmNotifier: the bell everywhere, the noise on one connection only.
-  const { lastThemeLike, alertTarget } = useSignaling();
+  const { lastThemeLike, alertTarget } = useSignalingSelector(selectThemeLikeNudge, shallow);
 
   useEffect(() => {
     if (!account || !lastThemeLike) return;

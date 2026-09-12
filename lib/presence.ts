@@ -2,7 +2,8 @@
 
 import { useEffect } from "react";
 import { signalingClient, type PeerInfo, type PresenceInfo, type PresenceState } from "./signalingClient";
-import { useSignaling } from "./useSignaling";
+import { useSignalingSelector } from "./useSignalingSelector";
+import { selectPresence } from "./signalingSelectors";
 
 // Who is around right now — the green/blue dot beside a person's face.
 //
@@ -72,7 +73,7 @@ function release(id: string) {
  */
 export function usePresence(userId?: string | null, isGuest?: boolean): PresenceInfo | null {
   const enabled = Boolean(userId) && !isGuest;
-  const state = useSignaling();
+  const presence = useSignalingSelector(selectPresence);
 
   useEffect(() => {
     if (!enabled || !userId) return;
@@ -81,7 +82,7 @@ export function usePresence(userId?: string | null, isGuest?: boolean): Presence
   }, [enabled, userId]);
 
   if (!enabled || !userId) return null;
-  return state.presence[userId] ?? null;
+  return presence[userId] ?? null;
 }
 
 /**
@@ -98,7 +99,7 @@ export function usePresenceMap(ids: (string | null | undefined)[]): Record<strin
   // fresh array on every render — a list that re-renders for an unrelated
   // reason must not re-subscribe.
   const key = ids.filter((id): id is string => Boolean(id)).join(",");
-  const state = useSignaling();
+  const presence = useSignalingSelector(selectPresence);
 
   useEffect(() => {
     if (!key) return;
@@ -109,7 +110,7 @@ export function usePresenceMap(ids: (string | null | undefined)[]): Record<strin
     };
   }, [key]);
 
-  return state.presence;
+  return presence;
 }
 
 /**

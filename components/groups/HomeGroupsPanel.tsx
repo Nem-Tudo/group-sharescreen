@@ -14,7 +14,8 @@ import { OFFICIAL_GROUP_ID, fetchPublicGroupPreview, groupPath, type PublicGroup
 import { joinPublicGroup } from "@/lib/groupsApi";
 import { useGuestToken } from "@/lib/guestToken";
 import { refreshGroup, refreshGroups, syncGroupsIdentity, useMyGroups } from "@/lib/useGroups";
-import { useSignaling } from "@/lib/useSignaling";
+import { useSignalingSelector } from "@/lib/useSignalingSelector";
+import { selectName } from "@/lib/signalingSelectors";
 
 // The groups list beside the home page's room form — the counterpart of the
 // friends list on the other side of it (see HomeFriendsPanel), drawn the same
@@ -60,7 +61,7 @@ let officialPreview: Promise<PublicGroupPreview | null> | null = null;
 function OfficialGroupCard({ onDone }: { onDone: () => void }) {
   const router = useRouter();
   const { account } = useAuth();
-  const { name: registeredName } = useSignaling();
+  const registeredName = useSignalingSelector(selectName);
   const [preview, setPreview] = useState<PublicGroupPreview | null | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -267,11 +268,11 @@ function GroupsPanelBody({
 
       {/* Mentions anywhere, said once up top — the per-group numbers below say
           where, this says that there is something to go and read. */}
-      {mentions > 0 && (
+      {/* {mentions > 0 && (
         <p className="mt-3 rounded-lg border border-red-600/25 bg-red-50 px-2.5 py-2 text-xs font-medium text-red-700 dark:border-red-500/30 dark:bg-red-950/30 dark:text-red-400">
           {mentions === 1 ? "Você foi mencionado 1 vez" : `Você foi mencionado ${mentions} vezes`}
         </p>
-      )}
+      )} */}
 
       {groups === null ? (
         <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">Carregando…</p>

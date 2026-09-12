@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MdCall, MdCallEnd } from "react-icons/md";
 import { useAuth } from "@/lib/AuthContext";
-import { useSignaling } from "@/lib/useSignaling";
+import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
+import { selectCallNudge } from "@/lib/signalingSelectors";
 import { signalingClient } from "@/lib/signalingClient";
 import { acceptCall, endCall, fetchPendingCalls, isOwnCall, markOwnCall } from "@/lib/callsApi";
 import { showNotification } from "@/lib/notifications";
@@ -73,7 +74,7 @@ export function CallHost() {
     callEnded,
     callEndedSeq,
     alertTarget,
-  } = useSignaling();
+  } = useSignalingSelector(selectCallNudge, shallow);
   // Where it rings. The same call reaches every connection this account has —
   // they all need to know it is ringing, and to stop when it stops — but only
   // one of them rings: the one the server picked to make the noise, which is

@@ -41,7 +41,8 @@ import { useAuth } from "@/lib/AuthContext";
 import { verifiedBadge } from "@/lib/entitlements";
 import { openDirectMessages } from "@/lib/dmWindow";
 import { startCall } from "@/lib/callsApi";
-import { useSignaling } from "@/lib/useSignaling";
+import { useSignalingSelector } from "@/lib/useSignalingSelector";
+import { selectRecentDms } from "@/lib/signalingSelectors";
 import { presenceLabel, usePresence } from "@/lib/presence";
 import {
   fetchConversation,
@@ -457,7 +458,7 @@ export function DirectMessagesModal({
   openWith?: string | null;
 }) {
   const { account } = useAuth();
-  const { recentDms } = useSignaling();
+  const recentDms = useSignalingSelector(selectRecentDms);
   const now = useSyncExternalStore(subscribeClock, getClock, getClockServer);
 
   // null until the first answer, so "loading" and "no conversations" are two

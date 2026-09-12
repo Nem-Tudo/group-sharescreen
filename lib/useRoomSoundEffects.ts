@@ -79,18 +79,35 @@ export function useRoomSoundEffects(state: SignalingState) {
     // they just took, and hearing it is the point.
     const resettling = Date.now() < settledAtRef.current;
 
+    // Counted first, played once. A room refilling after a restart is dozens
+    // of arrivals in one pass, and that is one event to whoever is listening
+    // — not dozens of overlapping chimes. (playNotes guards the same way
+    // across passes; this is the within-pass half.)
+    let joined = false;
+    let left = false;
+    let shareStarted = false;
+    let shareStopped = false;
+
     for (const [id, peer] of nextPeers) {
       const prev = prevPeers.get(id);
       if (!prev) {
-        if (!resettling) playJoinSound();
+        if (!resettling) joined = true;
         continue;
       }
-      if (!prev.sharing && peer.sharing) playShareStartSound();
-      else if (prev.sharing && !peer.sharing) playShareStopSound();
+      if (!prev.sharing && peer.sharing) shareStarted = true;
+      else if (prev.sharing && !peer.sharing) shareStopped = true;
     }
     for (const id of prevPeers.keys()) {
-      if (!nextPeers.has(id) && !resettling) playLeaveSound();
+      if (!nextPeers.has(id) && !resettling) {
+        left = true;
+        break;
+      }
     }
+
+    if (joined) playJoinSound();
+    if (left) playLeaveSound();
+    if (shareStarted) playShareStartSound();
+    if (shareStopped) playShareStopSound();
 
     prevPeersRef.current = nextPeers;
   }, [state.peers, state.room]);

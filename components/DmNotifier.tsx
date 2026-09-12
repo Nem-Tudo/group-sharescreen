@@ -6,7 +6,8 @@ import { showNotification } from "@/lib/notifications";
 import { upsertNotification } from "@/lib/notificationInbox";
 import { playDirectMessageSound } from "@/lib/soundEffects";
 import { openDirectMessages, useDirectMessagesWindow } from "@/lib/dmWindow";
-import { useSignaling } from "@/lib/useSignaling";
+import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
+import { selectDmNudge } from "@/lib/signalingSelectors";
 
 // Turns an arriving private message into a chime, a bell entry and — if the
 // tab is not in front — a system notification.
@@ -27,7 +28,7 @@ export function DmNotifier() {
   // Only the connection the server picked makes the noise — the app if it is
   // open, otherwise the tab used last (see SignalingState.alertTarget). The
   // bell fills up everywhere; the chime and the notification happen once.
-  const { lastDm, dmSeq, alertTarget } = useSignaling();
+  const { lastDm, dmSeq, alertTarget } = useSignalingSelector(selectDmNudge, shallow);
   const { open, withUserId } = useDirectMessagesWindow();
 
   // The last message this component actually announced.

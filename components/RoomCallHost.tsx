@@ -18,7 +18,8 @@ import {
 } from "@/lib/callSession";
 import { groupPath } from "@/lib/groupLinks";
 import { playConnectSound } from "@/lib/soundEffects";
-import { useSignaling } from "@/lib/useSignaling";
+import { useSignalingSelector } from "@/lib/useSignalingSelector";
+import { selectRoomRemoval, selectRoom } from "@/lib/signalingSelectors";
 
 // The one room there is, mounted above every page.
 //
@@ -255,7 +256,7 @@ function CallDock({
  * started.
  */
 function RemovalGuard({ onRemoved }: { onRemoved: () => void }) {
-  const { roomRemoval } = useSignaling();
+  const roomRemoval = useSignalingSelector(selectRoomRemoval);
   const previous = useRef(roomRemoval);
   const onRemovedRef = useRef(onRemoved);
   useEffect(() => {
@@ -276,7 +277,7 @@ function RemovalGuard({ onRemoved }: { onRemoved: () => void }) {
  * and a reconnect into the same one does not.
  */
 function ConnectSound({ handle }: { handle: string }) {
-  const { room } = useSignaling();
+  const room = useSignalingSelector(selectRoom);
   const played = useRef(false);
   useEffect(() => {
     if (played.current || room !== handle) return;
