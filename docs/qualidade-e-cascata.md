@@ -128,11 +128,15 @@ upload de um participante — só vale a pena quando a alternativa (rebaixar a
 sala inteira) é pior.
 
 Churn ainda merece atenção em campo: quando um relay fecha a aba, a subárvore
-fica sem stream até ser re-parenteada. `RelayLink` detecta a fonte parada em
-~1,5s e avisa os filhos, mas o broadcaster só reatribui esses filhos na
-próxima passagem do planejador (até `REPLAN_COOLDOWN_MS` = 6s depois). Numa
-sala grande e ativa isso deve ser raro e curto; se aparecer como um problema
-real, `NEXT_PUBLIC_RELAY_ENABLED=false` desliga o mecanismo por completo.
+fica sem stream até ser re-parentada. `RelayLink` detecta a fonte parada em
+~12s e avisa os filhos, mas o broadcaster só reatribui esses filhos na
+próxima passagem do planejador (até `REPLAN_COOLDOWN_MS` = 6s depois). Os 12s
+são intencionais: um valor menor, como 1,5s, fazia pausas normais de
+compartilhamento de tela estática parecerem uma fonte morta e podia derrubar
+a cascata inteira. O trade-off é que uma fonte realmente travada pode
+permanecer congelada por alguns segundos antes de ser detectada. Numa sala
+grande e ativa isso deve ser raro e curto; se aparecer como um problema real,
+`NEXT_PUBLIC_RELAY_ENABLED=false` desliga o mecanismo por completo.
 
 Profundidade é limitada a 3 — além disso o planejador **rebaixa qualidade em
 vez de aprofundar**.
