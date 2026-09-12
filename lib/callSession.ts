@@ -55,6 +55,13 @@ export interface CallSession {
  */
 export interface CallChrome {
   headerSlots: { center: HTMLElement | null; right: HTMLElement | null };
+  /**
+   * The strip right under the group's header where a group voice room's music
+   * bars are drawn, so the song stays in one place — and in view — whichever
+   * of the group's rooms is open. Only a group's own call uses it; an ordinary
+   * room's bars stay where they always were.
+   */
+  musicSlot: HTMLElement | null;
   /** Opens the group's rooms drawer on a phone. */
   onOpenNav: () => void;
 }
@@ -204,7 +211,8 @@ export function setCallChrome(next: CallChrome | null): void {
       next !== null &&
       chrome.onOpenNav === next.onOpenNav &&
       chrome.headerSlots.center === next.headerSlots.center &&
-      chrome.headerSlots.right === next.headerSlots.right);
+      chrome.headerSlots.right === next.headerSlots.right &&
+      chrome.musicSlot === next.musicSlot);
   if (same) return;
   chrome = next;
   notify();

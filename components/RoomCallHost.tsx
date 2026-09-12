@@ -144,6 +144,7 @@ export function RoomCallHost() {
               // A group's top bar, while the group's pages are on screen — for
               // any call, not only that group's. Null everywhere else.
               headerSlots={chrome?.headerSlots ?? null}
+              musicSlot={chrome?.musicSlot ?? null}
               group={
                 session.group
                   ? {

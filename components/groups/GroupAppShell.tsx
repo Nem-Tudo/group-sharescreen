@@ -99,6 +99,8 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   // headerSlots. State rather than refs, so the room re-renders once they exist.
   const [centerSlot, setCenterSlot] = useState<HTMLDivElement | null>(null);
   const [rightSlot, setRightSlot] = useState<HTMLDivElement | null>(null);
+  // Where a group voice room's music bars are drawn — see CallChrome.musicSlot.
+  const [musicSlot, setMusicSlot] = useState<HTMLDivElement | null>(null);
 
   // What the call borrows from the group while the group's pages are the ones
   // on screen: this bar's two slots for the room's own controls, and the way
@@ -109,9 +111,13 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   // carries one (see GroupSidebar's VoiceCallLink and VoiceControls).
   const openNav = useCallback(() => setNavOpen(true), []);
   useEffect(() => {
-    setCallChrome({ headerSlots: { center: centerSlot, right: rightSlot }, onOpenNav: openNav });
+    setCallChrome({
+      headerSlots: { center: centerSlot, right: rightSlot },
+      musicSlot,
+      onOpenNav: openNav,
+    });
     return () => setCallChrome(null);
-  }, [centerSlot, rightSlot, openNav]);
+  }, [centerSlot, rightSlot, musicSlot, openNav]);
 
   // A different person — logging in, out, or into another account — is a
   // different set of groups. Skipped on the first render, which is not a change.
@@ -253,6 +259,13 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
             </div>
           </div>
         </header>
+
+        {/* The music of the voice room you are in, as one blue strip right
+            under the group's bar — the same place whichever of the group's
+            rooms is open, so the song never jumps around the page or out of
+            view as you move between them. Empty, and so no height at all,
+            when nothing is playing. Filled by the room (see WatchRoom). */}
+        <div ref={setMusicSlot} className="flex shrink-0 flex-col" />
 
         {/* Below lg the call gets a strip of its own under the bar. */}
         {call && !voiceVisible && (

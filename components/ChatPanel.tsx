@@ -474,9 +474,9 @@ export function ChatPanel({
   // allKnownNames is rebuilt whenever a message arrives, but the names in it
   // almost never change, and building this regex escapes and sorts every
   // name in the room and then compiles it. Same names, same regex, no work.
-  const mentionNamesKey = allKnownNames.join(" ");
+  const mentionNamesKey = allKnownNames.join("\u0000");
   const mentionRegex = useMemo(
-    () => buildMentionsRegex(mentionNamesKey ? mentionNamesKey.split(" ") : []),
+    () => buildMentionsRegex(mentionNamesKey ? mentionNamesKey.split("\u0000") : []),
     [mentionNamesKey]
   );
 

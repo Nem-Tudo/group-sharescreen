@@ -1050,6 +1050,7 @@ export function WatchRoom({
   dockSlot = null,
   dockPhase = "expanded",
   headerSlots = null,
+  musicSlot = null,
   group,
 }: {
   handle: string;
@@ -1084,6 +1085,13 @@ export function WatchRoom({
    * inHeaderSlot). Null anywhere else.
    */
   headerSlots?: { center: HTMLElement | null; right: HTMLElement | null } | null;
+  /**
+   * The strip under a group's header that a group voice room draws its music
+   * bars into (see CallChrome.musicSlot). Used only when this room *is* a
+   * group's — an ordinary room keeps its bars under its own header even while
+   * its call is carried through a group's pages.
+   */
+  musicSlot?: HTMLElement | null;
   /** Set only when the room is a group's voice room. See WatchRoomGroupMode. */
   group?: WatchRoomGroupMode;
 }) {
@@ -5347,6 +5355,38 @@ export function WatchRoom({
     return group ? null : node;
   }
 
+
+  // The room's soundtrack from local files — the same strip, the same place,
+  // as a YouTube one. Several can be up at once, the same way several people
+  // can be sharing a screen.
+  const localAndRemoteMusic = (
+    <>
+      {localMusicSlots.map((slot) => (
+        <LocalMusicBar
+          key={slot}
+          slot={slot}
+          canRestrictControl={Boolean(state.account)}
+          onRequestAccount={() => setAccountModal("create")}
+          onStop={() => fileChannels[slot].stop()}
+        />
+      ))}
+      {remoteMusicEntries.map(({ slot, peerId, stream, peer, shared }) =>
+        shared ? (
+          <RemoteMusicBar
+            key={`${slot}:${peerId}`}
+            peerId={peerId}
+            peerName={peer?.name ?? "alguém"}
+            file={shared}
+            stream={stream}
+            isRoomManager={isRoomManager}
+          />
+        ) : null
+      )}
+    </>
+  );
+  // Only a group's own voice room draws its music under the group's header.
+  const groupMusicSlot = group ? musicSlot : null;
+
   return (
     <div
       // Marks this page as an app shell for globals.css, which is what pins
@@ -5828,33 +5868,18 @@ export function WatchRoom({
           looking at: it is a strip rather than a tile because music is not
           something you watch, and it must not take a slot away from the
           people and screens that are. */}
-      {/* Local files somebody put on as music — the same strip, the same
-          place, as a YouTube soundtrack. Several can be up at once, the same
-          way several people can be sharing a screen. */}
-      {localMusicSlots.map((slot) => (
-        <LocalMusicBar
-          key={slot}
-          slot={slot}
-          canRestrictControl={Boolean(state.account)}
-          onRequestAccount={() => setAccountModal("create")}
-          onStop={() => fileChannels[slot].stop()}
-        />
-      ))}
-      {remoteMusicEntries.map(({ slot, peerId, stream, peer, shared }) =>
-        shared ? (
-          <RemoteMusicBar
-            key={`${slot}:${peerId}`}
-            peerId={peerId}
-            peerName={peer?.name ?? "alguém"}
-            file={shared}
-            stream={stream}
-            isRoomManager={isRoomManager}
-          />
-        ) : null
-      )}
+      {groupMusicSlot
+        ? createPortal(localAndRemoteMusic, groupMusicSlot)
+        : localAndRemoteMusic}
 
       {state.music && (
         <MusicBar
+          // A group room's bar goes to the strip under the group's header and
+          // its player out of the room altogether, so opening the voice room
+          // or moving to another of the group's rooms never restarts the
+          // song. An ordinary room's is drawn and played right here, as ever.
+          slot={groupMusicSlot}
+          keepPlayerInPlace={Boolean(group)}
           music={state.music}
           // Transport follows the music's own control mode, and never the
           // account check that gates *setting* it — this is playback, and a

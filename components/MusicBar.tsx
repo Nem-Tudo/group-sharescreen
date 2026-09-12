@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   MdMusicNote,
   MdPlayArrow,
@@ -26,6 +27,41 @@ import {
   type EmbeddedPlayer,
 } from "@/lib/youtubePlayer";
 import { getStoredMusicVolume, setStoredMusicVolume } from "@/lib/mediaPreferences";
+
+// Where the YouTube player itself lives: a node of its own at the end of the
+// document, which nothing ever moves.
+//
+// It used to sit inside the bar. That was fine until the room stopped being a
+// page: the call is mounted once now and its node is carried from outlet to
+// outlet as the person navigates (see components/RoomCallHost) — which keeps a
+// <video> playing, but an <iframe> moved in the document is *reloaded* by the
+// browser. The embed came back with the parameters it was first made with,
+// including the position it started at, so every time somebody opened the
+// voice room or went to another one the song started over from there.
+//
+// Parked at 1x1 with the sound on rather than hidden, for the reason the bar
+// always gave: `display: none` is something browsers may treat as "not
+// playing" and quietly stop.
+let playerHost: HTMLDivElement | null = null;
+
+function getPlayerHost(): HTMLDivElement {
+  if (playerHost && playerHost.isConnected) return playerHost;
+  playerHost = document.createElement("div");
+  playerHost.setAttribute("aria-hidden", "true");
+  playerHost.dataset.musicPlayerHost = "";
+  Object.assign(playerHost.style, {
+    position: "fixed",
+    left: "0",
+    bottom: "0",
+    width: "1px",
+    height: "1px",
+    overflow: "hidden",
+    opacity: "0",
+    pointerEvents: "none",
+  });
+  document.body.appendChild(playerHost);
+  return playerHost;
+}
 
 // The default clock for the `serverNow` prop below. Module-level and
 // arrow-wrapped on purpose: `signalingClient.serverNow` handed over bare would
@@ -79,6 +115,8 @@ export function MusicBar({
   isMusicOwner,
   onReplace,
   serverNow = defaultServerNow,
+  slot = null,
+  keepPlayerInPlace = false,
 }: {
   music: MusicSource;
   // Owner and admins of the room. Everyone else gets the same bar with the
@@ -98,6 +136,20 @@ export function MusicBar({
   // a server timestamp against a badly-set local clock is wrong by a constant
   // no amount of drift correction can find. See signalingClient.serverNow.
   serverNow?: () => number;
+  /**
+   * Somewhere else to draw the bar — the strip under a group's header, which
+   * stays put across the group's rooms (see GroupAppShell's musicSlot). Only
+   * the bar moves there: the player behind it stays where it is (see
+   * getPlayerHost), and so does everything this component remembers.
+   */
+  slot?: HTMLElement | null;
+  /**
+   * Keep the player outside the room, in the node nothing moves (see
+   * getPlayerHost). Set for a group's voice rooms, whose call is carried from
+   * page to page with the person. An ordinary room keeps its player inside the
+   * bar, exactly as it always has.
+   */
+  keepPlayerInPlace?: boolean;
 }) {
   const mountRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<EmbeddedPlayer | null>(null);
@@ -186,8 +238,12 @@ export function MusicBar({
   // for, and a promotion mid-song must not restart it for the whole room.
   const sourceKey = `${music.id}:${music.videoId}:${music.playlistId ?? ""}`;
   useEffect(() => {
-    const mount = mountRef.current;
+    // A group room's player gets a node of its own inside the host (so two
+    // bars never share one); an ordinary room's sits inside the bar, as ever.
+    const hosted = keepPlayerInPlace;
+    const mount = hosted ? document.createElement("div") : mountRef.current;
     if (!mount) return;
+    if (hosted) getPlayerHost().appendChild(mount);
     let cancelled = false;
     setReady(false);
     setLoadError(false);
@@ -196,7 +252,8 @@ export function MusicBar({
 
     loadYouTubeApi()
       .then((YT) => {
-        if (cancelled || !mountRef.current) return;
+        // An ordinary room still checks its bar's mount is there, as it always did.
+        if (cancelled || (!hosted && !mountRef.current)) return;
         markApplyingRemote();
         const now = musicRef.current;
         const playlistId = now.playlistId;
@@ -205,7 +262,7 @@ export function MusicBar({
         // over as videoId would just error. listType + list is what loads the
         // queue; videoId is only the starting item when the paste had a `v=`.
         const videoId = isYouTubeVideoId(now.videoId) ? now.videoId : undefined;
-        playerRef.current = new YT.Player(mountRef.current, {
+        playerRef.current = new YT.Player(hosted ? mount : (mountRef.current as HTMLDivElement), {
           width: "100%",
           height: "100%",
           ...(videoId ? { videoId } : {}),
@@ -277,11 +334,13 @@ export function MusicBar({
       if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
       playerRef.current?.destroy();
       playerRef.current = null;
-      // The API replaces the mount node's content with its iframe, so the
-      // next mount needs it emptied.
-      if (mount) mount.innerHTML = "";
+      // A hosted mount is this player's alone and goes with it. The bar's own
+      // is emptied instead: the API replaces the mount node's content with its
+      // iframe, so the next mount needs it cleared.
+      if (hosted) mount.remove();
+      else mount.innerHTML = "";
     };
-  }, [sourceKey, markApplyingRemote, schedulePush]);
+  }, [sourceKey, markApplyingRemote, schedulePush, keepPlayerInPlace]);
 
   // This listener's own volume.
   useEffect(() => {
@@ -454,17 +513,27 @@ export function MusicBar({
   const shownPosition = scrubbing ?? position;
   const disabledControl = !canControl || !ready;
 
-  return (
-    <div className="relative flex w-full shrink-0 flex-col border-b border-sky-700/40 bg-sky-600 text-white dark:bg-sky-700">
-      {/* The player itself. Audio only: it is parked at 1x1 with the sound
-          left on rather than hidden with `display: none`, which browsers are
-          entitled to treat as "not playing" and quietly stop. */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute h-px w-px overflow-hidden opacity-0"
-      >
-        <div ref={mountRef} />
-      </div>
+  const bar = (
+    // Last in the slot, under any local-file soundtracks — the order the room
+    // has always drawn them in.
+    <div
+      className={`relative flex w-full shrink-0 flex-col border-b border-sky-700/40 bg-sky-600 text-white dark:bg-sky-700 ${
+        slot ? "order-last" : ""
+      }`}
+    >
+      {/* The player itself, in an ordinary room. Audio only: it is parked at
+          1x1 with the sound left on rather than hidden with `display: none`,
+          which browsers are entitled to treat as "not playing" and quietly
+          stop. A group room's lives outside the bar instead (see
+          keepPlayerInPlace). */}
+      {!keepPlayerInPlace && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute h-px w-px overflow-hidden opacity-0"
+        >
+          <div ref={mountRef} />
+        </div>
+      )}
 
       <div className="flex w-full flex-nowrap items-center gap-x-3 px-3 py-1.5">
         <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -608,6 +677,8 @@ export function MusicBar({
       </div>
     </div>
   );
+
+  return slot ? createPortal(bar, slot) : bar;
 }
 
 function MusicButton({
