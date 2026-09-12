@@ -43,6 +43,10 @@ const MAX_ENTRIES_PER_TICK = 24;
 // spent twice the loop on precision nothing reads.
 const FFT_SIZE = 256;
 
+// Receivers handed over before any row was watching their stream. Bounded
+// because nothing guarantees a row ever arrives to claim one.
+const MAX_PENDING_RECEIVERS = 64;
+
 type Entry = {
   stream: MediaStream;
   /** How many mounted rows are watching this stream. */
@@ -139,6 +143,22 @@ class SpeakingDetector {
       entry.receiver = receiver;
       entry.receiverUseless = false;
       return;
+    }
+    // Pruned on the way in, because nothing else ever will: an entry here is
+    // only claimed if a row turns up for that stream, and one that never does
+    // — a peer filtered out of the list, or a stream replaced by a reconnect
+    // before anything rendered it — would otherwise sit here holding its
+    // receiver (and through it, a closed connection) for the whole session.
+    // Every reconnect mints a new stream id, so this grows with churn.
+    for (const [id, held] of this.pendingReceivers) {
+      if (held.track?.readyState === "ended") this.pendingReceivers.delete(id);
+    }
+    // A floor under it regardless of what readyState says, oldest first —
+    // insertion order is what a Map iterates in.
+    while (this.pendingReceivers.size >= MAX_PENDING_RECEIVERS) {
+      const oldest = this.pendingReceivers.keys().next();
+      if (oldest.done) break;
+      this.pendingReceivers.delete(oldest.value);
     }
     this.pendingReceivers.set(streamId, receiver);
   }
