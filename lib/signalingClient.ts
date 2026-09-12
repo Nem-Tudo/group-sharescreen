@@ -1246,14 +1246,20 @@ class SignalingClient {
       this.notifyScheduled = false;
       this.listeners.forEach((l) => l());
     };
-    // A hidden tab gets no rAF at all, and neither does a hidden Electron
-    // window (which runs with backgroundThrottling: false precisely so it
-    // keeps working) — so fall back to a timer rather than going silent
-    // until the page comes back.
+    // Only coalesced while the page is actually being painted. A hidden tab
+    // gets no rAF, and a timer is the wrong fallback: browsers throttle
+    // timers in background tabs to roughly one a second, and after a few
+    // minutes far less — which would have delayed an incoming call ring or a
+    // DM landing in a tab someone left in the background, the one moment
+    // those have to be immediate. Telling listeners straight away when
+    // hidden is exactly what this did before, so nothing regresses; there is
+    // no frame to batch for anyway. What a hidden window costs in CPU is
+    // dealt with by not doing the expensive work (decoding video, metering
+    // audio), not by delaying renders.
     if (typeof document !== "undefined" && document.visibilityState === "visible") {
       requestAnimationFrame(fire);
     } else {
-      setTimeout(fire, 16);
+      fire();
     }
   }
 
