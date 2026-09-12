@@ -147,6 +147,38 @@ contextBridge.exposeInMainWorld("golive", {
     };
   },
 
+  /**
+   * A notification, drawn by the shell in the corner of the screen rather
+   * than handed to the operating system (see toast.html). Re-built rather
+   * than forwarded, so exactly these four fields cross.
+   */
+  showToast(toast: unknown): void {
+    if (!toast || typeof toast !== "object") return;
+    const value = toast as { id?: unknown; title?: unknown; body?: unknown; icon?: unknown };
+    if (typeof value.id !== "string" || typeof value.title !== "string") return;
+    ipcRenderer.send(IPC.toastShow, {
+      id: value.id,
+      title: value.title,
+      body: typeof value.body === "string" ? value.body : "",
+      icon: typeof value.icon === "string" ? value.icon : null,
+    });
+  },
+
+  /**
+   * Subscribes to "that notification was clicked". The id is the one the page
+   * gave showToast, and nothing else comes across. Returns an unsubscribe.
+   */
+  onToastClick(callback: unknown): () => void {
+    if (typeof callback !== "function") return () => {};
+    const listener = (_event: unknown, id: unknown) => {
+      if (typeof id === "string") (callback as (id: string) => void)(id);
+    };
+    ipcRenderer.on(IPC.toastClick, listener);
+    return () => {
+      ipcRenderer.off(IPC.toastClick, listener);
+    };
+  },
+
   setGlobalShortcuts(shortcuts: unknown): void {
     if (shortcuts && typeof shortcuts === "object") {
       ipcRenderer.send(IPC.shortcutsSet, shortcuts);

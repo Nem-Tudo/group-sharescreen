@@ -52,9 +52,20 @@ export function PushRegistrar() {
     // The web answer. `visibilitychange` covers a tab going behind another
     // tab, a window being minimised and a phone browser being backgrounded,
     // which is every case that matters here.
-    const onVisibility = () => report(document.visibilityState === "hidden");
+    const onVisibility = () => {
+      const hidden = document.visibilityState === "hidden";
+      report(hidden);
+      if (!hidden && document.hasFocus()) signalingClient.reportFocus();
+    };
     document.addEventListener("visibilitychange", onVisibility);
     onVisibility();
+
+    // Which of several open windows is the one in use — two browser windows
+    // side by side are both visible, and only a click into one says which.
+    // It is what decides where a notification is announced (see
+    // signalingClient.reportFocus).
+    const onFocus = () => signalingClient.reportFocus();
+    window.addEventListener("focus", onFocus);
 
     // The Android shell's answer, which is not the same event: a Capacitor app
     // sent to the background does fire visibilitychange, but the app being
@@ -65,6 +76,7 @@ export function PushRegistrar() {
     if (Capacitor.isNativePlatform()) {
       void CapacitorApp.addListener("appStateChange", ({ isActive }) => {
         report(!isActive);
+        if (isActive) signalingClient.reportFocus();
       }).then((handle) => {
         remove = () => void handle.remove();
       });
@@ -72,6 +84,7 @@ export function PushRegistrar() {
 
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onFocus);
       remove?.();
     };
   }, []);

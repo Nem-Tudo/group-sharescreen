@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { showNotification } from "@/lib/notifications";
 import { upsertNotification } from "@/lib/notificationInbox";
 import { playDirectMessageSound } from "@/lib/soundEffects";
-import { useDirectMessagesWindow } from "@/lib/dmWindow";
+import { openDirectMessages, useDirectMessagesWindow } from "@/lib/dmWindow";
 import { useSignaling } from "@/lib/useSignaling";
 
 // Turns an arriving private message into a chime, a bell entry and — if the
@@ -24,7 +24,10 @@ import { useSignaling } from "@/lib/useSignaling";
 
 export function DmNotifier() {
   const { account } = useAuth();
-  const { lastDm, dmSeq } = useSignaling();
+  // Only the connection the server picked makes the noise — the app if it is
+  // open, otherwise the tab used last (see SignalingState.alertTarget). The
+  // bell fills up everywhere; the chime and the notification happen once.
+  const { lastDm, dmSeq, alertTarget } = useSignaling();
   const { open, withUserId } = useDirectMessagesWindow();
 
   // The last message this component actually announced.
@@ -60,13 +63,15 @@ export function DmNotifier() {
       body: message.text,
       userId: message.from,
     });
+    if (!alertTarget) return;
     playDirectMessageSound();
     void showNotification({
       title: name,
       body: message.text,
       tag: `dm:${message.from}`,
+      onClick: () => openDirectMessages(message.from),
     });
-  }, [dmSeq, lastDm, account, open, withUserId]);
+  }, [dmSeq, lastDm, account, open, withUserId, alertTarget]);
 
   return null;
 }

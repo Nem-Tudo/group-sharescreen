@@ -50,6 +50,7 @@ files:
   - electron/dist/**/*
   - electron/picker.html
   - electron/call-overlay.html
+  - electron/toast.html
   - package.json
   - "!node_modules/**/*"
   # Linux sets the window icon from a file at runtime rather than from the

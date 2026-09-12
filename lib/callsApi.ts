@@ -24,6 +24,51 @@ export type CallResult =
   | { ok: true; call: CallWire }
   | { ok: false; error: string };
 
+// ─── Which calls are this tab's ───────────────────────────────────────────
+//
+// "call-accepted" reaches every connection of both people, and every one of
+// them used to follow it into the room — which is how answering on one tab put
+// the person in the call on all of them. Now only the tab that *placed* the
+// call, or the one that *answered* it, walks in (see CallHost), and this is how
+// it knows which calls those are.
+//
+// sessionStorage, which is per tab by definition, and survives the reload of a
+// tab that placed a call and is still waiting on it. A memory copy as well, for
+// the browser that refuses to store anything.
+
+const OWN_CALLS_KEY = "golive:ownCalls";
+// A call rings for under a minute; this only has to outlive the ring.
+const OWN_CALLS_MAX = 20;
+const ownCallsInMemory = new Set<string>();
+
+function readOwnCalls(): string[] {
+  try {
+    const raw = window.sessionStorage.getItem(OWN_CALLS_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** This tab placed or answered `callId`, so it is the one that joins the room. */
+export function markOwnCall(callId: string): void {
+  if (typeof window === "undefined") return;
+  ownCallsInMemory.add(callId);
+  const ids = readOwnCalls().filter((id) => id !== callId);
+  ids.push(callId);
+  try {
+    window.sessionStorage.setItem(OWN_CALLS_KEY, JSON.stringify(ids.slice(-OWN_CALLS_MAX)));
+  } catch {
+    // The memory copy above still answers for the life of this page.
+  }
+}
+
+export function isOwnCall(callId: string): boolean {
+  if (typeof window === "undefined") return false;
+  return ownCallsInMemory.has(callId) || readOwnCalls().includes(callId);
+}
+
 /**
  * Starts ringing somebody.
  *
@@ -44,6 +89,8 @@ export async function startCall(userId: string, room?: string): Promise<CallResu
     if (!res.ok || !data.call) {
       return { ok: false, error: data.error ?? "Não foi possível ligar." };
     }
+    // This tab is the one that walks into the room if it is answered.
+    markOwnCall(data.call.id);
     return { ok: true, call: data.call };
   } catch {
     return { ok: false, error: "Sem conexão com o servidor." };

@@ -431,6 +431,22 @@ export type CallWire = {
   expiresAt: number;
 };
 
+/**
+ * A group message this account asked to be told about — its notification
+ * level for the group, or a mention (see the API's groupRoutes "group-notify").
+ * Only news: whether it makes a sound is GroupNotifier's call.
+ */
+export type GroupNotifyEvent = {
+  groupId: string;
+  channelId: string;
+  messageId: string;
+  title: string;
+  body: string;
+  /** The text room it was written in — where a click goes. */
+  url: string;
+  icon: string | null;
+};
+
 export type SignalingState = {
   status: SignalingStatus;
   selfId: string | null;
@@ -534,6 +550,19 @@ export type SignalingState = {
   lastGiftRedeemed: PremiumGiftRedeemedEvent | null;
   /** The last like somebody put on one of this account's themes. */
   lastThemeLike: ThemeLikedEvent | null;
+  /**
+   * Whether this connection is the one of this account that makes the noise:
+   * the sounds, the notifications, the ring (see the API's electAlertTarget —
+   * an open app first, then the tab used last). Everything else still arrives
+   * everywhere; only the announcing is gated on this.
+   *
+   * True until the server says otherwise — which is also what a server from
+   * before this leaves it at, so an old API keeps the old behaviour.
+   */
+  alertTarget: boolean;
+  /** The last group message this account asked to be told about. See GroupNotifier. */
+  lastGroupNotify: GroupNotifyEvent | null;
+  groupNotifySeq: number;
   // Presence of the accounts this tab asked about, by account id (see
   // watchPresence). Only ever holds ids somebody subscribed to — this is a
   // cache of answers, not a directory of the site.
@@ -782,6 +811,9 @@ const initialState: SignalingState = {
   giftSeq: 0,
   lastGiftRedeemed: null,
   lastThemeLike: null,
+  alertTarget: true,
+  lastGroupNotify: null,
+  groupNotifySeq: 0,
   presence: {},
   presenceSeq: 0,
   lastDm: null,
@@ -988,6 +1020,28 @@ function setClientId(id: string) {
 }
 
 
+// When this tab was last the one in front — its window focused, or brought up
+// from behind others. Sent to the server as "how long ago" (see msSinceFocus)
+// with every register, and moved on every focus (see reportFocus): together
+// they are how the server knows which of an account's tabs somebody is using,
+// which is the one a notification is announced on (the API's
+// electAlertTarget). Module-level because it is a fact about the page, and
+// reads the document once, here, to know whether the page opened in front.
+let lastFocusAt =
+  typeof document !== "undefined" && typeof document.hasFocus === "function" && document.hasFocus()
+    ? Date.now()
+    : 0;
+// What a tab that has never been in front reports: longer than any real idle
+// time, so it ranks below every tab that has.
+const NEVER_FOCUSED_IDLE_MS = 30 * 24 * 60 * 60 * 1000;
+// Focus reports closer together than this are folded into one (see
+// reportFocus) — alt-tabbing is a burst, and the server only needs its end.
+const FOCUS_REPORT_MIN_MS = 2000;
+
+function msSinceFocus(): number {
+  return lastFocusAt ? Math.max(0, Date.now() - lastFocusAt) : NEVER_FOCUSED_IDLE_MS;
+}
+
 class SignalingClient {
   private ws: WebSocket | null = null;
   // How far this browser's clock is behind the server's, in ms (see
@@ -1095,6 +1149,9 @@ class SignalingClient {
   // true means "the tab was opened in the background and is about to be
   // looked at", not "the person is elsewhere".
   private isBackground = false;
+  // See reportFocus.
+  private lastFocusReportAt = 0;
+  private focusReportTimer: ReturnType<typeof setTimeout> | null = null;
   // See onGroupEvent.
   private groupEventListeners = new Set<(event: GroupSocketEvent) => void>();
 
@@ -2005,6 +2062,32 @@ class SignalingClient {
         break;
       // Somebody liked a theme this account made. News and nothing else — the
       // count lives on the theme.
+      // Whether this connection is the one that announces things for the
+      // account. See SignalingState.alertTarget.
+      case "alert-target":
+        if (typeof msg.active !== "boolean") break;
+        if (msg.active !== this.state.alertTarget) this.setState({ alertTarget: msg.active });
+        break;
+      // A group message this account asked to hear about. See GroupNotifyEvent.
+      case "group-notify": {
+        if (typeof msg.groupId !== "string" || typeof msg.channelId !== "string") break;
+        if (typeof msg.messageId !== "string" || typeof msg.url !== "string") break;
+        // Only a group page of this very site is ever navigated to from it.
+        if (!msg.url.startsWith("/groups/")) break;
+        this.setState({
+          lastGroupNotify: {
+            groupId: msg.groupId,
+            channelId: msg.channelId,
+            messageId: msg.messageId,
+            title: typeof msg.title === "string" ? msg.title : "Nova mensagem",
+            body: typeof msg.body === "string" ? msg.body : "",
+            url: msg.url,
+            icon: typeof msg.icon === "string" ? msg.icon : null,
+          },
+          groupNotifySeq: this.state.groupNotifySeq + 1,
+        });
+        break;
+      }
       case "theme-liked":
         this.setState({
           lastThemeLike: {
@@ -2277,6 +2360,38 @@ class SignalingClient {
   }
 
   /**
+   * "This one is being used now" — the window was focused or brought to the
+   * front. It decides which of this account's connections announces the next
+   * notification (see the API's electAlertTarget): the tab somebody is in,
+   * not whichever of them happened to connect last.
+   *
+   * Throttled with a trailing send rather than by dropping, because the
+   * *last* focus is the one that matters: alt-tabbing A → B → A has to end on
+   * A. And the trailing send re-checks the focus before it goes, so a tab
+   * left in the middle of the burst never claims to be the one in front.
+   */
+  reportFocus() {
+    lastFocusAt = Date.now();
+    this.isBackground = false;
+    if (this.focusReportTimer) return;
+    const since = Date.now() - this.lastFocusReportAt;
+    if (since >= FOCUS_REPORT_MIN_MS) {
+      this.sendFocus();
+      return;
+    }
+    this.focusReportTimer = setTimeout(() => {
+      this.focusReportTimer = null;
+      if (typeof document !== "undefined" && !document.hasFocus()) return;
+      this.sendFocus();
+    }, FOCUS_REPORT_MIN_MS - since);
+  }
+
+  private sendFocus() {
+    this.lastFocusReportAt = Date.now();
+    this.rawSend({ type: "app-state", background: false, focus: true });
+  }
+
+  /**
    * Adopts what the API says is ringing, for an app that just opened.
    *
    * The other half of "the app was closed": a notification is tapped, the app
@@ -2342,6 +2457,10 @@ class SignalingClient {
       // that opens while the app is already hidden — a phone reconnecting in
       // a pocket — is not counted as reachable for as long as it stays there.
       background: this.isBackground,
+      // How long ago this tab was last in front — see lastFocusAt. A
+      // duration, so the server can rank tabs on different machines without
+      // trusting either machine's clock.
+      idleMs: msSinceFocus(),
       // The route this tab is on, so the server has it from the first
       // moment rather than only after the next navigation (see reportPath).
       path: this.currentPath ?? undefined,

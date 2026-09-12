@@ -27,7 +27,8 @@ import { useSignaling } from "@/lib/useSignaling";
 
 export function GiftNotifier() {
   const { account, refresh } = useAuth();
-  const { lastGift, lastGiftRedeemed } = useSignaling();
+  // See DmNotifier: the bell everywhere, the noise on one connection only.
+  const { lastGift, lastGiftRedeemed, alertTarget } = useSignaling();
 
   useEffect(() => {
     if (!account || !lastGift) return;
@@ -51,7 +52,7 @@ export function GiftNotifier() {
           : `${lastGift.planTitle}, de presente.`,
       href: "/pro",
     });
-    if (!isNew) return;
+    if (!isNew || !alertTarget) return;
 
     playFriendRequestSound();
     // For the case the sound is not enough because the tab is behind
@@ -62,6 +63,8 @@ export function GiftNotifier() {
       body: `${lastGift.planTitle} está liberado na sua conta.`,
       tag: `gift:${lastGift.giftId}`,
     });
+    // alertTarget is read, not reacted to — see SocialNotifier.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [account, lastGift, refresh]);
 
   // The other direction: a present this account *paid for* was taken.
@@ -86,7 +89,7 @@ export function GiftNotifier() {
           : lastGiftRedeemed.planTitle,
       userId: lastGiftRedeemed.byId ?? undefined,
     });
-    if (!isNew) return;
+    if (!isNew || !alertTarget) return;
 
     playFriendRequestSound();
     void showNotification({
@@ -94,6 +97,7 @@ export function GiftNotifier() {
       body: `${lastGiftRedeemed.planTitle} já está com quem você presenteou.`,
       tag: `gift-redeemed:${lastGiftRedeemed.giftId}`,
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [account, lastGiftRedeemed]);
 
   return null;

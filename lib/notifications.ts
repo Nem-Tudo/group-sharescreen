@@ -31,6 +31,7 @@
 // "unsupported"/no-op rather than touching window.
 
 import { Capacitor } from "@capacitor/core";
+import { getDesktopBridge } from "./desktop";
 
 export type NotificationPermissionState = "granted" | "denied" | "default" | "unsupported";
 
@@ -258,6 +259,10 @@ export async function showNotification(opts: NotifyOptions): Promise<boolean> {
   if (!isBrowser()) return false;
   if (!opts.ignoreMutePreference && areNotificationsMuted()) return false;
   if ((opts.skipWhenFocused ?? true) && documentIsFocused()) return false;
+  // The desktop app draws its own, in the corner of the screen (see the
+  // shell's toast.html). Ahead of the permission check on purpose: it is the
+  // app's own window, not the system's, so there is nothing to have granted.
+  if (showDesktopToast(opts)) return true;
   if (getNotificationPermission() !== "granted") return false;
 
   const cap = capacitorLocalNotifications();
@@ -312,6 +317,62 @@ export async function showNotification(opts: NotifyOptions): Promise<boolean> {
   }
 
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// The desktop shell's own notifications
+// ---------------------------------------------------------------------------
+
+// What each of the shell's notifications runs when it is clicked, by the id it
+// was shown with. The click comes back over the bridge (the shell has already
+// brought the window up by then), and finds its handler here. Bounded, because
+// a notification that just faded away never comes back to clear its entry.
+const toastClickHandlers = new Map<string, () => void>();
+const TOAST_HANDLERS_MAX = 20;
+let toastClicksWired = false;
+
+function absoluteUrl(url: string | undefined): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url, window.location.origin).href;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Shows `opts` as the desktop app's own corner notification. False anywhere
+ * that cannot — a browser, the Android shell, a desktop build from before this
+ * existed — and false means the caller goes on to the system's notification.
+ */
+function showDesktopToast(opts: NotifyOptions): boolean {
+  const bridge = getDesktopBridge();
+  if (!bridge?.showToast) return false;
+  if (!toastClicksWired && bridge.onToastClick) {
+    toastClicksWired = true;
+    bridge.onToastClick((id) => {
+      const handler = toastClickHandlers.get(id);
+      toastClickHandlers.delete(id);
+      handler?.();
+    });
+  }
+  const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  if (opts.onClick) {
+    toastClickHandlers.set(id, opts.onClick);
+    if (toastClickHandlers.size > TOAST_HANDLERS_MAX) {
+      const oldest = toastClickHandlers.keys().next().value;
+      if (oldest) toastClickHandlers.delete(oldest);
+    }
+  }
+  bridge.showToast({
+    id,
+    title: opts.title,
+    body: opts.body ?? "",
+    // Absolute, because the shell's window is a local file: a site-relative
+    // path there would resolve against file://, not against this site.
+    icon: absoluteUrl(opts.icon),
+  });
+  return true;
 }
 
 // ---------------------------------------------------------------------------

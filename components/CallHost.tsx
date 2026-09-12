@@ -6,7 +6,7 @@ import { MdCall, MdCallEnd } from "react-icons/md";
 import { useAuth } from "@/lib/AuthContext";
 import { useSignaling } from "@/lib/useSignaling";
 import { signalingClient } from "@/lib/signalingClient";
-import { acceptCall, endCall, fetchPendingCalls } from "@/lib/callsApi";
+import { acceptCall, endCall, fetchPendingCalls, isOwnCall, markOwnCall } from "@/lib/callsApi";
 import { showNotification } from "@/lib/notifications";
 import { upsertNotification } from "@/lib/notificationInbox";
 import { getDesktopBridge } from "@/lib/desktop";
@@ -72,13 +72,27 @@ export function CallHost() {
     callAcceptedSeq,
     callEnded,
     callEndedSeq,
+    alertTarget,
   } = useSignaling();
+  // Where it rings. The same call reaches every connection this account has —
+  // they all need to know it is ringing, and to stop when it stops — but only
+  // one of them rings: the one the server picked to make the noise, which is
+  // the app when it is open and otherwise the tab used last (see
+  // SignalingState.alertTarget). Every tab ringing at once is what this
+  // replaced.
+  //
   // The one on screen, and how many are behind it. Only the front is
   // answerable: two "atender" buttons under a ringtone is a choice nobody
   // makes correctly, and the queue is oldest-first precisely so this never
   // changes under a hand already reaching for it (see SignalingState).
-  const incomingCall = incomingCalls[0] ?? null;
-  const waiting = Math.max(0, incomingCalls.length - 1);
+  const incomingCall = alertTarget ? (incomingCalls[0] ?? null) : null;
+  const waiting = alertTarget ? Math.max(0, incomingCalls.length - 1) : 0;
+  // The call being placed. Heard, ringback and all, only where it was placed
+  // (see callsApi's markOwnCall), and shown silently on the connection that
+  // announces things, so a call placed from the phone can still be cancelled
+  // from the desktop. Nowhere else.
+  const ownOutgoing = outgoingCall && isOwnCall(outgoingCall.id) ? outgoingCall : null;
+  const shownOutgoing = ownOutgoing ?? (alertTarget ? outgoingCall : null);
 
   const [busy, setBusy] = useState(false);
   // The refusal being typed, and which call it belongs to.
@@ -200,7 +214,7 @@ export function CallHost() {
   // ─── Ringing ────────────────────────────────────────────────────────────
   useEffect(() => {
     if (incomingCall) startRingtone("incoming");
-    else if (outgoingCall) startRingtone("outgoing");
+    else if (ownOutgoing) startRingtone("outgoing");
     else stopRingtone();
 
     // And the desktop shell, whose window may be sitting in the tray with
@@ -239,7 +253,7 @@ export function CallHost() {
       stopRingtone();
       getDesktopBridge()?.setCallRinging?.(null);
     };
-  }, [incomingCall, outgoingCall]);
+  }, [incomingCall, ownOutgoing]);
 
   // A device that is open but behind something else still deserves a system
   // notification — the push was skipped precisely *because* this device is
@@ -248,6 +262,13 @@ export function CallHost() {
   // which is exactly when the screen below is already on top of everything.
   const announcedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
+    // Only where it rings (see incomingCall above).
+    if (!alertTarget) return;
+    // The desktop app says it itself: the shell draws the ring in a window of
+    // its own when it is closed to the tray, and flashes the taskbar when it
+    // is not (see electron/main.ts's setCallRinging). A corner notification on
+    // top of that would be the same call announced twice.
+    if (getDesktopBridge()?.setCallRinging) return;
     for (const call of incomingCalls) {
       // Every call, not only the one on screen: somebody ringing behind a call
       // already showing is exactly the person who would otherwise go
@@ -269,7 +290,7 @@ export function CallHost() {
         onClick: () => window.focus(),
       });
     }
-  }, [incomingCalls]);
+  }, [incomingCalls, alertTarget]);
 
   // ─── Walking into the room ──────────────────────────────────────────────
   //
@@ -281,6 +302,11 @@ export function CallHost() {
     lastAcceptedRef.current = callAcceptedSeq;
     if (!callAccepted) return;
     stopRingtone();
+    // Only where the call was placed or answered. This message reaches every
+    // connection of both people, and every one of them used to follow it into
+    // the room — answering on one tab put the person in the call on all of
+    // them. The rest just stop ringing, which the line above already did.
+    if (!isOwnCall(callAccepted.callId)) return;
     router.push(`/watch/${callAccepted.roomHandle}`);
   }, [callAccepted, callAcceptedSeq, router]);
 
@@ -302,6 +328,10 @@ export function CallHost() {
     if (!incomingCall || busy) return;
     setBusy(true);
     stopRingtone();
+    // Before the request, not after: the "call-accepted" it causes can reach
+    // this tab ahead of the response, and has to find it already marked as the
+    // one that walks in.
+    markOwnCall(incomingCall.id);
     const result = await acceptCall(incomingCall.id);
     setBusy(false);
     if (!result.ok) {
@@ -399,7 +429,7 @@ export function CallHost() {
 
   // Incoming wins over outgoing when somehow both exist: being asked something
   // outranks waiting for an answer.
-  const call = incomingCall ?? outgoingCall;
+  const call = incomingCall ?? shownOutgoing;
   if (!call && !noticeText && !declined) return null;
 
   const isIncoming = incomingCall !== null;

@@ -47,6 +47,16 @@ export interface DesktopRingingCall {
   avatarUrl: string | null;
 }
 
+/** Mirrors electron/channels.ts's ToastInfo — what the shell's corner notification draws. */
+export interface DesktopToast {
+  /** Handed back by onToastClick, so the page knows which one was clicked. */
+  id: string;
+  title: string;
+  body?: string;
+  /** An absolute URL (https, or this site's own origin), or null for the GoLive mark. */
+  icon?: string | null;
+}
+
 /** Mirrors electron/channels.ts's BackgroundSettings. */
 export interface DesktopBackgroundSettings {
   runInBackground: boolean;
@@ -140,6 +150,16 @@ export interface DesktopBridge {
   onCallAction?(
     callback: (action: { callId: string; action: string; reason?: string }) => void
   ): () => void;
+
+  /**
+   * A notification drawn by the shell itself, in the bottom-right corner of
+   * the primary monitor, instead of a system toast (see electron/toast.html).
+   * Optional like everything the shell grew after the fact: an older build
+   * does not have it, and lib/notifications.ts falls back to the system's.
+   */
+  showToast?(toast: DesktopToast): void;
+  /** A click on one of those, by the id it was shown with. Returns an unsubscribe. */
+  onToastClick?(callback: (id: string) => void): () => void;
 
   /** The version already downloaded and waiting to be applied, or null. */
   pendingUpdate?(): Promise<string | null>;

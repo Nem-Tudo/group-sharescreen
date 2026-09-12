@@ -48,6 +48,9 @@ import {
   type PickerChoice,
   type PickerData,
   type PickerSource,
+  type ToastAction,
+  type ToastInfo,
+  type ToastWindowData,
 } from "./channels";
 // The website's own definition of the marker path, imported rather than
 // re-implemented: both sides have to agree on the exact nonce format or a
@@ -1109,6 +1112,136 @@ function centerOnPrimaryDisplay(window: BrowserWindow) {
   }
 }
 
+// ─── Notifications ────────────────────────────────────────────────────────
+//
+// The app's own notification, in the bottom-right corner of monitor 1 — drawn
+// by the shell the way Discord draws its own, rather than handed to the
+// system as a line of text. The page asks for one (and only ever the one
+// connection of the account that is meant to announce things does — see the
+// API's electAlertTarget, which puts this app first whenever it is running),
+// main draws it in a small frameless window, and a click comes back to the
+// page to act on: the page has the session, the shell never does.
+//
+// One window, reused. A newer notification replaces the one on screen rather
+// than stacking a column of them up the side of the monitor.
+
+let toastWindow: BrowserWindow | null = null;
+let currentToast: ToastInfo | null = null;
+
+// The card is 356 wide; the rest is transparent slack for its shadow.
+const TOAST_WIDTH = 380;
+const TOAST_HEIGHT = 112;
+// Off the screen edge and clear of the taskbar, where system notifications sit.
+const TOAST_MARGIN = 8;
+
+function closeToastWindow() {
+  currentToast = null;
+  if (!toastWindow) return;
+  const window = toastWindow;
+  toastWindow = null;
+  if (!window.isDestroyed()) window.close();
+}
+
+/**
+ * Bottom-right of the primary display's work area — monitor 1, for the same
+ * reason the ringing window is centred there (see centerOnPrimaryDisplay), and
+ * the work area so it sits above the taskbar rather than behind it.
+ */
+function placeInCorner(window: BrowserWindow) {
+  try {
+    const { x, y, width, height } = screen.getPrimaryDisplay().workArea;
+    window.setBounds({
+      x: Math.round(x + width - TOAST_WIDTH - TOAST_MARGIN),
+      y: Math.round(y + height - TOAST_HEIGHT - TOAST_MARGIN),
+      width: TOAST_WIDTH,
+      height: TOAST_HEIGHT,
+    });
+  } catch {
+    // Wherever Electron put it stands — a notification in the wrong corner is
+    // still a notification.
+  }
+}
+
+function showToast(toast: ToastInfo) {
+  currentToast = toast;
+  if (toastWindow && !toastWindow.isDestroyed()) {
+    toastWindow.webContents.send(IPC.toastUpdate, { toast, logo: overlayLogo() });
+    return;
+  }
+
+  toastWindow = new BrowserWindow({
+    width: TOAST_WIDTH,
+    height: TOAST_HEIGHT,
+    show: false,
+    frame: false,
+    // See openCallWindow: transparent is what gives the card round corners.
+    transparent: true,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    // Never takes focus, not even when clicked: a notification appearing in
+    // the corner must not pull the keyboard out of what somebody is typing,
+    // and a click on it brings the *app* up (see the toastAction handler).
+    focusable: false,
+    backgroundColor: "#00000000",
+    title: "GoLive",
+    webPreferences: {
+      preload: path.join(__dirname, "toast-preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  toastWindow.setMenuBarVisibility(false);
+  // Above ordinary windows, below a full-screen game's own level — the ring
+  // gets to interrupt a game (see openCallWindow), a message does not.
+  toastWindow.setAlwaysOnTop(true, "pop-up-menu");
+
+  const window = toastWindow;
+  window.once("ready-to-show", () => {
+    placeInCorner(window);
+    window.showInactive();
+  });
+  window.on("closed", () => {
+    if (toastWindow === window) toastWindow = null;
+  });
+  void window.loadFile(path.join(__dirname, "..", "toast.html"));
+}
+
+/**
+ * The notification, re-typed out of whatever arrived over IPC — the same care
+ * readCallInfo takes, since this decides what a window on top of the desktop
+ * says. Clamped, because a window this size has no business holding an essay.
+ */
+function readToastInfo(raw: unknown): ToastInfo | null {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as Record<string, unknown>;
+  if (typeof value.id !== "string" || typeof value.title !== "string") return null;
+  if (!/^[a-zA-Z0-9_-]{1,64}$/.test(value.id)) return null;
+  const title = value.title.trim().slice(0, 120);
+  if (!title) return null;
+  const body = typeof value.body === "string" ? value.body.trim().slice(0, 300) : "";
+  // https anywhere, or our own origin (development runs on plain http) — the
+  // same rule the ringing window's avatar follows.
+  const icon =
+    typeof value.icon === "string" &&
+    (value.icon.startsWith("https://") || value.icon.startsWith(`${APP_ORIGIN}/`))
+      ? value.icon
+      : null;
+  return { id: value.id, title, body, icon };
+}
+
+function readToastAction(raw: unknown): ToastAction | null {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as Record<string, unknown>;
+  if (typeof value.id !== "string") return null;
+  if (value.action !== "click" && value.action !== "dismiss") return null;
+  return { action: value.action, id: value.id };
+}
+
 /**
  * Somebody is calling, or has stopped.
  *
@@ -1479,6 +1612,35 @@ if (!gotLock) {
       // it was, which is the point of the small window in the first place.
       if (choice.action === "accept") focusMainWindow();
       mainWindow.webContents.send(IPC.callAction, { callId: call.id, ...choice });
+    });
+
+    // A notification, drawn by the shell in the corner of the screen.
+    // Origin-checked like the ring: it puts words on top of the desktop, so
+    // they come from our own page and nothing else.
+    ipcMain.on(IPC.toastShow, (event, raw: unknown) => {
+      if (!event.sender.getURL().startsWith(APP_ORIGIN)) return;
+      const toast = readToastInfo(raw);
+      if (toast) showToast(toast);
+    });
+
+    // What the corner window is showing. Asked for once, as it opens.
+    ipcMain.handle(IPC.toastData, (): ToastWindowData | null =>
+      currentToast ? { toast: currentToast, logo: overlayLogo() } : null
+    );
+
+    // Clicked, or gone. Only from the corner window itself, and only about the
+    // notification it is showing now: a click that lands on one that was just
+    // replaced must not open the newer one's conversation.
+    ipcMain.on(IPC.toastAction, (event, raw: unknown) => {
+      if (!toastWindow || event.sender !== toastWindow.webContents) return;
+      const action = readToastAction(raw);
+      if (!action || !currentToast || action.id !== currentToast.id) return;
+      closeToastWindow();
+      if (action.action !== "click" || !mainWindow) return;
+      // The app comes up first, so whatever the page opens for this click
+      // lands on a window somebody can see.
+      focusMainWindow();
+      mainWindow.webContents.send(IPC.toastClick, action.id);
     });
 
     // Global keyboard shortcuts management

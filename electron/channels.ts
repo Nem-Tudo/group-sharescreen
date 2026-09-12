@@ -136,6 +136,28 @@ export const IPC = {
    */
   callAction: "golive:call:action",
 
+  /**
+   * renderer -> main: show a notification in the shell's own window, in the
+   * bottom-right corner of the primary monitor, instead of a system toast.
+   *
+   * Only ever sent by the one connection of the account that is meant to make
+   * the noise (see the API's electAlertTarget) — which, whenever this app is
+   * running, is this app. See toast.html.
+   */
+  toastShow: "golive:toast:show",
+  /** toast -> main: what to show. Asked for once, as the window opens. */
+  toastData: "golive:toast:data",
+  /** main -> toast: show this one instead — a newer notification replaces the one up. */
+  toastUpdate: "golive:toast:update",
+  /** toast -> main: it was clicked, or it went away on its own / was closed. */
+  toastAction: "golive:toast:action",
+  /**
+   * main -> renderer: the notification with this id was clicked. The page
+   * runs whatever the notification was about (opening the conversation, the
+   * group room) — the shell has already brought the window up by then.
+   */
+  toastClick: "golive:toast:click",
+
   /** renderer -> main: register or update global shortcuts map. */
   shortcutsSet: "golive:shortcuts:set",
   /** main -> renderer: a registered global shortcut fired. */
@@ -188,6 +210,30 @@ export interface CallOverlayData {
   call: CallRingingInfo;
   /** The GoLive mark as a data URL, or null if the icon could not be read. */
   logo: string | null;
+}
+
+/** One notification, as the corner window draws it. */
+export interface ToastInfo {
+  /** Echoed back on a click, so the page knows which notification it was. */
+  id: string;
+  title: string;
+  body: string;
+  /** A face or a group icon (https, or our own origin), or null for the GoLive mark. */
+  icon: string | null;
+}
+
+/** Everything the corner window needs to draw itself. */
+export interface ToastWindowData {
+  toast: ToastInfo;
+  /** The GoLive mark as a data URL — same reasoning as CallOverlayData.logo. */
+  logo: string | null;
+}
+
+/** What happened to the notification on screen. */
+export interface ToastAction {
+  action: "click" | "dismiss";
+  /** Which one — a click on one already replaced must not open the newer one's target. */
+  id: string;
 }
 
 /** What was pressed in that window. */

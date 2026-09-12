@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { showNotification } from "@/lib/notifications";
 import { dismissNotification, pushNotification } from "@/lib/notificationInbox";
 import { playFriendRequestSound } from "@/lib/soundEffects";
 import { useSocialGraph } from "@/lib/useSocialGraph";
+import { useSignaling } from "@/lib/useSignaling";
 
 // Turns changes in the social graph into things in the bell.
 //
@@ -22,6 +24,9 @@ import { useSocialGraph } from "@/lib/useSocialGraph";
 
 export function SocialNotifier() {
   const { graph } = useSocialGraph();
+  // See DmNotifier: the bell everywhere, the noise on one connection only.
+  const { alertTarget } = useSignaling();
+  const router = useRouter();
 
   useEffect(() => {
     let arrived = 0;
@@ -50,7 +55,7 @@ export function SocialNotifier() {
       }
     }
 
-    if (arrived === 0) return;
+    if (arrived === 0 || !alertTarget) return;
     playFriendRequestSound();
     // The system notification is for the case the sound is not enough: the tab
     // is behind something else. showNotification already stays quiet when the
@@ -63,7 +68,11 @@ export function SocialNotifier() {
           ? `${last.name} quer ser seu amigo.`
           : "Abra o GoLive para responder.",
       tag: "friend-requests",
+      onClick: () => router.push("/amigos"),
     });
+    // alertTarget is read, not reacted to: a sweep re-run because the answer
+    // moved finds nothing new in the bell, so it cannot chime twice.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph]);
 
   return null;

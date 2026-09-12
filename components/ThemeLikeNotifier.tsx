@@ -21,7 +21,8 @@ import { useSignaling } from "@/lib/useSignaling";
 
 export function ThemeLikeNotifier() {
   const { account } = useAuth();
-  const { lastThemeLike } = useSignaling();
+  // See DmNotifier: the bell everywhere, the noise on one connection only.
+  const { lastThemeLike, alertTarget } = useSignaling();
 
   useEffect(() => {
     if (!account || !lastThemeLike) return;
@@ -39,12 +40,14 @@ export function ThemeLikeNotifier() {
       href: `/tema/${encodeURIComponent(lastThemeLike.themeId)}`,
       userId: lastThemeLike.byId ?? undefined,
     });
-    if (!isNew) return;
+    if (!isNew || !alertTarget) return;
 
     playFriendRequestSound();
     // showNotification stays quiet when the page is focused, so this never
     // doubles up with the bell somebody is looking straight at.
     void showNotification({ title, body: lastThemeLike.themeName, tag });
+    // alertTarget is read, not reacted to — see SocialNotifier.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [account, lastThemeLike]);
 
   return null;

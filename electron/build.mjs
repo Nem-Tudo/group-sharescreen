@@ -28,6 +28,7 @@ await build({
     path.join(here, "preload.ts"),
     path.join(here, "picker-preload.ts"),
     path.join(here, "call-overlay-preload.ts"),
+    path.join(here, "toast-preload.ts"),
   ],
   outdir,
   bundle: true,
