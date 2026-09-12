@@ -556,18 +556,25 @@ export function GroupRoomsPanel({
     // server refuses the join regardless; this only doesn't offer it.
     // Somebody already in the call keeps their way back to it.
     const locked = !connected && !canInChannel(detail, channel, "connect");
+    // The same row a text room is (see renderTextRoom): its padding, its
+    // colours, and the room on screen marked by a fill rather than a frame.
+    // A voice room used to be a bordered card with its people inside, which
+    // set it apart from the text rooms around it for no reason the list needed.
+    const rowTone = locked
+      ? "cursor-not-allowed text-zinc-500 dark:text-zinc-400"
+      : active
+        ? "bg-zinc-100 font-medium text-zinc-950 dark:bg-zinc-900 dark:text-zinc-50"
+        : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100";
     const headerContent = (
       <>
         {locked ? (
-          <MdLock className="h-4 w-4 shrink-0 text-zinc-400" aria-label="Trancada" />
+          <MdLock className="h-4 w-4 shrink-0 opacity-60" aria-label="Trancada" />
         ) : (
-          <MdVolumeUp className={`h-4 w-4 shrink-0 ${connected ? "text-emerald-600" : "text-zinc-400"}`} />
+          // Green while you are in it — the one thing a text room has no
+          // equivalent of — and otherwise the same faded icon a text room has.
+          <MdVolumeUp className={`h-4 w-4 shrink-0 ${connected ? "text-emerald-600" : "opacity-60"}`} />
         )}
-        <span
-          className={`flex min-w-0 flex-1 items-center gap-1 text-sm font-medium ${
-            locked ? "text-zinc-500 dark:text-zinc-400" : "text-zinc-900 dark:text-zinc-100"
-          }`}
-        >
+        <span className="flex min-w-0 flex-1 items-center gap-1">
           <span className="truncate">{channel.name}</span>
           {music && (
             <MdMusicNote
@@ -594,44 +601,41 @@ export function GroupRoomsPanel({
         {...channelDragProps(channel)}
       >
         {edgeLine(channel.id)}
-        <div
-          className={`rounded-lg border transition ${
-            active ? "border-zinc-950 dark:border-zinc-50" : "border-zinc-200 dark:border-zinc-800"
-          }`}
-        >
-          {/* Only the room's own header joins it. The people under it
-              are their own targets — a click on somebody is a question
-              about them, not a request to walk into their call. */}
-          {locked ? (
-            <div
-              title="Você não tem permissão para entrar nesta sala"
-              data-room-head
-              className="group/room flex cursor-not-allowed items-center gap-2 rounded-lg px-3 py-2"
-            >
-              {headerContent}
-            </div>
-          ) : (
-            <GroupLink
-              href={groupPath(group.id, channel.id)}
-              onClick={onNavigate}
-              // The row is what is dragged, not the link inside it.
-              draggable={isManager ? false : undefined}
-              aria-current={active ? "page" : undefined}
-              title={connected ? "Voltar para a chamada" : "Entrar na sala"}
-              data-room-head
-              className="group/room flex items-center gap-2 rounded-lg px-3 py-2 transition hover:bg-zinc-100 dark:hover:bg-zinc-900"
-            >
-              {headerContent}
-            </GroupLink>
-          )}
-          {people.length > 0 && (
-            <ul className="flex flex-col gap-0.5 border-t border-zinc-100 px-1.5 py-1.5 dark:border-zinc-800/70">
-              {people.map((person) => (
-                <VoicePersonRow key={person.userId} person={person} color={roleColorOf(detail, { id: person.userId })} />
-              ))}
-            </ul>
-          )}
-        </div>
+        {/* Only the room's own row joins it. The people under it are their
+            own targets — a click on somebody is a question about them, not a
+            request to walk into their call. */}
+        {locked ? (
+          <div
+            title="Você não tem permissão para entrar nesta sala"
+            data-room-head
+            className={`group/room flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm ${rowTone}`}
+          >
+            {headerContent}
+          </div>
+        ) : (
+          <GroupLink
+            href={groupPath(group.id, channel.id)}
+            onClick={onNavigate}
+            // The row is what is dragged, not the link inside it.
+            draggable={isManager ? false : undefined}
+            aria-current={active ? "page" : undefined}
+            title={connected ? "Voltar para a chamada" : "Entrar na sala"}
+            data-room-head
+            className={`group/room flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition ${rowTone}`}
+          >
+            {headerContent}
+          </GroupLink>
+        )}
+        {/* Indented under the room's name, with no frame or rule around them:
+            they belong to the room by where they sit, the way a voice
+            channel's people do in the list they were modelled on. */}
+        {people.length > 0 && (
+          <ul className="flex flex-col gap-0.5 pb-1 pl-5">
+            {people.map((person) => (
+              <VoicePersonRow key={person.userId} person={person} color={roleColorOf(detail, { id: person.userId })} />
+            ))}
+          </ul>
+        )}
       </li>
     );
   }
@@ -869,9 +873,9 @@ export function GroupRoomsPanel({
         {!category && hint?.type === "categories-top" && <span className={`${dropLine} -bottom-2`} />}
         {category && categoryHeader(category, isCollapsed)}
         {creatingHere && creationForm}
-        {voiceShown.length > 0 && <ul className="flex flex-col gap-1.5">{voiceShown.map(renderVoiceRoom)}</ul>}
+        {voiceShown.length > 0 && <ul className="flex flex-col gap-0.5">{voiceShown.map(renderVoiceRoom)}</ul>}
         {textShown.length > 0 && (
-          <ul className={`flex flex-col gap-0.5 ${voiceShown.length > 0 ? "mt-1.5" : ""}`}>
+          <ul className={`flex flex-col gap-0.5 ${voiceShown.length > 0 ? "mt-0.5" : ""}`}>
             {textShown.map(renderTextRoom)}
           </ul>
         )}
