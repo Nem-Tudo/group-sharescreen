@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -53,6 +54,41 @@
             android:foregroundServiceType="mediaProjection"
         />
 
+        <!-- Notifications drawn by the app itself — see GoLiveNotifications.java.
+             GoLiveMessagingService takes over from the PushNotifications
+             plugin's own service (removed below), extending it so the token
+             and the site's events keep working: two services on the same
+             MESSAGING_EVENT would leave which one receives a push to chance. -->
+        <service
+            android:name=".GoLiveMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+        <service
+            android:name="com.capacitorjs.plugins.pushnotifications.MessagingService"
+            tools:node="remove" />
+
+        <!-- Responder, Marcar como lida, Recusar — see NotificationActionReceiver. -->
+        <receiver
+            android:name=".NotificationActionReceiver"
+            android:exported="false" />
+
+        <!-- For a notification Android still draws by itself (a build whose
+             registration predates the native renderer, or a push sent with a
+             notification block): the monochrome icon rather than the launcher
+             icon flattened into a white square. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_golive" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/golive_brand" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="golive-messages" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -100,6 +136,12 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- A ringing call shown full-screen over the lock screen, like a phone
+         call (GoLiveNotifications.showIncomingCall). Without it Android still
+         shows the call, as a heads-up notification. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <!-- Neither is required: GoLive is a comms app, not a camera app, and
          plenty of phones/tablets people call from have no rear camera, no

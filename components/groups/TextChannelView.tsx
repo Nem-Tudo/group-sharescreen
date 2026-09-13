@@ -12,11 +12,18 @@ import {
 } from "react";
 import useNtPopups from "ntpopups";
 import {
+  MdAlternateEmail,
   MdChatBubbleOutline,
+  MdClose,
+  MdContentCopy,
   MdDeleteOutline,
+  MdLink,
+  MdOpenInNew,
   MdOutlineAddReaction,
   MdPeopleOutline,
+  MdRefresh,
   MdReply,
+  MdSettings,
   MdVolumeUp,
 } from "react-icons/md";
 import { ChatImageModal, type ChatImagePreviewState } from "@/components/ChatImageModal";
@@ -29,7 +36,11 @@ import {
   type MentionCandidate,
 } from "@/components/groups/GroupMessageComposer";
 import { clickPerson, contextPerson } from "@/components/groups/groupProfile";
-import { ReactionPicker } from "@/components/groups/ReactionPicker";
+import { QUICK_REACTIONS, ReactionPicker } from "@/components/groups/ReactionPicker";
+import { useOpenChannelSettings } from "@/components/groups/ChannelSettingsDialog";
+import { copyText } from "@/lib/clipboard";
+import { openContextMenu } from "@/lib/contextMenu";
+import { mentionInComposer } from "@/lib/groupMentionBridge";
 import { Twemoji } from "@/components/Twemoji";
 import { rememberChannel } from "@/components/groups/lastChannel";
 import { mentionsRegexFor, normalizeSearch, tokenizeMentions } from "@/lib/chatMentions";
@@ -925,6 +936,139 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
     );
   }
 
+  // ── Right button ─────────────────────────────────────────────────────
+  //
+  // A message's menu: the quick reactions on top, then what its hover actions
+  // do and what they had no room for — copying it, mentioning its author.
+  // A link inside keeps the browser's own menu (open in a new tab, copy the
+  // address); a picture gets its own two entries instead.
+
+  const openChannelSettings = useOpenChannelSettings();
+
+  function messageMenu(e: React.MouseEvent, message: GroupMessage, outgoing?: OutgoingMessage) {
+    const target = e.target as Element;
+    if (target.closest("a[href]")) return;
+    const image = target.closest("img");
+    const imageSrc = image?.getAttribute("src") ?? null;
+    const author = userOf(message);
+    const readable = message.text
+      ? plainTokens(message.text, (id) => personById.get(id)?.name, (id) => roomById.get(id)?.name)
+      : "";
+    const canDelete = !outgoing && (message.from === selfId || canManageMessages);
+    const reacting = !outgoing && can("addReactions");
+    openContextMenu(e, {
+      entries: [
+        reacting && {
+          type: "custom",
+          render: (close) => (
+            <div className="flex justify-between gap-0.5 px-1 pb-1">
+              {QUICK_REACTIONS.map((emoji) => {
+                const mine = Boolean(message.reactions?.some((r) => r.emoji === emoji && r.users.includes(selfId)));
+                return (
+                  <button
+                    key={emoji}
+                    type="button"
+                    onClick={() => {
+                      close();
+                      void toggleReaction(message, emoji);
+                    }}
+                    aria-label={t("groups.reactionPicker.reactWithEmoji", { emoji })}
+                    aria-pressed={mine}
+                    className={`flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg transition hover:bg-zinc-100 dark:hover:bg-zinc-800 ${
+                      mine ? "bg-blue-50 ring-1 ring-blue-500 dark:bg-blue-500/15" : ""
+                    }`}
+                  >
+                    <Twemoji emoji={emoji} size={20} />
+                  </button>
+                );
+              })}
+            </div>
+          ),
+        },
+        reacting && {
+          label: t("groups.textChannelView.addReaction"),
+          icon: <MdOutlineAddReaction className="h-4 w-4" />,
+          // Opened on the message's own hover button, which is there (only
+          // invisible) whether or not the pointer is over it.
+          onSelect: () => requestAnimationFrame(() => setPickerFor(`${message.id}:actions`)),
+        },
+        !outgoing && {
+          label: t("common.reply"),
+          icon: <MdReply className="h-4 w-4" />,
+          onSelect: () => startReply(message),
+        },
+        outgoing?.status === "failed" && {
+          label: t("common.tryAgain2"),
+          icon: <MdRefresh className="h-4 w-4" />,
+          onSelect: () => retryGroupMessage(channelId, outgoing.nonce),
+        },
+        outgoing?.status === "failed" && {
+          label: t("common.discard"),
+          icon: <MdClose className="h-4 w-4" />,
+          danger: true,
+          onSelect: () => discardGroupMessage(channelId, outgoing.nonce),
+        },
+        { type: "divider" },
+        readable && {
+          label: t("groups.contextMenu.copyText"),
+          icon: <MdContentCopy className="h-4 w-4" />,
+          onSelect: () => void copyText(readable),
+        },
+        imageSrc && {
+          label: t("groups.contextMenu.openImage"),
+          icon: <MdOpenInNew className="h-4 w-4" />,
+          onSelect: () => void window.open(imageSrc, "_blank", "noopener"),
+        },
+        imageSrc &&
+          !imageSrc.startsWith("data:") && {
+            label: t("groups.contextMenu.copyImageLink"),
+            icon: <MdLink className="h-4 w-4" />,
+            onSelect: () => void copyText(imageSrc),
+          },
+        message.from !== selfId && {
+          label: t("groups.contextMenu.mentionName", { name: author.name }),
+          icon: <MdAlternateEmail className="h-4 w-4" />,
+          onSelect: () => mentionInComposer(author),
+        },
+        !outgoing && {
+          label: t("groups.contextMenu.copyMessageId"),
+          icon: <MdContentCopy className="h-4 w-4" />,
+          onSelect: () => void copyText(message.id),
+        },
+        canDelete && { type: "divider" },
+        canDelete && {
+          label: t("common.delete"),
+          icon: <MdDeleteOutline className="h-4 w-4" />,
+          danger: true,
+          onSelect: () => confirmDelete(message),
+        },
+      ],
+    });
+  }
+
+  /** The room's title bar: the room itself. */
+  function roomMenu(e: React.MouseEvent) {
+    if (!channel) return;
+    openContextMenu(e, {
+      title: channel.name,
+      entries: [
+        {
+          label: t("groups.groupRail.copyLink"),
+          icon: <MdLink className="h-4 w-4" />,
+          onSelect: () => void copyText(`${window.location.origin}/groups/${groupId}/${channel.id}`),
+        },
+        { label: t("groups.memberMenu.copyId"), icon: <MdContentCopy className="h-4 w-4" />, onSelect: () => void copyText(channel.id) },
+        { type: "divider" },
+        { label: t("groups.textChannelView.groupMembers"), icon: <MdPeopleOutline className="h-4 w-4" />, onSelect: openMembers },
+        canManage(detail, "manageChannels") && {
+          label: t("groups.groupSidebar.roomSettings"),
+          icon: <MdSettings className="h-4 w-4" />,
+          onSelect: () => openChannelSettings(groupId, channel.id),
+        },
+      ],
+    });
+  }
+
   function openMembers() {
     void openPopup("group_settings", {
       maxWidth: "min(46rem, calc(100vw - 2rem))",
@@ -1055,6 +1199,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
         <li
           key={message.id}
           data-message-id={outgoing ? undefined : message.id}
+          onContextMenu={(e) => messageMenu(e, message, outgoing)}
           className={`group relative -mx-1.5 rounded-lg px-2 text-sm transition-colors ${
             grouped ? "pb-0.5" : "mt-2.5 pb-0.5"
           } ${mentionsMe ? "bg-blue-100/70 py-1 dark:bg-blue-500/25" : "hover:bg-zinc-100/80 dark:hover:bg-zinc-900/70"} ${
@@ -1132,7 +1277,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
           <div className={grouped ? "flex items-start justify-between gap-1.5" : ""}>
             <div className="min-w-0 flex-1">
               {message.text && (
-                <p className="whitespace-pre-wrap break-words text-zinc-900 dark:text-zinc-100">{renderText(message)}</p>
+                <p className="select-text whitespace-pre-wrap break-words text-zinc-900 dark:text-zinc-100">{renderText(message)}</p>
               )}
               {message.kind === "gif" && message.url && (
                 <button
@@ -1256,7 +1401,10 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
       // How tall the composer may grow is measured against this (see GroupMessageComposer).
       data-chat-column
       className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white lg:rounded-xl lg:border lg:border-zinc-200 dark:bg-zinc-950 lg:dark:border-zinc-800">
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
+      <div
+        onContextMenu={roomMenu}
+        className="flex shrink-0 items-center justify-between gap-2 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800"
+      >
         <h2 className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-zinc-700 dark:text-zinc-300">
           <MdChatBubbleOutline className="h-4 w-4 shrink-0 text-zinc-500" />
           <span className="truncate">{channelName}</span>

@@ -9,7 +9,7 @@ import { useT } from "@/lib/useI18n";
 // handful that answer most messages, one click away. Drawn as Twemoji, like
 // the reactions themselves.
 
-const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
+export const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
 
 export function ReactionPicker({ onSelect }: { onSelect: (emoji: string) => void }) {
   const t = useT();

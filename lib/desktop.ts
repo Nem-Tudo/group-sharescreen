@@ -162,11 +162,13 @@ export interface DesktopBridge {
   onToastClick?(callback: (id: string) => void): () => void;
 
   /**
-   * Whether the notification bell has anything unread. The shell keeps the
-   * taskbar entry flashing while it does and the window is not focused.
+   * When the bell's newest unread notification arrived (ms since epoch), or 0
+   * for none. The shell flashes the taskbar entry for anything newer than what
+   * was there the last time the window was in front — opening the window
+   * counts as seeing it, even without opening the bell.
    * Optional like the rest: an older build does not have it.
    */
-  setUnreadNotifications?(unread: boolean): void;
+  setNewestUnreadNotification?(at: number): void;
 
   /** The version already downloaded and waiting to be applied, or null. */
   pendingUpdate?(): Promise<string | null>;

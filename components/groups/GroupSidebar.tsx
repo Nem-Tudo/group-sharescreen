@@ -1,17 +1,20 @@
 "use client";
 
-import { memo, useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent, type MouseEvent } from "react";
 import useNtPopups from "ntpopups";
 import {
   MdAdd,
   MdCallEnd,
   MdChatBubbleOutline,
   MdCheck,
+  MdContentCopy,
   MdCreateNewFolder,
   MdDeleteOutline,
+  MdDoneAll,
   MdEdit,
   MdExpandMore,
   MdHeadsetOff,
+  MdLink,
   MdLock,
   MdLogout,
   MdMic,
@@ -21,6 +24,8 @@ import {
   MdPalette,
   MdPersonAdd,
   MdSettings,
+  MdUnfoldLess,
+  MdUnfoldMore,
   MdVideocam,
   MdVolumeUp,
 } from "react-icons/md";
@@ -30,6 +35,7 @@ import {
   createCategory,
   createChannel,
   deleteCategory,
+  deleteChannel,
   leaveGroup,
   renameCategory,
   setGroupLayout,
@@ -46,7 +52,9 @@ import { useGroupNavigation } from "@/lib/groupNavigation";
 import { canInChannel, canManage, managesAnything, roleColorOf } from "@/lib/groupPermissions";
 import { prefetchChannel } from "@/lib/groupCache";
 import { prefetchUserProfile } from "@/lib/userProfile";
-import { forgetGroup, patchGroupDetail, refreshGroup, useGroupsState } from "@/lib/useGroups";
+import { forgetGroup, markChannelAsRead, markGroupRead, patchGroupDetail, refreshGroup, useGroupsState } from "@/lib/useGroups";
+import { openContextMenu } from "@/lib/contextMenu";
+import { copyText } from "@/lib/clipboard";
 import { useCollapsedCategories } from "@/lib/groupCollapse";
 import {
   applySections,
@@ -397,6 +405,184 @@ export function GroupRoomsPanel({
     });
   }
 
+  // ── Right button ───────────────────────────────────────────────────────
+  //
+  // Every room, every category and the list itself has a menu (see
+  // lib/contextMenu) with what can be done to it from here — the same things
+  // the gears and "+" offer, plus the ones that had nowhere to live: marking a
+  // room read, copying its link, folding every category at once.
+
+  const canInvite = canManage(detail, "createInvites");
+  const linkTo = (channelId?: string) => `${window.location.origin}${groupPath(group.id, channelId)}`;
+
+  function confirmDeleteChannel(channel: GroupChannel) {
+    void openPopup("confirm", {
+      data: {
+        title: t("groups.contextMenu.deleteRoomTitle", { name: channel.name }),
+        message: t("groups.contextMenu.deleteRoomMessage"),
+        cancelLabel: t("common.cancel"),
+        confirmLabel: t("groups.contextMenu.deleteRoom"),
+        confirmStyle: t("common.danger"),
+        onChoose: async (confirmed: boolean) => {
+          if (!confirmed) return;
+          const result = await deleteChannel(group.id, channel.id);
+          if (!result.ok) {
+            setLayoutError(result.error);
+            return;
+          }
+          await refreshGroup(group.id);
+          // Standing in it? The group's page picks the next room.
+          if (window.location.pathname.endsWith(`/${channel.id}`)) navigation.replace(groupPath(group.id));
+        },
+      },
+    });
+  }
+
+  function setAllCollapsed(fold: boolean) {
+    for (const section of sections) {
+      const id = section.category?.id;
+      if (id && collapsed.includes(id) !== fold) toggleCollapsed(id);
+    }
+  }
+
+  function roomMenu(e: MouseEvent, channel: GroupChannel) {
+    const connected = session?.groupId === group.id && session.channelId === channel.id;
+    const locked = channel.kind === "voice" && !connected && !canInChannel(detail, channel, "connect");
+    const open = () => {
+      onNavigate?.();
+      navigation.push(groupPath(group.id, channel.id));
+    };
+    openContextMenu(e, {
+      title: channel.name,
+      entries: [
+        channel.kind === "text" && {
+          label: t("groups.contextMenu.openRoom"),
+          icon: <MdChatBubbleOutline className="h-4 w-4" />,
+          onSelect: open,
+        },
+        channel.kind === "voice" &&
+          !locked && {
+            label: connected ? t("common.backToTheCall") : t("common.joinTheRoom"),
+            icon: <MdVolumeUp className="h-4 w-4" />,
+            onSelect: open,
+          },
+        connected && {
+          label: t("groups.contextMenu.leaveCall"),
+          icon: <MdCallEnd className="h-4 w-4" />,
+          danger: true,
+          onSelect: () => {
+            playHangUpSound();
+            endCall();
+          },
+        },
+        channel.kind === "text" && {
+          label: t("groups.groupRail.markAsRead"),
+          icon: <MdDoneAll className="h-4 w-4" />,
+          disabled: !channel.unread && channel.mentions === 0,
+          onSelect: () => markChannelAsRead(group.id, channel.id),
+        },
+        { type: "divider" },
+        { label: t("groups.groupRail.copyLink"), icon: <MdLink className="h-4 w-4" />, onSelect: () => void copyText(linkTo(channel.id)) },
+        { label: t("groups.memberMenu.copyId"), icon: <MdContentCopy className="h-4 w-4" />, onSelect: () => void copyText(channel.id) },
+        isManager && { type: "divider" },
+        isManager && {
+          label: t("groups.groupSidebar.roomSettings"),
+          icon: <MdSettings className="h-4 w-4" />,
+          onSelect: () => {
+            onNavigate?.();
+            openChannelSettings(group.id, channel.id);
+          },
+        },
+        isManager && {
+          label: t("groups.contextMenu.deleteRoom"),
+          icon: <MdDeleteOutline className="h-4 w-4" />,
+          danger: true,
+          onSelect: () => confirmDeleteChannel(channel),
+        },
+      ],
+    });
+  }
+
+  function categoryMenu(e: MouseEvent, category: GroupCategory, isCollapsed: boolean) {
+    openContextMenu(e, {
+      title: category.name,
+      entries: [
+        {
+          label: isCollapsed ? t("groups.contextMenu.expandCategory") : t("groups.contextMenu.collapseCategory"),
+          icon: <MdExpandMore className={`h-4 w-4 ${isCollapsed ? "-rotate-90" : ""}`} />,
+          onSelect: () => toggleCollapsed(category.id),
+        },
+        { label: t("groups.contextMenu.collapseAll"), icon: <MdUnfoldLess className="h-4 w-4" />, onSelect: () => setAllCollapsed(true) },
+        { label: t("groups.contextMenu.expandAll"), icon: <MdUnfoldMore className="h-4 w-4" />, onSelect: () => setAllCollapsed(false) },
+        isManager && { type: "divider" },
+        isManager && {
+          label: t("groups.groupSidebar.newTextRoom"),
+          icon: <MdChatBubbleOutline className="h-4 w-4" />,
+          onSelect: () => startCreating("text", category.id),
+        },
+        isManager && {
+          label: t("groups.groupSidebar.newVoiceRoom"),
+          icon: <MdVolumeUp className="h-4 w-4" />,
+          onSelect: () => startCreating("voice", category.id),
+        },
+        isManager && { type: "divider" },
+        isManager && {
+          label: t("common.rename"),
+          icon: <MdEdit className="h-4 w-4" />,
+          onSelect: () => setRenaming({ id: category.id, draft: category.name }),
+        },
+        isManager && {
+          label: t("common.deleteCategory"),
+          icon: <MdDeleteOutline className="h-4 w-4" />,
+          danger: true,
+          onSelect: () => confirmDeleteCategory(category),
+        },
+        { type: "divider" },
+        { label: t("groups.memberMenu.copyId"), icon: <MdContentCopy className="h-4 w-4" />, onSelect: () => void copyText(category.id) },
+      ],
+    });
+  }
+
+  /** The list itself, away from any room: making things, and the group as a whole. */
+  function panelMenu(e: MouseEvent) {
+    openContextMenu(e, {
+      title: group.name,
+      entries: [
+        isManager && {
+          label: t("groups.groupSidebar.newTextRoom"),
+          icon: <MdChatBubbleOutline className="h-4 w-4" />,
+          onSelect: () => startCreating("text"),
+        },
+        isManager && {
+          label: t("groups.groupSidebar.newVoiceRoom"),
+          icon: <MdVolumeUp className="h-4 w-4" />,
+          onSelect: () => startCreating("voice"),
+        },
+        isManager && {
+          label: t("groups.groupSidebar.newCategory"),
+          icon: <MdCreateNewFolder className="h-4 w-4" />,
+          onSelect: () => startCreating("category"),
+        },
+        { type: "divider" },
+        hasCategories && { label: t("groups.contextMenu.collapseAll"), icon: <MdUnfoldLess className="h-4 w-4" />, onSelect: () => setAllCollapsed(true) },
+        hasCategories && { label: t("groups.contextMenu.expandAll"), icon: <MdUnfoldMore className="h-4 w-4" />, onSelect: () => setAllCollapsed(false) },
+        {
+          label: t("groups.groupRail.markAsRead"),
+          icon: <MdDoneAll className="h-4 w-4" />,
+          disabled: !channels.some((c) => c.unread || c.mentions > 0),
+          onSelect: () => void markGroupRead(group.id),
+        },
+        { type: "divider" },
+        canInvite && {
+          label: t("common.invitePeople"),
+          icon: <MdPersonAdd className="h-4 w-4" />,
+          onSelect: () => void openPopup("group_invite", { data: { groupId: group.id, groupName: group.name } }),
+        },
+        { label: t("groups.groupRail.copyLink"), icon: <MdLink className="h-4 w-4" />, onSelect: () => void copyText(linkTo()) },
+      ],
+    });
+  }
+
   // ── Dragging (owner and admins) ────────────────────────────────────────
   //
   // The browser's own drag and drop: a room or a category is picked up, the
@@ -611,6 +797,7 @@ export function GroupRoomsPanel({
         {locked ? (
           <div
             title={t("groups.groupSidebar.youDoNotHavePermissionTo")}
+            onContextMenu={(e) => roomMenu(e, channel)}
             data-room-head
             className={`group/room flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm ${rowTone}`}
           >
@@ -624,6 +811,7 @@ export function GroupRoomsPanel({
             draggable={isManager ? false : undefined}
             aria-current={active ? "page" : undefined}
             title={connected ? t("common.backToTheCall") : t("common.joinTheRoom")}
+            onContextMenu={(e) => roomMenu(e, channel)}
             data-room-head
             className={`group/room flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition ${rowTone}`}
           >
@@ -662,6 +850,7 @@ export function GroupRoomsPanel({
           // usually opens already filled in (see lib/groupCache).
           onMouseEnter={() => prefetchChannel(group.id, channel.id)}
           onFocus={() => prefetchChannel(group.id, channel.id)}
+          onContextMenu={(e) => roomMenu(e, channel)}
           data-room-head
           className={`group/room flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition ${
             active
@@ -738,6 +927,7 @@ export function GroupRoomsPanel({
           intoHere ? "bg-emerald-50 ring-1 ring-emerald-500/60 dark:bg-emerald-950/40" : ""
         }`}
         draggable={isManager && renaming?.id !== category.id}
+        onContextMenu={(e) => categoryMenu(e, category, isCollapsed)}
         onDragStart={(e) => {
           e.dataTransfer.effectAllowed = "move";
           e.dataTransfer.setData("text/plain", category.id);
@@ -903,7 +1093,7 @@ export function GroupRoomsPanel({
   }
 
   const content = (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-3" onContextMenu={panelMenu}>
       {creating?.kind === "category" && creationForm}
       {layoutError && (
         <p className="rounded-md bg-red-50 px-2 py-1 text-xs text-red-600 dark:bg-red-950/40 dark:text-red-400">
@@ -921,7 +1111,10 @@ export function GroupRoomsPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
+      <div
+        onContextMenu={panelMenu}
+        className="flex shrink-0 items-center justify-between gap-2 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800"
+      >
         <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">{t("common.rooms")}</h2>
         {isManager && (
           <Popover
@@ -958,7 +1151,7 @@ export function GroupRoomsPanel({
           </Popover>
         )}
       </div>
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto p-2">
+      <div ref={scrollRef} onContextMenu={panelMenu} className="min-h-0 flex-1 overflow-y-auto p-2">
         {content}
       </div>
     </div>

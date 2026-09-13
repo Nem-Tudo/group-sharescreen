@@ -1,7 +1,10 @@
 package me.nemtudo.golive;
 
+import android.content.Intent;
 import android.content.res.Configuration;
+import android.os.Build;
 import android.os.Bundle;
+import android.view.WindowManager;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -14,7 +17,55 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(ScreenCapturePlugin.class);
         registerPlugin(PictureInPicturePlugin.class);
+        registerPlugin(GoLiveNotificationsPlugin.class);
+        showOverLockScreenForCall(getIntent());
         super.onCreate(savedInstanceState);
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        showOverLockScreenForCall(intent);
+        super.onNewIntent(intent);
+    }
+
+    /**
+     * The app is in front, so what its notifications were announcing is on
+     * screen now — the conversations go, and a ringing call hands over to the
+     * app's own ring screen (see GoLiveNotifications.clearOnOpen).
+     */
+    @Override
+    public void onResume() {
+        super.onResume();
+        GoLiveNotifications.clearOnOpen(this);
+    }
+
+    /**
+     * A ring opens the app over the lock screen, the way a phone call does —
+     * otherwise the full-screen notification would launch the app *behind*
+     * the lock screen and the ring would be a sound with nothing to answer.
+     * Only for that launch: {@link #onStop} puts the lock screen back in
+     * charge, so the app is never left reachable past it.
+     */
+    private void showOverLockScreenForCall(Intent intent) {
+        if (intent == null || !intent.hasExtra(GoLiveNotifications.EXTRA_CALL_ACTION)) return;
+        setLockScreenFlags(true);
+    }
+
+    @Override
+    public void onStop() {
+        super.onStop();
+        setLockScreenFlags(false);
+    }
+
+    private void setLockScreenFlags(boolean on) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(on);
+            setTurnScreenOn(on);
+        } else if (on) {
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
+        } else {
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
+        }
     }
 
     /**

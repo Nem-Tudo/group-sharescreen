@@ -8,6 +8,9 @@ import { ensurePushRegistration, ensureServiceWorker } from "@/lib/pushRegistrat
 import { signalingClient } from "@/lib/signalingClient";
 import { openDirectMessages } from "@/lib/dmWindow";
 import { useGroupNavigation } from "@/lib/groupNavigation";
+import { useAccountToken } from "@/lib/accountApi";
+import { getSignalingHttpBase } from "@/lib/roomsApi";
+import { setNativeNotificationSession } from "@/lib/androidNotifications";
 
 // Three jobs, all of them invisible, all of them about the app being *closed*.
 //
@@ -44,6 +47,17 @@ export function PushRegistrar() {
     // permission is already granted.
     void ensurePushRegistration();
   }, [account]);
+
+  // ─── The Android notifications' buttons ─────────────────────────────────
+  //
+  // "Responder", "Marcar como lida" and "Recusar" act while the app may not be
+  // running, so the shell keeps its own copy of the session — replaced on
+  // every change of token, and forgotten on signing out. See
+  // lib/androidNotifications.ts.
+  const token = useAccountToken();
+  useEffect(() => {
+    setNativeNotificationSession(account ? token : null, getSignalingHttpBase());
+  }, [account, token]);
 
   // ─── Foreground / background ────────────────────────────────────────────
   useEffect(() => {

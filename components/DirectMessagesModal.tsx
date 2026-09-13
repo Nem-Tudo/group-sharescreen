@@ -20,6 +20,7 @@ import {
   MdChatBubbleOutline,
   MdClose,
   MdCloseFullscreen,
+  MdContentCopy,
   MdDoneAll,
   MdErrorOutline,
   MdGif,
@@ -27,6 +28,7 @@ import {
   MdKeyboardArrowDown,
   MdOpenInFull,
   MdOutlineAddReaction,
+  MdRefresh,
   MdReply,
   MdSchedule,
   MdSend,
@@ -37,7 +39,9 @@ import { Popover } from "@/components/Tooltip";
 import { EmojiPickerButton } from "@/components/EmojiPicker";
 import { EmojiSuggestions } from "@/components/EmojiSuggestions";
 import { Twemoji } from "@/components/Twemoji";
-import { ReactionPicker } from "@/components/groups/ReactionPicker";
+import { QUICK_REACTIONS, ReactionPicker } from "@/components/groups/ReactionPicker";
+import { copyText } from "@/lib/clipboard";
+import { openContextMenu } from "@/lib/contextMenu";
 import { useEmojiAutocomplete } from "@/lib/useEmojiAutocomplete";
 import { ChatImageModal, type ChatImagePreviewState } from "@/components/ChatImageModal";
 import {
@@ -332,6 +336,7 @@ function MessageBubble({
   onRetry,
   onDiscard,
   onMediaLoad,
+  onMenu,
 }: {
   bubble: Bubble;
   grouped: boolean;
@@ -350,6 +355,7 @@ function MessageBubble({
   onRetry: (clientId: string) => void;
   onDiscard: (clientId: string) => void;
   onMediaLoad: () => void;
+  onMenu: (event: ReactMouseEvent, bubble: Bubble) => void;
 }) {
   const t = useT();
   const { mine, status } = bubble;
@@ -526,6 +532,7 @@ function MessageBubble({
     const author = bubble.author;
     return (
       <li
+        onContextMenu={(e) => onMenu(e, bubble)}
         className={`group relative -mx-1.5 rounded-lg px-2 text-sm transition-colors hover:bg-zinc-100/80 dark:hover:bg-zinc-900/70 ${
           grouped ? "pb-0.5" : "mt-2.5 pb-0.5"
         } ${status === "sending" ? "opacity-60" : ""}`}
@@ -555,7 +562,7 @@ function MessageBubble({
         <div className={grouped ? "flex items-start justify-between gap-1.5" : ""}>
           <div className="min-w-0 flex-1">
             {bubble.text && (
-              <p className="whitespace-pre-wrap break-words text-zinc-900 dark:text-zinc-100">{linkify(bubble.text, false)}</p>
+              <p className="select-text whitespace-pre-wrap break-words text-zinc-900 dark:text-zinc-100">{linkify(bubble.text, false)}</p>
             )}
             {media}
             {reactions}
@@ -575,6 +582,7 @@ function MessageBubble({
 
   return (
     <li
+      onContextMenu={(e) => onMenu(e, bubble)}
       className={`group flex items-end gap-0.5 ${mine ? "justify-end" : "justify-start"} ${
         grouped ? "mt-0.5" : "mt-2.5"
       }`}
@@ -590,7 +598,7 @@ function MessageBubble({
         >
           {quote}
           {media}
-          {bubble.text && <span className="whitespace-pre-wrap break-words">{linkify(bubble.text, mine)}</span>}
+          {bubble.text && <span className="select-text whitespace-pre-wrap break-words">{linkify(bubble.text, mine)}</span>}
           <span
             className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] leading-none ${
               mine ? "text-white/60 dark:text-zinc-950/60" : "text-zinc-400"
@@ -1176,6 +1184,140 @@ export function DirectMessagesModal({
     if (next) setThreadSeq((n) => n + 1);
   }
 
+  // ── Right button ────────────────────────────────────────────────────
+  //
+  // On a message: the quick reactions, then what its hover buttons do and
+  // copying it. On a conversation: opening it, calling, marking it read. A
+  // link inside a message keeps the browser's own menu.
+
+  function messageMenu(event: ReactMouseEvent, bubble: Bubble) {
+    if ((event.target as Element).closest("a[href]")) return;
+    const me = account?.id ?? "";
+    const delivered = Boolean(bubble.messageId);
+    openContextMenu(event, {
+      entries: [
+        delivered && {
+          type: "custom",
+          render: (close) => (
+            <div className="flex justify-between gap-0.5 px-1 pb-1">
+              {QUICK_REACTIONS.map((emojiValue) => {
+                const on = bubble.reactions.some((r) => r.emoji === emojiValue && r.users.includes(me));
+                return (
+                  <button
+                    key={emojiValue}
+                    type="button"
+                    aria-pressed={on}
+                    aria-label={t("groups.reactionPicker.reactWithEmoji", { emoji: emojiValue })}
+                    onClick={() => {
+                      close();
+                      void toggleReaction(bubble, emojiValue);
+                    }}
+                    className={`flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg transition hover:bg-zinc-100 dark:hover:bg-zinc-800 ${
+                      on ? "bg-blue-50 ring-1 ring-blue-500 dark:bg-blue-500/15" : ""
+                    }`}
+                  >
+                    <Twemoji emoji={emojiValue} size={20} />
+                  </button>
+                );
+              })}
+            </div>
+          ),
+        },
+        delivered && {
+          label: t("directMessagesModal.react"),
+          icon: <MdOutlineAddReaction className="h-4 w-4" />,
+          onSelect: () => requestAnimationFrame(() => setPickerFor(`${bubble.messageId}:actions`)),
+        },
+        bubble.replyTarget && {
+          label: t("common.reply"),
+          icon: <MdReply className="h-4 w-4" />,
+          onSelect: () => {
+            if (!activeId) return;
+            setReply({ userId: activeId, value: bubble.replyTarget! });
+            requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }));
+          },
+        },
+        bubble.status === "failed" &&
+          bubble.clientId && {
+            label: t("common.tryAgain2"),
+            icon: <MdRefresh className="h-4 w-4" />,
+            onSelect: () => retry(bubble.clientId!),
+          },
+        bubble.status === "failed" &&
+          bubble.clientId && {
+            label: t("common.discard"),
+            icon: <MdClose className="h-4 w-4" />,
+            danger: true,
+            onSelect: () => discard(bubble.clientId!),
+          },
+        { type: "divider" },
+        bubble.text && {
+          label: t("groups.contextMenu.copyText"),
+          icon: <MdContentCopy className="h-4 w-4" />,
+          onSelect: () => void copyText(bubble.text),
+        },
+        bubble.messageId && {
+          label: t("groups.contextMenu.copyMessageId"),
+          icon: <MdContentCopy className="h-4 w-4" />,
+          onSelect: () => void copyText(bubble.messageId!),
+        },
+      ],
+    });
+  }
+
+  function conversationMenu(event: ReactMouseEvent, conversation: Conversation) {
+    const { user } = conversation;
+    openContextMenu(event, {
+      title: user.displayName,
+      entries: [
+        {
+          label: t("dmMenu.openConversation"),
+          icon: <MdChatBubbleOutline className="h-4 w-4" />,
+          onSelect: () => openThread(user.id),
+        },
+        {
+          label: t("common.callDisplayname", { displayName: user.displayName }),
+          icon: <MdCall className="h-4 w-4" />,
+          onSelect: () => void startCall(user.id),
+        },
+        {
+          label: t("groups.groupRail.markAsRead"),
+          icon: <MdDoneAll className="h-4 w-4" />,
+          disabled: conversation.unread === 0,
+          onSelect: () => {
+            markConversationRead(user.id);
+            // The count is the server's to say; it is asked again at once.
+            window.setTimeout(() => setListSeq((n) => n + 1), 300);
+          },
+        },
+        { type: "divider" },
+        { label: t("groups.memberMenu.copyId"), icon: <MdContentCopy className="h-4 w-4" />, onSelect: () => void copyText(user.id) },
+      ],
+    });
+  }
+
+  /** The thread's header: the person it is with. */
+  function threadHeaderMenu(event: ReactMouseEvent) {
+    if (!activeId || !active) return;
+    openContextMenu(event, {
+      title: active.displayName,
+      entries: [
+        {
+          label: t("common.callDisplayname", { displayName: active.displayName }),
+          icon: <MdCall className="h-4 w-4" />,
+          onSelect: () => void startCall(activeId),
+        },
+        wide && {
+          label: expanded ? t("directMessagesModal.collapse") : t("directMessagesModal.expand"),
+          icon: expanded ? <MdCloseFullscreen className="h-4 w-4" /> : <MdOpenInFull className="h-4 w-4" />,
+          onSelect: () => setDirectMessagesExpanded(!expanded),
+        },
+        { type: "divider" },
+        { label: t("groups.memberMenu.copyId"), icon: <MdContentCopy className="h-4 w-4" />, onSelect: () => void copyText(activeId) },
+      ],
+    });
+  }
+
   // ── Scrolling ───────────────────────────────────────────────────────
 
   async function loadOlder() {
@@ -1386,6 +1528,7 @@ export function DirectMessagesModal({
         onRetry={retry}
         onDiscard={discard}
         onMediaLoad={handleMediaLoad}
+        onMenu={messageMenu}
       />
     );
   });
@@ -1480,7 +1623,7 @@ export function DirectMessagesModal({
 
   const threadIdentity =
     activeId && active ? (
-      <div className="flex min-w-0 flex-1 items-center gap-2.5">
+      <div className="flex min-w-0 flex-1 items-center gap-2.5" onContextMenu={threadHeaderMenu}>
         <UserAvatar src={active.avatarUrl} name={active.displayName} size={34} userId={active.id} className="shrink-0" />
         <div className="min-w-0">
           <DisplayUserName
@@ -1566,6 +1709,7 @@ export function DirectMessagesModal({
                 <button
                   type="button"
                   onClick={() => openThread(user.id)}
+                  onContextMenu={(e) => conversationMenu(e, conversation)}
                   aria-current={selected ? "true" : undefined}
                   className={`flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition ${
                     selected ? "bg-zinc-100 dark:bg-zinc-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-900"
@@ -1875,8 +2019,8 @@ export function DirectMessagesModal({
           aria-label={dialogLabel}
           className={
             docked
-              ? "flex min-h-0 min-w-0 flex-1 gap-3"
-              : "fixed inset-0 z-50 flex gap-3 bg-zinc-50 p-3 dark:bg-black"
+              ? "flex min-h-0 min-w-0 flex-1 select-none gap-3"
+              : "fixed inset-0 z-50 flex select-none gap-3 bg-zinc-50 p-3 dark:bg-black"
           }
         >
           <aside className="flex w-80 shrink-0 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white lg:w-[22rem] dark:border-zinc-800 dark:bg-zinc-950">
@@ -1920,7 +2064,8 @@ export function DirectMessagesModal({
             aria-label={dialogLabel}
             // Full screen on a phone, where a floating card is mostly margin and
             // the keyboard would cover half of it; a card from `sm` up.
-            className="flex h-dvh w-full flex-col overflow-hidden bg-white shadow-2xl sm:h-[min(52rem,90dvh)] sm:max-w-xl sm:rounded-2xl sm:border sm:border-black/10 dark:bg-zinc-950 sm:dark:border-white/10"
+            // Only the messages and the box select text — see the select-text on them.
+            className="flex h-dvh w-full select-none flex-col overflow-hidden bg-white shadow-2xl sm:h-[min(52rem,90dvh)] sm:max-w-xl sm:rounded-2xl sm:border sm:border-black/10 dark:bg-zinc-950 sm:dark:border-white/10"
           >
             <div className={headerRow}>
               {activeId && (

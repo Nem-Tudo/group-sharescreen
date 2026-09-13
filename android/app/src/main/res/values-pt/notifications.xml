@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="notif_channel_messages">Mensagens</string>
+    <string name="notif_channel_messages_desc">Mensagens privadas enviadas a você</string>
+    <string name="notif_channel_groups">Mensagens de grupos</string>
+    <string name="notif_channel_groups_desc">Mensagens nas salas dos grupos que você acompanha</string>
+    <string name="notif_channel_calls">Chamadas recebidas</string>
+    <string name="notif_channel_calls_desc">Toca quando alguém te liga</string>
+    <string name="notif_channel_other">Outras</string>
+    <string name="notif_channel_other_desc">Chamadas perdidas, curtidas e o resto</string>
+
+    <string name="notif_you">Você</string>
+    <string name="notif_reply">Responder</string>
+    <string name="notif_reply_hint">Mensagem</string>
+    <string name="notif_mark_read">Marcar como lida</string>
+    <string name="notif_reply_failed">Não foi possível enviar sua resposta</string>
+    <string name="notif_incoming_call">Chamada recebida</string>
+    <string name="notif_missed_call">Chamada perdida</string>
+    <string name="notif_summary_many">%1$s de %2$s</string>
+
+    <plurals name="notif_messages">
+        <item quantity="one">%d mensagem</item>
+        <item quantity="other">%d mensagens</item>
+    </plurals>
+    <plurals name="notif_new_messages">
+        <item quantity="one">%d nova mensagem</item>
+        <item quantity="other">%d novas mensagens</item>
+    </plurals>
+    <plurals name="notif_chats">
+        <item quantity="one">%d conversa</item>
+        <item quantity="other">%d conversas</item>
+    </plurals>
+</resources>

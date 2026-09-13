@@ -8,6 +8,8 @@ import { MdAdd, MdChevronRight, MdClose, MdSearch } from "react-icons/md";
 import { GroupIcon } from "@/components/groups/GroupIcon";
 import { GroupLink } from "@/components/groups/GroupLink";
 import { GroupName } from "@/components/groups/GroupName";
+import { useGroupContextMenu } from "@/components/groups/groupMenus";
+import { useGroupNavigation } from "@/lib/groupNavigation";
 import { nameMatches, searchWords, setGroupsHomeQuery, useGroupsHomeQuery } from "@/components/groups/groupSearch";
 import { useAuth } from "@/lib/AuthContext";
 import { groupPath, inviteCodeFromInput, invitePath } from "@/lib/groupLinks";
@@ -235,6 +237,8 @@ export function GroupsHome() {
 
 function MyGroupRows({ groups }: { groups: GroupSummary[] }) {
   const { t } = useI18n();
+  const navigation = useGroupNavigation();
+  const groupMenu = useGroupContextMenu(navigation.push);
   return (
     <ul className="flex flex-col gap-2">
       {groups.map((group) => (
@@ -243,6 +247,7 @@ function MyGroupRows({ groups }: { groups: GroupSummary[] }) {
             href={groupPath(group.id)}
             onMouseEnter={() => prefetchGroup(group.id)}
             onFocus={() => prefetchGroup(group.id)}
+            onContextMenu={(e) => groupMenu(e, group)}
             className={`${rowClass} ${group.suspended ? "opacity-60" : ""}`}
           >
             <GroupIcon name={group.name} iconUrl={group.iconUrl} seed={group.id} size={40} className="rounded-lg" />

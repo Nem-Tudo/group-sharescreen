@@ -180,11 +180,15 @@ contextBridge.exposeInMainWorld("golive", {
   },
 
   /**
-   * Whether the bell has anything unread, so the shell can keep the taskbar
-   * entry flashing while it does. Sent on every change, true or false.
+   * When the bell's newest unread notification arrived, or 0 for none, so the
+   * shell can flash the taskbar entry for anything newer than what the window
+   * was last open on. Sent on every change.
    */
-  setUnreadNotifications(unread: unknown): void {
-    ipcRenderer.send(IPC.unreadNotifications, unread === true);
+  setNewestUnreadNotification(at: unknown): void {
+    ipcRenderer.send(
+      IPC.unreadNotifications,
+      typeof at === "number" && Number.isFinite(at) && at > 0 ? at : 0
+    );
   },
 
   setGlobalShortcuts(shortcuts: unknown): void {

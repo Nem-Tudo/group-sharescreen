@@ -179,6 +179,11 @@ function clearUnread(groupId: string, channelId: string, tellServer: boolean) {
   syncSummaryFromDetail(groupId);
 }
 
+/** Clears one room's dot and mention count, here and on the server — "Marcar como lida". */
+export function markChannelAsRead(groupId: string, channelId: string): void {
+  clearUnread(groupId, channelId, true);
+}
+
 /**
  * Clears every dot in a group at once — the rail's "mark as read". Reads the
  * group first when its rooms were never opened, since only the rooms know

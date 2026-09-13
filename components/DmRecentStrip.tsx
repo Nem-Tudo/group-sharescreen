@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { MdChatBubbleOutline } from "react-icons/md";
+import { MdCall, MdChatBubbleOutline, MdContentCopy, MdDoneAll, MdOpenInFull, MdPictureInPicture } from "react-icons/md";
 import { Tooltip } from "@/components/Tooltip";
 import { UserAvatar } from "@/components/UserAvatar";
 import { useAuth } from "@/lib/AuthContext";
@@ -12,6 +12,10 @@ import { openDirectMessages, useDirectMessagesWindow } from "@/lib/dmWindow";
 import { selectDmReadSeq, selectDmSeq, selectRecentDms } from "@/lib/signalingSelectors";
 import { useSignalingSelector } from "@/lib/useSignalingSelector";
 import { useT, useTCount } from "@/lib/useI18n";
+import { startCall } from "@/lib/callsApi";
+import { copyText } from "@/lib/clipboard";
+import { openContextMenu } from "@/lib/contextMenu";
+import { markConversationRead } from "@/lib/dmApi";
 
 // The people this account talks to, one click from a group's top bar.
 //
@@ -88,6 +92,22 @@ export function DmRecentStrip({ compact = false, leading = false }: { compact?: 
         // Everything at once is what full screen is for: the conversations
         // beside the thread, beside the groups.
         onClick={() => openDirectMessages(null, { expanded: true })}
+        onContextMenu={(e) =>
+          openContextMenu(e, {
+            entries: [
+              {
+                label: t("directMessagesModal.expand"),
+                icon: <MdOpenInFull className="h-4 w-4" />,
+                onSelect: () => openDirectMessages(null, { expanded: true }),
+              },
+              {
+                label: t("dmMenu.openInWindow"),
+                icon: <MdPictureInPicture className="h-4 w-4" />,
+                onSelect: () => openDirectMessages(null, { expanded: false }),
+              },
+            ],
+          })
+        }
         aria-label={t("dmRecentStrip.allMessages")}
         className="relative shrink-0 cursor-pointer rounded-lg p-2 text-zinc-500 transition hover:bg-zinc-200/60 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
       >
@@ -135,6 +155,40 @@ export function DmRecentStrip({ compact = false, leading = false }: { compact?: 
               <button
                 type="button"
                 onClick={() => openDirectMessages(user.id)}
+                onContextMenu={(e) =>
+                  openContextMenu(e, {
+                    title: user.displayName,
+                    entries: [
+                      {
+                        label: t("dmMenu.openConversation"),
+                        icon: <MdChatBubbleOutline className="h-4 w-4" />,
+                        onSelect: () => openDirectMessages(user.id),
+                      },
+                      {
+                        label: t("common.callDisplayname", { displayName: user.displayName }),
+                        icon: <MdCall className="h-4 w-4" />,
+                        onSelect: () => void startCall(user.id),
+                      },
+                      {
+                        label: t("groups.groupRail.markAsRead"),
+                        icon: <MdDoneAll className="h-4 w-4" />,
+                        disabled: unread === 0,
+                        onSelect: () => {
+                          markConversationRead(user.id);
+                          setConversations((current) =>
+                            current?.map((c) => (c.user.id === user.id ? { ...c, unread: 0 } : c)) ?? current
+                          );
+                        },
+                      },
+                      { type: "divider" },
+                      {
+                        label: t("groups.memberMenu.copyId"),
+                        icon: <MdContentCopy className="h-4 w-4" />,
+                        onSelect: () => void copyText(user.id),
+                      },
+                    ],
+                  })
+                }
                 aria-label={t("common.chatWithDisplayname", { displayName: user.displayName })}
                 className={`${FACE_VISIBILITY[index]} relative shrink-0 cursor-pointer items-center justify-center rounded-full p-0.5 transition hover:bg-zinc-200/60 dark:hover:bg-zinc-900`}
               >

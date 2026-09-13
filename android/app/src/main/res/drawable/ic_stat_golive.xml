@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The status-bar icon: the launcher's monitor, as a flat silhouette.
+
+     Android draws a notification's small icon from its alpha channel alone and
+     paints it white (or the accent colour in the shade). The launcher icon is a
+     full-colour square, which is why notifications used to show a blank white
+     block — this is the shape that survives that treatment. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M4.6,4.2 H19.4 A1.6,1.6 0 0 1 21,5.8 V14.6 A1.6,1.6 0 0 1 19.4,16.2 H4.6 A1.6,1.6 0 0 1 3,14.6 V5.8 A1.6,1.6 0 0 1 4.6,4.2 Z M5.6,6.8 V13.6 H18.4 V6.8 Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M9.3,17 H14.7 A1.3,1.3 0 0 1 16,18.3 V18.7 A1.3,1.3 0 0 1 14.7,20 H9.3 A1.3,1.3 0 0 1 8,18.7 V18.3 A1.3,1.3 0 0 1 9.3,17 Z" />
+</vector>

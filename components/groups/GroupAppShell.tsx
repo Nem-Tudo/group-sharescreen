@@ -8,6 +8,7 @@ import { MdHome, MdViewList } from "react-icons/md";
 import { AccountMenu } from "@/components/AccountMenu";
 import { CallOutlet } from "@/components/CallOutlet";
 import { DmRecentStrip } from "@/components/DmRecentStrip";
+import { useBlockNativeContextMenu } from "@/components/ContextMenuHost";
 import { AccountModal } from "@/components/AccountModal";
 import { NotificationInboxBell } from "@/components/NotificationInboxBell";
 import { MIN_CARD_HEIGHT_PX } from "@/components/PartnerCard";
@@ -85,6 +86,11 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   const roomId = route?.kind === "room" ? route.roomId : null;
   const navigation = useGroupNavigation();
   useEffect(() => registerGroupShell(), []);
+  // An app, not a document: the right button is ours everywhere on the group
+  // pages (see ContextMenuHost's stand-in for the browser's menu), and text
+  // only selects where there is something worth copying — the messages, and
+  // whatever is typed (see the select-text on those, and globals.css).
+  useBlockNativeContextMenu();
   const { openPopup } = useNtPopups();
   const { detail } = useGroupDetail(groupId);
   // The group's look, painted here once for every page of it: the group's own
@@ -266,7 +272,7 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
 
   return (
     <GroupNavContext.Provider value={{ openNav: () => setNavOpen(true) }}>
-      <div data-group-shell className="flex min-h-0 flex-1 flex-col bg-zinc-50 dark:bg-black">
+      <div data-group-shell className="flex min-h-0 flex-1 select-none flex-col bg-zinc-50 dark:bg-black">
         <header
           data-header-compact={headerFit >= 1 ? "" : undefined}
           className="shrink-0 border-b border-black/10 bg-white px-3 py-2 sm:px-4 dark:border-white/10 dark:bg-zinc-950"

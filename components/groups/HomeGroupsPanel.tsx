@@ -17,6 +17,7 @@ import { refreshGroup, refreshGroups, syncGroupsIdentity, useMyGroups } from "@/
 import { useSignalingSelector } from "@/lib/useSignalingSelector";
 import { selectName } from "@/lib/signalingSelectors";
 import { useT } from "@/lib/useI18n";
+import { useGroupContextMenu } from "@/components/groups/groupMenus";
 import { translate, translateCount } from "@/lib/i18n";
 
 // The groups list beside the home page's room form — the counterpart of the
@@ -172,6 +173,8 @@ function GroupsPanelBody({
 }) {
   const t = useT();
   const { openPopup } = useNtPopups();
+  const router = useRouter();
+  const groupMenu = useGroupContextMenu(router.push);
   const [addOpen, setAddOpen] = useState(false);
   // Somebody logging in on this page must not keep the guest's list on screen.
   useEffect(() => {
@@ -311,6 +314,7 @@ function GroupsPanelBody({
             <li key={group.id}>
               <Link
                 href={groupPath(group.id)}
+                onContextMenu={(e) => groupMenu(e, group)}
                 className={`group/card flex items-center gap-2.5 rounded-lg border border-zinc-200 bg-white px-2.5 py-2 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-600 ${
                   group.suspended ? "opacity-60" : ""
                 }`}

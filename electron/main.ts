@@ -866,10 +866,10 @@ function createWindow(initialUrl: string = APP_URL) {
     taskbarFlashing = false;
   });
 
-  // See refreshTaskbarFlash: Windows ends the flash itself once the window is
-  // in front, so the record follows it, and leaving the window again restarts
-  // it for whatever is still unread.
+  // See refreshTaskbarFlash: the window in front means what is unread so far
+  // has been seen, and leaving it again flashes only for something newer.
   mainWindow.on("focus", () => {
+    seenUnreadAt = newestUnreadAt;
     taskbarFlashing = false;
     mainWindow?.flashFrame(false);
   });
@@ -1014,22 +1014,29 @@ function createTray() {
 
 let callWindow: BrowserWindow | null = null;
 let ringingCall: CallRingingInfo | null = null;
-/** Whether the page's bell has anything unread — see IPC.unreadNotifications. */
-let hasUnreadNotifications = false;
+/**
+ * When the newest unread notification in the page's bell arrived, or 0 for
+ * none — see IPC.unreadNotifications.
+ */
+let newestUnreadAt = 0;
+/** The newest one that was already there the last time the window was open. */
+let seenUnreadAt = 0;
 /** What the taskbar entry was last told, so it is not re-told on every event. */
 let taskbarFlashing = false;
 
 /**
  * The taskbar entry flashes (orange/yellow on Windows) for two reasons: a call
- * ringing with the window open, or a notification nobody has read yet.
+ * ringing with the window open, or a notification that arrived since the window
+ * was last in front.
  *
  * One function decides for both because they share a single switch —
  * `flashFrame(false)` at the end of a call would otherwise also silence the
- * unread notification still waiting. Neither flashes while the window is
- * focused: somebody looking at the app can already see the ring and the bell.
- * Windows stops a flash on its own once the window comes to the front, so
- * "focus" resets the record and "blur" starts it again if the reason is still
- * there.
+ * notification still waiting. Neither flashes while the window is focused.
+ *
+ * Bringing the window up counts as having seen the notifications, even without
+ * opening the bell: the flash is there to get somebody to look at the app, and
+ * they did. So "focus" marks everything unread so far as seen, and only
+ * something newer starts the flash again.
  */
 function refreshTaskbarFlash() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -1038,7 +1045,7 @@ function refreshTaskbarFlash() {
   const want =
     onTaskbar &&
     !mainWindow.isFocused() &&
-    (ringingCall !== null || hasUnreadNotifications);
+    (ringingCall !== null || newestUnreadAt > seenUnreadAt);
   if (want === taskbarFlashing) return;
   taskbarFlashing = want;
   mainWindow.flashFrame(want);
@@ -1669,11 +1676,13 @@ if (!gotLock) {
       mainWindow.webContents.send(IPC.callAction, { callId: call.id, ...choice });
     });
 
-    // The bell's unread state. Only a boolean, but origin-checked anyway: it is
-    // our page's bell, not whatever else could be loaded in this window.
-    ipcMain.on(IPC.unreadNotifications, (event, unread: unknown) => {
+    // The bell's newest unread notification. Only a number, but origin-checked
+    // anyway: it is our page's bell, not whatever else could be loaded here.
+    ipcMain.on(IPC.unreadNotifications, (event, raw: unknown) => {
       if (!event.sender.getURL().startsWith(APP_ORIGIN)) return;
-      hasUnreadNotifications = unread === true;
+      newestUnreadAt = typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : 0;
+      // Arriving while the window is in front is arriving where it can be seen.
+      if (mainWindow?.isFocused()) seenUnreadAt = newestUnreadAt;
       refreshTaskbarFlash();
     });
 

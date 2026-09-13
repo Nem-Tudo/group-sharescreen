@@ -844,3 +844,12 @@ body:has([data-group-shell]) {
     golive-confetti-sway var(--confetti-sway-duration, 1.1s) ease-in-out var(--confetti-delay, 0s)
       infinite alternate;
 }
+
+/* Where text selection is turned off for a whole area (the group pages, the
+   conversations window), what is typed stays selectable: a text box somebody
+   cannot select in is a broken text box, and not every engine exempts form
+   fields from an ancestor's user-select on its own. */
+.select-none :is(input, textarea, [contenteditable="true"]) {
+  -webkit-user-select: text;
+  user-select: text;
+}

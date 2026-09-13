@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Words for the notifications GoLiveNotifications.java draws. English here,
+     Portuguese in values-pt/, picked by the phone's language. -->
+<resources>
+    <color name="golive_brand">#0099FF</color>
+
+    <string name="notif_channel_messages">Messages</string>
+    <string name="notif_channel_messages_desc">Private messages sent to you</string>
+    <string name="notif_channel_groups">Group messages</string>
+    <string name="notif_channel_groups_desc">Messages in group rooms you follow</string>
+    <string name="notif_channel_calls">Incoming calls</string>
+    <string name="notif_channel_calls_desc">Rings when somebody calls you</string>
+    <string name="notif_channel_other">Other</string>
+    <string name="notif_channel_other_desc">Missed calls, likes and everything else</string>
+
+    <string name="notif_you">You</string>
+    <string name="notif_reply">Reply</string>
+    <string name="notif_reply_hint">Message</string>
+    <string name="notif_mark_read">Mark as read</string>
+    <string name="notif_reply_failed">Couldn\'t send your reply</string>
+    <string name="notif_incoming_call">Incoming call</string>
+    <string name="notif_missed_call">Missed call</string>
+    <string name="notif_summary_many">%1$s from %2$s</string>
+
+    <plurals name="notif_messages">
+        <item quantity="one">%d message</item>
+        <item quantity="other">%d messages</item>
+    </plurals>
+    <plurals name="notif_new_messages">
+        <item quantity="one">%d new message</item>
+        <item quantity="other">%d new messages</item>
+    </plurals>
+    <plurals name="notif_chats">
+        <item quantity="one">%d chat</item>
+        <item quantity="other">%d chats</item>
+    </plurals>
+</resources>

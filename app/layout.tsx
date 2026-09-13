@@ -15,6 +15,7 @@ import { DmNotifier } from "@/components/DmNotifier";
 import { DesktopUnreadFlash } from "@/components/DesktopUnreadFlash";
 import { GroupNotifier } from "@/components/GroupNotifier";
 import { DirectMessagesHost } from "@/components/DirectMessagesHost";
+import { ContextMenuHost } from "@/components/ContextMenuHost";
 import { CallHost } from "@/components/CallHost";
 import { RoomCallHost } from "@/components/RoomCallHost";
 import { PushRegistrar } from "@/components/PushRegistrar";
@@ -248,6 +249,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                 <GroupNotifier />
                 {/* The one conversation window on the page — see its own comment. */}
                 <DirectMessagesHost />
+                <ContextMenuHost />
                 {/* The ringing screen, both directions. At the root for the same
                     reason the bell is: a call arrives whenever it arrives, and
                     it has to be answerable from whatever page somebody is on. */}

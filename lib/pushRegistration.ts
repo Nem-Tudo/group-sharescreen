@@ -8,6 +8,7 @@ import {
 } from "./pushApi";
 import { openDirectMessages } from "./dmWindow";
 import { isDesktopApp } from "./desktop";
+import { hasNativeNotifications, requestNativeCallAccept } from "./androidNotifications";
 import { translate } from "@/lib/i18n";
 
 // Getting this device onto the list of places a notification can reach.
@@ -144,10 +145,16 @@ async function registerNative(
     }
     if (!granted) return false;
 
+    const native = hasNativeNotifications();
+
     // Idempotent on Android (creating a channel that exists is a no-op that
     // does *not* reset what the user changed about it), so this can run on
     // every start rather than being tracked.
-    for (const channel of ANDROID_CHANNELS) {
+    //
+    // Not in a build that draws its own notifications: that one creates its
+    // channels natively, with a ringtone for calls, and deletes the old call
+    // channel this would otherwise put straight back.
+    for (const channel of native ? [] : ANDROID_CHANNELS) {
       try {
         await plugin.createChannel(channel);
       } catch {
@@ -164,7 +171,13 @@ async function registerNative(
         const token = typeof payload.value === "string" ? payload.value : "";
         if (!token) return;
         currentEndpoint = token;
-        void registerPushSubscription({ kind: "fcm", endpoint: token });
+        void registerPushSubscription({
+          kind: "fcm",
+          endpoint: token,
+          // Asks the API for data-only pushes, which only a build with the
+          // native renderer can show — see lib/androidNotifications.ts.
+          ...(native ? { renderer: "native" as const } : {}),
+        });
       });
       void plugin.addListener("registrationError", (payload) => {
         console.error("[push] Falha ao registrar no FCM:", payload);
@@ -182,8 +195,19 @@ async function registerNative(
         const data = (payload.notification as { data?: Record<string, unknown> } | undefined)
           ?.data;
         if (!data) return;
-        if (data.kind === "dm" && typeof data.fromId === "string") {
+        // A missed call opens the conversation with whoever called, like the
+        // message notifications do.
+        if ((data.kind === "dm" || data.kind === "call-ended") && typeof data.fromId === "string") {
           openDirectMessages(data.fromId);
+        }
+        // "Atender" on the native ringing notification. Held until CallHost
+        // has the call on screen — see requestNativeCallAccept.
+        if (
+          data.kind === "call" &&
+          data["golive.callAction"] === "accept" &&
+          typeof data.callId === "string"
+        ) {
+          requestNativeCallAccept(data.callId);
         }
         // A message in a group's text room: open that room. Only a
         // site-relative path is followed, never an arbitrary address.

@@ -49,6 +49,8 @@ export async function registerPushSubscription(input: {
   kind: "webpush" | "fcm";
   endpoint: string;
   keys?: { p256dh: string; auth: string };
+  /** "native" when the Android shell draws its own — see lib/androidNotifications.ts. */
+  renderer?: "native";
 }): Promise<boolean> {
   const deviceId = getDeviceId();
   if (!deviceId) return false;

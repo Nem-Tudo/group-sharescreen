@@ -11,6 +11,7 @@ import { acceptCall, endCall, fetchPendingCalls, isOwnCall, markOwnCall } from "
 import { showNotification } from "@/lib/notifications";
 import { upsertNotification } from "@/lib/notificationInbox";
 import { getDesktopBridge } from "@/lib/desktop";
+import { consumeNativeCallAccept, onNativeCallAccept } from "@/lib/androidNotifications";
 import { startRingtone, stopRingtone } from "@/lib/soundEffects";
 import { DEFAULT_AVATAR_PATH, UserAvatar } from "@/components/UserAvatar";
 import { isCallRoomHandle } from "@/lib/roomsApi";
@@ -428,6 +429,22 @@ export function CallHost() {
       else onDecline(action.reason);
     });
   }, [onAccept, onDecline]);
+
+  // ─── Answered from the Android notification ─────────────────────────────
+  //
+  // Same idea on the phone: "Atender" on the ringing notification opens the
+  // app, and this page does the accepting. The press can land before this
+  // call is known — on a cold start the ring arrives from the API a moment
+  // later — so it waits in lib/androidNotifications until the call it names
+  // is the one on screen.
+  const [nativeAcceptSeq, setNativeAcceptSeq] = useState(0);
+  useEffect(() => onNativeCallAccept(() => setNativeAcceptSeq((n) => n + 1)), []);
+  useEffect(() => {
+    if (!incomingCall || !consumeNativeCallAccept(incomingCall.id)) return;
+    // Out of the effect's own pass: accepting sets state, and doing that
+    // synchronously here would render again before this one has finished.
+    queueMicrotask(() => void onAccept());
+  }, [incomingCall, nativeAcceptSeq, onAccept]);
 
   if (!account) return null;
 

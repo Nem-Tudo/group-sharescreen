@@ -159,9 +159,10 @@ export const IPC = {
   toastClick: "golive:toast:click",
 
   /**
-   * renderer -> main: whether the bell has anything unread. A boolean and
-   * nothing else — the shell only needs to know whether to flash the taskbar
-   * entry, not what the notifications say.
+   * renderer -> main: when the bell's newest unread notification arrived (ms
+   * since epoch), or 0 for none. A number and nothing else — the shell only
+   * needs to tell a notification it has not flashed for from one the window
+   * was already open on, not what the notifications say.
    */
   unreadNotifications: "golive:notifications:unread",
 

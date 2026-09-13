@@ -3,7 +3,10 @@
 import { memo, useEffect, useMemo } from "react";
 import useNtPopups from "ntpopups";
 import { FaCrown } from "react-icons/fa";
-import { MdPeople, MdPersonAdd, MdVolumeUp } from "react-icons/md";
+import { MdLink, MdPeople, MdPersonAdd, MdVolumeUp } from "react-icons/md";
+import { copyText } from "@/lib/clipboard";
+import { openContextMenu } from "@/lib/contextMenu";
+import { groupPath } from "@/lib/groupLinks";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { Tooltip } from "@/components/Tooltip";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -319,8 +322,30 @@ export function GroupMembersPanel({
     if (onlineEntry && hasMore && !loadingMore && nearEnd) loadMore();
   }, [onlineEntry, hasMore, loadingMore, nearEnd, loadMore]);
 
+  // The column away from anybody in it: bringing people in.
+  function columnMenu(e: React.MouseEvent) {
+    openContextMenu(e, {
+      title: detail.group.name,
+      entries: [
+        canInvite && {
+          label: t("common.invitePeople"),
+          icon: <MdPersonAdd className="h-4 w-4" />,
+          onSelect: () => void openPopup("group_invite", { data: { groupId, groupName: detail.group.name } }),
+        },
+        {
+          label: t("groups.groupRail.copyLink"),
+          icon: <MdLink className="h-4 w-4" />,
+          onSelect: () => void copyText(`${window.location.origin}${groupPath(groupId)}`),
+        },
+      ],
+    });
+  }
+
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+    <div
+      onContextMenu={columnMenu}
+      className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950"
+    >
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
         <span className="flex items-center gap-2">
           <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">{t("common.members")}</h2>

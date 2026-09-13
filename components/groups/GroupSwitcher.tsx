@@ -10,6 +10,8 @@ import { GroupName } from "@/components/groups/GroupName";
 import { useAuth } from "@/lib/AuthContext";
 import { groupPath } from "@/lib/groupLinks";
 import { prefetchGroup, useMyGroups } from "@/lib/useGroups";
+import { useGroupContextMenu } from "@/components/groups/groupMenus";
+import { useGroupNavigation } from "@/lib/groupNavigation";
 import { useT } from "@/lib/useI18n";
 
 // Which group is open, and the way to every other one — a switcher in the top
@@ -37,6 +39,10 @@ export function GroupSwitcher({
   const { groups } = useMyGroups();
   const { account } = useAuth();
   const { openPopup } = useNtPopups();
+  const navigation = useGroupNavigation();
+  const groupMenu = useGroupContextMenu(navigation.push, (left) => {
+    if (left.id === activeGroupId) navigation.push("/groups");
+  });
 
   const active = groups?.find((g) => g.id === activeGroupId) ?? null;
   const name = active?.name ?? fallbackName ?? null;
@@ -67,6 +73,10 @@ export function GroupSwitcher({
                 onClick={close}
                 onMouseEnter={() => prefetchGroup(group.id)}
                 onFocus={() => prefetchGroup(group.id)}
+                onContextMenu={(e) => {
+                  setOpen(false);
+                  groupMenu(e, group);
+                }}
                 className={`${itemClass} ${group.suspended ? "opacity-60" : ""}`}
               >
                 <GroupIcon name={group.name} iconUrl={group.iconUrl} seed={group.id} size={26} className="rounded-md" />
