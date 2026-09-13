@@ -28,6 +28,9 @@ import {
 } from "react-icons/md";
 import { GifPicker } from "@/components/GifPicker";
 import { Popover } from "@/components/Tooltip";
+import { EmojiPickerButton } from "@/components/EmojiPicker";
+import { EmojiSuggestions } from "@/components/EmojiSuggestions";
+import { useEmojiAutocomplete } from "@/lib/useEmojiAutocomplete";
 import { ChatImageModal, type ChatImagePreviewState } from "@/components/ChatImageModal";
 import {
   CHAT_IMAGE_ACCEPT,
@@ -527,6 +530,16 @@ export function DirectMessagesModal({
   const attached = attachments && attachments.userId === activeId ? attachments.value : [];
   const shownError = error && error.userId === (activeId ?? "") ? error.value : null;
 
+  // ":" for emoji, ":sob:" → 😭, and the picker beside "send" — see
+  // useEmojiAutocomplete. It writes into this conversation's draft.
+  const emoji = useEmojiAutocomplete({
+    textareaRef: composerRef,
+    onReplace: (value) => {
+      if (!activeId) return;
+      setDrafts((current) => ({ ...current, [activeId]: value.slice(0, MAX_LENGTH) }));
+    },
+  });
+
   // The fetched page, plus anything that arrived since — derived rather than
   // merged into state, so a message landing while this is open needs no effect
   // and cannot be lost between two renders. See lib/dmThread for the rules.
@@ -767,7 +780,7 @@ export function DirectMessagesModal({
 
   function submit() {
     if (!activeId) return;
-    const text = draft.trim();
+    const text = emoji.convert(draft).trim();
     if (!text && attached.length === 0) return;
     send(activeId, {
       text,
@@ -787,6 +800,7 @@ export function DirectMessagesModal({
   }
 
   function handleComposerKey(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
+    if (emoji.handleKeyDown(event)) return;
     // Enter sends, Shift+Enter is a new line — except while an input method is
     // still composing a character, where Enter is how the character is chosen.
     if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
@@ -1293,8 +1307,17 @@ export function DirectMessagesModal({
 
               <form
                 onSubmit={handleSubmit}
-                className="flex shrink-0 items-end gap-1 border-t border-zinc-200 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] dark:border-zinc-800"
+                className="relative flex shrink-0 items-end gap-1 border-t border-zinc-200 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] dark:border-zinc-800"
               >
+                {emoji.open && (
+                  <EmojiSuggestions
+                    matches={emoji.matches}
+                    highlight={emoji.highlight}
+                    onHighlight={emoji.setHighlight}
+                    onPick={emoji.pick}
+                    className="absolute bottom-full left-2 right-2 mb-1"
+                  />
+                )}
                 <input
                   ref={fileRef}
                   type="file"
@@ -1351,10 +1374,18 @@ export function DirectMessagesModal({
                   ref={composerRef}
                   rows={1}
                   value={draft}
-                  onChange={(e) =>
-                    activeId && setDrafts((current) => ({ ...current, [activeId]: e.target.value }))
-                  }
+                  onChange={(e) => {
+                    if (!activeId) return;
+                    const { text } = emoji.handleChange(
+                      e.target.value,
+                      e.target.selectionStart ?? e.target.value.length
+                    );
+                    setDrafts((current) => ({ ...current, [activeId]: text }));
+                  }}
                   onKeyDown={handleComposerKey}
+                  onKeyUp={emoji.sync}
+                  onClick={emoji.sync}
+                  onFocus={emoji.prefetch}
                   // Only takes over the paste when the clipboard really carries
                   // an image: a copied <img> from a web page arrives as image
                   // data *and* HTML, and pasting plain text has to keep working
@@ -1383,6 +1414,7 @@ export function DirectMessagesModal({
                 >
                   <MdSend className="h-5 w-5" />
                 </button>
+                <EmojiPickerButton onPick={emoji.insert} className={iconButton} />
               </form>
             </>
           )}

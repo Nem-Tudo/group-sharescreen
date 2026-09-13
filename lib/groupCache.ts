@@ -9,6 +9,7 @@ import {
   type GroupUser,
   fetchOnlineMembers,
   fetchOfflineMembers,
+  fetchMemberCounts,
   type MemberCounts,
 } from "./groupsApi";
 
@@ -353,6 +354,43 @@ export function useOnlineGroupMembers(
   }, [groupId, pollMs]);
 
   return entry;
+}
+
+// ─── Just the counts ─────────────────────────────────────────────────────
+
+/**
+ * How many members the group has and how many are online — with `channelId`,
+ * how many can see that room. Asked for as soon as the column opens, rather
+ * than read off the first offline page: that page is only requested once the
+ * list scrolls near its end, so with many people online the column's total
+ * used to read the same as the online count until somebody scrolled.
+ *
+ * Re-read when the group, the room or `revalidateKey` changes (a membership
+ * change moves the key). The last counts for the same group and room stay up
+ * while that re-read is in flight, so the numbers never blink back to nothing.
+ */
+export function useMemberCounts(
+  groupId: string | null,
+  channelId: string | null,
+  revalidateKey: string
+): MemberCounts | null {
+  const room = `${groupId ?? ""}|${channelId ?? ""}`;
+  const [held, setHeld] = useState<{ room: string; counts: MemberCounts } | null>(null);
+
+  useEffect(() => {
+    if (!groupId) return;
+    const controller = new AbortController();
+    void fetchMemberCounts(groupId, channelId, controller.signal)
+      .then((result) => {
+        if (controller.signal.aborted || !result.ok) return;
+        const counts = countsOf(result);
+        if (counts) setHeld({ room, counts });
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [groupId, channelId, room, revalidateKey]);
+
+  return held?.room === room ? held.counts : null;
 }
 
 // ─── Everybody else, a page at a time ────────────────────────────────────

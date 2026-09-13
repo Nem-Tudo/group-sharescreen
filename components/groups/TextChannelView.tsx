@@ -30,6 +30,7 @@ import {
 } from "@/components/groups/GroupMessageComposer";
 import { openGroupProfile } from "@/components/groups/groupProfile";
 import { ReactionPicker } from "@/components/groups/ReactionPicker";
+import { Twemoji } from "@/components/Twemoji";
 import { rememberChannel } from "@/components/groups/lastChannel";
 import { mentionsRegexFor, normalizeSearch, tokenizeMentions } from "@/lib/chatMentions";
 import {
@@ -1056,7 +1057,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
                               : "cursor-pointer hover:border-zinc-400 dark:hover:border-zinc-600"
                         }`}
                       >
-                        <span className="text-sm leading-none">{reaction.emoji}</span>
+                        <Twemoji emoji={reaction.emoji} size={16} />
                         <span className="tabular-nums">{reaction.users.length}</span>
                       </button>
                     );

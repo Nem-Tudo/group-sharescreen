@@ -45,6 +45,9 @@ import {
 } from "@/lib/chatMentions";
 import { hasVerifiedBadge, verifiedBadge } from "@/lib/entitlements";
 import { formatTypingLabel } from "@/lib/typing";
+import { useEmojiAutocomplete } from "@/lib/useEmojiAutocomplete";
+import { EmojiPickerButton } from "@/components/EmojiPicker";
+import { EmojiSuggestions } from "@/components/EmojiSuggestions";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
 import { formatLocale } from "@/lib/i18n";
@@ -351,6 +354,21 @@ export function ChatPanel({
 
   const listRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // ":" for emoji, ":sob:" → 😭, and the picker beside "send" — see
+  // useEmojiAutocomplete. A change it makes is not an input event, so the box
+  // is grown here the way handleInput grows it for typing.
+  const emoji = useEmojiAutocomplete({
+    textareaRef,
+    onReplace: (value) => {
+      setInput(value.slice(0, 500));
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        el.style.height = "auto";
+        el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+      });
+    },
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Tracks whether we've already jumped to bottom for the current batch of
   // messages, so a room's preloaded history opens scrolled to the bottom
@@ -636,7 +654,7 @@ export function ChatPanel({
 
     // Read before the await, because the box is cleared optimistically below
     // and would otherwise be empty by the time the request is built.
-    const text = input.trim();
+    const text = emoji.convert(input).trim();
     const replyPayload = getReplyToPayload();
     setImageError(null);
     setSendingImages(true);
@@ -668,7 +686,7 @@ export function ChatPanel({
     }
     if (!input.trim() || !onSend) return;
     const replyPayload = getReplyToPayload();
-    onSend(input, replyPayload);
+    onSend(emoji.convert(input), replyPayload);
     clearComposer();
   }
 
@@ -689,6 +707,7 @@ export function ChatPanel({
       : Boolean(input.trim()));
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (emoji.handleKeyDown(e)) return;
     if (mentionMenuOpen && filteredCandidates.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -746,10 +765,12 @@ export function ChatPanel({
   // timer above to announce false — not resent on every keystroke, so a
   // continuously-typing peer's indicator just stays on rather than flickering.
   function handleChange(e: ChangeEvent<HTMLTextAreaElement>) {
-    const value = e.target.value;
+    const { text: value, caret: cursorPos } = emoji.handleChange(
+      e.target.value,
+      e.target.selectionStart ?? e.target.value.length
+    );
     setInput(value);
 
-    const cursorPos = e.target.selectionStart ?? value.length;
     updateMentionTrigger(value, cursorPos);
 
     if (!onTypingChange) return;
@@ -766,6 +787,7 @@ export function ChatPanel({
   }
 
   function handleKeyUp(e: KeyboardEvent<HTMLTextAreaElement>) {
+    emoji.sync();
     if (["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"].includes(e.key) && mentionMenuOpen) {
       return;
     }
@@ -774,6 +796,7 @@ export function ChatPanel({
   }
 
   function handleClick(e: ReactMouseEvent<HTMLTextAreaElement>) {
+    emoji.sync();
     const cursorPos = e.currentTarget.selectionStart ?? e.currentTarget.value.length;
     updateMentionTrigger(e.currentTarget.value, cursorPos);
   }
@@ -1241,6 +1264,15 @@ export function ChatPanel({
           // floating in the middle of it.
           className="relative flex shrink-0 flex-col gap-2 border-t border-zinc-200 p-2 dark:border-zinc-800"
         >
+          {emoji.open && (
+            <EmojiSuggestions
+              matches={emoji.matches}
+              highlight={emoji.highlight}
+              onHighlight={emoji.setHighlight}
+              onPick={emoji.pick}
+              className="absolute bottom-full left-2 mb-1.5 w-72 max-w-[calc(100vw-2rem)]"
+            />
+          )}
           {/* Autocomplete mention popup */}
           {mentionMenuOpen && filteredCandidates.length > 0 && (
             <div
@@ -1484,6 +1516,7 @@ export function ChatPanel({
               onClick={handleClick}
               onInput={handleInput}
               onPaste={handlePaste}
+              onFocus={emoji.prefetch}
               maxLength={500}
               rows={1}
               disabled={Boolean(sendDisabledReason) || sendingImages}
@@ -1512,6 +1545,12 @@ export function ChatPanel({
                 <MdSend className="h-4 w-4" />
               )}
             </button>
+            <EmojiPickerButton
+              onPick={emoji.insert}
+              disabled={Boolean(sendDisabledReason) || sendingImages}
+              iconSize={18}
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-zinc-300 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+            />
           </div>
         </form>
       )}

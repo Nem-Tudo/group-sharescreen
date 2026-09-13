@@ -3,13 +3,13 @@
 import { memo, useEffect, useMemo } from "react";
 import useNtPopups from "ntpopups";
 import { FaCrown } from "react-icons/fa";
-import { MdPersonAdd, MdVolumeUp } from "react-icons/md";
+import { MdPeople, MdPersonAdd, MdVolumeUp } from "react-icons/md";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { Tooltip } from "@/components/Tooltip";
 import { UserAvatar } from "@/components/UserAvatar";
 import { openGroupProfile } from "@/components/groups/groupProfile";
 import { verifiedBadge } from "@/lib/entitlements";
-import { useOfflineGroupMembers, useOnlineGroupMembers } from "@/lib/groupCache";
+import { useMemberCounts, useOfflineGroupMembers, useOnlineGroupMembers } from "@/lib/groupCache";
 import {
   canManage,
   hoistedRoleOf,
@@ -21,7 +21,7 @@ import {
 import { prefetchUserProfile } from "@/lib/userProfile";
 import { useWindowedList } from "@/lib/useWindowedList";
 import type { GroupChannel, GroupDetail, GroupMember, GroupRoleInfo } from "@/lib/groupsApi";
-import { useT } from "@/lib/useI18n";
+import { useT, useTCount } from "@/lib/useI18n";
 
 // Who is in the group, as the right-hand column of its pages — the same card a
 // room's participant list is, with the group's people in it: who is around
@@ -147,6 +147,7 @@ export function GroupMembersPanel({
   channel?: GroupChannel | null;
 }) {
   const t = useT();
+  const tc = useTCount();
   const { openPopup } = useNtPopups();
   const groupId = detail.group.id;
   const canInvite = canManage(detail, "createInvites");
@@ -159,6 +160,8 @@ export function GroupMembersPanel({
   // poll, which at ten thousand members was a couple of megabytes each time.
   const onlineEntry = useOnlineGroupMembers(groupId, revalidateKey, REFRESH_MS);
   const offlinePaged = useOfflineGroupMembers(groupId, revalidateKey, textChannel?.id ?? null);
+  // Only beside a text room: group-wide, the online list already carries the counts.
+  const roomCounts = useMemberCounts(textChannel ? groupId : null, textChannel?.id ?? null, revalidateKey);
 
   // The online list is group-wide and shared with the text room, so beside a
   // room it is narrowed here; it is small enough for that to be free. The
@@ -198,9 +201,27 @@ export function GroupMembersPanel({
   }, [offlinePaged.list, online, voiceRoomOf]);
   // How many are offline in all, not merely how many pages have arrived — so
   // the heading says the real number before the list has been scrolled to.
-  const offlineTotal = offlinePaged.counts
-    ? Math.max(0, offlinePaged.counts.total - offlinePaged.counts.online)
-    : offline.length;
+  // The counts for what the column lists, from whichever answer has them
+  // first. Group-wide, the online list carries them. Beside a text room they
+  // must be that room's, which the online list cannot give (it is shared
+  // group-wide), and the first offline page arrives only once the list has
+  // scrolled near its end — so the room's counts are asked for on their own.
+  const counts = offlinePaged.counts ?? (textChannel ? roomCounts : onlineEntry?.counts ?? null);
+  const offlineTotal = counts ? Math.max(0, counts.total - counts.online) : offline.length;
+
+  // The header's two numbers. Online is the list's own length so the header
+  // never disagrees with the sections below it; null until the online list has
+  // arrived, when there is nothing honest to say. The total never reads lower
+  // than the online count, for the moment before the counts have answered.
+  const onlineCount = onlineEntry ? online.length : null;
+  const totalCount = Math.max(
+    onlineCount ?? 0,
+    counts?.total ?? (textChannel ? 0 : detail.group.memberCount)
+  );
+  const countsLabel =
+    onlineCount === null
+      ? tc("common.memberCount", totalCount)
+      : `${t("groups.groupRail.onlineCount", { count: onlineCount })} · ${tc("common.memberCount", totalCount)}`;
 
   // Whoever is around, by their highest role shown apart — in the roles'
   // order — and everybody else around after them.
@@ -316,11 +337,21 @@ export function GroupMembersPanel({
             </Tooltip>
           )}
         </span>
-        <span className="rounded-full bg-zinc-100 px-1.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-          {textChannel
-            ? offlinePaged.counts?.total ?? online.length
-            : onlineEntry?.counts.total ?? detail.group.memberCount}
-        </span>
+        <Tooltip content={countsLabel}>
+          <span className="flex shrink-0 items-center gap-2.5 rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-600 tabular-nums dark:bg-zinc-800 dark:text-zinc-300">
+            <span className="sr-only">{countsLabel}</span>
+            {onlineCount !== null && (
+              <span aria-hidden className="inline-flex items-center gap-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                {onlineCount}
+              </span>
+            )}
+            <span aria-hidden className="inline-flex items-center gap-1">
+              <MdPeople className="h-3.5 w-3.5 text-zinc-400 dark:text-zinc-500" />
+              {totalCount}
+            </span>
+          </span>
+        </Tooltip>
       </div>
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
         {onlineEntry === null ? (

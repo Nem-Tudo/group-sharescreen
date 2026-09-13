@@ -411,6 +411,21 @@ export const fetchOfflineMembers = (
   );
 
 /**
+ * Just the numbers: how many members the group has and how many are online —
+ * with `channelId`, how many of them can see that room. Every slice of the
+ * member list carries these counts, so this asks for the smallest one (a single
+ * offline member, which is ignored). It is what lets the members column show
+ * a room's total before it has scrolled to the offline members.
+ */
+export const fetchMemberCounts = (groupId: string, channelId?: string | null, signal?: AbortSignal) =>
+  request<{ members: GroupMember[] } & Partial<MemberCounts>>(
+    "GET",
+    `/groups/${enc(groupId)}/members?online=0&limit=1${channelId ? `&channel=${enc(channelId)}` : ""}`,
+    undefined,
+    signal
+  );
+
+/**
  * Members whose name contains `q` — for @-suggestions that must reach somebody
  * offline. With `channelId`, only people who can see that room: the API drops
  * a mention of anybody who cannot, so suggesting them would promise an alert

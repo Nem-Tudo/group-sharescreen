@@ -10,6 +10,8 @@ import {
   type KeyboardEvent,
 } from "react";
 import { MdClose, MdGif, MdGroups, MdOutlineImage, MdSend, MdVolumeUp } from "react-icons/md";
+import { EmojiPickerButton } from "@/components/EmojiPicker";
+import { EmojiSuggestions } from "@/components/EmojiSuggestions";
 import { GifPicker } from "@/components/GifPicker";
 import { Popover, Tooltip } from "@/components/Tooltip";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -32,6 +34,7 @@ import type { GroupReplyTo } from "@/lib/groupsApi";
 import { EVERYONE_MENTION, ROLE_MENTION_PREFIX } from "@/lib/groupPermissions";
 import { encodeMentions, userTokenIds, type Named } from "@/lib/messageTokens";
 import { createTypingAnnouncer, type TypingAnnouncer } from "@/lib/typing";
+import { useEmojiAutocomplete } from "@/lib/useEmojiAutocomplete";
 import { useT } from "@/lib/useI18n";
 
 // The box at the bottom of a group's text room. Drawn like the room chat's own
@@ -315,13 +318,30 @@ export function GroupMessageComposer({
     return () => window.removeEventListener("resize", onResize);
   });
 
+  // ":" for emoji, ":sob:" → 😭, and the picker beside "send" — see
+  // useEmojiAutocomplete. Everything it changes comes back through here.
+  const emoji = useEmojiAutocomplete({
+    textareaRef: textRef,
+    onReplace: (value, caret) => {
+      const next = value.slice(0, MAX_LENGTH);
+      setText(next);
+      setCursor(Math.min(caret, next.length));
+      noteTyping(next);
+      requestAnimationFrame(resize);
+    },
+  });
+
   function onChange(e: ChangeEvent<HTMLTextAreaElement>) {
-    setText(e.target.value.slice(0, MAX_LENGTH));
-    setCursor(e.target.selectionStart ?? e.target.value.length);
+    const { text: value, caret } = emoji.handleChange(
+      e.target.value,
+      e.target.selectionStart ?? e.target.value.length
+    );
+    setText(value.slice(0, MAX_LENGTH));
+    setCursor(caret);
     setHighlight(0);
     setError(null);
     resize();
-    noteTyping(e.target.value);
+    noteTyping(value);
   }
 
   function pickMention(candidate: MentionCandidate) {
@@ -347,7 +367,7 @@ export function GroupMessageComposer({
 
   function send(extra: { url?: string } = {}) {
     if (disabled) return;
-    const trimmed = text.trim();
+    const trimmed = emoji.convert(text).trim();
     if (!trimmed && images.length === 0 && !extra.url) return;
 
     // What goes out carries ids, not names (see lib/messageTokens): "@Ana"
@@ -396,6 +416,7 @@ export function GroupMessageComposer({
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (emoji.handleKeyDown(e)) return;
     if (mentionOpen) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
@@ -479,6 +500,15 @@ export function GroupMessageComposer({
 
   return (
     <div data-composer className="relative shrink-0 border-t border-zinc-200 p-2 dark:border-zinc-800">
+      {emoji.open && (
+        <EmojiSuggestions
+          matches={emoji.matches}
+          highlight={emoji.highlight}
+          onHighlight={emoji.setHighlight}
+          onPick={emoji.pick}
+          className="absolute bottom-full left-2 right-2 mb-1"
+        />
+      )}
       {mentionOpen && (
         <ul
           role="listbox"
@@ -624,8 +654,15 @@ export function GroupMessageComposer({
           onChange={onChange}
           onKeyDown={onKeyDown}
           onPaste={onPaste}
-          onSelect={(e) => setCursor(e.currentTarget.selectionStart ?? 0)}
-          onClick={(e) => setCursor(e.currentTarget.selectionStart ?? 0)}
+          onFocus={emoji.prefetch}
+          onSelect={(e) => {
+            setCursor(e.currentTarget.selectionStart ?? 0);
+            emoji.sync();
+          }}
+          onClick={(e) => {
+            setCursor(e.currentTarget.selectionStart ?? 0);
+            emoji.sync();
+          }}
           rows={1}
           disabled={disabled}
           placeholder={disabledReason ?? t("groups.groupMessageComposer.messageInChannelname", { channelName })}
@@ -640,6 +677,7 @@ export function GroupMessageComposer({
         >
           <MdSend className="h-4 w-4" />
         </button>
+        <EmojiPickerButton onPick={emoji.insert} disabled={disabled} className={iconButton} />
       </div>
       {error && <p className="mt-1 px-1 text-xs text-red-500">{error}</p>}
     </div>
