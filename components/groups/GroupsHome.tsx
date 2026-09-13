@@ -81,10 +81,13 @@ export function GroupsHome() {
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-2xl px-4 py-8 sm:py-10">
+      <div className="mx-auto w-full max-w-2xl px-4 pt-4 pb-8 sm:py-10">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">{t("common.yourGroups")}</h1>
+            {/* A phone's bar already says "Grupos" (see GroupMobile). */}
+            <h1 className="hidden text-2xl font-semibold tracking-tight text-zinc-950 lg:block dark:text-zinc-50">
+              {t("common.yourGroups")}
+            </h1>
             <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
               {hasGroups
                 ? tc("common.groupCount", groups!.length)

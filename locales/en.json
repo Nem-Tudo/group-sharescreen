@@ -2768,5 +2768,22 @@
   "zipReader.nameIsPasswordProtected": "\"{name}\" is password protected.",
   "zipReader.nameUsesACompressionTheBrowser": "\"{name}\" uses a compression the browser cannot open.",
   "zipReader.thatDoesNotLookLikeA": "That does not look like a .zip file.",
-  "zipReader.thisBrowserCannotUnzipFilesExtract": "This browser cannot unzip files. Extract the folder and choose it."
+  "zipReader.thisBrowserCannotUnzipFilesExtract": "This browser cannot unzip files. Extract the folder and choose it.",
+  "mobile.tabs": "Main navigation",
+  "mobile.chats": "Chats",
+  "mobile.you": "You",
+  "mobile.noNameYet": "No name yet",
+  "mobile.guest": "Guest",
+  "mobile.accountPitch": "With an account you keep your name and points, and get friends, groups and chats.",
+  "mobile.explore": "Explore",
+  "mobile.about": "About GoLive",
+  "mobile.list": "List",
+  "mobile.map": "Map",
+  "mobile.roomOptions": "Room options",
+  "mobile.share": "Share",
+  "mobile.memberCount.one": "{count} member",
+  "mobile.memberCount.other": "{count} members",
+  "mobile.shareRoom": "Share room",
+  "mobile.notSignedIn": "Not signed in",
+  "mobile.pickAName": "Pick a name"
 }

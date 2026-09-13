@@ -146,10 +146,13 @@ const MemberRow = memo(function MemberRow({
 export function GroupMembersPanel({
   detail,
   channel = null,
+  bare = false,
 }: {
   detail: GroupDetail;
   /** The text room on screen, if any — the list is then only who can see it. */
   channel?: GroupChannel | null;
+  /** Without the card around it — for the phone's sheet, which is already one. */
+  bare?: boolean;
 }) {
   const t = useT();
   const tc = useTCount();
@@ -344,7 +347,11 @@ export function GroupMembersPanel({
   return (
     <div
       onContextMenu={columnMenu}
-      className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950"
+      className={
+        bare
+          ? "flex h-full min-h-0 flex-col overflow-hidden"
+          : "flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950"
+      }
     >
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
         <span className="flex items-center gap-2">

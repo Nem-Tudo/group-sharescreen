@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import useNtPopups from "ntpopups";
-import { MdHome, MdViewList } from "react-icons/md";
+import { MdHome } from "react-icons/md";
 import { AccountMenu } from "@/components/AccountMenu";
 import { CallOutlet } from "@/components/CallOutlet";
 import { DmRecentStrip } from "@/components/DmRecentStrip";
@@ -16,12 +16,13 @@ import { RoomAccountCard } from "@/components/RoomAccountCard";
 import { Tooltip } from "@/components/Tooltip";
 import { UpdateAppButton } from "@/components/UpdateAppButton";
 import { GroupNavContext } from "@/components/groups/groupNav";
+import { GroupMobileBar } from "@/components/groups/GroupMobile";
+import { MobileSheet } from "@/components/MobileSheet";
 import { GroupMembersPanel } from "@/components/groups/GroupMembersPanel";
 import { GroupPartnerSlot } from "@/components/groups/GroupPartnerSlot";
 import { openGroupProfile } from "@/components/groups/groupProfile";
 import { GroupMemberMenuHost, GroupProfileHost } from "@/components/groups/GroupMemberActions";
 import { GroupRail } from "@/components/groups/GroupRail";
-import { GroupSwitcher } from "@/components/groups/GroupSwitcher";
 import { GroupIndex, GroupRoom } from "@/components/groups/GroupPages";
 import { GroupsHome } from "@/components/groups/GroupsHome";
 import {
@@ -105,6 +106,8 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   const call = useCallSession();
   const isWide = useMediaQuery(LG_BREAKPOINT_QUERY);
   const [navOpen, setNavOpen] = useState(false);
+  // The group's people as a sheet, below lg — see GroupNavContext.openMembers.
+  const [membersOpen, setMembersOpen] = useState(false);
   const [accountModal, setAccountModal] = useState<"login" | "create" | null>(null);
   // What the rooms column keeps from the ad under it — see GroupRoomsPanel's
   // onMinHeight. 0 until the rooms have been measured.
@@ -271,18 +274,33 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   const headerFit = useHeaderFit(headerRow, [headerCenter, headerRight], Boolean(call) && isWide);
 
   return (
-    <GroupNavContext.Provider value={{ openNav: () => setNavOpen(true) }}>
+    <GroupNavContext.Provider value={{ openNav: () => setNavOpen(true), openMembers: () => setMembersOpen(true) }}>
       <div data-group-shell className="flex min-h-0 flex-1 select-none flex-col bg-zinc-50 dark:bg-black">
         <header
           data-header-compact={headerFit >= 1 ? "" : undefined}
-          className="shrink-0 border-b border-black/10 bg-white px-3 py-2 sm:px-4 dark:border-white/10 dark:bg-zinc-950"
+          className={`shrink-0 border-b border-black/10 bg-white dark:border-white/10 dark:bg-zinc-950 ${
+            isWide ? "px-3 py-2 sm:px-4" : "px-2"
+          }`}
         >
+          {/* A phone's bar is its own thing: a back arrow and where you are,
+              a screen per level (see GroupMobile). */}
+          {!isWide && (
+            <GroupMobileBar
+              route={route}
+              detail={detail}
+              channel={routeChannel}
+              setRightSlot={setRightSlot}
+              setCenterSlot={setCenterSlot}
+              onOpenMembers={() => setMembersOpen(true)}
+            />
+          )}
           {/* The call's controls stay in the middle while there is room for
               them there. The right column never gives up any of its own width
               (max-content) — it used to be able to shrink to nothing, which is
               how its buttons ended up drawn over the controls — and the left,
               where the group's name truncates, gives way first. When even that
               is not enough the bar steps down (see lib/headerFit). */}
+          {isWide && (
           <div
             ref={setHeaderRow}
             className={
@@ -302,20 +320,10 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
                 </Link>
               </Tooltip>
               <span className="hidden h-6 w-px shrink-0 bg-zinc-200 sm:block dark:bg-zinc-800" />
-              {/* From lg up the groups are the column down the left (see
-                  GroupRail), so the switcher would only repeat it: its place
-                  goes to the private conversations. Below lg it is still the
-                  one way between groups. */}
-              {isWide ? (
-                <DmRecentStrip leading compact={headerFit >= 1} />
-              ) : (
-                <GroupSwitcher
-                  activeGroupId={groupId}
-                  fallbackName={detail?.group.name}
-                  fallbackIconUrl={detail?.group.iconUrl}
-                  fallbackFlags={detail?.group.flags}
-                />
-              )}
+              {/* The groups are the column down the left (see GroupRail), so
+                  the switcher would only repeat it: its place goes to the
+                  private conversations. A phone has its own bar (GroupMobile). */}
+              <DmRecentStrip leading compact={headerFit >= 1} />
             </div>
 
             {/* The middle: the call's own controls — mic, sound, screen,
@@ -341,25 +349,15 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
               {/* The call's page buttons (share, Pro, its options), portalled
                   in by the room while it is on screen. */}
               <div ref={setRightSlot} className="contents" />
-              {groupId && (
-                <button
-                  type="button"
-                  onClick={() => setNavOpen(true)}
-                  className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-zinc-300 px-2.5 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 lg:hidden dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
-                >
-                  <MdViewList className="h-4 w-4" />
-                  <span className="hidden sm:inline">{t("common.rooms")}</span>
-                </button>
-              )}
               {detail && <GroupActions detail={detail} />}
               {/* Private conversations, as faces. From lg up they sit on the
                   left instead, where the switcher was. */}
-              {!isWide && <DmRecentStrip />}
               <NotificationInboxBell />
               <AccountMenu />
               <UpdateAppButton />
             </div>
           </div>
+          )}
         </header>
 
         {/* The music of the voice room you are in, as one blue strip right
@@ -459,30 +457,25 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
 
         {/* Below lg the rooms come up as a sheet from the bottom, the way the
             room's own "Mais opções" does on a phone. */}
-        {navOpen && groupId && (
-          <div className="fixed inset-0 z-40 lg:hidden">
-            <button type="button" aria-label={t("common.close")} onClick={closeNav} className="absolute inset-0 bg-black/40" />
-            <div className="absolute inset-x-0 bottom-0 flex max-h-[80dvh] flex-col rounded-t-2xl bg-white p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-2xl dark:bg-zinc-950">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t("common.rooms")}</p>
-                <button
-                  type="button"
-                  onClick={closeNav}
-                  aria-label={t("common.close")}
-                  className="cursor-pointer text-xl leading-none text-zinc-400 transition hover:text-zinc-700 dark:hover:text-zinc-200"
-                >
-                  ×
-                </button>
-              </div>
-              <div className="min-h-0 overflow-y-auto">
-                {detail ? (
-                  <GroupRoomsPanel bare detail={detail} activeChannelId={roomId} onNavigate={closeNav} />
-                ) : (
-                  <p className="py-4 text-center text-sm text-zinc-500">{t("common.loading")}</p>
-                )}
-              </div>
+        {!isWide && groupId && (
+          <MobileSheet open={navOpen} onClose={closeNav} title={t("common.rooms")}>
+            {detail ? (
+              <GroupRoomsPanel bare detail={detail} activeChannelId={roomId} onNavigate={closeNav} />
+            ) : (
+              <p className="py-4 text-center text-sm text-zinc-500">{t("common.loading")}</p>
+            )}
+          </MobileSheet>
+        )}
+
+        {/* And its people — the column on the right from lg up. Sized rather
+            than left to its content: the list inside is windowed, and a
+            window needs a height to fill. */}
+        {!isWide && detail && (
+          <MobileSheet open={membersOpen} onClose={() => setMembersOpen(false)} className="h-[80dvh]" maxHeight="80dvh">
+            <div className="flex h-full min-h-0 flex-col pb-2">
+              <GroupMembersPanel bare detail={detail} channel={routeChannel?.kind === "text" ? routeChannel : null} />
             </div>
-          </div>
+          </MobileSheet>
         )}
 
         {/* The one profile dialog for everything in the group — see groupProfile. */}

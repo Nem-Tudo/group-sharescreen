@@ -11,6 +11,8 @@ import { roomCategory } from "@/lib/roomCategories";
 import { AdsterraNative } from "@/components/AdsterraNative";
 import { useI18n } from "@/lib/useI18n";
 import { translate, translateCount } from "@/lib/i18n";
+import { RoomsViewSwitch } from "@/components/RoomsViewSwitch";
+import { useTabBarEnabled } from "@/lib/mobileShell";
 
 const POLL_INTERVAL_MS = 8000;
 
@@ -128,10 +130,12 @@ export function RoomsPageClient() {
     [rooms, sort, search]
   );
 
+  const tabBar = useTabBarEnabled();
+
   return (
-    <div className="flex flex-1 flex-col bg-zinc-50 px-4 py-10 dark:bg-black">
+    <div className="flex flex-1 flex-col bg-zinc-50 px-4 pt-5 pb-6 sm:py-10 dark:bg-black">
       <div className="mx-auto w-full max-w-3xl">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
               {t("common.publicRooms")}
@@ -145,6 +149,10 @@ export function RoomsPageClient() {
               the way out. The setting itself is one global preference (see
               lib/theme.ts); this is just another place to reach it. */}
           <div className="flex shrink-0 items-center gap-1.5">
+            <RoomsViewSwitch current="list" />
+            {/* On a phone the tabs already lead home and the Você tab holds
+                the theme — see lib/mobileShell. */}
+            <span className={tabBar ? "hidden lg:contents" : "contents"}>
             <ThemeMenuButton />
             {/* Same reasoning as the theme switch beside it: no SiteHeader
                 here to carry it, and this is a page people leave open. */}
@@ -155,6 +163,7 @@ export function RoomsPageClient() {
             >
               {t("common.home")}
             </Link>
+            </span>
           </div>
         </div>
 

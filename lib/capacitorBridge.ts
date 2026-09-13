@@ -37,6 +37,7 @@
 import { Capacitor } from "@capacitor/core";
 import type { DesktopBridge } from "./desktop";
 import { desktopOAuthNonce } from "./desktop";
+import { closeTopLayer } from "./nativeApp";
 
 const PROTOCOL = "golive";
 
@@ -108,6 +109,35 @@ function handleDeepLink(rawUrl: string) {
   settleLogin(nonce, fragment);
 }
 
+/**
+ * The screens the bottom tabs lead to (see components/MobileTabBar). Back from
+ * one of them does not walk through every tab visited before it: like any
+ * Android app, it leaves.
+ */
+const ROOT_SCREENS = new Set(["/", "/rooms", "/groups", "/me", "/friends"]);
+
+/**
+ * Android's back button: close what is open, then go back a screen, and from
+ * a first screen send the app to the background — minimised, not closed, so a
+ * call keeps going and the app opens again exactly where it was.
+ */
+function handleBackButton(canGoBack: boolean, minimize: () => void) {
+  if (closeTopLayer()) return;
+  const path = window.location.pathname.replace(/\/+$/, "") || "/";
+  if (ROOT_SCREENS.has(path)) {
+    minimize();
+    return;
+  }
+  if (canGoBack && window.history.length > 1) {
+    window.history.back();
+    return;
+  }
+  // Opened straight onto a deeper page (a link, a notification): back leads
+  // home rather than out.
+  // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+  window.location.href = "/";
+}
+
 let initStarted = false;
 
 // Fire-and-forget from a top-level effect (see components/CapacitorBridge.tsx).
@@ -123,6 +153,10 @@ export async function initCapacitorBridge(): Promise<void> {
   const [{ App }, { Browser }] = await Promise.all([import("@capacitor/app"), import("@capacitor/browser")]);
 
   App.addListener("appUrlOpen", ({ url }) => handleDeepLink(url));
+  // Registering this replaces Capacitor's own handling, which went back in the
+  // WebView's history and, with none left, *finished the activity* — closing
+  // the app, and with it any call in progress. See handleBackButton.
+  App.addListener("backButton", ({ canGoBack }) => handleBackButton(canGoBack, () => void App.minimizeApp()));
   // A cold start *from* a golive:// link: the OS launches the app with the
   // URL already attached rather than firing appUrlOpen into a listener that
   // isn't registered yet — the exact counterpart of electron/main.ts reading

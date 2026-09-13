@@ -1403,7 +1403,9 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
       className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white lg:rounded-xl lg:border lg:border-zinc-200 dark:bg-zinc-950 lg:dark:border-zinc-800">
       <div
         onContextMenu={roomMenu}
-        className="flex shrink-0 items-center justify-between gap-2 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800"
+        // A phone has this in the group's own bar — the room's name, its
+        // members and this menu (see GroupMobile).
+        className="hidden shrink-0 items-center justify-between gap-2 border-b border-zinc-200 px-3 py-2 lg:flex dark:border-zinc-800"
       >
         <h2 className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-zinc-700 dark:text-zinc-300">
           <MdChatBubbleOutline className="h-4 w-4 shrink-0 text-zinc-500" />

@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { WorldMap } from "@/components/WorldMap";
-import { GlobeIcon } from "@/components/icons";
 import { ThemeMenuButton } from "@/components/ThemeToggle";
 import { UpdateAppButton } from "@/components/UpdateAppButton";
 import { usePublicRoomMarkers } from "@/lib/usePublicRoomMarkers";
 import { useGroupMapMarkers } from "@/lib/useGroupMapMarkers";
 import { useT } from "@/lib/useI18n";
+import { RoomsViewSwitch } from "@/components/RoomsViewSwitch";
+import { useTabBarEnabled } from "@/lib/mobileShell";
 
 // What the map shows: everything, or one of its two kinds of pin. Live rooms
 // (green) come and go with the people in them; groups (blue) stay where their
@@ -55,6 +56,8 @@ export function RoomsMapClient() {
     </button>
   );
 
+  const tabBar = useTabBarEnabled();
+
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-zinc-50 dark:bg-black">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-black/10 px-4 py-3 dark:border-white/10">
@@ -83,21 +86,18 @@ export function RoomsMapClient() {
           {/* No SiteHeader on this page either, and the map's own colours
               follow the theme (see WorldMapImpl) — so this is exactly where
               someone would want to change it. */}
-          <ThemeMenuButton />
-          <UpdateAppButton />
-          <Link
-            href="/rooms"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
-          >
-            <GlobeIcon className="h-4 w-4" />
-            {t("worldmap.roomsMapClient.seeAsAList")}
-          </Link>
-          <Link
-            href="/"
-            className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
-          >
-            {t("common.home")}
-          </Link>
+          <RoomsViewSwitch current="map" />
+          {/* On a phone the tabs lead home and the Você tab holds the theme. */}
+          <span className={tabBar ? "hidden lg:contents" : "contents"}>
+            <ThemeMenuButton />
+            <UpdateAppButton />
+            <Link
+              href="/"
+              className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+            >
+              {t("common.home")}
+            </Link>
+          </span>
         </div>
       </header>
 

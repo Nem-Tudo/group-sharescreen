@@ -208,7 +208,7 @@ function CallDock({
       // Bottom left, above the page and below a ringing call (see CallHost's
       // z-[100]): being in a call is a state, and being asked to answer one is
       // a question — the question goes on top.
-      className="fixed bottom-3 left-3 z-[60] flex max-w-[calc(100vw-1.5rem)] items-center gap-1 rounded-xl border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-800 dark:bg-zinc-900"
+      className="fixed bottom-[calc(var(--app-tabbar-h)+0.75rem)] left-3 z-[60] flex max-w-[calc(100vw-1.5rem)] items-center gap-1 rounded-xl border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-800 dark:bg-zinc-900"
       role="status"
     >
       <button

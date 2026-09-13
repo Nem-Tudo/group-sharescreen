@@ -839,6 +839,10 @@ export function DirectMessagesModal({
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
       if (gifOpen || imageModalPreview || pickerFor || settingsOpen) return;
+      // Said out loud, so Android's back button — which arrives here as this
+      // same key (see lib/nativeApp's closeTopLayer) — knows it closed
+      // something and does not also leave the page.
+      event.preventDefault();
       if (replyingTo) {
         setReply(null);
         return;

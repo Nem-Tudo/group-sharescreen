@@ -3,13 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { FaDiscord } from "react-icons/fa";
-import { MdCardGiftcard, MdMonitor, MdOutlineMap, MdPalette } from "react-icons/md";
-import { GlobeIcon, GoldVerifiedBadgeIcon, VerifiedBadgeIcon } from "@/components/icons";
-import useNtPopups from "ntpopups";
+import { MdMonitor, MdPalette } from "react-icons/md";
 import { AccountMenu } from "@/components/AccountMenu";
 import { NotificationInboxBell } from "@/components/NotificationInboxBell";
 import { UpdateAppButton } from "@/components/UpdateAppButton";
-import { useAuth } from "@/lib/AuthContext";
+import { useProOffer } from "@/components/ProOffer";
+import { useTabBarEnabled } from "@/lib/mobileShell";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
 
@@ -98,71 +97,14 @@ const SECONDARY: SecondaryItem[] = [
 export function SiteHeader() {
   const t = useT();
   const pathname = usePathname();
-  const { account } = useAuth();
-  const { openPopup } = useNtPopups();
+  // Below lg the tabs at the bottom of the screen carry the navigation (see
+  // lib/mobileShell): the links here move to the Você screen, and so does the
+  // account menu. What stays is what belongs at the top — the name of the
+  // app, the premium offer, the bell.
+  const tabBar = useTabBarEnabled();
 
-  // The premium row, which is three different offers wearing one slot.
-  //
-  // The slot has always sold whatever the reader has not got, and until now
-  // that was only ever "Pro" — which is the wrong thing to keep advertising to
-  // somebody who already pays for it, and the *only* thing a subscriber saw of
-  // the plan above theirs. So it climbs with them:
-  //
-  //   no plan  → "Pro", the blue badge. What the site sells.
-  //   Pro      → "Pro Max", in that plan's own gold mark (see planIcons), and
-  //              pointing at /pro already opened on it — a reader who has Pro
-  //              should not have to find the picker to see what is above it.
-  //   Pro Max  → "Presentear Pro". There is nothing left to sell them, and the
-  //              one thing they can still buy is a plan for somebody else.
-  //
-  // Read from `flags` rather than from `features`: the question here is which
-  // *plan* somebody holds, not what they may do, and the two flags are exactly
-  // that answer (see the API's entitlements.ts — PRO_MAX carries PRO too,
-  // which is why it is tested first).
-  const flags = account?.flags ?? [];
-  const proItem: SecondaryItem = flags.includes("PRO_MAX")
-    ? {
-        key: "pro",
-        // By name rather than as markup here: the bar is translucent, and a
-        // dialog rendered inside a `backdrop-filter` is a dialog whose backdrop
-        // covers the bar instead of the page (see GiftPlanDialog).
-        onClick: () => void openPopup("gift_plan", { data: {} }),
-        label: t("common.giftPro"),
-        // The only row whose two labels differ in *words* rather than in
-        // length. It has to: "Presentear Pro" beside an account menu is most
-        // of a phone's bar, and the verb alone is the half that says what
-        // happens.
-        short: t("common.sendAsAGift"),
-        Icon: MdCardGiftcard,
-        iconClassName: "text-emerald-500",
-        alwaysVisible: true,
-      }
-    : flags.includes("PRO")
-      ? {
-          key: "pro",
-          href: "/pro?plan=premium_max",
-          target: "",
-          label: t("common.proMax"),
-          short: t("common.proMax"),
-          // The plan's own mark, which carries its colour in its gradients and
-          // therefore takes no colour class of its own.
-          Icon: GoldVerifiedBadgeIcon,
-          alwaysVisible: true,
-        }
-      : {
-          key: "pro",
-          href: "/pro",
-          target: "",
-          label: t("common.pro"),
-          short: t("common.pro"),
-          // The same blue badge that marks a verified name (see
-          // DisplayUserName) — it keeps its own colour rather than inheriting
-          // the row's grey, because it only reads as *that* badge if it looks
-          // like it everywhere.
-          Icon: VerifiedBadgeIcon,
-          iconClassName: "text-blue-500",
-          alwaysVisible: true,
-        };
+  // The premium row — see ProOffer for the three offers it climbs through.
+  const proItem: SecondaryItem = { ...useProOffer(), target: "", alwaysVisible: true };
 
   // Ahead of the app and the bot, where "Pro" has always sat.
   const secondary: SecondaryItem[] = [SECONDARY[0], proItem, ...SECONDARY.slice(1)];
@@ -182,7 +124,9 @@ export function SiteHeader() {
               the openGraph image in app/layout.tsx) — the mark people already
               associate with GoLive, rather than a second one invented here. */}
           <img src="/icon.png" alt="site icon" style={{ width: "20px" }} />
-          <span className="hidden text-base font-semibold tracking-tight text-zinc-950 sm:inline dark:text-zinc-50">
+          <span
+            className={`${tabBar ? "inline" : "hidden sm:inline"} text-base font-semibold tracking-tight text-zinc-950 dark:text-zinc-50`}
+          >
             {t("common.golive")}
           </span>
         </Link>
@@ -220,7 +164,12 @@ export function SiteHeader() {
             // and "inline-flex" both set `display`, and which of two classes
             // in the same attribute wins is decided by the order Tailwind
             // happened to emit them in — not by the order they are written.
-            const display = item.desktopOnly ? "hidden sm:inline-flex" : "inline-flex";
+            const display =
+              tabBar && !item.alwaysVisible
+                ? "hidden lg:inline-flex"
+                : item.desktopOnly
+                  ? "hidden sm:inline-flex"
+                  : "inline-flex";
             const className = `${display} items-center gap-1.5 rounded-lg px-1.5 py-1.5 text-sm transition sm:px-2.5 ${
               active
               ? "font-medium text-zinc-950 dark:text-zinc-50"
@@ -279,7 +228,9 @@ export function SiteHeader() {
           <NotificationInboxBell />
           {/* Renders nothing until there is a name to show, so the bar looks
               the same on a first visit as it always did. */}
-          <AccountMenu />
+          <span className={tabBar ? "hidden lg:contents" : "contents"}>
+            <AccountMenu />
+          </span>
           {/* Same for this one, twice over: nothing in a browser, and nothing
               in the desktop app until an update has finished downloading. It
               used to live only in the room's own header, which meant the one

@@ -1,7 +1,7 @@
 "use client";
 
 import { isAppShell } from "@/lib/desktop";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { signalingClient, getStoredName } from "@/lib/signalingClient";
@@ -39,6 +39,8 @@ import { AdsterraBanner } from "@/components/AdsterraBanner";
 import { HomeFriendsPanel } from "@/components/HomeFriendsPanel";
 import { Tooltip } from "@/components/Tooltip";
 import { useI18n } from "@/lib/useI18n";
+import { FINE_POINTER_QUERY } from "@/lib/useMediaQuery";
+import { useTabBarEnabled } from "@/lib/mobileShell";
 
 // Mirrors server/signaling.ts's HANDLE_RE — must match exactly, or a name
 // this lets through but the server rejects lands the user in a dead room
@@ -118,6 +120,16 @@ export default function Home() {
   const [roomError, setRoomError] = useState<string | null>(null);
   const [roomMode, setRoomMode] = useState<RoomMode>("public");
   const [checkingRoom, setCheckingRoom] = useState(false);
+  // Below lg the bottom tabs carry what this page's footer and its two
+  // "ver salas" buttons used to (see lib/mobileShell).
+  const tabBar = useTabBarEnabled();
+  // The fields below used to take focus on arrival. With a mouse that saves a
+  // click; on a phone it throws a keyboard over half the screen the moment
+  // the app opens, before anybody has decided to type anything. A stable
+  // callback ref, so it runs when the field appears and not on every render.
+  const focusWithMouse = useCallback((el: HTMLInputElement | null) => {
+    if (el && window.matchMedia(FINE_POINTER_QUERY).matches) el.focus();
+  }, []);
   // Set the moment a router.push is fired and never cleared: the navigation
   // it marks ends by replacing this page, so there is nothing left to reset —
   // and clearing it on an error path would be wrong too, since every one of
@@ -391,7 +403,7 @@ export default function Home() {
   return (
     <>
       <SiteHeader />
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 bg-zinc-50 px-4 py-16 dark:bg-black">
+      <div className="flex flex-1 flex-col items-center justify-start gap-3 bg-zinc-50 px-4 pt-4 pb-6 dark:bg-black lg:justify-center lg:py-16">
         {peopleOnline !== null && (<div className="inline-flex gap-2">
           <span className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3.5 py-1.5 text-xs font-medium text-zinc-600 shadow-sm dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
             <span className="h-2 w-2 rounded-full bg-emerald-500" />
@@ -448,8 +460,8 @@ export default function Home() {
           <div className="order-3 flex w-full max-w-md justify-center empty:hidden lg:w-auto xl:order-none xl:block xl:w-auto xl:max-w-none xl:justify-self-end xl:empty:block">
             <HomeGroupsPanel />
           </div>
-          <main className="w-full max-w-md rounded-2xl border border-black/10 bg-white p-8 shadow-sm dark:border-white/10 dark:bg-zinc-950">
-            <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
+          <main className="w-full max-w-md rounded-2xl border border-black/10 bg-white p-5 shadow-sm sm:p-8 dark:border-white/10 dark:bg-zinc-950">
+            <h1 className="text-xl font-semibold tracking-tight text-zinc-950 sm:text-2xl dark:text-zinc-50">
               {t("common.golive")}
             </h1>
             <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
@@ -458,7 +470,7 @@ export default function Home() {
             {/* Wrapped so the two sit side by side and wrap together on a
               narrow screen — the download button renders nothing at all in
               the app itself or on mobile, and the row collapses cleanly. */}
-            <div className="mt-3 flex flex-wrap items-center gap-2">
+            <div className={`mt-3 flex-wrap items-center gap-2 ${tabBar ? "hidden lg:flex" : "flex"}`}>
               <Link
                 href="/rooms"
                 className="inline-flex items-center gap-1.5 rounded-lg border border-sky-300 px-3.5 py-2 text-sm font-medium text-sky-700 transition hover:border-sky-400 hover:bg-sky-100 dark:border-sky-700 dark:text-sky-300 dark:hover:border-sky-600 dark:hover:bg-sky-900"
@@ -661,7 +673,7 @@ export default function Home() {
                     <div className="flex gap-2">
                       <input
                         id="name"
-                        autoFocus
+                        ref={focusWithMouse}
                         value={nameInput}
                         onChange={(e) => setNameInput(e.target.value)}
                         maxLength={24}
@@ -765,7 +777,7 @@ export default function Home() {
                   split it into. */}
                 <input
                   id="room"
-                  autoFocus
+                  ref={focusWithMouse}
                   value={roomInput}
                   onChange={(e) => setRoomInput(e.target.value)}
                   // Long enough to hold a pasted link on the two modes that
@@ -839,8 +851,13 @@ export default function Home() {
         <AdsterraBanner className="mt-6" />
         {/* No heading on this one: the home page is a form someone came here to
           fill in, and three handles under it explain themselves. */}
-        <SocialLinks title={null} className="mt-6" />
-        <p className="mt-4 flex gap-5 text-center text-xs text-zinc-400 dark:text-zinc-600" style={{ alignItems: "center" }}>
+        {/* On a phone these live on the Você tab (app/me), with the rest of
+            what is about GoLive rather than about getting into a room. */}
+        <SocialLinks title={null} className={`mt-6 ${tabBar ? "hidden lg:block" : ""}`} />
+        <p
+          className={`mt-4 gap-5 text-center text-xs text-zinc-400 dark:text-zinc-600 ${tabBar ? "hidden lg:flex" : "flex"}`}
+          style={{ alignItems: "center" }}
+        >
           <Link
             href="/terms"
             className="underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-300"

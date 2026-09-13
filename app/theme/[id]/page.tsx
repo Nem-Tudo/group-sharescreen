@@ -87,7 +87,7 @@ export async function generateMetadata(props: PageProps<"/theme/[id]">): Promise
 export default async function ThemePage(props: PageProps<"/theme/[id]">) {
   const { id } = await props.params;
   return (
-    <div className="flex min-h-dvh flex-col bg-zinc-50 dark:bg-black">
+    <div className="flex flex-1 flex-col bg-zinc-50 dark:bg-black">
       <SiteHeader />
       <ThemePageClient id={id} />
     </div>

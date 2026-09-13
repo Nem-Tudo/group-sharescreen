@@ -170,7 +170,9 @@ import { isAppShell } from "@/lib/desktop";
 import { getProfileSongAutoplay, setProfileSongAutoplay } from "@/lib/profileSong";
 import { useMediaQuery, SM_BREAKPOINT_QUERY, LG_BREAKPOINT_QUERY } from "@/lib/useMediaQuery";
 import {
+  MdArrowBack,
   MdHome,
+  MdShare,
   MdMenu,
   MdVolumeUp,
   MdOutlineOndemandVideo,
@@ -221,6 +223,9 @@ import {
   wantsThemeEditor,
 } from "@/lib/roomThemes";
 import { useT } from "@/lib/useI18n";
+import { MobileSheet } from "@/components/MobileSheet";
+import { canShareNatively, haptic, shareLink } from "@/lib/nativeApp";
+import { useBackHandler } from "@/lib/useBackHandler";
 import { translate } from "@/lib/i18n";
 
 // Mirrors server/signaling.ts's HANDLE_RE — must match exactly, or a name
@@ -1458,6 +1463,12 @@ export function WatchRoom({
     setMobileExtraMenuOpen((prev) => !prev);
   }
 
+  // Android's back button puts away what the bottom bar opened before it
+  // leaves the room — see lib/useBackHandler. The newest wins, so the
+  // options drawer (opened over a sheet) closes first.
+  useBackHandler(mobilePanel !== null, () => closeMobilePanel());
+  useBackHandler(mobileExtraMenuOpen, () => setMobileExtraMenuOpen(false));
+
   function handleDrawerTouchStart(e: React.TouchEvent) {
     mobileDrawerTouchStartY.current = e.touches[0].clientY;
   }
@@ -2041,6 +2052,14 @@ export function WatchRoom({
     trackEvent("room_link_copied");
     setLinkCopied(true);
     setTimeout(() => setLinkCopied(false), 2000);
+  }
+
+  // The phone's share sheet — WhatsApp, Telegram, a message — for the room's
+  // link, where there is one (see lib/nativeApp). Copying is the fallback.
+  async function handleShareLink() {
+    const result = await shareLink({ url: window.location.href });
+    if (result === "shared") trackEvent("room_link_shared");
+    else if (result === "unsupported") await handleCopyLink();
   }
 
   // A stored guest name, an account already resolved, or an account token
@@ -4361,18 +4380,6 @@ export function WatchRoom({
   // exactly what a popover cannot be.
   const menuItems = (
     <>
-      <div className="mb-1 flex items-center justify-between gap-2 sm:hidden">
-        <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{translate("watch.watchRoom.moreOptions")}</p>
-        <button
-          type="button"
-          onClick={closeMenu}
-          aria-label={translate("common.close")}
-          className="text-xl leading-none text-zinc-400 transition hover:text-zinc-700 dark:hover:text-zinc-200"
-        >
-          ×
-        </button>
-      </div>
-
       {!group && (
         <span
           className={`mb-2 inline-block w-fit shrink-0 rounded-full px-2.5 py-1 text-xs font-medium text-white sm:hidden ${
@@ -4411,6 +4418,20 @@ export function WatchRoom({
       {/* Also reachable from the main row on desktop (see the
           quick-access group below) — kept here too since mobile
           has no room for it outside this menu. */}
+      {canShareNatively() && (
+        <button
+          type="button"
+          onClick={() => {
+            closeMenu();
+            void handleShareLink();
+          }}
+          className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2.5 text-left text-sm font-semibold text-white transition active:scale-[0.98] sm:hidden"
+        >
+          <MdShare className="h-4 w-4" />
+          {translate("mobile.shareRoom")}
+        </button>
+      )}
+
       <button
         type="button"
         onClick={handleCopyLink}
@@ -4420,8 +4441,28 @@ export function WatchRoom({
           }`}
       >
         {linkCopied ? <CheckIcon className="h-4 w-4" /> : <LinkIcon className="h-4 w-4" />}
-        {linkCopied ? translate("common.linkCopied") : translate("watch.watchRoom.shareRoom")}
+        {linkCopied
+          ? translate("common.linkCopied")
+          : canShareNatively()
+            ? translate("common.copyLink")
+            : translate("watch.watchRoom.shareRoom")}
       </button>
+
+      {/* The premium offer, which a phone's header has no room for. */}
+      {!isDesktopLayout && (
+        <button
+          type="button"
+          onClick={() => {
+            closeMenu();
+            trackEvent("pro_button_clicked", { offer: proButton.label });
+            proButton.onPress();
+          }}
+          className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900"
+        >
+          <proButton.Icon className={`h-4 w-4 shrink-0 ${proButton.iconClassName}`} />
+          {proButton.label}
+        </button>
+      )}
 
       <a
         href="https://discord.gg/nemtudo"
@@ -4432,17 +4473,20 @@ export function WatchRoom({
         {translate("watch.watchRoom.reportABug")}
       </a>
 
-      <button
-        type="button"
-        onClick={() => {
-          closeMenu();
-          setShortcutsModalOpen(true);
-        }}
-        className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900"
-      >
-        <MdOutlineKeyboard className="h-4 w-4 shrink-0 text-zinc-500 dark:text-zinc-400" />
-        {translate("watch.watchRoom.keyboardShortcuts")}
-      </button>
+      {/* A keyboard's shortcuts, for the screens that have one. */}
+      {isDesktopLayout && (
+        <button
+          type="button"
+          onClick={() => {
+            closeMenu();
+            setShortcutsModalOpen(true);
+          }}
+          className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900"
+        >
+          <MdOutlineKeyboard className="h-4 w-4 shrink-0 text-zinc-500 dark:text-zinc-400" />
+          {translate("watch.watchRoom.keyboardShortcuts")}
+        </button>
+      )}
 
       <div className="my-2 border-t border-zinc-200 dark:border-zinc-800" />
 
@@ -5534,10 +5578,18 @@ export function WatchRoom({
               <Tooltip content={translate("common.backToHome")} placement="bottom">
                 <Link
                   href="/"
-                  aria-label={translate("common.home")}
+                  aria-label={isWideLayout ? translate("common.home") : translate("common.back")}
+                  onClick={(e) => {
+                    // A phone's way out is back, to wherever the room was opened
+                    // from — the room list, a group, the home screen. Leaving
+                    // does not hang up: the call follows (see RoomCallHost).
+                    if (isWideLayout || window.history.length <= 1) return;
+                    e.preventDefault();
+                    router.back();
+                  }}
                   className="flex shrink-0 items-center justify-center rounded-lg p-1.5 text-lg text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
                 >
-                  <MdHome />
+                  {isWideLayout ? <MdHome /> : <MdArrowBack className="h-5 w-5" />}
                 </Link>
               </Tooltip>
             )}
@@ -5847,7 +5899,8 @@ export function WatchRoom({
                   proButton.onPress();
                 }}
                 aria-label={proButton.ariaLabel}
-                className={`flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border px-2 py-2 text-sm font-medium transition 2xl:px-3 ${proButton.className}`}
+                // Not on a phone, where it is a row in "Mais opções" instead.
+                className={`hidden shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border px-2 py-2 text-sm font-medium transition sm:flex 2xl:px-3 ${proButton.className}`}
               >
                 <proButton.Icon
                   className={`h-5 w-5 shrink-0 ${proButton.iconClassName}`}
@@ -5926,16 +5979,17 @@ export function WatchRoom({
 
             {!group && <UpdateAppButton />}
 
-            {!isDesktopLayout && menuOpen && (
-              <>
-                {/* Full-screen tap-to-close catcher — also what turns this
-                    into a proper bottom sheet on a phone (the panel below is
-                    fixed to the viewport, not to this button). */}
-                <div className="fixed inset-0 z-30" onClick={closeMenu} />
-                <div className="fixed inset-x-0 bottom-0 z-40 flex max-h-[85vh] flex-col gap-1 overflow-y-auto rounded-t-2xl border-t border-zinc-200 bg-white p-4 shadow-2xl dark:border-zinc-800 dark:bg-zinc-950">
-                  {menuItems}
-                </div>
-              </>
+            {/* On a phone the same menu is a bottom sheet: fixed to the
+                screen rather than hung off the button, closed by a drag, a tap
+                outside or Android's back button. */}
+            {!isDesktopLayout && (
+              <MobileSheet
+                open={menuOpen}
+                onClose={closeMenu}
+                title={translate("watch.watchRoom.moreOptions")}
+              >
+                <div className="flex flex-col gap-1 pb-2">{menuItems}</div>
+              </MobileSheet>
             )}
           </div>
           ))}
@@ -6663,7 +6717,10 @@ export function WatchRoom({
                   >
                     <button
                       type="button"
-                      onClick={handleToggleMic}
+                      onClick={() => {
+                        haptic(isMicOn ? "tap" : "confirm");
+                        handleToggleMic();
+                      }}
                       disabled={!isMicOn && Boolean(micBlockedReason)}
                       aria-pressed={isMicOn}
                       aria-label={isMicOn ? translate("common.turnOffMicrophone") : translate("common.turnOnMicrophone")}
@@ -6680,7 +6737,10 @@ export function WatchRoom({
                   >
                     <button
                       type="button"
-                      onClick={toggleMicsMuted}
+                      onClick={() => {
+                        haptic("tap");
+                        toggleMicsMuted();
+                      }}
                       aria-pressed={!micsMuted}
                       aria-label={micsMuted ? translate("common.unmuteMicrophones") : translate("common.muteMicrophones")}
                       className={`${DOCK_BUTTON} ${micsMuted ? DOCK_OFF : DOCK_ON}`}
@@ -6776,6 +6836,7 @@ export function WatchRoom({
                     <button
                       type="button"
                       onClick={() => {
+                        haptic("reject");
                         playHangUpSound();
                         onDisconnect();
                       }}
@@ -6794,7 +6855,10 @@ export function WatchRoom({
                 <div className="flex shrink-0 items-center gap-1">
                   <button
                     type="button"
-                    onClick={() => toggleMobilePanel("chat")}
+                    onClick={() => {
+                      haptic("tap");
+                      toggleMobilePanel("chat");
+                    }}
                     aria-pressed={mobilePanel === "chat"}
                     className={`${DOCK_TAB} ${mobilePanel === "chat" ? DOCK_TAB_ACTIVE : DOCK_TAB_IDLE}`}
                   >
@@ -6811,7 +6875,10 @@ export function WatchRoom({
 
                   <button
                     type="button"
-                    onClick={() => toggleMobilePanel("participants")}
+                    onClick={() => {
+                      haptic("tap");
+                      toggleMobilePanel("participants");
+                    }}
                     aria-pressed={mobilePanel === "participants"}
                     className={`${DOCK_TAB} ${mobilePanel === "participants" ? DOCK_TAB_ACTIVE : DOCK_TAB_IDLE}`}
                   >

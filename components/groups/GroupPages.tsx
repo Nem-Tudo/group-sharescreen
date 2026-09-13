@@ -3,6 +3,9 @@
 import { useEffect, useState } from "react";
 import { GroupJoinCard } from "@/components/groups/GroupJoinCard";
 import { GroupLink } from "@/components/groups/GroupLink";
+import { GroupMobileHome } from "@/components/groups/GroupMobile";
+import { useGroupNav } from "@/components/groups/groupNav";
+import { LG_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 import { TextChannelView } from "@/components/groups/TextChannelView";
 import { rememberedChannel } from "@/components/groups/lastChannel";
 import { useAccountToken } from "@/lib/accountApi";
@@ -169,22 +172,28 @@ function GroupGate({ groupId, status }: { groupId: string; status: number }) {
   );
 }
 
-/** /groups/:id — straight on to the room this group was last left on, or its first text room. */
+/**
+ * /groups/:id — on a desktop, straight on to the room this group was last left
+ * on, or its first text room: the rooms are the column beside it there. On a
+ * phone the rooms *are* this page (see GroupMobile).
+ */
 export function GroupIndex({ groupId }: { groupId: string }) {
   const t = useT();
   const navigation = useGroupNavigation();
   const { detail, error } = useGroupDetail(groupId);
+  const isWide = useMediaQuery(LG_BREAKPOINT_QUERY);
+  const { openMembers } = useGroupNav();
 
   // Only ever a text room: opening a voice room joins its call, and nobody
   // should find themselves in a call for having opened a group.
   const textRooms = detail?.channels.filter((c) => c.kind === "text") ?? [];
   useEffect(() => {
-    if (!detail) return;
+    if (!detail || !isWide) return;
     const remembered = rememberedChannel(groupId);
     const rooms = detail.channels.filter((c) => c.kind === "text");
     const target = rooms.find((c) => c.id === remembered) ?? rooms[0];
     if (target) navigation.replace(groupPath(groupId, target.id));
-  }, [detail, groupId, navigation]);
+  }, [detail, groupId, navigation, isWide]);
 
   if (error) {
     return error.status === 423 ? (
@@ -195,6 +204,7 @@ export function GroupIndex({ groupId }: { groupId: string }) {
   }
   // Every text room hidden from this person (see lib/groupPermissions). Any
   // voice room in the list they may connect to is still theirs to walk into.
+  if (detail && !isWide) return <GroupMobileHome detail={detail} onOpenMembers={openMembers} />;
   if (detail && textRooms.length === 0) {
     return (
       <Panel>

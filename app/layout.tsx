@@ -5,6 +5,7 @@ import { StatusBanner } from "@/components/StatusBanner";
 import { AnnouncementBanner } from "@/components/AnnouncementBanner";
 import { CapacitorBridge } from "@/components/CapacitorBridge";
 import { InstallAppButton } from "@/components/InstallAppButton";
+import { MobileTabBar } from "@/components/MobileTabBar";
 import { AuthProvider } from "@/lib/AuthContext";
 import { PresenceReporter } from "@/components/PresenceReporter";
 import { SocialNotifier } from "@/components/SocialNotifier";
@@ -270,6 +271,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                 <StatusBanner />
                 <AnnouncementBanner />
                 {children}
+                {/* The app's bottom tabs below lg, after the page so its spacer
+                    closes the page's own flow — see components/MobileTabBar. */}
+                <MobileTabBar />
                 <InstallAppButton />
               </NtPopups>
             </AuthProvider>

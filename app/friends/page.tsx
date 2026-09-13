@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 
 export default function FriendsPage() {
   return (
-    <div className="flex min-h-dvh flex-col bg-zinc-50 dark:bg-black">
+    <div className="flex flex-1 flex-col bg-zinc-50 dark:bg-black">
       <SiteHeader />
       <FriendsPanel />
     </div>

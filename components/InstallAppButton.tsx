@@ -142,7 +142,7 @@ export function InstallAppButton() {
   if (pathname?.startsWith("/stream") || pathname?.startsWith("/obs")) return null;
 
   return (
-    <div className="fixed inset-x-4 bottom-4 z-40 mx-auto flex max-w-sm items-center gap-3 rounded-xl border border-black/10 bg-white p-3 shadow-lg dark:border-white/10 dark:bg-zinc-900 sm:inset-x-auto sm:right-4">
+    <div className="fixed inset-x-4 bottom-[calc(var(--app-tabbar-h)+1rem)] z-40 mx-auto flex max-w-sm items-center gap-3 rounded-xl border border-black/10 bg-white p-3 shadow-lg dark:border-white/10 dark:bg-zinc-900 sm:inset-x-auto sm:right-4">
       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-950 text-white dark:bg-zinc-50 dark:text-zinc-950">
         <DownloadIcon className="h-5 w-5" />
       </div>

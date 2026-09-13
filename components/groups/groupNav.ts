@@ -6,7 +6,12 @@ import { createContext, useContext } from "react";
 // text room's header, the call's header — without the shell passing a prop
 // through every page in between. Provided by GroupAppShell.
 
-export const GroupNavContext = createContext<{ openNav: () => void }>({ openNav: () => {} });
+export const GroupNavContext = createContext<{ openNav: () => void; openMembers: () => void }>({
+  openNav: () => {},
+  // The group's people as a sheet over the page, on a phone — where there is
+  // no column for them (see GroupAppShell).
+  openMembers: () => {},
+});
 
 export function useGroupNav() {
   return useContext(GroupNavContext);
