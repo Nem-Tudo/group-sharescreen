@@ -48,6 +48,7 @@ import { formatTypingLabel } from "@/lib/typing";
 import { useEmojiAutocomplete } from "@/lib/useEmojiAutocomplete";
 import { EmojiPickerButton } from "@/components/EmojiPicker";
 import { EmojiSuggestions } from "@/components/EmojiSuggestions";
+import { HighlightedTextarea, highlightMentions } from "@/components/HighlightedTextarea";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
 import { formatLocale } from "@/lib/i18n";
@@ -501,6 +502,11 @@ export function ChatPanel({
   const mentionRegex = useMemo(
     () => buildMentionsRegex(mentionNamesKey ? mentionNamesKey.split("\u0000") : []),
     [mentionNamesKey]
+  );
+  // The valid mentions in what is being typed, drawn blue in the box itself.
+  const inputHighlights = useMemo(
+    () => (input.includes("@") ? highlightMentions(input, [mentionRegex]) : null),
+    [input, mentionRegex]
   );
 
   // Deduplicated candidate list of participants currently in the room for
@@ -1507,9 +1513,13 @@ export function ChatPanel({
                 <MdOutlineImage aria-hidden />
               </button>
             </Popover>
-            <textarea
+            <HighlightedTextarea
               ref={textareaRef}
               value={input}
+              // The same names, the same regex and the same blue the messages
+              // above use — a name lights up here exactly when it will there.
+              highlights={inputHighlights}
+              wrapperClassName="min-w-0 flex-1"
               onChange={handleChange}
               onKeyDown={handleKeyDown}
               onKeyUp={handleKeyUp}
@@ -1528,7 +1538,7 @@ export function ChatPanel({
                     ? t("chatPanel.writeSomethingAlongWithItOptional")
                     : t("chatPanel.typeAMessage"))
               }
-              className="min-h-8 min-w-0 flex-1 resize-none rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-base sm:text-sm leading-5 text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-white/10"
+              className="min-h-8 resize-none rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-base sm:text-sm leading-5 text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-white/10"
             />
             <button
               type="submit"

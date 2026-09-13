@@ -266,5 +266,18 @@ const long = tokenizeMentions("fala @João Silva", compound).filter((t) => t.typ
 assert.equal(long.length, 1);
 assert.equal(long[0].type === "mention" ? long[0].name : "", "João Silva");
 
+// The same regex with "#", for a group's rooms (the composer colours both).
+{
+  const rooms = buildMentionsRegex(["geral", "sala de estudos"], "#");
+  const tokens = tokenizeMentions("vai pra #sala de estudos ou #geral, não #outra", rooms);
+  assert.deepEqual(
+    tokens.filter((t) => t.type === "mention").map((t) => t.value),
+    ["#sala de estudos", "#geral"]
+  );
+  // "#" does not match "@", nor the other way round.
+  assert.equal(tokenizeMentions("@geral", rooms).length, 1);
+  assert.equal(tokenizeMentions("#geral", buildMentionsRegex(["geral"])).length, 1);
+}
+
 console.log("chatMentions: ok");
 

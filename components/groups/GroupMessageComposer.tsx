@@ -13,6 +13,7 @@ import { MdClose, MdGif, MdGroups, MdOutlineImage, MdSend, MdVolumeUp } from "re
 import { EmojiPickerButton } from "@/components/EmojiPicker";
 import { EmojiSuggestions } from "@/components/EmojiSuggestions";
 import { GifPicker } from "@/components/GifPicker";
+import { HighlightedTextarea, highlightMentions } from "@/components/HighlightedTextarea";
 import { Popover, Tooltip } from "@/components/Tooltip";
 import { UserAvatar } from "@/components/UserAvatar";
 import {
@@ -186,6 +187,18 @@ export function GroupMessageComposer({
   // Everybody any search has turned up, for a name typed out in full rather
   // than picked. Insertion-ordered, oldest dropped first.
   const remembered = useRef(new Map<string, MentionCandidate>());
+  // The names of everybody picked or turned up by a search, for colouring
+  // them in the box. The refs above are what send reads; this is the same set
+  // held as state, so a search landing re-renders with the new names lit.
+  const [extraNames, setExtraNames] = useState<string[]>([]);
+  function rememberNames(names: string[]) {
+    setExtraNames((current) => {
+      const next = new Set(current);
+      for (const name of names) next.add(name);
+      if (next.size === current.length) return current;
+      return [...next].slice(-MAX_REMEMBERED);
+    });
+  }
   const textRef = useRef<HTMLTextAreaElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
@@ -266,6 +279,7 @@ export function GroupMessageComposer({
             remembered.current.delete(oldest.value);
           }
           setFound({ query: searchQuery, people });
+          rememberNames(people.map((person) => person.name));
         })
         .catch(() => {});
     }, SEARCH_DEBOUNCE_MS);
@@ -287,6 +301,20 @@ export function GroupMessageComposer({
   }, [trigger.isTriggered, trigger.char, trigger.query, candidates, rooms, searched]);
   const mentionOpen =
     trigger.isTriggered && suggestions.length > 0 && mentionDismissed !== trigger.startIndex;
+
+  // What lights up blue in the box: every name send would turn into a
+  // mention — the people, roles and @everyone this room offers, anybody picked
+  // or found by a search — and the rooms after "#".
+  const peopleRegex = useMemo(
+    () => buildMentionsRegex([...candidates.map((c) => c.name), ...extraNames]),
+    [candidates, extraNames]
+  );
+  const roomRegex = useMemo(() => buildMentionsRegex(rooms.map((r) => r.name), "#"), [rooms]);
+  const highlights = useMemo(
+    () =>
+      /[@#]/.test(text) ? highlightMentions(text, [peopleRegex, roomRegex]) : null,
+    [text, peopleRegex, roomRegex]
+  );
   const disabled = Boolean(disabledReason);
 
   function resize() {
@@ -346,6 +374,7 @@ export function GroupMessageComposer({
 
   function pickMention(candidate: MentionCandidate) {
     if (isPerson(candidate)) picked.current.set(normalizeSearch(candidate.name), candidate);
+    rememberNames([candidate.name]);
     const { newText, newCursorPos } = applyMentionInsertion(
       text,
       cursor,
@@ -648,9 +677,11 @@ export function GroupMessageComposer({
           </button>
         </Popover>
         )}
-        <textarea
+        <HighlightedTextarea
           ref={textRef}
           value={text}
+          highlights={highlights}
+          wrapperClassName="min-w-0 flex-1"
           onChange={onChange}
           onKeyDown={onKeyDown}
           onPaste={onPaste}
@@ -666,7 +697,7 @@ export function GroupMessageComposer({
           rows={1}
           disabled={disabled}
           placeholder={disabledReason ?? t("groups.groupMessageComposer.messageInChannelname", { channelName })}
-          className="min-h-12 min-w-0 flex-1 resize-none overflow-y-hidden rounded-lg border border-zinc-300 bg-white px-3 py-[11px] text-base leading-6 text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-white/10"
+          className="min-h-12 resize-none overflow-y-hidden rounded-lg border border-zinc-300 bg-white px-3 py-[11px] text-base leading-6 text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-white/10"
         />
         <button
           type="button"

@@ -26,7 +26,8 @@ export function normalizeSearch(text: string): string {
 // Names are sorted by length descending so longer compound names (e.g.
 // "João Silva") are matched before prefixes ("João"). Returns null when
 // the list of names is empty so caller can skip regex matching entirely.
-export function buildMentionsRegex(names: string[]): RegExp | null {
+// `char` is the sign in front: "@" for people, "#" for a group's rooms.
+export function buildMentionsRegex(names: string[], char: "@" | "#" = "@"): RegExp | null {
   const uniqueNames = Array.from(
     new Set(names.map((n) => n?.trim()).filter((n): n is string => Boolean(n && n.length > 0)))
   );
@@ -38,7 +39,7 @@ export function buildMentionsRegex(names: string[]): RegExp | null {
 
   // Matches @Name when preceded by start of string or whitespace / opening delimiter,
   // and followed by end of string or non-word character (punctuation, space, etc.).
-  return new RegExp(`(?:(?<=^|[\\s(\\[{<"']))@(${alternation})(?=$|[^\\p{L}\\p{N}_])`, "gui");
+  return new RegExp(`(?:(?<=^|[\\s(\\[{<"']))${char}(${alternation})(?=$|[^\\p{L}\\p{N}_])`, "gui");
 }
 
 // Regexes already built, by the exact set of names they match.
