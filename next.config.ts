@@ -122,6 +122,14 @@ const nextConfig: NextConfig = {
         destination: "https://github.com/Nem-Tudo/group-sharescreen",
         permanent: true,
       },
+      // The blog is its own app (golive-blog repos: a Sanity Studio and the
+      // frontend). /blog/:path* rather than just /blog so a shared link to a
+      // post on this domain lands on that post, not on the blog's front page.
+      {
+        source: "/blog/:path*",
+        destination: "https://golive-blog.nemtudo.me/:path*",
+        permanent: true,
+      },
     ];
   },
 };
