@@ -17,19 +17,27 @@ import { createPortal } from "react-dom";
 import {
   MdArrowBack,
   MdCall,
+  MdChatBubbleOutline,
   MdClose,
+  MdCloseFullscreen,
+  MdDoneAll,
   MdErrorOutline,
   MdGif,
   MdImage,
   MdKeyboardArrowDown,
+  MdOpenInFull,
+  MdOutlineAddReaction,
   MdReply,
   MdSchedule,
   MdSend,
+  MdSettings,
 } from "react-icons/md";
 import { GifPicker } from "@/components/GifPicker";
 import { Popover } from "@/components/Tooltip";
 import { EmojiPickerButton } from "@/components/EmojiPicker";
 import { EmojiSuggestions } from "@/components/EmojiSuggestions";
+import { Twemoji } from "@/components/Twemoji";
+import { ReactionPicker } from "@/components/groups/ReactionPicker";
 import { useEmojiAutocomplete } from "@/lib/useEmojiAutocomplete";
 import { ChatImageModal, type ChatImagePreviewState } from "@/components/ChatImageModal";
 import {
@@ -42,18 +50,22 @@ import { DisplayUserName } from "@/components/DisplayUserName";
 import { UserAvatar } from "@/components/UserAvatar";
 import { useAuth } from "@/lib/AuthContext";
 import { verifiedBadge } from "@/lib/entitlements";
-import { openDirectMessages } from "@/lib/dmWindow";
+import { openDirectMessages, setDirectMessagesExpanded, useDirectMessagesOutlet } from "@/lib/dmWindow";
 import { startCall } from "@/lib/callsApi";
 import { useSignalingSelector } from "@/lib/useSignalingSelector";
 import { selectRecentDms } from "@/lib/signalingSelectors";
 import { presenceLabel, usePresence } from "@/lib/presence";
 import {
+  DM_MAX_REACTIONS_PER_MESSAGE,
   fetchConversation,
   fetchConversations,
   markConversationRead,
+  reactToDirectMessage,
   sendDirectMessage,
+  sendDmTyping,
   type Conversation,
   type DirectMessage,
+  type DmReaction,
   type DmReplyTo,
 } from "@/lib/dmApi";
 import type { SocialUser } from "@/lib/socialApi";
@@ -61,28 +73,39 @@ import {
   createSendQueue,
   liveConversationList,
   mayHaveMore,
+  messageSummary,
   newestFrom,
+  newestOutside,
+  reactionsFor,
+  seenThrough,
   threadMessages,
   unconfirmed,
   withConfirmed,
   withFreshPage,
   withOlderPage,
 } from "@/lib/dmThread";
+import { loadDmSettings, noteDmReactions, setDmReadReceipts, useDmLive } from "@/lib/dmLive";
+import { describeReaction, toggleReaction as toggledReactions } from "@/lib/groupReactions";
+import { createTypingAnnouncer, formatTypingLabel, type TypingAnnouncer } from "@/lib/typing";
+import { MD_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
 import { formatLocale } from "@/lib/i18n";
 import { usePageInFront } from "@/lib/pageFocus";
 
-// Private messages, in a dialog.
+// Private messages, in a dialog — or across the whole screen.
 //
 // A dialog and not a page, for the reason the friend requests learned first:
 // navigating out of a room ends the call (WatchRoom's unmount calls
 // leaveRoom), and answering a message mid-conversation should not cost the
 // conversation. Everything here therefore has to work stacked over whatever
-// is behind it, including a live call.
+// is behind it, including a live call. The expanded mode keeps that rule: it
+// is the same window drawn over the whole screen, not a route.
 //
 // Two screens in one: the list of conversations, and one thread. `openWith`
 // jumps straight to a thread — that is what a notification click does.
+// Expanded, from `md` up, the two sit side by side like a group's text room,
+// and the thread is drawn as that room's rows rather than as bubbles.
 //
 // What this version is built around, because each was a complaint:
 //
@@ -103,6 +126,10 @@ import { usePageInFront } from "@/lib/pageFocus";
 //     pulls the thread down if you were already at the bottom; otherwise a
 //     "novas mensagens" pill says it arrived. Scrolling to the top reads the
 //     older history instead of stopping at the last fifty.
+//
+// And what the conversation itself says beyond the messages — "digitando",
+// "visto", the reactions — lives in lib/dmLive, fed by the socket, because it
+// arrives whether or not this window is open to hear it.
 
 /** Two messages from one person this close together read as one thought. */
 const GROUP_GAP_MS = 5 * 60 * 1000;
@@ -167,19 +194,6 @@ function listTimeLabel(ts: number, now: number): string {
   return new Date(ts).toLocaleDateString(formatLocale(), { day: "2-digit", month: "2-digit" });
 }
 
-/**
- * What a message says in one line. A picture or a GIF has no text of its own,
- * and the old list drew an empty line under the name for both.
- */
-function summary(message: Pick<DirectMessage, "text" | "kind" | "images">): string {
-  if (message.text) return message.text;
-  if (message.kind === "gif") return "GIF";
-  const count = message.images?.length ?? 0;
-  if (count > 1) return `${count} imagens`;
-  if (count === 1 || message.kind === "image") return translate("common.image");
-  return "";
-}
-
 const LINK_SPLIT = /(https?:\/\/[^\s]+|www\.[^\s]+)/g;
 const LINK_TEST = /^(?:https?:\/\/|www\.)/;
 
@@ -239,6 +253,10 @@ type Thread = {
   user: SocialUser;
   messages: DirectMessage[];
   hasMore: boolean;
+  /** How far they had read when the page was read — null when not shared. */
+  seenTs: number | null;
+  /** When the page was asked for, so a live reaction older than it loses (see reactionsFor). */
+  readAt: number;
 };
 
 /**
@@ -248,6 +266,16 @@ type Thread = {
  * without an effect having to clear anything.
  */
 type Tagged<T> = { userId: string; value: T };
+
+/** Who wrote a line, for the expanded rows that name their author. */
+type Author = {
+  id: string;
+  name: string;
+  avatarUrl: string | null;
+  flags: string[];
+  bot?: boolean;
+  nameColor: string | null;
+};
 
 /** Everything a bubble needs, whether delivered or still on its way. */
 type Bubble = {
@@ -264,28 +292,41 @@ type Bubble = {
   /** What "responder" quotes. Only a delivered message can be answered. */
   replyTarget?: DmReplyTo;
   clientId?: string;
+  /** The delivered message's id — only a delivered message can be reacted to. */
+  messageId?: string;
+  reactions: DmReaction[];
+  /** Mine, delivered, and read by the other side (with "visto" shared). */
+  seen: boolean;
+  author: Author | null;
 };
 
 // ─── Pieces ─────────────────────────────────────────────────────────────
 
-function ReplyButton({ target, onReply }: { target: DmReplyTo; onReply: (r: DmReplyTo) => void }) {
-  const t = useT();
-  return (
-    <button
-      type="button"
-      aria-label={t("common.reply")}
-      title={t("common.reply")}
-      onClick={() => onReply(target)}
-      className="shrink-0 self-center rounded-full p-1.5 text-zinc-400 opacity-100 transition hover:bg-zinc-100 hover:text-zinc-700 focus:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 dark:hover:bg-zinc-900 dark:hover:text-zinc-200"
-    >
-      <MdReply className="h-4 w-4" />
-    </button>
-  );
-}
+// One reaction under a message — the group rooms' pill (see TextChannelView),
+// so a reaction looks like a reaction wherever it is.
+const reactionChip = "inline-flex h-6 items-center gap-1 rounded-full border px-1.5 text-xs font-medium transition";
+const reactionChipIdle =
+  "border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300";
+const reactionChipMine =
+  "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-500/15 dark:text-blue-300";
+
+/** The small round buttons beside a bubble. */
+const bubbleAction =
+  "shrink-0 cursor-pointer self-center rounded-full p-1.5 text-zinc-400 opacity-100 transition hover:bg-zinc-100 hover:text-zinc-700 focus:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 dark:hover:bg-zinc-900 dark:hover:text-zinc-200";
+/** The same, in the expanded rows — the text room's hover actions. */
+const rowAction =
+  "inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-400 opacity-100 transition hover:bg-zinc-200/70 hover:text-zinc-800 active:scale-95 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200";
 
 function MessageBubble({
   bubble,
   grouped,
+  layout,
+  selfId,
+  otherName,
+  pickerFor,
+  showSeenLabel,
+  onPicker,
+  onReact,
   onReply,
   onOpenImage,
   onRetry,
@@ -294,6 +335,16 @@ function MessageBubble({
 }: {
   bubble: Bubble;
   grouped: boolean;
+  /** Bubbles in the dialog; the text room's rows when expanded. */
+  layout: "bubbles" | "rows";
+  selfId: string;
+  otherName: string;
+  /** Which reaction picker is open, as "<message id>:<where>". */
+  pickerFor: string | null;
+  /** The rows' "Visto" line, under the newest of mine that was read. */
+  showSeenLabel: boolean;
+  onPicker: (key: string | null) => void;
+  onReact: (bubble: Bubble, emoji: string) => void;
   onReply: (reply: DmReplyTo) => void;
   onOpenImage: (images: string[], index: number, alt: string) => void;
   onRetry: (clientId: string) => void;
@@ -304,83 +355,242 @@ function MessageBubble({
   const { mine, status } = bubble;
   const failed = status === "failed";
   const images = bubble.images ?? [];
+  const rows = layout === "rows";
+  const canReact = Boolean(bubble.messageId);
+
+  function nameOf(userId: string): string {
+    return userId === selfId ? t("common.you") : otherName;
+  }
+
+  function reactionPicker(where: "actions" | "row", className: string, icon: ReactNode) {
+    const key = `${bubble.messageId}:${where}`;
+    const isOpen = pickerFor === key;
+    return (
+      <Popover
+        open={isOpen}
+        onClose={() => onPicker(null)}
+        placement={mine && !rows ? "bottom-end" : "bottom-start"}
+        tooltip={t("directMessagesModal.react")}
+        content={<ReactionPicker onSelect={(emoji) => onReact(bubble, emoji)} />}
+      >
+        <button
+          type="button"
+          onClick={() => onPicker(isOpen ? null : key)}
+          aria-label={t("directMessagesModal.react")}
+          // Kept visible while its picker is open, or the hover that drew it
+          // going away would take the button the picker is anchored to along.
+          className={`${className} ${isOpen ? "sm:opacity-100" : ""}`}
+        >
+          {icon}
+        </button>
+      </Popover>
+    );
+  }
+
+  const actions = (className: string) =>
+    bubble.replyTarget ? (
+      <span className={`flex shrink-0 items-center ${rows ? "" : "self-center"}`}>
+        {canReact && reactionPicker("actions", className, <MdOutlineAddReaction className={rows ? "h-3.5 w-3.5" : "h-4 w-4"} />)}
+        <button
+          type="button"
+          aria-label={t("common.reply")}
+          title={t("common.reply")}
+          onClick={() => onReply(bubble.replyTarget!)}
+          className={className}
+        >
+          <MdReply className={rows ? "h-3.5 w-3.5" : "h-4 w-4"} />
+        </button>
+      </span>
+    ) : null;
+
+  const quote = bubble.replyTo && (
+    // A snapshot taken when the reply was sent, not a pointer (see the API
+    // side). It keeps saying what it said even when the original is far
+    // outside the loaded page.
+    <span
+      className={`mb-1 block border-l-2 pl-2 text-xs opacity-75 ${
+        mine && !rows ? "border-white/40 dark:border-zinc-950/30" : "border-zinc-400"
+      }`}
+    >
+      <span className="block font-medium">@{bubble.replyTo.name}</span>
+      <span className="line-clamp-2 break-words">
+        {bubble.replyTo.text || (bubble.replyTo.kind === "gif" ? "GIF" : t("common.image"))}
+      </span>
+    </span>
+  );
+
+  const media = (
+    <>
+      {bubble.kind === "gif" && bubble.url && (
+        <button
+          type="button"
+          onClick={() => onOpenImage([bubble.url!], 0, "GIF")}
+          aria-label={t("common.enlargeTheGif")}
+          className={`${rows ? "mt-1" : "-mx-1 mb-1"} block cursor-zoom-in rounded-lg text-left transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500`}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={bubble.url} alt="GIF" onLoad={onMediaLoad} className={`${rows ? "max-h-48" : "max-h-56"} rounded-lg`} />
+        </button>
+      )}
+      {images.length > 0 && (
+        <span
+          className={`${rows ? "mt-1 max-w-xs" : "-mx-1 mb-1"} grid gap-1 ${images.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}
+        >
+          {images.map((url, index) => (
+            <button
+              key={`${index}:${url.slice(-24)}`}
+              type="button"
+              onClick={() => onOpenImage(images, index, t("common.image"))}
+              aria-label={t("common.enlargeTheImage")}
+              className="block cursor-zoom-in overflow-hidden rounded-lg text-left transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={url}
+                alt={t("common.image")}
+                onLoad={onMediaLoad}
+                className={`w-full rounded-lg object-cover ${
+                  images.length > 1 ? "aspect-square" : "max-h-64 object-contain"
+                }`}
+              />
+            </button>
+          ))}
+        </span>
+      )}
+    </>
+  );
+
+  const reactions = bubble.reactions.length > 0 && (
+    // Each emoji once, lit when one of them is yours; clicking joins it or
+    // takes yours back. With two people, a count only says something above one.
+    <div className={`mt-1 flex flex-wrap items-center gap-1 ${mine && !rows ? "justify-end" : ""}`}>
+      {bubble.reactions.map((reaction) => {
+        const on = reaction.users.includes(selfId);
+        return (
+          <button
+            key={reaction.emoji}
+            type="button"
+            aria-pressed={on}
+            onClick={() => onReact(bubble, reaction.emoji)}
+            title={describeReaction(reaction, nameOf)}
+            className={`${reactionChip} cursor-pointer ${
+              on
+                ? `${reactionChipMine} hover:bg-blue-100 dark:hover:bg-blue-500/25`
+                : `${reactionChipIdle} hover:border-zinc-400 dark:hover:border-zinc-600`
+            }`}
+          >
+            <Twemoji emoji={reaction.emoji} size={16} />
+            {reaction.users.length > 1 && <span className="tabular-nums">{reaction.users.length}</span>}
+          </button>
+        );
+      })}
+      {rows &&
+        canReact &&
+        bubble.reactions.length < DM_MAX_REACTIONS_PER_MESSAGE &&
+        reactionPicker(
+          "row",
+          `${reactionChip} ${reactionChipIdle} cursor-pointer hover:border-zinc-400 dark:hover:border-zinc-600`,
+          <MdOutlineAddReaction className="h-3.5 w-3.5 opacity-70" />
+        )}
+    </div>
+  );
+
+  const failure = failed && bubble.clientId && (
+    // Said under the message, in words, with the two things that can be done
+    // about it. What was written is never thrown away on its own.
+    <span
+      className={`mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-red-600 dark:text-red-400 ${
+        rows ? "" : "justify-end"
+      }`}
+    >
+      <span className="flex items-center gap-1">
+        <MdErrorOutline className="h-3.5 w-3.5 shrink-0" />
+        {bubble.error ?? t("common.notSent")}
+      </span>
+      <button type="button" onClick={() => onRetry(bubble.clientId!)} className="font-semibold underline underline-offset-2">
+        {t("common.tryAgain2")}
+      </button>
+      <button
+        type="button"
+        onClick={() => onDiscard(bubble.clientId!)}
+        className="text-zinc-500 underline underline-offset-2 dark:text-zinc-400"
+      >
+        {t("common.discard")}
+      </button>
+    </span>
+  );
+
+  if (rows) {
+    // The group text room's line: a face and a name over a run from one
+    // person, the time beside the name, actions on hover at the right.
+    const author = bubble.author;
+    return (
+      <li
+        className={`group relative -mx-1.5 rounded-lg px-2 text-sm transition-colors hover:bg-zinc-100/80 dark:hover:bg-zinc-900/70 ${
+          grouped ? "pb-0.5" : "mt-2.5 pb-0.5"
+        } ${status === "sending" ? "opacity-60" : ""}`}
+      >
+        {bubble.replyTo && <div className="pt-1 text-zinc-700 dark:text-zinc-300">{quote}</div>}
+        {!grouped && author && (
+          <div className="flex items-center justify-between gap-1.5">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <UserAvatar src={author.avatarUrl} name={author.name} size={20} userId={author.id} />
+              <span className="flex min-w-0 items-baseline gap-1.5">
+                <DisplayUserName
+                  name={author.name}
+                  verified={verifiedBadge(author.flags)}
+                  bot={author.bot}
+                  color={author.nameColor}
+                  className="min-w-0 truncate font-medium text-zinc-700 dark:text-zinc-300"
+                />
+                <span className="flex shrink-0 items-center gap-1 text-xs tabular-nums text-zinc-400 dark:text-zinc-600">
+                  {status === "sending" && <MdSchedule className="h-3 w-3" aria-label={t("directMessagesModal.sending")} />}
+                  {timeLabel(bubble.ts)}
+                </span>
+              </span>
+            </span>
+            {actions(rowAction)}
+          </div>
+        )}
+        <div className={grouped ? "flex items-start justify-between gap-1.5" : ""}>
+          <div className="min-w-0 flex-1">
+            {bubble.text && (
+              <p className="whitespace-pre-wrap break-words text-zinc-900 dark:text-zinc-100">{linkify(bubble.text, false)}</p>
+            )}
+            {media}
+            {reactions}
+            {failure}
+            {showSeenLabel && (
+              <p className="mt-0.5 flex items-center gap-1 text-[11px] text-zinc-400 dark:text-zinc-500">
+                <MdDoneAll className="h-3.5 w-3.5 text-sky-500" />
+                {t("directMessagesModal.seen")}
+              </p>
+            )}
+          </div>
+          {grouped && actions(rowAction)}
+        </div>
+      </li>
+    );
+  }
 
   return (
     <li
-      className={`group flex items-end gap-1 ${mine ? "justify-end" : "justify-start"} ${
+      className={`group flex items-end gap-0.5 ${mine ? "justify-end" : "justify-start"} ${
         grouped ? "mt-0.5" : "mt-2.5"
       }`}
     >
-      {mine && bubble.replyTarget && <ReplyButton target={bubble.replyTarget} onReply={onReply} />}
+      {mine && actions(bubbleAction)}
       <div className={`flex max-w-[82%] flex-col ${mine ? "items-end" : "items-start"}`}>
         <div
           className={`rounded-2xl px-3 py-1.5 text-sm transition ${
             mine
               ? `bg-zinc-950 text-white dark:bg-zinc-50 dark:text-zinc-950 ${grouped ? "rounded-tr-md" : ""}`
               : `bg-zinc-100 text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100 ${grouped ? "rounded-tl-md" : ""}`
-          } ${status === "sending" ? "opacity-70" : ""} ${
-            failed ? "ring-2 ring-red-500/70" : ""
-          }`}
+          } ${status === "sending" ? "opacity-70" : ""} ${failed ? "ring-2 ring-red-500/70" : ""}`}
         >
-          {bubble.replyTo && (
-            // A snapshot taken when the reply was sent, not a pointer (see the
-            // API side). It keeps saying what it said even when the original
-            // is far outside the loaded page.
-            <span
-              className={`mb-1 block border-l-2 pl-2 text-xs opacity-75 ${
-                mine ? "border-white/40 dark:border-zinc-950/30" : "border-zinc-400"
-              }`}
-            >
-              <span className="block font-medium">@{bubble.replyTo.name}</span>
-              <span className="line-clamp-2 break-words">
-                {bubble.replyTo.text || (bubble.replyTo.kind === "gif" ? "GIF" : t("common.image"))}
-              </span>
-            </span>
-          )}
-          {bubble.kind === "gif" && bubble.url && (
-            <button
-              type="button"
-              onClick={() => onOpenImage([bubble.url!], 0, "GIF")}
-              aria-label={t("common.enlargeTheGif")}
-              className="-mx-1 mb-1 block cursor-zoom-in rounded-lg text-left transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={bubble.url}
-                alt="GIF"
-                onLoad={onMediaLoad}
-                className="max-h-56 rounded-lg"
-              />
-            </button>
-          )}
-          {images.length > 0 && (
-            <span
-              className={`-mx-1 mb-1 grid gap-1 ${images.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}
-            >
-              {images.map((url, index) => (
-                <button
-                  key={`${index}:${url.slice(-24)}`}
-                  type="button"
-                  onClick={() => onOpenImage(images, index, t("common.image"))}
-                  aria-label={t("common.enlargeTheImage")}
-                  className="block cursor-zoom-in overflow-hidden rounded-lg text-left transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={url}
-                    alt={t("common.image")}
-                    onLoad={onMediaLoad}
-                    className={`w-full rounded-lg object-cover ${
-                      images.length > 1 ? "aspect-square" : "max-h-64 object-contain"
-                    }`}
-                  />
-                </button>
-              ))}
-            </span>
-          )}
-          {bubble.text && (
-            <span className="whitespace-pre-wrap break-words">{linkify(bubble.text, mine)}</span>
-          )}
+          {quote}
+          {media}
+          {bubble.text && <span className="whitespace-pre-wrap break-words">{linkify(bubble.text, mine)}</span>}
           <span
             className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] leading-none ${
               mine ? "text-white/60 dark:text-zinc-950/60" : "text-zinc-400"
@@ -388,34 +598,38 @@ function MessageBubble({
           >
             {status === "sending" && <MdSchedule className="h-3 w-3" aria-label={t("directMessagesModal.sending")} />}
             {timeLabel(bubble.ts)}
+            {bubble.seen && (
+              <MdDoneAll
+                className="h-3.5 w-3.5 text-sky-400 dark:text-sky-600"
+                aria-label={t("directMessagesModal.seen")}
+              />
+            )}
           </span>
         </div>
-        {failed && bubble.clientId && (
-          // Said under the bubble, in words, with the two things that can be
-          // done about it. What was written is never thrown away on its own.
-          <span className="mt-1 flex flex-wrap items-center justify-end gap-x-2 text-[11px] text-red-600 dark:text-red-400">
-            <span className="flex items-center gap-1">
-              <MdErrorOutline className="h-3.5 w-3.5 shrink-0" />
-              {bubble.error ?? t("common.notSent")}
-            </span>
-            <button
-              type="button"
-              onClick={() => onRetry(bubble.clientId!)}
-              className="font-semibold underline underline-offset-2"
-            >
-              {t("common.tryAgain2")}
-            </button>
-            <button
-              type="button"
-              onClick={() => onDiscard(bubble.clientId!)}
-              className="text-zinc-500 underline underline-offset-2 dark:text-zinc-400"
-            >
-              {t("common.discard")}
-            </button>
-          </span>
-        )}
+        {reactions}
+        {failure}
       </div>
-      {!mine && bubble.replyTarget && <ReplyButton target={bubble.replyTarget} onReply={onReply} />}
+      {!mine && actions(bubbleAction)}
+    </li>
+  );
+}
+
+/** "Digitando", as the other side's bubble: three dots taking turns. */
+function TypingBubble({ label }: { label: string }) {
+  const dots = (
+    <span className="flex items-center gap-1" aria-hidden>
+      {[0, 150, 300].map((delay) => (
+        <span
+          key={delay}
+          className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-400 dark:bg-zinc-500"
+          style={{ animationDelay: `${delay}ms` }}
+        />
+      ))}
+    </span>
+  );
+  return (
+    <li className="mt-2.5 flex justify-start" aria-live="polite" aria-label={label}>
+      <span className="rounded-2xl rounded-tl-md bg-zinc-100 px-3 py-2.5 dark:bg-zinc-900">{dots}</span>
     </li>
   );
 }
@@ -455,6 +669,7 @@ export function DirectMessagesModal({
   open,
   onClose,
   openWith,
+  expanded = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -465,12 +680,24 @@ export function DirectMessagesModal({
    * thread is open" instead of two that can disagree.
    */
   openWith?: string | null;
+  /** Whether it was asked to fill the screen — see lib/dmWindow's `expanded`. */
+  expanded?: boolean;
 }) {
   const t = useT();
   const { account } = useAuth();
   const recentDms = useSignalingSelector(selectRecentDms);
   const now = useSyncExternalStore(subscribeClock, getClock, getClockServer);
   const pageInFront = usePageInFront();
+  const live = useDmLive();
+  // Side by side only where there is room for both. Below `md` the dialog is
+  // already the whole screen, so "expanded" there changes nothing.
+  const wide = useMediaQuery(MD_BREAKPOINT_QUERY);
+  const split = expanded && wide;
+  const layout = split ? "rows" : "bubbles";
+  // Expanded on a page that lends it a place (the group pages, beside the list
+  // of groups): drawn there, as part of the page, instead of over all of it.
+  const outlet = useDirectMessagesOutlet();
+  const docked = split && outlet !== null;
 
   // null until the first answer, so "loading" and "no conversations" are two
   // different screens instead of one that lies for a second.
@@ -493,6 +720,10 @@ export function DirectMessagesModal({
   const [error, setError] = useState<Tagged<string> | null>(null);
   const [gifOpen, setGifOpen] = useState(false);
   const [imageModalPreview, setImageModalPreview] = useState<ChatImagePreviewState | null>(null);
+  // The reaction picker that is open, as "<message id>:<where>".
+  const [pickerFor, setPickerFor] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsFailed, setSettingsFailed] = useState(false);
   // Where the reader is in the thread, tagged like everything else so a thread
   // that has just opened starts out "at the bottom" without an effect.
   const [scroll, setScroll] = useState<{ userId: string; atBottom: boolean; seen: string | null } | null>(
@@ -510,12 +741,18 @@ export function DirectMessagesModal({
   const olderInFlightRef = useRef(false);
   const lastMarkedRef = useRef<string | null>(null);
   const focusedForRef = useRef<string | null>(null);
+  // "Digitando" for the person whose thread is open — one announcer per
+  // conversation, so switching threads says "stopped" to the one left behind.
+  const typingRef = useRef<{ userId: string; announcer: TypingAnnouncer } | null>(null);
   const scrollMemoRef = useRef<{
+    /** The box the memory is about — a new one (expanding remounts it) starts over. */
+    node: HTMLDivElement | null;
     threadId: string | null;
     firstKey: string | null;
     lastKey: string | null;
+    typing: boolean;
     height: number;
-  }>({ threadId: null, firstKey: null, lastKey: null, height: 0 });
+  }>({ node: null, threadId: null, firstKey: null, lastKey: null, typing: false, height: 0 });
 
   const activeId = openWith ?? null;
   const loaded = thread?.userId === activeId ? thread : null;
@@ -524,6 +761,14 @@ export function DirectMessagesModal({
   const active: SocialUser | null =
     loaded?.user ?? conversations?.find((c) => c.user.id === activeId)?.user ?? null;
   const presence = usePresence(activeId);
+  const otherTyping = activeId ? Boolean(live.typing[activeId]) : false;
+  // This account's own switch, once known. Unknown reads as "on" for drawing
+  // the switch — it is the default — but never shows a "visto" on its own:
+  // those only come from the server, which checks both sides.
+  const myReadReceipts =
+    account && live.readReceipts?.accountId === account.id ? live.readReceipts.value : null;
+  const seenTs =
+    loaded && activeId ? seenThrough(loaded.seenTs, live.seen[activeId], myReadReceipts) : null;
 
   const draft = activeId ? drafts[activeId] ?? "" : "";
   const replyingTo = reply && reply.userId === activeId ? reply.value : null;
@@ -571,17 +816,21 @@ export function DirectMessagesModal({
         : conversations,
     [conversations, recentDms, account]
   );
+  const listVisible = !activeId || split;
+  // What the list re-reads on: a delivery outside the open thread (see
+  // newestOutside). With no thread open, that is every delivery.
+  const listNudge = account ? newestOutside(recentDms, account.id, activeId) : null;
 
   // ── Effects ─────────────────────────────────────────────────────────
 
-  // Escape undoes one thing at a time: the picker or the picture (which close
+  // Escape undoes one thing at a time: the pickers or the picture (which close
   // themselves on the same key), then the reply being written, then the
   // thread, and only then the dialog.
   useEffect(() => {
     if (!open) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
-      if (gifOpen || imageModalPreview) return;
+      if (gifOpen || imageModalPreview || pickerFor || settingsOpen) return;
       if (replyingTo) {
         setReply(null);
         return;
@@ -592,26 +841,44 @@ export function DirectMessagesModal({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, activeId, onClose, gifOpen, imageModalPreview, replyingTo]);
+  }, [open, activeId, onClose, gifOpen, imageModalPreview, replyingTo, pickerFor, settingsOpen]);
 
   // The page behind stays put. Scrolling a conversation to its end and
   // carrying on into the room's chat underneath is the kind of thing that
   // makes a dialog feel like it is not really there.
+  // Docked, it *is* part of the page, which has nothing behind it to scroll.
   useEffect(() => {
-    if (!open) return;
+    if (!open || docked) return;
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = previous;
     };
-  }, [open]);
+  }, [open, docked]);
 
-  // The list — only while it is the screen being looked at. It used to be
-  // re-read on *every* message, including while a thread was open and nobody
-  // could see it; that was a pair of aggregations on the server per message
-  // received. Debounced, so a burst is one read.
+  // This account's "visto" switch, read once per account.
   useEffect(() => {
-    if (!open || !account || activeId) return;
+    if (open && account) loadDmSettings(account.id);
+  }, [open, account]);
+
+  // Leaving a thread — for another one, or closing — tells the person left
+  // behind that the writing stopped, rather than letting it expire on them.
+  useEffect(() => {
+    if (!open) return;
+    return () => {
+      typingRef.current?.announcer.dispose();
+      typingRef.current = null;
+    };
+  }, [open, activeId]);
+
+  // The list — only while it is on screen. It used to be re-read on *every*
+  // message, including while a thread was open and nobody could see it; that
+  // was a pair of aggregations on the server per message received. Now it
+  // re-reads on what the open thread cannot account for (see listNudge), and
+  // on switching threads, which is when an unread count just went to zero.
+  // Debounced, so a burst is one read.
+  useEffect(() => {
+    if (!open || !account || !listVisible) return;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       void fetchConversations(controller.signal).then((data) => {
@@ -628,7 +895,7 @@ export function DirectMessagesModal({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [open, account, activeId, recentDms, listSeq]);
+  }, [open, account, activeId, listVisible, listNudge, listSeq]);
 
   // Whichever thread the store is pointing at. What was already on screen for
   // it stays there while the fresh page loads, and anything newer than that
@@ -637,6 +904,7 @@ export function DirectMessagesModal({
   useEffect(() => {
     if (!open || !activeId) return;
     const controller = new AbortController();
+    const readAt = Date.now();
     void fetchConversation(activeId, undefined, controller.signal).then((data) => {
       if (controller.signal.aborted) return;
       if (!data) {
@@ -649,6 +917,8 @@ export function DirectMessagesModal({
         user: data.user,
         messages: withFreshPage(previous?.userId === activeId ? previous.messages : null, data.messages),
         hasMore: mayHaveMore(data.messages),
+        seenTs: data.seenTs,
+        readAt,
       }));
     });
     return () => controller.abort();
@@ -685,7 +955,7 @@ export function DirectMessagesModal({
     if (!node) return;
     node.style.height = "auto";
     node.style.height = `${Math.min(node.scrollHeight, COMPOSER_MAX_HEIGHT_PX)}px`;
-  }, [draft, activeId, open]);
+  }, [draft, activeId, open, split]);
 
   // Where the thread's scroll ends up after it changes. Before paint, so the
   // reader never sees the jump.
@@ -709,8 +979,9 @@ export function DirectMessagesModal({
       return;
     }
     const memo = scrollMemoRef.current;
-    if (memo.threadId !== activeId) {
-      // A thread that just opened starts at its newest line.
+    if (memo.threadId !== activeId || memo.node !== node) {
+      // A thread that just opened starts at its newest line — and so does one
+      // whose box was just rebuilt, by going full screen or back.
       node.scrollTop = node.scrollHeight;
     } else if (firstKey !== memo.firstKey && lastKey === memo.lastKey) {
       // An older page went in above. Keep the line the reader was on exactly
@@ -720,9 +991,20 @@ export function DirectMessagesModal({
       // Something new at the end. Followed only if the reader was already
       // there, or if it is theirs — otherwise the pill says it arrived.
       node.scrollTop = node.scrollHeight;
+    } else if (otherTyping !== memo.typing && atBottom) {
+      // The "digitando" bubble came or went at the end: whoever was reading
+      // the newest line keeps reading it.
+      node.scrollTop = node.scrollHeight;
     }
-    scrollMemoRef.current = { threadId: activeId, firstKey, lastKey, height: node.scrollHeight };
-  }, [activeId, loaded, firstKey, lastKey, lastIsMine, atBottom]);
+    scrollMemoRef.current = {
+      node,
+      threadId: activeId,
+      firstKey,
+      lastKey,
+      typing: otherTyping,
+      height: node.scrollHeight,
+    };
+  }, [activeId, loaded, firstKey, lastKey, lastIsMine, atBottom, otherTyping, split]);
 
   if (!open) return null;
 
@@ -764,6 +1046,8 @@ export function DirectMessagesModal({
     };
     setPending((current) => [...current, entry]);
     enqueue(entry);
+    // The message arriving is what clears "digitando" on the other side.
+    if (typingRef.current?.userId === to) typingRef.current.announcer.sent();
   }
 
   function retry(clientId: string) {
@@ -809,6 +1093,18 @@ export function DirectMessagesModal({
     submit();
   }
 
+  /** Tells `to` about what is in the box now — when to, is lib/typing's call. */
+  function announceTyping(to: string, value: string) {
+    if (typingRef.current?.userId !== to) {
+      typingRef.current?.announcer.dispose();
+      typingRef.current = {
+        userId: to,
+        announcer: createTypingAnnouncer((typing) => sendDmTyping(to, typing)),
+      };
+    }
+    typingRef.current.announcer.input(value);
+  }
+
   async function handleFiles(files: FileList | null) {
     const to = activeId;
     if (!to || !files || files.length === 0) return;
@@ -840,6 +1136,44 @@ export function DirectMessagesModal({
         CHAT_IMAGE_MAX_PER_MESSAGE
       ),
     }));
+  }
+
+  // ── Reacting ────────────────────────────────────────────────────────
+
+  // Changed at once and then replaced by what the server answers, so the chip
+  // lights up on the click; put back as it was, with the reason, if refused.
+  async function toggleReaction(bubble: Bubble, emojiValue: string) {
+    setPickerFor(null);
+    const to = activeId;
+    const me = account?.id;
+    const messageId = bubble.messageId;
+    if (!to || !me || !messageId) return;
+    const before = bubble.reactions;
+    const on = !before.some((r) => r.emoji === emojiValue && r.users.includes(me));
+    const isNew = !before.some((r) => r.emoji === emojiValue);
+    if (on && isNew && before.length >= DM_MAX_REACTIONS_PER_MESSAGE) return;
+    noteDmReactions(messageId, toggledReactions(before, emojiValue, me, on));
+    const result = await reactToDirectMessage(to, messageId, emojiValue, on);
+    if (result.ok) {
+      noteDmReactions(messageId, result.reactions);
+      return;
+    }
+    noteDmReactions(messageId, before);
+    setError({ userId: to, value: result.error });
+  }
+
+  async function toggleReadReceipts() {
+    if (!account) return;
+    const next = !(myReadReceipts ?? true);
+    setSettingsFailed(false);
+    const held = await setDmReadReceipts(account.id, next);
+    if (!held) {
+      setSettingsFailed(true);
+      return;
+    }
+    // Switched back on: how far the other side has read is the server's to
+    // say again, and the open thread asks.
+    if (next) setThreadSeq((n) => n + 1);
   }
 
   // ── Scrolling ───────────────────────────────────────────────────────
@@ -909,6 +1243,11 @@ export function DirectMessagesModal({
     setScroll(null);
     onClose();
   }
+  function openThread(userId: string) {
+    if (userId === activeId) return;
+    setScroll(null);
+    openDirectMessages(userId);
+  }
 
   // Only a press that both began and ended on the backdrop closes. A plain
   // onClick on it also fired for a text selection that started in a message
@@ -925,6 +1264,27 @@ export function DirectMessagesModal({
 
   // ── Rendering ───────────────────────────────────────────────────────
 
+  const selfId = account?.id ?? "";
+  const meAuthor: Author | null = account
+    ? {
+        id: account.id,
+        name: account.displayName,
+        avatarUrl: account.avatarUrl ?? null,
+        flags: account.flags,
+        nameColor: account.equippedNameColor ?? null,
+      }
+    : null;
+  const otherAuthor: Author | null = active
+    ? {
+        id: active.id,
+        name: active.displayName,
+        avatarUrl: active.avatarUrl ?? null,
+        flags: active.flags,
+        bot: active.bot,
+        nameColor: active.nameColor ?? null,
+      }
+    : null;
+
   const bubbles: Bubble[] = [
     ...messages.map((message): Bubble => {
       const mine = message.from === account?.id;
@@ -939,6 +1299,10 @@ export function DirectMessagesModal({
         images: message.images,
         replyTo: message.replyTo,
         ts: message.ts,
+        messageId: message.id,
+        reactions: reactionsFor(message, live.reactions, loaded?.readAt ?? 0),
+        seen: mine && seenTs !== null && message.ts <= seenTs,
+        author: mine ? meAuthor : otherAuthor,
         replyTarget: {
           id: message.id,
           name: mine ? t("common.you") : active?.displayName ?? "",
@@ -963,9 +1327,20 @@ export function DirectMessagesModal({
         ts: entry.ts,
         status: entry.status,
         error: entry.error,
+        reactions: [],
+        seen: false,
+        author: meAuthor,
       })
     ),
   ];
+
+  // The rows' single "Visto": under the newest message of mine, once read.
+  let seenLabelKey: string | null = null;
+  for (let i = bubbles.length - 1; i >= 0; i -= 1) {
+    if (!bubbles[i].mine) continue;
+    if (bubbles[i].seen) seenLabelKey = bubbles[i].key;
+    break;
+  }
 
   const threadItems: ReactNode[] = [];
   bubbles.forEach((bubble, index) => {
@@ -981,12 +1356,23 @@ export function DirectMessagesModal({
       );
     }
     const grouped =
-      !newDay && previous.mine === bubble.mine && bubble.ts - previous.ts < GROUP_GAP_MS;
+      !newDay &&
+      previous.mine === bubble.mine &&
+      bubble.ts - previous.ts < GROUP_GAP_MS &&
+      // A reply in the rows restates who wrote it, the way the text room does.
+      !(layout === "rows" && bubble.replyTo);
     threadItems.push(
       <MessageBubble
         key={bubble.key}
         bubble={bubble}
         grouped={grouped}
+        layout={layout}
+        selfId={selfId}
+        otherName={active?.displayName ?? t("common.someone")}
+        pickerFor={pickerFor}
+        showSeenLabel={layout === "rows" && bubble.key === seenLabelKey}
+        onPicker={setPickerFor}
+        onReact={(target, value) => void toggleReaction(target, value)}
         onReply={(target) => {
           if (!activeId) return;
           setReply({ userId: activeId, value: target });
@@ -1003,429 +1389,567 @@ export function DirectMessagesModal({
       />
     );
   });
+  // The rows say it in a line above the box instead (see threadPane).
+  if (otherTyping && active && layout === "bubbles") {
+    threadItems.push(<TypingBubble key="typing" label={formatTypingLabel([active.displayName])} />);
+  }
 
   const canSend = draft.trim().length > 0 || attached.length > 0;
   const iconButton =
     "shrink-0 rounded-full p-2 text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-950 disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50";
+  const headerButton =
+    "shrink-0 rounded-full p-1.5 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-900 dark:hover:text-zinc-100";
 
-  return createPortal(
-    <>
-      <div
-        className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/50 sm:items-center sm:p-4"
-        onPointerDown={handleBackdropPointerDown}
-        onClick={handleBackdropClick}
-      >
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={active ? t("directMessagesModal.conversationWithDisplayname", { displayName: active.displayName }) : t("common.messages")}
-          // Full screen on a phone, where a floating card is mostly margin and
-          // the keyboard would cover half of it; a card from `sm` up.
-          className="flex h-dvh w-full flex-col overflow-hidden bg-white shadow-2xl sm:h-[min(44rem,88dvh)] sm:max-w-lg sm:rounded-2xl sm:border sm:border-black/10 dark:bg-zinc-950 sm:dark:border-white/10"
-        >
-          {/* ── Header ── */}
-          <div className="flex shrink-0 items-center gap-2 border-b border-zinc-200 px-3 py-2.5 dark:border-zinc-800">
-            {activeId && (
-              <button
-                type="button"
-                onClick={backToList}
-                aria-label={t("directMessagesModal.backToTheConversations")}
-                title={t("common.back")}
-                className="rounded-full p-1.5 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
-              >
-                <MdArrowBack className="h-5 w-5" />
-              </button>
-            )}
-            {activeId && active ? (
-              <div className="flex min-w-0 flex-1 items-center gap-2.5">
-                <UserAvatar
-                  src={active.avatarUrl}
-                  name={active.displayName}
-                  size={34}
-                  userId={active.id}
-                  className="shrink-0"
-                />
-                <div className="min-w-0">
-                  <DisplayUserName
-                    name={active.displayName}
-                    verified={verifiedBadge(active.flags)}
-                    bot={active.bot}
-                    color={active.nameColor ?? null}
-                    className="block truncate text-sm font-semibold text-zinc-950 dark:text-zinc-50"
-                  />
-                  <span className="block truncate text-[11px] text-zinc-500 dark:text-zinc-400">
-                    {presence ? presenceLabel(presence) : `@${active.username}`}
-                  </span>
-                </div>
-              </div>
-            ) : (
-              <h2 className="flex-1 truncate px-1 text-base font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-                {activeId ? t("common.loading") : t("common.messages")}
-              </h2>
-            )}
-            {/* Only inside a thread, and only once we know who it is with.
-                The window stays open on purpose — the ringing screen (see
-                components/CallHost) draws above it, and closing this would
-                throw away the conversation the call came out of. */}
-            {activeId && active && (
-              <button
-                type="button"
-                onClick={() => void startCall(activeId)}
-                aria-label={t("common.callDisplayname", { displayName: active.displayName })}
-                title={t("common.callDisplayname", { displayName: active.displayName })}
-                className="rounded-full p-1.5 text-emerald-600 transition hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
-              >
-                <MdCall className="h-5 w-5" />
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={close}
-              aria-label={t("common.close")}
-              title={t("common.close")}
-              className="rounded-full p-1.5 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
+  // ── Header pieces ──
+
+  const readReceiptsOn = myReadReceipts ?? true;
+  const settingsButton = (
+    <Popover
+      open={settingsOpen}
+      onClose={() => setSettingsOpen(false)}
+      placement="bottom-end"
+      tooltip={t("directMessagesModal.settings")}
+      content={
+        <div className="w-72 max-w-[calc(100vw-1.5rem)] rounded-xl border border-zinc-200 bg-white p-2 shadow-2xl dark:border-zinc-800 dark:bg-zinc-950">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={readReceiptsOn}
+            disabled={myReadReceipts === null}
+            onClick={() => void toggleReadReceipts()}
+            className="flex w-full cursor-pointer items-start gap-3 rounded-lg p-2 text-left transition hover:bg-zinc-100 disabled:cursor-wait disabled:opacity-60 dark:hover:bg-zinc-900"
+          >
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                {t("directMessagesModal.readReceipts")}
+              </span>
+              <span className="mt-0.5 block text-xs leading-snug text-zinc-500 dark:text-zinc-400">
+                {t("directMessagesModal.readReceiptsHint")}
+              </span>
+            </span>
+            <span
+              aria-hidden
+              className={`relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition-colors ${
+                readReceiptsOn ? "bg-emerald-500" : "bg-zinc-300 dark:bg-zinc-700"
+              }`}
             >
-              <MdClose className="h-5 w-5" />
-            </button>
-          </div>
+              <span
+                className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                  readReceiptsOn ? "translate-x-4" : "translate-x-0"
+                }`}
+              />
+            </span>
+          </button>
+          {settingsFailed && (
+            <p className="px-2 pb-1 text-xs text-red-600 dark:text-red-400">{t("common.couldNotSave")}</p>
+          )}
+        </div>
+      }
+    >
+      <button
+        type="button"
+        onClick={() => {
+          setSettingsFailed(false);
+          setSettingsOpen((current) => !current);
+        }}
+        aria-label={t("directMessagesModal.settings")}
+        className={headerButton}
+      >
+        <MdSettings className="h-5 w-5" />
+      </button>
+    </Popover>
+  );
 
-          {!activeId ? (
-            // ── The list ──
-            <div className="flex-1 overflow-y-auto overscroll-contain">
-              {liveConversations === null ? (
-                listFailed ? (
-                  <div className="flex flex-col items-center gap-2 px-6 py-12 text-center">
-                    <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                      {t("directMessagesModal.couldNotLoadTheConversations")}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setListSeq((n) => n + 1)}
-                      className="text-sm font-medium text-zinc-900 underline underline-offset-2 dark:text-zinc-100"
-                    >
-                      {t("common.tryAgain2")}
-                    </button>
-                  </div>
-                ) : (
-                  <ListSkeleton />
-                )
-              ) : liveConversations.length === 0 ? (
-                <p className="px-6 py-12 text-center text-sm text-zinc-500 dark:text-zinc-400">
-                  {t("directMessagesModal.noConversationYetOpenSomeoneS")}
-                </p>
-              ) : (
-                <ul className="flex flex-col gap-0.5 p-2">
-                  {liveConversations.map((conversation) => {
-                    const { user, lastMessage, unread } = conversation;
-                    const mine = lastMessage.from === account?.id;
-                    const line = summary(lastMessage);
-                    return (
-                      <li key={user.id}>
-                        <button
-                          type="button"
-                          onClick={() => openDirectMessages(user.id)}
-                          className="flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition hover:bg-zinc-100 dark:hover:bg-zinc-900"
-                        >
-                          <UserAvatar
-                            src={user.avatarUrl}
-                            name={user.displayName}
-                            size={40}
-                            userId={user.id}
-                            className="shrink-0"
-                          />
-                          <span className="min-w-0 flex-1">
-                            <span className="flex items-baseline gap-2">
-                              <DisplayUserName
-                                name={user.displayName}
-                                verified={verifiedBadge(user.flags)}
-                                bot={user.bot}
-                                color={user.nameColor ?? null}
-                                className={`min-w-0 flex-1 truncate text-sm text-zinc-900 dark:text-zinc-100 ${
-                                  unread > 0 ? "font-semibold" : "font-medium"
-                                }`}
-                              />
-                              <span
-                                className={`shrink-0 text-[11px] ${
-                                  unread > 0
-                                    ? "font-semibold text-emerald-600 dark:text-emerald-400"
-                                    : "text-zinc-400"
-                                }`}
-                              >
-                                {listTimeLabel(lastMessage.ts, now)}
-                              </span>
-                            </span>
-                            <span className="mt-0.5 flex items-center gap-2">
-                              <span
-                                className={`min-w-0 flex-1 truncate text-xs ${
-                                  unread > 0
-                                    ? "font-medium text-zinc-800 dark:text-zinc-200"
-                                    : "text-zinc-500 dark:text-zinc-400"
-                                }`}
-                              >
-                                {mine ? t("directMessagesModal.youLine", { line }) : line}
-                              </span>
-                              {unread > 0 && (
-                                <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500 px-1.5 text-[11px] font-semibold text-white">
-                                  {unread > 99 ? "99+" : unread}
-                                </span>
-                              )}
-                            </span>
-                          </span>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
+  const expandButton = wide && (
+    <button
+      type="button"
+      onClick={() => setDirectMessagesExpanded(!expanded)}
+      aria-label={expanded ? t("directMessagesModal.collapse") : t("directMessagesModal.expand")}
+      title={expanded ? t("directMessagesModal.collapse") : t("directMessagesModal.expand")}
+      className={headerButton}
+    >
+      {expanded ? <MdCloseFullscreen className="h-5 w-5" /> : <MdOpenInFull className="h-[1.1rem] w-[1.1rem]" />}
+    </button>
+  );
+
+  const closeButton = (
+    <button type="button" onClick={close} aria-label={t("common.close")} title={t("common.close")} className={headerButton}>
+      <MdClose className="h-5 w-5" />
+    </button>
+  );
+
+  const threadIdentity =
+    activeId && active ? (
+      <div className="flex min-w-0 flex-1 items-center gap-2.5">
+        <UserAvatar src={active.avatarUrl} name={active.displayName} size={34} userId={active.id} className="shrink-0" />
+        <div className="min-w-0">
+          <DisplayUserName
+            name={active.displayName}
+            verified={verifiedBadge(active.flags)}
+            bot={active.bot}
+            color={active.nameColor ?? null}
+            className="block truncate text-sm font-semibold text-zinc-950 dark:text-zinc-50"
+          />
+          {otherTyping ? (
+            <span className="block truncate text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+              {t("directMessagesModal.typing")}
+            </span>
           ) : (
-            // ── One thread ──
-            <>
-              <div className="relative min-h-0 flex-1">
-                <div
-                  ref={scrollRef}
-                  onScroll={handleScroll}
-                  // Anchoring off: this component keeps the reading position
-                  // itself when history goes in above, and the browser doing
-                  // it too would move the line twice.
-                  className="h-full overflow-y-auto overscroll-contain px-3 py-3 [overflow-anchor:none]"
-                >
-                  {!loaded ? (
-                    threadFailed === activeId ? (
-                      <div className="flex flex-col items-center gap-2 py-12 text-center">
-                        <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                          {t("directMessagesModal.couldNotOpenTheConversation")}
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => setThreadSeq((n) => n + 1)}
-                          className="text-sm font-medium text-zinc-900 underline underline-offset-2 dark:text-zinc-100"
-                        >
-                          {t("common.tryAgain2")}
-                        </button>
-                      </div>
-                    ) : (
-                      <ThreadSkeleton />
-                    )
-                  ) : bubbles.length === 0 ? (
-                    <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-                      {active && (
-                        <UserAvatar
-                          src={active.avatarUrl}
-                          name={active.displayName}
-                          size={64}
-                          userId={active.id}
-                        />
-                      )}
-                      <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                        {t("directMessagesModal.sayHiTo")} {active?.displayName ?? "essa pessoa"}.
-                      </p>
-                    </div>
-                  ) : (
-                    <>
-                      {(loaded.hasMore || loadingOlder) && (
-                        <div className="flex justify-center pb-2">
-                          <button
-                            type="button"
-                            onClick={() => void loadOlder()}
-                            disabled={loadingOlder}
-                            className="rounded-full px-3 py-1 text-xs font-medium text-zinc-500 transition hover:bg-zinc-100 disabled:opacity-60 dark:text-zinc-400 dark:hover:bg-zinc-900"
-                          >
-                            {loadingOlder ? t("common.loading") : t("directMessagesModal.loadEarlierMessages")}
-                          </button>
-                        </div>
-                      )}
-                      <ul className="flex flex-col">{threadItems}</ul>
-                    </>
-                  )}
-                </div>
-                {showNewPill && (
-                  <button
-                    type="button"
-                    onClick={jumpToNewest}
-                    className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-zinc-950 px-3 py-1.5 text-xs font-medium text-white shadow-lg transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
-                  >
-                    <MdKeyboardArrowDown className="h-4 w-4" />
-                    {t("directMessagesModal.newMessages")}
-                  </button>
-                )}
-              </div>
-
-              {replyingTo && (
-                <div className="flex shrink-0 items-center gap-2 border-t border-zinc-200 bg-zinc-50 px-3 py-2 text-xs dark:border-zinc-800 dark:bg-zinc-900/50">
-                  <MdReply className="h-4 w-4 shrink-0 text-zinc-500" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-medium text-zinc-700 dark:text-zinc-300">
-                      {t("common.replyingTo")} {replyingTo.name}
-                    </span>
-                    <span className="block truncate text-zinc-500 dark:text-zinc-400">
-                      {replyingTo.text || (replyingTo.kind === "gif" ? "GIF" : t("common.image"))}
-                    </span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setReply(null)}
-                    aria-label={t("common.cancelReply")}
-                    className="shrink-0 rounded-full p-1 text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800"
-                  >
-                    <MdClose className="h-4 w-4" />
-                  </button>
-                </div>
-              )}
-
-              {attached.length > 0 && (
-                // A tray above the box rather than an immediate send, exactly
-                // as the room chat does it: a caption can then be written to
-                // go with the pictures instead of arriving as a second message.
-                <div className="flex shrink-0 gap-2 border-t border-zinc-200 px-3 py-2 dark:border-zinc-800">
-                  {attached.map((dataUrl, index) => (
-                    <span key={`${index}:${dataUrl.slice(-24)}`} className="relative">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={dataUrl} alt={t("common.attachment")} className="h-14 w-14 rounded-lg object-cover" />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          activeId &&
-                          setAttachments({
-                            userId: activeId,
-                            value: attached.filter((_, i) => i !== index),
-                          })
-                        }
-                        aria-label={t("common.removeImage")}
-                        className="absolute -right-1.5 -top-1.5 rounded-full bg-zinc-950 p-0.5 text-white shadow dark:bg-zinc-50 dark:text-zinc-950"
-                      >
-                        <MdClose className="h-3.5 w-3.5" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              {shownError && (
-                <p className="shrink-0 px-4 pt-2 text-xs text-red-600 dark:text-red-400">{shownError}</p>
-              )}
-
-              <form
-                onSubmit={handleSubmit}
-                className="relative flex shrink-0 items-end gap-1 border-t border-zinc-200 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] dark:border-zinc-800"
-              >
-                {emoji.open && (
-                  <EmojiSuggestions
-                    matches={emoji.matches}
-                    highlight={emoji.highlight}
-                    onHighlight={emoji.setHighlight}
-                    onPick={emoji.pick}
-                    className="absolute bottom-full left-2 right-2 mb-1"
-                  />
-                )}
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept={CHAT_IMAGE_ACCEPT}
-                  multiple
-                  hidden
-                  onChange={(e) => {
-                    void handleFiles(e.target.files);
-                    // Reset so picking the same file twice in a row still
-                    // fires a change event.
-                    e.target.value = "";
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => fileRef.current?.click()}
-                  disabled={attached.length >= CHAT_IMAGE_MAX_PER_MESSAGE}
-                  aria-label={t("common.sendImage")}
-                  title={t("common.image")}
-                  className={iconButton}
-                >
-                  <MdImage className="h-5 w-5" />
-                </button>
-                <Popover
-                  open={gifOpen}
-                  onClose={() => setGifOpen(false)}
-                  placement="top-start"
-                  tooltip="GIF"
-                  content={
-                    <div className="w-72 max-w-[calc(100vw-1rem)] rounded-xl border border-zinc-200 bg-white p-2 shadow-2xl dark:border-zinc-800 dark:bg-zinc-950">
-                      <GifPicker
-                        onSelect={(gif) => {
-                          setGifOpen(false);
-                          if (!activeId) return;
-                          // Sent on its own, as the room chat does: a GIF is
-                          // the message, not an attachment to one.
-                          send(activeId, { text: "", url: gif.url, replyTo: replyingTo });
-                          setReply(null);
-                        }}
-                      />
-                    </div>
-                  }
-                >
-                  <button
-                    type="button"
-                    onClick={() => setGifOpen((current) => !current)}
-                    aria-label={t("common.sendGif")}
-                    className={iconButton}
-                  >
-                    <MdGif className="h-5 w-5" />
-                  </button>
-                </Popover>
-                <textarea
-                  ref={composerRef}
-                  rows={1}
-                  value={draft}
-                  onChange={(e) => {
-                    if (!activeId) return;
-                    const { text } = emoji.handleChange(
-                      e.target.value,
-                      e.target.selectionStart ?? e.target.value.length
-                    );
-                    setDrafts((current) => ({ ...current, [activeId]: text }));
-                  }}
-                  onKeyDown={handleComposerKey}
-                  onKeyUp={emoji.sync}
-                  onClick={emoji.sync}
-                  onFocus={emoji.prefetch}
-                  // Only takes over the paste when the clipboard really carries
-                  // an image: a copied <img> from a web page arrives as image
-                  // data *and* HTML, and pasting plain text has to keep working
-                  // untouched. Same rule the room chat uses.
-                  onPaste={(e) => {
-                    const files = Array.from(e.clipboardData?.files ?? []).filter((file) =>
-                      file.type.startsWith("image/")
-                    );
-                    if (files.length === 0) return;
-                    e.preventDefault();
-                    const list = new DataTransfer();
-                    for (const file of files) list.items.add(file);
-                    void handleFiles(list.files);
-                  }}
-                  placeholder={attached.length > 0 ? t("directMessagesModal.captionOptional") : t("directMessagesModal.message")}
-                  maxLength={MAX_LENGTH}
-                  aria-label={t("common.message")}
-                  className="max-h-36 min-h-[2.5rem] min-w-0 flex-1 resize-none rounded-2xl border border-zinc-300 bg-white px-3.5 py-2 text-sm leading-5 text-zinc-950 outline-none transition focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-                />
-                <EmojiPickerButton onPick={emoji.insert} className={iconButton} />
-                <button
-                  type="submit"
-                  disabled={!canSend}
-                  aria-label={t("common.send")}
-                  title={t("directMessagesModal.sendEnter")}
-                  className="shrink-0 rounded-full bg-zinc-950 p-2.5 text-white transition hover:bg-zinc-800 disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
-                >
-                  <MdSend className="h-5 w-5" />
-                </button>
-              </form>
-            </>
+            <span className="block truncate text-[11px] text-zinc-500 dark:text-zinc-400">
+              {presence ? presenceLabel(presence) : `@${active.username}`}
+            </span>
           )}
         </div>
       </div>
+    ) : (
+      <h2 className="flex-1 truncate px-1 text-base font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
+        {activeId ? t("common.loading") : split ? "" : t("common.messages")}
+      </h2>
+    );
+
+  // Only inside a thread, and only once we know who it is with. The window
+  // stays open on purpose — the ringing screen (see components/CallHost) draws
+  // above it, and closing this would throw away the conversation the call came
+  // out of.
+  const callButton = activeId && active && (
+    <button
+      type="button"
+      onClick={() => void startCall(activeId)}
+      aria-label={t("common.callDisplayname", { displayName: active.displayName })}
+      title={t("common.callDisplayname", { displayName: active.displayName })}
+      className="shrink-0 rounded-full p-1.5 text-emerald-600 transition hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
+    >
+      <MdCall className="h-5 w-5" />
+    </button>
+  );
+
+  const headerRow = "flex shrink-0 items-center gap-1.5 border-b border-zinc-200 px-3 py-2.5 dark:border-zinc-800";
+
+  // ── The list ──
+
+  const listPane = (
+    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+      {liveConversations === null ? (
+        listFailed ? (
+          <div className="flex flex-col items-center gap-2 px-6 py-12 text-center">
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+              {t("directMessagesModal.couldNotLoadTheConversations")}
+            </p>
+            <button
+              type="button"
+              onClick={() => setListSeq((n) => n + 1)}
+              className="text-sm font-medium text-zinc-900 underline underline-offset-2 dark:text-zinc-100"
+            >
+              {t("common.tryAgain2")}
+            </button>
+          </div>
+        ) : (
+          <ListSkeleton />
+        )
+      ) : liveConversations.length === 0 ? (
+        <p className="px-6 py-12 text-center text-sm text-zinc-500 dark:text-zinc-400">
+          {t("directMessagesModal.noConversationYetOpenSomeoneS")}
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-0.5 p-2">
+          {liveConversations.map((conversation) => {
+            const { user, lastMessage } = conversation;
+            const selected = split && user.id === activeId;
+            // The open conversation is being read as it is looked at; its
+            // count going to zero is the server's next answer, drawn now.
+            const unread = selected ? 0 : conversation.unread;
+            const mine = lastMessage.from === account?.id;
+            const line = messageSummary(lastMessage);
+            const typing = Boolean(live.typing[user.id]);
+            return (
+              <li key={user.id}>
+                <button
+                  type="button"
+                  onClick={() => openThread(user.id)}
+                  aria-current={selected ? "true" : undefined}
+                  className={`flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition ${
+                    selected ? "bg-zinc-100 dark:bg-zinc-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-900"
+                  }`}
+                >
+                  <UserAvatar src={user.avatarUrl} name={user.displayName} size={40} userId={user.id} className="shrink-0" />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-baseline gap-2">
+                      <DisplayUserName
+                        name={user.displayName}
+                        verified={verifiedBadge(user.flags)}
+                        bot={user.bot}
+                        color={user.nameColor ?? null}
+                        className={`min-w-0 flex-1 truncate text-sm text-zinc-900 dark:text-zinc-100 ${
+                          unread > 0 ? "font-semibold" : "font-medium"
+                        }`}
+                      />
+                      <span
+                        className={`shrink-0 text-[11px] ${
+                          unread > 0 ? "font-semibold text-emerald-600 dark:text-emerald-400" : "text-zinc-400"
+                        }`}
+                      >
+                        {listTimeLabel(lastMessage.ts, now)}
+                      </span>
+                    </span>
+                    <span className="mt-0.5 flex items-center gap-2">
+                      {typing ? (
+                        <span className="min-w-0 flex-1 truncate text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                          {t("directMessagesModal.typing")}
+                        </span>
+                      ) : (
+                        <span
+                          className={`min-w-0 flex-1 truncate text-xs ${
+                            unread > 0
+                              ? "font-medium text-zinc-800 dark:text-zinc-200"
+                              : "text-zinc-500 dark:text-zinc-400"
+                          }`}
+                        >
+                          {mine ? t("directMessagesModal.youLine", { line }) : line}
+                        </span>
+                      )}
+                      {unread > 0 && (
+                        <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500 px-1.5 text-[11px] font-semibold text-white">
+                          {unread > 99 ? "99+" : unread}
+                        </span>
+                      )}
+                    </span>
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+
+  // ── One thread ──
+
+  const threadPane = (
+    <>
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={scrollRef}
+          onScroll={handleScroll}
+          // Anchoring off: this component keeps the reading position itself
+          // when history goes in above, and the browser doing it too would
+          // move the line twice.
+          className={`h-full overflow-y-auto overscroll-contain py-3 [overflow-anchor:none] ${split ? "px-4" : "px-3"}`}
+        >
+          {!loaded ? (
+            threadFailed === activeId ? (
+              <div className="flex flex-col items-center gap-2 py-12 text-center">
+                <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                  {t("directMessagesModal.couldNotOpenTheConversation")}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setThreadSeq((n) => n + 1)}
+                  className="text-sm font-medium text-zinc-900 underline underline-offset-2 dark:text-zinc-100"
+                >
+                  {t("common.tryAgain2")}
+                </button>
+              </div>
+            ) : (
+              <ThreadSkeleton />
+            )
+          ) : bubbles.length === 0 && !otherTyping ? (
+            <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
+              {active && <UserAvatar src={active.avatarUrl} name={active.displayName} size={64} userId={active.id} />}
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                {t("directMessagesModal.sayHiTo")} {active?.displayName ?? "essa pessoa"}.
+              </p>
+            </div>
+          ) : (
+            <>
+              {(loaded.hasMore || loadingOlder) && (
+                <div className="flex justify-center pb-2">
+                  <button
+                    type="button"
+                    onClick={() => void loadOlder()}
+                    disabled={loadingOlder}
+                    className="rounded-full px-3 py-1 text-xs font-medium text-zinc-500 transition hover:bg-zinc-100 disabled:opacity-60 dark:text-zinc-400 dark:hover:bg-zinc-900"
+                  >
+                    {loadingOlder ? t("common.loading") : t("directMessagesModal.loadEarlierMessages")}
+                  </button>
+                </div>
+              )}
+              <ul className="flex flex-col">{threadItems}</ul>
+            </>
+          )}
+        </div>
+        {showNewPill && (
+          <button
+            type="button"
+            onClick={jumpToNewest}
+            className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-zinc-950 px-3 py-1.5 text-xs font-medium text-white shadow-lg transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+          >
+            <MdKeyboardArrowDown className="h-4 w-4" />
+            {t("directMessagesModal.newMessages")}
+          </button>
+        )}
+      </div>
+
+      {split && otherTyping && active && (
+        // The text room's line (see TextChannelView). The bubbles have their
+        // own dots in the thread instead.
+        <p aria-live="polite" className="shrink-0 truncate px-4 pt-1.5 text-xs italic text-zinc-500">
+          {formatTypingLabel([active.displayName])}
+        </p>
+      )}
+
+      {replyingTo && (
+        <div className="flex shrink-0 items-center gap-2 border-t border-zinc-200 bg-zinc-50 px-3 py-2 text-xs dark:border-zinc-800 dark:bg-zinc-900/50">
+          <MdReply className="h-4 w-4 shrink-0 text-zinc-500" />
+          <span className="min-w-0 flex-1">
+            <span className="block font-medium text-zinc-700 dark:text-zinc-300">
+              {t("common.replyingTo")} {replyingTo.name}
+            </span>
+            <span className="block truncate text-zinc-500 dark:text-zinc-400">
+              {replyingTo.text || (replyingTo.kind === "gif" ? "GIF" : t("common.image"))}
+            </span>
+          </span>
+          <button
+            type="button"
+            onClick={() => setReply(null)}
+            aria-label={t("common.cancelReply")}
+            className="shrink-0 rounded-full p-1 text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800"
+          >
+            <MdClose className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {attached.length > 0 && (
+        // A tray above the box rather than an immediate send, exactly as the
+        // room chat does it: a caption can then be written to go with the
+        // pictures instead of arriving as a second message.
+        <div className="flex shrink-0 gap-2 border-t border-zinc-200 px-3 py-2 dark:border-zinc-800">
+          {attached.map((dataUrl, index) => (
+            <span key={`${index}:${dataUrl.slice(-24)}`} className="relative">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={dataUrl} alt={t("common.attachment")} className="h-14 w-14 rounded-lg object-cover" />
+              <button
+                type="button"
+                onClick={() =>
+                  activeId &&
+                  setAttachments({
+                    userId: activeId,
+                    value: attached.filter((_, i) => i !== index),
+                  })
+                }
+                aria-label={t("common.removeImage")}
+                className="absolute -right-1.5 -top-1.5 rounded-full bg-zinc-950 p-0.5 text-white shadow dark:bg-zinc-50 dark:text-zinc-950"
+              >
+                <MdClose className="h-3.5 w-3.5" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {shownError && <p className="shrink-0 px-4 pt-2 text-xs text-red-600 dark:text-red-400">{shownError}</p>}
+
+      <form
+        onSubmit={handleSubmit}
+        className="relative flex shrink-0 items-end gap-1 border-t border-zinc-200 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] dark:border-zinc-800"
+      >
+        {emoji.open && (
+          <EmojiSuggestions
+            matches={emoji.matches}
+            highlight={emoji.highlight}
+            onHighlight={emoji.setHighlight}
+            onPick={emoji.pick}
+            className="absolute bottom-full left-2 right-2 mb-1"
+          />
+        )}
+        <input
+          ref={fileRef}
+          type="file"
+          accept={CHAT_IMAGE_ACCEPT}
+          multiple
+          hidden
+          onChange={(e) => {
+            void handleFiles(e.target.files);
+            // Reset so picking the same file twice in a row still fires a
+            // change event.
+            e.target.value = "";
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          disabled={attached.length >= CHAT_IMAGE_MAX_PER_MESSAGE}
+          aria-label={t("common.sendImage")}
+          title={t("common.image")}
+          className={iconButton}
+        >
+          <MdImage className="h-5 w-5" />
+        </button>
+        <Popover
+          open={gifOpen}
+          onClose={() => setGifOpen(false)}
+          placement="top-start"
+          tooltip="GIF"
+          content={
+            <div className="w-72 max-w-[calc(100vw-1rem)] rounded-xl border border-zinc-200 bg-white p-2 shadow-2xl dark:border-zinc-800 dark:bg-zinc-950">
+              <GifPicker
+                onSelect={(gif) => {
+                  setGifOpen(false);
+                  if (!activeId) return;
+                  // Sent on its own, as the room chat does: a GIF is the
+                  // message, not an attachment to one.
+                  send(activeId, { text: "", url: gif.url, replyTo: replyingTo });
+                  setReply(null);
+                }}
+              />
+            </div>
+          }
+        >
+          <button
+            type="button"
+            onClick={() => setGifOpen((current) => !current)}
+            aria-label={t("common.sendGif")}
+            className={iconButton}
+          >
+            <MdGif className="h-5 w-5" />
+          </button>
+        </Popover>
+        <textarea
+          ref={composerRef}
+          rows={1}
+          value={draft}
+          onChange={(e) => {
+            if (!activeId) return;
+            const { text } = emoji.handleChange(e.target.value, e.target.selectionStart ?? e.target.value.length);
+            setDrafts((current) => ({ ...current, [activeId]: text }));
+            announceTyping(activeId, text);
+          }}
+          onKeyDown={handleComposerKey}
+          onKeyUp={emoji.sync}
+          onClick={emoji.sync}
+          onFocus={emoji.prefetch}
+          // Only takes over the paste when the clipboard really carries an
+          // image: a copied <img> from a web page arrives as image data *and*
+          // HTML, and pasting plain text has to keep working untouched. Same
+          // rule the room chat uses.
+          onPaste={(e) => {
+            const files = Array.from(e.clipboardData?.files ?? []).filter((file) => file.type.startsWith("image/"));
+            if (files.length === 0) return;
+            e.preventDefault();
+            const list = new DataTransfer();
+            for (const file of files) list.items.add(file);
+            void handleFiles(list.files);
+          }}
+          placeholder={attached.length > 0 ? t("directMessagesModal.captionOptional") : t("directMessagesModal.message")}
+          maxLength={MAX_LENGTH}
+          aria-label={t("common.message")}
+          className="max-h-36 min-h-[2.5rem] min-w-0 flex-1 resize-none rounded-2xl border border-zinc-300 bg-white px-3.5 py-2 text-sm leading-5 text-zinc-950 outline-none transition focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+        />
+        <EmojiPickerButton onPick={emoji.insert} className={iconButton} />
+        <button
+          type="submit"
+          disabled={!canSend}
+          aria-label={t("common.send")}
+          title={t("directMessagesModal.sendEnter")}
+          className="shrink-0 rounded-full bg-zinc-950 p-2.5 text-white transition hover:bg-zinc-800 disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+        >
+          <MdSend className="h-5 w-5" />
+        </button>
+      </form>
+    </>
+  );
+
+  const dialogLabel = active
+    ? t("directMessagesModal.conversationWithDisplayname", { displayName: active.displayName })
+    : t("common.messages");
+
+  return createPortal(
+    <>
+      {split ? (
+        // The whole screen, laid out like a group's text room: the
+        // conversations as a column of their own, the thread beside them.
+        <div
+          role={docked ? "region" : "dialog"}
+          aria-modal={docked ? undefined : "true"}
+          aria-label={dialogLabel}
+          className={
+            docked
+              ? "flex min-h-0 min-w-0 flex-1 gap-3"
+              : "fixed inset-0 z-50 flex gap-3 bg-zinc-50 p-3 dark:bg-black"
+          }
+        >
+          <aside className="flex w-80 shrink-0 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white lg:w-[22rem] dark:border-zinc-800 dark:bg-zinc-950">
+            <div className={headerRow}>
+              <MdChatBubbleOutline className="ml-1 h-5 w-5 shrink-0 text-zinc-500" />
+              <h2 className="flex-1 truncate px-1 text-base font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
+                {t("common.messages")}
+              </h2>
+              {settingsButton}
+            </div>
+            {listPane}
+          </aside>
+          <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+            <div className={headerRow}>
+              {threadIdentity}
+              {callButton}
+              {expandButton}
+              {closeButton}
+            </div>
+            {activeId ? (
+              threadPane
+            ) : (
+              <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+                <span className="flex h-14 w-14 items-center justify-center rounded-full bg-zinc-100 text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
+                  <MdChatBubbleOutline className="h-7 w-7" />
+                </span>
+                <p className="text-sm text-zinc-500 dark:text-zinc-400">{t("directMessagesModal.pickAConversation")}</p>
+              </div>
+            )}
+          </section>
+        </div>
+      ) : (
+        <div
+          className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/50 sm:items-center sm:p-4"
+          onPointerDown={handleBackdropPointerDown}
+          onClick={handleBackdropClick}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={dialogLabel}
+            // Full screen on a phone, where a floating card is mostly margin and
+            // the keyboard would cover half of it; a card from `sm` up.
+            className="flex h-dvh w-full flex-col overflow-hidden bg-white shadow-2xl sm:h-[min(52rem,90dvh)] sm:max-w-xl sm:rounded-2xl sm:border sm:border-black/10 dark:bg-zinc-950 sm:dark:border-white/10"
+          >
+            <div className={headerRow}>
+              {activeId && (
+                <button
+                  type="button"
+                  onClick={backToList}
+                  aria-label={t("directMessagesModal.backToTheConversations")}
+                  title={t("common.back")}
+                  className={headerButton}
+                >
+                  <MdArrowBack className="h-5 w-5" />
+                </button>
+              )}
+              {threadIdentity}
+              {callButton}
+              {!activeId && settingsButton}
+              {expandButton}
+              {closeButton}
+            </div>
+            {listVisible ? listPane : threadPane}
+          </div>
+        </div>
+      )}
       {/* Outside the backdrop, not inside it. React delivers a click inside a
           portal to the portal's parents in the component tree, so while this
           lived in the backdrop every click on the enlarged picture — including
           the one that closes it — also closed the whole conversation. */}
       <ChatImageModal preview={imageModalPreview} onClose={() => setImageModalPreview(null)} />
     </>,
-    document.body
+    docked && outlet ? outlet : document.body
   );
 }

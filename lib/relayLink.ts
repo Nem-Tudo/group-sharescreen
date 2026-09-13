@@ -28,6 +28,7 @@ import {
   type DegradationMode,
 } from "./peerQualityController";
 import { applyVideoCodecPreferences } from "./videoCodecPreferences";
+import { connectionRegistry } from "./connectionRegistry";
 import { tierSpec, type QualityTier } from "./videoQuality";
 
 // On by default — but the planner (see useMeshTopology's
@@ -255,6 +256,16 @@ export class RelayLink {
     };
 
     this.children.set(peerId, { pc, tier, restartIce, connectTimer: null });
+    // So a child's stats panel can get the sender half from us, and our own
+    // re-encodes show up in telemetry marked as relayed.
+    connectionRegistry.register({
+      channel: "screen",
+      direction: "send",
+      peerId,
+      originId: this.originId,
+      viaRelay: true,
+      pc,
+    });
     armConnectTimeout(CHILD_CONNECT_TIMEOUT_MS);
 
     for (const track of this.stream.getTracks()) {
@@ -398,6 +409,7 @@ export class RelayLink {
     if (existing.connectTimer) clearTimeout(existing.connectTimer);
     existing.pc.close();
     this.children.delete(peerId);
+    connectionRegistry.unregister(existing.pc);
     this.quality.remove(peerId);
     this.openChild(peerId, tier);
   }
@@ -442,6 +454,7 @@ export class RelayLink {
     if (entry.connectTimer) clearTimeout(entry.connectTimer);
     entry.pc.close();
     this.children.delete(peerId);
+    connectionRegistry.unregister(entry.pc);
     this.quality.remove(peerId);
     // A relay with no children forwards nothing, so there is nothing left to
     // watch for stalls. Worth stopping now that "no children" is an ordinary

@@ -64,6 +64,9 @@ import {
   type DegradationMode,
 } from "./peerQualityController";
 import { qualityNegotiator, type QualityChannel } from "./qualityNegotiation";
+import { connectionRegistry } from "./connectionRegistry";
+import { connectionDiagLink } from "./connectionDiagLink";
+import { startConnectionTelemetry } from "./connectionTelemetry";
 import { useMeshCapacity, useMeshTopology, type PeerCapacity } from "./useMeshTopology";
 import { RelayManager, RELAY_ENABLED, type RelayChild } from "./relayLink";
 import {
@@ -107,6 +110,8 @@ type SignalData = {
   // "reconnect-request" is a viewer telling us our sendPC to them is dead on
   // their end, even if it looks fine on ours — see requestReconnect's doc
   // comment.
+  // "diag-request" / "diag" carry the sender's half of a connection report to
+  // a viewer with the stats panel open (see connectionDiagLink.ts).
   kind?:
     | "offer"
     | "answer"
@@ -118,7 +123,11 @@ type SignalData = {
     | "capacity"
     | "relay-assign"
     | "relay-nack"
-    | "reconnect-request";
+    | "reconnect-request"
+    | "diag-request"
+    | "diag";
+  // Present only on "diag". Shape-checked by connectionDiagLink before use.
+  diag?: unknown;
   sdp?: RTCSessionDescriptionInit;
   // Set on an offer that renegotiates an *existing* connection with fresh ICE
   // credentials rather than opening a new session (see openSendPC's
@@ -924,6 +933,7 @@ function useBroadcastChannel(
     if (pc) {
       pc.close();
       sendPCs.current.delete(peerId);
+      if (channel !== "mic") connectionRegistry.unregister(pc);
     }
     // Drops this peer's controller and unregisters it from the stats pump.
     // The requested tier deliberately survives in requestedTiers: a reconnect
@@ -935,7 +945,7 @@ function useBroadcastChannel(
     const connectTimeout = connectTimeouts.current.get(peerId);
     if (connectTimeout) clearTimeout(connectTimeout);
     connectTimeouts.current.delete(peerId);
-  }, []);
+  }, [channel]);
 
 
   const closeRecvPC = useCallback(
@@ -949,6 +959,7 @@ function useBroadcastChannel(
       if (pc) {
         pc.close();
         recvPCs.current.delete(peerId);
+        if (channel !== "mic") connectionRegistry.unregister(pc);
       }
       pendingRecvCandidates.current.delete(peerId);
       const recovery = recvRecoveryTimers.current.get(peerId);
@@ -988,7 +999,7 @@ function useBroadcastChannel(
         return next;
       });
     },
-    [removeRemoteStream]
+    [channel, removeRemoteStream]
   );
 
   // Called when a peer is genuinely gone (left the room, or stopped sharing
@@ -1137,6 +1148,16 @@ function useBroadcastChannel(
       const stream = localStreamRef.current;
       const pc = new RTCPeerConnection(iceConfigFor(forceRelayIceRef.current));
       sendPCs.current.set(peerId, pc);
+      if (channel !== "mic") {
+        connectionRegistry.register({
+          channel,
+          direction: "send",
+          peerId,
+          originId: null,
+          viaRelay: false,
+          pc,
+        });
+      }
       stream.getTracks().forEach((track) => {
         const sender = pc.addTrack(track, stream);
         if (track.kind === "video") {
@@ -1652,6 +1673,7 @@ function useBroadcastChannel(
     for (const [peerId, pc] of sendPCs.current) {
       signalingClient.sendSignal(peerId, { channel, role: "broadcaster", kind: "stop" });
       pc.close();
+      if (channel !== "mic") connectionRegistry.unregister(pc);
     }
     sendPCs.current.clear();
     // A brand-new share later starts clean — mirrors the viewer side, which
@@ -1769,6 +1791,16 @@ function useBroadcastChannel(
       const pc = new RTCPeerConnection(iceConfigFor(forceRelayIceRef.current));
       recvPCs.current.set(peerId, pc);
       recvOrigins.current.set(peerId, originId);
+      if (channel !== "mic") {
+        connectionRegistry.register({
+          channel,
+          direction: "recv",
+          peerId,
+          originId,
+          viaRelay: originId !== peerId,
+          pc,
+        });
+      }
       setRecvConnectionStates((prev) => ({ ...prev, [originId]: pc.connectionState }));
       pc.ontrack = (e) => {
         // Smooth out network jitter for viewers with fluctuating or high-latency
@@ -2008,8 +2040,27 @@ function useBroadcastChannel(
           // back" to, so this fully clears the tile rather than leaving a
           // stopped-by-us placeholder behind.
           closeRecvPCFully(from);
+        } else if (data.kind === "diag") {
+          if (channel !== "mic") connectionDiagLink.accept(channel, from, data.originId, data.diag);
         }
       } else if (data.role === "viewer") {
+        if (data.kind === "diag-request") {
+          // Answered by whoever holds the sending end — us as the broadcaster,
+          // or us as a relay for one of our children; connectionDiagLink finds
+          // the connection either way and ignores anyone we do not send to.
+          if (channel === "mic") return;
+          connectionDiagLink.respond(channel, from, data.originId, () => {
+            const preset = videoQualityRef.current;
+            return {
+              tier: tierForPeer(from),
+              profile: degradationModeRef.current,
+              height: preset?.height,
+              frameRate: preset?.frameRate,
+              maxBitrateKbps: preset?.maxBitrateKbps,
+            };
+          });
+          return;
+        }
         if (data.kind === "relay-assign") {
           // The broadcaster has asked us to forward their stream onward. We
           // can only do that if we are actually receiving it — if the source
@@ -2393,14 +2444,17 @@ function useBroadcastChannel(
       // that no longer exists and send a "resume" into it.
       for (const timer of watchdogs.values()) clearTimeout(timer);
       watchdogs.clear();
-      for (const pc of pcs.values()) pc.close();
+      for (const pc of pcs.values()) {
+        pc.close();
+        if (channel !== "mic") connectionRegistry.unregister(pc);
+      }
       pcs.clear();
       setRemoteStreams({});
       setStoppedPeers(new Set());
       setResumingPeers(new Set());
       pausedPeers.clear();
     };
-  }, [room, stop]);
+  }, [room, stop, channel]);
 
   return {
     active,
@@ -2542,6 +2596,11 @@ export function useScreenShareMode() {
 
 export function useRoomMedia(room: string) {
   const t = useT();
+  // Per-session connection-quality reports (see connectionTelemetry.ts).
+  // Process-wide and idempotent, so mounting a second room is harmless.
+  useEffect(() => {
+    startConnectionTelemetry();
+  }, []);
   // "Impedir conexões diretas": forces every peer connection this client
   // creates — sending or receiving, any channel — through the TURN relay
   // instead of negotiating a direct P2P path. Declared first because

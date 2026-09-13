@@ -28,6 +28,8 @@ export const selectSocialSeq = (s: SignalingState) => s.socialSeq;
 export const selectAdsterraEnabled = (s: SignalingState) => s.adsterraEnabled;
 export const selectDesktopUpdateSeq = (s: SignalingState) => s.desktopUpdateSeq;
 export const selectRecentDms = (s: SignalingState) => s.recentDms;
+export const selectDmSeq = (s: SignalingState) => s.dmSeq;
+export const selectDmReadSeq = (s: SignalingState) => s.dmReadSeq;
 export const selectLastThemeLike = (s: SignalingState) => s.lastThemeLike;
 export const selectPresence = (s: SignalingState) => s.presence;
 export const selectRoomRemoval = (s: SignalingState) => s.roomRemoval;

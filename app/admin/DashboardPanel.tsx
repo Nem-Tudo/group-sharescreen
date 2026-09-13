@@ -2,6 +2,7 @@
 
 import { StatsOverview } from "./StatsOverview";
 import { StreamStatsPanel } from "./StreamStatsPanel";
+import { ConnectionQualityPanel } from "./ConnectionQualityPanel";
 import { AnnouncementPanel } from "./AnnouncementPanel";
 import { PartnerAdsPanel } from "./PartnerAdsPanel";
 import { AdsterraPanel } from "./AdsterraPanel";
@@ -60,6 +61,15 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     Panel: () => (
       <Group>
         <StreamStatsPanel />
+      </Group>
+    ),
+  },
+  {
+    id: "quality",
+    get label() { return translate("admin.dashboardPanel.connectionQuality"); },
+    Panel: () => (
+      <Group>
+        <ConnectionQualityPanel />
       </Group>
     ),
   },

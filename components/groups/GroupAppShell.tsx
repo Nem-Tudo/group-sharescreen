@@ -7,6 +7,7 @@ import useNtPopups from "ntpopups";
 import { MdHome, MdViewList } from "react-icons/md";
 import { AccountMenu } from "@/components/AccountMenu";
 import { CallOutlet } from "@/components/CallOutlet";
+import { DmRecentStrip } from "@/components/DmRecentStrip";
 import { AccountModal } from "@/components/AccountModal";
 import { NotificationInboxBell } from "@/components/NotificationInboxBell";
 import { MIN_CARD_HEIGHT_PX } from "@/components/PartnerCard";
@@ -34,6 +35,7 @@ import { groupVoiceHandle, parseGroupsPath, type GroupsRoute } from "@/lib/group
 import { prefetchChannel } from "@/lib/groupCache";
 import { GroupShellContext, registerGroupShell, useGroupNavigation } from "@/lib/groupNavigation";
 import { canInChannel } from "@/lib/groupPermissions";
+import { closeDirectMessages, setDirectMessagesOutlet, useDirectMessagesWindow } from "@/lib/dmWindow";
 import {
   getGroupVoiceSession,
   setGroupVoiceSession,
@@ -76,7 +78,8 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   const t = useT();
   // Off the path, never useParams: after a shallow navigation the params still
   // describe whichever page the server last rendered.
-  const route = parseGroupsPath(usePathname());
+  const pathname = usePathname();
+  const route = parseGroupsPath(pathname);
   const groupId = route && route.kind !== "home" ? route.groupId : null;
   const roomId = route?.kind === "room" ? route.roomId : null;
   const navigation = useGroupNavigation();
@@ -111,6 +114,24 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   const [headerRow, setHeaderRow] = useState<HTMLDivElement | null>(null);
   const [headerCenter, setHeaderCenter] = useState<HTMLDivElement | null>(null);
   const [headerRight, setHeaderRight] = useState<HTMLDivElement | null>(null);
+  // Where the private messages draw themselves when expanded — beside the
+  // groups, in place of the group's own columns (see lib/dmWindow's outlet).
+  const [dmSlot, setDmSlot] = useState<HTMLDivElement | null>(null);
+  const dmWindow = useDirectMessagesWindow();
+  const dmDocked = isWide && dmWindow.open && dmWindow.expanded;
+  useEffect(() => {
+    if (!dmSlot) return;
+    setDirectMessagesOutlet(dmSlot);
+    return () => setDirectMessagesOutlet(null, dmSlot);
+  }, [dmSlot]);
+  // Picking a group or a room while the messages are docked is asking to see
+  // it: they close rather than keep covering the page that was just opened.
+  const dockedPath = useRef(pathname);
+  useEffect(() => {
+    if (dockedPath.current === pathname) return;
+    dockedPath.current = pathname;
+    if (dmDocked) closeDirectMessages();
+  }, [pathname, dmDocked]);
 
   // What the call borrows from the group while the group's pages are the ones
   // on screen: this bar's two slots for the room's own controls, and the way
@@ -250,12 +271,20 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
                 </Link>
               </Tooltip>
               <span className="hidden h-6 w-px shrink-0 bg-zinc-200 sm:block dark:bg-zinc-800" />
-              <GroupSwitcher
-                activeGroupId={groupId}
-                fallbackName={detail?.group.name}
-                fallbackIconUrl={detail?.group.iconUrl}
-                fallbackFlags={detail?.group.flags}
-              />
+              {/* From lg up the groups are the column down the left (see
+                  GroupRail), so the switcher would only repeat it: its place
+                  goes to the private conversations. Below lg it is still the
+                  one way between groups. */}
+              {isWide ? (
+                <DmRecentStrip leading compact={headerFit >= 1} />
+              ) : (
+                <GroupSwitcher
+                  activeGroupId={groupId}
+                  fallbackName={detail?.group.name}
+                  fallbackIconUrl={detail?.group.iconUrl}
+                  fallbackFlags={detail?.group.flags}
+                />
+              )}
             </div>
 
             {/* The middle: the call's own controls — mic, sound, screen,
@@ -292,6 +321,9 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
                 </button>
               )}
               {detail && <GroupActions detail={detail} />}
+              {/* Private conversations, as faces. From lg up they sit on the
+                  left instead, where the switcher was. */}
+              {!isWide && <DmRecentStrip />}
               <NotificationInboxBell />
               <AccountMenu />
               <UpdateAppButton />
@@ -317,8 +349,15 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
           {/* Every group, down the left edge — from lg up; below that the
               switcher in the bar is the way between them. */}
           {isWide && <GroupRail activeGroupId={groupId} />}
+          {/* The expanded messages, beside the groups. Always there from lg
+              up — empty and hidden until used — so the window has somewhere
+              to go the moment it expands, with no frame drawn over the whole
+              screen first. The group's own columns step aside meanwhile but
+              stay mounted: the text room keeps its scroll and its draft, and
+              a call its picture. */}
+          {isWide && <div ref={setDmSlot} className={dmDocked ? "flex min-h-0 min-w-0 flex-1" : "hidden"} />}
           {groupId && (
-            <aside className="hidden w-[300px] shrink-0 flex-col gap-3 lg:flex">
+            <aside className={`${dmDocked ? "hidden" : "hidden lg:flex"} w-[300px] shrink-0 flex-col gap-3`}>
               {/* Never shorter than its first five rooms (see GroupRoomsPanel's
                   onMinHeight): the ad under it gives way instead, and scrolls.
                   Down to the floor an ad keeps in any column (PartnerCard's
@@ -349,7 +388,7 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
             </aside>
           )}
 
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <div className={dmDocked ? "hidden" : "flex min-h-0 min-w-0 flex-1 flex-col"}>
             <div className={voiceVisible ? "hidden" : "flex min-h-0 flex-1 flex-col"}>
               {/* Marked as inside the shell, so what it draws navigates shallowly
                   even from an effect that runs before the shell has registered
@@ -372,7 +411,7 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
               the call is on screen: it brings its own column (chat and your
               card), and the people in it are on its room card already. */}
           {groupId && detail && !voiceVisible && (
-            <aside className="hidden w-[300px] shrink-0 flex-col gap-3 lg:flex">
+            <aside className={`${dmDocked ? "hidden" : "hidden lg:flex"} w-[300px] shrink-0 flex-col gap-3`}>
               <div className="flex min-h-0 flex-1 flex-col">
                 <GroupMembersPanel detail={detail} channel={routeChannel?.kind === "text" ? routeChannel : null} />
               </div>

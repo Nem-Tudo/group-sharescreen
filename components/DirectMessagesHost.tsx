@@ -10,8 +10,13 @@ import { closeDirectMessages, useDirectMessagesWindow } from "@/lib/dmWindow";
 // per opener would be several conversations of the same thread, each with its
 // own scroll and its own idea of what has been read.
 export function DirectMessagesHost() {
-  const { open, withUserId } = useDirectMessagesWindow();
+  const { open, withUserId, expanded } = useDirectMessagesWindow();
   return (
-    <DirectMessagesModal open={open} onClose={closeDirectMessages} openWith={withUserId} />
+    <DirectMessagesModal
+      open={open}
+      onClose={closeDirectMessages}
+      openWith={withUserId}
+      expanded={expanded}
+    />
   );
 }

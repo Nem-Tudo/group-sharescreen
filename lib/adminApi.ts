@@ -319,6 +319,77 @@ export async function fetchStreamStats(): Promise<StreamStats> {
   return adminFetch<StreamStats>("/admin/stream-stats");
 }
 
+// Connection-quality telemetry (see lib/connectionTelemetry.ts and the API's
+// connectionQualityRoutes.ts). Every row counts reports as received — i.e.
+// all bad sessions and only a sample of good ones — so a rate read off these
+// has to be corrected for the sample before it means anything; the panel does.
+export type QualityBucket = { key: Record<string, string | boolean | null>; total: number; bad: number };
+
+export type QualityPerson = {
+  userId: string;
+  total: number;
+  bad: number;
+  relayed: number;
+  senderCpu: number;
+  senderBandwidth: number;
+};
+
+export type QualityBadSession = {
+  ts: number;
+  roomId: string;
+  channel: string;
+  direction: "send" | "recv";
+  senderUserId: string | null;
+  receiverUserId: string | null;
+  viaRelay: boolean;
+  durationS: number;
+  routeKind: string;
+  relayProtocol: string | null;
+  codec: string | null;
+  hardware: boolean | null;
+  fpsAvg: number | null;
+  heightAvg: number | null;
+  kbpsAvg: number | null;
+  rttAvgMs: number | null;
+  lossMax: number;
+  cpuLimitedShare: number | null;
+  bandwidthLimitedShare: number | null;
+  freezes: number | null;
+  dropShare: number | null;
+  causes: string[];
+  settings: { resolution: string; fps: number; bitrate: string; profile: string } | null;
+  device: { cores: number | null; memoryGb: number | null; browser: string; app: string };
+};
+
+export type ConnectionQualityOverview = {
+  days: number;
+  since: number;
+  total: number;
+  bad: number;
+  byRoute: QualityBucket[];
+  byRelayProtocol: QualityBucket[];
+  byCodec: QualityBucket[];
+  byEncoder: QualityBucket[];
+  byProfile: QualityBucket[];
+  byApp: QualityBucket[];
+  byBrowser: QualityBucket[];
+  causes: { cause: string; count: number }[];
+  topSenders: QualityPerson[];
+  topReceivers: QualityPerson[];
+  recentBad: QualityBadSession[];
+};
+
+export async function fetchConnectionQuality(filters: {
+  days: number;
+  room?: string;
+  user?: string;
+}): Promise<ConnectionQualityOverview> {
+  const params = new URLSearchParams({ days: String(filters.days) });
+  if (filters.room) params.set("room", filters.room);
+  if (filters.user) params.set("user", filters.user);
+  return adminFetch<ConnectionQualityOverview>(`/admin/connection-quality?${params.toString()}`);
+}
+
 // What a ban is keyed on (see the server's moderationStore.ts). An IP is the
 // weakest of the three — shared behind a CGNAT, and reassigned on its own to
 // anyone on mobile data — which is why an account id and a browser

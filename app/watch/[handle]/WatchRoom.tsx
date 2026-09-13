@@ -91,6 +91,7 @@ import {
   setStoredOpenInAppDismissed,
 } from "@/lib/mediaPreferences";
 import { VideoTile, StoppedPeerTile, ResumingPeerTile } from "@/components/VideoTile";
+import { ViewerConnectionList } from "@/components/ViewerConnectionList";
 import { RemoteAudio } from "@/components/RemoteAudio";
 import { ParticipantRow } from "@/components/ParticipantRow";
 import { countDevicesByOwner, withDeviceSuffix } from "@/lib/displayName";
@@ -587,6 +588,7 @@ function QualityControls({
             {meshTopology.reason && (
               <p className="mt-1 text-zinc-700 dark:text-zinc-300">{meshTopology.reason}</p>
             )}
+            <ViewerConnectionList />
           </div>
         )}
       </div>
@@ -3891,6 +3893,7 @@ export function WatchRoom({
           onRenderedSizeChange={(w, h) => qualityNegotiator.report(slot, peerId, w, h)}
           onVisibilityChange={(visible) => qualityNegotiator.setHidden(slot, peerId, !visible)}
           onStopWatching={() => fileChannels[slot].stopWatchingPeer(peerId)}
+          connectionStats={{ channel: slot, originId: peerId }}
           onDoubleClick={doubleClickFocus ? () => toggleSpotlight(id) : undefined}
           onFocus={() => toggleSpotlight(id)}
           isSpotlighted={spotlightId === id}
@@ -4019,6 +4022,7 @@ export function WatchRoom({
           onRenderedSizeChange={(w, h) => qualityNegotiator.report("screen", peerId, w, h)}
           onVisibilityChange={(visible) => qualityNegotiator.setHidden("screen", peerId, !visible)}
           onStopWatching={() => stopWatchingPeer(peerId)}
+          connectionStats={{ channel: "screen", originId: peerId }}
           onDoubleClick={doubleClickFocus ? () => toggleSpotlight(id) : undefined}
           onFocus={() => toggleSpotlight(id)}
           isSpotlighted={spotlightId === id}
@@ -4066,6 +4070,7 @@ export function WatchRoom({
           onRenderedSizeChange={(w, h) => qualityNegotiator.report("camera", peerId, w, h)}
           onVisibilityChange={(visible) => qualityNegotiator.setHidden("camera", peerId, !visible)}
           onStopWatching={() => stopWatchingCameraPeer(peerId)}
+          connectionStats={{ channel: "camera", originId: peerId }}
           onDoubleClick={doubleClickFocus ? () => toggleSpotlight(id) : undefined}
           onFocus={() => toggleSpotlight(id)}
           isSpotlighted={spotlightId === id}

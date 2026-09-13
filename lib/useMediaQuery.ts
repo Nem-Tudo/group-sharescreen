@@ -48,6 +48,10 @@ export function useMediaQuery(query: string): boolean {
 // layout" split in this app is already keyed to.
 export const SM_BREAKPOINT_QUERY = "(min-width: 40rem)";
 
+// Tailwind's `md` breakpoint — where the conversations window can afford its
+// list and its thread side by side (see DirectMessagesModal's expanded mode).
+export const MD_BREAKPOINT_QUERY = "(min-width: 48rem)";
+
 // Tailwind's `lg` breakpoint — the wider split WatchRoom's participants/chat
 // columns use (see the `lg:` classes there). Needed as a JS boolean, not
 // just `lg:` classes, wherever a breakpoint changes *which* JSX mounts

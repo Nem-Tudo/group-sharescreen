@@ -137,6 +137,32 @@ real, `NEXT_PUBLIC_RELAY_ENABLED=false` desliga o mecanismo por completo.
 Profundidade é limitada a 3 — além disso o planejador **rebaixa qualidade em
 vez de aprofundar**.
 
+## Diagnóstico ("fica ruim só com certas pessoas")
+
+Tudo acima *age* sobre a qualidade e só lê o que precisa para agir. Para
+responder se o problema é a máquina de quem transmite, a rota do par ou o
+servidor TURN, há uma camada que só observa:
+
+| Arquivo | Responsabilidade |
+|---|---|
+| `lib/connectionDiagnostics.ts` | Lê um `getStats()` inteiro: rota (tipo de candidato, TURN/UDP/TCP), encoder/decoder hardware×software, fps, perda, quadros descartados, travadas → causas prováveis. Puro, testado |
+| `lib/connectionRegistry.ts` | Registro global dos PCs de vídeo (envio, recebimento, filhos de relay) para a UI e a telemetria lerem sem props |
+| `lib/connectionDiagLink.ts` | Sinais `diag-request`/`diag`: quem transmite manda a sua metade para o espectador com o painel aberto (lease de 10s, máx. 8 por canal) |
+| `components/ConnectionStatsOverlay.tsx` | Botão "Estatísticas da conexão" no tile remoto |
+| `components/ViewerConnectionList.tsx` | "Por espectador" nas medições de quem transmite |
+| `lib/connectionTelemetry.ts` + `connectionTelemetrySummary.ts` | Um resumo por conexão ao fim da sessão → `POST /telemetry/connection-quality`. Todas as sessões ruins + `NEXT_PUBLIC_QUALITY_TELEMETRY_SAMPLE` das boas |
+| `app/admin/ConnectionQualityPanel.tsx` | Aba "Qualidade": cortes por rota, protocolo do TURN, encoder, codec, perfil, app, navegador, e rankings de pessoas. Taxas corrigidas pela amostragem |
+
+Na API: `connectionQualityReport.ts` (validação, testada),
+`connectionQualityModels.ts` (coleção `connection_quality_reports`, TTL de 14
+dias), `connectionQualityStore.ts` e `connectionQualityRoutes.ts`.
+
+Como ler: se a taxa ruim **via TURN** for muito maior que a das diretas, o
+gargalo é a VPS do TURN. Se as sessões ruins se concentram em poucos
+**transmissores** com causa `sender-cpu`, é a máquina deles (encoder em
+software × um encode por espectador). Se um **espectador** é ruim com todo
+mundo e a causa é `receiver-drops`, é a máquina de quem assiste.
+
 ## Verificar
 
 ```bash

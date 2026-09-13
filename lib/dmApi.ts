@@ -32,6 +32,8 @@ export interface DirectMessage {
   url?: string;
   images?: string[];
   replyTo?: DmReplyTo | null;
+  /** Absent when nobody has reacted. The group chat's shape (see GroupReaction). */
+  reactions?: DmReaction[];
   ts: number;
   /**
    * The label this tab gave a message while it was still sending, echoed back
@@ -41,6 +43,14 @@ export interface DirectMessage {
    */
   clientId?: string;
 }
+
+export interface DmReaction {
+  emoji: string;
+  users: string[];
+}
+
+/** Mirrors the API's DM_MAX_REACTIONS_PER_MESSAGE. */
+export const DM_MAX_REACTIONS_PER_MESSAGE = 12;
 
 export interface Conversation {
   user: SocialUser;
@@ -73,7 +83,7 @@ export async function fetchConversation(
   userId: string,
   before?: number,
   signal?: AbortSignal
-): Promise<{ user: SocialUser; messages: DirectMessage[] } | null> {
+): Promise<{ user: SocialUser; messages: DirectMessage[]; seenTs: number | null } | null> {
   try {
     const query = before ? `?before=${before}` : "";
     const res = await fetch(
@@ -81,7 +91,9 @@ export async function fetchConversation(
       { headers: authHeaders(), signal }
     );
     if (!res.ok) return null;
-    return (await res.json()) as { user: SocialUser; messages: DirectMessage[] };
+    const data = (await res.json()) as { user: SocialUser; messages: DirectMessage[]; seenTs?: number | null };
+    // Absent from an API older than read receipts: nothing is known to be seen.
+    return { ...data, seenTs: typeof data.seenTs === "number" ? data.seenTs : null };
   } catch {
     return null;
   }
@@ -142,4 +154,74 @@ export function markConversationRead(userId: string): void {
     // re-sent the next time the conversation is opened, so there is nothing
     // to report and nothing to retry.
   });
+}
+
+/**
+ * Tells the other person this account is (or stopped) writing to them.
+ * Fire-and-forget, like the group one: a lost signal is a "digitando…" that
+ * shows a moment late or clears on its own (see lib/dmLive's expiry).
+ */
+export function sendDmTyping(userId: string, typing: boolean): void {
+  void fetch(`${getSignalingHttpBase()}/dm/${encodeURIComponent(userId)}/typing`, {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ typing }),
+  }).catch(() => {});
+}
+
+/** Puts this account's `emoji` on a message (`on`) or takes it back. */
+export async function reactToDirectMessage(
+  userId: string,
+  messageId: string,
+  emoji: string,
+  on: boolean
+): Promise<{ ok: true; reactions: DmReaction[] } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(
+      `${getSignalingHttpBase()}/dm/${encodeURIComponent(userId)}/messages/${encodeURIComponent(messageId)}/reactions`,
+      {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ emoji, on }),
+      }
+    );
+    const data = (await res.json().catch(() => ({}))) as { reactions?: DmReaction[]; error?: string };
+    if (!res.ok || !Array.isArray(data.reactions)) {
+      return { ok: false, error: data.error ?? translate("common.couldNotSend") };
+    }
+    return { ok: true, reactions: data.reactions };
+  } catch {
+    return { ok: false, error: translate("common.noConnectionToTheServer") };
+  }
+}
+
+export interface DmSettings {
+  /** Whether "visto" is shared — mutual: off also hides when others read yours. */
+  readReceipts: boolean;
+}
+
+export async function fetchDmSettings(): Promise<DmSettings | null> {
+  try {
+    const res = await fetch(`${getSignalingHttpBase()}/dm/settings`, { headers: authHeaders() });
+    if (!res.ok) return null;
+    const data = (await res.json()) as Partial<DmSettings>;
+    return { readReceipts: data.readReceipts !== false };
+  } catch {
+    return null;
+  }
+}
+
+export async function saveDmSettings(settings: DmSettings): Promise<DmSettings | null> {
+  try {
+    const res = await fetch(`${getSignalingHttpBase()}/dm/settings`, {
+      method: "PUT",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify(settings),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as Partial<DmSettings>;
+    return { readReceipts: data.readReceipts !== false };
+  } catch {
+    return null;
+  }
 }

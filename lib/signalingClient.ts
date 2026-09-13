@@ -781,6 +781,8 @@ type SignalListener = (from: string, data: Record<string, unknown>) => void;
  * each by its `type`.
  */
 export type GroupSocketEvent = { type: string; groupId?: string } & Record<string, unknown>;
+/** "dm-typing", "dm-seen", "dm-reactions", "dm-settings" and a copy of every "dm" — see onDmEvent. */
+export type DmSocketEvent = { type: string } & Record<string, unknown>;
 
 const NAME_STORAGE_KEY = "sharescreen:name";
 // Deliberately sessionStorage, not localStorage: this id is echoed to every
@@ -1170,6 +1172,8 @@ class SignalingClient {
   private focusReportTimer: ReturnType<typeof setTimeout> | null = null;
   // See onGroupEvent.
   private groupEventListeners = new Set<(event: GroupSocketEvent) => void>();
+  // See onDmEvent.
+  private dmEventListeners = new Set<(event: DmSocketEvent) => void>();
 
   state: SignalingState = initialState;
 
@@ -1216,6 +1220,29 @@ class SignalingClient {
     return () => {
       this.groupEventListeners.delete(cb);
     };
+  }
+
+  // The transient side of private messages — typing, "visto", reactions, the
+  // read-receipts switch — handed to lib/dmLive rather than written into
+  // `state`, for the groups' reason: a "digitando" arrives every few seconds
+  // per writer, and nothing but the conversation screens cares. Every "dm" is
+  // copied here too (after `state` has it), so a message landing can clear
+  // its writer's "digitando" at once.
+  onDmEvent(cb: (event: DmSocketEvent) => void) {
+    this.dmEventListeners.add(cb);
+    return () => {
+      this.dmEventListeners.delete(cb);
+    };
+  }
+
+  private emitDmEvent(event: DmSocketEvent) {
+    this.dmEventListeners.forEach((l) => {
+      try {
+        l(event);
+      } catch (err) {
+        console.error("[signaling] dm listener failed:", err);
+      }
+    });
   }
 
   private emitGroupEvent(event: GroupSocketEvent) {
@@ -2030,9 +2057,16 @@ class SignalingClient {
             : this.state.recentDms,
           dmSeq: this.state.dmSeq + 1,
         });
+        this.emitDmEvent(msg as DmSocketEvent);
         break;
       case "dm-read":
         this.setState({ dmReadSeq: this.state.dmReadSeq + 1 });
+        break;
+      case "dm-typing":
+      case "dm-seen":
+      case "dm-reactions":
+      case "dm-settings":
+        this.emitDmEvent(msg as DmSocketEvent);
         break;
       // Groups — handed to their own listeners, never to `state`. See onGroupEvent.
       case "group-message":

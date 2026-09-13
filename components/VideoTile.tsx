@@ -17,7 +17,10 @@ import {
   HeadphonesIcon,
   HeadphonesOffIcon,
   ObsSourceIcon,
+  ChartIcon,
 } from "@/components/icons";
+import { ConnectionStatsOverlay } from "@/components/ConnectionStatsOverlay";
+import type { QualityChannel } from "@/lib/qualityNegotiation";
 import { VolumeSlider } from "@/components/VolumeSlider";
 import { Tooltip } from "@/components/Tooltip";
 import { MAX_GAIN } from "@/lib/audioGain";
@@ -76,6 +79,7 @@ export function VideoTile({
   onToggleMicsMuted,
   transport,
   onTogglePlay,
+  connectionStats,
   badgeClassName = "bg-red-500/90",
   className = "",
 }: {
@@ -170,6 +174,10 @@ export function VideoTile({
   // a local file this viewer may drive (see LocalMediaControls) — never for a
   // live transmission, which has no pause to offer.
   onTogglePlay?: () => void;
+  // Which connection this tile's picture arrives on, for the "Estatísticas da
+  // conexão" panel (see ConnectionStatsOverlay). Only passed for a remote
+  // peer's live transmission — there is no connection behind a local preview.
+  connectionStats?: { channel: QualityChannel; originId: string };
   // The badge's colour. Red by default, which reads as "live" — a video
   // source is not live in that sense and says so in its own colour.
   badgeClassName?: string;
@@ -186,6 +194,7 @@ export function VideoTile({
   // whole screen instead of a permanent button bar across it.
   const [fullscreenControlsVisible, setFullscreenControlsVisible] = useState(false);
   const [isPiP, setIsPiP] = useState(false);
+  const [statsOpen, setStatsOpen] = useState(false);
   // Video keeps showing the last frame's black backdrop until the stream
   // actually has data flowing — surface that gap as a spinner instead of a
   // blank black tile, and reset it whenever the stream is swapped out.
@@ -576,6 +585,13 @@ export function VideoTile({
           {pinchZoom.scale.toFixed(1)}x · redefinir
         </button>
       )}
+      {connectionStats && statsOpen && !compact && (
+        <ConnectionStatsOverlay
+          channel={connectionStats.channel}
+          originId={connectionStats.originId}
+          onClose={() => setStatsOpen(false)}
+        />
+      )}
       {transport && !compact && (
         <div className="absolute inset-x-0 bottom-0 z-10 bg-linear-to-t from-black/90 via-black/80 to-transparent pt-6">
           {transport}
@@ -770,6 +786,21 @@ export function VideoTile({
               }`}
             >
               <ObsSourceIcon className="h-5 w-5" />
+            </button>
+          </Tooltip>
+        )}
+        {connectionStats && (
+          <Tooltip content={t("connectionStats.open")}>
+            <button
+              type="button"
+              onClick={() => setStatsOpen((open) => !open)}
+              aria-label={t("connectionStats.open")}
+              aria-pressed={statsOpen}
+              className={`rounded-full p-2 text-white active:bg-black/80 ${
+                statsOpen ? "bg-emerald-600 hover:bg-emerald-700" : "bg-black/60 hover:bg-black/80"
+              }`}
+            >
+              <ChartIcon className="h-5 w-5" />
             </button>
           </Tooltip>
         )}

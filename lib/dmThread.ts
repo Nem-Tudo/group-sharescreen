@@ -1,4 +1,5 @@
-import type { Conversation, DirectMessage } from "./dmApi";
+import type { Conversation, DirectMessage, DmReaction } from "./dmApi";
+import { translate } from "./i18n";
 
 // The arithmetic of one conversation on screen, kept apart from the dialog
 // that draws it (components/DirectMessagesModal).
@@ -154,4 +155,67 @@ export function createSendQueue(): (task: () => Promise<void>) => Promise<void> 
     tail = run.catch(() => {});
     return run;
   };
+}
+
+/**
+ * A message's reactions: the newest of what its page said and what was heard
+ * since (see lib/dmLive). An update heard *before* the page was read is older
+ * than the page, and loses to it.
+ */
+export function reactionsFor(
+  message: Pick<DirectMessage, "id" | "reactions">,
+  updates: Readonly<Record<string, { reactions: DmReaction[]; at: number }>>,
+  pageReadAt: number
+): DmReaction[] {
+  const update = updates[message.id];
+  if (update && update.at >= pageReadAt) return update.reactions;
+  return message.reactions ?? [];
+}
+
+/**
+ * How far the other person has read, as far as this screen may say: the later
+ * of what the page said and what arrived live — and nothing at all while this
+ * account has "visto" switched off, which is the mutual half of that switch.
+ */
+export function seenThrough(
+  pageSeenTs: number | null,
+  liveSeenTs: number | undefined,
+  readReceipts: boolean | null
+): number | null {
+  if (readReceipts === false) return null;
+  const best = Math.max(pageSeenTs ?? 0, liveSeenTs ?? 0);
+  return best > 0 ? best : null;
+}
+
+/**
+ * The newest delivery that is *not* part of the open conversation, by id —
+ * what the conversation list re-reads on. The open thread's own traffic
+ * changes nothing the list can only learn from the server (its unread count
+ * is being cleared by reading it), and re-reading on each of those was a pair
+ * of aggregations per message.
+ */
+export function newestOutside(
+  live: readonly DirectMessage[],
+  me: string,
+  openWith: string | null
+): string | null {
+  for (let i = live.length - 1; i >= 0; i -= 1) {
+    const message = live[i];
+    const other = message.from === me ? message.to : message.from;
+    if (other !== openWith) return message.id;
+  }
+  return null;
+}
+
+/**
+ * What a message says in one line. A picture or a GIF has no text of its own,
+ * and the old list drew an empty line under the name for both.
+ */
+export function messageSummary(message: Pick<DirectMessage, "text" | "kind" | "images">): string {
+  if (message.text) return message.text;
+  if (message.kind === "gif") return "GIF";
+  const count = message.images?.length ?? 0;
+  if (count > 1) return `${count} imagens`;
+  if (count === 1 || message.kind === "image") return translate("common.image");
+  return "";
 }

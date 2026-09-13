@@ -6,6 +6,9 @@ import {
   liveConversationList,
   mayHaveMore,
   newestFrom,
+  newestOutside,
+  reactionsFor,
+  seenThrough,
   threadMessages,
   unconfirmed,
   withConfirmed,
@@ -177,4 +180,36 @@ test("one failed send does not stop the ones after it", async () => {
   await assert.rejects(failing);
   await next;
   assert.deepEqual(order, ["next"]);
+});
+
+test("a reaction heard after the page was read wins over the page", () => {
+  const message = { id: "m1", reactions: [{ emoji: "👍", users: [ANA] }] };
+  const updates = { m1: { reactions: [{ emoji: "❤️", users: [ME] }], at: 200 } };
+  assert.deepEqual(reactionsFor(message, updates, 100), updates.m1.reactions);
+});
+
+test("a reaction heard before the page was read loses to the page", () => {
+  const message = { id: "m1", reactions: [{ emoji: "👍", users: [ANA] }] };
+  const updates = { m1: { reactions: [], at: 50 } };
+  assert.deepEqual(reactionsFor(message, updates, 100), message.reactions);
+  assert.deepEqual(reactionsFor({ id: "m2" }, updates, 100), []);
+});
+
+test("seen is the later of the page and the live nudge", () => {
+  assert.equal(seenThrough(100, 300, true), 300);
+  assert.equal(seenThrough(500, 300, null), 500);
+  assert.equal(seenThrough(null, undefined, true), null);
+});
+
+test("seen is never shown while this account has read receipts off", () => {
+  assert.equal(seenThrough(500, 900, false), null);
+});
+
+test("the list re-reads on traffic outside the open thread only", () => {
+  const fromOpen = msg(ANA, ME, 100);
+  const toOpen = msg(ME, ANA, 110);
+  const other = msg(BIA, ME, 90);
+  assert.equal(newestOutside([other, fromOpen, toOpen], ME, ANA), other.id);
+  assert.equal(newestOutside([fromOpen, toOpen], ME, ANA), null);
+  assert.equal(newestOutside([other, fromOpen], ME, null), fromOpen.id);
 });
