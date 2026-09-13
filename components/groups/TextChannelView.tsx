@@ -17,6 +17,7 @@ import {
   MdClose,
   MdContentCopy,
   MdDeleteOutline,
+  MdEmojiEmotions,
   MdLink,
   MdOpenInNew,
   MdOutlineAddReaction,
@@ -37,6 +38,7 @@ import {
 } from "@/components/groups/GroupMessageComposer";
 import { clickPerson, contextPerson } from "@/components/groups/groupProfile";
 import { QUICK_REACTIONS, ReactionPicker } from "@/components/groups/ReactionPicker";
+import { ReactionsDialog } from "@/components/groups/ReactionsDialog";
 import { useOpenChannelSettings } from "@/components/groups/ChannelSettingsDialog";
 import { copyText } from "@/lib/clipboard";
 import { openContextMenu } from "@/lib/contextMenu";
@@ -228,6 +230,8 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
   // has two ways in (its hover actions and the "+" at the end of its
   // reactions), and only the one clicked opens.
   const [pickerFor, setPickerFor] = useState<string | null>(null);
+  // "Ver reações" — which message, opened on which emoji (null for its first).
+  const [reactionsView, setReactionsView] = useState<{ messageId: string; emoji: string | null } | null>(null);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const atBottomRef = useRef(true);
@@ -992,6 +996,12 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
           // invisible) whether or not the pointer is over it.
           onSelect: () => requestAnimationFrame(() => setPickerFor(`${message.id}:actions`)),
         },
+        !outgoing &&
+          (message.reactions?.length ?? 0) > 0 && {
+            label: t("groups.reactionsDialog.viewReactions"),
+            icon: <MdEmojiEmotions className="h-4 w-4" />,
+            onSelect: () => setReactionsView({ messageId: message.id, emoji: null }),
+          },
         !outgoing && {
           label: t("common.reply"),
           icon: <MdReply className="h-4 w-4" />,
@@ -1326,6 +1336,24 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
                         disabled={!allowed}
                         aria-pressed={mine}
                         onClick={() => void toggleReaction(message, reaction.emoji)}
+                        onContextMenu={(e) =>
+                          openContextMenu(e, {
+                            entries: [
+                              {
+                                label: t("groups.reactionsDialog.viewReactions"),
+                                icon: <MdEmojiEmotions className="h-4 w-4" />,
+                                onSelect: () => setReactionsView({ messageId: message.id, emoji: reaction.emoji }),
+                              },
+                              allowed && {
+                                label: mine
+                                  ? t("groups.reactionsDialog.removeMine")
+                                  : t("groups.reactionsDialog.addMine"),
+                                icon: <Twemoji emoji={reaction.emoji} size={16} />,
+                                onSelect: () => void toggleReaction(message, reaction.emoji),
+                              },
+                            ],
+                          })
+                        }
                         title={describeReaction(reaction, reactorName)}
                         className={`${reactionChip} ${mine ? reactionChipMine : reactionChipIdle} ${
                           !allowed
@@ -1472,6 +1500,24 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
       )}
 
       <ChatImageModal preview={preview} onClose={() => setPreview(null)} />
+
+      {reactionsView &&
+        (() => {
+          // Drawn from the message as the room holds it, so the counts move
+          // live; a message deleted meanwhile takes the dialog with it.
+          const viewed = messages?.find((m) => m.id === reactionsView.messageId);
+          if (!viewed) return null;
+          return (
+            <ReactionsDialog
+              detail={detail}
+              channelId={channelId}
+              messageId={viewed.id}
+              reactions={viewed.reactions ?? []}
+              initialEmoji={reactionsView.emoji}
+              onClose={() => setReactionsView(null)}
+            />
+          );
+        })()}
     </div>
   );
 }

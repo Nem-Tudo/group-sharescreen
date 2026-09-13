@@ -637,6 +637,43 @@ export const reactToGroupMessage = (groupId: string, channelId: string, messageI
     { emoji, on }
   );
 
+/** How the "Ver reações" list is ordered — see the API's reactionPaging. */
+export type ReactionSort = "recent" | "oldest" | "name";
+
+/**
+ * Who reacted to a message with one emoji, a page at a time (50 by default):
+ * `after` is the last person of the page before, `q` narrows it to names
+ * containing it. `total` is how many match, not how many this page holds.
+ */
+export const fetchReactionUsers = (
+  groupId: string,
+  channelId: string,
+  messageId: string,
+  options: { emoji: string; sort: ReactionSort; q?: string; after?: string | null; limit?: number },
+  signal?: AbortSignal
+) => {
+  const params = new URLSearchParams({ emoji: options.emoji, sort: options.sort });
+  if (options.q) params.set("q", options.q);
+  if (options.after) params.set("after", options.after);
+  if (options.limit) params.set("limit", String(options.limit));
+  return request<{ people: GroupUser[]; total: number; next: string | null }>(
+    "GET",
+    `/groups/${enc(groupId)}/channels/${enc(channelId)}/messages/${enc(messageId)}/reactions?${params}`,
+    undefined,
+    signal
+  );
+};
+
+/** Takes `userId`'s `emoji` off a message — somebody else's needs "Gerenciar reações". */
+export const removeReactionOf = (groupId: string, channelId: string, messageId: string, emoji: string, userId: string) =>
+  request<{ reactions: GroupReaction[] }>(
+    "DELETE",
+    `/groups/${enc(groupId)}/channels/${enc(channelId)}/messages/${enc(messageId)}/reactions?${new URLSearchParams({
+      emoji,
+      userId,
+    })}`
+  );
+
 export const deleteGroupMessage = (groupId: string, channelId: string, messageId: string) =>
   request<object>("DELETE", `/groups/${enc(groupId)}/channels/${enc(channelId)}/messages/${enc(messageId)}`);
 

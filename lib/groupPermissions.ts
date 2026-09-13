@@ -22,6 +22,7 @@ export const MANAGE_PERMISSION_KEYS = [
   "kickMembers",
   "banMembers",
   "manageMessages",
+  "manageReactions",
   "createInvites",
 ] as const;
 export type ManagePermissionKey = (typeof MANAGE_PERMISSION_KEYS)[number];
@@ -87,6 +88,7 @@ const MANAGE_OFF: Record<ManagePermissionKey, boolean> = {
   kickMembers: false,
   banMembers: false,
   manageMessages: false,
+  manageReactions: false,
   createInvites: false,
 };
 
@@ -126,6 +128,10 @@ export const PERMISSION_LABELS: Record<AnyPermissionKey, { label: string; hint: 
   kickMembers: { get label() { return translate("groupPermissions.kickMembers"); }, get hint() { return translate("groupPermissions.removeFromTheGroupAnyoneWith"); } },
   banMembers: { get label() { return translate("groupPermissions.banMembers"); }, get hint() { return translate("groupPermissions.removeFromTheGroupWithNo"); } },
   manageMessages: { get label() { return translate("groupPermissions.manageMessages"); }, get hint() { return translate("groupPermissions.deleteOtherPeopleSMessages"); } },
+  manageReactions: {
+    get label() { return translate("groupPermissions.manageReactions"); },
+    get hint() { return translate("groupPermissions.removeOtherPeopleSReactions"); },
+  },
   createInvites: { get label() { return translate("groupPermissions.createInvites"); }, get hint() { return translate("groupPermissions.createInviteLinksForTheGroup"); } },
   viewChannel: { get label() { return translate("groupPermissions.seeTheRoom"); }, get hint() { return translate("groupPermissions.withoutItTheRoomDoesNot"); } },
   sendMessages: { get label() { return translate("groupPermissions.sendMessages"); }, get hint() { return translate("groupPermissions.theBasisOfAllTheOthers"); } },
