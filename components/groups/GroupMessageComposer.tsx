@@ -699,6 +699,7 @@ export function GroupMessageComposer({
           placeholder={disabledReason ?? t("groups.groupMessageComposer.messageInChannelname", { channelName })}
           className="min-h-12 resize-none overflow-y-hidden rounded-lg border border-zinc-300 bg-white px-3 py-[11px] text-base leading-6 text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-white/10"
         />
+        <EmojiPickerButton onPick={emoji.insert} disabled={disabled} className={iconButton} />
         <button
           type="button"
           onClick={() => send()}
@@ -708,7 +709,6 @@ export function GroupMessageComposer({
         >
           <MdSend className="h-4 w-4" />
         </button>
-        <EmojiPickerButton onPick={emoji.insert} disabled={disabled} className={iconButton} />
       </div>
       {error && <p className="mt-1 px-1 text-xs text-red-500">{error}</p>}
     </div>

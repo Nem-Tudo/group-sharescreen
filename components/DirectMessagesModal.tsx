@@ -1405,6 +1405,7 @@ export function DirectMessagesModal({
                   aria-label={t("common.message")}
                   className="max-h-36 min-h-[2.5rem] min-w-0 flex-1 resize-none rounded-2xl border border-zinc-300 bg-white px-3.5 py-2 text-sm leading-5 text-zinc-950 outline-none transition focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
                 />
+                <EmojiPickerButton onPick={emoji.insert} className={iconButton} />
                 <button
                   type="submit"
                   disabled={!canSend}
@@ -1414,7 +1415,6 @@ export function DirectMessagesModal({
                 >
                   <MdSend className="h-5 w-5" />
                 </button>
-                <EmojiPickerButton onPick={emoji.insert} className={iconButton} />
               </form>
             </>
           )}

@@ -1540,6 +1540,12 @@ export function ChatPanel({
               }
               className="min-h-8 resize-none rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-base sm:text-sm leading-5 text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-white/10"
             />
+            <EmojiPickerButton
+              onPick={emoji.insert}
+              disabled={Boolean(sendDisabledReason) || sendingImages}
+              iconSize={18}
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-zinc-300 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+            />
             <button
               type="submit"
               disabled={!canSend}
@@ -1555,12 +1561,6 @@ export function ChatPanel({
                 <MdSend className="h-4 w-4" />
               )}
             </button>
-            <EmojiPickerButton
-              onPick={emoji.insert}
-              disabled={Boolean(sendDisabledReason) || sendingImages}
-              iconSize={18}
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-zinc-300 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
-            />
           </div>
         </form>
       )}
