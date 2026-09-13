@@ -156,9 +156,14 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   const guestToken = useGuestToken();
   const identity = accountToken ?? guestToken;
   const previousIdentity = useRef(identity);
+  // The voice room address last joined from — see the join effect below.
+  const joinedRouteRef = useRef<string | null>(null);
   useEffect(() => {
     if (previousIdentity.current === identity) return;
     previousIdentity.current = identity;
+    // The new person has joined nothing yet: an open voice room's address
+    // should put *them* in it once their groups load, as it always did.
+    joinedRouteRef.current = null;
     setGroupVoiceSession(null);
     resetGroups();
     void refreshGroups();
@@ -168,20 +173,39 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   // person (no "Conectar", see lib/groupPermissions), in which case the page
   // says so instead (GroupPages' GroupRoom). Also keeps the call's labels
   // current when the room or the group is renamed while connected.
+  //
+  // Once per arrival at that address, not on every run of this effect. It runs
+  // again whenever the group's detail changes, and leaving a voice room is
+  // itself such a change (who is in which room). Hanging up clears the session
+  // and *then* navigates to the group's page, so when that update landed first
+  // the address still named the voice room and this joined it straight back —
+  // the "left and it put me back in" bug, which never happened from a text
+  // room because there the address named no voice room to rejoin.
+  //
+  // Recorded only when a join actually happens, so an address opened before
+  // the group loaded, or before this person was allowed to connect, still
+  // joins the moment it can. Cleared on arriving anywhere else, so coming back
+  // to the room joins it again.
   const routeChannel = detail?.channels.find((c) => c.id === roomId) ?? null;
   useEffect(() => {
     if (!detail || !groupId) return;
     const current = getGroupVoiceSession();
     if (routeChannel?.kind === "voice" && canInChannel(detail, routeChannel, "connect")) {
-      setGroupVoiceSession({
-        groupId,
-        channelId: routeChannel.id,
-        handle: groupVoiceHandle(routeChannel.id),
-        channelName: routeChannel.name,
-        groupName: detail.group.name,
-      });
+      const routeKey = `${groupId}/${routeChannel.id}`;
+      const inThisRoom = current?.groupId === groupId && current.channelId === routeChannel.id;
+      if (joinedRouteRef.current !== routeKey || inThisRoom) {
+        joinedRouteRef.current = routeKey;
+        setGroupVoiceSession({
+          groupId,
+          channelId: routeChannel.id,
+          handle: groupVoiceHandle(routeChannel.id),
+          channelName: routeChannel.name,
+          groupName: detail.group.name,
+        });
+      }
       return;
     }
+    joinedRouteRef.current = null;
     if (current?.groupId === groupId) {
       const channel = detail.channels.find((c) => c.id === current.channelId);
       if (!channel) setGroupVoiceSession(null);
