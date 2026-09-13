@@ -100,7 +100,9 @@ export async function prepareAvatarImage(file: File): Promise<PreparedAvatarImag
     ctx.drawImage(img, sx, sy, size, size, 0, 0, destSize, destSize);
 
     const mimeType = supportsWebpEncoding() ? "image/webp" : "image/jpeg";
-    const encoded = canvas.toDataURL(mimeType, 0.88);
+    // At 512×512 the difference between this and 0.88 is a few KB, and it's
+    // the difference people notice on the enlarged profile card.
+    const encoded = canvas.toDataURL(mimeType, 0.92);
     const encodedBytes = dataUrlByteLength(encoded);
     if (encoded.startsWith(`data:${mimeType}`) && encodedBytes < originalBytes) {
       return { dataUrl: encoded, byteLength: encodedBytes, mimeType };

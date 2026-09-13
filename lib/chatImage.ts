@@ -35,12 +35,19 @@ export const CHAT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 export const CHAT_IMAGE_MAX_PER_MESSAGE = 3;
 export const CHAT_IMAGE_TOTAL_MAX_BYTES = 8 * 1024 * 1024;
 
-// A chat log renders these at a couple of hundred pixels tall and a click
-// opens the original in a tab, so a long edge past this is spent entirely on
-// bytes nobody sees. Wide enough that the opened original is still worth
-// opening — a screenshot stays readable at 1600.
-const MAX_DIMENSION = 1600;
-const ENCODE_QUALITY = 0.82;
+// A chat log renders these at a couple of hundred pixels tall, but a click
+// opens the original in a tab — and that opened copy is what people complain
+// about when it's soft. 2560 keeps a full-screen screenshot from a 1440p
+// monitor at native size, which is where small text stops surviving a
+// downscale.
+const MAX_DIMENSION = 2560;
+
+// Tried in order until the result fits ENCODE_TARGET_BYTES. The first one is
+// what nearly every picture gets; the lower ones only exist so a very
+// detailed photo at 2560px still leaves room for two more in the same
+// message, instead of the send being refused against the per-message total.
+const ENCODE_QUALITIES = [0.92, 0.85, 0.75];
+const ENCODE_TARGET_BYTES = Math.floor(CHAT_IMAGE_TOTAL_MAX_BYTES / CHAT_IMAGE_MAX_PER_MESSAGE);
 
 export type PreparedChatImage = {
   // A `data:<mime>;base64,...` URL — what the API's route takes.
@@ -131,10 +138,25 @@ export async function prepareChatImage(file: File): Promise<PreparedChatImage> {
     // flattening a transparent PNG onto white there is better than sending
     // the original at full size.
     const mimeType = supportsWebpEncoding() ? "image/webp" : "image/jpeg";
-    const encoded = canvas.toDataURL(mimeType, ENCODE_QUALITY);
-    const encodedBytes = dataUrlByteLength(encoded);
-    if (encoded.startsWith(`data:${mimeType}`) && encodedBytes < originalBytes) {
-      return { dataUrl: encoded, byteLength: encodedBytes, mimeType };
+    // A PNG is almost always a screenshot, and text is what lossy encoding
+    // ruins first (WebP lossy halves the colour resolution, so coloured text
+    // bleeds). Quality 1 is lossless WebP in Chromium; if it comes out over the
+    // target — a PNG that was really a photo — the lossy steps follow as usual.
+    const qualities =
+      file.type === "image/png" && mimeType === "image/webp"
+        ? [1, ...ENCODE_QUALITIES]
+        : ENCODE_QUALITIES;
+    let best: { dataUrl: string; byteLength: number } | null = null;
+    for (const quality of qualities) {
+      const encoded = canvas.toDataURL(mimeType, quality);
+      // A browser that can't produce the type hands back a PNG instead, at
+      // every quality alike — no point trying the rest.
+      if (!encoded.startsWith(`data:${mimeType}`)) break;
+      best = { dataUrl: encoded, byteLength: dataUrlByteLength(encoded) };
+      if (best.byteLength <= ENCODE_TARGET_BYTES) break;
+    }
+    if (best && best.byteLength < originalBytes) {
+      return { ...best, mimeType };
     }
   } catch {
     // A format the browser can decode but not draw, a tainted canvas, a
