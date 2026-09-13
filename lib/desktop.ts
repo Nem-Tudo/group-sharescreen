@@ -161,6 +161,13 @@ export interface DesktopBridge {
   /** A click on one of those, by the id it was shown with. Returns an unsubscribe. */
   onToastClick?(callback: (id: string) => void): () => void;
 
+  /**
+   * Whether the notification bell has anything unread. The shell keeps the
+   * taskbar entry flashing while it does and the window is not focused.
+   * Optional like the rest: an older build does not have it.
+   */
+  setUnreadNotifications?(unread: boolean): void;
+
   /** The version already downloaded and waiting to be applied, or null. */
   pendingUpdate?(): Promise<string | null>;
   /**

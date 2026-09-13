@@ -7,7 +7,7 @@ import { MdPeople, MdPersonAdd, MdVolumeUp } from "react-icons/md";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { Tooltip } from "@/components/Tooltip";
 import { UserAvatar } from "@/components/UserAvatar";
-import { openGroupProfile } from "@/components/groups/groupProfile";
+import { clickPerson, contextPerson } from "@/components/groups/groupProfile";
 import { verifiedBadge } from "@/lib/entitlements";
 import { useMemberCounts, useOfflineGroupMembers, useOnlineGroupMembers } from "@/lib/groupCache";
 import {
@@ -92,15 +92,17 @@ const MemberRow = memo(function MemberRow({
   color: string | null;
 }) {
   const t = useT();
+  const target = { id: member.id, name: member.name, avatarUrl: member.avatarUrl, guest: member.guest };
   return (
     <li style={{ height: room === undefined ? MEMBER_H : MEMBER_VOICE_H }}>
+      {/* Click: their member profile. Shift+click: mention them. Right button:
+          the menu (see groupProfile). */}
       <button
         type="button"
-        onClick={() =>
-          openGroupProfile({ id: member.id, name: member.name, avatarUrl: member.avatarUrl, guest: member.guest })
-        }
+        onClick={(e) => clickPerson(e, target)}
+        onContextMenu={(e) => contextPerson(e, target)}
         onMouseEnter={() => !member.guest && prefetchUserProfile(member.id)}
-        title={t("common.viewProfile")}
+        title={t("groups.people.profileHint")}
         className={`flex h-full w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-zinc-100 dark:hover:bg-zinc-900 ${
           away ? "opacity-55" : ""
         }`}

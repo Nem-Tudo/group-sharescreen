@@ -12,6 +12,7 @@ import { GiftNotifier } from "@/components/GiftNotifier";
 import { ThemeLikeNotifier } from "@/components/ThemeLikeNotifier";
 import { GiftClaimHost } from "@/components/GiftClaimHost";
 import { DmNotifier } from "@/components/DmNotifier";
+import { DesktopUnreadFlash } from "@/components/DesktopUnreadFlash";
 import { GroupNotifier } from "@/components/GroupNotifier";
 import { DirectMessagesHost } from "@/components/DirectMessagesHost";
 import { CallHost } from "@/components/CallHost";
@@ -240,6 +241,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                     which redirects here with the code on the URL. */}
                 <GiftClaimHost />
                 <DmNotifier />
+                {/* Keeps the desktop app's taskbar entry flashing while the
+                    bell has anything unread. Renders nothing. */}
+                <DesktopUnreadFlash />
                 {/* Same job for group messages somebody asked to hear about. */}
                 <GroupNotifier />
                 {/* The one conversation window on the page — see its own comment. */}

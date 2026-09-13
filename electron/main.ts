@@ -863,7 +863,20 @@ function createWindow(initialUrl: string = APP_URL) {
 
   mainWindow.on("closed", () => {
     mainWindow = null;
+    taskbarFlashing = false;
   });
+
+  // See refreshTaskbarFlash: Windows ends the flash itself once the window is
+  // in front, so the record follows it, and leaving the window again restarts
+  // it for whatever is still unread.
+  mainWindow.on("focus", () => {
+    taskbarFlashing = false;
+    mainWindow?.flashFrame(false);
+  });
+  mainWindow.on("blur", refreshTaskbarFlash);
+  mainWindow.on("show", refreshTaskbarFlash);
+  mainWindow.on("hide", refreshTaskbarFlash);
+  mainWindow.on("minimize", refreshTaskbarFlash);
 
   // Zoom in on Ctrl+= as well as Ctrl++. The default menu's "Zoom In" is bound
   // to CmdOrCtrl+Plus, which on Windows only matches when Shift is held (and
@@ -1001,6 +1014,35 @@ function createTray() {
 
 let callWindow: BrowserWindow | null = null;
 let ringingCall: CallRingingInfo | null = null;
+/** Whether the page's bell has anything unread — see IPC.unreadNotifications. */
+let hasUnreadNotifications = false;
+/** What the taskbar entry was last told, so it is not re-told on every event. */
+let taskbarFlashing = false;
+
+/**
+ * The taskbar entry flashes (orange/yellow on Windows) for two reasons: a call
+ * ringing with the window open, or a notification nobody has read yet.
+ *
+ * One function decides for both because they share a single switch —
+ * `flashFrame(false)` at the end of a call would otherwise also silence the
+ * unread notification still waiting. Neither flashes while the window is
+ * focused: somebody looking at the app can already see the ring and the bell.
+ * Windows stops a flash on its own once the window comes to the front, so
+ * "focus" resets the record and "blur" starts it again if the reason is still
+ * there.
+ */
+function refreshTaskbarFlash() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  // Hidden to the tray there is no taskbar entry to flash. Minimized there is.
+  const onTaskbar = mainWindow.isVisible() || mainWindow.isMinimized();
+  const want =
+    onTaskbar &&
+    !mainWindow.isFocused() &&
+    (ringingCall !== null || hasUnreadNotifications);
+  if (want === taskbarFlashing) return;
+  taskbarFlashing = want;
+  mainWindow.flashFrame(want);
+}
 
 function closeCallWindow() {
   if (!callWindow) return;
@@ -1271,15 +1313,15 @@ function setCallRinging(call: CallRingingInfo | null) {
   ringingCall = call;
   tray?.setToolTip(call ? "GoLive — chamada recebida" : "GoLive");
 
+  refreshTaskbarFlash();
+
   if (!call) {
     closeCallWindow();
-    mainWindow?.flashFrame(false);
     return;
   }
 
   if (mainWindow && mainWindow.isVisible()) {
     closeCallWindow();
-    mainWindow.flashFrame(true);
     return;
   }
 
@@ -1625,6 +1667,14 @@ if (!gotLock) {
       // it was, which is the point of the small window in the first place.
       if (choice.action === "accept") focusMainWindow();
       mainWindow.webContents.send(IPC.callAction, { callId: call.id, ...choice });
+    });
+
+    // The bell's unread state. Only a boolean, but origin-checked anyway: it is
+    // our page's bell, not whatever else could be loaded in this window.
+    ipcMain.on(IPC.unreadNotifications, (event, unread: unknown) => {
+      if (!event.sender.getURL().startsWith(APP_ORIGIN)) return;
+      hasUnreadNotifications = unread === true;
+      refreshTaskbarFlash();
     });
 
     // A notification, drawn by the shell in the corner of the screen.

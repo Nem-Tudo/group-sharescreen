@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { UserProfileCard } from "./UserProfileCard";
@@ -28,6 +28,7 @@ export function UserProfileDialog({
   userId,
   guest,
   onClose,
+  extra,
 }: {
   userId: string;
   /**
@@ -41,6 +42,12 @@ export function UserProfileDialog({
    */
   guest?: { name: string; avatarUrl?: string | null };
   onClose: () => void;
+  /**
+   * Drawn under the profile, in the same column — what the place it was opened
+   * from knows about this person that the profile does not (a group's member
+   * panel: their roles there, see GroupMemberActions).
+   */
+  extra?: ReactNode;
 }) {
   const t = useT();
   const onClient = useSyncExternalStore(subscribeNothing, () => true, () => false);
@@ -125,6 +132,7 @@ export function UserProfileDialog({
         ) : (
           <UserProfileCard id={userId} onNavigate={onClose} />
         )}
+        {extra}
 
       </div>
       </div>

@@ -158,6 +158,13 @@ export const IPC = {
    */
   toastClick: "golive:toast:click",
 
+  /**
+   * renderer -> main: whether the bell has anything unread. A boolean and
+   * nothing else — the shell only needs to know whether to flash the taskbar
+   * entry, not what the notifications say.
+   */
+  unreadNotifications: "golive:notifications:unread",
+
   /** renderer -> main: register or update global shortcuts map. */
   shortcutsSet: "golive:shortcuts:set",
   /** main -> renderer: a registered global shortcut fired. */

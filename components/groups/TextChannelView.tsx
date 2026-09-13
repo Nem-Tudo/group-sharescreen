@@ -28,7 +28,7 @@ import {
   type ComposerPayload,
   type MentionCandidate,
 } from "@/components/groups/GroupMessageComposer";
-import { openGroupProfile } from "@/components/groups/groupProfile";
+import { clickPerson, contextPerson } from "@/components/groups/groupProfile";
 import { ReactionPicker } from "@/components/groups/ReactionPicker";
 import { Twemoji } from "@/components/Twemoji";
 import { rememberChannel } from "@/components/groups/lastChannel";
@@ -112,6 +112,9 @@ const TYPING_EXPIRE_MS = TYPING_REFRESH_MS + 3000;
 const MAX_LIVE_MESSAGES = 400;
 // People kept from @-searches so their names are at hand — see `found`.
 const MAX_FOUND = 200;
+// How far back "ir para a mensagem respondida" reads looking for the original,
+// in pages of 50, before it says it could not find it.
+const JUMP_MAX_PAGES = 20;
 
 function timeLabel(ts: number): string {
   return new Date(ts).toLocaleTimeString(formatLocale(), { hour: "2-digit", minute: "2-digit" });
@@ -218,7 +221,12 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const atBottomRef = useRef(true);
   const olderInFlight = useRef(false);
-  const pendingScroll = useRef<{ type: "bottom" } | { type: "preserve"; height: number; top: number } | null>(
+  const pendingScroll = useRef<
+    | { type: "bottom" }
+    | { type: "preserve"; height: number; top: number }
+    | { type: "message"; id: string }
+    | null
+  >(
     cached ? { type: "bottom" } : null
   );
 
@@ -431,7 +439,8 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
     if (!el || !want) return;
     pendingScroll.current = null;
     if (want.type === "bottom") el.scrollTop = el.scrollHeight;
-    else el.scrollTop = el.scrollHeight - want.height + want.top;
+    else if (want.type === "preserve") el.scrollTop = el.scrollHeight - want.height + want.top;
+    else revealMessage(want.id);
   }, [messages, outbox]);
 
   function onScroll() {
@@ -441,6 +450,71 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
     atBottomRef.current = atBottom;
     if (atBottom && unseen) setUnseen(0);
     if (el.scrollTop < NEAR_TOP_PX) void loadOlder();
+  }
+
+  // A reply's quote is a way to what it answers: scrolled into the middle of
+  // the view and lit for a moment. An original older than what is loaded is
+  // read in first, a page at a time, the way scrolling up would.
+  const [jumping, setJumping] = useState(false);
+  const [jumpMissed, setJumpMissed] = useState(false);
+
+  function revealMessage(messageId: string): boolean {
+    const el = scrollRef.current?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(messageId)}"]`);
+    if (!el) return false;
+    atBottomRef.current = false;
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    // Lit through the Web Animations API rather than a class held in state:
+    // it fades by itself, and a second jump to the same line restarts it.
+    el.animate(
+      [{ backgroundColor: "rgba(250, 204, 21, 0.35)" }, { backgroundColor: "rgba(250, 204, 21, 0)" }],
+      { duration: 1800, easing: "ease-out" }
+    );
+    return true;
+  }
+
+  async function jumpToMessage(messageId: string) {
+    setJumpMissed(false);
+    if (revealMessage(messageId) || jumping || !messages || messages.length === 0) return;
+    if (!hasMore) {
+      setJumpMissed(true);
+      return;
+    }
+    setJumping(true);
+    let oldest = messages[0].ts;
+    let older: GroupMessage[] = [];
+    let olderAuthors: Record<string, GroupUser> = {};
+    let more = true;
+    let found = false;
+    for (let page = 0; page < JUMP_MAX_PAGES && more && !found; page += 1) {
+      const result = await fetchMessages(groupId, channelId, oldest).catch(() => null);
+      // A failed read leaves "there is more" as it was; an empty page ends it.
+      if (!result || !result.ok) break;
+      if (result.messages.length === 0) {
+        more = false;
+        break;
+      }
+      older = [...result.messages, ...older];
+      olderAuthors = { ...olderAuthors, ...result.authors };
+      more = result.messages.length >= 50;
+      oldest = result.messages[0].ts;
+      found = result.messages.some((m) => m.id === messageId);
+    }
+    setJumping(false);
+    if (older.length > 0) {
+      const el = scrollRef.current;
+      pendingScroll.current = found
+        ? { type: "message", id: messageId }
+        : el
+          ? { type: "preserve", height: el.scrollHeight, top: el.scrollTop }
+          : null;
+      setHasMore(more);
+      setAuthors((prev) => ({ ...olderAuthors, ...prev }));
+      setMessages((prev) => {
+        const known = new Set((prev ?? []).map((m) => m.id));
+        return [...older.filter((m) => !known.has(m.id)), ...(prev ?? [])];
+      });
+    }
+    if (!found) setJumpMissed(true);
   }
 
   function scrollToBottom() {
@@ -645,11 +719,10 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
           <button
             key={key}
             type="button"
-            onClick={() =>
-              openGroupProfile({ id: person.id, name: person.name, avatarUrl: person.avatarUrl, guest: person.guest })
-            }
+            onClick={(e) => clickPerson(e, person)}
+            onContextMenu={(e) => contextPerson(e, person)}
             onMouseEnter={() => !person.guest && prefetchUserProfile(person.id)}
-            title={t("common.viewProfile")}
+            title={t("groups.people.profileHint")}
             className="cursor-pointer rounded font-semibold text-blue-600 hover:underline dark:text-blue-400"
           >
             {token.value}
@@ -684,11 +757,10 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
       <button
         key={key}
         type="button"
-        onClick={() =>
-          openGroupProfile({ id: person.id, name: person.name, avatarUrl: person.avatarUrl, guest: person.guest })
-        }
+        onClick={(e) => clickPerson(e, person)}
+        onContextMenu={(e) => contextPerson(e, person)}
         onMouseEnter={() => !person.guest && prefetchUserProfile(person.id)}
-        title={t("common.viewProfile")}
+        title={t("groups.people.profileHint")}
         className="cursor-pointer rounded font-semibold text-blue-600 hover:underline dark:text-blue-400"
       >
         {label}
@@ -774,7 +846,19 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
     });
   }
 
-  function confirmDelete(message: GroupMessage) {
+  async function deleteNow(message: GroupMessage) {
+    const result = await deleteGroupMessage(groupId, channelId, message.id);
+    if (result.ok) setMessages((prev) => prev?.filter((m) => m.id !== message.id) ?? prev);
+    else void openPopup("generic", { data: { title: t("common.didnTWork"), message: result.error } });
+  }
+
+  // Shift held: gone at once, the way Discord does it for whoever is clearing
+  // a run of messages. Otherwise it asks first.
+  function confirmDelete(message: GroupMessage, skipConfirm = false) {
+    if (skipConfirm) {
+      void deleteNow(message);
+      return;
+    }
     void openPopup("confirm", {
       data: {
         title: t("groups.textChannelView.deleteMessage"),
@@ -784,9 +868,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
         confirmStyle: t("common.danger"),
         onChoose: async (confirmed: boolean) => {
           if (!confirmed) return;
-          const result = await deleteGroupMessage(groupId, channelId, message.id);
-          if (result.ok) setMessages((prev) => prev?.filter((m) => m.id !== message.id) ?? prev);
-          else void openPopup("generic", { data: { title: t("common.didnTWork"), message: result.error } });
+          await deleteNow(message);
         },
       },
     });
@@ -856,6 +938,43 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
 
   const channelName = channel?.name ?? t("common.room");
 
+  /** A reply's "@Name": in their role's colour, and the gestures of any name. */
+  function replyAuthor(message: GroupMessage): ReactNode {
+    const reply = message.replyTo!;
+    const known = reply.userId ? personById.get(reply.userId) : undefined;
+    const color = reply.userId
+      ? roleColorOf(detail, { id: reply.userId }) ?? known?.nameColor ?? null
+      : null;
+    const label = `@${known?.name ?? reply.name}`;
+    if (!reply.userId) {
+      return <span className="shrink-0 font-medium text-zinc-700 dark:text-zinc-300">{label}</span>;
+    }
+    const person = {
+      id: reply.userId,
+      name: known?.name ?? reply.name,
+      avatarUrl: known?.avatarUrl ?? null,
+      guest: known?.guest ?? reply.userId.startsWith("guest:"),
+    };
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          // Their profile (or a mention), not the jump the quote around it does.
+          e.stopPropagation();
+          clickPerson(e, person);
+        }}
+        onKeyDown={(e) => e.stopPropagation()}
+        onContextMenu={(e) => contextPerson(e, person)}
+        onMouseEnter={() => !person.guest && prefetchUserProfile(person.id)}
+        title={t("groups.people.profileHint")}
+        className="shrink-0 cursor-pointer font-medium text-zinc-700 hover:underline dark:text-zinc-300"
+        style={color ? { color } : undefined}
+      >
+        {label}
+      </button>
+    );
+  }
+
   function actionsFor(message: GroupMessage) {
     const canDelete = message.from === selfId || canManageMessages;
     return (
@@ -865,7 +984,13 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
           <MdReply className="h-3.5 w-3.5" />
         </button>
         {canDelete && (
-          <button type="button" onClick={() => confirmDelete(message)} aria-label={t("common.delete")} title={t("common.delete")} className={rowAction}>
+          <button
+            type="button"
+            onClick={(e) => confirmDelete(message, e.shiftKey)}
+            aria-label={t("common.delete")}
+            title={t("groups.textChannelView.deleteShiftHint")}
+            className={rowAction}
+          >
             <MdDeleteOutline className="h-3.5 w-3.5" />
           </button>
         )}
@@ -929,6 +1054,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
       rows.push(
         <li
           key={message.id}
+          data-message-id={outgoing ? undefined : message.id}
           className={`group relative -mx-1.5 rounded-lg px-2 text-sm transition-colors ${
             grouped ? "pb-0.5" : "mt-2.5 pb-0.5"
           } ${mentionsMe ? "bg-blue-100/70 py-1 dark:bg-blue-500/25" : "hover:bg-zinc-100/80 dark:hover:bg-zinc-900/70"} ${
@@ -936,7 +1062,20 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
           }`}
         >
           {message.replyTo && (
-            <div className="mb-1 flex max-w-full items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+            // The quote is a way to the message it answers; its author's name,
+            // a way to them (the same three gestures as any name here).
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => void jumpToMessage(message.replyTo!.id)}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter" && e.key !== " ") return;
+                e.preventDefault();
+                void jumpToMessage(message.replyTo!.id);
+              }}
+              title={t("groups.textChannelView.jumpToReply")}
+              className="mb-1 flex max-w-full cursor-pointer items-center gap-1.5 rounded text-xs text-zinc-500 transition hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
+            >
               <svg
                 className="h-3.5 w-3.5 shrink-0 text-zinc-300 dark:text-zinc-600"
                 viewBox="0 0 24 24"
@@ -949,7 +1088,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
               >
                 <path d="M 4 19 V 9 A 5 5 0 0 1 9 4 H 20" />
               </svg>
-              <span className="font-medium text-zinc-700 dark:text-zinc-300">@{message.replyTo.name}</span>
+              {replyAuthor(message)}
               <span className="truncate text-zinc-400 dark:text-zinc-500">
                 {message.replyTo.text ||
                   (message.replyTo.kind === "gif" ? <span className="italic">[GIF]</span> : <span className="italic">[Imagem]</span>)}
@@ -962,16 +1101,10 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
                   room's chat does with a name. */}
               <button
                 type="button"
-                onClick={() =>
-                  openGroupProfile({
-                    id: author.id,
-                    name: author.name,
-                    avatarUrl: author.avatarUrl,
-                    guest: author.guest,
-                  })
-                }
+                onClick={(e) => clickPerson(e, author)}
+                onContextMenu={(e) => contextPerson(e, author)}
                 onMouseEnter={() => !author.guest && prefetchUserProfile(author.id)}
-                title={t("common.viewProfile")}
+                title={t("groups.people.profileHint")}
                 className="flex min-w-0 cursor-pointer items-center gap-1.5 text-left"
               >
                 <UserAvatar
@@ -1144,6 +1277,15 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
 
       <div className="relative flex min-h-0 flex-1 flex-col">
         {body}
+        {(jumping || jumpMissed) && (
+          <button
+            type="button"
+            onClick={() => setJumpMissed(false)}
+            className="absolute left-1/2 top-2 z-10 -translate-x-1/2 cursor-pointer rounded-full bg-zinc-950 px-3 py-1 text-xs font-medium text-white shadow-lg dark:bg-zinc-50 dark:text-zinc-950"
+          >
+            {jumping ? t("groups.textChannelView.lookingForTheMessage") : t("groups.textChannelView.originalNotFound")}
+          </button>
+        )}
         {unseen > 0 && (
           <button
             type="button"

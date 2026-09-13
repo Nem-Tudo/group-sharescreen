@@ -17,7 +17,8 @@ import { UpdateAppButton } from "@/components/UpdateAppButton";
 import { GroupNavContext } from "@/components/groups/groupNav";
 import { GroupMembersPanel } from "@/components/groups/GroupMembersPanel";
 import { GroupPartnerSlot } from "@/components/groups/GroupPartnerSlot";
-import { GroupProfileHost, openGroupProfile } from "@/components/groups/groupProfile";
+import { openGroupProfile } from "@/components/groups/groupProfile";
+import { GroupMemberMenuHost, GroupProfileHost } from "@/components/groups/GroupMemberActions";
 import { GroupRail } from "@/components/groups/GroupRail";
 import { GroupSwitcher } from "@/components/groups/GroupSwitcher";
 import { GroupIndex, GroupRoom } from "@/components/groups/GroupPages";
@@ -479,7 +480,9 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
         )}
 
         {/* The one profile dialog for everything in the group — see groupProfile. */}
-        <GroupProfileHost />
+        <GroupProfileHost detail={detail ?? null} />
+        {/* And the one right-click menu on a person — see GroupMemberActions. */}
+        <GroupMemberMenuHost detail={detail ?? null} />
 
         {/* For your card's "criar conta" — the call has its own for its own card. */}
         <AccountModal

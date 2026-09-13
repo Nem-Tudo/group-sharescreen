@@ -35,6 +35,7 @@ import type { GroupReplyTo } from "@/lib/groupsApi";
 import { EVERYONE_MENTION, ROLE_MENTION_PREFIX } from "@/lib/groupPermissions";
 import { encodeMentions, userTokenIds, type Named } from "@/lib/messageTokens";
 import { createTypingAnnouncer, type TypingAnnouncer } from "@/lib/typing";
+import { registerMentionHandler, type MentionTarget } from "@/lib/groupMentionBridge";
 import { useEmojiAutocomplete } from "@/lib/useEmojiAutocomplete";
 import { useT } from "@/lib/useI18n";
 
@@ -393,6 +394,49 @@ export function GroupMessageComposer({
       resize();
     });
   }
+
+  // Shift+click on somebody elsewhere on the page (see lib/groupMentionBridge):
+  // "@Name " where the cursor was, marked as picked so it goes out as their
+  // mention even if somebody else shares the name — exactly as choosing them
+  // from the suggestions would.
+  function insertMention(target: MentionTarget) {
+    if (disabled) return;
+    const candidate: MentionCandidate = { id: target.id, name: target.name, avatarUrl: target.avatarUrl };
+    picked.current.set(normalizeSearch(candidate.name), candidate);
+    rememberNames([candidate.name]);
+    const el = textRef.current;
+    // The box's own caret when it has one; the end otherwise, which is where
+    // somebody who was not writing expects a name to land.
+    const at = el && document.activeElement === el ? el.selectionStart ?? text.length : text.length;
+    const before = text.slice(0, at);
+    const after = text.slice(at);
+    const lead = before && !/\s$/.test(before) ? " " : "";
+    const trail = after.startsWith(" ") ? "" : " ";
+    const inserted = `${lead}@${candidate.name}${trail}`;
+    const newText = (before + inserted + after).slice(0, MAX_LENGTH);
+    const newCursorPos = Math.min(before.length + inserted.length, newText.length);
+    setText(newText);
+    setCursor(newCursorPos);
+    setError(null);
+    noteTyping(newText);
+    requestAnimationFrame(() => {
+      const box = textRef.current;
+      if (!box) return;
+      box.focus();
+      box.setSelectionRange(newCursorPos, newCursorPos);
+      resize();
+    });
+  }
+  // Registered once per mount, calling whichever insertMention is current —
+  // it closes over the text, which changes on every key.
+  const insertMentionRef = useRef(insertMention);
+  useEffect(() => {
+    insertMentionRef.current = insertMention;
+  });
+  useEffect(() => {
+    if (disabled) return;
+    return registerMentionHandler((target) => insertMentionRef.current(target));
+  }, [disabled]);
 
   function send(extra: { url?: string } = {}) {
     if (disabled) return;

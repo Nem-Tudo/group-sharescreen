@@ -14,7 +14,6 @@ import {
   MdLockOutline,
   MdAdd,
   MdChevronRight,
-  MdClose,
   MdLink,
   MdOutlineMap,
   MdPublic,
@@ -87,6 +86,7 @@ import {
 } from "@/components/groups/dialogKit";
 import { useOpenChannelSettings } from "@/components/groups/ChannelSettingsDialog";
 import { RolesTab } from "@/components/groups/RolesTab";
+import { RoleChip } from "@/components/groups/RoleChip";
 import {
   canManage,
   membersRevalidateKey,
@@ -1452,38 +1452,6 @@ function InvitesTab({ groupId, groupName }: { groupId: string; groupName: string
         ))}
       </ul>
     </div>
-  );
-}
-
-/** A role on somebody, as a chip in its colour — with an × to take it off when that is allowed. */
-function RoleChip({
-  name,
-  color,
-  onRemove,
-}: {
-  name: string;
-  color: string | null;
-  onRemove?: () => void;
-}) {
-  const { t, tc } = useI18n();
-  return (
-    <span className="flex max-w-40 shrink-0 items-center gap-1 rounded-full border border-zinc-200 py-0.5 pl-1.5 pr-2 text-[11px] font-medium text-zinc-700 dark:border-zinc-700 dark:text-zinc-300">
-      {onRemove ? (
-        <button
-          type="button"
-          onClick={onRemove}
-          aria-label={t("groups.groupDialogs.removeTheNameRole", { name })}
-          title={t("common.removeTheRole")}
-          className="group/chip relative flex h-3 w-3 shrink-0 cursor-pointer items-center justify-center rounded-full"
-          style={{ backgroundColor: color ?? "#99aab5" }}
-        >
-          <MdClose className="h-2.5 w-2.5 text-white opacity-0 transition group-hover/chip:opacity-100" />
-        </button>
-      ) : (
-        <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: color ?? "#99aab5" }} />
-      )}
-      <span className="truncate">{name}</span>
-    </span>
   );
 }
 

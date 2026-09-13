@@ -59,7 +59,7 @@ import {
 } from "@/lib/groupLayout";
 import { GroupLink } from "@/components/groups/GroupLink";
 import { GroupName } from "@/components/groups/GroupName";
-import { openGroupProfile } from "@/components/groups/groupProfile";
+import { clickPerson, contextPerson } from "@/components/groups/groupProfile";
 import { useOpenChannelSettings } from "@/components/groups/ChannelSettingsDialog";
 import {
   setGroupVoiceSession,
@@ -156,6 +156,12 @@ const VoicePersonRow = memo(function VoicePersonRow({
   // change it.
   const controls = useGroupVoiceControls();
   const audio = controls ? person.audio : undefined;
+  const target = {
+    id: person.userId,
+    name: person.name,
+    avatarUrl: person.avatarUrl,
+    guest: person.userId.startsWith("guest:"),
+  };
   return (
     // The profile link and the volume sit side by side rather than one inside
     // the other: the slider has buttons of its own, and a button inside a
@@ -163,16 +169,10 @@ const VoicePersonRow = memo(function VoicePersonRow({
     <li className="flex items-center gap-0.5">
       <button
         type="button"
-        onClick={() =>
-          openGroupProfile({
-            id: person.userId,
-            name: person.name,
-            avatarUrl: person.avatarUrl,
-            guest: person.userId.startsWith("guest:"),
-          })
-        }
+        onClick={(e) => clickPerson(e, target)}
+        onContextMenu={(e) => contextPerson(e, target)}
         onMouseEnter={() => prefetchUserProfile(person.userId)}
-        title={t("common.viewProfile")}
+        title={t("groups.people.profileHint")}
         className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
       >
         <span
