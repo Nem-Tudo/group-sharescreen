@@ -3,6 +3,7 @@
 import { getAccountToken } from "./accountApi";
 import { getStoredGuestToken } from "./guestToken";
 import { getSignalingHttpBase } from "./roomsApi";
+import type { ChatAttachment } from "./chatAttachments";
 import type { ChannelPermissionOverrides, GroupPermissions } from "./groupPermissions";
 import { translate } from "@/lib/i18n";
 
@@ -215,11 +216,15 @@ export interface GroupMessage {
   kind?: "text" | "gif" | "image";
   url?: string;
   images?: string[];
+  /** Videos, audio and documents — see lib/chatAttachments. Absent when there are none. */
+  attachments?: ChatAttachment[];
   replyTo?: GroupReplyTo | null;
   mentions?: string[];
   /** In the order each emoji was first used. Absent when nobody has reacted (and from an older API). */
   reactions?: GroupReaction[];
   ts: number;
+  /** When its author last changed the text. Absent on one never edited (and from an older API). */
+  editedAt?: number;
 }
 
 export interface GroupInvite {
@@ -603,6 +608,8 @@ export const sendGroupMessage = (
     text?: string;
     url?: string;
     images?: string[];
+    /** Receipts for files already uploaded — see lib/uploadApi. */
+    attachments?: string[];
     replyTo?: GroupReplyTo | null;
     mentions?: string[];
     /** A guest's current name, so their messages carry it. */
@@ -623,6 +630,7 @@ export const sendGroupMessage = (
       text: payload.text ?? "",
       ...(payload.url ? { url: payload.url } : {}),
       ...(payload.images && payload.images.length > 0 ? { images: payload.images } : {}),
+      ...(payload.attachments && payload.attachments.length > 0 ? { attachments: payload.attachments } : {}),
       ...(payload.replyTo ? { replyTo: payload.replyTo } : {}),
       ...(payload.mentions && payload.mentions.length > 0 ? { mentions: payload.mentions } : {}),
       ...(payload.name ? { name: payload.name } : {}),
@@ -676,6 +684,20 @@ export const removeReactionOf = (groupId: string, channelId: string, messageId: 
 
 export const deleteGroupMessage = (groupId: string, channelId: string, messageId: string) =>
   request<object>("DELETE", `/groups/${enc(groupId)}/channels/${enc(channelId)}/messages/${enc(messageId)}`);
+
+/** New text for one of this person's own messages; answers with the message as it now stands. */
+export const editGroupMessage = (
+  groupId: string,
+  channelId: string,
+  messageId: string,
+  text: string,
+  mentions: string[]
+) =>
+  request<{ message: GroupMessage }>(
+    "PATCH",
+    `/groups/${enc(groupId)}/channels/${enc(channelId)}/messages/${enc(messageId)}`,
+    { text, mentions }
+  );
 
 /** Moves this person's bookmark in one text room to now. Fire-and-forget, like the DM one. */
 export function markChannelRead(groupId: string, channelId: string): void {

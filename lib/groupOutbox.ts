@@ -1,6 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import type { ChatAttachment } from "./chatAttachments";
 import { sendGroupMessage, type GroupReplyTo } from "./groupsApi";
 import { onGroupMessage, publishGroupMessage } from "./useGroups";
 import { translate } from "@/lib/i18n";
@@ -33,6 +34,9 @@ export interface OutgoingMessage {
   url?: string;
   /** Data URLs, already downscaled — shown as they are until the server has the real ones. */
   images?: string[];
+  /** Receipts for files already on the CDN, and the files as they are drawn meanwhile. */
+  attachments?: string[];
+  files?: ChatAttachment[];
   mentions: string[];
   replyTo: GroupReplyTo | null;
   /** A guest's name at the moment of writing. */
@@ -105,6 +109,7 @@ async function deliver(channelId: string, nonce: string): Promise<void> {
       text: item.text,
       ...(item.url ? { url: item.url } : {}),
       ...(item.images ? { images: item.images } : {}),
+      ...(item.attachments ? { attachments: item.attachments } : {}),
       replyTo: item.replyTo,
       mentions: item.mentions,
       name: item.name,

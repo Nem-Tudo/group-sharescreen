@@ -34,8 +34,8 @@ import {
 } from "@/lib/groupVoiceSession";
 import { peerPresence } from "@/lib/presence";
 import { useAuth } from "@/lib/AuthContext";
-import { getAccountToken } from "@/lib/accountApi";
 import { sendChatImages } from "@/lib/chatImage";
+import { uploadAuthToken } from "@/lib/uploadApi";
 import {
   useRoomMedia,
   useScreenShareMode,
@@ -2435,7 +2435,7 @@ export function WatchRoom({
   const videoSourceBlockedReason = roomBlockReason("videoSource", translate("watch.watchRoom.addVideoSources"));
   const chatBlockedReason = roomBlockReason("chat", "o chat");
   const gifBlockedReason = roomBlockReason("gif", translate("watch.watchRoom.sendingGifs"));
-  const imageBlockedReason = roomBlockReason("image", "o envio de imagens");
+  const imageBlockedReason = roomBlockReason("image", "o envio de imagens e arquivos");
 
   // The top dial positions are gated (see each SHARE_*_OPTIONS' `feature`),
   // and the pickers enforce that by disabling those options. Now that the
@@ -5371,9 +5371,12 @@ export function WatchRoom({
   async function handleSendChatImages(
     text: string,
     images: string[],
-    replyTo?: ChatReplyTo | null
+    replyTo: ChatReplyTo | null,
+    attachments: string[]
   ): Promise<{ ok: boolean; error?: string }> {
-    const token = getAccountToken();
+    // A guest sends with their own guest token — the same identity their
+    // connection registered under, which is what the API matches it to.
+    const token = uploadAuthToken();
     if (!token) return { ok: false, error: translate("watch.watchRoom.signInWithAnAccountTo") };
     if (!state.selfId) return { ok: false, error: translate("watch.watchRoom.reconnectingTryAgainInAMoment") };
 
@@ -5384,6 +5387,7 @@ export function WatchRoom({
       text,
       images,
       replyTo,
+      attachments,
     });
     return result.ok ? { ok: true } : { ok: false, error: result.error };
   }
@@ -5409,7 +5413,7 @@ export function WatchRoom({
           state.account && !gifBlockedReason ? (url, replyTo) => signalingClient.sendGif(url, replyTo) : undefined
         }
         onSendImages={
-          state.account && !imageBlockedReason ? handleSendChatImages : undefined
+          !imageBlockedReason ? handleSendChatImages : undefined
         }
         onTypingChange={(typing) => signalingClient.setTyping(typing)}
         typingNames={visiblePeers

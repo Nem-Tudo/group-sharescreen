@@ -191,26 +191,34 @@ export async function sendChatImages(params: {
   text: string;
   images: string[];
   replyTo?: ChatReplyTo | null;
+  /** Receipts for videos and documents already uploaded — see lib/uploadApi. */
+  attachments?: string[];
   signal?: AbortSignal;
 }): Promise<SendChatImagesResult> {
-  const { handle, clientId, token, text, images, replyTo, signal } = params;
+  const { handle, clientId, token, text, images, replyTo, attachments, signal } = params;
   try {
     const res = await fetch(
       `${getSignalingHttpBase()}/rooms/${encodeURIComponent(handle)}/chat/images`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ clientId, text, images, replyTo: replyTo ?? undefined }),
+        body: JSON.stringify({
+          clientId,
+          text,
+          images,
+          replyTo: replyTo ?? undefined,
+          ...(attachments && attachments.length > 0 ? { attachments } : {}),
+        }),
         signal,
       }
     );
     const data = (await res.json().catch(() => null)) as
       | { urls?: string[]; error?: string }
       | null;
-    if (!res.ok || !data?.urls) {
+    if (!res.ok || !data) {
       return { ok: false, error: data?.error ?? translate("common.couldNotSendTheImage") };
     }
-    return { ok: true, urls: data.urls };
+    return { ok: true, urls: data.urls ?? [] };
   } catch (err) {
     if ((err as Error)?.name === "AbortError") {
       return { ok: false, error: translate("chatImage.uploadCancelled") };

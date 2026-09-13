@@ -2,22 +2,26 @@
 
 import {
   useEffect,
+  useImperativeHandle,
   useMemo,
   useRef,
   useState,
   type ChangeEvent,
   type ClipboardEvent,
   type KeyboardEvent,
+  type Ref,
 } from "react";
-import { MdClose, MdGif, MdGroups, MdOutlineImage, MdSend, MdVolumeUp } from "react-icons/md";
+import { MdCheck, MdClose, MdEdit, MdGif, MdGroups, MdSend, MdVolumeUp } from "react-icons/md";
+import { AttachMenu, splitPicked } from "@/components/AttachMenu";
+import { AttachmentTray } from "@/components/AttachmentTray";
 import { EmojiPickerButton } from "@/components/EmojiPicker";
 import { EmojiSuggestions } from "@/components/EmojiSuggestions";
 import { GifPicker } from "@/components/GifPicker";
 import { HighlightedTextarea, highlightMentions } from "@/components/HighlightedTextarea";
-import { Popover, Tooltip } from "@/components/Tooltip";
+import { Popover } from "@/components/Tooltip";
 import { UserAvatar } from "@/components/UserAvatar";
+import type { ChatAttachment } from "@/lib/chatAttachments";
 import {
-  CHAT_IMAGE_ACCEPT,
   CHAT_IMAGE_MAX_PER_MESSAGE,
   CHAT_IMAGE_TOTAL_MAX_BYTES,
   isSupportedChatImage,
@@ -36,6 +40,7 @@ import { EVERYONE_MENTION, ROLE_MENTION_PREFIX } from "@/lib/groupPermissions";
 import { encodeMentions, userTokenIds, type Named } from "@/lib/messageTokens";
 import { createTypingAnnouncer, type TypingAnnouncer } from "@/lib/typing";
 import { registerMentionHandler, type MentionTarget } from "@/lib/groupMentionBridge";
+import { useAttachmentUploads } from "@/lib/useAttachmentUploads";
 import { useEmojiAutocomplete } from "@/lib/useEmojiAutocomplete";
 import { useT } from "@/lib/useI18n";
 
@@ -89,7 +94,31 @@ export interface ComposerPayload {
   text: string;
   url?: string;
   images?: string[];
+  /** Receipts for videos and documents already uploaded — see lib/useAttachmentUploads. */
+  attachments?: string[];
+  /** Those same files as they will be drawn, for the message shown before the server answers. */
+  files?: ChatAttachment[];
   mentions: string[];
+}
+
+/**
+ * One of this person's own messages, opened in the box to be changed: its
+ * text as it reads — "@Name" and "#room", not the ids it carries — and the
+ * people those names stand for, so saving turns them back into the same ids
+ * even when somebody else shares the name.
+ */
+export interface ComposerEdit {
+  id: string;
+  text: string;
+  people: Named[];
+}
+
+/** What the room does to the box from outside it — see TextChannelView. */
+export interface ComposerHandle {
+  /** Opens a message for editing; whatever was being written waits, and comes back after. */
+  startEdit(edit: ComposerEdit): void;
+  /** Stops editing, without saving — only if it is `messageId` being edited, when given. */
+  cancelEdit(messageId?: string): void;
 }
 
 const MAX_LENGTH = 2000;
@@ -126,6 +155,7 @@ const iconButton =
   "mb-1 flex h-10 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-zinc-800 dark:hover:text-zinc-200";
 
 export function GroupMessageComposer({
+  ref,
   channelName,
   candidates,
   rooms = [],
@@ -133,10 +163,14 @@ export function GroupMessageComposer({
   replyingTo,
   onCancelReply,
   onSend,
+  onSubmitEdit,
+  onEditingChange,
+  onEditLast,
   disabledReason,
   allow = { gifs: true, images: true },
   onTypingChange,
 }: {
+  ref?: Ref<ComposerHandle>;
   channelName: string;
   /**
    * What "@" offers without asking anybody: @everyone, the roles, and the
@@ -157,6 +191,17 @@ export function GroupMessageComposer({
    * its way (see lib/groupOutbox, which shows it and delivers it).
    */
   onSend: (payload: ComposerPayload) => void;
+  /**
+   * The new text of the message being edited (see ComposerHandle.startEdit),
+   * encoded like a message sent. Empty when everything was erased — the room
+   * decides what that means. The box is back to what it held before the edit
+   * by the time this is called.
+   */
+  onSubmitEdit?: (messageId: string, payload: ComposerPayload) => void;
+  /** Which message the box is editing, as that changes — null when none. */
+  onEditingChange?: (messageId: string | null) => void;
+  /** ↑ in an empty box: Discord's way into editing your last message. */
+  onEditLast?: () => void;
   disabledReason?: string | null;
   allow?: ComposerAllowances;
   /**
@@ -201,7 +246,65 @@ export function GroupMessageComposer({
     });
   }
   const textRef = useRef<HTMLTextAreaElement | null>(null);
-  const fileRef = useRef<HTMLInputElement | null>(null);
+  // Videos and documents, uploading from the moment they are picked. They
+  // stay put through an edit (which changes words only) and go with the next
+  // message sent.
+  const uploads = useAttachmentUploads("groups");
+
+  // The message being edited, if any — the box then holds its text instead
+  // of a new message, and whatever was being written before waits in `draft`
+  // (pictures and picks included) until the edit is saved or dropped.
+  const [editing, setEditing] = useState<ComposerEdit | null>(null);
+  const draft = useRef<{
+    text: string;
+    images: { dataUrl: string; bytes: number }[];
+    picked: Map<string, MentionCandidate>;
+  } | null>(null);
+
+  function startEdit(edit: ComposerEdit) {
+    if (disabled) return;
+    if (!editing) draft.current = { text, images, picked: new Map(picked.current) };
+    // What an edit is typed over is not a new message: nobody is told
+    // somebody is writing (a burst already announced ends here).
+    typingRef.current?.input("");
+    picked.current = new Map(
+      edit.people.map((person) => [normalizeSearch(person.name), { ...person, avatarUrl: null }])
+    );
+    rememberNames(edit.people.map((person) => person.name));
+    setEditing(edit);
+    setText(edit.text);
+    setImages([]);
+    setCursor(edit.text.length);
+    setError(null);
+    onEditingChange?.(edit.id);
+    requestAnimationFrame(() => {
+      const el = textRef.current;
+      if (!el) return;
+      el.focus({ preventScroll: true });
+      el.setSelectionRange(el.value.length, el.value.length);
+      resize();
+    });
+  }
+
+  function endEdit() {
+    const saved = draft.current;
+    draft.current = null;
+    picked.current = saved?.picked ?? new Map();
+    setEditing(null);
+    setText(saved?.text ?? "");
+    setImages(saved?.images ?? []);
+    setCursor(saved?.text.length ?? 0);
+    setError(null);
+    onEditingChange?.(null);
+    requestAnimationFrame(resize);
+  }
+
+  useImperativeHandle(ref, () => ({
+    startEdit,
+    cancelEdit: (messageId?: string) => {
+      if (editing && (!messageId || editing.id === messageId)) endEdit();
+    },
+  }));
 
   // Pressing "Responder" is asking to write: the box takes the focus, cursor
   // at the end of whatever was already typed, so the next key lands in it.
@@ -244,6 +347,7 @@ export function GroupMessageComposer({
     };
   }, []);
   function noteTyping(value: string) {
+    if (editing) return;
     if (onTypingChangeRef.current) typingRef.current?.input(value);
   }
 
@@ -441,12 +545,23 @@ export function GroupMessageComposer({
   function send(extra: { url?: string } = {}) {
     if (disabled) return;
     const trimmed = emoji.convert(text).trim();
-    if (!trimmed && images.length === 0 && !extra.url) return;
+    const hasFiles = !extra.url && !editing && uploads.items.length > 0;
+    if (!trimmed && images.length === 0 && !extra.url && !editing && !hasFiles) return;
+    // The files have to be on the CDN before the message can name them.
+    if (hasFiles && uploads.uploading) {
+      setError(t("attachments.stillUploading"));
+      return;
+    }
+    if (hasFiles && uploads.failed) {
+      setError(t("attachments.removeFailedFiles"));
+      return;
+    }
 
     // What goes out carries ids, not names (see lib/messageTokens): "@Ana"
     // becomes <@her id> and "#geral" becomes <#its id>, and the API reads who
     // was mentioned off those. Roles and @everyone stay as typed and still
     // travel in `mentions`, matched against the roles this room already has.
+    // An edit is encoded the same way.
     const special = candidates.filter((c) => !isPerson(c));
     const specialNames = new Set(special.map((c) => normalizeSearch(c.name)));
     const people: Named[] = [
@@ -468,10 +583,19 @@ export function GroupMessageComposer({
       return;
     }
     setError(null);
+    if (editing) {
+      const messageId = editing.id;
+      const mentions = [...mentionedIds(trimmed, special), ...userTokenIds(encoded)];
+      endEdit();
+      onSubmitEdit?.(messageId, { text: encoded, mentions });
+      textRef.current?.focus();
+      return;
+    }
     onSend({
       text: encoded,
       ...(extra.url ? { url: extra.url } : {}),
       ...(!extra.url && images.length > 0 ? { images: images.map((i) => i.dataUrl) } : {}),
+      ...(hasFiles ? { attachments: uploads.tokens, files: uploads.attachments } : {}),
       // The people are in the text now; they ride here too only so an API
       // from before the tokens still alerts them.
       mentions: extra.url ? [] : [...mentionedIds(trimmed, special), ...userTokenIds(encoded)],
@@ -482,6 +606,7 @@ export function GroupMessageComposer({
       typingRef.current?.sent();
       setText("");
       setImages([]);
+      uploads.clear();
       setCursor(0);
       requestAnimationFrame(resize);
     }
@@ -508,9 +633,30 @@ export function GroupMessageComposer({
         return;
       }
     }
+    if (e.key === "Escape" && editing) {
+      e.preventDefault();
+      endEdit();
+      return;
+    }
     if (e.key === "Escape" && replyingTo) {
       e.preventDefault();
       onCancelReply();
+      return;
+    }
+    if (
+      e.key === "ArrowUp" &&
+      onEditLast &&
+      !editing &&
+      !text &&
+      images.length === 0 &&
+      uploads.items.length === 0 &&
+      !e.shiftKey &&
+      !e.altKey &&
+      !e.ctrlKey &&
+      !e.metaKey
+    ) {
+      e.preventDefault();
+      onEditLast();
       return;
     }
     if (e.key === "Enter" && !e.shiftKey && !isCoarsePointer() && !e.nativeEvent.isComposing) {
@@ -519,16 +665,25 @@ export function GroupMessageComposer({
     }
   }
 
-  async function onPickFiles(e: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files ?? []);
-    e.target.value = "";
-    await addImages(files);
+  // Whatever came through "Vídeo" or "Arquivo": pictures still go to the
+  // picture tray, everything else is uploaded as it is.
+  function addAnything(files: File[]) {
+    if (files.length === 0 || disabled || editing) return;
+    if (!allow.images) {
+      setError(t("groups.groupMessageComposer.youDoNotHavePermissionTo"));
+      return;
+    }
+    const { images: pictures, others } = splitPicked(files, isSupportedChatImage);
+    if (pictures.length > 0) void addImages(pictures);
+    if (others.length > 0) void uploads.add(others);
   }
 
   // Ctrl+V of a picture — a screenshot, an image copied from a page — lands in
   // the tray exactly as if it had been picked with the button. Anything that
   // is not a picture (plain text, above all) is left to paste as usual.
   function onPaste(e: ClipboardEvent<HTMLTextAreaElement>) {
+    // An edit changes words only; a picture pasted into one has nowhere to go.
+    if (editing) return;
     const files = Array.from(e.clipboardData?.items ?? [])
       .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
       .map((item) => item.getAsFile())
@@ -539,7 +694,7 @@ export function GroupMessageComposer({
   }
 
   async function addImages(files: File[]) {
-    if (files.length === 0 || disabled) return;
+    if (files.length === 0 || disabled || editing) return;
     if (!allow.images) {
       setError(t("groups.groupMessageComposer.youDoNotHavePermissionTo"));
       return;
@@ -641,7 +796,30 @@ export function GroupMessageComposer({
         </ul>
       )}
 
-      {replyingTo && (
+      {editing && (
+        <div className="mb-1.5 flex items-center justify-between gap-2 rounded-lg bg-amber-50 px-2.5 py-1 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <MdEdit className="h-3.5 w-3.5 shrink-0" />
+            <span className="shrink-0 font-medium">{t("groups.groupMessageComposer.editing")}</span>
+            {/* Keys mean nothing on a phone's keyboard; the tick is how it saves there. */}
+            {!isCoarsePointer() && (
+              <span className="truncate text-amber-700/70 dark:text-amber-300/60">
+                · {t("groups.groupMessageComposer.editHint")}
+              </span>
+            )}
+          </span>
+          <button
+            type="button"
+            onClick={endEdit}
+            aria-label={t("groups.groupMessageComposer.cancelEdit")}
+            className="shrink-0 cursor-pointer rounded p-0.5 hover:bg-amber-100 dark:hover:bg-amber-500/20"
+          >
+            <MdClose className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
+      {replyingTo && !editing && (
         <div className="mb-1.5 flex items-center justify-between gap-2 rounded-lg bg-zinc-100 px-2.5 py-1 text-xs text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
           <span className="min-w-0 truncate">
             {t("groups.groupMessageComposer.replying")} <span className="font-medium text-zinc-900 dark:text-zinc-100">@{replyingTo.name}</span>
@@ -679,23 +857,47 @@ export function GroupMessageComposer({
           ))}
         </div>
       )}
+      {!editing && <AttachmentTray items={uploads.items} onRemove={uploads.remove} className="mb-1.5" />}
 
       <div className="flex items-end gap-1.5">
-        {allow.images && (
-        <Tooltip content={disabledReason ?? t("common.sendImage")}>
-          <button
-            type="button"
-            onClick={() => fileRef.current?.click()}
+        {/* An edit changes the words only: nothing to attach, and a GIF
+            picked here would go out as a new message. */}
+        {allow.images && !editing && (
+          <AttachMenu
+            onImages={(files) => void addImages(files)}
+            onFiles={addAnything}
+            onOpen={() => void uploads.refreshLimit()}
+            limitMb={uploads.limit?.maxMb}
             disabled={disabled}
-            aria-label={t("common.sendImage")}
-            className={iconButton}
-          >
-            <MdOutlineImage className="h-5 w-5" />
-          </button>
-        </Tooltip>
+            tooltip={disabledReason ?? undefined}
+            wrapperClassName="flex shrink-0"
+            buttonClassName={iconButton}
+            iconClassName="h-6 w-6"
+          />
         )}
-        <input ref={fileRef} type="file" accept={CHAT_IMAGE_ACCEPT} multiple hidden onChange={onPickFiles} />
-        {allow.gifs && (
+        <HighlightedTextarea
+          ref={textRef}
+          value={text}
+          highlights={highlights}
+          wrapperClassName="min-w-0 flex-1"
+          onChange={onChange}
+          onKeyDown={onKeyDown}
+          onPaste={onPaste}
+          onFocus={emoji.prefetch}
+          onSelect={(e) => {
+            setCursor(e.currentTarget.selectionStart ?? 0);
+            emoji.sync();
+          }}
+          onClick={(e) => {
+            setCursor(e.currentTarget.selectionStart ?? 0);
+            emoji.sync();
+          }}
+          rows={1}
+          disabled={disabled}
+          placeholder={disabledReason ?? t("groups.groupMessageComposer.messageInChannelname", { channelName })}
+          className="min-h-12 resize-none overflow-y-hidden rounded-lg border border-zinc-300 bg-white px-3 py-[11px] text-base leading-6 text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-white/10"
+        />
+        {allow.gifs && !editing && (
         <Popover
           open={gifOpen}
           onClose={() => setGifOpen(false)}
@@ -721,40 +923,19 @@ export function GroupMessageComposer({
           </button>
         </Popover>
         )}
-        <HighlightedTextarea
-          ref={textRef}
-          value={text}
-          highlights={highlights}
-          wrapperClassName="min-w-0 flex-1"
-          onChange={onChange}
-          onKeyDown={onKeyDown}
-          onPaste={onPaste}
-          onFocus={emoji.prefetch}
-          onSelect={(e) => {
-            setCursor(e.currentTarget.selectionStart ?? 0);
-            emoji.sync();
-          }}
-          onClick={(e) => {
-            setCursor(e.currentTarget.selectionStart ?? 0);
-            emoji.sync();
-          }}
-          rows={1}
-          disabled={disabled}
-          placeholder={disabledReason ?? t("groups.groupMessageComposer.messageInChannelname", { channelName })}
-          className="min-h-12 resize-none overflow-y-hidden rounded-lg border border-zinc-300 bg-white px-3 py-[11px] text-base leading-6 text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-white/10"
-        />
         <EmojiPickerButton onPick={emoji.insert} disabled={disabled} className={iconButton} />
         <button
           type="button"
           onClick={() => send()}
-          disabled={disabled || (!text.trim() && images.length === 0)}
-          aria-label={t("common.send")}
+          // An edit erased to nothing still goes: the room asks whether to delete.
+          disabled={disabled || (!editing && !text.trim() && images.length === 0 && uploads.items.length === 0)}
+          aria-label={editing ? t("common.save") : t("common.send")}
           className="mb-1 flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-zinc-950 text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
         >
-          <MdSend className="h-4 w-4" />
+          {editing ? <MdCheck className="h-5 w-5" /> : <MdSend className="h-4 w-4" />}
         </button>
       </div>
-      {error && <p className="mt-1 px-1 text-xs text-red-500">{error}</p>}
+      {(error || uploads.error) && <p className="mt-1 px-1 text-xs text-red-500">{error || uploads.error}</p>}
     </div>
   );
 }

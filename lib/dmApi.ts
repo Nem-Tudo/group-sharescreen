@@ -1,5 +1,6 @@
 "use client";
 
+import type { ChatAttachment } from "./chatAttachments";
 import { getAccountToken } from "./accountApi";
 import { getSignalingHttpBase } from "./roomsApi";
 import type { SocialUser } from "./socialApi";
@@ -31,10 +32,14 @@ export interface DirectMessage {
   kind?: "text" | "gif" | "image";
   url?: string;
   images?: string[];
+  /** Videos, audio and documents — see lib/chatAttachments. Absent when there are none. */
+  attachments?: ChatAttachment[];
   replyTo?: DmReplyTo | null;
   /** Absent when nobody has reacted. The group chat's shape (see GroupReaction). */
   reactions?: DmReaction[];
   ts: number;
+  /** When its author last changed the text. Absent on one never edited (and from an older API). */
+  editedAt?: number;
   /**
    * The label this tab gave a message while it was still sending, echoed back
    * by the server on the response and on the socket. Only ever present on a
@@ -114,6 +119,8 @@ export async function sendDirectMessage(
     url?: string;
     /** Data URLs, uploaded by the API to the CDN. */
     images?: string[];
+    /** Receipts for files already uploaded — see lib/uploadApi. */
+    attachments?: string[];
     replyTo?: DmReplyTo | null;
     /** See DirectMessage.clientId. */
     clientId?: string;
@@ -127,6 +134,7 @@ export async function sendDirectMessage(
         text: payload.text ?? "",
         ...(payload.url ? { url: payload.url } : {}),
         ...(payload.images && payload.images.length > 0 ? { images: payload.images } : {}),
+        ...(payload.attachments && payload.attachments.length > 0 ? { attachments: payload.attachments } : {}),
         ...(payload.replyTo ? { replyTo: payload.replyTo } : {}),
         ...(payload.clientId ? { clientId: payload.clientId } : {}),
       }),
@@ -190,6 +198,47 @@ export async function reactToDirectMessage(
       return { ok: false, error: data.error ?? translate("common.couldNotSend") };
     }
     return { ok: true, reactions: data.reactions };
+  } catch {
+    return { ok: false, error: translate("common.noConnectionToTheServer") };
+  }
+}
+
+/** New text for one of this account's own messages; answers with the message as it now stands. */
+export async function editDirectMessage(
+  userId: string,
+  messageId: string,
+  text: string
+): Promise<{ ok: true; message: DirectMessage } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(
+      `${getSignalingHttpBase()}/dm/${encodeURIComponent(userId)}/messages/${encodeURIComponent(messageId)}`,
+      {
+        method: "PATCH",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      }
+    );
+    const data = (await res.json().catch(() => ({}))) as { message?: DirectMessage; error?: string };
+    if (!res.ok || !data.message) return { ok: false, error: data.error ?? translate("common.couldNotSave") };
+    return { ok: true, message: data.message };
+  } catch {
+    return { ok: false, error: translate("common.noConnectionToTheServer") };
+  }
+}
+
+/** Deletes one of this account's own messages, for both people. */
+export async function deleteDirectMessage(
+  userId: string,
+  messageId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(
+      `${getSignalingHttpBase()}/dm/${encodeURIComponent(userId)}/messages/${encodeURIComponent(messageId)}`,
+      { method: "DELETE", headers: authHeaders() }
+    );
+    if (res.ok) return { ok: true };
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    return { ok: false, error: data.error ?? translate("common.didnTWork") };
   } catch {
     return { ok: false, error: translate("common.noConnectionToTheServer") };
   }

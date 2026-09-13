@@ -97,13 +97,23 @@ export function appendCachedMessage(
   });
 }
 
-/** A change to one held message — its reactions, today — for a room not on screen. */
-export function updateCachedMessage(channelId: string, messageId: string, patch: Partial<GroupMessage>): void {
+/**
+ * A change to one held message — its reactions, or an edit of its text — for
+ * a room not on screen. An edit brings whoever its new text mentions, who go
+ * in with the room's names like a new message's do.
+ */
+export function updateCachedMessage(
+  channelId: string,
+  messageId: string,
+  patch: Partial<GroupMessage>,
+  mentioned: Record<string, GroupUser> = {}
+): void {
   const entry = channels.get(channelId);
   if (!entry || !entry.messages.some((m) => m.id === messageId)) return;
   channels.set(channelId, {
     ...entry,
     messages: entry.messages.map((m) => (m.id === messageId ? { ...m, ...patch } : m)),
+    authors: Object.keys(mentioned).length > 0 ? { ...mentioned, ...entry.authors } : entry.authors,
   });
 }
 

@@ -1,5 +1,7 @@
 "use client";
 
+import { MessageAttachments } from "@/components/MessageAttachments";
+import { attachmentsPreview } from "@/lib/chatAttachments";
 import {
   Fragment,
   useCallback,
@@ -17,6 +19,7 @@ import {
   MdClose,
   MdContentCopy,
   MdDeleteOutline,
+  MdEdit,
   MdEmojiEmotions,
   MdLink,
   MdOpenInNew,
@@ -33,6 +36,7 @@ import { Popover, Tooltip } from "@/components/Tooltip";
 import { UserAvatar } from "@/components/UserAvatar";
 import {
   GroupMessageComposer,
+  type ComposerHandle,
   type ComposerPayload,
   type MentionCandidate,
 } from "@/components/groups/GroupMessageComposer";
@@ -66,6 +70,7 @@ import {
 } from "@/lib/groupCache";
 import {
   deleteGroupMessage,
+  editGroupMessage,
   fetchMessages,
   reactToGroupMessage,
   searchMembers,
@@ -83,6 +88,7 @@ import {
   onGroupMessage,
   onGroupMessageDeleted,
   onGroupMessageReactions,
+  onGroupMessageUpdated,
   onGroupTyping,
   setViewingChannel,
 } from "@/lib/useGroups";
@@ -95,7 +101,7 @@ import {
 } from "@/lib/groupOutbox";
 import { prefetchUserProfile } from "@/lib/userProfile";
 import { useGroupNavigation } from "@/lib/groupNavigation";
-import { UNKNOWN_ROOM, UNKNOWN_USER, plainTokens, splitTokens } from "@/lib/messageTokens";
+import { UNKNOWN_ROOM, UNKNOWN_USER, plainTokens, splitTokens, type Named } from "@/lib/messageTokens";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
 import { formatLocale } from "@/lib/i18n";
@@ -131,6 +137,16 @@ const JUMP_MAX_PAGES = 20;
 
 function timeLabel(ts: number): string {
   return new Date(ts).toLocaleTimeString(formatLocale(), { hour: "2-digit", minute: "2-digit" });
+}
+
+/** When a message was edited, for the "(editado)" hover: the day and the time. */
+function editedLabel(ts: number): string {
+  return new Date(ts).toLocaleString(formatLocale(), {
+    day: "numeric",
+    month: "long",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function dayKey(ts: number): string {
@@ -178,6 +194,7 @@ function outgoingAsMessage(outgoing: OutgoingMessage, selfId: string): GroupMess
     kind: outgoing.url ? "gif" : outgoing.images?.length ? "image" : "text",
     ...(outgoing.url ? { url: outgoing.url } : {}),
     ...(outgoing.images ? { images: outgoing.images } : {}),
+    ...(outgoing.files ? { attachments: outgoing.files } : {}),
     replyTo: outgoing.replyTo,
     mentions: outgoing.mentions,
     ts: outgoing.ts,
@@ -232,6 +249,10 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
   const [pickerFor, setPickerFor] = useState<string | null>(null);
   // "Ver reações" — which message, opened on which emoji (null for its first).
   const [reactionsView, setReactionsView] = useState<{ messageId: string; emoji: string | null } | null>(null);
+  // The composer, for opening a message in it to edit — and which one it has
+  // open, so that line can be marked while it is.
+  const composerRef = useRef<ComposerHandle | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const atBottomRef = useRef(true);
@@ -422,7 +443,28 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
     () =>
       onGroupMessageDeleted((event) => {
         if (event.channelId !== channelId) return;
+        // Deleted while it was open for editing — by a moderator, or on
+        // another device: there is nothing left to save the edit to.
+        composerRef.current?.cancelEdit(event.messageId);
         setMessages((prev) => prev?.filter((m) => m.id !== event.messageId) ?? prev);
+      }),
+    [channelId]
+  );
+
+  useEffect(
+    () =>
+      onGroupMessageUpdated(({ message, mentioned }) => {
+        if (message.channelId !== channelId) return;
+        if (Object.keys(mentioned).length > 0) setAuthors((prev) => ({ ...mentioned, ...prev }));
+        // Only what an edit changes — the reactions held may be newer.
+        setMessages(
+          (prev) =>
+            prev?.map((m) =>
+              m.id === message.id
+                ? { ...m, text: message.text, mentions: message.mentions, editedAt: message.editedAt }
+                : m
+            ) ?? prev
+        );
       }),
     [channelId]
   );
@@ -824,6 +866,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
       text: payload.text,
       ...(payload.url ? { url: payload.url } : {}),
       ...(payload.images ? { images: payload.images } : {}),
+      ...(payload.attachments ? { attachments: payload.attachments, files: payload.files } : {}),
       mentions: payload.mentions,
       replyTo,
       // A guest's name is whatever they are going by right now.
@@ -841,6 +884,8 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
 
   function startReply(message: GroupMessage) {
     const author = userOf(message);
+    // One thing at a time in the box: an edit in progress is dropped.
+    composerRef.current?.cancelEdit();
     setReplyTo({
       id: message.id,
       userId: message.from,
@@ -855,10 +900,79 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
               (id) => roomById.get(id)?.name
             ).slice(0, 200),
           }
-        : {}),
+        : message.attachments?.length
+          ? { text: attachmentsPreview(message.attachments).slice(0, 200) }
+          : {}),
       ...(message.kind ? { kind: message.kind } : {}),
       ...(message.images ? { images: message.images.slice(0, 3) } : {}),
     });
+  }
+
+  // ── Editing ──────────────────────────────────────────────────────────
+  //
+  // Your own messages only, as on Discord — not even "Gerenciar mensagens"
+  // changes somebody else's words. A GIF has no text to change, and a room
+  // where you may no longer write is one where you may no longer edit.
+
+  function canEdit(message: GroupMessage): boolean {
+    return message.from === selfId && message.kind !== "gif" && can("sendMessages");
+  }
+
+  /** Opens a message in the composer, its tokens read back as the names they stand for. */
+  function startEdit(message: GroupMessage) {
+    if (!canEdit(message)) return;
+    setReplyTo(null);
+    const people: Named[] = [];
+    const text = splitTokens(message.text)
+      .map((segment) => {
+        if (segment.type === "text") return segment.value;
+        // Somebody (or a room) this screen has no name for stays as the token
+        // it is, so saving does not quietly turn it into plain text.
+        if (segment.type === "user") {
+          const person = personById.get(segment.id);
+          if (!person) return `<@${segment.id}>`;
+          people.push({ id: person.id, name: person.name });
+          return `@${person.name}`;
+        }
+        const room = roomById.get(segment.id);
+        return room ? `#${room.name}` : `<#${segment.id}>`;
+      })
+      .join("");
+    composerRef.current?.startEdit({ id: message.id, text, people });
+  }
+
+  /** ↑ in an empty composer: the newest message of yours that can be edited. */
+  function editLast() {
+    const held = messages ?? [];
+    for (let i = held.length - 1; i >= 0; i -= 1) {
+      if (!canEdit(held[i])) continue;
+      startEdit(held[i]);
+      return;
+    }
+  }
+
+  // Changed here at once and then replaced by what the server answers; put
+  // back as it was, with the reason, when the server refuses — the same as a
+  // reaction. Erased to nothing, a message is one to delete, and asks so.
+  async function saveEdit(messageId: string, payload: ComposerPayload) {
+    const original = messages?.find((m) => m.id === messageId);
+    if (!original) return;
+    if (!payload.text && !original.images?.length && !original.attachments?.length) {
+      confirmDelete(original);
+      return;
+    }
+    if (payload.text === original.text) return;
+    const patch = (changes: Partial<GroupMessage>) =>
+      setMessages((prev) => prev?.map((m) => (m.id === messageId ? { ...m, ...changes } : m)) ?? prev);
+    patch({ text: payload.text, editedAt: Date.now() });
+    const result = await editGroupMessage(groupId, channelId, messageId, payload.text, payload.mentions);
+    if (result.ok) {
+      const { text, mentions, editedAt } = result.message;
+      patch({ text, mentions, editedAt });
+      return;
+    }
+    patch({ text: original.text, mentions: original.mentions, editedAt: original.editedAt });
+    void openPopup("generic", { data: { title: t("common.didnTWork"), message: result.error } });
   }
 
   async function deleteNow(message: GroupMessage) {
@@ -1007,6 +1121,12 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
           icon: <MdReply className="h-4 w-4" />,
           onSelect: () => startReply(message),
         },
+        !outgoing &&
+          canEdit(message) && {
+            label: t("common.edit"),
+            icon: <MdEdit className="h-4 w-4" />,
+            onSelect: () => startEdit(message),
+          },
         outgoing?.status === "failed" && {
           label: t("common.tryAgain2"),
           icon: <MdRefresh className="h-4 w-4" />,
@@ -1137,6 +1257,11 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
         <button type="button" onClick={() => startReply(message)} aria-label={t("common.reply")} title={t("common.reply")} className={rowAction}>
           <MdReply className="h-3.5 w-3.5" />
         </button>
+        {canEdit(message) && (
+          <button type="button" onClick={() => startEdit(message)} aria-label={t("common.edit")} title={t("common.edit")} className={rowAction}>
+            <MdEdit className="h-3.5 w-3.5" />
+          </button>
+        )}
         {canDelete && (
           <button
             type="button"
@@ -1212,7 +1337,13 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
           onContextMenu={(e) => messageMenu(e, message, outgoing)}
           className={`group relative -mx-1.5 rounded-lg px-2 text-sm transition-colors ${
             grouped ? "pb-0.5" : "mt-2.5 pb-0.5"
-          } ${mentionsMe ? "bg-blue-100/70 py-1 dark:bg-blue-500/25" : "hover:bg-zinc-100/80 dark:hover:bg-zinc-900/70"} ${
+          } ${
+            editingId === message.id && !outgoing
+              ? "bg-amber-50 ring-1 ring-amber-300 dark:bg-amber-500/10 dark:ring-amber-500/40"
+              : mentionsMe
+                ? "bg-blue-100/70 py-1 dark:bg-blue-500/25"
+                : "hover:bg-zinc-100/80 dark:hover:bg-zinc-900/70"
+          } ${
             outgoing?.status === "sending" ? "opacity-60" : ""
           }`}
         >
@@ -1287,7 +1418,18 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
           <div className={grouped ? "flex items-start justify-between gap-1.5" : ""}>
             <div className="min-w-0 flex-1">
               {message.text && (
-                <p className="select-text whitespace-pre-wrap break-words text-zinc-900 dark:text-zinc-100">{renderText(message)}</p>
+                <p className="select-text whitespace-pre-wrap break-words text-zinc-900 dark:text-zinc-100">
+                  {renderText(message)}
+                  {message.editedAt && (
+                    // Discord's "(editado)", at the end of the words, with when on hover.
+                    <span
+                      title={t("groups.textChannelView.editedAt", { when: editedLabel(message.editedAt) })}
+                      className="ml-1 select-none text-[11px] text-zinc-400 dark:text-zinc-500"
+                    >
+                      ({t("groups.textChannelView.edited")})
+                    </span>
+                  )}
+                </p>
               )}
               {message.kind === "gif" && message.url && (
                 <button
@@ -1321,6 +1463,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
                   ))}
                 </div>
               )}
+              <MessageAttachments attachments={message.attachments} />
               {!outgoing && message.reactions && message.reactions.length > 0 && (
                 // Discord's row: each emoji with how many, lit up when one of
                 // them is yours. Clicking joins it or takes yours back — taking
@@ -1486,6 +1629,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
 
       {detail.chatAvailable && (
         <GroupMessageComposer
+          ref={composerRef}
           channelName={channelName}
           candidates={candidates}
           rooms={roomCandidates}
@@ -1493,6 +1637,9 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
           replyingTo={replyTo}
           onCancelReply={() => setReplyTo(null)}
           onSend={send}
+          onSubmitEdit={(messageId, payload) => void saveEdit(messageId, payload)}
+          onEditingChange={setEditingId}
+          onEditLast={editLast}
           disabledReason={can("sendMessages") ? null : t("groups.textChannelView.youCannotSendMessagesInThis")}
           allow={{ gifs: can("sendGifs"), images: can("sendImages") }}
           onTypingChange={can("sendMessages") ? announceTyping : undefined}

@@ -2,7 +2,8 @@
 
 import { useSyncExternalStore } from "react";
 import { signalingClient, type DmSocketEvent } from "./signalingClient";
-import { fetchDmSettings, saveDmSettings, type DmReaction } from "./dmApi";
+import { fetchDmSettings, saveDmSettings, type DirectMessage, type DmReaction } from "./dmApi";
+import type { DmChange } from "./dmThread";
 import { TYPING_REFRESH_MS } from "./typing";
 
 // What a conversation knows *now* and the database does not hold as a page:
@@ -26,6 +27,8 @@ export const DM_TYPING_EXPIRE_MS = TYPING_REFRESH_MS + 3000;
 
 /** Reactions heard live, kept for this many messages at most. */
 const MAX_REACTION_UPDATES = 400;
+/** Edits and deletions heard live, the same. */
+const MAX_CHANGES = 400;
 
 export type DmReactionUpdate = {
   reactions: DmReaction[];
@@ -40,11 +43,18 @@ export type DmLiveState = {
   seen: Readonly<Record<string, number>>;
   /** The newest reactions per message id, heard live or set by this tab. */
   reactions: Readonly<Record<string, DmReactionUpdate>>;
+  /** Messages edited or deleted since they were read, by id — see dmThread's withChanges. */
+  changes: Readonly<Record<string, DmChange>>;
+  /**
+   * How many deletions have been heard. The conversation list re-reads on it:
+   * a row whose newest line went needs the server to say what is newest now.
+   */
+  deletions: number;
   /** This account's "visto" switch; null until read. Tagged with whose it is. */
   readReceipts: { accountId: string; value: boolean } | null;
 };
 
-let state: DmLiveState = { typing: {}, seen: {}, reactions: {}, readReceipts: null };
+let state: DmLiveState = { typing: {}, seen: {}, reactions: {}, changes: {}, deletions: 0, readReceipts: null };
 const listeners = new Set<() => void>();
 const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let wired = false;
@@ -86,6 +96,25 @@ export function noteDmReactions(messageId: string, reactions: DmReaction[]): voi
   set({ reactions: next });
 }
 
+/**
+ * Records what became of one message — or, with null, forgets it (a change
+ * this tab made at once and the server then refused). Oldest records go past
+ * the cap.
+ */
+export function noteDmChange(messageId: string, change: DmChange | null): void {
+  const next: Record<string, DmChange> = { ...state.changes };
+  delete next[messageId];
+  if (change) next[messageId] = change;
+  const ids = Object.keys(next);
+  for (let i = 0; i < ids.length - MAX_CHANGES; i += 1) delete next[ids[i]];
+  set({ changes: next, ...(change?.deleted ? { deletions: state.deletions + 1 } : {}) });
+}
+
+/** An edit this tab made, drawn before the server answers — stamped now, or when the server said. */
+export function noteDmEdit(messageId: string, text: string, editedAt?: number): void {
+  noteDmChange(messageId, { text, editedAt: editedAt ?? Date.now() });
+}
+
 function handle(event: DmSocketEvent) {
   switch (event.type) {
     case "dm": {
@@ -111,6 +140,21 @@ function handle(event: DmSocketEvent) {
       noteDmReactions(event.messageId, event.reactions as DmReaction[]);
       return;
     }
+    case "dm-edited": {
+      const message = event.message as Partial<DirectMessage> | undefined;
+      if (typeof message?.id !== "string" || typeof message.text !== "string") return;
+      if (typeof message.editedAt !== "number") return;
+      // An older edit arriving late never undoes a newer one already heard.
+      const held = state.changes[message.id];
+      if (held && (held.deleted || held.editedAt > message.editedAt)) return;
+      noteDmChange(message.id, { text: message.text, editedAt: message.editedAt });
+      return;
+    }
+    case "dm-deleted": {
+      if (typeof event.messageId !== "string") return;
+      noteDmChange(event.messageId, { deleted: true });
+      return;
+    }
     case "dm-settings": {
       if (typeof event.readReceipts !== "boolean" || !state.readReceipts) return;
       set({ readReceipts: { ...state.readReceipts, value: event.readReceipts } });
@@ -133,7 +177,7 @@ function subscribe(onChange: () => void) {
   };
 }
 
-const SERVER_STATE: DmLiveState = { typing: {}, seen: {}, reactions: {}, readReceipts: null };
+const SERVER_STATE: DmLiveState = { typing: {}, seen: {}, reactions: {}, changes: {}, deletions: 0, readReceipts: null };
 
 export function useDmLive(): DmLiveState {
   return useSyncExternalStore(subscribe, () => state, () => SERVER_STATE);

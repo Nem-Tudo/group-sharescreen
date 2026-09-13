@@ -18,7 +18,6 @@ import type { GifResult } from "@/app/api/giphy/search/route";
 import { MdSend } from "react-icons/md";
 import { GifPicker } from "@/components/GifPicker";
 import {
-  CHAT_IMAGE_ACCEPT,
   CHAT_IMAGE_MAX_BYTES,
   CHAT_IMAGE_MAX_PER_MESSAGE,
   CHAT_IMAGE_TOTAL_MAX_BYTES,
@@ -30,10 +29,14 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { withDeviceSuffix } from "@/lib/displayName";
 import { Popover, Tooltip } from "@/components/Tooltip";
 import { NotificationBell } from "@/components/NotificationBell";
-import { MdClose, MdOutlineImage, MdReply, MdCameraAlt, MdPhotoLibrary } from "react-icons/md";
+import { MdClose, MdReply } from "react-icons/md";
 import { LuPanelRightClose } from "react-icons/lu";
 import { ChatImageModal, type ChatImagePreviewState } from "@/components/ChatImageModal";
-import { CameraCaptureModal } from "@/components/CameraCaptureModal";
+import { AttachMenu, splitPicked } from "@/components/AttachMenu";
+import { AttachmentTray } from "@/components/AttachmentTray";
+import { MessageAttachments } from "@/components/MessageAttachments";
+import { attachmentsPreview } from "@/lib/chatAttachments";
+import { useAttachmentUploads } from "@/lib/useAttachmentUploads";
 import {
   buildMentionsRegex,
   tokenizeMentions,
@@ -219,10 +222,14 @@ export function ChatPanel({
   // on a failure the composer keeps the text and the attachments, so the
   // retry is one more click rather than picking three files again. Omitted
   // the same way onSendGif is, which is what disables the button.
+  //
+  // Videos and documents ride in the same request as receipts (`attachments`)
+  // for files the composer has already uploaded — see lib/useAttachmentUploads.
   onSendImages?: (
     text: string,
     images: string[],
-    replyTo?: ChatReplyTo | null
+    replyTo: ChatReplyTo | null,
+    attachments: string[]
   ) => Promise<{ ok: boolean; error?: string }>;
   // Fired at most twice per typing burst — true on the first keystroke,
   // false after TYPING_IDLE_MS of inactivity or on send — not on every
@@ -296,11 +303,10 @@ export function ChatPanel({
   const [sendingImages, setSendingImages] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
   const [imageModalPreview, setImageModalPreview] = useState<ChatImagePreviewState | null>(null);
-  // The little "arquivos ou câmera?" menu under the image button, and the
-  // camera itself. Two states rather than one: the menu closes the moment the
-  // camera opens, so they are never both up.
-  const [attachMenuOpen, setAttachMenuOpen] = useState(false);
-  const [cameraOpen, setCameraOpen] = useState(false);
+  // Videos and documents waiting to go, each uploading from the moment it was
+  // picked (see lib/useAttachmentUploads). The pictures above stay separate:
+  // they are downscaled and drawn inline, these are sent as they are.
+  const uploads = useAttachmentUploads("chat");
   // Only ever counts up, and only to give each attachment a stable React key
   // — two copies of the same file are two attachments.
   const attachmentSeqRef = useRef(0);
@@ -370,7 +376,6 @@ export function ChatPanel({
       });
     },
   });
-  const fileInputRef = useRef<HTMLInputElement>(null);
   // Tracks whether we've already jumped to bottom for the current batch of
   // messages, so a room's preloaded history opens scrolled to the bottom
   // (like a real chat) instead of at the top where it first renders.
@@ -435,7 +440,7 @@ export function ChatPanel({
     return {
       id: replyingTo.id,
       name: replyingTo.name,
-      text: replyingTo.text ? replyingTo.text.slice(0, 200) : "",
+      text: (replyingTo.text || attachmentsPreview(replyingTo.attachments)).slice(0, 200),
       kind: replyingTo.kind,
       images: replyingTo.images && replyingTo.images.length > 0 ? replyingTo.images : undefined,
     };
@@ -649,8 +654,17 @@ export function ChatPanel({
 
   async function sendWithAttachments() {
     if (!onSendImages || sendingImages) return;
+    if (uploads.uploading) {
+      setImageError(t("attachments.stillUploading"));
+      return;
+    }
+    if (uploads.failed) {
+      setImageError(t("attachments.removeFailedFiles"));
+      return;
+    }
     const ready = attachments.filter((entry) => entry.dataUrl);
-    if (ready.length === 0) return;
+    const receipts = uploads.tokens;
+    if (ready.length === 0 && receipts.length === 0) return;
     const total = ready.reduce((sum, entry) => sum + entry.byteLength, 0);
     if (total > CHAT_IMAGE_TOTAL_MAX_BYTES) {
       const mb = Math.round(CHAT_IMAGE_TOTAL_MAX_BYTES / (1024 * 1024));
@@ -668,10 +682,12 @@ export function ChatPanel({
       const result = await onSendImages(
         text,
         ready.map((entry) => entry.dataUrl as string),
-        replyPayload
+        replyPayload,
+        receipts
       );
       if (result.ok) {
         setAttachments([]);
+        uploads.clear();
         clearComposer();
       } else {
         setImageError(result.error ?? t("common.couldNotSendTheImage"));
@@ -685,7 +701,7 @@ export function ChatPanel({
     if (sendDisabledReason || sendingImages) return;
     // A message with pictures goes as one request, caption included — never
     // as a socket message plus a separate upload.
-    if (attachments.length > 0) {
+    if (attachments.length > 0 || uploads.items.length > 0) {
       if (attachments.some((entry) => entry.pending)) return;
       void sendWithAttachments();
       return;
@@ -702,14 +718,17 @@ export function ChatPanel({
   }
 
   const trayFull = attachments.length >= CHAT_IMAGE_MAX_PER_MESSAGE;
-  const canAttach = Boolean(onSendImages) && !trayFull && !sendingImages;
+  const canAttach = Boolean(onSendImages) && !sendingImages;
   // A message needs *something* in it — text or a picture — and every picture
   // in the tray has to have finished shrinking before any of them can go.
   const canSend =
     !sendDisabledReason &&
     !sendingImages &&
-    (attachments.length > 0
-      ? Boolean(onSendImages) && !attachments.some((entry) => entry.pending)
+    (attachments.length > 0 || uploads.items.length > 0
+      ? Boolean(onSendImages) &&
+        !attachments.some((entry) => entry.pending) &&
+        !uploads.uploading &&
+        !uploads.failed
       : Boolean(input.trim()));
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -877,12 +896,13 @@ export function ChatPanel({
     setImageError(null);
   }
 
-  function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files ?? []);
-    // Cleared before anything else, so picking the *same* file twice in a
-    // row still fires a change event the second time.
-    e.target.value = "";
-    void attachFiles(files);
+  // Whatever came through "Vídeo" or "Arquivo": pictures still go to the
+  // picture tray (downscaled, drawn inline), everything else is uploaded as
+  // it is.
+  function attachAnything(files: File[]) {
+    const { images, others } = splitPicked(files, isSupportedChatImage);
+    if (images.length > 0) void attachFiles(images);
+    if (others.length > 0) void uploads.add(others);
   }
 
   // Ctrl+V of a screenshot, which is how most images actually get into a
@@ -1182,6 +1202,7 @@ export function ChatPanel({
                               ))}
                             </div>
                           )}
+                          <MessageAttachments attachments={m.attachments} compact />
                         </>
                       )}
                     </div>
@@ -1250,9 +1271,9 @@ export function ChatPanel({
         )}
       </div>
 
-      {(blockedMessage || imageError) && (
+      {(blockedMessage || imageError || uploads.error) && (
         <p className="border-t border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-600 dark:border-red-900 dark:bg-red-950/40 dark:text-red-400">
-          {blockedMessage || imageError}
+          {blockedMessage || imageError || uploads.error}
         </p>
       )}
 
@@ -1356,7 +1377,7 @@ export function ChatPanel({
                       ? "[GIF]"
                       : replyingTo.images?.length
                         ? "[Imagem]"
-                        : ""}
+                        : attachmentsPreview(replyingTo.attachments)}
                 </span>
               </div>
               <Tooltip content={t("chatPanel.cancelReplyEsc")}>
@@ -1415,104 +1436,29 @@ export function ChatPanel({
               </span>
             </div>
           )}
+          <AttachmentTray items={uploads.items} onRemove={uploads.remove} disabled={sendingImages} />
           <div className="flex items-end gap-2">
-            <Popover
-              open={pickerOpen}
-              onClose={() => setPickerOpen(false)}
-              placement="top-start"
-              content={<GifPicker onSelect={handleGifSelect} />}
-              tooltip={
-                onSendGif
-                  ? t("chatPanel.addGif")
-                  : (gifDisabledReason ?? t("chatPanel.useAnAccountToSendGifs"))
-              }
-            >
-              <span className="inline-flex shrink-0">
-                <button
-                  type="button"
-                  onClick={onSendGif ? () => setPickerOpen((open) => !open) : onRequestAccount}
-                  aria-label={t("chatPanel.addGif")}
-                  className={`inline-flex h-8 shrink-0 items-center justify-center rounded-lg border px-2.5 text-xs font-semibold transition ${
-                    onSendGif
-                      ? "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                      : "border-zinc-200 opacity-50 text-zinc-400 dark:border-zinc-800 dark:text-zinc-600"
-                  }`}
-                >
-                  GIF
-                </button>
-              </span>
-            </Popover>
-            {/* Off-screen rather than absent: a file input is the only way to
-                open the system picker, and it has to survive between clicks. */}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept={CHAT_IMAGE_ACCEPT}
-              multiple
-              onChange={handleFileChange}
-              className="hidden"
-            />
-            {/* A menu rather than a straight jump to the file picker: a
-                picture worth sending in a call is as often one taken right
-                now as one already on disk. */}
-            <Popover
-              open={attachMenuOpen}
-              onClose={() => setAttachMenuOpen(false)}
-              placement="top-start"
+            <AttachMenu
+              onImages={(files) => void attachFiles(files)}
+              onFiles={attachAnything}
+              onOpen={() => void uploads.refreshLimit()}
+              limitMb={uploads.limit?.maxMb}
+              disabled={!canAttach}
               wrapperClassName="inline-flex shrink-0"
               tooltip={
                 !onSendImages
-                  ? (imageDisabledReason ?? t("chatPanel.useAnAccountToSendImages"))
+                  ? (imageDisabledReason ?? t("attachments.attach"))
                   : trayFull
                     ? t("chatPanel.maximumOfChatImageMaxPer2", { CHAT_IMAGE_MAX_PER_MESSAGE })
-                    : t("chatPanel.attachImageOrPasteWithCtrl")
+                    : t("attachments.attach")
               }
-              content={
-                <div className="flex w-52 flex-col rounded-lg border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAttachMenuOpen(false);
-                      fileInputRef.current?.click();
-                    }}
-                    className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                  >
-                    <MdPhotoLibrary className="h-4 w-4 shrink-0" aria-hidden />
-                    {t("chatPanel.chooseFromFiles")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAttachMenuOpen(false);
-                      setCameraOpen(true);
-                    }}
-                    className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                  >
-                    <MdCameraAlt className="h-4 w-4 shrink-0" aria-hidden />
-                    {t("chatPanel.takeAPhotoNow")}
-                  </button>
-                </div>
-              }
-            >
-              <button
-                type="button"
-                onClick={
-                  !onSendImages
-                    ? onRequestAccount
-                    : canAttach
-                      ? () => setAttachMenuOpen((open) => !open)
-                      : undefined
-                }
-                aria-label={t("chatPanel.attachImage")}
-                className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border text-base transition ${
-                  canAttach
-                    ? "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                    : "border-zinc-200 opacity-50 text-zinc-400 dark:border-zinc-800 dark:text-zinc-600"
-                }`}
-              >
-                <MdOutlineImage aria-hidden />
-              </button>
-            </Popover>
+              iconClassName="h-5 w-5"
+              buttonClassName={`inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border transition disabled:cursor-not-allowed ${
+                canAttach
+                  ? "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  : "border-zinc-200 opacity-50 text-zinc-400 dark:border-zinc-800 dark:text-zinc-600"
+              }`}
+            />
             <HighlightedTextarea
               ref={textareaRef}
               value={input}
@@ -1540,6 +1486,32 @@ export function ChatPanel({
               }
               className="min-h-8 resize-none rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-base sm:text-sm leading-5 text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-white/10"
             />
+            <Popover
+              open={pickerOpen}
+              onClose={() => setPickerOpen(false)}
+              placement="top-start"
+              content={<GifPicker onSelect={handleGifSelect} />}
+              tooltip={
+                onSendGif
+                  ? t("chatPanel.addGif")
+                  : (gifDisabledReason ?? t("chatPanel.useAnAccountToSendGifs"))
+              }
+            >
+              <span className="inline-flex shrink-0">
+                <button
+                  type="button"
+                  onClick={onSendGif ? () => setPickerOpen((open) => !open) : onRequestAccount}
+                  aria-label={t("chatPanel.addGif")}
+                  className={`inline-flex h-8 shrink-0 items-center justify-center rounded-lg border px-2.5 text-xs font-semibold transition ${
+                    onSendGif
+                      ? "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                      : "border-zinc-200 opacity-50 text-zinc-400 dark:border-zinc-800 dark:text-zinc-600"
+                  }`}
+                >
+                  GIF
+                </button>
+              </span>
+            </Popover>
             <EmojiPickerButton
               onPick={emoji.insert}
               disabled={Boolean(sendDisabledReason) || sendingImages}
@@ -1567,13 +1539,6 @@ export function ChatPanel({
       <ChatImageModal
         preview={imageModalPreview}
         onClose={() => setImageModalPreview(null)}
-      />
-      {/* The still lands in the same tray a picked file would, so a caption,
-          the 3-picture limit and the downscale all work out of the box. */}
-      <CameraCaptureModal
-        open={cameraOpen}
-        onClose={() => setCameraOpen(false)}
-        onCapture={(file) => void attachFiles([file])}
       />
     </div>
   );

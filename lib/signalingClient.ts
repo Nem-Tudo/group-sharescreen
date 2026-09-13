@@ -23,6 +23,7 @@ import { showNotification } from "./notifications";
 import { isObsClient } from "./browserEnv";
 import { getSignalingWsUrl } from "./roomsApi";
 import { translate } from "@/lib/i18n";
+import { attachmentsPreview, parseAttachments, type ChatAttachment } from "./chatAttachments";
 
 // `role: "moderator"` marks a moderator silently watching for moderation
 // (see server/signaling.ts's "admin-join") — present in the peer list so
@@ -357,6 +358,9 @@ export type ChatMessage = {
   // message from before this existed, where a lone picture arrives as
   // kind "image" with a single `url` instead.
   images?: string[];
+  // Videos, audio and documents (see lib/chatAttachments.ts), uploaded before
+  // the message and sent with it through the same route as the pictures.
+  attachments?: ChatAttachment[];
   replyTo?: ChatReplyTo | null;
   ts: number;
 };
@@ -781,7 +785,7 @@ type SignalListener = (from: string, data: Record<string, unknown>) => void;
  * each by its `type`.
  */
 export type GroupSocketEvent = { type: string; groupId?: string } & Record<string, unknown>;
-/** "dm-typing", "dm-seen", "dm-reactions", "dm-settings" and a copy of every "dm" — see onDmEvent. */
+/** "dm-typing", "dm-seen", "dm-reactions", "dm-edited", "dm-deleted", "dm-settings" and a copy of every "dm" — see onDmEvent. */
 export type DmSocketEvent = { type: string } & Record<string, unknown>;
 
 const NAME_STORAGE_KEY = "sharescreen:name";
@@ -2065,12 +2069,15 @@ class SignalingClient {
       case "dm-typing":
       case "dm-seen":
       case "dm-reactions":
+      case "dm-edited":
+      case "dm-deleted":
       case "dm-settings":
         this.emitDmEvent(msg as DmSocketEvent);
         break;
       // Groups — handed to their own listeners, never to `state`. See onGroupEvent.
       case "group-message":
       case "group-message-deleted":
+      case "group-message-updated":
       case "group-message-reactions":
       case "group-updated":
       case "group-removed":
@@ -2318,6 +2325,7 @@ class SignalingClient {
           images: Array.isArray(msg.images)
             ? (msg.images as unknown[]).filter((u): u is string => typeof u === "string")
             : undefined,
+          attachments: parseAttachments(msg.attachments),
           replyTo,
           ts: msg.ts as number,
         };
@@ -2374,6 +2382,8 @@ class SignalingClient {
         ? translate("signalingClient.sentAGif")
         : message.images && message.images.length > 0
           ? "enviou uma imagem"
+          : message.attachments && message.attachments.length > 0
+            ? attachmentsPreview(message.attachments)
           : isReplyToMe
             ? translate("signalingClient.repliedToYourMessage")
             : isBroadcast

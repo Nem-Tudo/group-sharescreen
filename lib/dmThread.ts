@@ -1,3 +1,4 @@
+import { attachmentsPreview } from "./chatAttachments";
 import type { Conversation, DirectMessage, DmReaction } from "./dmApi";
 import { translate } from "./i18n";
 
@@ -115,9 +116,37 @@ export function newestFrom(messages: readonly DirectMessage[], userId: string | 
   return null;
 }
 
+/** What became of a message since it was read: deleted by its author, or its text edited. */
+export type DmChange = { deleted: true } | { deleted?: false; text: string; editedAt: number };
+
+/**
+ * Messages with what was heard since laid over them (see lib/dmLive): the
+ * deleted ones gone, the edited ones carrying their new text. An edit only
+ * wins over a copy that is not newer than it — a page read after a second
+ * edit already holds that one.
+ */
+export function withChanges(
+  messages: readonly DirectMessage[],
+  changes: Readonly<Record<string, DmChange>>
+): DirectMessage[] {
+  const out: DirectMessage[] = [];
+  for (const message of messages) {
+    const change = changes[message.id];
+    if (!change) out.push(message);
+    else if (change.deleted) continue;
+    else if (change.editedAt >= (message.editedAt ?? 0)) {
+      out.push({ ...message, text: change.text, editedAt: change.editedAt });
+    } else out.push(message);
+  }
+  return out;
+}
+
 /**
  * The conversation list with whatever arrived since it was read laid over it:
- * each row's newest line, and the order, move the moment a message lands.
+ * each row's newest line, and the order, move the moment a message lands —
+ * and an edit shows there too. A deleted delivery no longer counts as a row's
+ * newest line; a deleted line the list itself was read with stays until the
+ * list is read again, since only the server knows what came before it.
  *
  * Unread counts are deliberately left alone. Only the server knows what was
  * read on another device, and a count guessed here would flash a wrong number
@@ -126,10 +155,16 @@ export function newestFrom(messages: readonly DirectMessage[], userId: string | 
 export function liveConversationList(
   conversations: readonly Conversation[],
   live: readonly DirectMessage[],
-  me: string
+  me: string,
+  changes: Readonly<Record<string, DmChange>> = {}
 ): Conversation[] {
-  const byUser = new Map(conversations.map((row) => [row.user.id, { ...row }]));
-  for (const message of live) {
+  const byUser = new Map(
+    conversations.map((row) => [
+      row.user.id,
+      { ...row, lastMessage: withChanges([row.lastMessage], changes)[0] ?? row.lastMessage },
+    ])
+  );
+  for (const message of withChanges(live, changes)) {
     const other = message.from === me ? message.to : message.from;
     const row = byUser.get(other);
     if (row && message.ts > row.lastMessage.ts) row.lastMessage = message;
@@ -211,11 +246,13 @@ export function newestOutside(
  * What a message says in one line. A picture or a GIF has no text of its own,
  * and the old list drew an empty line under the name for both.
  */
-export function messageSummary(message: Pick<DirectMessage, "text" | "kind" | "images">): string {
+export function messageSummary(
+  message: Pick<DirectMessage, "text" | "kind" | "images"> & Pick<Partial<DirectMessage>, "attachments">
+): string {
   if (message.text) return message.text;
   if (message.kind === "gif") return "GIF";
   const count = message.images?.length ?? 0;
   if (count > 1) return `${count} imagens`;
   if (count === 1 || message.kind === "image") return translate("common.image");
-  return "";
+  return attachmentsPreview(message.attachments);
 }

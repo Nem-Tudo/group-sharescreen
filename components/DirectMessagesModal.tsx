@@ -14,17 +14,20 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import useNtPopups from "ntpopups";
 import {
   MdArrowBack,
   MdCall,
   MdChatBubbleOutline,
+  MdCheck,
   MdClose,
   MdCloseFullscreen,
   MdContentCopy,
+  MdDeleteOutline,
   MdDoneAll,
+  MdEdit,
   MdErrorOutline,
   MdGif,
-  MdImage,
   MdKeyboardArrowDown,
   MdOpenInFull,
   MdOutlineAddReaction,
@@ -36,6 +39,11 @@ import {
 } from "react-icons/md";
 import { GifPicker } from "@/components/GifPicker";
 import { Popover } from "@/components/Tooltip";
+import { AttachMenu, splitPicked } from "@/components/AttachMenu";
+import { AttachmentTray } from "@/components/AttachmentTray";
+import { MessageAttachments } from "@/components/MessageAttachments";
+import { attachmentsPreview, type ChatAttachment } from "@/lib/chatAttachments";
+import { useAttachmentUploads } from "@/lib/useAttachmentUploads";
 import { EmojiPickerButton } from "@/components/EmojiPicker";
 import { EmojiSuggestions } from "@/components/EmojiSuggestions";
 import { Twemoji } from "@/components/Twemoji";
@@ -45,7 +53,6 @@ import { openContextMenu } from "@/lib/contextMenu";
 import { useEmojiAutocomplete } from "@/lib/useEmojiAutocomplete";
 import { ChatImageModal, type ChatImagePreviewState } from "@/components/ChatImageModal";
 import {
-  CHAT_IMAGE_ACCEPT,
   CHAT_IMAGE_MAX_PER_MESSAGE,
   isSupportedChatImage,
   prepareChatImage,
@@ -61,6 +68,8 @@ import { selectRecentDms } from "@/lib/signalingSelectors";
 import { presenceLabel, usePresence } from "@/lib/presence";
 import {
   DM_MAX_REACTIONS_PER_MESSAGE,
+  deleteDirectMessage,
+  editDirectMessage,
   fetchConversation,
   fetchConversations,
   markConversationRead,
@@ -84,11 +93,12 @@ import {
   seenThrough,
   threadMessages,
   unconfirmed,
+  withChanges,
   withConfirmed,
   withFreshPage,
   withOlderPage,
 } from "@/lib/dmThread";
-import { loadDmSettings, noteDmReactions, setDmReadReceipts, useDmLive } from "@/lib/dmLive";
+import { loadDmSettings, noteDmChange, noteDmEdit, noteDmReactions, setDmReadReceipts, useDmLive } from "@/lib/dmLive";
 import { describeReaction, toggleReaction as toggledReactions } from "@/lib/groupReactions";
 import { createTypingAnnouncer, formatTypingLabel, type TypingAnnouncer } from "@/lib/typing";
 import { MD_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
@@ -174,6 +184,11 @@ function timeLabel(ts: number): string {
   return new Date(ts).toLocaleTimeString(formatLocale(), { hour: "2-digit", minute: "2-digit" });
 }
 
+/** When a message was edited, for the "(editada)" hover: the day and the time. */
+function editedLabel(ts: number): string {
+  return new Date(ts).toLocaleString(formatLocale(), { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+}
+
 function dayKey(ts: number): string {
   const d = new Date(ts);
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
@@ -239,6 +254,9 @@ type Outgoing = {
   text: string;
   url?: string;
   images?: string[];
+  /** Receipts for files already uploaded, and the files as drawn until the server answers. */
+  attachments?: string[];
+  files?: ChatAttachment[];
   replyTo: DmReplyTo | null;
 };
 
@@ -289,6 +307,7 @@ type Bubble = {
   kind?: DirectMessage["kind"];
   url?: string;
   images?: string[];
+  attachments?: ChatAttachment[];
   replyTo?: DmReplyTo | null;
   ts: number;
   status?: Pending["status"];
@@ -298,6 +317,8 @@ type Bubble = {
   clientId?: string;
   /** The delivered message's id — only a delivered message can be reacted to. */
   messageId?: string;
+  /** When its text was last changed, if ever. */
+  editedAt?: number;
   reactions: DmReaction[];
   /** Mine, delivered, and read by the other side (with "visto" shared). */
   seen: boolean;
@@ -329,9 +350,12 @@ function MessageBubble({
   otherName,
   pickerFor,
   showSeenLabel,
+  editing,
   onPicker,
   onReact,
   onReply,
+  onEdit,
+  onDelete,
   onOpenImage,
   onRetry,
   onDiscard,
@@ -348,9 +372,15 @@ function MessageBubble({
   pickerFor: string | null;
   /** The rows' "Visto" line, under the newest of mine that was read. */
   showSeenLabel: boolean;
+  /** Open in the composer to be edited — marked while it is. */
+  editing: boolean;
   onPicker: (key: string | null) => void;
   onReact: (bubble: Bubble, emoji: string) => void;
   onReply: (reply: DmReplyTo) => void;
+  /** Absent for a message that cannot be edited (somebody else's, a GIF, one still sending). */
+  onEdit?: (bubble: Bubble) => void;
+  /** Absent for a message that cannot be deleted. `skipConfirm` is Shift held. */
+  onDelete?: (bubble: Bubble, skipConfirm: boolean) => void;
   onOpenImage: (images: string[], index: number, alt: string) => void;
   onRetry: (clientId: string) => void;
   onDiscard: (clientId: string) => void;
@@ -406,8 +436,46 @@ function MessageBubble({
         >
           <MdReply className={rows ? "h-3.5 w-3.5" : "h-4 w-4"} />
         </button>
+        {onEdit && (
+          <button
+            type="button"
+            aria-label={t("common.edit")}
+            title={t("common.edit")}
+            onClick={() => onEdit(bubble)}
+            className={className}
+          >
+            <MdEdit className={rows ? "h-3.5 w-3.5" : "h-4 w-4"} />
+          </button>
+        )}
+        {onDelete && (
+          <button
+            type="button"
+            aria-label={t("common.delete")}
+            title={t("groups.textChannelView.deleteShiftHint")}
+            onClick={(e) => onDelete(bubble, e.shiftKey)}
+            className={className}
+          >
+            <MdDeleteOutline className={rows ? "h-3.5 w-3.5" : "h-4 w-4"} />
+          </button>
+        )}
       </span>
     ) : null;
+
+  // Discord's "(editada)", at the end of the words, with when on hover.
+  const editedMark = bubble.editedAt ? (
+    <span
+      title={t("groups.textChannelView.editedAt", { when: editedLabel(bubble.editedAt) })}
+      className={`ml-1 select-none ${
+        rows
+          ? "text-[11px] text-zinc-400 dark:text-zinc-500"
+          : mine
+            ? "text-[10px] text-white/60 dark:text-zinc-950/60"
+            : "text-[10px] text-zinc-400"
+      }`}
+    >
+      ({t("groups.textChannelView.edited")})
+    </span>
+  ) : null;
 
   const quote = bubble.replyTo && (
     // A snapshot taken when the reply was sent, not a pointer (see the API
@@ -463,6 +531,7 @@ function MessageBubble({
           ))}
         </span>
       )}
+      <MessageAttachments attachments={bubble.attachments} className={rows ? "" : "-mx-1 mb-1"} />
     </>
   );
 
@@ -533,9 +602,11 @@ function MessageBubble({
     return (
       <li
         onContextMenu={(e) => onMenu(e, bubble)}
-        className={`group relative -mx-1.5 rounded-lg px-2 text-sm transition-colors hover:bg-zinc-100/80 dark:hover:bg-zinc-900/70 ${
-          grouped ? "pb-0.5" : "mt-2.5 pb-0.5"
-        } ${status === "sending" ? "opacity-60" : ""}`}
+        className={`group relative -mx-1.5 rounded-lg px-2 text-sm transition-colors ${
+          editing
+            ? "bg-amber-50 ring-1 ring-amber-300 dark:bg-amber-500/10 dark:ring-amber-500/40"
+            : "hover:bg-zinc-100/80 dark:hover:bg-zinc-900/70"
+        } ${grouped ? "pb-0.5" : "mt-2.5 pb-0.5"} ${status === "sending" ? "opacity-60" : ""}`}
       >
         {bubble.replyTo && <div className="pt-1 text-zinc-700 dark:text-zinc-300">{quote}</div>}
         {!grouped && author && (
@@ -562,7 +633,10 @@ function MessageBubble({
         <div className={grouped ? "flex items-start justify-between gap-1.5" : ""}>
           <div className="min-w-0 flex-1">
             {bubble.text && (
-              <p className="select-text whitespace-pre-wrap break-words text-zinc-900 dark:text-zinc-100">{linkify(bubble.text, false)}</p>
+              <p className="select-text whitespace-pre-wrap break-words text-zinc-900 dark:text-zinc-100">
+                {linkify(bubble.text, false)}
+                {editedMark}
+              </p>
             )}
             {media}
             {reactions}
@@ -594,11 +668,18 @@ function MessageBubble({
             mine
               ? `bg-zinc-950 text-white dark:bg-zinc-50 dark:text-zinc-950 ${grouped ? "rounded-tr-md" : ""}`
               : `bg-zinc-100 text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100 ${grouped ? "rounded-tl-md" : ""}`
-          } ${status === "sending" ? "opacity-70" : ""} ${failed ? "ring-2 ring-red-500/70" : ""}`}
+          } ${status === "sending" ? "opacity-70" : ""} ${failed ? "ring-2 ring-red-500/70" : ""} ${
+            editing ? "ring-2 ring-amber-400 dark:ring-amber-500" : ""
+          }`}
         >
           {quote}
           {media}
-          {bubble.text && <span className="select-text whitespace-pre-wrap break-words">{linkify(bubble.text, mine)}</span>}
+          {bubble.text && (
+            <span className="select-text whitespace-pre-wrap break-words">
+              {linkify(bubble.text, mine)}
+              {editedMark}
+            </span>
+          )}
           <span
             className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] leading-none ${
               mine ? "text-white/60 dark:text-zinc-950/60" : "text-zinc-400"
@@ -692,6 +773,7 @@ export function DirectMessagesModal({
   expanded?: boolean;
 }) {
   const t = useT();
+  const { openPopup } = useNtPopups();
   const { account } = useAuth();
   const recentDms = useSignalingSelector(selectRecentDms);
   const now = useSyncExternalStore(subscribeClock, getClock, getClockServer);
@@ -724,6 +806,10 @@ export function DirectMessagesModal({
   // typed for one person into the box of another.
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [reply, setReply] = useState<Tagged<DmReplyTo> | null>(null);
+  // One of this account's own messages, open in the box to be changed. The
+  // conversation's draft waits in `drafts`, untouched, and is back in the box
+  // the moment the edit is saved or dropped.
+  const [editing, setEditing] = useState<Tagged<{ messageId: string; text: string }> | null>(null);
   const [attachments, setAttachments] = useState<Tagged<string[]> | null>(null);
   const [error, setError] = useState<Tagged<string> | null>(null);
   const [gifOpen, setGifOpen] = useState(false);
@@ -741,7 +827,11 @@ export function DirectMessagesModal({
   // see createSendQueue. Made once, for the life of the dialog.
   const [enqueueSend] = useState(createSendQueue);
 
-  const fileRef = useRef<HTMLInputElement | null>(null);
+  // Videos and documents, uploading from the moment they are picked. One
+  // tray for the dialog, tagged with the conversation it was filled for
+  // (`filesFor`) — shown and sent only there, like the pictures.
+  const uploads = useAttachmentUploads("dms");
+  const [filesFor, setFilesFor] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   // Whether the press that became this click began on the backdrop itself.
@@ -780,7 +870,12 @@ export function DirectMessagesModal({
 
   const draft = activeId ? drafts[activeId] ?? "" : "";
   const replyingTo = reply && reply.userId === activeId ? reply.value : null;
+  const editingHere = editing && editing.userId === activeId ? editing.value : null;
+  const editingOpen = editingHere !== null;
+  // What the box shows: the message being edited, or this conversation's draft.
+  const boxText = editingHere ? editingHere.text : draft;
   const attached = attachments && attachments.userId === activeId ? attachments.value : [];
+  const filesHere = filesFor !== null && filesFor === activeId ? uploads.items : [];
   const shownError = error && error.userId === (activeId ?? "") ? error.value : null;
 
   // ":" for emoji, ":sob:" → 😭, and the picker beside "send" — see
@@ -789,19 +884,30 @@ export function DirectMessagesModal({
     textareaRef: composerRef,
     onReplace: (value) => {
       if (!activeId) return;
-      setDrafts((current) => ({ ...current, [activeId]: value.slice(0, MAX_LENGTH) }));
+      setBoxText(activeId, value.slice(0, MAX_LENGTH));
     },
   });
+
+  /** Writes what the box holds — into the edit when one is open, the draft otherwise. */
+  function setBoxText(userId: string, text: string) {
+    if (editing && editing.userId === userId) {
+      setEditing({ userId, value: { ...editing.value, text } });
+      return;
+    }
+    setDrafts((current) => ({ ...current, [userId]: text }));
+  }
 
   // The fetched page, plus anything that arrived since — derived rather than
   // merged into state, so a message landing while this is open needs no effect
   // and cannot be lost between two renders. See lib/dmThread for the rules.
+  // Edits and deletions heard since are laid over it the same way (see
+  // lib/dmLive): a message deleted on the other side leaves at once.
   const messages = useMemo(
     () =>
       loaded && account && activeId
-        ? threadMessages(loaded.messages, recentDms, account.id, activeId)
+        ? withChanges(threadMessages(loaded.messages, recentDms, account.id, activeId), live.changes)
         : [],
-    [loaded, recentDms, activeId, account]
+    [loaded, recentDms, activeId, account, live.changes]
   );
   const outgoing = useMemo(
     () => unconfirmed(pending, messages, activeId),
@@ -820,9 +926,9 @@ export function DirectMessagesModal({
   const liveConversations = useMemo(
     () =>
       conversations && account
-        ? liveConversationList(conversations, recentDms, account.id)
+        ? liveConversationList(conversations, recentDms, account.id, live.changes)
         : conversations,
-    [conversations, recentDms, account]
+    [conversations, recentDms, account, live.changes]
   );
   const listVisible = !activeId || split;
   // What the list re-reads on: a delivery outside the open thread (see
@@ -843,6 +949,10 @@ export function DirectMessagesModal({
       // same key (see lib/nativeApp's closeTopLayer) — knows it closed
       // something and does not also leave the page.
       event.preventDefault();
+      if (editingOpen) {
+        setEditing(null);
+        return;
+      }
       if (replyingTo) {
         setReply(null);
         return;
@@ -853,7 +963,7 @@ export function DirectMessagesModal({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, activeId, onClose, gifOpen, imageModalPreview, replyingTo, pickerFor, settingsOpen]);
+  }, [open, activeId, onClose, gifOpen, imageModalPreview, replyingTo, editingOpen, pickerFor, settingsOpen]);
 
   // The page behind stays put. Scrolling a conversation to its end and
   // carrying on into the room's chat underneath is the kind of thing that
@@ -887,8 +997,10 @@ export function DirectMessagesModal({
   // message, including while a thread was open and nobody could see it; that
   // was a pair of aggregations on the server per message received. Now it
   // re-reads on what the open thread cannot account for (see listNudge), and
-  // on switching threads, which is when an unread count just went to zero.
+  // on switching threads, which is when an unread count just went to zero —
+  // and on a deletion, which may have taken a row's newest line with it.
   // Debounced, so a burst is one read.
+  const deletions = live.deletions;
   useEffect(() => {
     if (!open || !account || !listVisible) return;
     const controller = new AbortController();
@@ -907,7 +1019,7 @@ export function DirectMessagesModal({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [open, account, activeId, listVisible, listNudge, listSeq]);
+  }, [open, account, activeId, listVisible, listNudge, listSeq, deletions]);
 
   // Whichever thread the store is pointing at. What was already on screen for
   // it stays there while the fresh page loads, and anything newer than that
@@ -967,7 +1079,7 @@ export function DirectMessagesModal({
     if (!node) return;
     node.style.height = "auto";
     node.style.height = `${Math.min(node.scrollHeight, COMPOSER_MAX_HEIGHT_PX)}px`;
-  }, [draft, activeId, open, split]);
+  }, [boxText, activeId, open, split]);
 
   // Where the thread's scroll ends up after it changes. Before paint, so the
   // reader never sees the jump.
@@ -1076,15 +1188,34 @@ export function DirectMessagesModal({
 
   function submit() {
     if (!activeId) return;
+    if (editingHere) {
+      void saveEdit(activeId, editingHere.messageId, editingHere.text);
+      composerRef.current?.focus({ preventScroll: true });
+      return;
+    }
     const text = emoji.convert(draft).trim();
-    if (!text && attached.length === 0) return;
+    if (!text && attached.length === 0 && filesHere.length === 0) return;
+    // The files have to be on the CDN before the message can name them.
+    if (filesHere.length > 0 && uploads.uploading) {
+      setError({ userId: activeId, value: t("attachments.stillUploading") });
+      return;
+    }
+    if (filesHere.length > 0 && uploads.failed) {
+      setError({ userId: activeId, value: t("attachments.removeFailedFiles") });
+      return;
+    }
     send(activeId, {
       text,
       ...(attached.length > 0 ? { images: attached } : {}),
+      ...(filesHere.length > 0 ? { attachments: uploads.tokens, files: uploads.attachments } : {}),
       replyTo: replyingTo,
     });
     setDrafts((current) => ({ ...current, [activeId]: "" }));
     setAttachments(null);
+    if (filesHere.length > 0) {
+      uploads.clear();
+      setFilesFor(null);
+    }
     setReply(null);
     setError(null);
     composerRef.current?.focus({ preventScroll: true });
@@ -1097,6 +1228,27 @@ export function DirectMessagesModal({
 
   function handleComposerKey(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
     if (emoji.handleKeyDown(event)) return;
+    // ↑ in an empty box: Discord's way into editing your last message.
+    if (
+      event.key === "ArrowUp" &&
+      !editingHere &&
+      !draft &&
+      attached.length === 0 &&
+      filesHere.length === 0 &&
+      !event.shiftKey &&
+      !event.altKey &&
+      !event.ctrlKey &&
+      !event.metaKey
+    ) {
+      const mine = account?.id;
+      for (let i = messages.length - 1; i >= 0; i -= 1) {
+        const message = messages[i];
+        if (message.from !== mine || message.kind === "gif") continue;
+        event.preventDefault();
+        startEdit(message.id, message.text);
+        return;
+      }
+    }
     // Enter sends, Shift+Enter is a new line — except while an input method is
     // still composing a character, where Enter is how the character is chosen.
     if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
@@ -1148,6 +1300,107 @@ export function DirectMessagesModal({
         CHAT_IMAGE_MAX_PER_MESSAGE
       ),
     }));
+  }
+
+  // Whatever came through "Vídeo" or "Arquivo": pictures still go to the
+  // picture tray, everything else is uploaded as it is — into a tray that
+  // belongs to this conversation, so files left in another one are dropped.
+  function handleAnyFiles(files: File[]) {
+    const to = activeId;
+    if (!to) return;
+    const { images, others } = splitPicked(files, isSupportedChatImage);
+    if (images.length > 0) {
+      const list = new DataTransfer();
+      for (const file of images) list.items.add(file);
+      void handleFiles(list.files);
+    }
+    if (others.length > 0) {
+      if (filesFor !== to) uploads.clear();
+      setFilesFor(to);
+      void uploads.add(others);
+    }
+  }
+
+  // ── Editing and deleting ────────────────────────────────────────────
+  //
+  // This account's own delivered messages only, as in the group rooms — and
+  // a GIF has no text to change. Both are drawn at once (see lib/dmLive's
+  // noteDmChange) and put back, with the reason, if the server refuses.
+
+  function canEdit(bubble: Bubble): boolean {
+    return bubble.mine && Boolean(bubble.messageId) && bubble.kind !== "gif";
+  }
+
+  function canDelete(bubble: Bubble): boolean {
+    return bubble.mine && Boolean(bubble.messageId);
+  }
+
+  function startEdit(messageId: string, text: string) {
+    if (!activeId) return;
+    setReply(null);
+    setEditing({ userId: activeId, value: { messageId, text } });
+    // What an edit is typed over is not a new message: a "digitando" already
+    // announced to them ends here.
+    if (typingRef.current?.userId === activeId) typingRef.current.announcer.input("");
+    requestAnimationFrame(() => {
+      const node = composerRef.current;
+      if (!node) return;
+      node.focus({ preventScroll: true });
+      node.setSelectionRange(node.value.length, node.value.length);
+    });
+  }
+
+  // Erased to nothing, a message is one to delete — and asks so. Pictures
+  // or files keep a message that loses its caption.
+  async function saveEdit(userId: string, messageId: string, raw: string) {
+    setEditing(null);
+    const original = messages.find((m) => m.id === messageId);
+    if (!original) return;
+    const text = emoji.convert(raw).trim();
+    if (!text && !original.images?.length && !original.attachments?.length) {
+      confirmDelete(userId, messageId);
+      return;
+    }
+    if (text === original.text) return;
+    const before = live.changes[messageId] ?? null;
+    noteDmEdit(messageId, text);
+    const result = await editDirectMessage(userId, messageId, text);
+    if (result.ok) {
+      noteDmEdit(messageId, result.message.text, result.message.editedAt);
+      return;
+    }
+    noteDmChange(messageId, before);
+    setError({ userId, value: result.error });
+  }
+
+  async function deleteNow(userId: string, messageId: string) {
+    const before = live.changes[messageId] ?? null;
+    if (editing?.value.messageId === messageId) setEditing(null);
+    noteDmChange(messageId, { deleted: true });
+    const result = await deleteDirectMessage(userId, messageId);
+    if (result.ok) return;
+    noteDmChange(messageId, before);
+    setError({ userId, value: result.error });
+  }
+
+  // Shift held: gone at once, as in the group rooms. Otherwise it asks first.
+  function confirmDelete(userId: string, messageId: string, skipConfirm = false) {
+    if (skipConfirm) {
+      void deleteNow(userId, messageId);
+      return;
+    }
+    void openPopup("confirm", {
+      data: {
+        title: t("groups.textChannelView.deleteMessage"),
+        message: t("directMessagesModal.deleteForBoth"),
+        cancelLabel: t("common.cancel"),
+        confirmLabel: t("common.delete"),
+        confirmStyle: "Danger",
+        onChoose: async (confirmed: boolean) => {
+          if (confirmed) await deleteNow(userId, messageId);
+        },
+      },
+    });
   }
 
   // ── Reacting ────────────────────────────────────────────────────────
@@ -1237,9 +1490,16 @@ export function DirectMessagesModal({
           icon: <MdReply className="h-4 w-4" />,
           onSelect: () => {
             if (!activeId) return;
+            // One thing at a time in the box: an edit in progress is dropped.
+            setEditing(null);
             setReply({ userId: activeId, value: bubble.replyTarget! });
             requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }));
           },
+        },
+        canEdit(bubble) && {
+          label: t("common.edit"),
+          icon: <MdEdit className="h-4 w-4" />,
+          onSelect: () => startEdit(bubble.messageId!, bubble.text),
         },
         bubble.status === "failed" &&
           bubble.clientId && {
@@ -1264,6 +1524,13 @@ export function DirectMessagesModal({
           label: t("groups.contextMenu.copyMessageId"),
           icon: <MdContentCopy className="h-4 w-4" />,
           onSelect: () => void copyText(bubble.messageId!),
+        },
+        canDelete(bubble) && { type: "divider" },
+        canDelete(bubble) && {
+          label: t("common.delete"),
+          icon: <MdDeleteOutline className="h-4 w-4" />,
+          danger: true,
+          onSelect: () => activeId && confirmDelete(activeId, bubble.messageId!),
         },
       ],
     });
@@ -1443,9 +1710,11 @@ export function DirectMessagesModal({
         kind: message.kind,
         url: message.url,
         images: message.images,
+        attachments: message.attachments,
         replyTo: message.replyTo,
         ts: message.ts,
         messageId: message.id,
+        editedAt: message.editedAt,
         reactions: reactionsFor(message, live.reactions, loaded?.readAt ?? 0),
         seen: mine && seenTs !== null && message.ts <= seenTs,
         author: mine ? meAuthor : otherAuthor,
@@ -1454,7 +1723,11 @@ export function DirectMessagesModal({
           name: mine ? t("common.you") : active?.displayName ?? "",
           // Snapshotted from what is on screen. The API re-validates every
           // field before storing (see parseDmReplyTo).
-          ...(message.text ? { text: message.text } : {}),
+          ...(message.text
+            ? { text: message.text }
+            : message.attachments?.length
+              ? { text: attachmentsPreview(message.attachments) }
+              : {}),
           ...(message.kind ? { kind: message.kind } : {}),
           ...(message.images ? { images: message.images } : {}),
         },
@@ -1469,6 +1742,7 @@ export function DirectMessagesModal({
         kind: entry.payload.url ? "gif" : entry.payload.images?.length ? "image" : "text",
         url: entry.payload.url,
         images: entry.payload.images,
+        attachments: entry.payload.files,
         replyTo: entry.payload.replyTo,
         ts: entry.ts,
         status: entry.status,
@@ -1517,10 +1791,18 @@ export function DirectMessagesModal({
         otherName={active?.displayName ?? t("common.someone")}
         pickerFor={pickerFor}
         showSeenLabel={layout === "rows" && bubble.key === seenLabelKey}
+        editing={Boolean(editingHere && bubble.messageId === editingHere.messageId)}
         onPicker={setPickerFor}
         onReact={(target, value) => void toggleReaction(target, value)}
+        onEdit={canEdit(bubble) ? (target) => startEdit(target.messageId!, target.text) : undefined}
+        onDelete={
+          canDelete(bubble)
+            ? (target, skipConfirm) => activeId && confirmDelete(activeId, target.messageId!, skipConfirm)
+            : undefined
+        }
         onReply={(target) => {
           if (!activeId) return;
+          setEditing(null);
           setReply({ userId: activeId, value: target });
           // Straight into the box, so the next key is the answer. Every
           // pointer, unlike opening a thread: answering *is* asking to type.
@@ -1541,7 +1823,12 @@ export function DirectMessagesModal({
     threadItems.push(<TypingBubble key="typing" label={formatTypingLabel([active.displayName])} />);
   }
 
-  const canSend = draft.trim().length > 0 || attached.length > 0;
+  // An edit erased to nothing still goes: saving it asks whether to delete.
+  const canSend =
+    editingHere !== null ||
+    draft.trim().length > 0 ||
+    attached.length > 0 ||
+    (filesHere.length > 0 && !uploads.uploading && !uploads.failed);
   const iconButton =
     "shrink-0 rounded-full p-2 text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-950 disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50";
   const headerButton =
@@ -1846,7 +2133,28 @@ export function DirectMessagesModal({
         </p>
       )}
 
-      {replyingTo && (
+      {editingHere && (
+        <div className="flex shrink-0 items-center gap-2 border-t border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+          <MdEdit className="h-4 w-4 shrink-0" />
+          <span className="min-w-0 flex-1 truncate">
+            <span className="font-medium">{t("groups.groupMessageComposer.editing")}</span>
+            {/* Keys mean nothing on a phone's keyboard; the tick is how it saves there. */}
+            {!isCoarsePointer() && (
+              <span className="text-amber-700/70 dark:text-amber-300/60"> · {t("groups.groupMessageComposer.editHint")}</span>
+            )}
+          </span>
+          <button
+            type="button"
+            onClick={() => setEditing(null)}
+            aria-label={t("groups.groupMessageComposer.cancelEdit")}
+            className="shrink-0 rounded-full p-1 hover:bg-amber-100 dark:hover:bg-amber-500/20"
+          >
+            <MdClose className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {replyingTo && !editingHere && (
         <div className="flex shrink-0 items-center gap-2 border-t border-zinc-200 bg-zinc-50 px-3 py-2 text-xs dark:border-zinc-800 dark:bg-zinc-900/50">
           <MdReply className="h-4 w-4 shrink-0 text-zinc-500" />
           <span className="min-w-0 flex-1">
@@ -1868,7 +2176,7 @@ export function DirectMessagesModal({
         </div>
       )}
 
-      {attached.length > 0 && (
+      {attached.length > 0 && !editingHere && (
         // A tray above the box rather than an immediate send, exactly as the
         // room chat does it: a caption can then be written to go with the
         // pictures instead of arriving as a second message.
@@ -1896,7 +2204,19 @@ export function DirectMessagesModal({
         </div>
       )}
 
-      {shownError && <p className="shrink-0 px-4 pt-2 text-xs text-red-600 dark:text-red-400">{shownError}</p>}
+      {filesHere.length > 0 && !editingHere && (
+        <AttachmentTray
+          items={filesHere}
+          onRemove={uploads.remove}
+          className="shrink-0 border-t border-zinc-200 px-3 py-2 dark:border-zinc-800"
+        />
+      )}
+
+      {(shownError || (filesFor === activeId && uploads.error)) && (
+        <p className="shrink-0 px-4 pt-2 text-xs text-red-600 dark:text-red-400">
+          {shownError || uploads.error}
+        </p>
+      )}
 
       <form
         onSubmit={handleSubmit}
@@ -1911,29 +2231,57 @@ export function DirectMessagesModal({
             className="absolute bottom-full left-2 right-2 mb-1"
           />
         )}
-        <input
-          ref={fileRef}
-          type="file"
-          accept={CHAT_IMAGE_ACCEPT}
-          multiple
-          hidden
+        {/* An edit changes the words only: nothing to attach, and a GIF
+            picked here would go out as a new message. */}
+        {!editingHere && (
+          <AttachMenu
+            onImages={(files) => {
+              const list = new DataTransfer();
+              for (const file of files) list.items.add(file);
+              void handleFiles(list.files);
+            }}
+            onFiles={handleAnyFiles}
+            onOpen={() => void uploads.refreshLimit()}
+            limitMb={uploads.limit?.maxMb}
+            buttonClassName={iconButton}
+            iconClassName="h-5 w-5"
+          />
+        )}
+        <textarea
+          ref={composerRef}
+          rows={1}
+          value={boxText}
           onChange={(e) => {
-            void handleFiles(e.target.files);
-            // Reset so picking the same file twice in a row still fires a
-            // change event.
-            e.target.value = "";
+            if (!activeId) return;
+            const { text } = emoji.handleChange(e.target.value, e.target.selectionStart ?? e.target.value.length);
+            setBoxText(activeId, text);
+            // Changing a message already sent is not writing a new one.
+            if (!editingHere) announceTyping(activeId, text);
           }}
+          onKeyDown={handleComposerKey}
+          onKeyUp={emoji.sync}
+          onClick={emoji.sync}
+          onFocus={emoji.prefetch}
+          // Only takes over the paste when the clipboard really carries an
+          // image: a copied <img> from a web page arrives as image data *and*
+          // HTML, and pasting plain text has to keep working untouched. Same
+          // rule the room chat uses.
+          onPaste={(e) => {
+            // An edit changes words only; a pasted picture has nowhere to go.
+            if (editingHere) return;
+            const files = Array.from(e.clipboardData?.files ?? []).filter((file) => file.type.startsWith("image/"));
+            if (files.length === 0) return;
+            e.preventDefault();
+            const list = new DataTransfer();
+            for (const file of files) list.items.add(file);
+            void handleFiles(list.files);
+          }}
+          placeholder={attached.length > 0 ? t("directMessagesModal.captionOptional") : t("directMessagesModal.message")}
+          maxLength={MAX_LENGTH}
+          aria-label={t("common.message")}
+          className="max-h-36 min-h-[2.5rem] min-w-0 flex-1 resize-none rounded-2xl border border-zinc-300 bg-white px-3.5 py-2 text-sm leading-5 text-zinc-950 outline-none transition focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
         />
-        <button
-          type="button"
-          onClick={() => fileRef.current?.click()}
-          disabled={attached.length >= CHAT_IMAGE_MAX_PER_MESSAGE}
-          aria-label={t("common.sendImage")}
-          title={t("common.image")}
-          className={iconButton}
-        >
-          <MdImage className="h-5 w-5" />
-        </button>
+        {!editingHere && (
         <Popover
           open={gifOpen}
           onClose={() => setGifOpen(false)}
@@ -1963,46 +2311,16 @@ export function DirectMessagesModal({
             <MdGif className="h-5 w-5" />
           </button>
         </Popover>
-        <textarea
-          ref={composerRef}
-          rows={1}
-          value={draft}
-          onChange={(e) => {
-            if (!activeId) return;
-            const { text } = emoji.handleChange(e.target.value, e.target.selectionStart ?? e.target.value.length);
-            setDrafts((current) => ({ ...current, [activeId]: text }));
-            announceTyping(activeId, text);
-          }}
-          onKeyDown={handleComposerKey}
-          onKeyUp={emoji.sync}
-          onClick={emoji.sync}
-          onFocus={emoji.prefetch}
-          // Only takes over the paste when the clipboard really carries an
-          // image: a copied <img> from a web page arrives as image data *and*
-          // HTML, and pasting plain text has to keep working untouched. Same
-          // rule the room chat uses.
-          onPaste={(e) => {
-            const files = Array.from(e.clipboardData?.files ?? []).filter((file) => file.type.startsWith("image/"));
-            if (files.length === 0) return;
-            e.preventDefault();
-            const list = new DataTransfer();
-            for (const file of files) list.items.add(file);
-            void handleFiles(list.files);
-          }}
-          placeholder={attached.length > 0 ? t("directMessagesModal.captionOptional") : t("directMessagesModal.message")}
-          maxLength={MAX_LENGTH}
-          aria-label={t("common.message")}
-          className="max-h-36 min-h-[2.5rem] min-w-0 flex-1 resize-none rounded-2xl border border-zinc-300 bg-white px-3.5 py-2 text-sm leading-5 text-zinc-950 outline-none transition focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-        />
+        )}
         <EmojiPickerButton onPick={emoji.insert} className={iconButton} />
         <button
           type="submit"
           disabled={!canSend}
-          aria-label={t("common.send")}
-          title={t("directMessagesModal.sendEnter")}
+          aria-label={editingHere ? t("common.save") : t("common.send")}
+          title={editingHere ? t("common.save") : t("directMessagesModal.sendEnter")}
           className="shrink-0 rounded-full bg-zinc-950 p-2.5 text-white transition hover:bg-zinc-800 disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
         >
-          <MdSend className="h-5 w-5" />
+          {editingHere ? <MdCheck className="h-5 w-5" /> : <MdSend className="h-5 w-5" />}
         </button>
       </form>
     </>

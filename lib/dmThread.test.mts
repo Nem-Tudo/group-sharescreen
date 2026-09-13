@@ -11,6 +11,7 @@ import {
   seenThrough,
   threadMessages,
   unconfirmed,
+  withChanges,
   withConfirmed,
   withFreshPage,
   withOlderPage,
@@ -146,6 +147,48 @@ test("the list ignores deliveries older than what it already shows", () => {
     ME
   );
   assert.equal(live[0].lastMessage.id, newest.id);
+});
+
+test("a deleted message leaves the thread", () => {
+  const a = msg(ME, ANA, 100);
+  const b = msg(ANA, ME, 200);
+  assert.deepEqual(ids(withChanges([a, b], { [a.id]: { deleted: true } })), [b.id]);
+});
+
+test("an edit heard live replaces the text, and marks it edited", () => {
+  const a = msg(ME, ANA, 100);
+  const [edited] = withChanges([a], { [a.id]: { text: "novo", editedAt: 150 } });
+  assert.equal(edited.text, "novo");
+  assert.equal(edited.editedAt, 150);
+  assert.equal(edited.ts, 100);
+  // The input is not mutated.
+  assert.equal(a.text, "t" + a.id.slice(1));
+});
+
+test("an edit older than the copy on screen loses to it", () => {
+  // Read after a second edit: the page already has the newer text.
+  const a = msg(ME, ANA, 100, { text: "segunda", editedAt: 300 });
+  const [shown] = withChanges([a], { [a.id]: { text: "primeira", editedAt: 200 } });
+  assert.equal(shown.text, "segunda");
+});
+
+test("the list shows an edit of a row's newest line", () => {
+  const user = { id: ANA, username: ANA, displayName: ANA, flags: [] };
+  const last = msg(ANA, ME, 100);
+  const live = liveConversationList([{ user, lastMessage: last, unread: 0 }], [], ME, {
+    [last.id]: { text: "corrigido", editedAt: 120 },
+  });
+  assert.equal(live[0].lastMessage.text, "corrigido");
+});
+
+test("a deleted delivery no longer counts as a row's newest line", () => {
+  const user = { id: ANA, username: ANA, displayName: ANA, flags: [] };
+  const read = msg(ANA, ME, 100);
+  const arrived = msg(ANA, ME, 200);
+  const live = liveConversationList([{ user, lastMessage: read, unread: 0 }], [arrived], ME, {
+    [arrived.id]: { deleted: true },
+  });
+  assert.equal(live[0].lastMessage.id, read.id);
 });
 
 test("the send queue runs tasks in order even when the first is slowest", async () => {

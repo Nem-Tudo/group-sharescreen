@@ -292,6 +292,12 @@ type MessageListener = (
   mentioned?: Record<string, GroupUser>
 ) => void;
 type DeleteListener = (event: { groupId: string; channelId: string; messageId: string }) => void;
+/**
+ * A message whose author changed its text — the message as it now stands, and
+ * everybody the new text mentions (see the API's edit route).
+ */
+export type MessageUpdatedEvent = { message: GroupMessage; mentioned: Record<string, GroupUser> };
+type UpdatedListener = (event: MessageUpdatedEvent) => void;
 /** A message's reactions as they now stand — see the API's reactions route. */
 export type ReactionsEvent = { groupId: string; channelId: string; messageId: string; reactions: GroupReaction[] };
 type ReactionsListener = (event: ReactionsEvent) => void;
@@ -302,6 +308,7 @@ type TypingListener = (event: GroupTypingEvent) => void;
 
 const messageListeners = new Set<MessageListener>();
 const deleteListeners = new Set<DeleteListener>();
+const updatedListeners = new Set<UpdatedListener>();
 const reactionsListeners = new Set<ReactionsListener>();
 const removedListeners = new Set<RemovedListener>();
 const typingListeners = new Set<TypingListener>();
@@ -320,6 +327,15 @@ export function onGroupMessageDeleted(listener: DeleteListener): () => void {
   deleteListeners.add(listener);
   return () => {
     deleteListeners.delete(listener);
+  };
+}
+
+/** A message edited by its author — for the text room on screen to redraw it. */
+export function onGroupMessageUpdated(listener: UpdatedListener): () => void {
+  ensureSocketListener();
+  updatedListeners.add(listener);
+  return () => {
+    updatedListeners.delete(listener);
   };
 }
 
@@ -441,6 +457,20 @@ function handleEvent(event: GroupSocketEvent) {
       const payload = { groupId, channelId: event.channelId, messageId: event.messageId };
       removeCachedMessage(event.channelId, event.messageId);
       deleteListeners.forEach((l) => l(payload));
+      return;
+    }
+    case "group-message-updated": {
+      const message = event.message as GroupMessage | undefined;
+      if (!message || typeof message.id !== "string" || typeof message.channelId !== "string") return;
+      const mentioned =
+        event.mentioned && typeof event.mentioned === "object"
+          ? (event.mentioned as Record<string, GroupUser>)
+          : {};
+      // Only what an edit changes: the reactions held may be newer than the
+      // ones this copy was read with.
+      const patch: Partial<GroupMessage> = { text: message.text, mentions: message.mentions, editedAt: message.editedAt };
+      updateCachedMessage(message.channelId, message.id, patch, mentioned);
+      updatedListeners.forEach((l) => l({ message, mentioned }));
       return;
     }
     case "group-message-reactions": {
