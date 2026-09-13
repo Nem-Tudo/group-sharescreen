@@ -136,6 +136,7 @@ export function ProPanel({
   isModal = false,
   initialPlanId,
   onClose,
+  onCheckoutLockChange,
 }: {
   isModal?: boolean;
   /**
@@ -145,6 +146,15 @@ export function ProPanel({
    */
   initialPlanId?: string;
   onClose?: () => void;
+  /**
+   * Told while a payment is being created, for the dialog around this panel
+   * (see ProModal): `locked` means it must not close, `shake` that it should
+   * tremble. Two answers because they differ in one case — a new Pix code
+   * requested from inside the Pix dialog, which shakes itself, and which sits
+   * inside the dialog around this panel: shaking that one too would move the
+   * Pix dialog out from under the person (see ProModal).
+   */
+  onCheckoutLockChange?: (lock: { locked: boolean; shake: boolean }) => void;
 } = {}) {
   const t = useT();
   const { account, loading: resolvingAccount, refresh } = useAuth();
@@ -213,6 +223,10 @@ export function ProPanel({
       : null);
   const [loadingPlan, setLoadingPlan] = useState(true);
   const [busy, setBusy] = useState(false);
+  // A payment is being created right now — the card checkout or a Pix code.
+  // Narrower than `busy`, which also covers cancelling: that one is not a
+  // charge in flight, and nothing about it needs the dialog held open.
+  const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Only ever shown after the API asks for it — an account created through
   // Discord or Google already has an address on file, which is most of them,
@@ -446,6 +460,7 @@ export function ProPanel({
 
   const handleSubscribe = useCallback(async () => {
     setBusy(true);
+    setGenerating(true);
     setError(null);
 
     // The checkout leaves this page standing, and getting there is different
@@ -484,6 +499,7 @@ export function ProPanel({
       // again would take away the very thing being corrected.
       if (result.needsEmail) setNeedsEmail(true);
       setBusy(false);
+      setGenerating(false);
       return;
     }
 
@@ -509,6 +525,7 @@ export function ProPanel({
     // usable again — the checkout can be abandoned, and the "assinar" they
     // press next must not find a disabled control.
     setBusy(false);
+    setGenerating(false);
     // plan?.id and not just `email`: this callback carries which plan to buy,
     // so a stale copy would open the checkout for whichever one was selected
     // when it was last created — i.e. switching plans and pressing subscribe
@@ -559,12 +576,14 @@ export function ProPanel({
 
   const handlePix = useCallback(async () => {
     setBusy(true);
+    setGenerating(true);
     setError(null);
     const result = await startPixPayment(email.trim() || undefined, plan?.id, cycle);
     if (!result.ok) {
       setError(result.error);
       if (result.needsEmail) setNeedsEmail(true);
       setBusy(false);
+      setGenerating(false);
       return;
     }
     // Read from the account as it stands *before* the money could possibly
@@ -572,6 +591,7 @@ export function ProPanel({
     setPixBaselineEnd(premium?.currentPeriodEnd ?? 0);
     setPix(result.charge);
     setBusy(false);
+    setGenerating(false);
     // See handleSubscribe: plan?.id is what this buys.
   }, [email, plan?.id, cycle, premium?.currentPeriodEnd]);
 
@@ -590,6 +610,13 @@ export function ProPanel({
     const timer = setInterval(() => void syncStatus(true), 4000);
     return () => clearInterval(timer);
   }, [pixPending, syncStatus]);
+
+  // See onCheckoutLockChange. `pix` is what tells the two cases apart: with a
+  // code already on screen, a charge being created is a *new* code, requested
+  // from inside the Pix dialog, and that dialog shakes itself.
+  useEffect(() => {
+    onCheckoutLockChange?.({ locked: generating, shake: generating && !pix });
+  }, [generating, pix, onCheckoutLockChange]);
 
   const handleCancel = useCallback(async () => {
     setBusy(true);
@@ -623,8 +650,10 @@ export function ProPanel({
           <button
             type="button"
             onClick={onClose}
+            // Not while a payment is being created — see onCheckoutLockChange.
+            disabled={generating}
             aria-label={t("common.close")}
-            className="rounded-lg p-1.5 text-zinc-400 transition hover:bg-zinc-200 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 cursor-pointer"
+            className="rounded-lg p-1.5 text-zinc-400 transition hover:bg-zinc-200 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
           >
             <MdClose className="h-5 w-5" />
           </button>
@@ -1016,6 +1045,19 @@ export function ProPanel({
         charge={pix}
         paid={pixPaid}
         paidUntilLabel={premium ? periodEndLabel(premium.currentPeriodEnd) : null}
+        confirmation={
+          plan
+            ? {
+                planId: plan.id,
+                planTitle: plan.title,
+                planIconId: plan.iconId,
+                // Their own plan, so their own face in the confetti.
+                face: account
+                  ? { name: account.displayName, avatarUrl: account.avatarUrl }
+                  : null,
+              }
+            : null
+        }
         busy={busy}
         onRegenerate={handlePix}
         onCheckNow={() => void syncStatus(true)}

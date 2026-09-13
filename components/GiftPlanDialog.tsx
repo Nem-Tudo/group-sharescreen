@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { MdCardGiftcard, MdCheckCircle, MdClose, MdContentCopy, MdSearch } from "react-icons/md";
+import useNtPopups from "ntpopups";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { UserAvatar } from "@/components/UserAvatar";
 import { PixIcon } from "@/components/icons";
@@ -22,6 +23,7 @@ import {
   type PurchasedGift,
 } from "@/lib/premiumApi";
 import { useI18n } from "@/lib/useI18n";
+import { useShake } from "@/lib/useShake";
 
 // "Presentear": buy a plan for somebody else.
 //
@@ -173,13 +175,18 @@ export type GiftPlanPopupData = {
  * leftovers.
  */
 export function GiftPlanDialog({
+  id,
   closePopup,
   data,
 }: {
+  /** This popup's id. The library spreads a popup's settings into its props. */
+  id?: string;
   closePopup: (hasAction?: boolean) => void;
   data?: GiftPlanPopupData;
 }) {
   const { t, tc } = useI18n();
+  const { updatePopup } = useNtPopups();
+  const rootRef = useRef<HTMLDivElement>(null);
   const initialPlanId = data?.initialPlanId;
   const { account } = useAuth();
   const { graph } = useSocialGraph();
@@ -222,6 +229,23 @@ export function GiftPlanDialog({
   const addressed = mode === "person" ? recipient : null;
   const ready = mode === "link" || Boolean(addressed);
   const unclaimed = myGifts.filter((gift) => gift.code && gift.status === "paid");
+
+  // While a charge is being created the popup cannot be closed — not by
+  // Escape, not by the backdrop, not by the ×. The request is creating a
+  // charge at Mercado Pago, and closing now would throw away the only screen
+  // that could show its code. `requireAction` is the library's own lock: with
+  // it on, only closePopup(true) gets through, and nothing here calls that
+  // while busy. Only touched once it has been set, so an idle popup is never
+  // updated for nothing.
+  const lockedRef = useRef(false);
+  useEffect(() => {
+    if (!id || busy === lockedRef.current) return;
+    lockedRef.current = busy;
+    updatePopup(id, { requireAction: busy });
+  }, [id, busy, updatePopup]);
+  // And it shakes, on the library's <dialog> — the box the person sees — not
+  // on this card inside it, which would jitter within a frame that stood still.
+  useShake(() => rootRef.current?.closest("[data-popup-id]"), busy);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -300,7 +324,11 @@ export function GiftPlanDialog({
     // The card, and only the card: no backdrop, no positioning, no portal —
     // the library owns all three (see the header). Its own background and
     // width, exactly as the other popups in this app declare theirs.
-    <div className="flex w-96 max-w-[calc(100vw-1rem)] flex-col bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">
+    <div
+      ref={rootRef}
+      aria-busy={busy || undefined}
+      className="flex w-96 max-w-[calc(100vw-1rem)] flex-col bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50"
+    >
       {charge ? (
         // The Pix step, in place of the form rather than over it. Keyed by the
         // payment so a second code starts with its own clock and its own
@@ -309,6 +337,25 @@ export function GiftPlanDialog({
           key={charge.paymentId}
           charge={charge}
           paid={settled}
+          confirmation={
+            plan
+              ? {
+                  planId: plan.id,
+                  planTitle: plan.title,
+                  planIconId: plan.iconId,
+                  gift: true,
+                  recipient: addressed,
+                  // Named at the till, it rains the recipient's face — the
+                  // present is theirs. A link has nobody yet, so it is the
+                  // buyer's own.
+                  face: addressed
+                    ? { name: addressed.displayName, avatarUrl: addressed.avatarUrl }
+                    : account
+                      ? { name: account.displayName, avatarUrl: account.avatarUrl }
+                      : null,
+                }
+              : null
+          }
           paidMessage={
             addressed
               ? t("giftPlanDialog.giftDeliveredDisplaynameAlreadyHasValue", { displayName: addressed.displayName, value: plan?.title ?? t("common.plan") })
@@ -350,8 +397,9 @@ export function GiftPlanDialog({
             <button
               type="button"
               onClick={() => closePopup(false)}
+              disabled={busy}
               aria-label={t("common.close")}
-              className="rounded-lg p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-900 dark:hover:text-zinc-200"
+              className="rounded-lg p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-zinc-900 dark:hover:text-zinc-200"
             >
               <MdClose className="h-5 w-5" />
             </button>

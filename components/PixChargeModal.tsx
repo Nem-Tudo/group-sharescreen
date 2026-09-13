@@ -1,10 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { MdCheckCircle, MdClose, MdContentCopy, MdRefresh } from "react-icons/md";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  MdCardGiftcard,
+  MdCheck,
+  MdCheckCircle,
+  MdClose,
+  MdContentCopy,
+  MdRefresh,
+} from "react-icons/md";
+import { DisplayUserName } from "@/components/DisplayUserName";
 import { PixIcon } from "@/components/icons";
+import { PlanBand } from "@/components/PlanBand";
+import { planIcon } from "@/components/planIcons";
+import { PurchaseCelebration, type CelebrationFace } from "@/components/PurchaseCelebration";
+import { UserAvatar } from "@/components/UserAvatar";
+import { planTierOf, verifiedBadge } from "@/lib/entitlements";
 import type { PixCharge } from "@/lib/premiumApi";
 import { useI18n } from "@/lib/useI18n";
+import { useShake } from "@/lib/useShake";
 
 // The Pix code, in a dialog of its own.
 //
@@ -29,6 +43,35 @@ function countdownLabel(ms: number): string {
   const seconds = total % 60;
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
+
+/**
+ * What was bought, for the confirmation screen.
+ *
+ * Handed in by the caller because this component only knows the charge — an
+ * amount and a number of days — and the moment the money lands is the one
+ * moment worth saying *what* it bought and for whom.
+ */
+export type PurchaseConfirmation = {
+  planId: string;
+  planTitle: string;
+  planIconId?: string | null;
+  /**
+   * The person in the confetti (see PurchaseCelebration): the buyer for
+   * their own plan or a link, the recipient for a present given by name.
+   */
+  face: CelebrationFace | null;
+  /** A present rather than the buyer's own plan. Changes the heading. */
+  gift?: boolean;
+  /** Set for a present given to somebody by name: drawn as the "para" card. */
+  recipient?: {
+    displayName: string;
+    username: string;
+    avatarUrl?: string | null;
+    flags?: string[];
+    bot?: boolean;
+    nameColor?: string | null;
+  } | null;
+};
 
 type PixChargeModalProps = {
   /** The charge waiting to be paid, or null for closed. */
@@ -59,7 +102,13 @@ type PixChargeModalProps = {
    * handing it over on a screen nobody is on.
    */
   paidExtra?: ReactNode;
-  /** A new charge is being created right now. */
+  /** What was bought, for the confirmation. See PurchaseConfirmation. */
+  confirmation?: PurchaseConfirmation | null;
+  /**
+   * A new charge is being created right now. The dialog shakes and refuses
+   * to close until the API answers — closing mid-request would leave a charge
+   * created at Mercado Pago with no screen left to show its code on.
+   */
   busy?: boolean;
   /** Asks for a fresh code, after this one expires. */
   onRegenerate: () => void;
@@ -89,24 +138,31 @@ export function PixChargeModal({ charge, ...rest }: PixChargeModalProps) {
   // On the shell rather than in the body: the other shell is inside a popup
   // whose library already answers this key, and two handlers for one press
   // would close the step and the popup behind it at once.
-  const { onClose } = rest;
+  const { onClose, busy } = rest;
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      // Not while a charge is being created — see `busy`.
+      if (event.key === "Escape" && !busy) onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, busy]);
+  const cardRef = useRef<HTMLDivElement>(null);
+  useShake(() => cardRef.current, Boolean(charge && busy));
 
   if (!charge) return null;
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-      onClick={onClose}
+      onClick={() => {
+        if (!busy) onClose();
+      }}
     >
       <div
+        ref={cardRef}
         role="dialog"
         aria-modal="true"
+        aria-busy={busy || undefined}
         aria-label={t("pixChargeModal.paymentViaPix")}
         // Without this, a click anywhere inside the card bubbles to the
         // backdrop and closes the dialog — including a click on the copy
@@ -132,11 +188,165 @@ export function PixChargeContent({
   paidUntilLabel,
   paidMessage,
   paidExtra,
+  confirmation,
   busy,
   onRegenerate,
   onCheckNow,
   onClose,
 }: PixChargeModalProps & { charge: PixCharge }) {
+  const { t } = useI18n();
+  if (paid) {
+    return (
+      <PaidScreen
+        charge={charge}
+        confirmation={confirmation ?? null}
+        message={
+          paidMessage ??
+          (paidUntilLabel
+            ? t("pixChargeModal.allSetYourProAccessIs", { paidUntilLabel })
+            : t("pixChargeModal.allSetYourProAccessIs2"))
+        }
+        extra={paidExtra}
+        onClose={onClose}
+      />
+    );
+  }
+  return (
+    <PendingScreen
+      charge={charge}
+      busy={busy}
+      onRegenerate={onRegenerate}
+      onCheckNow={onCheckNow}
+      onClose={onClose}
+    />
+  );
+}
+
+/**
+ * The money landed.
+ *
+ * Drawn in the same shape as a present being opened (GiftClaimDialog) — the
+ * plan's band, its name and mark, how long it lasts — because it is the same
+ * event from the other side: a plan has just changed hands. And it arrives
+ * with the confetti and the sound, once, on the way in.
+ */
+function PaidScreen({
+  charge,
+  confirmation,
+  message,
+  extra,
+  onClose,
+}: {
+  charge: PixCharge;
+  confirmation: PurchaseConfirmation | null;
+  message: string;
+  extra?: ReactNode;
+  onClose: () => void;
+}) {
+  const { t, tc } = useI18n();
+  const tone = confirmation && planTierOf(confirmation.planId) === "premium_max" ? "gold" : "blue";
+  const mark = planIcon(confirmation?.planIconId);
+  const recipient = confirmation?.recipient ?? null;
+  const gift = Boolean(confirmation?.gift);
+
+  return (
+    <div className="relative">
+      <PurchaseCelebration planIconId={confirmation?.planIconId} face={confirmation?.face ?? null} />
+
+      {/* Over the band, so white on a scrim — the same button the present
+          dialog puts in the same place. */}
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label={t("common.close")}
+        className="absolute right-3 top-3 z-10 rounded-full bg-black/20 p-1.5 text-white/90 transition hover:bg-black/35 hover:text-white"
+      >
+        <MdClose className="h-4 w-4" />
+      </button>
+
+      <PlanBand tone={tone}>
+        {gift ? (
+          <MdCardGiftcard className="h-8 w-8 text-white drop-shadow-sm" />
+        ) : (
+          <MdCheck className="h-9 w-9 text-white drop-shadow-sm" />
+        )}
+      </PlanBand>
+
+      <div className="px-6 pb-6 pt-5">
+        <p className="text-center text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500">
+          {gift ? t("pixChargeModal.giftPaid") : t("pixChargeModal.paymentConfirmed")}
+        </p>
+
+        {confirmation && (
+          <h2 className="mt-1.5 flex items-center justify-center gap-1.5 text-center text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
+            {confirmation.planTitle}
+            <mark.Icon className={`h-5 w-5 shrink-0 ${mark.className}`} />
+          </h2>
+        )}
+
+        <p className="mt-2 text-center">
+          <span className="inline-flex items-center rounded-full bg-zinc-100 px-3 py-1 text-sm font-medium text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+            {tc("common.dayCount", charge.days)}
+          </span>
+        </p>
+
+        {/* Who it went to, drawn the way the present dialog draws who it is
+            from — the mirror of the same card. */}
+        {recipient && (
+          <div className="mt-5 flex items-center gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+            <UserAvatar
+              src={recipient.avatarUrl}
+              name={recipient.displayName}
+              size={38}
+              className="shrink-0"
+            />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[11px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                {t("pixChargeModal.toWord")}
+              </span>
+              <DisplayUserName
+                name={recipient.displayName}
+                verified={verifiedBadge(recipient.flags ?? [])}
+                bot={recipient.bot}
+                color={recipient.nameColor}
+                className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100"
+              />
+            </span>
+          </div>
+        )}
+
+        <p className="mt-5 text-center text-sm text-zinc-600 dark:text-zinc-400">{message}</p>
+
+        {extra && <div className="mt-4 w-full text-left">{extra}</div>}
+
+        <button
+          type="button"
+          onClick={onClose}
+          className={`mt-5 w-full rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-sm transition ${
+            tone === "gold" ? "bg-amber-500 hover:bg-amber-600" : "bg-blue-600 hover:bg-blue-700"
+          }`}
+        >
+          {gift ? t("common.close") : t("pixChargeModal.startUsingIt")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Waiting for the money: the code, or the "expired" state when it ran out. */
+function PendingScreen({
+  charge,
+  busy,
+  onRegenerate,
+  onCheckNow,
+  onClose,
+}: {
+  charge: PixCharge;
+  busy?: boolean;
+  onRegenerate: () => void;
+  onCheckNow: () => void;
+  onClose: () => void;
+}) {
   const { t, tc } = useI18n();
   const [copied, setCopied] = useState(false);
   const [showCode, setShowCode] = useState(false);
@@ -147,14 +357,13 @@ export function PixChargeContent({
   const remaining = hasExpiry ? expiresAt - now : Number.POSITIVE_INFINITY;
   const expired = hasExpiry && remaining <= 0;
 
-  // Only while there is a countdown still worth running: a ticking interval
-  // behind a confirmation nobody is reading is a second of work per second
-  // for nothing.
+  // Only while there is a countdown still worth running. This screen is gone
+  // the moment the charge is paid, which is what stops the clock then.
   useEffect(() => {
-    if (paid || !hasExpiry) return;
+    if (!hasExpiry) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, [paid, hasExpiry]);
+  }, [hasExpiry]);
 
   const handleCopy = useCallback(async () => {
     if (!charge.qrCode) return;
@@ -175,37 +384,21 @@ export function PixChargeContent({
       <div className="flex items-center gap-2 border-b border-zinc-200 px-5 py-4 dark:border-zinc-800">
         <PixIcon className="h-5 w-5 shrink-0 text-[#32BCAD]" />
         <h2 className="flex-1 text-base font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-          {paid ? t("pixChargeModal.paymentConfirmed") : t("pixChargeModal.payWithPix")}
+          {t("pixChargeModal.payWithPix")}
         </h2>
+        {/* Disabled while a new code is being created — see `busy`. */}
         <button
           type="button"
           onClick={onClose}
+          disabled={busy}
           aria-label={t("common.close")}
-          className="-mr-1 rounded-lg p-1 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
+          className="-mr-1 rounded-lg p-1 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
         >
           <MdClose className="h-5 w-5" />
         </button>
       </div>
 
-      {paid ? (
-        <div className="flex flex-col items-center gap-3 px-5 py-8 text-center">
-          <MdCheckCircle className="h-12 w-12 text-emerald-500" />
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            {paidMessage ??
-              (paidUntilLabel
-                ? t("pixChargeModal.allSetYourProAccessIs", { paidUntilLabel })
-                : t("pixChargeModal.allSetYourProAccessIs2"))}
-          </p>
-          {paidExtra}
-          <button
-            type="button"
-            onClick={onClose}
-            className="mt-1 rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
-          >
-            {t("common.close")}
-          </button>
-        </div>
-      ) : expired ? (
+      {expired ? (
         <div className="flex flex-col items-center gap-3 px-5 py-8 text-center">
           <MdRefresh className="h-10 w-10 text-zinc-400" />
           <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">

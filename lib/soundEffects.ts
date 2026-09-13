@@ -242,6 +242,29 @@ export function playDirectMessageSound() {
   ], "dm");
 }
 
+/**
+ * A payment went through (see PurchaseCelebration).
+ *
+ * The one effect here meant to feel like a reward rather than a notice: a
+ * major arpeggio climbing an octave, a two-note sparkle over the top, and the
+ * chord held underneath so it lands instead of just stopping. Longer than
+ * anything else in this file on purpose — it plays once per purchase, not
+ * once per event in a busy room.
+ */
+export function playPurchaseSound() {
+  playNotes([
+    { freq: 523, start: 0, duration: 0.14, gain: 0.12 },
+    { freq: 659, start: 0.08, duration: 0.14, gain: 0.12 },
+    { freq: 784, start: 0.16, duration: 0.14, gain: 0.12 },
+    { freq: 1047, start: 0.24, duration: 0.3, gain: 0.13 },
+    { freq: 1319, start: 0.36, duration: 0.2, gain: 0.07, type: "triangle" },
+    { freq: 1568, start: 0.44, duration: 0.35, gain: 0.07, type: "triangle" },
+    { freq: 523, start: 0.36, duration: 0.9, gain: 0.06 },
+    { freq: 659, start: 0.36, duration: 0.9, gain: 0.05 },
+    { freq: 784, start: 0.36, duration: 0.9, gain: 0.05 },
+  ], "purchase");
+}
+
 // Used for site-wide "top" warnings/announcements (see AnnouncementBanner).
 export function playWarningSound() {
   playNotes([
