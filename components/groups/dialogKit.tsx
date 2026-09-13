@@ -21,37 +21,49 @@ export function DialogFrame({
   title,
   onClose,
   children,
+  tabs,
   wide = false,
 }: {
   title: ReactNode;
   onClose: () => void;
   children: ReactNode;
+  /** A DialogTabs row, kept in view with the title while the content under it scrolls. */
+  tabs?: ReactNode;
   wide?: boolean;
 }) {
   const t = useT();
   return (
+    // Only the content scrolls: the title and the tabs stay put, so the way to
+    // another tab is never scrolled away — nor pushed off a short screen.
     <div
-      className={`flex max-h-[90dvh] max-w-full flex-col gap-4 overflow-y-auto bg-white p-5 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50 ${
+      className={`flex max-h-[min(90dvh,calc(100dvh-2rem))] max-w-full flex-col overflow-hidden bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50 ${
         wide ? "w-full" : "w-96"
       }`}
     >
-      <div className="flex items-start justify-between gap-2">
-        <h2 className="min-w-0 text-lg font-semibold tracking-tight">{title}</h2>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label={t("common.close")}
-          className="-mr-1 -mt-1 flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-xl leading-none opacity-60 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
-        >
-          ×
-        </button>
+      <div className="flex shrink-0 flex-col gap-3 px-5 pt-5">
+        <div className="flex items-start justify-between gap-2">
+          <h2 className="min-w-0 text-lg font-semibold tracking-tight">{title}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={t("common.close")}
+            className="-mr-1 -mt-1 flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-xl leading-none opacity-60 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
+          >
+            ×
+          </button>
+        </div>
+        {tabs}
       </div>
-      {children}
+      {/* A block that scrolls around a column, not a scrolling column: flex
+          items with an overflow of their own (the map's box) would shrink. */}
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-4">
+        <div className="flex flex-col gap-4">{children}</div>
+      </div>
     </div>
   );
 }
 
-/** The underlined tab row the settings popups share. */
+/** The underlined tab row the settings popups share — pass it as DialogFrame's `tabs`. */
 export function DialogTabs<T extends string>({
   tabs,
   current,
@@ -62,7 +74,7 @@ export function DialogTabs<T extends string>({
   onChange: (id: T) => void;
 }) {
   return (
-    <div className="-mt-1 flex gap-1 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
+    <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
       {tabs.map((t) => (
         <button
           key={t.id}

@@ -6,6 +6,7 @@ import {
   MdArrowBack,
   MdChatBubbleOutline,
   MdContentCopy,
+  MdExpandMore,
   MdLink,
   MdMoreVert,
   MdPeopleOutline,
@@ -19,7 +20,7 @@ import { NotificationInboxBell } from "@/components/NotificationInboxBell";
 import { GroupIcon } from "@/components/groups/GroupIcon";
 import { GroupName } from "@/components/groups/GroupName";
 import { GroupSwitcher } from "@/components/groups/GroupSwitcher";
-import { GroupActions, GroupRoomsPanel } from "@/components/groups/GroupSidebar";
+import { GroupMenu, GroupRoomsPanel } from "@/components/groups/GroupSidebar";
 import { useOpenChannelSettings } from "@/components/groups/ChannelSettingsDialog";
 import { copyText } from "@/lib/clipboard";
 import { groupPath, type GroupsRoute } from "@/lib/groupLinks";
@@ -142,7 +143,6 @@ export function GroupMobileBar({
             />
           </>
         )}
-        {kind === "group" && detail && <GroupActions detail={detail} />}
         {kind !== "room" && <NotificationInboxBell />}
       </div>
     </div>
@@ -233,11 +233,14 @@ export function GroupMobileHome({ detail, onOpenMembers }: { detail: GroupDetail
         <section className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white p-3.5 dark:border-zinc-800 dark:bg-zinc-950">
           <GroupIcon name={group.name} iconUrl={group.iconUrl} seed={group.id} size={52} className="rounded-2xl" />
           <div className="min-w-0 flex-1">
-            <GroupName
-              name={group.name}
-              flags={group.flags}
-              className="flex w-full text-base font-semibold text-zinc-950 dark:text-zinc-50"
-            />
+            {/* The group's options drop down from its name, as atop the rooms on a desktop. */}
+            <GroupMenu
+              detail={detail}
+              className="-mx-1 flex max-w-full items-center gap-0.5 rounded-lg px-1 text-base font-semibold text-zinc-950 transition active:bg-zinc-100 dark:text-zinc-50 dark:active:bg-zinc-900"
+            >
+              <GroupName name={group.name} flags={group.flags} />
+              <MdExpandMore className="h-5 w-5 shrink-0 text-zinc-500" />
+            </GroupMenu>
             {group.description && (
               <p className="line-clamp-2 text-sm text-zinc-600 dark:text-zinc-400">{group.description}</p>
             )}

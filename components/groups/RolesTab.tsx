@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useState, type DragEvent, type FormEvent } from "react";
 import {
   MdAdd,
-  MdArrowDownward,
-  MdArrowUpward,
   MdClose,
+  MdDragIndicator,
   MdLockOutline,
   MdOutlineFormatColorReset,
   MdShield,
@@ -102,9 +101,17 @@ export function RolesTab({ groupId }: { groupId: string }) {
   const [selected, setSelected] = useState<string>(EVERYONE);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The role being dragged, where it would land, and the order dropped — drawn
+  // until the group is re-read with it.
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [hint, setHint] = useState<{ id: string; after: boolean } | null>(null);
+  const [droppedOrder, setDroppedOrder] = useState<string[] | null>(null);
   if (!detail) return null;
 
-  const roles = rolesInOrder(detail);
+  const ordered = rolesInOrder(detail);
+  const roles = droppedOrder
+    ? [...ordered].sort((a, b) => droppedOrder.indexOf(a.id) - droppedOrder.indexOf(b.id))
+    : ordered;
   const rank = myRank(detail);
   const canEdit = canManage(detail, "manageRoles");
   const holders = new Map<string, number>();
@@ -126,17 +133,36 @@ export function RolesTab({ groupId }: { groupId: string }) {
     setSelected(result.role.id);
   }
 
-  // One step up or down, among the roles below one's own.
-  async function move(index: number, delta: -1 | 1) {
-    const other = roles[index + delta];
-    if (!other || other.position >= rank) return;
-    const ids = roles.map((r) => r.id);
-    [ids[index], ids[index + delta]] = [ids[index + delta], ids[index]];
+  function endDrag() {
+    setDragId(null);
+    setHint(null);
+  }
+
+  // Dropped beside another role (after the last one for @everyone's row). The
+  // roles at or above one's own stay on top, where they are: a drop among them
+  // lands just under them — the same thing the API would insist on.
+  async function drop(targetId: string | null, after: boolean) {
+    const dragged = dragId;
+    endDrag();
+    if (!dragged || dragged === targetId) return;
+    const before = roles.map((r) => r.id);
+    const ids = before.filter((id) => id !== dragged);
+    const floor = roles.filter((r) => r.id !== dragged && r.position >= rank).length;
+    const at = targetId === null ? ids.length : ids.indexOf(targetId) + (after ? 1 : 0);
+    ids.splice(Math.max(at, floor), 0, dragged);
+    if (ids.every((id, i) => id === before[i])) return;
+    setDroppedOrder(ids);
     setError(null);
     const result = await reorderRoles(groupId, ids);
     if (!result.ok) setError(result.error);
-    void refreshGroup(groupId);
+    await refreshGroup(groupId);
+    setDroppedOrder(null);
   }
+
+  const afterHalf = (e: DragEvent<HTMLElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    return e.clientY > rect.top + rect.height / 2;
+  };
 
   return (
     <div className="flex flex-col gap-3">
@@ -158,20 +184,58 @@ export function RolesTab({ groupId }: { groupId: string }) {
             </button>
           )}
           <ul className="flex flex-col gap-0.5">
-            {roles.map((role, index) => {
+            {roles.map((role) => {
               const locked = !canEdit || role.position >= rank;
               const active = selected === role.id;
+              const edge = hint?.id === role.id ? (hint.after ? "-bottom-px" : "-top-px") : null;
               return (
-                <li key={role.id} className="group/role flex items-center gap-1">
+                <li
+                  key={role.id}
+                  className={`group/role relative ${dragId === role.id ? "opacity-40" : ""}`}
+                  draggable={!locked}
+                  onDragStart={(e) => {
+                    e.dataTransfer.effectAllowed = "move";
+                    // Firefox starts no drag without some data on it.
+                    e.dataTransfer.setData("text/plain", role.id);
+                    setDragId(role.id);
+                  }}
+                  onDragEnd={endDrag}
+                  // The roles at or above one's own are not somewhere to drop.
+                  onDragOver={(e) => {
+                    if (!dragId || locked) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    const after = afterHalf(e);
+                    if (hint?.id !== role.id || hint.after !== after) setHint({ id: role.id, after });
+                  }}
+                  onDrop={(e) => {
+                    if (!dragId || locked) return;
+                    e.preventDefault();
+                    void drop(role.id, afterHalf(e));
+                  }}
+                >
+                  {edge && (
+                    <span className={`pointer-events-none absolute inset-x-1 h-0.5 rounded-full bg-emerald-500 ${edge}`} />
+                  )}
                   <button
                     type="button"
                     onClick={() => setSelected(role.id)}
-                    className={`flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition ${
+                    title={locked ? undefined : t("groups.rolesTab.dragToReorder")}
+                    className={`flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition ${
+                      locked ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"
+                    } ${
                       active
                         ? "bg-zinc-200 font-medium text-zinc-950 dark:bg-zinc-800 dark:text-zinc-50"
                         : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900"
                     }`}
                   >
+                    {canEdit && (
+                      <MdDragIndicator
+                        className={`-ml-1 -mr-1.5 h-4 w-4 shrink-0 text-zinc-400 ${
+                          locked ? "invisible" : "opacity-0 transition group-hover/role:opacity-100"
+                        }`}
+                      />
+                    )}
                     <span
                       className="h-3 w-3 shrink-0 rounded-full border border-black/10 dark:border-white/10"
                       style={{ backgroundColor: role.color ?? "#99aab5" }}
@@ -183,34 +247,27 @@ export function RolesTab({ groupId }: { groupId: string }) {
                     {locked && canEdit && <MdLockOutline className="h-3.5 w-3.5 shrink-0 opacity-50" />}
                     <span className="shrink-0 text-xs tabular-nums text-zinc-400">{holders.get(role.id) ?? 0}</span>
                   </button>
-                  {!locked && (
-                    <span className="flex shrink-0 flex-col">
-                      <button
-                        type="button"
-                        aria-label={t("common.moveUp")}
-                        title={t("common.moveUp")}
-                        disabled={index === 0 || roles[index - 1].position >= rank}
-                        onClick={() => void move(index, -1)}
-                        className="cursor-pointer rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 disabled:cursor-default disabled:opacity-30 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-                      >
-                        <MdArrowUpward className="h-3 w-3" />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={t("common.moveDown")}
-                        title={t("common.moveDown")}
-                        disabled={index === roles.length - 1}
-                        onClick={() => void move(index, 1)}
-                        className="cursor-pointer rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 disabled:cursor-default disabled:opacity-30 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-                      >
-                        <MdArrowDownward className="h-3 w-3" />
-                      </button>
-                    </span>
-                  )}
                 </li>
               );
             })}
-            <li>
+            <li
+              className="relative"
+              // Dropped on @everyone: the bottom of the list, just above it.
+              onDragOver={(e) => {
+                if (!dragId) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                if (hint?.id !== EVERYONE) setHint({ id: EVERYONE, after: false });
+              }}
+              onDrop={(e) => {
+                if (!dragId) return;
+                e.preventDefault();
+                void drop(null, false);
+              }}
+            >
+              {hint?.id === EVERYONE && (
+                <span className="pointer-events-none absolute inset-x-1 -top-px h-0.5 rounded-full bg-emerald-500" />
+              )}
               <button
                 type="button"
                 onClick={() => setSelected(EVERYONE)}

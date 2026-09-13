@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent, type MouseEvent } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent, type MouseEvent, type ReactNode } from "react";
 import useNtPopups from "ntpopups";
 import {
   MdAdd,
@@ -20,7 +20,6 @@ import {
   MdMic,
   MdMicOff,
   MdMusicNote,
-  MdPeopleOutline,
   MdPalette,
   MdPersonAdd,
   MdSettings,
@@ -96,8 +95,9 @@ import { translate } from "@/lib/i18n";
 //                     is in each — being in a call together is what GoLive is
 //                     for — and the text rooms as a plain list under them.
 //                     The owner and admins drag rooms and categories around.
-//   GroupActions    — invite, settings, notifications, leave: the top bar's
-//                     right-hand side.
+//   GroupMenu       — the group's name atop the rooms, dropping down its
+//                     settings, theme, notifications and leaving.
+//   GroupActions    — inviting, on the top bar's right-hand side.
 //   VoiceControls   — the call, from anywhere in the group, drawn like the
 //                     room's own mid-call controls.
 
@@ -1115,7 +1115,13 @@ export function GroupRoomsPanel({
         onContextMenu={panelMenu}
         className="flex shrink-0 items-center justify-between gap-2 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800"
       >
-        <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">{t("common.rooms")}</h2>
+        <GroupMenu
+          detail={detail}
+          className="-mx-1.5 flex min-w-0 items-center gap-1 rounded-lg px-1.5 py-1 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-900"
+        >
+          <GroupName name={group.name} flags={group.flags} badgeClassName="h-4 w-4" />
+          <MdExpandMore className="h-4 w-4 shrink-0 text-zinc-500" />
+        </GroupMenu>
         {isManager && (
           <Popover
             open={addOpen}
@@ -1160,7 +1166,39 @@ export function GroupRoomsPanel({
 
 // ─── Group actions (top bar) ─────────────────────────────────────────────
 
+/** Inviting, beside the rest of the top bar; the group's own options are its name's menu (GroupMenu). */
 export function GroupActions({ detail }: { detail: GroupDetail }) {
+  const t = useT();
+  const { openPopup } = useNtPopups();
+  const { group } = detail;
+  if (!canManage(detail, "createInvites")) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => void openPopup("group_invite", { data: { groupId: group.id, groupName: group.name } })}
+      className="hidden shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-zinc-300 px-2.5 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 sm:flex dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+    >
+      <MdPersonAdd className="h-4 w-4" />
+      <span data-header-label className="hidden lg:inline">{t("groups.groupSidebar.invite")}</span>
+    </button>
+  );
+}
+
+/**
+ * The group's name, as the way to its options — a menu that drops down from
+ * it: the settings and the theme for whoever may change them, notifications,
+ * and leaving for everybody but the owner. `children` is what the name looks
+ * like where it sits; the menu is the same everywhere.
+ */
+export function GroupMenu({
+  detail,
+  children,
+  className = "",
+}: {
+  detail: GroupDetail;
+  children: ReactNode;
+  className?: string;
+}) {
   const t = useT();
   const navigation = useGroupNavigation();
   const { openPopup } = useNtPopups();
@@ -1172,15 +1210,9 @@ export function GroupActions({ detail }: { detail: GroupDetail }) {
   // The same plan gate as a room's theme — see WatchRoom's hasThemePlan.
   const hasThemePlan = hasFeature("room_theme_set", account?.features ?? []);
   // The settings open on whatever part of the group this person runs; the
-  // theme is "Gerenciar grupo"'s, inviting "Criar convites"'.
+  // theme is "Gerenciar grupo"'s.
   const isManager = managesAnything(detail);
   const canTheme = canManage(detail, "manageGroup");
-  const canInvite = canManage(detail, "createInvites");
-
-  function openInvite() {
-    setMenuOpen(false);
-    void openPopup("group_invite", { data: { groupId: group.id, groupName: group.name } });
-  }
 
   async function changeNotify(level: GroupNotifyLevel) {
     setMenuOpen(false);
@@ -1213,107 +1245,93 @@ export function GroupActions({ detail }: { detail: GroupDetail }) {
   }
 
   return (
-    <>
-      {canInvite && (
-        <button
-          type="button"
-          onClick={openInvite}
-          className="hidden shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-zinc-300 px-2.5 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 sm:flex dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
-        >
-          <MdPersonAdd className="h-4 w-4" />
-          <span data-header-label className="hidden lg:inline">{t("groups.groupSidebar.invite")}</span>
-        </button>
-      )}
-      <Popover
-        open={menuOpen}
-        onClose={() => setMenuOpen(false)}
-        placement="bottom-end"
-        tooltip={t("groups.groupSidebar.groupOptions")}
-        content={
-          <div className="flex w-60 flex-col gap-0.5 rounded-xl border border-zinc-200 bg-white p-1.5 shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
-            {canInvite && (
-              <button type="button" onClick={openInvite} className={`${menuItemClass} sm:hidden`}>
-                <MdPersonAdd className="h-4 w-4 opacity-70" />
-                {t("common.invitePeople")}
-              </button>
-            )}
+    <Popover
+      open={menuOpen}
+      onClose={() => setMenuOpen(false)}
+      placement="bottom-start"
+      offset={[0, 6]}
+      content={
+        <div className="flex w-60 flex-col gap-0.5 rounded-xl border border-zinc-200 bg-white p-1.5 shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
+          {isManager && (
             <button
               type="button"
               onClick={() => {
                 setMenuOpen(false);
-                openSettings(isManager ? undefined : "members");
+                openSettings();
               }}
               className={menuItemClass}
             >
-              {isManager ? <MdSettings className="h-4 w-4 opacity-70" /> : <MdPeopleOutline className="h-4 w-4 opacity-70" />}
-              {isManager ? t("groups.groupSidebar.groupSettings") : t("common.members")}
+              <MdSettings className="h-4 w-4 opacity-70" />
+              {t("groups.groupSidebar.settings")}
             </button>
-            {canTheme && (
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpen(false);
-                  // Without the plan it is a way *to* the plan, as in a room.
-                  if (!hasThemePlan) {
-                    openProModal("premium_max");
-                    return;
-                  }
-                  void openPopup("room_theme", {
-                    data: { currentThemeId: group.theme, groupId: group.id },
-                  });
-                }}
-                className={menuItemClass}
-              >
-                <MdPalette className="h-4 w-4 opacity-70" />
-                <span className="flex-1">{t("common.groupTheme")}</span>
-                {!hasThemePlan && (
-                  <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">{t("groups.groupSidebar.proMax")}</span>
-                )}
+          )}
+          {canTheme && (
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                // Without the plan it is a way *to* the plan, as in a room.
+                if (!hasThemePlan) {
+                  openProModal("premium_max");
+                  return;
+                }
+                void openPopup("room_theme", {
+                  data: { currentThemeId: group.theme, groupId: group.id },
+                });
+              }}
+              className={menuItemClass}
+            >
+              <MdPalette className="h-4 w-4 opacity-70" />
+              <span className="flex-1">{t("common.groupTheme")}</span>
+              {!hasThemePlan && (
+                <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">{t("groups.groupSidebar.proMax")}</span>
+              )}
+            </button>
+          )}
+          {(isManager || canTheme) && <div className="my-1 border-t border-zinc-200 dark:border-zinc-800" />}
+          <p className="px-2 pb-0.5 pt-1 text-xs font-semibold text-zinc-500 dark:text-zinc-400">{t("common.notifications")}</p>
+          {(Object.keys(NOTIFY_LABELS) as GroupNotifyLevel[]).map((level) => (
+            <button
+              key={level}
+              type="button"
+              onClick={() => void changeNotify(level)}
+              disabled={me.guest}
+              className={menuItemClass}
+            >
+              <span className="flex h-4 w-4 items-center justify-center">
+                {me.notify === level && <MdCheck className="h-4 w-4 text-emerald-600" />}
+              </span>
+              {NOTIFY_LABELS[level]}
+            </button>
+          ))}
+          {me.guest && (
+            <p className="px-2 pb-1 text-xs text-zinc-500 dark:text-zinc-400">
+              {t("groups.groupSidebar.mobileNotificationsNeedAnAccount")}
+            </p>
+          )}
+          {me.role !== "owner" && (
+            <>
+              <div className="my-1 border-t border-zinc-200 dark:border-zinc-800" />
+              <button type="button" onClick={confirmLeave} className={`${menuItemClass} text-red-600 dark:text-red-500`}>
+                <MdLogout className="h-4 w-4" />
+                {t("common.leaveTheGroup")}
               </button>
-            )}
-            <div className="my-1 border-t border-zinc-200 dark:border-zinc-800" />
-            <p className="px-2 pb-0.5 pt-1 text-xs font-semibold text-zinc-500 dark:text-zinc-400">{t("common.notifications")}</p>
-            {(Object.keys(NOTIFY_LABELS) as GroupNotifyLevel[]).map((level) => (
-              <button
-                key={level}
-                type="button"
-                onClick={() => void changeNotify(level)}
-                disabled={me.guest}
-                className={menuItemClass}
-              >
-                <span className="flex h-4 w-4 items-center justify-center">
-                  {me.notify === level && <MdCheck className="h-4 w-4 text-emerald-600" />}
-                </span>
-                {NOTIFY_LABELS[level]}
-              </button>
-            ))}
-            {me.guest && (
-              <p className="px-2 pb-1 text-xs text-zinc-500 dark:text-zinc-400">
-                {t("groups.groupSidebar.mobileNotificationsNeedAnAccount")}
-              </p>
-            )}
-            {me.role !== "owner" && (
-              <>
-                <div className="my-1 border-t border-zinc-200 dark:border-zinc-800" />
-                <button type="button" onClick={confirmLeave} className={`${menuItemClass} text-red-600 dark:text-red-500`}>
-                  <MdLogout className="h-4 w-4" />
-                  {t("common.leaveTheGroup")}
-                </button>
-              </>
-            )}
-          </div>
-        }
+            </>
+          )}
+        </div>
+      }
+    >
+      <button
+        type="button"
+        onClick={() => setMenuOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        title={t("groups.groupSidebar.groupOptions")}
+        className={`cursor-pointer text-left ${className}`}
       >
-        <button
-          type="button"
-          onClick={() => setMenuOpen((o) => !o)}
-          aria-label={t("groups.groupSidebar.groupOptions")}
-          className="flex shrink-0 cursor-pointer items-center justify-center rounded-lg p-2 text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
-        >
-          <MdSettings className="h-5 w-5" />
-        </button>
-      </Popover>
-    </>
+        {children}
+      </button>
+    </Popover>
   );
 }
 

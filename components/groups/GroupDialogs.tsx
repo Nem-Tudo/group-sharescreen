@@ -718,12 +718,14 @@ export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: 
       title={<GroupName name={detail.group.name} flags={detail.group.flags} badgeClassName="h-5 w-5" />}
       onClose={() => closePopup(false)}
       wide
+      tabs={
+        <DialogTabs
+          tabs={visible.map((t) => ({ id: t.id, label: t.label, danger: t.id === "danger" }))}
+          current={current}
+          onChange={setTab}
+        />
+      }
     >
-      <DialogTabs
-        tabs={visible.map((t) => ({ id: t.id, label: t.label, danger: t.id === "danger" }))}
-        current={current}
-        onChange={setTab}
-      />
       {current === "overview" && <OverviewTab groupId={groupId} onGoToMap={() => setTab("map")} />}
       {current === "channels" && (
         <ChannelsTab groupId={groupId} channels={detail.channels} categories={detail.categories ?? []} />

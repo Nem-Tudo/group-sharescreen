@@ -90,11 +90,8 @@ export function ChannelSettingsDialog({
       }
       onClose={() => closePopup(false)}
       wide
-    >
-      {!isManager ? (
-        <p className="text-sm text-zinc-500">{t("groups.channelSettingsDialog.youDoNotHavePermissionTo")}</p>
-      ) : (
-        <>
+      tabs={
+        isManager && (
           <DialogTabs
             tabs={[
               { id: "general" as const, label: t("common.general") },
@@ -103,6 +100,13 @@ export function ChannelSettingsDialog({
             current={tab}
             onChange={setTab}
           />
+        )
+      }
+    >
+      {!isManager ? (
+        <p className="text-sm text-zinc-500">{t("groups.channelSettingsDialog.youDoNotHavePermissionTo")}</p>
+      ) : (
+        <>
           {tab === "general" && <GeneralTab detail={detail} channel={channel} onDeleted={() => closePopup(true)} />}
           {tab === "permissions" && <ChannelPermissionsTab detail={detail} channel={channel} />}
         </>
