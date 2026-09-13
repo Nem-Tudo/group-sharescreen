@@ -3711,7 +3711,12 @@ export function WatchRoom({
     // tile its own 16:9 card, which is what a grid cell wants. `compact` says
     // the box is a filmstrip thumbnail, so drop the controls and shrink the
     // name — tile kinds with nothing to drop simply ignore it. See VideoTile.
-    render: (fill: boolean, compact?: boolean, overlayRightOffset?: boolean) => ReactNode;
+    render: (
+      fill: boolean,
+      compact?: boolean,
+      overlayRightOffset?: boolean,
+      overlayLeftOffset?: boolean
+    ) => ReactNode;
   };
   const tiles: RoomTile[] = [];
 
@@ -3719,7 +3724,7 @@ export function WatchRoom({
     const id = tileId("screen", SELF_TILE_OWNER);
     tiles.push({
       id,
-      render: (fill, compact, overlayRightOffset) => (
+      render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
         <VideoTile
           stream={localStream}
           // Our own capture keeps running whether or not this preview is on
@@ -3743,6 +3748,7 @@ export function WatchRoom({
           onObsSource={canUseObsSource ? () => void handleObsSource(id) : undefined}
           isObsActive={isTargetObsActive(id)}
           overlayRightOffset={overlayRightOffset}
+          overlayLeftOffset={overlayLeftOffset}
           isMicOn={isMicOn}
           onToggleMic={toggleMic}
           micsMuted={micsMuted}
@@ -3756,7 +3762,7 @@ export function WatchRoom({
     const id = tileId("camera", SELF_TILE_OWNER);
     tiles.push({
       id,
-      render: (fill, compact, overlayRightOffset) => (
+      render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
         <VideoTile
           stream={localCameraStream}
           // Our own capture keeps running whether or not this preview is on
@@ -3780,6 +3786,7 @@ export function WatchRoom({
           onObsSource={canUseObsSource ? () => void handleObsSource(id) : undefined}
           isObsActive={isTargetObsActive(id)}
           overlayRightOffset={overlayRightOffset}
+          overlayLeftOffset={overlayLeftOffset}
           isMicOn={isMicOn}
           onToggleMic={toggleMic}
           micsMuted={micsMuted}
@@ -3802,7 +3809,7 @@ export function WatchRoom({
     const id = tileId("file", `${slot}:${SELF_TILE_OWNER}`);
     tiles.push({
       id,
-      render: (fill, compact, overlayRightOffset) => (
+      render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
         <VideoTile
           stream={stream}
           label={name}
@@ -3832,6 +3839,7 @@ export function WatchRoom({
           onObsSource={canUseObsSource ? () => void handleObsSource(id) : undefined}
           isObsActive={isTargetObsActive(id)}
           overlayRightOffset={overlayRightOffset}
+          overlayLeftOffset={overlayLeftOffset}
           isMicOn={isMicOn}
           onToggleMic={toggleMic}
           micsMuted={micsMuted}
@@ -3851,7 +3859,7 @@ export function WatchRoom({
     const id = tileId("file", `${slot}:${peerId}`);
     tiles.push({
       id,
-      render: (fill, compact, overlayRightOffset) => (
+      render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
         <VideoTile
           stream={stream}
           label={shared?.name ?? `arquivo de ${peer?.name ?? translate("common.someone2")}`}
@@ -3904,6 +3912,7 @@ export function WatchRoom({
           onObsSource={canUseObsSource ? () => void handleObsSource(id) : undefined}
           isObsActive={isTargetObsActive(id)}
           overlayRightOffset={overlayRightOffset}
+          overlayLeftOffset={overlayLeftOffset}
           isMicOn={isMicOn}
           onToggleMic={toggleMic}
           micsMuted={micsMuted}
@@ -4000,7 +4009,7 @@ export function WatchRoom({
     const id = tileId("screen", peerId);
     tiles.push({
       id,
-      render: (fill, compact, overlayRightOffset) => (
+      render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
         <VideoTile
           stream={stream}
           label={
@@ -4033,6 +4042,7 @@ export function WatchRoom({
           onObsSource={canUseObsSource ? () => void handleObsSource(id) : undefined}
           isObsActive={isTargetObsActive(id)}
           overlayRightOffset={overlayRightOffset}
+          overlayLeftOffset={overlayLeftOffset}
           isMicOn={isMicOn}
           onToggleMic={toggleMic}
           micsMuted={micsMuted}
@@ -4048,7 +4058,7 @@ export function WatchRoom({
     const id = tileId("camera", peerId);
     tiles.push({
       id,
-      render: (fill, compact, overlayRightOffset) => (
+      render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
         <VideoTile
           stream={stream}
           label={
@@ -4081,6 +4091,7 @@ export function WatchRoom({
           onObsSource={canUseObsSource ? () => void handleObsSource(id) : undefined}
           isObsActive={isTargetObsActive(id)}
           overlayRightOffset={overlayRightOffset}
+          overlayLeftOffset={overlayLeftOffset}
           isMicOn={isMicOn}
           onToggleMic={toggleMic}
           micsMuted={micsMuted}
@@ -6308,7 +6319,12 @@ export function WatchRoom({
                         content is circular, and the tile is the side that
                         gives up and collapses. */}
                     <div className="min-h-0 flex-1">
-                      {stageTile.render(true, false, isWideLayout && rightSidebarCollapsed)}
+                      {stageTile.render(
+                        true,
+                        false,
+                        isWideLayout && rightSidebarCollapsed,
+                        isWideLayout && leftSidebarCollapsed && !group
+                      )}
                     </div>
                     {stripTiles.length > 0 && (
                       /* Scrolls sideways rather than wrapping onto a second
@@ -6365,14 +6381,18 @@ export function WatchRoom({
                         rightSidebarCollapsed &&
                         (isSingleTile ||
                           ((index + 1) % tileGridCols === 0 && index < tileGridCols));
+                      // The top-left tile, under the floating "mostrar
+                      // participantes" button — which a group room never shows.
+                      const shouldOffsetLeft =
+                        isWideLayout && leftSidebarCollapsed && !group && index === 0;
                       return (
                         <Fragment key={tile.id}>
                           {isSingleTile && tile.id === "sponsored-partner-tile" ? (
                             <div className="flex h-full w-full items-center justify-center p-4">
-                              {tile.render(true, false, shouldOffsetRight)}
+                              {tile.render(true, false, shouldOffsetRight, shouldOffsetLeft)}
                             </div>
                           ) : (
-                            tile.render(isSingleTile, false, shouldOffsetRight)
+                            tile.render(isSingleTile, false, shouldOffsetRight, shouldOffsetLeft)
                           )}
                         </Fragment>
                       );

@@ -73,6 +73,7 @@ export function VideoTile({
   onObsSource,
   isObsActive = false,
   overlayRightOffset = false,
+  overlayLeftOffset = false,
   isMicOn,
   onToggleMic,
   micsMuted,
@@ -151,6 +152,10 @@ export function VideoTile({
   onObsSource?: () => void;
   isObsActive?: boolean;
   overlayRightOffset?: boolean;
+  // The left-hand mirror of overlayRightOffset: set on the tile in the
+  // top-left corner while the collapsed participants sidebar's floating
+  // "expand" button sits over it, so the left cluster clears that button.
+  overlayLeftOffset?: boolean;
   // The page's own mic controls (see WatchRoom's isMicOn/toggleMic and
   // micsMuted/toggleMicsMuted) — normally reachable from the header, but the
   // header is outside the element the Fullscreen API puts on screen when a
@@ -592,6 +597,59 @@ export function VideoTile({
           onClose={() => setStatsOpen(false)}
         />
       )}
+      {/* The left-hand cluster: things about the transmission rather than
+          about watching it — its connection, and taking it out to OBS. Same
+          reveal rules as the right-hand cluster below. */}
+      {(connectionStats || onObsSource) && (
+        <div
+          data-tile-controls
+          className={`absolute top-2 z-20 flex items-center gap-2 transition-opacity ${
+            overlayLeftOffset ? "left-[50px]" : "left-2"
+          } ${compact ? "hidden" : ""} ${overlayVisibilityClass}`}
+        >
+          {connectionStats && (
+            <Tooltip content={t("connectionStats.open")}>
+              <button
+                type="button"
+                onClick={() => setStatsOpen((open) => !open)}
+                aria-label={t("connectionStats.open")}
+                aria-pressed={statsOpen}
+                className={`rounded-full p-2 text-white active:bg-black/80 ${
+                  statsOpen ? "bg-emerald-600 hover:bg-emerald-700" : "bg-black/60 hover:bg-black/80"
+                }`}
+              >
+                <ChartIcon className="h-5 w-5" />
+              </button>
+            </Tooltip>
+          )}
+          {onObsSource && (
+            <Tooltip
+              content={
+                isObsActive
+                  ? t("videoTile.thisBroadcastIsBeingSharedExternally")
+                  : !hasAccount
+                  ? t("common.useAnAccountToExportThe")
+                  : t("videoTile.copyTheBroadcastLinkForNameforlabel", { nameForLabel })
+              }
+            >
+              <button
+                type="button"
+                onClick={onObsSource}
+                aria-label={t("videoTile.copyTheBroadcastLinkForNameforlabel2", { nameForLabel, value: !hasAccount ? " (requer conta)" : "" })}
+                className={`rounded-full p-2 text-white transition ${
+                  isObsActive
+                    ? "bg-purple-600 hover:bg-purple-700 active:bg-purple-800 ring-2 ring-purple-400/60 shadow-lg"
+                    : !hasAccount
+                    ? "bg-black/30 opacity-40 hover:bg-black/30 hover:opacity-40 active:bg-black/30"
+                    : "bg-black/60 hover:bg-black/80 active:bg-black/80"
+                }`}
+              >
+                <ObsSourceIcon className="h-5 w-5" />
+              </button>
+            </Tooltip>
+          )}
+        </div>
+      )}
       {transport && !compact && (
         <div className="absolute inset-x-0 bottom-0 z-10 bg-linear-to-t from-black/90 via-black/80 to-transparent pt-6">
           {transport}
@@ -760,47 +818,6 @@ export function VideoTile({
               }`}
             >
               <HyperfocusIcon className="h-5 w-5" />
-            </button>
-          </Tooltip>
-        )}
-        {onObsSource && (
-          <Tooltip
-            content={
-              isObsActive
-                ? t("videoTile.thisBroadcastIsBeingSharedExternally")
-                : !hasAccount
-                ? t("common.useAnAccountToExportThe")
-                : t("videoTile.copyTheBroadcastLinkForNameforlabel", { nameForLabel })
-            }
-          >
-            <button
-              type="button"
-              onClick={onObsSource}
-              aria-label={t("videoTile.copyTheBroadcastLinkForNameforlabel2", { nameForLabel, value: !hasAccount ? " (requer conta)" : "" })}
-              className={`rounded-full p-2 text-white transition ${
-                isObsActive
-                  ? "bg-purple-600 hover:bg-purple-700 active:bg-purple-800 ring-2 ring-purple-400/60 shadow-lg"
-                  : !hasAccount
-                  ? "bg-black/30 opacity-40 hover:bg-black/30 hover:opacity-40 active:bg-black/30"
-                  : "bg-black/60 hover:bg-black/80 active:bg-black/80"
-              }`}
-            >
-              <ObsSourceIcon className="h-5 w-5" />
-            </button>
-          </Tooltip>
-        )}
-        {connectionStats && (
-          <Tooltip content={t("connectionStats.open")}>
-            <button
-              type="button"
-              onClick={() => setStatsOpen((open) => !open)}
-              aria-label={t("connectionStats.open")}
-              aria-pressed={statsOpen}
-              className={`rounded-full p-2 text-white active:bg-black/80 ${
-                statsOpen ? "bg-emerald-600 hover:bg-emerald-700" : "bg-black/60 hover:bg-black/80"
-              }`}
-            >
-              <ChartIcon className="h-5 w-5" />
             </button>
           </Tooltip>
         )}

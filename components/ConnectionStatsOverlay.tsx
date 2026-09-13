@@ -159,7 +159,9 @@ export function ConnectionStatsOverlay({
       // A double click anywhere on a tile means "focar"; inside this panel it
       // means selecting a number to read it.
       onDoubleClick={(e) => e.stopPropagation()}
-      className="absolute left-2 top-2 z-20 max-h-[calc(100%-1rem)] w-[min(24rem,calc(100%-1rem))] overflow-auto rounded-lg bg-black/85 p-2.5 font-mono text-[11px] leading-snug text-zinc-100 shadow-lg backdrop-blur-sm"
+      // Below the tile's left button row (36px buttons at top-2), not over it:
+      // the stats toggle lives there and has to stay reachable to close this.
+      className="absolute left-2 top-13 z-20 max-h-[calc(100%-3.75rem)] w-[min(24rem,calc(100%-1rem))] overflow-auto rounded-lg bg-black/85 p-2.5 font-mono text-[11px] leading-snug text-zinc-100 shadow-lg backdrop-blur-sm"
     >
       <div className="mb-1.5 flex items-center justify-between gap-2 font-sans">
         <span className="text-xs font-semibold text-white">{t("connectionStats.title")}</span>
