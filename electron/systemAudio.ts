@@ -83,8 +83,25 @@ const READY_TIMEOUT_MS = 5000;
 
 // Remembers a refusal, so a machine that cannot do this pays for one spawn
 // per session rather than one per share. Never set from an ordinary failure
-// — only from the helper explicitly reporting the API unavailable.
+// — only from the helper explicitly reporting the API unavailable, or from
+// the helper not being startable at all (see markHelperUnstartable).
 let knownUnsupported = false;
+
+// The helper could not even be started: the file is gone, or Windows refused
+// to run it. In practice that is Windows Defender — an unsigned, low-
+// prevalence executable that records audio is exactly what its machine-
+// learning detections quarantine, and some users had it happen.
+//
+// Treated as "this machine cannot do it" for the rest of the session, so the
+// share falls back to Electron's own loopback audio (with the echo, but with
+// sound). Before this, a helper that failed to start in per-app mode read as
+// "that application closed", the capture carried on with nothing in it, and
+// the share went out silent with no fallback at all.
+function markHelperUnstartable(reason: string) {
+  if (process.platform === "linux") linuxTools = false;
+  else knownUnsupported = true;
+  console.error(`[audiocap] The capture helper could not be started (${reason}) — falling back to Electron's loopback for this session.`);
+}
 
 // The helper's own exit code for "activation refused". Mirrors
 // EXIT_UNSUPPORTED in native/src/audiocap.cpp.
@@ -294,6 +311,11 @@ function runListing(mode: string): Promise<AudioApp[]> {
       // listing must not be read into memory unboundedly.
       { timeout: 3000, maxBuffer: 1 << 20, windowsHide: true, encoding: "utf8" },
       (error, stdout) => {
+        // A string code (ENOENT, EACCES, UNKNOWN...) is the process never
+        // starting; a number is it starting and exiting non-zero, which is
+        // the helper's own business (see its exit codes).
+        const code = (error as NodeJS.ErrnoException | null)?.code;
+        if (error && typeof code === "string") markHelperUnstartable(code);
         if (error && !stdout) {
           resolve([]);
           return;
@@ -420,6 +442,11 @@ export async function startSystemAudioCapture(webContents: WebContents): Promise
   // for a setting whose promise is "this will not be in the stream".
   const needsPerApp = process.platform === "linux" || muted.size > 0;
   const apps = needsPerApp ? await listAudioApps() : [];
+  // The listing is the first spawn of the helper, and the one that finds out
+  // it cannot be started (see markHelperUnstartable). Answering false here is
+  // what lets the renderer fall back to ordinary loopback audio instead of
+  // starting a per-app capture with nothing that can ever feed it.
+  if (!isSystemAudioExclusionSupported()) return false;
   // Reading that list is a process spawn, and a second share could have been
   // started across it. The stop above left this null, so anything here now is
   // someone else's capture — and taking it over would orphan their helpers.
@@ -602,7 +629,14 @@ function addSource(
     onReady?.(false);
     endCapture(active);
   };
-  child.on("error", () => finish());
+  // "error" is the process failing to start at all (see markHelperUnstartable),
+  // and it is fatal in every mode — including per-app, where an ordinary exit
+  // is not. Finishing it as EXIT_UNSUPPORTED is exactly that path: the capture
+  // ends, and the renderer is told so.
+  child.on("error", (err: NodeJS.ErrnoException) => {
+    markHelperUnstartable(err.code ?? err.message);
+    finish(EXIT_UNSUPPORTED);
+  });
   child.on("exit", (code) => finish(code));
 }
 

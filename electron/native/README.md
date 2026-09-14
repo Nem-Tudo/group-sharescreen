@@ -181,6 +181,54 @@ gets it, instead of accepting whatever a device's mix format happens to be.
 It is declared once in `electron/channels.ts` as `SYSTEM_AUDIO_FORMAT` and
 mirrored here and in `public/worklets/system-audio.js`.
 
+## Windows Defender quarantines it
+
+Some users have had the helper blocked or quarantined by Windows Defender.
+The detections are the machine-learning ones (names ending in `!ml`, such as
+`Wacatac.B!ml`). They fire on how a binary looks, not on anything it was
+caught doing. This one looks bad on every axis:
+
+- it is unsigned;
+- almost nobody has it;
+- it runs hidden;
+- it lists processes and windows;
+- it records the system's audio;
+- every CI rebuild gives it a new hash, which resets whatever reputation the
+  last one had built up.
+
+What is done about it, from most to least effective:
+
+1. **Sign it.** This is the fix; everything else only reduces the chance of a
+   detection. An Authenticode signature ties the binary to a publisher, and
+   Defender and SmartScreen build reputation per publisher rather than per
+   hash, so a rebuild no longer starts from zero. Sign the app and the
+   installer at the same time. electron-builder already signs when
+   `CSC_LINK`/`CSC_KEY_PASSWORD` are set (see `electron-builder.yml`), but
+   check that `resources/golive-audiocap.exe` comes out signed too, not only
+   `GoLive.exe`. Options:
+   - [SignPath Foundation](https://signpath.org/): free for open-source
+     projects, signs from GitHub Actions;
+   - Azure Artifact Signing (formerly Trusted Signing): a few dollars a month;
+   - an ordinary OV code-signing certificate.
+2. **Report the false positive to Microsoft** at
+   <https://www.microsoft.com/en-us/wdsi/filesubmission>, choosing "Software
+   developer" and "Incorrectly detected". Microsoft usually clears it within
+   days and the definition update reaches everyone. The report is per file,
+   so repeat it for each rebuilt helper until the binary is signed.
+3. **Say what it is.** `src/audiocap.rc` gives the binary a publisher, a
+   product, a description and a manifest that never asks for elevation. That
+   takes away the most generic reason to distrust an anonymous executable, and
+   it is what shows up in the file's properties and in a vendor report.
+4. **Fail loudly into something that works.** When the helper cannot be
+   started at all, `electron/systemAudio.ts` (`markHelperUnstartable`) stops
+   trying for the session. The share then falls back to Electron's own
+   loopback audio, echo included, rather than going out silent.
+
+A user who hits this right now can restore the file from Defender's
+protection history, or add `resources\golive-audiocap.exe` under the app's
+install folder as an exclusion. Neither is something to ask of everyone. The
+signature is.
+
 ## The rest of the path
 
 | Where                             | What it does                                              |

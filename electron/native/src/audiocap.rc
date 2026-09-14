@@ -1,0 +1,51 @@
+// Version information and manifest for golive-audiocap.exe.
+//
+// Nothing here changes what the program does. It is here because Windows
+// Defender's machine-learning detections (the "...!ml" family) weigh how a
+// binary *presents itself*, and this one presented as nothing at all: no
+// publisher, no product, no description — an anonymous, unsigned console
+// program that enumerates processes and records the system's audio, which is
+// also a fair description of plenty of malware. Users were having it
+// quarantined. Saying plainly what it is does not make it trusted (only a
+// signature does that — see electron/native/README.md), but it takes away the
+// most generic reason to distrust it, and it is what shows up in Task
+// Manager, in the file's properties and in any report someone files with an
+// antivirus vendor.
+
+#include <winver.h>
+
+#define GOLIVE_AUDIOCAP_VERSION 1,2,0,0
+#define GOLIVE_AUDIOCAP_VERSION_STR "1.2.0.0"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION GOLIVE_AUDIOCAP_VERSION
+PRODUCTVERSION GOLIVE_AUDIOCAP_VERSION
+FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+FILEFLAGS 0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904b0"
+    BEGIN
+      VALUE "CompanyName", "GoLive"
+      VALUE "FileDescription", "GoLive system audio capture helper"
+      VALUE "FileVersion", GOLIVE_AUDIOCAP_VERSION_STR
+      VALUE "InternalName", "golive-audiocap"
+      VALUE "LegalCopyright", "GoLive - open source, github.com/Nem-Tudo/group-sharescreen"
+      VALUE "OriginalFilename", "golive-audiocap.exe"
+      VALUE "ProductName", "GoLive"
+      VALUE "ProductVersion", GOLIVE_AUDIOCAP_VERSION_STR
+      VALUE "Comments", "Captures system audio for a GoLive screen share, leaving GoLive's own output and any muted apps out. Started and stopped by the GoLive desktop app; does nothing on its own."
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x0409, 1200
+  END
+END
+
+// RT_MANIFEST (24), resource id 1: the manifest for an .exe.
+1 24 "audiocap.manifest"

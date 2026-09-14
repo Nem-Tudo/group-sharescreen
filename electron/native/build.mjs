@@ -20,6 +20,10 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const source = path.join(here, "src", "audiocap.cpp");
+// The version information and manifest embedded in the binary — see the
+// comment at the top of audiocap.rc for why they exist at all.
+const resourceScript = path.join(here, "src", "audiocap.rc");
+const manifest = path.join(here, "src", "audiocap.manifest");
 const outdir = path.join(here, "bin");
 const output = path.join(outdir, "golive-audiocap.exe");
 // Objects go outside bin/ because bin/ holds a *committed* binary, and a
@@ -34,6 +38,7 @@ const objdir = path.join(here, "obj");
 // the CRT's argument parser reads it as an escaped quote. There is exactly
 // one translation unit here, so naming the file sidesteps both.
 const objfile = path.join(objdir, "audiocap.obj");
+const resfile = path.join(objdir, "audiocap.res");
 // The source hash the committed binary was built from. Recorded next to it
 // because timestamps cannot answer this question: git does not preserve
 // mtimes, so every file in a fresh clone is stamped at checkout time and
@@ -42,8 +47,13 @@ const objfile = path.join(objdir, "audiocap.obj");
 // the .exe in the repo actually corresponds to the .cpp next to it.
 const stamp = `${output}.sha256`;
 
+// Every input that ends up in the binary, not only the C++: a change to the
+// version information or the manifest is a different executable too, and a
+// stamp that ignored them would call the committed binary current after one.
 function sourceHash() {
-  return createHash("sha256").update(readFileSync(source)).digest("hex");
+  const hash = createHash("sha256");
+  for (const file of [source, resourceScript, manifest]) hash.update(readFileSync(file));
+  return hash.digest("hex");
 }
 
 function stampedHash() {
@@ -94,6 +104,17 @@ if (!force && upToDate) {
 // listings use to report "Discord" rather than "Discord.exe"; dwmapi.lib is
 // DwmGetWindowAttribute, which tells a suspended Store app's leftover window
 // apart from one somebody actually has open.
+// The resource compiler first: its .res is handed to cl alongside the source,
+// which passes it straight to the linker. /i points rc at src/ so the
+// manifest named inside audiocap.rc is found wherever the build runs from.
+const compileResources = [
+  "rc",
+  "/nologo",
+  `/i ${quote(path.dirname(resourceScript))}`,
+  `/fo ${quote(resfile)}`,
+  quote(resourceScript),
+].join(" ");
+
 const compile = [
   "cl",
   "/nologo",
@@ -106,6 +127,7 @@ const compile = [
   "/D_UNICODE",
   `/Fo:${quote(objfile)}`,
   quote(source),
+  quote(resfile),
   `/Fe:${quote(output)}`,
   "/link",
   "ole32.lib",
@@ -115,6 +137,10 @@ const compile = [
   "dwmapi.lib",
   "user32.lib",
   "/SUBSYSTEM:CONSOLE",
+  // The manifest comes from audiocap.rc. Left to its default, the linker
+  // would also write a generated one next to the .exe in bin/ — a second
+  // manifest, as a stray file, in a directory that is committed.
+  "/MANIFEST:NO",
 ].join(" ");
 
 function quote(value) {
@@ -124,6 +150,7 @@ function quote(value) {
 // Printed before the toolchain is looked for, so the quoting can be checked
 // on a machine that has no MSVC — which is the whole point of having it.
 if (dryRun) {
+  console.log(compileResources);
   console.log(compile);
   process.exit(0);
 }
@@ -194,7 +221,7 @@ mkdirSync(objdir, { recursive: true });
 // is x86, which would produce a 32-bit helper for a 64-bit app.
 const result = spawnSync(
   process.env.ComSpec || "cmd.exe",
-  ["/d", "/s", "/c", `""${devcmd}" -arch=x64 -host_arch=x64 -no_logo && ${compile}"`],
+  ["/d", "/s", "/c", `""${devcmd}" -arch=x64 -host_arch=x64 -no_logo && ${compileResources} && ${compile}"`],
   { stdio: "inherit", windowsVerbatimArguments: true }
 );
 
