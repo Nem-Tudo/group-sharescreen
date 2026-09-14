@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { MdCheckCircle } from "react-icons/md";
+import { MdCheckCircle, MdClose } from "react-icons/md";
 import { BotTag } from "@/components/BotTag";
 import { LoginForm } from "@/components/LoginForm";
 import { DEFAULT_AVATAR_PATH } from "@/components/UserAvatar";
@@ -12,6 +12,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { useAccountToken } from "@/lib/accountApi";
 import { addBotToGroup, fetchBotInstall, type BotInstallInfo } from "@/lib/botsApi";
 import { groupPath } from "@/lib/groupLinks";
+import { useGroupNavigation } from "@/lib/groupNavigation";
 import { refreshGroups } from "@/lib/useGroups";
 import { useI18n } from "@/lib/useI18n";
 
@@ -25,9 +26,21 @@ import { useI18n } from "@/lib/useI18n";
 const primaryButtonClass =
   "rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200";
 
-export function AddBotClient({ botId }: { botId: string }) {
+export function AddBotClient({
+  botId,
+  variant = "page",
+  onClose,
+}: {
+  botId: string;
+  /** The /bots/:id/add page, or the same card as a dialog (see AddBotDialog). */
+  variant?: "page" | "dialog";
+  /** Closes the dialog. */
+  onClose?: () => void;
+}) {
   const { t, tc } = useI18n();
   const router = useRouter();
+  // Shallow inside the groups pages, where the dialog is most often opened.
+  const navigation = useGroupNavigation();
   const { account, loading } = useAuth();
   const token = useAccountToken();
   // undefined while loading, null for "no such bot".
@@ -118,7 +131,14 @@ export function AddBotClient({ botId }: { botId: string }) {
             {t("addBot.botAddedTo", { bot: bot.displayName, group: added.name })}
           </p>
           <p className="text-xs text-zinc-500 dark:text-zinc-400">{t("addBot.giveItARoleToModerate")}</p>
-          <button type="button" onClick={() => router.push(groupPath(added.groupId))} className={primaryButtonClass}>
+          <button
+            type="button"
+            onClick={() => {
+              onClose?.();
+              navigation.push(groupPath(added.groupId));
+            }}
+            className={primaryButtonClass}
+          >
             {t("addBot.openTheGroup")}
           </button>
         </div>
@@ -127,7 +147,7 @@ export function AddBotClient({ botId }: { botId: string }) {
       action = (
         <div className="flex w-full flex-col gap-3 text-left">
           <p className="text-center text-sm text-zinc-600 dark:text-zinc-400">{t("addBot.signInToAddIt")}</p>
-          <LoginForm onCancel={() => router.push("/")} />
+          <LoginForm onCancel={() => (onClose ? onClose() : router.push("/"))} />
         </div>
       );
     } else if (!info.canInstall) {
@@ -199,6 +219,22 @@ export function AddBotClient({ botId }: { botId: string }) {
         {header}
         <div className="mt-4 w-full">{action}</div>
       </>
+    );
+  }
+
+  if (variant === "dialog") {
+    return (
+      <main className="relative flex max-h-[calc(100dvh-2.5rem)] w-[min(28rem,calc(100vw-2rem))] flex-col items-center gap-2 overflow-y-auto bg-white p-8 text-center dark:bg-zinc-950">
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label={t("common.close")}
+          className="absolute right-3 top-3 rounded-lg p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-900 dark:hover:text-zinc-200"
+        >
+          <MdClose className="h-5 w-5" />
+        </button>
+        {body}
+      </main>
     );
   }
 
