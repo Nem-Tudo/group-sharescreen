@@ -89,6 +89,7 @@ import { useOpenChannelSettings } from "@/components/groups/ChannelSettingsDialo
 import { RolesTab } from "@/components/groups/RolesTab";
 import { RoleChip } from "@/components/groups/RoleChip";
 import { requestExploreGroups } from "@/components/groups/groupSearch";
+import { BotBrowser } from "@/components/bots/BotBrowser";
 import {
   canManage,
   membersRevalidateKey,
@@ -698,7 +699,7 @@ export function GroupInviteDialog({ closePopup, data }: PopupProps<{ groupId: st
 
 // ─── Settings ────────────────────────────────────────────────────────────
 
-type SettingsTab = "overview" | "channels" | "roles" | "map" | "invites" | "members" | "bans" | "danger";
+type SettingsTab = "overview" | "channels" | "roles" | "map" | "invites" | "members" | "bots" | "bans" | "danger";
 
 export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: string; tab?: string }>) {
   const groupId = data?.groupId ?? "";
@@ -714,6 +715,9 @@ export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: 
     { id: "map", label: translate("groups.groupDialogs.map"), show: can("manageGroup") },
     { id: "invites", label: translate("groups.groupDialogs.invites"), show: can("manageGroup") || can("createInvites") },
     { id: "members", label: translate("common.members"), show: true },
+    // For everybody, like the name menu's "Explorar bots": finding one is not
+    // running the group; adding one is, and the list offers that only to whoever may.
+    { id: "bots", label: translate("botDirectory.title"), show: true },
     { id: "bans", label: translate("groups.groupDialogs.banned"), show: can("banMembers") },
     { id: "danger", label: translate("groups.groupDialogs.dangerZone"), show: isOwner },
   ];
@@ -764,6 +768,22 @@ export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: 
       {current === "map" && <LocationTab groupId={groupId} onGoToOverview={() => setTab("overview")} />}
       {current === "invites" && <InvitesTab groupId={groupId} groupName={detail.group.name} />}
       {current === "members" && <MembersTab groupId={groupId} />}
+      {current === "bots" && (
+        // The same directory as the name menu's dialog (see BotExplorerDialog),
+        // in a box of its own height: it scrolls inside itself, under its search.
+        <div className="flex h-[min(40rem,calc(100dvh-14rem))] min-h-0 flex-col overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800">
+          <BotBrowser
+            variant="dialog"
+            group={{
+              id: groupId,
+              name: detail.group.name,
+              canAdd: can("manageGroup"),
+              canKick: can("kickMembers"),
+            }}
+            onNavigate={() => closePopup(false)}
+          />
+        </div>
+      )}
       {current === "bans" && <BansTab groupId={groupId} />}
       {current === "danger" && <DangerTab groupId={groupId} groupName={detail.group.name} onDone={() => closePopup(true)} />}
     </DialogFrame>
