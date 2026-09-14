@@ -2645,6 +2645,7 @@
   "useRoomMedia.balanced": "Balanced",
   "useRoomMedia.couldNotPlayThatFileTo": "Could not play that file to the room.",
   "useRoomMedia.couldNotStartSharingCheckThe": "Could not start sharing. Check the browser permissions.",
+  "useRoomMedia.windowCaptureBlocked": "Windows did not allow capturing that window. Turn on \"Let desktop apps take screenshots\" in Settings > Privacy & security > Screenshots and screen recording. If that program is running as administrator, run GoLive as administrator too — or share the whole screen.",
   "useRoomMedia.couldNotStartTheCameraCheck": "Could not start the camera. Check the browser permissions.",
   "useRoomMedia.couldNotTurnOnTheMicrophone": "Could not turn on the microphone. Check the browser permission.",
   "useRoomMedia.extremeBitrate32Mbps": "Extreme bitrate (~32 Mbps)",

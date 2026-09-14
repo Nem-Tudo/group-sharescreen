@@ -81,6 +81,7 @@ import { startExcludedSystemAudio, prewarmExcludedSystemAudio } from "./desktopS
 import { captureAndroidScreen, isAndroidScreenCaptureAvailable } from "./androidScreenCapture";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
+import { getDesktopBridge } from "./desktop";
 
 // "file1".."file3" are local video or audio files played into the room (see
 // lib/localMediaSource.ts). Each is a full sibling of screen and camera — its
@@ -1759,9 +1760,17 @@ function useBroadcastChannel(
       // message that fits it — `failureMessage` is a per-channel fallback for
       // everything else, and "verifique as permissões" is the wrong thing to
       // say when permissions were never involved.
+      // Which error it was goes along with the event. "_error" on its own had
+      // no way to tell a blocked window from a missing permission from a
+      // driver fault, so a bug reported by a handful of people could not be
+      // told apart from any other in the numbers.
+      const errorInfo =
+        err instanceof DOMException || err instanceof Error
+          ? { name: err.name, message: err.message.slice(0, 120) }
+          : undefined;
       if (err instanceof ShareStartError) {
         setError(err.message);
-        trackEvent(`${eventPrefix}_error`);
+        trackEvent(`${eventPrefix}_error`, errorInfo);
         return;
       }
       // Clicking "share" and then Cancel on the browser's own picker throws
@@ -1776,7 +1785,7 @@ function useBroadcastChannel(
         trackEvent(`${eventPrefix}_cancelled`);
       } else {
         setError(failureMessage);
-        trackEvent(`${eventPrefix}_error`);
+        trackEvent(`${eventPrefix}_error`, errorInfo);
       }
     }
   }, [
@@ -2505,6 +2514,31 @@ function useBroadcastChannel(
 // falls back to the channel's generic message — see start()'s catch.
 class ShareStartError extends Error {}
 
+// The picked screen or window could not be captured at all — Chromium's
+// "Could not start video source". Told apart from the audio failing, which
+// arrives under the same NotReadableError and is worth a video-only retry;
+// this is not.
+function isVideoSourceFailure(err: unknown): boolean {
+  return (
+    err instanceof DOMException &&
+    err.name === "NotReadableError" &&
+    /video source/i.test(err.message)
+  );
+}
+
+// What that failure almost always is, in practice, and what to do about it.
+// Reported as "only GoLive's own window can be shared; every other one fails"
+// — which is the Windows privacy switch for screen capture (Settings →
+// Privacy & security → Screenshots and screen recording), switched off for
+// desktop apps: it blocks Windows Graphics Capture, the API Chromium shares
+// windows with, for other programs' windows. The other known cause is the
+// window belonging to a program running as administrator. The miniatures in
+// the picker still work either way, because they are taken another way,
+// which is what makes this look like our bug rather than the OS's.
+function windowCaptureBlocked(): ShareStartError {
+  return new ShareStartError(translate("useRoomMedia.windowCaptureBlocked"));
+}
+
 // "The user dismissed the picker" and "this call no longer has a user gesture
 // behind it" arrive as the same DOMException name, which is why the caller
 // has to bring its own evidence (see activationLost in the display capture).
@@ -2900,11 +2934,30 @@ export function useRoomMedia(room: string) {
           // outright) are deliberately not retried here — start()'s catch
           // treats those as a silent cancel, and retrying would just pop
           // the picker again right after they dismissed it.
+          //
+          // Only when it is the *audio* that failed, though. The same error
+          // name also covers the video not starting ("Could not start video
+          // source"), and there a video-only retry is the identical request
+          // failing the identical way — after putting the picker on screen a
+          // second time, since every getDisplayMedia is a new pick.
+          if (isVideoSourceFailure(err)) throw windowCaptureBlocked();
           if (err instanceof DOMException && err.name === "NotReadableError") {
-            return navigator.mediaDevices.getDisplayMedia({
-              video: videoConstraints,
-              audio: false,
-            });
+            return (async () => {
+              // In the desktop app the retry would otherwise open the picker
+              // again, for a choice the person made a second ago. The shell
+              // saved that choice on the way out (see its display-media
+              // handler), so this reuses it without asking.
+              await getDesktopBridge()?.useSavedShareSource?.();
+              try {
+                return await navigator.mediaDevices.getDisplayMedia({
+                  video: videoConstraints,
+                  audio: false,
+                });
+              } catch (retryErr) {
+                if (isVideoSourceFailure(retryErr)) throw windowCaptureBlocked();
+                throw retryErr;
+              }
+            })();
           }
           if (activationLost && isActivationRefusal(err)) {
             throw new ShareStartError(

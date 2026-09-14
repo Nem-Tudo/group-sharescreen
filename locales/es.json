@@ -2645,6 +2645,7 @@
   "useRoomMedia.balanced": "Equilibrado",
   "useRoomMedia.couldNotPlayThatFileTo": "No se pudo reproducir ese archivo para la sala.",
   "useRoomMedia.couldNotStartSharingCheckThe": "No se pudo iniciar la compartición. Comprueba los permisos del navegador.",
+  "useRoomMedia.windowCaptureBlocked": "Windows no permitió capturar esa ventana. Activa \"Permitir que las aplicaciones de escritorio tomen capturas de pantalla\" en Configuración > Privacidad y seguridad > Capturas de pantalla y grabación de pantalla. Si el programa está abierto como administrador, abre GoLive como administrador también — o comparte la pantalla completa.",
   "useRoomMedia.couldNotStartTheCameraCheck": "No se pudo iniciar la cámara. Comprueba los permisos del navegador.",
   "useRoomMedia.couldNotTurnOnTheMicrophone": "No se pudo activar el micrófono. Comprueba el permiso del navegador.",
   "useRoomMedia.extremeBitrate32Mbps": "Bitrate extremo (~32 Mbps)",
