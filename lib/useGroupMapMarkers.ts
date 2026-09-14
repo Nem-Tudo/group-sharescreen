@@ -59,9 +59,9 @@ export function useGroupMapMarkers(options?: {
           kind: "group",
           lat: group.location.lat,
           lng: group.location.lng,
-          // A pin is plain HTML, so the verified badge is a character here
-          // rather than the component every React surface draws.
-          label: group.flags.includes("VERIFIED") ? `${group.name} ✓` : group.name,
+          label: group.name,
+          iconUrl: group.iconUrl,
+          verified: group.flags.includes("VERIFIED"),
           peopleCount: group.memberCount,
           countNoun: [t("common.memberNoun.one"), t("common.memberNoun.other")],
           tag: t("common.group"),

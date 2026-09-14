@@ -29,7 +29,7 @@ import {
 import { DEFAULT_AVATAR_PATH } from "@/components/UserAvatar";
 import { fetchCosmeticsCatalog, type CosmeticProduct } from "@/lib/cosmetics";
 import { prepareAvatarImage, AVATAR_IMAGE_ACCEPT, AVATAR_IMAGE_MAX_BYTES } from "@/lib/avatarImage";
-import { MdCheck, MdEdit, MdPhotoCamera, MdDeleteOutline } from "react-icons/md";
+import { MdCheck, MdEdit, MdGroups, MdPhotoCamera, MdDeleteOutline } from "react-icons/md";
 import useNtPopups from "ntpopups";
 import { UserBadges } from "@/components/UserBadges";
 import { useOpenPro } from "@/lib/proModal";
@@ -506,7 +506,7 @@ function ProfileContent({
   const { account: authAccount, updateProfile, refresh: refreshAuth } = useAuth();
   const state = useSignaling();
   const { openPopup } = useNtPopups();
-  const { account, live } = profile;
+  const { account, live, groupCount } = profile;
   const isOwner = Boolean(authAccount && authAccount.id === account.id);
   // The same dot the participant list and the friends list draw, on the one
   // screen that is entirely about this person.
@@ -1219,13 +1219,27 @@ function ProfileContent({
                 here (see app/bots/[id]/add). The page itself says whether this
                 person may — a private bot, or no group they manage. */}
             {account.bot && (
-              <Link
-                href={botAddPath(account.id)}
-                onClick={onNavigate}
-                className="mt-4 flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-3 py-2.5 text-sm font-medium text-white transition hover:bg-indigo-500"
-              >
-                {t("addBot.addToAGroup")}
-              </Link>
+              <div className="mt-4 flex flex-col gap-2">
+                {/* Where it is used, which is most of what there is to know
+                    about a bot. From the API (see GET /users/:id); an API
+                    from before it sends none, and the line is left out. */}
+                {typeof groupCount === "number" && (
+                  <p
+                    className="flex items-center justify-center gap-1.5 text-sm text-zinc-600 dark:text-zinc-400"
+                    style={themedHint}
+                  >
+                    <MdGroups className="h-4 w-4 shrink-0" />
+                    {tc("botDirectory.inGroups", groupCount)}
+                  </p>
+                )}
+                <Link
+                  href={botAddPath(account.id)}
+                  onClick={onNavigate}
+                  className="flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-3 py-2.5 text-sm font-medium text-white transition hover:bg-indigo-500"
+                >
+                  {t("addBot.addToAGroup")}
+                </Link>
+              </div>
             )}
 
             <div className="mt-4">

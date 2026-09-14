@@ -918,3 +918,333 @@ html[data-app-shell] body {
     animation: none;
   }
 }
+
+/* ─── The world map's pins and popups (see components/WorldMapImpl) ────────
+
+   Leaflet builds these outside React, as HTML strings, so they are styled by
+   class from here rather than with utilities. The colours are tokens on the
+   map element so the dark theme is one block of overrides; the kind colour
+   (blue group, green room) arrives per pin as --pin-ring.
+
+   Selectors inside popups carry .gl-map in front: leaflet.css styles the same
+   elements with rules like `.leaflet-container a`, and which stylesheet loads
+   last is not something to depend on. */
+.gl-map {
+  --pin-edge: #ffffff;
+  --pin-tag-bg: rgb(255 255 255 / 0.94);
+  --pin-tag-fg: #18181b;
+  --pin-tag-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+  --pin-more-bg: #18181b;
+  --pin-more-fg: #fafafa;
+  --pin-popup-bg: #ffffff;
+  --pin-popup-fg: #18181b;
+  --pin-popup-muted: #71717a;
+  --pin-popup-hover: rgb(0 0 0 / 0.05);
+  --pin-action-bg: #09090b;
+  --pin-action-fg: #fafafa;
+}
+
+[data-theme="dark"] .gl-map {
+  --pin-edge: #18181b;
+  --pin-tag-bg: rgb(24 24 27 / 0.9);
+  --pin-tag-fg: #fafafa;
+  --pin-tag-shadow: 0 1px 4px rgb(0 0 0 / 0.55);
+  --pin-more-bg: #fafafa;
+  --pin-more-fg: #18181b;
+  --pin-popup-bg: #1f1f23;
+  --pin-popup-fg: #fafafa;
+  --pin-popup-muted: #a1a1aa;
+  --pin-popup-hover: rgb(255 255 255 / 0.07);
+  --pin-action-bg: #fafafa;
+  --pin-action-fg: #09090b;
+}
+
+/* leaflet.css sets its own Helvetica stack on the whole map; the pins and
+   popups should read in the site's type. */
+.gl-map.leaflet-container {
+  font-family: inherit;
+}
+
+/* A pin: a round face, centred on its point. Everything else on it — the
+   cards behind a stack, its "+N", the name tag — is positioned around that. */
+.gl-pin-body {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  isolation: isolate;
+}
+
+.gl-face {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: var(--pin-ring);
+  /* A thin edge in the page colour, then the kind colour around it: the ring
+     stays legible over a photo and over the basemap alike. */
+  border: 2px solid var(--pin-edge);
+  box-shadow:
+    0 0 0 2px var(--pin-ring),
+    0 2px 6px rgb(0 0 0 / 0.35);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  user-select: none;
+}
+
+.gl-face img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.gl-pin .gl-face {
+  transition: transform 120ms ease;
+}
+
+.gl-pin:hover .gl-face {
+  transform: scale(1.1);
+}
+
+/* The cards peeking out behind a stack's face. */
+.gl-pin-card {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 9999px;
+  background: var(--pin-ring);
+  border: 2px solid var(--pin-edge);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.3);
+}
+
+.gl-pin-card-1 {
+  transform: translate(5px, -4px);
+  opacity: 0.85;
+}
+
+.gl-pin-card-2 {
+  transform: translate(10px, -8px);
+  opacity: 0.55;
+}
+
+.gl-pin-more {
+  position: absolute;
+  top: -10px;
+  right: -16px;
+  z-index: 1;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9999px;
+  background: var(--pin-more-bg);
+  color: var(--pin-more-fg);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The name tag. Neutral on purpose: the face already carries the kind's
+   colour, and a map full of coloured name pills is what this replaced.
+   Its measurements are mirrored by LABEL_* in WorldMapImpl, which uses them
+   to decide which tags fit before any is drawn. */
+.gl-pin-label {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 17px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--pin-tag-bg);
+  color: var(--pin-tag-fg);
+  box-shadow: var(--pin-tag-shadow);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 17px;
+  white-space: nowrap;
+  transition: opacity 120ms ease;
+}
+
+/* A tag that did not fit: gone until its pin is pointed at or focused. */
+.gl-pin-label.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.gl-pin:hover .gl-pin-label.is-hidden,
+.gl-pin:focus-visible .gl-pin-label.is-hidden {
+  opacity: 1;
+}
+
+.gl-pin-name {
+  max-width: 104px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gl-pin-count {
+  font-weight: 500;
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
+}
+
+.gl-verified {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  color: #3b82f6;
+}
+
+/* Popups: themed like the rest of the site instead of leaflet's fixed white. */
+.gl-map .gl-map-popup .leaflet-popup-content-wrapper,
+.gl-map .gl-map-popup .leaflet-popup-tip {
+  background: var(--pin-popup-bg);
+  color: var(--pin-popup-fg);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.3);
+}
+
+.gl-map .gl-map-popup .leaflet-popup-content-wrapper {
+  border-radius: 12px;
+}
+
+.gl-map .gl-map-popup .leaflet-popup-content {
+  margin: 12px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.gl-map .gl-map-popup a.leaflet-popup-close-button {
+  color: var(--pin-popup-muted);
+}
+
+.gl-popup {
+  min-width: 180px;
+  max-width: 236px;
+}
+
+.gl-popup-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  /* Clear of the close button in the corner. */
+  padding-right: 14px;
+}
+
+.gl-popup-head .gl-face {
+  width: 40px;
+  height: 40px;
+  font-size: 14px;
+}
+
+.gl-popup-titles {
+  min-width: 0;
+}
+
+.gl-popup-tag {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--pin-popup-muted);
+}
+
+.gl-popup-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.gl-popup-name > span {
+  overflow-wrap: anywhere;
+}
+
+.gl-popup-meta {
+  font-size: 12px;
+  color: var(--pin-popup-muted);
+}
+
+.gl-popup-desc {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.gl-map .gl-map-popup a.gl-popup-action {
+  display: block;
+  margin-top: 10px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--pin-action-bg);
+  color: var(--pin-action-fg);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+  text-decoration: none;
+}
+
+.gl-map .gl-map-popup a.gl-popup-action:hover {
+  opacity: 0.88;
+}
+
+/* A stack that zooming will not pull apart, listed. */
+.gl-popup-list-title {
+  margin: 0 18px 6px 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pin-popup-muted);
+}
+
+.gl-popup-rows {
+  max-height: 240px;
+  margin: 0 -6px;
+  overflow-y: auto;
+}
+
+.gl-map .gl-map-popup .gl-popup-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px;
+  border-radius: 8px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.gl-map .gl-map-popup a.gl-popup-row:hover {
+  background: var(--pin-popup-hover);
+}
+
+.gl-popup-row .gl-face {
+  width: 28px;
+  height: 28px;
+  font-size: 10px;
+}
+
+.gl-popup-row-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.gl-popup-row .gl-popup-name {
+  font-size: 13px;
+}
+
+.gl-popup-row .gl-popup-name > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

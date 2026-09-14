@@ -9,6 +9,7 @@ import { searchPlaces, type PlaceResult } from "@/lib/geocoding";
 import type { WorldMapMarker, WorldMapProps } from "./WorldMap";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
+import { groupInitials } from "@/lib/groupLinks";
 
 // Esri's Canvas basemaps. Two things ruled out the more obvious choices:
 // CARTO's basemaps now stamp "API KEY REQUIRED" across every tile, and
@@ -67,98 +68,315 @@ function escapeHtml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
-// How long a room's name may be on a pin before it is cut. A pin is a label
-// floating over a map, not a list row: past this it stops being a marker and
-// starts being a banner across a country. The full name is in the popup, and
-// in the native tooltip on hover.
-const MAX_PIN_LABEL = 14;
+// ─── Room and group pins ─────────────────────────────────────────────────
+//
+// A pin is a round face — the group's picture, or its initials — ringed in
+// the colour of its kind, with its name on a small neutral tag underneath.
+// Two things keep a busy region readable, which is exactly what the old
+// "one coloured pill per room" pins could not do once a few dozen of them
+// sat over south-east Brazil:
+//
+//   - Pins closer together on screen than CLUSTER_RADIUS fold into one: the
+//     biggest of them keeps its face and its place, drawn as a small stack
+//     with a "+N" on it. Clicking the stack zooms in until it comes apart —
+//     or, where it never will (the same spot, or already at the deepest
+//     zoom), lists what is in it.
+//   - A name tag is only drawn where it does not land on another tag or on
+//     another pin, biggest first. The rest keep their name one hover (see
+//     globals.css) or one click away. At every zoom that leaves a map of
+//     faces with as many names as fit, instead of names on top of names.
+//
+// All of this is laid out in screen pixels at the current zoom, so it is
+// redone on every zoomend — never while panning, which moves everything by
+// the same amount and changes nothing about what overlaps what.
+//
+// Styled by class from globals.css (".gl-pin…", ".gl-popup…"), not inline:
+// the tags follow the site's theme, and a hidden name reappearing on hover
+// is a :hover rule that no inline style can express.
 
-// Below this zoom a pin is a dot with a headcount and nothing else. Zoomed out
-// far enough to see a continent, a dozen labelled pills over south-east Brazil
-// overlap into an unreadable stack — and at that distance the question being
-// asked is "where are the rooms", not "what are they called". Zooming in is
-// what asks the second question, and is what brings the names back.
-const COMPACT_LABEL_ZOOM = 5;
+// The face's diameter, ring included. Fixed, which is what lets the icon hand
+// Leaflet a real size and anchor — the point is the centre of the face.
+const PIN_SIZE = 32;
 
-// A room pin: a rounded label with the room's name and headcount, on a stem.
-// A divIcon rather than Leaflet's default marker image, so there are no image
-// assets to bundle and the pin can be styled with the same Tailwind palette
-// as the rest of the app (inline, since Leaflet inserts this outside React
-// and Tailwind's scanner never sees a class name built at runtime).
-function roomIcon(marker: WorldMapMarker, compact: boolean): L.DivIcon {
-  // Green for a live room, blue for a group — the one difference between the
-  // two kinds of pin, so the map can be read at a glance (see WorldMapMarker.kind).
-  const color = marker.kind === "group" ? "#2563eb" : "#059669";
-  const glow = marker.kind === "group" ? "rgba(37,99,235,.28)" : "rgba(5,150,105,.28)";
-  const count =
-    typeof marker.peopleCount === "number"
-      ? `<span style="opacity:.8;font-variant-numeric:tabular-nums">${marker.peopleCount}</span>`
-      : "";
-  const pill = compact
-    ? // Just the number. The name is still one hover (the native tooltip) or
-      // one click (the popup) away, which is the right price for it out here.
-      `<div style="display:flex;align-items:center;justify-content:center;min-width:16px;white-space:nowrap;border-radius:9999px;background:${color};color:#fff;padding:1px 5px;font-size:10px;font-weight:700;box-shadow:0 1px 4px rgba(0,0,0,.35)">${count || "·"}</div>`
-    : (() => {
-        const raw = marker.label;
-        const label = escapeHtml(
-          raw.length > MAX_PIN_LABEL ? `${raw.slice(0, MAX_PIN_LABEL - 1)}…` : raw
-        );
-        // A darker inset pill rather than another colour: the pin already
-        // carries the room's own colour, and a second bright one would
-        // compete with it.
-        const tag = marker.tag
-          ? `<span style="border-radius:9999px;background:rgba(0,0,0,.25);padding:0 5px;font-size:9px">${escapeHtml(marker.tag)}</span>`
-          : "";
-        return `<div style="display:flex;align-items:center;gap:4px;white-space:nowrap;border-radius:9999px;background:${color};color:#fff;padding:2px 7px;font-size:11px;font-weight:600;box-shadow:0 1px 5px rgba(0,0,0,.35)">${tag}<span>${label}</span>${count}</div>`;
-      })();
-  return L.divIcon({
-    className: "",
-    html: `
-      <div style="transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;pointer-events:auto">
-        ${pill}
-        <div style="width:2px;height:${compact ? 4 : 6}px;background:${color}"></div>
-        <div style="width:6px;height:6px;border-radius:9999px;background:${color};box-shadow:0 0 0 2px ${glow}"></div>
-      </div>`,
-    // The whole thing is positioned by the CSS transform above, so Leaflet's
-    // own anchor maths has nothing left to do — hence a zero-size icon.
-    iconSize: [0, 0],
-    iconAnchor: [0, 0],
+// How close two pins may get, centre to centre, before they fold into one.
+// A little over a pin and a half: close enough that neighbouring towns stay
+// apart once zoomed in, far enough that two faces never touch.
+const CLUSTER_RADIUS = 48;
+
+// The name tag's geometry, as globals.css draws it — only used to guess where
+// a tag would land before deciding whether it is drawn at all.
+const LABEL_GAP = 4;
+const LABEL_HEIGHT = 17;
+const LABEL_PAD_X = 6;
+const LABEL_NAME_MAX = 104;
+const LABEL_FONT_SIZE = 11;
+
+// Green for a live room, blue for a group — the one difference between the
+// two kinds of pin, so the map can be read at a glance (see WorldMapMarker.kind).
+function kindColor(marker: WorldMapMarker): string {
+  return marker.kind === "group" ? "#2563eb" : "#059669";
+}
+
+// Which of two pins keeps its face when they fold together, and whose name is
+// drawn first when only one fits: the bigger one. A live room beats a group of
+// the same size, since somebody can walk into it right now.
+function priority(marker: WorldMapMarker): number {
+  return (marker.peopleCount ?? 0) + (marker.kind === "group" ? 0 : 0.5);
+}
+
+// 2748 → "2.7k". The pin's tag is a few dozen pixels wide; the exact number is
+// in the popup.
+function compactCount(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 10_000) return `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k`;
+  if (n < 1_000_000) return `${Math.round(n / 1000)}k`;
+  return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+}
+
+const VERIFIED_SVG =
+  '<svg class="gl-verified" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1.2 14.2-4-4 1.4-1.4 2.6 2.6 5.6-5.6 1.4 1.4-7 7z"/></svg>';
+
+// The face itself. A picture that fails to load is swapped for the initials
+// kept on it (see wireImageFallbacks) — the same promise GroupIcon makes.
+function faceHtml(marker: WorldMapMarker): string {
+  const initials = escapeHtml(groupInitials(marker.label));
+  const inner = marker.iconUrl
+    ? `<img src="${escapeHtml(marker.iconUrl)}" alt="" draggable="false" data-initials="${initials}">`
+    : `<span>${initials}</span>`;
+  return `<span class="gl-face" style="--pin-ring:${kindColor(marker)}">${inner}</span>`;
+}
+
+// Leaflet inserts these pins and popups outside React, so an <img> that fails
+// has nobody to re-render it — this puts the initials in its place instead.
+function wireImageFallbacks(root: HTMLElement | undefined | null) {
+  root?.querySelectorAll<HTMLImageElement>("img[data-initials]").forEach((img) => {
+    const fallback = () => {
+      const span = document.createElement("span");
+      span.textContent = img.dataset.initials ?? "?";
+      img.replaceWith(span);
+    };
+    if (img.complete && img.naturalWidth === 0 && img.src) fallback();
+    else img.addEventListener("error", fallback, { once: true });
   });
 }
 
-// What opens when a room pin is clicked. Plain HTML, because Leaflet owns
-// this node — an <a> rather than a Next <Link>, so it is an ordinary
-// navigation into the room (which is a full page's worth of new code anyway).
-function popupHtml(marker: WorldMapMarker): string {
-  const label = escapeHtml(marker.label);
-  // Spelled out here, unlike on the pin: this is the one place with room for
-  // a sentence. A room counts people in it; a group counts its members.
+// One thing drawn on the map: a single pin, or a stack of them whose first
+// member is the face on top.
+type Place = {
+  members: WorldMapMarker[];
+  point: L.Point;
+  showLabel: boolean;
+};
+
+type Box = { x1: number; y1: number; x2: number; y2: number };
+
+function overlaps(a: Box, b: Box): boolean {
+  return a.x1 < b.x2 && b.x1 < a.x2 && a.y1 < b.y2 && b.y1 < a.y2;
+}
+
+let measureContext: CanvasRenderingContext2D | null | undefined;
+
+// The width a string will have on screen, for guessing a tag's size before it
+// exists. A guess on the generous side is fine: it only ever costs a name
+// that would have just fitted.
+function textWidth(text: string, font: string): number {
+  if (measureContext === undefined) {
+    measureContext = document.createElement("canvas").getContext("2d");
+  }
+  if (!measureContext) return text.length * LABEL_FONT_SIZE * 0.62;
+  measureContext.font = font;
+  return measureContext.measureText(text).width;
+}
+
+// Folds the markers into places and decides which of them get their name —
+// see the comment at the top of this section.
+function layoutPlaces(markers: WorldMapMarker[], map: L.Map, zoom: number, fontFamily: string): Place[] {
+  const items = markers
+    .map((marker) => ({ marker, point: map.project([marker.lat, marker.lng], zoom) }))
+    .sort((a, b) => priority(b.marker) - priority(a.marker));
+
+  // Greedy, biggest first: each pin not yet taken starts a place where it
+  // stands, and takes every smaller one within reach. Quadratic, which at a
+  // few hundred pins is still well under a frame — and only runs on zoomend.
+  const taken = new Uint8Array(items.length);
+  const places: Place[] = [];
+  for (let i = 0; i < items.length; i++) {
+    if (taken[i]) continue;
+    taken[i] = 1;
+    const seed = items[i];
+    const members = [seed.marker];
+    for (let j = i + 1; j < items.length; j++) {
+      if (taken[j] || seed.point.distanceTo(items[j].point) > CLUSTER_RADIUS) continue;
+      taken[j] = 1;
+      members.push(items[j].marker);
+    }
+    places.push({ members, point: seed.point, showLabel: false });
+  }
+
+  // Every face is an obstacle for every other place's tag. A stack's box
+  // reaches up and right, over the cards behind it and its "+N".
+  const half = PIN_SIZE / 2;
+  const faces: Box[] = places.map(({ point, members }) => ({
+    x1: point.x - half - 2,
+    y1: point.y - half - (members.length > 1 ? 10 : 2),
+    x2: point.x + half + (members.length > 1 ? 16 : 2),
+    y2: point.y + half + 2,
+  }));
+  const boldFont = `600 ${LABEL_FONT_SIZE}px ${fontFamily}`;
+  const plainFont = `500 ${LABEL_FONT_SIZE}px ${fontFamily}`;
+  const labels: Box[] = [];
+  places.forEach((place, index) => {
+    const face = place.members[0];
+    let width =
+      Math.min(textWidth(face.label, boldFont), LABEL_NAME_MAX) + LABEL_PAD_X * 2 + 2;
+    if (face.verified) width += 15;
+    if (typeof face.peopleCount === "number") {
+      width += textWidth(compactCount(face.peopleCount), plainFont) + 4;
+    }
+    const top = place.point.y + half + LABEL_GAP;
+    const box: Box = {
+      x1: place.point.x - width / 2 - 2,
+      y1: top - 1,
+      x2: place.point.x + width / 2 + 2,
+      y2: top + LABEL_HEIGHT + 1,
+    };
+    const blocked =
+      labels.some((other) => overlaps(box, other)) ||
+      faces.some((other, i) => i !== index && overlaps(box, other));
+    if (blocked) return;
+    place.showLabel = true;
+    labels.push(box);
+  });
+  return places;
+}
+
+function pinHtml(place: Place): string {
+  const [face, ...rest] = place.members;
+  // The cards peeking out behind a stack, in the colours of the next two in
+  // it — so a stack of groups and rooms says so before it is opened.
+  const cards = rest
+    .slice(0, 2)
+    .map((m, i) => `<span class="gl-pin-card gl-pin-card-${i + 1}" style="--pin-ring:${kindColor(m)}"></span>`)
+    .reverse()
+    .join("");
+  const more = rest.length > 0 ? `<span class="gl-pin-more">+${rest.length}</span>` : "";
+  const count =
+    typeof face.peopleCount === "number"
+      ? `<span class="gl-pin-count">${compactCount(face.peopleCount)}</span>`
+      : "";
+  // Hidden rather than left out, so it still reads to a screen reader and
+  // still shows on hover — see globals.css.
+  const label = `<span class="gl-pin-label${place.showLabel ? "" : " is-hidden"}"><span class="gl-pin-name">${escapeHtml(
+    face.label
+  )}</span>${face.verified ? VERIFIED_SVG : ""}${count}</span>`;
+  return `<div class="gl-pin-body">${cards}${faceHtml(face)}${more}${label}</div>`;
+}
+
+function pinIcon(html: string): L.DivIcon {
+  return L.divIcon({
+    className: "gl-pin",
+    html,
+    iconSize: [PIN_SIZE, PIN_SIZE],
+    iconAnchor: [PIN_SIZE / 2, PIN_SIZE / 2],
+  });
+}
+
+// How a count is worded in a popup — "1 pessoa", "2748 membros". A room counts
+// people in it; a group counts its members.
+function countText(marker: WorldMapMarker): string {
+  if (typeof marker.peopleCount !== "number") return "";
   const [one, many] = marker.countNoun ?? [
     translate("common.personNoun.one"),
     translate("common.personNoun.other"),
   ];
-  const badge =
-    typeof marker.peopleCount === "number"
-      ? `<div style="font-size:12px;opacity:.7;margin-top:2px">${marker.peopleCount} ${escapeHtml(
-          marker.peopleCount === 1 ? one : many
-        )}</div>`
-      : "";
-  const tag = marker.tag
-    ? `<div style="font-size:11px;font-weight:600;opacity:.8;margin-bottom:2px">${escapeHtml(marker.tag)}</div>`
-    : "";
+  return `${marker.peopleCount} ${marker.peopleCount === 1 ? one : many}`;
+}
+
+// What opens when a single pin is clicked. Plain HTML, because Leaflet owns
+// this node — an <a> rather than a Next <Link>, so it is an ordinary
+// navigation into the room (which is a full page's worth of new code anyway).
+function popupHtml(marker: WorldMapMarker): string {
+  const tag = marker.tag ? `<div class="gl-popup-tag">${escapeHtml(marker.tag)}</div>` : "";
+  const count = countText(marker);
   // The one thing here with real length — capped by the server at 120
   // characters, so it can be shown whole rather than clamped.
   const description = marker.description
-    ? `<div style="font-size:12px;margin-top:6px;line-height:1.35">${escapeHtml(marker.description)}</div>`
+    ? `<div class="gl-popup-desc">${escapeHtml(marker.description)}</div>`
     : "";
-  return `
-    <div style="min-width:160px;max-width:220px">
-      ${tag}
-      <div style="font-weight:600;font-size:14px;word-break:break-all">${label}</div>
-      ${badge}
-      ${description}
-      <a href="${escapeHtml(marker.href ?? "#")}" style="display:block;margin-top:8px;border-radius:8px;background:#09090b;color:#fff;padding:6px 10px;text-align:center;font-size:13px;font-weight:500;text-decoration:none">${escapeHtml(marker.actionLabel ?? translate("common.joinTheRoom"))}</a>
-    </div>`;
+  return `<div class="gl-popup">
+<div class="gl-popup-head">${faceHtml(marker)}<div class="gl-popup-titles">${tag}<div class="gl-popup-name"><span>${escapeHtml(
+    marker.label
+  )}</span>${marker.verified ? VERIFIED_SVG : ""}</div>${count ? `<div class="gl-popup-meta">${escapeHtml(count)}</div>` : ""}</div></div>
+${description}
+<a class="gl-popup-action" href="${escapeHtml(marker.href ?? "#")}">${escapeHtml(
+    marker.actionLabel ?? translate("common.joinTheRoom")
+  )}</a>
+</div>`;
+}
+
+// A stack that zooming will not pull apart, as a list: one row per room or
+// group, each a link straight to it.
+function listPopupHtml(members: WorldMapMarker[]): string {
+  const rows = members
+    .map((marker) => {
+      const meta = [marker.tag, countText(marker)].filter(Boolean).join(" · ");
+      const inner = `${faceHtml(marker)}<span class="gl-popup-row-text"><span class="gl-popup-name"><span>${escapeHtml(
+        marker.label
+      )}</span>${marker.verified ? VERIFIED_SVG : ""}</span>${meta ? `<span class="gl-popup-meta">${escapeHtml(meta)}</span>` : ""}</span>`;
+      return marker.href
+        ? `<a class="gl-popup-row" href="${escapeHtml(marker.href)}">${inner}</a>`
+        : `<div class="gl-popup-row">${inner}</div>`;
+    })
+    .join("");
+  return `<div class="gl-popup"><div class="gl-popup-list-title">${escapeHtml(
+    translate("worldMapImpl.placesHere", { count: members.length })
+  )}</div><div class="gl-popup-rows">${rows}</div></div>`;
+}
+
+// Opened on the map rather than bound to the pin: the pins are rebuilt as the
+// lists they come from refresh and as the zoom regroups them, and a popup
+// bound to a pin closes with it — every few seconds, mid-read.
+function openPopup(map: L.Map, place: Place, html: string) {
+  const face = place.members[0];
+  const popup = L.popup({
+    className: "gl-map-popup",
+    closeButton: true,
+    autoPan: true,
+    autoPanPadding: [16, 16],
+    maxWidth: 260,
+    // Just above the face, which is centred on the point.
+    offset: [0, -(PIN_SIZE / 2) + 4],
+  })
+    .setLatLng([face.lat, face.lng])
+    .setContent(html)
+    .openOn(map);
+  wireImageFallbacks(popup.getElement());
+}
+
+// A single pin opens its popup. A stack zooms in until it comes apart, unless
+// it never will — its members share one spot, or the map is as deep as it
+// goes — and then lists them instead.
+function openPlace(map: L.Map, place: Place) {
+  const { members } = place;
+  if (members.length === 1) {
+    if (members[0].href) openPopup(map, place, popupHtml(members[0]));
+    return;
+  }
+  const seed = map.project([members[0].lat, members[0].lng], MAX_ZOOM);
+  const splits = members.some(
+    (m) => map.project([m.lat, m.lng], MAX_ZOOM).distanceTo(seed) > CLUSTER_RADIUS
+  );
+  if (!splits || map.getZoom() >= MAX_ZOOM) {
+    openPopup(map, place, listPopupHtml(members));
+    return;
+  }
+  const bounds = L.latLngBounds(members.map((m) => [m.lat, m.lng] as [number, number]));
+  const padding = L.point(60, 60);
+  const target = Math.min(map.getBoundsZoom(bounds, false, padding), MAX_ZOOM);
+  // A stack always gets at least one step closer, even where framing it
+  // exactly would not move the zoom at all.
+  if (target <= map.getZoom()) map.setView(bounds.getCenter(), map.getZoom() + 1);
+  else map.fitBounds(bounds, { padding, maxZoom: MAX_ZOOM });
 }
 
 // The pin being placed in "Definir local do mundo" — deliberately a different
@@ -212,6 +430,9 @@ export default function WorldMapImpl({
   const labelLayerRef = useRef<L.TileLayer | null>(null);
   const markerLayerRef = useRef<L.LayerGroup | null>(null);
   const pickMarkerRef = useRef<L.Marker | null>(null);
+  // The room and group pins on the map now, by the id of the face each wears
+  // — see the marker effect below.
+  const pinsRef = useRef(new Map<string, { marker: L.Marker; html: string; place: Place }>());
   // Held in a ref so the click handler registered once at mount always calls
   // the latest callback rather than the one that existed at mount. Written in
   // an effect rather than during render — a click can only happen after the
@@ -227,8 +448,8 @@ export default function WorldMapImpl({
   const prefersDark = useResolvedTheme() === "dark";
 
   // What the map is currently at, mirrored into React so the marker effect can
-  // depend on it. Only ever read to decide how much a pin says (see
-  // COMPACT_LABEL_ZOOM); the map's own view is never driven from it.
+  // depend on it. Only ever read to lay the pins out (see layoutPlaces); the
+  // map's own view is never driven from it.
   const [zoom, setZoom] = useState(() => zoomProp ?? 2);
   const [query, setQuery] = useState("");
   // Tagged with the query it answers, so a list left over from two keystrokes
@@ -265,7 +486,8 @@ export default function WorldMapImpl({
     });
     mapRef.current = map;
     markerLayerRef.current = L.layerGroup().addTo(map);
-    // Redraws the pins in their compact form and back — see COMPACT_LABEL_ZOOM.
+    const pins = pinsRef.current;
+    // Regroups the pins and their names for the new scale — see layoutPlaces.
     // `zoomend` rather than `zoom`: the mid-animation values would rebuild
     // every marker on every frame of a pinch.
     setZoom(map.getZoom());
@@ -280,6 +502,7 @@ export default function WorldMapImpl({
       labelLayerRef.current = null;
       markerLayerRef.current = null;
       pickMarkerRef.current = null;
+      pins.clear();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -303,31 +526,59 @@ export default function WorldMapImpl({
     }).addTo(map);
   }, [prefersDark]);
 
-  // Redraw the room pins whenever the list changes. Cleared and rebuilt
-  // wholesale rather than diffed: the caller polls every few seconds and the
-  // list is a handful of rooms, so the bookkeeping a diff would need costs
-  // more than it saves.
+  // Lays the pins out again whenever the list or the zoom changes (see
+  // layoutPlaces). The result is matched against what is already on the map by
+  // the face each place wears, and a pin whose markup came out the same is
+  // left alone: the callers poll every few seconds, and rebuilding every pin
+  // each time would flicker the one under the cursor and re-fetch every
+  // group's picture.
   useEffect(() => {
+    const map = mapRef.current;
     const layer = markerLayerRef.current;
-    if (!layer) return;
-    layer.clearLayers();
-    for (const marker of markers) {
-      const pin = L.marker([marker.lat, marker.lng], {
-        icon: roomIcon(marker, zoom < COMPACT_LABEL_ZOOM),
-        // Above the tile layer's own panes, so a pin is never buried by a
-        // neighbouring one's label.
+    const container = containerRef.current;
+    if (!map || !layer || !container) return;
+    const pins = pinsRef.current;
+    const places = layoutPlaces(markers, map, zoom, getComputedStyle(container).fontFamily);
+    const seen = new Set<string>();
+    places.forEach((place, rank) => {
+      const face = place.members[0];
+      seen.add(face.id);
+      const html = pinHtml(place);
+      // Bigger places on top wherever two still touch — the order the
+      // layout already ranked them in.
+      const zIndexOffset = (places.length - rank) * 10;
+      const existing = pins.get(face.id);
+      if (existing) {
+        existing.place = place;
+        if (existing.html !== html) {
+          existing.marker.setIcon(pinIcon(html));
+          existing.html = html;
+          wireImageFallbacks(existing.marker.getElement());
+        }
+        const at = existing.marker.getLatLng();
+        if (at.lat !== face.lat || at.lng !== face.lng) existing.marker.setLatLng([face.lat, face.lng]);
+        existing.marker.setZIndexOffset(zIndexOffset);
+        return;
+      }
+      const marker = L.marker([face.lat, face.lng], {
+        icon: pinIcon(html),
         riseOnHover: true,
-        title: marker.label,
+        zIndexOffset,
       });
+      const entry = { marker, html, place };
       // A popup rather than navigating on the click itself: a pin is a small
       // target on a map people are dragging around, and a misclick that drops
-      // someone into a stranger's room is a bad way to find that out. Leaflet
-      // handles the click for a pin with a popup bound, so this also never
-      // reaches the map's own handler and can't move a pick pin.
-      if (marker.href) {
-        pin.bindPopup(popupHtml(marker), { closeButton: true, autoPan: true });
-      }
-      pin.addTo(layer);
+      // someone into a stranger's room is a bad way to find that out. A
+      // marker's click never bubbles to the map, so this can't move a pick pin.
+      marker.on("click", () => openPlace(map, entry.place));
+      marker.addTo(layer);
+      wireImageFallbacks(marker.getElement());
+      pins.set(face.id, entry);
+    });
+    for (const [id, entry] of pins) {
+      if (seen.has(id)) continue;
+      layer.removeLayer(entry.marker);
+      pins.delete(id);
     }
   }, [markers, zoom]);
 
@@ -340,7 +591,12 @@ export default function WorldMapImpl({
       pickMarkerRef.current = null;
     }
     if (!pick) return;
-    pickMarkerRef.current = L.marker([pick.lat, pick.lng], { icon: pickIcon() }).addTo(map);
+    // Above every room and group pin: it is the one thing on the map being
+    // decided right now.
+    pickMarkerRef.current = L.marker([pick.lat, pick.lng], {
+      icon: pickIcon(),
+      zIndexOffset: 100_000,
+    }).addTo(map);
   }, [pick]);
 
   // The search box sits *inside* the map's own element (so it can be
@@ -452,18 +708,19 @@ export default function WorldMapImpl({
   return (
     <div
       ref={containerRef}
-      className={`relative z-0 bg-zinc-200 dark:bg-zinc-900 ${className}`}
+      // `gl-map` is what the pin and popup styles in globals.css hang off.
+      className={`gl-map relative z-0 bg-zinc-200 dark:bg-zinc-900 ${className}`}
       style={{
         // Leaflet's own controls carry a light background of their own; this
         // just keeps the attribution readable against a dark basemap.
         colorScheme: "light",
         // Not cosmetic — this is what keeps the pins on the right spot.
         //
-        // Every pin is a divIcon whose HTML is written as an indented,
-        // multi-line template literal below, and a pin's position comes from
-        // the size and layout of that markup: the room pin is a zero-sized
-        // box pulled into place by `translate(-50%,-100%)` of its own height,
-        // and the pick pin is a fixed box whose tip Leaflet anchors. Under
+        // Every pin is a divIcon whose HTML is written as a multi-line
+        // template literal above (the pick pin's indented; the popups carry
+        // newlines too), and a pin's position comes from the size and layout
+        // of that markup: each is a fixed box whose centre or tip Leaflet
+        // anchors. Under
         // the inherited `white-space: pre-wrap` of the popup this map is
         // opened inside (see ManageRoomModal and ntpopups' own styles), the
         // newlines and indentation in that markup stop collapsing: they

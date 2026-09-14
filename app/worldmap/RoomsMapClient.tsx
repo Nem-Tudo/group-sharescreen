@@ -31,7 +31,7 @@ export function RoomsMapClient() {
         ? roomMarkers
         : filter === "groups"
           ? groupMarkers
-          : // Groups first, so a live room on the same spot draws on top.
+          : // In no particular order — the map ranks and groups pins itself.
             [...groupMarkers, ...roomMarkers],
     [filter, roomMarkers, groupMarkers]
   );

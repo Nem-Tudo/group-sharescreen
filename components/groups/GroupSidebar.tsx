@@ -23,6 +23,7 @@ import {
   MdPalette,
   MdPersonAdd,
   MdSettings,
+  MdSmartToy,
   MdUnfoldLess,
   MdUnfoldMore,
   MdVideocam,
@@ -110,6 +111,22 @@ const NOTIFY_LABELS: Record<GroupNotifyLevel, string> = {
 
 const menuItemClass =
   "flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:text-zinc-200 dark:hover:bg-zinc-900";
+
+/**
+ * "Explorar bots" for this group (see BotExplorerDialog). Adding one is "manage
+ * group" — the same switch the API's POST /groups/:id/bots checks.
+ */
+function useOpenBotExplorer(detail: GroupDetail) {
+  const { openPopup } = useNtPopups();
+  return () =>
+    void openPopup("bot_explorer", {
+      data: {
+        groupId: detail.group.id,
+        groupName: detail.group.name,
+        canAdd: canManage(detail, "manageGroup"),
+      },
+    });
+}
 
 function useOpenSettings(groupId: string) {
   const { openPopup } = useNtPopups();
@@ -283,6 +300,7 @@ export function GroupRoomsPanel({
   const session = useGroupVoiceSession();
   const live = useGroupVoiceLive();
   const openChannelSettings = useOpenChannelSettings();
+  const openBotExplorer = useOpenBotExplorer(detail);
   const [addOpen, setAddOpen] = useState(false);
   // What the inline form is making, and where: a room of a kind in a
   // category (null for none), or a category.
@@ -585,6 +603,7 @@ export function GroupRoomsPanel({
           icon: <MdPersonAdd className="h-4 w-4" />,
           onSelect: () => void openPopup("group_invite", { data: { groupId: group.id, groupName: group.name } }),
         },
+        { label: t("botDirectory.title"), icon: <MdSmartToy className="h-4 w-4" />, onSelect: openBotExplorer },
         { label: t("groups.groupRail.copyLink"), icon: <MdLink className="h-4 w-4" />, onSelect: () => void copyText(linkTo()) },
       ],
     });
@@ -1236,6 +1255,7 @@ export function GroupMenu({
   // theme is "Gerenciar grupo"'s.
   const isManager = managesAnything(detail);
   const canTheme = canManage(detail, "manageGroup");
+  const openBotExplorer = useOpenBotExplorer(detail);
 
   async function changeNotify(level: GroupNotifyLevel) {
     setMenuOpen(false);
@@ -1311,7 +1331,20 @@ export function GroupMenu({
               )}
             </button>
           )}
-          {(isManager || canTheme) && <div className="my-1 border-t border-zinc-200 dark:border-zinc-800" />}
+          {/* For everybody: finding a bot is not running the group — adding
+              one is, and the directory offers that only to whoever may. */}
+          <button
+            type="button"
+            onClick={() => {
+              setMenuOpen(false);
+              openBotExplorer();
+            }}
+            className={menuItemClass}
+          >
+            <MdSmartToy className="h-4 w-4 opacity-70" />
+            {t("botDirectory.title")}
+          </button>
+          <div className="my-1 border-t border-zinc-200 dark:border-zinc-800" />
           <p className="px-2 pb-0.5 pt-1 text-xs font-semibold text-zinc-500 dark:text-zinc-400">{t("common.notifications")}</p>
           {(Object.keys(NOTIFY_LABELS) as GroupNotifyLevel[]).map((level) => (
             <button

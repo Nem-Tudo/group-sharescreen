@@ -10,6 +10,8 @@ export type LiveRoomStatus = { room: string; peopleCount: number } | null;
 export type UserProfile = {
   account: Account;
   live: LiveRoomStatus;
+  /** For a bot: how many groups it is in (see GET /users/:id). Absent for a person. */
+  groupCount?: number;
 };
 
 // Public profile page data (see app/user/[id]/page.tsx) — reachable by

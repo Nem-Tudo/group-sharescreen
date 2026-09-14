@@ -8,16 +8,22 @@ export type WorldMapMarker = {
   id: string;
   lat: number;
   lng: number;
-  // Shown on the pin itself — a room's name, today.
+  // Shown on the pin's name tag — a room's handle or a group's name.
   label: string;
+  // The pin's face: a group's picture. Without one (every room, and a group
+  // that never uploaded one) the face is the label's initials.
+  iconUrl?: string | null;
+  // Draws the verified badge after the name, on the pin and in the popup.
+  verified?: boolean;
   // How many people are in the room. Rendered two different ways from one
   // number, which is why it is a number here rather than pre-worded text: the
-  // pin shows the bare digit (a pin is a few dozen pixels wide, and "pessoas"
-  // repeated across forty of them is what turns a map into a wall of words),
-  // and the popup — which has room for a sentence — spells it out.
+  // pin shows the bare digit, shortened (a pin is a few dozen pixels wide, and
+  // "pessoas" repeated across forty of them is what turns a map into a wall of
+  // words), and the popup — which has room for a sentence — spells it out.
+  // Also what decides which pin wins when several sit on one spot.
   peopleCount?: number;
-  // A short tag shown on the pin ahead of the label, and again in the popup —
-  // a room's category, today. Kept to a word or two: the pin grows to fit it.
+  // A short tag for the popup — a room's category, "Grupo" for a group. Not
+  // on the pin: the pin's colour already says which kind it is.
   tag?: string;
   // Longer text, popup only — there is no room for it on the pin itself.
   description?: string;

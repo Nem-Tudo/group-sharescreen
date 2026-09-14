@@ -75,6 +75,64 @@ export async function fetchBotInstall(id: string, signal?: AbortSignal): Promise
   return (await res.json()) as BotInstallInfo;
 }
 
+// ─── The directory ─────────────────────────────────────────────────────────
+
+/** One public bot, as the directory lists it (see the API's GET /bots). */
+export type DirectoryBot = {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarUrl: string | null;
+  bannerUrl: string | null;
+  bio: string | null;
+  flags: string[];
+  nameColor: string | null;
+  /** How many groups it is in — up to a minute old, the directory's cache. */
+  groupCount: number;
+  createdAt: number;
+  /** Whether it is already in the group asked about — only when one was. */
+  inGroup?: boolean;
+};
+
+export type BotDirectorySort = "popular" | "recent";
+
+export type BotDirectoryPage = {
+  bots: DirectoryBot[];
+  total: number;
+  hasMore: boolean;
+};
+
+/**
+ * One page of the public bots. `groupId` marks the ones already in that group
+ * — answered only for somebody in it. Null when the request failed.
+ */
+export async function fetchBotDirectory(
+  {
+    query = "",
+    sort = "popular",
+    offset = 0,
+    limit = 24,
+    groupId = null,
+  }: { query?: string; sort?: BotDirectorySort; offset?: number; limit?: number; groupId?: string | null },
+  signal?: AbortSignal
+): Promise<BotDirectoryPage | null> {
+  const params = new URLSearchParams({ sort, offset: String(offset), limit: String(limit) });
+  if (query.trim()) params.set("q", query.trim());
+  if (groupId) params.set("group", groupId);
+  try {
+    const res = await fetch(`${getSignalingHttpBase()}/bots?${params}`, { headers: authHeaders(), signal });
+    if (!res.ok) return null;
+    const data = (await res.json()) as Partial<BotDirectoryPage>;
+    return {
+      bots: Array.isArray(data.bots) ? data.bots : [],
+      total: typeof data.total === "number" ? data.total : 0,
+      hasMore: Boolean(data.hasMore),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function addBotToGroup(
   groupId: string,
   botId: string
