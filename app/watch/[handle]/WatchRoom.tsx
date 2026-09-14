@@ -35,7 +35,9 @@ import {
   isRoomToGroupDismissed,
   type RoomToGroupPerson,
 } from "@/components/RoomToGroup";
+import { useGroupAdHidden } from "@/components/groups/GroupPartnerSlot";
 import {
+  setGroupVoiceColumns,
   setGroupVoiceControls,
   setGroupVoiceLive,
   type GroupVoiceLive,
@@ -1725,6 +1727,23 @@ export function WatchRoom({
   const adsterraReady = useAdsterraAvailable(adsterraFormat) && !adsterraBlocked;
   const showAdsterra = useAdRotation(adsterraReady);
 
+  // The participant list and the ad under it, folded away to give the video
+  // their width. In a group the room has no such column of its own, and this is
+  // the group's instead — its rail of groups and its rooms column, with the ad
+  // under them (see the publishing effect further down, and GroupAppShell) —
+  // remembered apart, so folding one kind of room away does not fold the other.
+  const leftSidebarStorageKey = group
+    ? "sharescreen:groupColumnsCollapsed"
+    : "sharescreen:leftSidebarCollapsed";
+  const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem(leftSidebarStorageKey) === "true";
+    } catch {
+      return false;
+    }
+  });
+
   const {
     ad: activePartnerAd,
     rawPartner: rawActivePartner,
@@ -1732,8 +1751,14 @@ export function WatchRoom({
     // Told when it is off screen, so it stops counting impressions for an ad
     // nobody can see and defers its rotation to a minute it owns.
     // In a group on a wide screen the room draws no ad at all — the group's
-    // rooms column does (see GroupPartnerSlot) — so this one must not count.
-  } = usePartnerAd({ visible: visible && !showAdsterra && !(group && isWideLayout) });
+    // rooms column does (see GroupPartnerSlot) — so this one must not count;
+    // not until that column is folded away, when the ad is this room's to draw.
+  } = usePartnerAd({
+    visible: visible && !showAdsterra && !(group && isWideLayout && !leftSidebarCollapsed),
+  });
+  // A Pro Max subscriber may close the group's ad (see GroupPartnerSlot); the
+  // one this room draws in its place is the same ad, and stays closed with it.
+  const groupAdHidden = useGroupAdHidden();
 
   const hasLocalScreen = Boolean(isSharing && localStream);
   const hasLocalCamera = Boolean(localCameraStream);
@@ -1762,15 +1787,6 @@ export function WatchRoom({
     hasRemoteCameras ||
     hasRemoteFiles ||
     hasVideoSources;
-
-  const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(() => {
-    if (typeof window === "undefined") return false;
-    try {
-      return localStorage.getItem("sharescreen:leftSidebarCollapsed") === "true";
-    } catch {
-      return false;
-    }
-  });
 
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -1841,9 +1857,9 @@ export function WatchRoom({
 
   useEffect(() => {
     try {
-      localStorage.setItem("sharescreen:leftSidebarCollapsed", String(leftSidebarCollapsed));
+      localStorage.setItem(leftSidebarStorageKey, String(leftSidebarCollapsed));
     } catch {}
-  }, [leftSidebarCollapsed]);
+  }, [leftSidebarStorageKey, leftSidebarCollapsed]);
 
   useEffect(() => {
     try {
@@ -1879,6 +1895,31 @@ export function WatchRoom({
       return next;
     });
   }, [hasAnyMedia]);
+
+  // In a group, the columns the left toggle folds away are the group's, drawn
+  // by its shell — so the state is published there (see lib/groupVoiceSession's
+  // GroupVoiceColumns), with the button to fold them in its rooms column and
+  // the one to bring them back floating over this room's video, like a room's
+  // own. Through a stable wrapper, so the shell is not told about a "new"
+  // toggle every time the ad on screen changes.
+  const toggleLeftSidebarRef = useRef(toggleLeftSidebar);
+  useEffect(() => {
+    toggleLeftSidebarRef.current = toggleLeftSidebar;
+  }, [toggleLeftSidebar]);
+  const stableToggleLeftSidebar = useCallback(() => toggleLeftSidebarRef.current(), []);
+  const publishesGroupColumns = Boolean(group);
+  useEffect(() => {
+    if (!publishesGroupColumns) return;
+    setGroupVoiceColumns({
+      collapsed: leftSidebarCollapsed,
+      canCollapse: isWideLayout && hasAnyMedia,
+      toggle: stableToggleLeftSidebar,
+    });
+  }, [publishesGroupColumns, leftSidebarCollapsed, isWideLayout, hasAnyMedia, stableToggleLeftSidebar]);
+  useEffect(() => {
+    if (!publishesGroupColumns) return;
+    return () => setGroupVoiceColumns(null);
+  }, [publishesGroupColumns]);
 
   const [visibleCameraError, setVisibleCameraError] = useState<string | null>(null);
 
@@ -4220,11 +4261,13 @@ export function WatchRoom({
   // When the left sidebar (participants and ad card) is collapsed and not in hyperfocus:
   // - In focus mode (spotlight): ad is shown in the thumbnail strip
   // - In normal grid mode: ad is ONLY shown when there are 3 or more media sources transmitting
+  // In a group the same goes for the group's rooms column, which is where its ad lives.
   if (
     leftSidebarCollapsed &&
     isWideLayout &&
     !activeHyperfocusId &&
-    (isFocusMode || realMediaTileCount >= 3)
+    (isFocusMode || realMediaTileCount >= 3) &&
+    !(group && groupAdHidden)
   ) {
     const adId = "sponsored-partner-tile";
     tiles.push({
@@ -6313,13 +6356,17 @@ export function WatchRoom({
 
         <main className="relative flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-2 lg:p-0">
           {/* Floating expand buttons when sidebars are collapsed on wide screens */}
-          {isWideLayout && leftSidebarCollapsed && !group && (
+          {/* In a group, what comes back is the group's rail and rooms column. */}
+          {isWideLayout && leftSidebarCollapsed && (
             <div className="absolute left-2 top-2 z-20">
-              <Tooltip content={translate("watch.watchRoom.showParticipants")} placement="right">
+              <Tooltip
+                content={translate(group ? "watch.watchRoom.showGroupsAndRooms" : "watch.watchRoom.showParticipants")}
+                placement="right"
+              >
                 <button
                   type="button"
                   onClick={toggleLeftSidebar}
-                  aria-label={translate("watch.watchRoom.showParticipants")}
+                  aria-label={translate(group ? "watch.watchRoom.showGroupsAndRooms" : "watch.watchRoom.showParticipants")}
                   className="flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-zinc-700 shadow-md backdrop-blur-xs transition hover:bg-white hover:text-zinc-950 dark:border-zinc-700 dark:bg-zinc-900/95 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-white"
                 >
                   <LuPanelLeftOpen className="h-4 w-4" />
@@ -6467,7 +6514,7 @@ export function WatchRoom({
                         true,
                         false,
                         isWideLayout && rightSidebarCollapsed,
-                        isWideLayout && leftSidebarCollapsed && !group
+                        isWideLayout && leftSidebarCollapsed
                       )}
                     </div>
                     {stripTiles.length > 0 && (
@@ -6526,9 +6573,9 @@ export function WatchRoom({
                         (isSingleTile ||
                           ((index + 1) % tileGridCols === 0 && index < tileGridCols));
                       // The top-left tile, under the floating "mostrar
-                      // participantes" button — which a group room never shows.
+                      // participantes" button (in a group, "mostrar grupos e salas").
                       const shouldOffsetLeft =
-                        isWideLayout && leftSidebarCollapsed && !group && index === 0;
+                        isWideLayout && leftSidebarCollapsed && index === 0;
                       return (
                         <Fragment key={tile.id}>
                           {isSingleTile && tile.id === "sponsored-partner-tile" ? (

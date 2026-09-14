@@ -19,7 +19,9 @@ import { useSyncExternalStore } from "react";
 // The room itself also publishes its microphone here (see setGroupVoiceControls)
 // so the dock can offer the mute button without reaching into the room — and
 // everybody in it as the call sees them (see setGroupVoiceLive), so the rooms
-// list can draw the room you are in from the call rather than from the server.
+// list can draw the room you are in from the call rather than from the server
+// — and whether it has the group's side columns folded away (see
+// setGroupVoiceColumns), so the shell knows to stop drawing them.
 
 export interface GroupVoiceSession {
   groupId: string;
@@ -79,9 +81,26 @@ export interface GroupVoiceLive {
   music: { playing: boolean } | null;
 }
 
+/**
+ * The group's own columns beside its voice room — the rail of groups and the
+ * rooms column, with the group's ad under it — which the room may fold away to
+ * give the call their width, the way an ordinary room folds its participant
+ * list (see WatchRoom's leftSidebarCollapsed, which this is). Published by the
+ * room, which knows whether anything is on screen worth the space and draws the
+ * ad in the grid once the column that held it is gone; read by the shell, which
+ * draws the columns.
+ */
+export interface GroupVoiceColumns {
+  collapsed: boolean;
+  /** Whether folding them is on offer: from lg up, while something is being shown. */
+  canCollapse: boolean;
+  toggle: () => void;
+}
+
 let session: GroupVoiceSession | null = null;
 let controls: GroupVoiceControls | null = null;
 let live: GroupVoiceLive | null = null;
+let columns: GroupVoiceColumns | null = null;
 const listeners = new Set<() => void>();
 
 function notify() {
@@ -123,6 +142,7 @@ export function setGroupVoiceSession(next: GroupVoiceSession | null): void {
   if (!next) {
     controls = null;
     live = null;
+    columns = null;
   }
   notify();
 }
@@ -166,6 +186,27 @@ function getLive(): GroupVoiceLive | null {
 
 export function useGroupVoiceLive(): GroupVoiceLive | null {
   return useSyncExternalStore(subscribe, getLive, () => null);
+}
+
+/** Published by the room while it is in group mode; cleared by it on the way out. */
+export function setGroupVoiceColumns(next: GroupVoiceColumns | null): void {
+  if (
+    columns?.collapsed === next?.collapsed &&
+    columns?.canCollapse === next?.canCollapse &&
+    columns?.toggle === next?.toggle
+  ) {
+    return;
+  }
+  columns = next;
+  notify();
+}
+
+function getColumns(): GroupVoiceColumns | null {
+  return columns;
+}
+
+export function useGroupVoiceColumns(): GroupVoiceColumns | null {
+  return useSyncExternalStore(subscribe, getColumns, () => null);
 }
 
 /** Whether the room this tab is in right now is the active group voice room. */

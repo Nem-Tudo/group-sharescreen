@@ -49,6 +49,17 @@ function useGroupAdDismissed(): boolean {
   );
 }
 
+/**
+ * Whether this person closed the group's ad — for the call too, which draws it
+ * in its grid while the rooms column is folded away (see WatchRoom), and must
+ * not bring back an ad that was closed.
+ */
+export function useGroupAdHidden(): boolean {
+  const { account } = useAuth();
+  const closed = useGroupAdDismissed();
+  return accountTierOf(account?.flags) === "premium_max" && closed;
+}
+
 export function GroupPartnerSlot({
   reservedAbove,
 }: {
@@ -58,7 +69,7 @@ export function GroupPartnerSlot({
   const t = useT();
   const { account } = useAuth();
   const canDismiss = accountTierOf(account?.flags) === "premium_max";
-  const closed = useGroupAdDismissed();
+  const hidden = useGroupAdHidden();
   // The column is the room's 300px sidebar, where only the fluid native unit
   // is worth anything — the fixed banner is the fallback when there is none.
   const hasValidNative = Boolean(
@@ -69,7 +80,6 @@ export function GroupPartnerSlot({
   const format = hasValidNative ? "native" : "banner";
   const adsterraBlocked = useAdsterraBlocked();
   const adsterraReady = useAdsterraAvailable(format) && !adsterraBlocked;
-  const hidden = canDismiss && closed;
   const showAdsterra = useAdRotation(adsterraReady && !hidden);
   // Not visible once closed, so a closed ad counts no impressions.
   const { rawPartner, loaded } = usePartnerAd({ visible: !showAdsterra && !hidden });

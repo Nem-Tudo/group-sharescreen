@@ -7,6 +7,7 @@ import useNtPopups from "ntpopups";
 import { MdHome } from "react-icons/md";
 import { AccountMenu } from "@/components/AccountMenu";
 import { CallOutlet } from "@/components/CallOutlet";
+import { ColumnResizeHandle, useColumnWidth, type ColumnWidthSpec } from "@/components/ColumnResize";
 import { DmRecentStrip } from "@/components/DmRecentStrip";
 import { useBlockNativeContextMenu } from "@/components/ContextMenuHost";
 import { AccountModal } from "@/components/AccountModal";
@@ -42,6 +43,7 @@ import { closeDirectMessages, setDirectMessagesOutlet, useDirectMessagesWindow }
 import {
   getGroupVoiceSession,
   setGroupVoiceSession,
+  useGroupVoiceColumns,
   useGroupVoiceSession,
 } from "@/lib/groupVoiceSession";
 import { signalingClient } from "@/lib/signalingClient";
@@ -53,6 +55,27 @@ import { useT } from "@/lib/useI18n";
 
 // The rooms column's gap-3, between the rooms and the ad under them.
 const ASIDE_GAP_PX = 12;
+
+// The two side columns, each dragged wider or narrower from its inner edge (see
+// components/ColumnResize). 300px is the width they always had, and what a
+// double-click on the grip restores; neither takes more than 30% of the row,
+// which on a 1024px screen is exactly that 300px.
+const ROOMS_COLUMN: ColumnWidthSpec = {
+  storageKey: "groups:roomsColumnWidth",
+  defaultWidth: 300,
+  min: 240,
+  max: 480,
+  maxShare: 0.3,
+  side: "left",
+};
+const MEMBERS_COLUMN: ColumnWidthSpec = {
+  storageKey: "groups:membersColumnWidth",
+  defaultWidth: 300,
+  min: 240,
+  max: 480,
+  maxShare: 0.3,
+  side: "right",
+};
 
 // The whole of /groups/*, laid out like a room: a top bar, and columns of cards
 // on grey — your groups down the far left (see GroupRail), the group's rooms (with the ad square under them) on the
@@ -268,6 +291,17 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   }, [groupId, textRoomIds]);
 
   const voiceVisible = Boolean(session && session.groupId === groupId && session.channelId === roomId);
+  // The rail of groups and the rooms column, folded away by the call on screen
+  // to give it their width — the group's "ocultar participantes" (see
+  // lib/groupVoiceSession's GroupVoiceColumns). Only while that call is the
+  // page: every other page of the group has them as always.
+  const voiceColumns = useGroupVoiceColumns();
+  const columnsCollapsed = voiceVisible && isWide && Boolean(voiceColumns?.collapsed);
+  const collapseColumns = voiceVisible && voiceColumns?.canCollapse ? voiceColumns.toggle : undefined;
+  const { setElement: setRoomsColumn, style: roomsColumnStyle, handle: roomsColumnHandle } =
+    useColumnWidth(ROOMS_COLUMN);
+  const { setElement: setMembersColumn, style: membersColumnStyle, handle: membersColumnHandle } =
+    useColumnWidth(MEMBERS_COLUMN);
   const closeNav = () => setNavOpen(false);
   // Only a call puts controls in the middle of the bar, and only from lg up —
   // anywhere else the bar is what it always was.
@@ -376,8 +410,14 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
 
         <div className="flex min-h-0 flex-1 lg:gap-3 lg:p-3">
           {/* Every group, down the left edge — from lg up; below that the
-              switcher in the bar is the way between them. */}
-          {isWide && <GroupRail activeGroupId={groupId} />}
+              switcher in the bar is the way between them. Hidden rather than
+              unmounted while a call folds it away, so it comes back as it was
+              left, scrolled and all. */}
+          {isWide && (
+            <div className={columnsCollapsed ? "hidden" : "contents"}>
+              <GroupRail activeGroupId={groupId} />
+            </div>
+          )}
           {/* The expanded messages, beside the groups. Always there from lg
               up — empty and hidden until used — so the window has somewhere
               to go the moment it expands, with no frame drawn over the whole
@@ -385,8 +425,15 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
               stay mounted: the text room keeps its scroll and its draft, and
               a call its picture. */}
           {isWide && <div ref={setDmSlot} className={dmDocked ? "flex min-h-0 min-w-0 flex-1" : "hidden"} />}
+          {/* Folded away with the rail by a call on screen: hidden, so the
+              rooms keep their scroll and a half-typed new room's name. */}
           {groupId && (
-            <aside className={`${dmDocked ? "hidden" : "hidden lg:flex"} w-[300px] shrink-0 flex-col gap-3`}>
+            <aside
+              ref={setRoomsColumn}
+              style={roomsColumnStyle}
+              className={`${dmDocked || columnsCollapsed ? "hidden" : "hidden lg:flex"} relative shrink-0 flex-col gap-3`}
+            >
+              <ColumnResizeHandle {...roomsColumnHandle} label={t("groups.groupAppShell.dragToResizeColumn")} />
               {/* Never shorter than its first five rooms (see GroupRoomsPanel's
                   onMinHeight): the ad under it gives way instead, and scrolls.
                   Down to the floor an ad keeps in any column (PartnerCard's
@@ -401,7 +448,12 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
                 }
               >
                 {detail ? (
-                  <GroupRoomsPanel detail={detail} activeChannelId={roomId} onMinHeight={setRoomsMinHeight} />
+                  <GroupRoomsPanel
+                    detail={detail}
+                    activeChannelId={roomId}
+                    onMinHeight={setRoomsMinHeight}
+                    onCollapse={collapseColumns}
+                  />
                 ) : (
                   <div className="flex h-full flex-col gap-2 rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
                     {[0, 1, 2].map((i) => (
@@ -410,8 +462,11 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
                   </div>
                 )}
               </div>
-              {/* Always here, call or no call — see GroupPartnerSlot. */}
-              {isWide && (
+              {/* Always here, call or no call — see GroupPartnerSlot. But
+                  unmounted, not merely hidden, with the column folded away: a
+                  hidden ad would go on counting impressions, and the call puts
+                  it in its grid instead (see WatchRoom's sponsored tile). */}
+              {isWide && !columnsCollapsed && (
                 <GroupPartnerSlot reservedAbove={roomsMinHeight ? roomsMinHeight + ASIDE_GAP_PX : undefined} />
               )}
             </aside>
@@ -440,7 +495,12 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
               the call is on screen: it brings its own column (chat and your
               card), and the people in it are on its room card already. */}
           {groupId && detail && !voiceVisible && (
-            <aside className={`${dmDocked ? "hidden" : "hidden lg:flex"} w-[300px] shrink-0 flex-col gap-3`}>
+            <aside
+              ref={setMembersColumn}
+              style={membersColumnStyle}
+              className={`${dmDocked ? "hidden" : "hidden lg:flex"} relative shrink-0 flex-col gap-3`}
+            >
+              <ColumnResizeHandle {...membersColumnHandle} label={t("groups.groupAppShell.dragToResizeColumn")} />
               <div className="flex min-h-0 flex-1 flex-col">
                 <GroupMembersPanel detail={detail} channel={routeChannel?.kind === "text" ? routeChannel : null} />
               </div>

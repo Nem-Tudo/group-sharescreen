@@ -28,6 +28,7 @@ import {
   MdVideocam,
   MdVolumeUp,
 } from "react-icons/md";
+import { LuPanelLeftClose } from "react-icons/lu";
 import { Popover, Tooltip } from "@/components/Tooltip";
 import { UserAvatar } from "@/components/UserAvatar";
 import {
@@ -256,11 +257,17 @@ export function GroupRoomsPanel({
   activeChannelId,
   onNavigate,
   onMinHeight,
+  onCollapse,
   bare = false,
 }: {
   detail: GroupDetail;
   activeChannelId: string | null;
   onNavigate?: () => void;
+  /**
+   * Folds this column and the rail of groups away, for the call on screen —
+   * see the shell's columnsCollapsed. Absent whenever that is not on offer.
+   */
+  onCollapse?: () => void;
   /**
    * How tall the card has to be to show its first MIN_VISIBLE_ROOMS rooms (all
    * of them, when there are fewer), told again whenever that changes — for the
@@ -1122,40 +1129,56 @@ export function GroupRoomsPanel({
           <GroupName name={group.name} flags={group.flags} badgeClassName="h-4 w-4" />
           <MdExpandMore className="h-4 w-4 shrink-0 text-zinc-500" />
         </GroupMenu>
-        {isManager && (
-          <Popover
-            open={addOpen}
-            onClose={() => setAddOpen(false)}
-            placement="bottom-end"
-            tooltip={t("groups.groupSidebar.createARoomOrCategory")}
-            content={
-              <div className="flex w-48 flex-col gap-0.5 rounded-xl border border-zinc-200 bg-white p-1.5 shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
-                <button type="button" onClick={() => startCreating("voice")} className={menuItemClass}>
-                  <MdVolumeUp className="h-4 w-4 opacity-70" />
-                  {t("common.voiceRoom")}
-                </button>
-                <button type="button" onClick={() => startCreating("text")} className={menuItemClass}>
-                  <MdChatBubbleOutline className="h-4 w-4 opacity-70" />
-                  {t("common.textRoom")}
-                </button>
-                <div className="my-0.5 border-t border-zinc-200 dark:border-zinc-800" />
-                <button type="button" onClick={() => startCreating("category")} className={menuItemClass}>
-                  <MdCreateNewFolder className="h-4 w-4 opacity-70" />
-                  {t("common.category")}
-                </button>
-              </div>
-            }
-          >
-            <button
-              type="button"
-              onClick={() => setAddOpen((o) => !o)}
-              aria-label={t("groups.groupSidebar.createARoomOrCategory")}
-              className="cursor-pointer rounded-lg p-1 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+        <div className="flex shrink-0 items-center gap-0.5">
+          {isManager && (
+            <Popover
+              open={addOpen}
+              onClose={() => setAddOpen(false)}
+              placement="bottom-end"
+              tooltip={t("groups.groupSidebar.createARoomOrCategory")}
+              content={
+                <div className="flex w-48 flex-col gap-0.5 rounded-xl border border-zinc-200 bg-white p-1.5 shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
+                  <button type="button" onClick={() => startCreating("voice")} className={menuItemClass}>
+                    <MdVolumeUp className="h-4 w-4 opacity-70" />
+                    {t("common.voiceRoom")}
+                  </button>
+                  <button type="button" onClick={() => startCreating("text")} className={menuItemClass}>
+                    <MdChatBubbleOutline className="h-4 w-4 opacity-70" />
+                    {t("common.textRoom")}
+                  </button>
+                  <div className="my-0.5 border-t border-zinc-200 dark:border-zinc-800" />
+                  <button type="button" onClick={() => startCreating("category")} className={menuItemClass}>
+                    <MdCreateNewFolder className="h-4 w-4 opacity-70" />
+                    {t("common.category")}
+                  </button>
+                </div>
+              }
             >
-              <MdAdd className="h-4 w-4" />
-            </button>
-          </Popover>
-        )}
+              <button
+                type="button"
+                onClick={() => setAddOpen((o) => !o)}
+                aria-label={t("groups.groupSidebar.createARoomOrCategory")}
+                className="cursor-pointer rounded-lg p-1 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+              >
+                <MdAdd className="h-4 w-4" />
+              </button>
+            </Popover>
+          )}
+          {/* The same button, in the same corner, as a room's "ocultar
+              participantes" — and the call brings them back the same way. */}
+          {onCollapse && (
+            <Tooltip content={t("groups.groupSidebar.hideGroupsAndRooms")}>
+              <button
+                type="button"
+                onClick={onCollapse}
+                aria-label={t("groups.groupSidebar.hideGroupsAndRooms")}
+                className="cursor-pointer rounded-lg p-1 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+              >
+                <LuPanelLeftClose className="h-4 w-4" />
+              </button>
+            </Tooltip>
+          )}
+        </div>
       </div>
       <div ref={scrollRef} onContextMenu={panelMenu} className="min-h-0 flex-1 overflow-y-auto p-2">
         {content}
