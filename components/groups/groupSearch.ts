@@ -27,6 +27,37 @@ export function useGroupsHomeQuery(): string {
   );
 }
 
+// "Explorar grupos" (see AddGroupDialog): the page is asked to show its public
+// groups — the whole list, so the search is cleared — and to scroll to them.
+// A counter rather than a flag, so asking again while the page is already on
+// screen scrolls it again; `exploreHandled` is how the page knows a request is
+// one it has already answered, including across its own remounts.
+let exploreSeq = 0;
+let exploreHandled = 0;
+
+export function requestExploreGroups(): void {
+  query = "";
+  exploreSeq += 1;
+  listeners.forEach((l) => l());
+}
+
+/** The request the page has not answered yet, or 0 when there is none. */
+export function usePendingExploreRequest(): number {
+  const seq = useSyncExternalStore(
+    (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    () => exploreSeq,
+    () => 0
+  );
+  return seq > exploreHandled ? seq : 0;
+}
+
+export function markExploreHandled(seq: number): void {
+  exploreHandled = Math.max(exploreHandled, seq);
+}
+
 /** Lower case and without accents, so "fisica" finds "Física" — the API folds the same way. */
 export function foldForSearch(text: string): string {
   return text.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();

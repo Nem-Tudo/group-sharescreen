@@ -35,6 +35,7 @@ import { ChatImageModal, type ChatImagePreviewState } from "@/components/ChatIma
 import { AttachMenu, splitPicked } from "@/components/AttachMenu";
 import { AttachmentTray } from "@/components/AttachmentTray";
 import { MessageAttachments } from "@/components/MessageAttachments";
+import { ChatImages } from "@/components/ChatImages";
 import { attachmentsPreview } from "@/lib/chatAttachments";
 import { useAttachmentUploads } from "@/lib/useAttachmentUploads";
 import {
@@ -1161,7 +1162,7 @@ export function ChatPanel({
                           className="mt-1 inline-block cursor-pointer rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 transition hover:opacity-90 text-left"
                         >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={m.url} alt="GIF" className="max-h-40 max-w-full rounded-md" />
+                          <img src={m.url} alt="GIF" className="block max-h-40 max-w-full rounded-md object-contain" />
                         </button>
                       ) : (
                         <>
@@ -1173,36 +1174,23 @@ export function ChatPanel({
                               {linkifyText(m.text, mentionRegex, openMentionedProfile)}
                             </p>
                           )}
-                          {messageImages(m).length > 0 && (
-                            <div className="mt-1 flex flex-wrap gap-1.5">
-                              {messageImages(m).map((url, index) => (
-                                <button
-                                  key={`${m.id}-img-${index}`}
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setImageModalPreview({
-                                      src: url,
-                                      alt: t("chatPanel.imageSentInTheChat"),
-                                      images: messageImages(m),
-                                      currentIndex: index,
-                                    });
-                                  }}
-                                  title={t("chatPanel.clickToEnlargeTheImage")}
-                                  aria-label={t("chatPanel.clickToEnlargeTheImage")}
-                                  className="inline-block cursor-pointer rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 transition hover:opacity-90 text-left"
-                                >
-                                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                                  <img
-                                    src={url}
-                                    alt={t("chatPanel.imageSentInTheChat")}
-                                    loading="lazy"
-                                    className="max-h-56 max-w-full rounded-md border border-zinc-200 dark:border-zinc-800"
-                                  />
-                                </button>
-                              ))}
-                            </div>
-                          )}
+                          <ChatImages
+                            images={messageImages(m)}
+                            onOpen={(index) => {
+                              const images = messageImages(m);
+                              setImageModalPreview({
+                                src: images[index],
+                                alt: t("chatPanel.imageSentInTheChat"),
+                                images,
+                                currentIndex: index,
+                              });
+                            }}
+                            alt={t("chatPanel.imageSentInTheChat")}
+                            label={t("chatPanel.clickToEnlargeTheImage")}
+                            className="mt-1"
+                            bordered
+                            compact
+                          />
                           <MessageAttachments attachments={m.attachments} compact />
                         </>
                       )}

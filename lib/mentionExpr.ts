@@ -452,7 +452,9 @@ export function blankSpans(text: string, spans: readonly { start: number; end: n
  * API's answer (`pingedMe`, on a page it sent) is the truth — it knew who was
  * online when the message went out. Without it the message arrived live, and
  * whoever receives a message live is online, so it is worked out here with
- * the roles held now. The caller rules out the reader's own messages.
+ * the roles held now. The reader's own messages count too — mentioning
+ * yourself lights up on your screen; it is the API that never alerts the
+ * author, and the unread counts that skip their own messages.
  */
 export function mentionsTakeIn(
   entries: readonly string[] | undefined,

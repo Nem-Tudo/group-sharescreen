@@ -2,7 +2,16 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { fetchPublicRooms, roomActivity, type PublicRoom } from "@/lib/roomsApi";
+import { MdGroups } from "react-icons/md";
+import {
+  fetchPublicRoomDirectory,
+  roomActivity,
+  type PublicGroupRoom,
+  type PublicRoom,
+} from "@/lib/roomsApi";
+import { GroupIcon } from "@/components/groups/GroupIcon";
+import { GroupName } from "@/components/groups/GroupName";
+import { groupPath } from "@/lib/groupLinks";
 import { Tooltip } from "@/components/Tooltip";
 import { ThemeMenuButton } from "@/components/ThemeToggle";
 import { UpdateAppButton } from "@/components/UpdateAppButton";
@@ -30,13 +39,22 @@ const SORT_OPTIONS = [
 
 type SortValue = (typeof SORT_OPTIONS)[number]["value"];
 
+// One entry of the list: a public room, or a public group's call — the second
+// carries its group and room, and is opened through the group (see the
+// server's /rooms `groupRooms`). Both share every counter the list sorts on,
+// so they sort together rather than in two lists.
+type ListedRoom = PublicRoom & {
+  group?: PublicGroupRoom["group"];
+  channel?: PublicGroupRoom["channel"];
+};
+
 const DEFAULT_SORT: SortValue = "mic";
 
-function sortRooms(rooms: PublicRoom[], sort: SortValue): PublicRoom[] {
+function sortRooms(rooms: ListedRoom[], sort: SortValue): ListedRoom[] {
   // Every ordering falls back to people, then to the older room first — the
   // same last resort the server's own /rooms ordering uses, so a list of
   // rooms sitting at zero doesn't reshuffle itself on every poll.
-  const primary = (room: PublicRoom): number => {
+  const primary = (room: ListedRoom): number => {
     if (sort === "mic") return roomActivity(room, "micCount");
     if (sort === "screen") return roomActivity(room, "screenCount");
     return room.peopleCount;
@@ -91,7 +109,7 @@ function RoomStat({
 
 export function RoomsPageClient() {
   const { t, tc } = useI18n();
-  const [rooms, setRooms] = useState<PublicRoom[] | null>(null);
+  const [rooms, setRooms] = useState<ListedRoom[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortValue>(DEFAULT_SORT);
@@ -102,9 +120,9 @@ export function RoomsPageClient() {
 
     async function load() {
       try {
-        const data = await fetchPublicRooms(controller.signal);
+        const data = await fetchPublicRoomDirectory(controller.signal);
         if (cancelled) return;
-        setRooms(data);
+        setRooms([...data.rooms, ...data.groupRooms]);
         setError(null);
       } catch {
         if (!cancelled) setError(t("common.couldNotLoadThePublicRooms"));
@@ -124,9 +142,16 @@ export function RoomsPageClient() {
   // not of whatever happens to be typed in the search box.
   const filtered = useMemo(
     () =>
-      sortRooms(rooms ?? [], sort).filter((r) =>
-        r.handle.toLowerCase().includes(search.trim().toLowerCase())
-      ),
+      sortRooms(rooms ?? [], sort).filter((r) => {
+        const needle = search.trim().toLowerCase();
+        if (!needle) return true;
+        // A group's call is found by its room's name or its group's, never
+        // by the internal handle nobody sees.
+        if (r.group && r.channel) {
+          return r.channel.name.toLowerCase().includes(needle) || r.group.name.toLowerCase().includes(needle);
+        }
+        return r.handle.toLowerCase().includes(needle);
+      }),
     [rooms, sort, search]
   );
 
@@ -220,6 +245,8 @@ export function RoomsPageClient() {
           <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {filtered.map((room) => {
               const category = roomCategory(room.category);
+              const title = room.channel?.name ?? room.handle;
+              const href = room.group && room.channel ? groupPath(room.group.id, room.channel.id) : `/watch/${room.handle}`;
               return (
               <li
                 key={room.handle}
@@ -229,11 +256,21 @@ export function RoomsPageClient() {
                   <div className="flex min-w-0 items-center gap-2">
                     {/* The name is truncated to keep the card one line wide —
                         the tooltip is what makes a long one readable at all. */}
-                    <Tooltip content={room.handle}>
+                    <Tooltip content={title}>
                       <p className="truncate font-semibold text-zinc-900 dark:text-zinc-100">
-                        {room.handle}
+                        {title}
                       </p>
                     </Tooltip>
+                    {/* A call in a group — said on the card, because walking
+                        into it is also joining the group. */}
+                    {room.group && (
+                      <Tooltip content={t("rooms.roomsPageClient.groupCallHint", { group: room.group.name })}>
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-indigo-500/10 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 dark:text-indigo-300">
+                          <MdGroups className="h-3.5 w-3.5" />
+                          {t("rooms.roomsPageClient.groupBadge")}
+                        </span>
+                      </Tooltip>
+                    )}
                     {category && (
                       <span
                         className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${category.className}`}
@@ -242,6 +279,18 @@ export function RoomsPageClient() {
                       </span>
                     )}
                   </div>
+                  {room.group && (
+                    <p className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-300">
+                      <GroupIcon
+                        name={room.group.name}
+                        iconUrl={room.group.iconUrl}
+                        seed={room.group.id}
+                        size={16}
+                        className="shrink-0 rounded"
+                      />
+                      <GroupName name={room.group.name} flags={room.group.flags} className="min-w-0" badgeClassName="h-3.5 w-3.5" />
+                    </p>
+                  )}
                   {/* Only when there is one — an empty line here would push
                       every other card's layout around for nothing. */}
                   {room.description && (
@@ -281,7 +330,7 @@ export function RoomsPageClient() {
                   </div>
                 </div>
                 <Link
-                  href={`/watch/${room.handle}`}
+                  href={href}
                   className="shrink-0 rounded-lg bg-zinc-950 px-3 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
                 >
                   {t("common.signIn")}

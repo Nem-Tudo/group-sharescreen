@@ -6,6 +6,7 @@ import {
   MdCardGiftcard,
   MdChatBubbleOutline,
   MdFavorite,
+  MdHowToReg,
   MdNotificationsNone,
   MdPersonAdd,
 } from "react-icons/md";
@@ -68,6 +69,8 @@ function Item({
           <MdCardGiftcard className="h-4 w-4 text-emerald-500" />
         ) : notification.kind === "theme-like" ? (
           <MdFavorite className="h-4 w-4 text-pink-500" />
+        ) : notification.kind === "friend-accepted" ? (
+          <MdHowToReg className="h-4 w-4" />
         ) : (
           <MdPersonAdd className="h-4 w-4" />
         )}
@@ -164,7 +167,13 @@ export function NotificationInboxBell({ className = "" }: { className?: string }
                     // "ver o que perdi" should do. It is also where the push
                     // notification for the same event lands (see the API's
                     // pushCallEnded), so the two agree.
-                    else if (notification.kind === "dm" || notification.kind === "call-missed") {
+                    // A new friend opens the conversation with them too — the
+                    // next thing to do with one, same as its system notification.
+                    else if (
+                      notification.kind === "dm" ||
+                      notification.kind === "call-missed" ||
+                      notification.kind === "friend-accepted"
+                    ) {
                       openDirectMessages(notification.userId);
                     }
                   }}

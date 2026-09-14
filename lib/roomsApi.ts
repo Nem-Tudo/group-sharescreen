@@ -306,6 +306,36 @@ export async function fetchPublicRooms(signal?: AbortSignal): Promise<PublicRoom
   return data.rooms;
 }
 
+/**
+ * A public group's voice room with people in it (see the server's /rooms
+ * `groupRooms`): a call anybody could walk into, opened through its group
+ * rather than /watch. The same counters as a room, plus which group it is.
+ */
+export type PublicGroupRoom = {
+  handle: string;
+  peopleCount: number;
+  micCount?: number;
+  screenCount?: number;
+  cameraCount?: number;
+  videoSourceCount?: number;
+  createdAt: number;
+  group: { id: string; name: string; iconUrl: string | null; flags: string[] };
+  channel: { id: string; name: string };
+};
+
+/**
+ * The room browser's whole list: the public rooms, and the public groups'
+ * open calls. A server from before the second sends none, which reads as none.
+ */
+export async function fetchPublicRoomDirectory(
+  signal?: AbortSignal
+): Promise<{ rooms: PublicRoom[]; groupRooms: PublicGroupRoom[] }> {
+  const res = await fetch(`${getSignalingHttpBase()}/rooms`, { signal });
+  if (!res.ok) throw new Error(translate("roomsApi.couldNotLoadRoomsStatusStatus", { status: res.status }));
+  const data = (await res.json()) as { rooms: PublicRoom[]; groupRooms?: PublicGroupRoom[] };
+  return { rooms: data.rooms, groupRooms: Array.isArray(data.groupRooms) ? data.groupRooms : [] };
+}
+
 // Total people connected across every room, public and private — the
 // server only ever returns the aggregate count here, never room handles.
 export async function fetchPeopleOnline(signal?: AbortSignal): Promise<number> {

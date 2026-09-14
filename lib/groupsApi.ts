@@ -352,6 +352,33 @@ export interface GroupSearchResult {
 export const searchPublicGroups = (query: string, signal?: AbortSignal) =>
   request<{ groups: GroupSearchResult[] }>("GET", `/groups/search?q=${encodeURIComponent(query)}`, undefined, signal);
 
+/** One public group in the directory on /groups — see the API's GET /groups/public. */
+export interface PublicGroupListing extends GroupSearchResult {
+  /** People in its voice rooms right now (up to a minute old). */
+  inCallCount: number;
+  createdAt: number;
+}
+
+export type PublicGroupSort = "online" | "members" | "recent";
+
+/**
+ * One page of every public group, browsable with nothing typed. Needs no
+ * identity; `member` is said for whoever is asking. An older API answers 404.
+ */
+export const fetchPublicGroupDirectory = (
+  { query = "", sort = "online", offset = 0, limit = 24 }: { query?: string; sort?: PublicGroupSort; offset?: number; limit?: number },
+  signal?: AbortSignal
+) => {
+  const params = new URLSearchParams({ sort, offset: String(offset), limit: String(limit) });
+  if (query.trim()) params.set("q", query.trim());
+  return request<{ groups: PublicGroupListing[]; total: number; hasMore: boolean }>(
+    "GET",
+    `/groups/public?${params}`,
+    undefined,
+    signal
+  );
+};
+
 /** Every group on the public map. Needs no identity. */
 export const fetchGroupMap = (signal?: AbortSignal) =>
   request<{ groups: GroupMapPin[] }>("GET", "/groups/map", undefined, signal);

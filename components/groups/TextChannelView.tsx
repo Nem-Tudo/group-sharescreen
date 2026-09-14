@@ -1,6 +1,7 @@
 "use client";
 
 import { MessageAttachments } from "@/components/MessageAttachments";
+import { ChatImages } from "@/components/ChatImages";
 import { attachmentsPreview } from "@/lib/chatAttachments";
 import {
   Fragment,
@@ -629,10 +630,11 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
   );
   // The people "@" offers before anything is typed: whoever is online and can
   // see this room, then whoever has written here, most recent first. Anybody
-  // else is a search away (see searchPeople).
+  // else is a search away (see searchPeople). This person among them: a
+  // mention of yourself lights up like any other, it just alerts nobody.
   const memberCandidates: MentionCandidate[] = useMemo(() => {
     const out: MentionCandidate[] = [];
-    const seen = new Set<string>([selfId]);
+    const seen = new Set<string>();
     // Looked up here by id rather than captured, so this depends on values only.
     const room = detail.channels.find((c) => c.id === channelId) ?? null;
     for (const member of onlineEntry?.list ?? []) {
@@ -651,7 +653,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
       out.push({ id: writer.id, name: writer.name, avatarUrl: writer.avatarUrl });
     }
     return out;
-  }, [onlineEntry, messages, authors, selfId, channelId, detail]);
+  }, [onlineEntry, messages, authors, channelId, detail]);
 
   const searchPeople = useCallback(
     async (query: string): Promise<MentionCandidate[]> => {
@@ -659,7 +661,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
       // see it, so offering them would promise an alert that never comes.
       const result = await searchMembers(groupId, query, channelId).catch(() => null);
       if (!result || !result.ok) return [];
-      const people = result.members.filter((m) => m.id !== selfId);
+      const people = result.members;
       setFound((prev) => {
         const next: Record<string, GroupUser> = { ...prev };
         for (const person of people) next[person.id] = person;
@@ -671,7 +673,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
       });
       return people.map((m) => ({ id: m.id, name: m.name, avatarUrl: m.avatarUrl }));
     },
-    [groupId, channelId, selfId]
+    [groupId, channelId]
   );
 
   // What "#" offers: every room this person can see — which is exactly what
@@ -1220,7 +1222,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
             icon: <MdLink className="h-4 w-4" />,
             onSelect: () => void copyText(imageSrc),
           },
-        message.from !== selfId && {
+        {
           label: t("groups.contextMenu.mentionName", { name: author.name }),
           icon: <MdAlternateEmail className="h-4 w-4" />,
           onSelect: () => mentionInComposer(author),
@@ -1386,10 +1388,11 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
       }
       const author = userOf(message);
       // By id, @everyone, a role I hold, or an @online/@offline/expression
-      // that took me in — see lib/mentionExpr's mentionsTakeIn.
+      // that took me in — see lib/mentionExpr's mentionsTakeIn. My own
+      // messages too: mentioning myself, or everybody, lights it up here the
+      // way it does for anybody else (the API alerts nobody about it).
       const mentionsMe =
-        (message.from !== selfId &&
-          mentionsTakeIn(message.mentions, { id: selfId, roleIds: myRoleIds }, message.pingedMe)) ||
+        mentionsTakeIn(message.mentions, { id: selfId, roleIds: myRoleIds }, message.pingedMe) ||
         message.replyTo?.userId === selfId;
       rows.push(
         <li
@@ -1500,30 +1503,25 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
                   aria-label={t("common.enlargeTheGif")}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={message.url} alt="GIF" onLoad={onMediaLoad} className="max-h-48 rounded-lg" />
+                  <img
+                    src={message.url}
+                    alt="GIF"
+                    onLoad={onMediaLoad}
+                    className="block max-h-48 max-w-full rounded-lg object-contain"
+                  />
                 </button>
               )}
-              {message.images && message.images.length > 0 && (
-                <div className={`mt-1 grid max-w-xs gap-1 ${message.images.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
-                  {message.images.map((url, index) => (
-                    <button
-                      key={index}
-                      type="button"
-                      onClick={() => setPreview({ src: url, alt: t("common.image"), images: message.images, currentIndex: index })}
-                      className="block cursor-zoom-in overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800"
-                      aria-label={t("common.enlargeTheImage")}
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={url}
-                        alt={t("common.image")}
-                        onLoad={onMediaLoad}
-                        className={`w-full object-cover ${message.images!.length > 1 ? "aspect-square" : "max-h-64 object-contain"}`}
-                      />
-                    </button>
-                  ))}
-                </div>
-              )}
+              <ChatImages
+                images={message.images ?? []}
+                onOpen={(index) =>
+                  setPreview({ src: message.images![index], alt: t("common.image"), images: message.images, currentIndex: index })
+                }
+                onLoad={onMediaLoad}
+                alt={t("common.image")}
+                label={t("common.enlargeTheImage")}
+                className="mt-1 max-w-sm"
+                bordered
+              />
               <MessageAttachments attachments={message.attachments} />
               {!outgoing && message.reactions && message.reactions.length > 0 && (
                 // Discord's row: each emoji with how many, lit up when one of

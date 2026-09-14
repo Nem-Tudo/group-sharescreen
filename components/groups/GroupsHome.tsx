@@ -1,19 +1,27 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import useNtPopups from "ntpopups";
 import { MdAdd, MdChevronRight, MdClose, MdSearch } from "react-icons/md";
 import { GroupIcon } from "@/components/groups/GroupIcon";
 import { GroupLink } from "@/components/groups/GroupLink";
 import { GroupName } from "@/components/groups/GroupName";
+import { PublicGroupsDirectory } from "@/components/groups/PublicGroupsDirectory";
 import { useGroupContextMenu } from "@/components/groups/groupMenus";
 import { useGroupNavigation } from "@/lib/groupNavigation";
-import { nameMatches, searchWords, setGroupsHomeQuery, useGroupsHomeQuery } from "@/components/groups/groupSearch";
+import {
+  markExploreHandled,
+  nameMatches,
+  searchWords,
+  setGroupsHomeQuery,
+  useGroupsHomeQuery,
+  usePendingExploreRequest,
+} from "@/components/groups/groupSearch";
 import { useAuth } from "@/lib/AuthContext";
 import { groupPath, inviteCodeFromInput, invitePath } from "@/lib/groupLinks";
-import { searchPublicGroups, type GroupSearchResult, type GroupSummary } from "@/lib/groupsApi";
+import type { GroupSummary } from "@/lib/groupsApi";
 import { prefetchGroup, useMyGroups } from "@/lib/useGroups";
 import { useI18n } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
@@ -23,9 +31,10 @@ import { translate } from "@/lib/i18n";
 // under it, and rows in bordered cards.
 //
 // Above the rows, one search bar for every group there is: typing narrows your
-// own list at once, and asks the server for public groups by the same words
-// (see the API's searchPublicGroups) — which is also how somebody with no
-// groups yet finds one to join.
+// own list at once, and the public groups under it by the same words. Those
+// are always there, all of them, browsable with nothing typed (see
+// PublicGroupsDirectory) — which is how somebody with no groups yet finds one
+// to join.
 
 const primaryButton =
   "inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-zinc-950 px-3 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200";
@@ -36,10 +45,6 @@ const rowClass =
 const sectionHeading = "text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
 
 const ROLE_LABEL = { get owner() { return translate("common.owner"); }, get admin() { return translate("common.admin"); }, get member() { return translate("common.member"); } } as const;
-
-/** The shortest query worth asking the server about. */
-const MIN_PUBLIC_QUERY = 2;
-const SEARCH_DEBOUNCE_MS = 250;
 
 export function GroupsHome() {
   const { t, tc } = useI18n();
@@ -54,13 +59,27 @@ export function GroupsHome() {
   const query = useGroupsHomeQuery();
   const setQuery = setGroupsHomeQuery;
   const inputRef = useRef<HTMLInputElement | null>(null);
+  // "Explorar grupos" (see AddGroupDialog) lands here asking for the public
+  // list: scrolled to, once the rows above it have had a moment to draw, so it
+  // is not pushed down again right after.
+  const publicSectionRef = useRef<HTMLElement | null>(null);
+  const exploreRequest = usePendingExploreRequest();
+  useEffect(() => {
+    if (!exploreRequest) return;
+    markExploreHandled(exploreRequest);
+    // Not cancelled when this runs again: marking the request handled is
+    // itself what makes the next render see none, and that must not call the
+    // scroll off. After an unmount the ref is simply empty.
+    setTimeout(() => {
+      publicSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 150);
+  }, [exploreRequest]);
   const words = searchWords(query);
   const searching = words.length > 0;
   const mine = searching ? (groups ?? []).filter((g) => nameMatches(g.name, words)) : groups ?? [];
-  const publicSearch = usePublicGroupSearch(query);
-  // Your own groups are already in the list above; the public ones are the rest.
-  const myIds = new Set((groups ?? []).map((g) => g.id));
-  const discovered = publicSearch.results?.filter((g) => !g.member && !myIds.has(g.id)) ?? null;
+  // Marked on the public cards, for a group you are in that the server did
+  // not say so about (a guest's, answered before its token was sent).
+  const myIds = useMemo(() => new Set((groups ?? []).map((g) => g.id)), [groups]);
 
   // "/" anywhere on the page puts the cursor in the search bar.
   useEffect(() => {
@@ -81,7 +100,7 @@ export function GroupsHome() {
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-2xl px-4 pt-4 pb-8 sm:py-10">
+      <div className="mx-auto w-full max-w-4xl px-4 pt-4 pb-8 sm:py-10">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             {/* A phone's bar already says "Grupos" (see GroupMobile). */}
@@ -162,42 +181,18 @@ export function GroupsHome() {
         </div>
 
         {searching ? (
-          <div className="mt-6 flex flex-col gap-8">
-            {hasGroups && (
-              <section className="flex flex-col gap-2">
-                <h2 className={sectionHeading}>{t("common.yourGroups")}</h2>
-                {mine.length > 0 ? (
-                  <MyGroupRows groups={mine} />
-                ) : (
-                  <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                    {t("groups.groupsHome.noneOfYourGroupsMatch", { query: query.trim() })}
-                  </p>
-                )}
-              </section>
-            )}
-            <section className="flex flex-col gap-2">
-              <h2 className={sectionHeading}>{t("groups.groupsHome.publicGroups")}</h2>
-              {query.trim().length < MIN_PUBLIC_QUERY ? (
-                <p className="text-sm text-zinc-500 dark:text-zinc-400">{t("groups.groupsHome.typeMoreToSearch")}</p>
-              ) : publicSearch.error ? (
-                <p className="text-sm text-red-500">{publicSearch.error}</p>
-              ) : discovered === null ? (
-                <p className="text-sm text-zinc-500 dark:text-zinc-400">{t("groups.groupsHome.searching")}</p>
-              ) : discovered.length > 0 ? (
-                <ul className={`flex flex-col gap-2 transition-opacity ${publicSearch.stale ? "opacity-60" : ""}`}>
-                  {discovered.map((group) => (
-                    <li key={group.id}>
-                      <PublicGroupRow group={group} />
-                    </li>
-                  ))}
-                </ul>
+          hasGroups && (
+            <section className="mt-6 flex flex-col gap-2">
+              <h2 className={sectionHeading}>{t("common.yourGroups")}</h2>
+              {mine.length > 0 ? (
+                <MyGroupRows groups={mine} />
               ) : (
                 <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                  {t("groups.groupsHome.noPublicGroupsFound", { query: query.trim() })}
+                  {t("groups.groupsHome.noneOfYourGroupsMatch", { query: query.trim() })}
                 </p>
               )}
             </section>
-          </div>
+          )
         ) : groups === null ? (
           <p className="mt-6 text-sm text-zinc-500 dark:text-zinc-400">{t("common.loading")}</p>
         ) : hasGroups ? (
@@ -233,6 +228,11 @@ export function GroupsHome() {
             </section>
           </div>
         )}
+
+        <section ref={publicSectionRef} className="mt-10 flex scroll-mt-4 flex-col gap-3">
+          <h2 className={sectionHeading}>{t("groups.groupsHome.publicGroups")}</h2>
+          <PublicGroupsDirectory query={query} myGroupIds={myIds} />
+        </section>
       </div>
     </div>
   );
@@ -282,77 +282,6 @@ function MyGroupRows({ groups }: { groups: GroupSummary[] }) {
       ))}
     </ul>
   );
-}
-
-/** A public group from the search — opening it lands on its join card (see GroupPages). */
-function PublicGroupRow({ group }: { group: GroupSearchResult }) {
-  const { t, tc } = useI18n();
-  return (
-    <GroupLink href={groupPath(group.id)} className={rowClass}>
-      <GroupIcon name={group.name} iconUrl={group.iconUrl} seed={group.id} size={40} className="rounded-lg" />
-      <span className="min-w-0 flex-1">
-        <GroupName name={group.name} flags={group.flags} className="flex w-full text-sm font-medium text-zinc-900 dark:text-zinc-100" />
-        {group.description && (
-          <span className="block truncate text-xs text-zinc-600 dark:text-zinc-300">{group.description}</span>
-        )}
-        <span className="flex items-center gap-1.5 truncate text-xs text-zinc-500 dark:text-zinc-400">
-          {tc("common.memberCount", group.memberCount)}
-          {group.onlineCount > 0 && (
-            <>
-              <span aria-hidden>·</span>
-              <span className="inline-flex items-center gap-1">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                {t("groups.groupRail.onlineCount", { count: group.onlineCount })}
-              </span>
-            </>
-          )}
-        </span>
-      </span>
-      <span className="shrink-0 rounded-lg border border-zinc-300 px-2.5 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-700 dark:text-zinc-300">
-        {t("groups.homeGroupsPanel.open")}
-      </span>
-    </GroupLink>
-  );
-}
-
-/**
- * Public groups for what is typed, asked for once the typing pauses. The last
- * answer stays on screen (marked stale) while the next one is on its way, so
- * the list does not blink empty between keystrokes.
- */
-function usePublicGroupSearch(query: string): {
-  results: GroupSearchResult[] | null;
-  error: string | null;
-  stale: boolean;
-} {
-  const trimmed = query.trim();
-  const [answer, setAnswer] = useState<{ query: string; results: GroupSearchResult[]; error: string | null } | null>(null);
-
-  useEffect(() => {
-    if (trimmed.length < MIN_PUBLIC_QUERY) return;
-    const controller = new AbortController();
-    const timer = setTimeout(() => {
-      searchPublicGroups(trimmed, controller.signal)
-        .then((result) => {
-          setAnswer(
-            result.ok
-              ? { query: trimmed, results: result.groups, error: null }
-              : // An API from before the search answers 404: nothing public to show, not a fault.
-                { query: trimmed, results: [], error: result.status === 404 ? null : result.error }
-          );
-        })
-        .catch(() => {
-          // Aborted: a newer query took its place.
-        });
-    }, SEARCH_DEBOUNCE_MS);
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, [trimmed]);
-
-  if (trimmed.length < MIN_PUBLIC_QUERY || !answer) return { results: null, error: null, stale: false };
-  return { results: answer.results, error: answer.error, stale: answer.query !== trimmed };
 }
 
 /** The invite field, inline — pasting a link here beats opening a popup to paste it into. */

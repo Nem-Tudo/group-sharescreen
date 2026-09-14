@@ -31,7 +31,12 @@ export function useSocialGraph(): SocialGraphState {
   // Null until a read lands. Distinguishing "nothing yet" from "an empty
   // graph" is what lets `loading` below be derived instead of tracked, which
   // in turn keeps this whole hook free of setState-inside-an-effect.
-  const [fetched, setFetched] = useState<SocialGraph | null>(null);
+  //
+  // Tagged with the account it was read for: signing out and into another
+  // account on the same page would otherwise show the previous account's
+  // graph until the new read lands — and SocialNotifier, which compares one
+  // sweep with the last, would take that as the new account's.
+  const [fetched, setFetched] = useState<{ accountId: string; graph: SocialGraph } | null>(null);
   // Bumped by refresh(). Combined with socialSeq in the effect below, so a
   // local action and a remote one go through exactly one code path.
   const [manualSeq, setManualSeq] = useState(0);
@@ -42,21 +47,26 @@ export function useSocialGraph(): SocialGraphState {
     // Nobody logged in: asking would be a guaranteed 401 on every page a
     // guest opens, and the empty graph below is already the right answer.
     if (resolvingAccount || !account) return;
+    const accountId = account.id;
     const controller = new AbortController();
     void fetchSocialGraph(controller.signal).then((loaded) => {
       if (controller.signal.aborted) return;
       // A failed read leaves whatever was on screen rather than blanking it:
       // an empty friends list is a statement, and "the request failed" is not
       // the same statement.
-      setFetched((current) => loaded ?? current ?? EMPTY_GRAPH);
+      setFetched((current) => {
+        const previous = current?.accountId === accountId ? current.graph : null;
+        return { accountId, graph: loaded ?? previous ?? EMPTY_GRAPH };
+      });
     });
     return () => controller.abort();
   }, [account, resolvingAccount, socialSeq, manualSeq]);
 
   // Derived rather than stored, so signing out cannot leave the previous
   // account's friends on screen while an effect catches up.
-  const graph = account ? fetched ?? EMPTY_GRAPH : EMPTY_GRAPH;
-  const loading = resolvingAccount ? true : account ? fetched === null : false;
+  const current = account && fetched?.accountId === account.id ? fetched.graph : null;
+  const graph = current ?? EMPTY_GRAPH;
+  const loading = resolvingAccount ? true : account ? current === null : false;
 
   return { graph, loading, refresh };
 }

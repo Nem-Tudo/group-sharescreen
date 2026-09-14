@@ -42,6 +42,7 @@ import { Popover } from "@/components/Tooltip";
 import { AttachMenu, splitPicked } from "@/components/AttachMenu";
 import { AttachmentTray } from "@/components/AttachmentTray";
 import { MessageAttachments } from "@/components/MessageAttachments";
+import { ChatImages } from "@/components/ChatImages";
 import { attachmentsPreview, type ChatAttachment } from "@/lib/chatAttachments";
 import { useAttachmentUploads } from "@/lib/useAttachmentUploads";
 import { EmojiPickerButton } from "@/components/EmojiPicker";
@@ -503,34 +504,22 @@ function MessageBubble({
           className={`${rows ? "mt-1" : "-mx-1 mb-1"} block cursor-zoom-in rounded-lg text-left transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500`}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={bubble.url} alt="GIF" onLoad={onMediaLoad} className={`${rows ? "max-h-48" : "max-h-56"} rounded-lg`} />
+          <img
+            src={bubble.url}
+            alt="GIF"
+            onLoad={onMediaLoad}
+            className={`${rows ? "max-h-48" : "max-h-56"} block max-w-full rounded-lg object-contain`}
+          />
         </button>
       )}
-      {images.length > 0 && (
-        <span
-          className={`${rows ? "mt-1 max-w-xs" : "-mx-1 mb-1"} grid gap-1 ${images.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}
-        >
-          {images.map((url, index) => (
-            <button
-              key={`${index}:${url.slice(-24)}`}
-              type="button"
-              onClick={() => onOpenImage(images, index, t("common.image"))}
-              aria-label={t("common.enlargeTheImage")}
-              className="block cursor-zoom-in overflow-hidden rounded-lg text-left transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={url}
-                alt={t("common.image")}
-                onLoad={onMediaLoad}
-                className={`w-full rounded-lg object-cover ${
-                  images.length > 1 ? "aspect-square" : "max-h-64 object-contain"
-                }`}
-              />
-            </button>
-          ))}
-        </span>
-      )}
+      <ChatImages
+        images={images}
+        onOpen={(index) => onOpenImage(images, index, t("common.image"))}
+        onLoad={onMediaLoad}
+        alt={t("common.image")}
+        label={t("common.enlargeTheImage")}
+        className={rows ? "mt-1 max-w-sm" : "-mx-1 mb-1"}
+      />
       <MessageAttachments attachments={bubble.attachments} className={rows ? "" : "-mx-1 mb-1"} />
     </>
   );

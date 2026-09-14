@@ -14,6 +14,7 @@ import {
   MdLockOutline,
   MdAdd,
   MdChevronRight,
+  MdExplore,
   MdLink,
   MdOutlineMap,
   MdPublic,
@@ -87,6 +88,7 @@ import {
 import { useOpenChannelSettings } from "@/components/groups/ChannelSettingsDialog";
 import { RolesTab } from "@/components/groups/RolesTab";
 import { RoleChip } from "@/components/groups/RoleChip";
+import { requestExploreGroups } from "@/components/groups/groupSearch";
 import {
   canManage,
   membersRevalidateKey,
@@ -439,12 +441,21 @@ export function AddGroupDialog({ closePopup }: PopupProps<object>) {
   const t = useT();
   const { account } = useAuth();
   const { openPopup } = useNtPopups();
+  const navigation = useGroupNavigation();
   const canCreate = Boolean(account);
 
   function choose(popup: "create_group" | "join_group") {
     closePopup(true);
     // After this one has gone, so the two are never on screen together.
     setTimeout(() => void openPopup(popup, { data: {} }), 0);
+  }
+
+  // To /groups, on its public groups: the search cleared and the list
+  // scrolled to, whether the page is being opened or already on screen.
+  function explore() {
+    closePopup(true);
+    requestExploreGroups();
+    navigation.push("/groups");
   }
 
   const choice =
@@ -454,7 +465,19 @@ export function AddGroupDialog({ closePopup }: PopupProps<object>) {
     <DialogFrame title={t("groups.homeGroupsPanel.addGroup")} onClose={() => closePopup(false)}>
       <p className="-mt-2 text-sm text-zinc-500 dark:text-zinc-400">{t("groups.groupDialogs.addGroupQuestion")}</p>
       <div className="flex flex-col gap-2">
-        <button type="button" autoFocus onClick={() => choose("join_group")} className={choice}>
+        {/* Every public group, on /groups (see PublicGroupsDirectory) — the
+            way in for somebody with no invite and nothing to make yet. */}
+        <button type="button" autoFocus onClick={explore} className={choice}>
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-indigo-100 text-2xl text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+            <MdExplore />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold">{t("groups.groupDialogs.exploreGroups")}</span>
+            <span className="block text-xs text-zinc-500 dark:text-zinc-400">{t("groups.groupDialogs.exploreGroupsHint")}</span>
+          </span>
+          <MdChevronRight className="h-5 w-5 shrink-0 text-zinc-400 transition group-hover:translate-x-0.5" />
+        </button>
+        <button type="button" onClick={() => choose("join_group")} className={choice}>
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-sky-100 text-2xl text-sky-700 dark:bg-sky-950 dark:text-sky-300">
             <MdLink />
           </span>
