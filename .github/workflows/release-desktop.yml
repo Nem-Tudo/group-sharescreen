@@ -81,7 +81,27 @@ jobs:
 
       # The full install, Electron binary included — unlike the Dockerfile,
       # this is the one place that genuinely needs it.
-      - run: npm ci
+      #
+      # Retried because several postinstall scripts fetch binaries from
+      # outside the npm registry, and those fetches time out now and then on
+      # the runners. The one that has actually bitten is sharp@0.32 (pulled in
+      # by @capacitor/assets, which the desktop build does not even use)
+      # downloading libvips from GitHub Releases:
+      #
+      #   sharp: Installation error: Request timed out
+      #
+      # A single slow download is not a broken release. `npm ci` wipes
+      # node_modules before it starts, so each attempt is clean, and the
+      # registry tarballs are already in the cache by the second try.
+      - name: Install dependencies
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            npm ci && exit 0
+            echo "::warning::npm ci failed (attempt $attempt of 3), retrying in 15s"
+            sleep 15
+          done
+          exit 1
 
       # esbuild bundles the shell's three entrypoints; electron-builder only
       # packages what this produces.
