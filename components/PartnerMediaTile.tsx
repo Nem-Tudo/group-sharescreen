@@ -7,7 +7,9 @@ import { Tooltip } from "@/components/Tooltip";
 import {
   claimPartnerClickReward,
   clickRewardAppliesTo,
-  hasClaimedPartnerRewardLocally,
+  hasClaimedPartnerReward,
+  markPartnerRewardClaimed,
+  usePartnerRewardStatus,
   type PartnerCardData,
 } from "@/lib/partner";
 import { signalingClient } from "@/lib/signalingClient";
@@ -31,8 +33,11 @@ export function PartnerMediaTile({
     partner.id && partner.rewardVideoUrl && partner.rewardPoints
   );
 
+  // The server's answer for whoever is here (see lib/partner's
+  // usePartnerRewardStatus), this browser's flag until it comes.
+  usePartnerRewardStatus(partner.id);
   const rewardClaimedLocally = Boolean(
-    partner.id && hasClaimedPartnerRewardLocally(partner.id)
+    partner.id && hasClaimedPartnerReward(partner.id, "video")
   );
 
   const handleClick = useCallback(
@@ -47,10 +52,14 @@ export function PartnerMediaTile({
 
         if (partner.id) {
           signalingClient.reportPartnerClick(partner.id, "card");
-          if (clickRewardAppliesTo(partner, "card")) {
-            void claimPartnerClickReward(partner.id).catch(() => {
-              // ignore duplicate or non-authenticated claims
-            });
+          // Not asked again once collected — the server would only refuse it.
+          if (clickRewardAppliesTo(partner, "card") && !hasClaimedPartnerReward(partner.id, "click")) {
+            const id = partner.id;
+            void claimPartnerClickReward(id)
+              .then(() => markPartnerRewardClaimed(id, "click"))
+              .catch(() => {
+                // ignore duplicate or non-authenticated claims
+              });
           }
         }
 

@@ -13,9 +13,9 @@ import useNtPopups from "ntpopups";
 import {
   claimPartnerClickReward,
   clickRewardAppliesTo,
-  hasClaimedPartnerClickRewardLocally,
-  hasClaimedPartnerRewardLocally,
-  markPartnerClickRewardClaimedLocally,
+  hasClaimedPartnerReward,
+  markPartnerRewardClaimed,
+  usePartnerRewardStatus,
   type PartnerClickRewardPlacement,
   type PartnerCardData,
   fetchPartner,
@@ -26,7 +26,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { useVideoDurationLabel } from "@/lib/useVideoDuration";
 import { Popover } from "@/components/Tooltip";
 import { useT } from "@/lib/useI18n";
-import { translate } from "@/lib/i18n";
+import { formatLocale, translate } from "@/lib/i18n";
 
 const STATS_DASHBOARD_URL = process.env.NEXT_PUBLIC_STATS_DASHBOARD_URL;
 
@@ -94,14 +94,29 @@ export function PartnerCard({
   loaded: externalLoaded,
   reservedAbove = RESERVED_FOR_LIST_PX,
   onDismiss,
+  startWithHouseAd = false,
+  onLeaveHouseAd,
 }: {
   partner?: PartnerCardData | null;
   loaded?: boolean;
   /**
-   * Draws an "x" on the ad that calls this — for the places a subscriber may
-   * put the ad away (see GroupPartnerSlot). Absent, there is no "x".
+   * Draws a button on the ad that calls this — for the places a subscriber may
+   * put the ad away, which folds it down to PartnerCardMinimized (see
+   * GroupPartnerSlot). Absent, there is no button.
    */
   onDismiss?: () => void;
+  /**
+   * Opens on the "anuncie aqui" house ad instead of whatever is served — for
+   * the minimized strip's own "Anuncie aqui você também!" (see
+   * PartnerCardMinimized), which is asking for exactly that.
+   */
+  startWithHouseAd?: boolean;
+  /**
+   * Told when somebody leaves the house ad with "Voltar". Given, "Voltar" is
+   * offered even with no real ad behind it — the slot that forced the house ad
+   * on (see startWithHouseAd) is what goes back to its ordinary turn.
+   */
+  onLeaveHouseAd?: () => void;
   /**
    * From lg up, how much of its column the list above it keeps. The room's
    * participant rows by default; a group's rooms column passes its first five
@@ -126,7 +141,7 @@ export function PartnerCard({
   // slot too — toggled by the "Anuncie aqui você também!" header shown over
   // a real ad below, and swaps the card to the same house ad that's shown
   // by default when no real partner is active (FALLBACK_PARTNER).
-  const [showingHouseAd, setShowingHouseAd] = useState(false);
+  const [showingHouseAd, setShowingHouseAd] = useState(startWithHouseAd);
   const [customizerOpen, setCustomizerOpen] = useState(false);
   // The watch-to-earn popup (see PartnerRewardModal.tsx) is opened through
   // ntpopups rather than rendered here, so there's no open/closed state for
@@ -391,6 +406,10 @@ export function PartnerCard({
     };
   }, [loaded, reservedAbove]);
 
+  // Whether this identity already collected this ad's points — the server's
+  // word, asked once per ad (see lib/partner's usePartnerRewardStatus).
+  usePartnerRewardStatus(partner?.id);
+
   useEffect(() => {
     if (!clickRewardJustClaimed) return;
     const timer = setTimeout(() => setClickRewardJustClaimed(false), CLICK_REWARD_CLAIMED_MS);
@@ -401,14 +420,13 @@ export function PartnerCard({
 
   const data = partner ?? FALLBACK_PARTNER;
   const isFallback = partner === null;
-  // Per-browser hint (see hasClaimedPartnerRewardLocally's doc comment) —
-  // recomputed on every render, so it stays current across a rotation
-  // landing back on an ad this browser already collected the reward for, and
-  // right after the reward popup closes having just claimed one.
-  const rewardClaimedLocally = Boolean(data.id && hasClaimedPartnerRewardLocally(data.id));
-  const clickRewardClaimedLocally = Boolean(
-    data.id && hasClaimedPartnerClickRewardLocally(data.id)
-  );
+  // Whether this identity already collected each reward — the server's answer
+  // once it has come, this browser's flag until then (see
+  // hasClaimedPartnerReward). Recomputed on every render, so it stays current
+  // across a rotation landing back on an ad already collected, and right after
+  // the reward popup closes having just claimed one.
+  const rewardClaimedLocally = Boolean(data.id && hasClaimedPartnerReward(data.id, "video"));
+  const clickRewardClaimedLocally = Boolean(data.id && hasClaimedPartnerReward(data.id, "click"));
   // True only when the real ad is what's actually on screen — false for the
   // plain house ad, the "ver exemplo" preview, and a real ad temporarily
   // swapped out for the house ad via showingHouseAd below. Drives both the
@@ -449,7 +467,7 @@ export function PartnerCard({
     if (!id) return;
     claimPartnerClickReward(id)
       .then(() => {
-        markPartnerClickRewardClaimedLocally(id);
+        markPartnerRewardClaimed(id, "click");
         setClickRewardError(null);
         setClickRewardJustClaimed(true);
         trackEvent("partner_click_reward_claimed", { partnerId: id });
@@ -465,25 +483,7 @@ export function PartnerCard({
   // the one next to "Anuncie aqui também!" over a real ad) — only ever one of
   // them is on screen at a time, so they share both this markup and the
   // statsOpen state.
-  const statsPanel = (
-    <div className="w-72 max-w-[calc(100vw-1rem)] rounded-lg border border-zinc-200 bg-white p-3 shadow-lg dark:border-zinc-800 dark:bg-zinc-950">
-      <p className="text-xs text-zinc-600 dark:text-zinc-400">
-        {t("partnerCard.curiousToKnowHowManyPeople")}
-      </p>
-      {STATS_DASHBOARD_URL && (
-        <a
-          href={STATS_DASHBOARD_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={() => trackEvent("stats_dashboard_opened")}
-          className="mt-2 flex items-center justify-center gap-1.5 rounded-lg bg-zinc-950 px-3 py-1.5 text-center text-xs font-semibold text-white transition hover:opacity-90 dark:bg-zinc-50 dark:text-zinc-950"
-        >
-          <ChartIcon className="h-3.5 w-3.5" />
-          {t("partnerCard.seeLiveStats")}
-        </a>
-      )}
-    </div>
-  );
+  const statsPanel = <PeopleOnlineStatsPanel />;
 
   return (
     <div
@@ -601,11 +601,14 @@ export function PartnerCard({
         </div>
       )}
 
-      {!isFallback && showingHouseAd && !showingExample && (
+      {(!isFallback || onLeaveHouseAd) && showingHouseAd && !showingExample && (
         <div className="mb-1.5 flex items-center justify-between gap-2">
           <button
             type="button"
-            onClick={() => setShowingHouseAd(false)}
+            onClick={() => {
+              setShowingHouseAd(false);
+              onLeaveHouseAd?.();
+            }}
             className="flex items-center gap-1 text-xs font-medium text-zinc-500 transition hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
           >
             <ArrowLeftIcon className="h-3 w-3" />
@@ -653,13 +656,13 @@ export function PartnerCard({
               <button
                 type="button"
                 onClick={onDismiss}
-                aria-label={t("partnerCard.closeAd")}
-                title={t("partnerCard.closeAd")}
+                aria-label={t("partnerCard.collapseAd")}
+                title={t("partnerCard.collapseAd")}
                 // In the ad's own text colour, like the chip beside it — the
                 // advertiser picks the background, so no fixed colour is safe.
-                className="-mr-1 flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-full text-base leading-none opacity-60 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
+                className="-mr-1 flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-full opacity-60 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
               >
-                ×
+                <ChevronUpIcon className="h-3.5 w-3.5 rotate-180" />
               </button>
             )}
           </span>
@@ -852,6 +855,189 @@ export function PartnerCard({
           initial={CUSTOMIZER_STARTING_POINT}
           onClose={() => setCustomizerOpen(false)}
         />
+      )}
+    </div>
+  );
+}
+
+/** "Curious how many people are here?" — what the online counter opens. */
+function PeopleOnlineStatsPanel() {
+  const t = useT();
+  return (
+    <div className="w-72 max-w-[calc(100vw-1rem)] rounded-lg border border-zinc-200 bg-white p-3 shadow-lg dark:border-zinc-800 dark:bg-zinc-950">
+      <p className="text-xs text-zinc-600 dark:text-zinc-400">
+        {t("partnerCard.curiousToKnowHowManyPeople")}
+      </p>
+      {STATS_DASHBOARD_URL && (
+        <a
+          href={STATS_DASHBOARD_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={() => trackEvent("stats_dashboard_opened")}
+          className="mt-2 flex items-center justify-center gap-1.5 rounded-lg bg-zinc-950 px-3 py-1.5 text-center text-xs font-semibold text-white transition hover:opacity-90 dark:bg-zinc-50 dark:text-zinc-950"
+        >
+          <ChartIcon className="h-3.5 w-3.5" />
+          {t("partnerCard.seeLiveStats")}
+        </a>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The points this browser can still collect from an ad: its video's, and its
+ * click reward wherever that is offered (on the card, or in the video popup
+ * when there is a video to open it). Per browser, like the card's own buttons
+ * — the server's answer for this identity once it has come (see
+ * hasClaimedPartnerReward), this browser's flag until then.
+ */
+function unclaimedPartnerPoints(partner: PartnerCardData): number {
+  const id = partner.id;
+  if (!id) return 0;
+  let total = 0;
+  if (partner.rewardVideoUrl && partner.rewardPoints && !hasClaimedPartnerReward(id, "video")) {
+    total += partner.rewardPoints;
+  }
+  const clickReachable =
+    clickRewardAppliesTo(partner, "card") ||
+    (Boolean(partner.rewardVideoUrl) && clickRewardAppliesTo(partner, "video"));
+  if (partner.clickRewardPoints && clickReachable && !hasClaimedPartnerReward(id, "click")) {
+    total += partner.clickRewardPoints;
+  }
+  return total;
+}
+
+/**
+ * The ad, folded down by somebody who may put it away (see GroupPartnerSlot):
+ * a slim strip at the foot of its column instead of the whole card.
+ *
+ * Folded rather than closed. The ad on now keeps its name, in its own colours,
+ * so the advertiser is still there to be seen and to be opened again with a
+ * press; and so does what is the site's own — how many people are online, and
+ * "Anuncie aqui você também!", which is the slot selling itself. A folded ad
+ * counts no impressions (its slot says so to usePartnerAd): a name on a strip
+ * is not the card an advertiser paid to have seen.
+ *
+ * The ad's row sits under the site's own, at the very foot of the column.
+ * With no real ad on — only the house ad, whose name would just repeat
+ * "anuncie aqui" — there is no name to show, and the strip is one row.
+ */
+export function PartnerCardMinimized({
+  partner,
+  onRestore,
+  onAdvertise,
+}: {
+  /** The ad being served, or null for none (the house ad). */
+  partner: PartnerCardData | null;
+  onRestore: () => void;
+  onAdvertise: () => void;
+}) {
+  const t = useT();
+  const peopleOnline = usePeopleOnline();
+  const [statsOpen, setStatsOpen] = useState(false);
+  usePartnerRewardStatus(partner?.id);
+  // Points still on the table here. Said on the strip, glinting the way the
+  // card's own "Resgatar" does, since folding the ad away is otherwise the
+  // easiest way never to find out they were there. Read on every render, like
+  // the card's buttons, which the hook above re-renders when the server answers.
+  const points = partner ? unclaimedPartnerPoints(partner) : 0;
+  return (
+    <div className="mt-auto w-full shrink-0 overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+      <div className="flex items-center gap-1.5 p-1.5">
+        {peopleOnline !== null && (
+          <Popover
+            open={statsOpen}
+            onClose={() => setStatsOpen(false)}
+            placement="top"
+            content={<PeopleOnlineStatsPanel />}
+          >
+            <button
+              type="button"
+              onClick={() => setStatsOpen((open) => !open)}
+              className="flex shrink-0 items-center gap-1 rounded-lg bg-zinc-100 px-2.5 py-1.5 text-xs font-medium text-emerald-600 transition hover:bg-zinc-200 dark:bg-zinc-900 dark:text-emerald-400 dark:hover:bg-zinc-800"
+            >
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+              {peopleOnline} on
+              <ChevronUpIcon className={`h-3 w-3 transition-transform ${statsOpen ? "rotate-180" : ""}`} />
+            </button>
+          </Popover>
+        )}
+        <button
+          type="button"
+          onClick={() => {
+            trackEvent("partner_house_ad_from_minimized");
+            onAdvertise();
+          }}
+          className="min-w-0 flex-1 truncate rounded-lg bg-zinc-100 px-3 py-1.5 text-center text-xs font-semibold text-zinc-600 transition hover:bg-zinc-200 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
+        >
+          {t("partnerCard.advertiseHereToo")}
+        </button>
+        {/* With an ad on, its own row below is the way back. */}
+        {!partner && (
+          <button
+            type="button"
+            onClick={onRestore}
+            aria-label={t("partnerCard.showAd")}
+            title={t("partnerCard.showAd")}
+            className="flex shrink-0 items-center justify-center rounded-lg p-1.5 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
+          >
+            <ChevronUpIcon className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+      {partner && (
+        // The whole row is the way back to the card: it is the ad, folded.
+        <button
+          type="button"
+          onClick={onRestore}
+          aria-label={
+            points > 0
+              ? `${t("partnerCard.showAd")}: ${partner.title} — ${t("partnerCard.pointsToRedeem", {
+                  points: points.toLocaleString(formatLocale()),
+                })}`
+              : `${t("partnerCard.showAd")}: ${partner.title}`
+          }
+          title={t("partnerCard.showAd")}
+          className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-xs font-semibold transition hover:opacity-90"
+          style={{
+            backgroundColor: partner.backgroundColor ?? "#ffffff",
+            color: partner.textColor ?? "#18181b",
+          }}
+        >
+          {partner.imageUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={partner.imageUrl} alt="" className="h-4 w-4 shrink-0 rounded object-cover" />
+          )}
+          <span className="min-w-0 flex-1 truncate">{partner.title}</span>
+          {points > 0 && (
+            // In the ad's own button colours — the ones its "Resgatar" wears.
+            <span
+              title={t("partnerCard.pointsToRedeem", { points: points.toLocaleString(formatLocale()) })}
+              className="partner-reward-glow flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums"
+              style={{
+                backgroundColor: partner.buttonBackgroundColor ?? "#18181b",
+                color: partner.buttonTextColor ?? "#ffffff",
+                ["--partner-reward-glow-color" as string]: partner.buttonBackgroundColor ?? "#18181b",
+              }}
+            >
+              <BsCoin className="h-3 w-3 shrink-0" />
+              {points.toLocaleString(formatLocale())}
+            </span>
+          )}
+          <span className="shrink-0 rounded-full bg-black/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide opacity-70 dark:bg-white/10">
+            {t("common.sponsored")}
+          </span>
+          {/* The ad's own button colour, as a dot — the second colour of it;
+              the points badge already wears it when there is one. */}
+          {partner.buttonBackgroundColor && points === 0 && (
+            <span
+              aria-hidden
+              className="h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-black/10"
+              style={{ backgroundColor: partner.buttonBackgroundColor }}
+            />
+          )}
+          <ChevronUpIcon className="h-3.5 w-3.5 shrink-0 opacity-70" />
+        </button>
       )}
     </div>
   );

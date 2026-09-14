@@ -108,8 +108,9 @@ export function clickRewardAppliesTo(
 // Watch-to-earn reward
 // ---------------------------------------------------------------------------
 
-import { getAccountToken } from "./accountApi";
-import { getStoredGuestToken } from "./guestToken";
+import { useEffect, useSyncExternalStore } from "react";
+import { getAccountToken, useAccountToken } from "./accountApi";
+import { getStoredGuestToken, useGuestToken } from "./guestToken";
 import { getSignalingHttpBase } from "./roomsApi";
 import { translate } from "@/lib/i18n";
 
@@ -205,6 +206,147 @@ export function markPartnerClickRewardClaimedLocally(partnerId: string): void {
   } catch {
     // ignored - localStorage may be unavailable (private mode, quota, etc.)
   }
+}
+
+// ---------------------------------------------------------------------------
+// Whether this identity already collected an ad's rewards — the server's word
+// ---------------------------------------------------------------------------
+//
+// The flags above live in one browser, so on their own they were wrong in
+// both directions: a new device, or cleared storage, offered again what had
+// already been paid (the claim then refused it), and another account signing
+// in on the same browser was told it had nothing to collect. The API now says,
+// per identity, from the same claim sets that stop a second payout (see its
+// GET /partner/:id/reward-status), and that answer is what counts.
+//
+// The flags are kept as the answer for the moment before the server's arrives
+// — this browser's last word on it, usually right — and are brought in line
+// with the server whenever it answers, so the next load starts closer to the
+// truth.
+
+export type PartnerRewardKind = "video" | "click";
+type RewardStatus = Record<PartnerRewardKind, boolean>;
+
+// Keyed by identity and ad: a different account on the same tab is a
+// different question with a different answer.
+const rewardStatus = new Map<string, RewardStatus>();
+const rewardStatusRequests = new Set<string>();
+let rewardStatusSeq = 0;
+const rewardStatusListeners = new Set<() => void>();
+
+function notifyRewardStatus() {
+  rewardStatusSeq += 1;
+  for (const listener of rewardStatusListeners) listener();
+}
+
+function rewardIdentity(): string | null {
+  return getAccountToken() ?? getStoredGuestToken();
+}
+
+function rewardStatusKey(identity: string, partnerId: string): string {
+  return `${identity}|${partnerId}`;
+}
+
+/**
+ * Whether whoever is here already collected this ad's reward of this kind:
+ * the server's answer once it has come (see usePartnerRewardStatus), this
+ * browser's flag until then.
+ */
+export function hasClaimedPartnerReward(partnerId: string, kind: PartnerRewardKind): boolean {
+  const identity = rewardIdentity();
+  const known = identity ? rewardStatus.get(rewardStatusKey(identity, partnerId)) : undefined;
+  if (known) return known[kind];
+  return kind === "video"
+    ? hasClaimedPartnerRewardLocally(partnerId)
+    : hasClaimedPartnerClickRewardLocally(partnerId);
+}
+
+/**
+ * Records a claim that just went through (or that the server refused as
+ * already made): the flag for next time, and the answer for this identity now.
+ */
+export function markPartnerRewardClaimed(partnerId: string, kind: PartnerRewardKind): void {
+  if (kind === "video") markPartnerRewardClaimedLocally(partnerId);
+  else markPartnerClickRewardClaimedLocally(partnerId);
+  const identity = rewardIdentity();
+  if (identity) {
+    const key = rewardStatusKey(identity, partnerId);
+    const known = rewardStatus.get(key) ?? { video: false, click: false };
+    rewardStatus.set(key, { ...known, [kind]: true });
+  }
+  notifyRewardStatus();
+}
+
+function syncLocalFlag(partnerId: string, kind: PartnerRewardKind, claimed: boolean) {
+  if (typeof window === "undefined") return;
+  const prefix = kind === "video" ? CLAIMED_KEY_PREFIX : CLICK_CLAIMED_KEY_PREFIX;
+  try {
+    if (claimed) window.localStorage.setItem(prefix + partnerId, "1");
+    else window.localStorage.removeItem(prefix + partnerId);
+  } catch {
+    // ignored - localStorage may be unavailable (private mode, quota, etc.)
+  }
+}
+
+/** Asks the server, once per identity and ad for as long as the tab is open. */
+function requestRewardStatus(partnerId: string): void {
+  const identity = rewardIdentity();
+  // Nobody here has collected anything, and nobody could: there is no one to
+  // pay. The flags stand in, as they always did.
+  if (!identity) return;
+  const key = rewardStatusKey(identity, partnerId);
+  if (rewardStatus.has(key) || rewardStatusRequests.has(key)) return;
+  rewardStatusRequests.add(key);
+  void fetch(`${getSignalingHttpBase()}/partner/${encodeURIComponent(partnerId)}/reward-status`, {
+    headers: { Authorization: `Bearer ${identity}` },
+  })
+    .then(async (res) => {
+      // An API from before the route, or one that could not check: keep going
+      // by the flags rather than guess.
+      if (!res.ok) return;
+      const data = (await res.json().catch(() => null)) as Partial<RewardStatus> | null;
+      if (!data || typeof data.video !== "boolean" || typeof data.click !== "boolean") return;
+      // A claim made while this was in flight is newer than the answer.
+      const known = rewardStatus.get(key);
+      const status = { video: data.video || Boolean(known?.video), click: data.click || Boolean(known?.click) };
+      rewardStatus.set(key, status);
+      // Only while the same identity is still here: the flags are per
+      // browser, and belong to whoever is signed in on it now.
+      if (rewardIdentity() === identity) {
+        syncLocalFlag(partnerId, "video", status.video);
+        syncLocalFlag(partnerId, "click", status.click);
+      }
+      notifyRewardStatus();
+    })
+    .catch(() => {
+      // Offline or refused: the flags answer, and the next mount asks again.
+    })
+    .finally(() => rewardStatusRequests.delete(key));
+}
+
+/**
+ * Keeps a component showing the server's answer about this ad's rewards: asks
+ * for it (once per identity and ad), and re-renders when it lands. Read the
+ * answer with hasClaimedPartnerReward during render, as before.
+ */
+export function usePartnerRewardStatus(partnerId: string | null | undefined): void {
+  // Both read every render — a hook behind `??` would only run some of the time.
+  const accountToken = useAccountToken();
+  const guestToken = useGuestToken();
+  const identity = accountToken ?? guestToken;
+  useSyncExternalStore(
+    (listener) => {
+      rewardStatusListeners.add(listener);
+      return () => {
+        rewardStatusListeners.delete(listener);
+      };
+    },
+    () => rewardStatusSeq,
+    () => 0
+  );
+  useEffect(() => {
+    if (partnerId) requestRewardStatus(partnerId);
+  }, [partnerId, identity]);
 }
 
 // Separate from the claimed flag above: someone can watch a reward video all

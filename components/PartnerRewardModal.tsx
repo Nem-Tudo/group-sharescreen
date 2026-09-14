@@ -6,12 +6,11 @@ import { useGuestToken } from "@/lib/guestToken";
 import {
   claimPartnerClickReward,
   claimPartnerVideoReward,
-  hasClaimedPartnerClickRewardLocally,
-  markPartnerClickRewardClaimedLocally,
   getStoredPartnerVideoProgress,
   setStoredPartnerVideoProgress,
-  markPartnerRewardClaimedLocally,
-  hasClaimedPartnerRewardLocally,
+  hasClaimedPartnerReward,
+  markPartnerRewardClaimed,
+  usePartnerRewardStatus,
   hasCompletedPartnerVideoLocally,
   markPartnerVideoCompletedLocally,
 } from "@/lib/partner";
@@ -150,11 +149,15 @@ export function PartnerRewardModal({
   // received" vs. "you already have these"), even though both end up
   // meaning the same thing to handleClaim's guard.
   const [claimed, setClaimed] = useState(false);
-  // Read once, at mount: this popup is reopenable at any time to rewatch the
-  // video (see PartnerCard's "Assistir de novo"), but the reward itself is
-  // one-time — this is what tells that rewatch not to even attempt another
-  // claim, rather than relying on the server's 409 every time.
-  const [alreadyClaimed] = useState(() => hasClaimedPartnerRewardLocally(partnerId));
+  // This popup is reopenable at any time to rewatch the video (see
+  // PartnerCard's "Assistir de novo"), but the reward itself is one-time —
+  // this is what tells that rewatch not to even attempt another claim, rather
+  // than relying on the server's 409 every time. The server's answer for this
+  // identity (see usePartnerRewardStatus), so another device's claim counts
+  // too; never true for a claim made in this very popup, which is `claimed`
+  // and reads as "received" rather than "you already had these".
+  usePartnerRewardStatus(partnerId);
+  const alreadyClaimed = !claimed && hasClaimedPartnerReward(partnerId, "video");
   const [claimError, setClaimError] = useState<string | null>(null);
   // Whether a claim has already been attempted with no identity at all (see
   // handleClaim) — the notice below is this *and* still having none, so
@@ -167,12 +170,10 @@ export function PartnerRewardModal({
   // notice appears at the one moment it answers something they did.
   const [claimAttemptedSignedOut, setClaimAttemptedSignedOut] = useState(false);
   // Click-to-earn, entirely separate from the watch-to-earn state above: its
-  // own one-per-identity claim on the server, its own local flag, and no
-  // dependency on the video having been watched. Read once at mount for the
-  // same reason alreadyClaimed is.
-  const [clickRewardClaimed, setClickRewardClaimed] = useState(() =>
-    hasClaimedPartnerClickRewardLocally(partnerId)
-  );
+  // own one-per-identity claim on the server, and no dependency on the video
+  // having been watched. The server's answer too, for the same reason.
+  const [clickClaimedHere, setClickClaimedHere] = useState(false);
+  const clickRewardClaimed = clickClaimedHere || hasClaimedPartnerReward(partnerId, "click");
   const [clickRewardError, setClickRewardError] = useState<string | null>(null);
   // Success shows inside the button instead of as another line under it —
   // see the CTA below.
@@ -351,8 +352,8 @@ export function PartnerRewardModal({
     setClaimError(null);
     try {
       await claimPartnerVideoReward(partnerId);
-      markPartnerRewardClaimedLocally(partnerId);
       setClaimed(true);
+      markPartnerRewardClaimed(partnerId, "video");
       trackEvent("partner_reward_claimed", { partnerId });
       onClaimed?.();
       // Re-resolves whichever identity is here (see AuthContext's refresh) so
@@ -366,8 +367,8 @@ export function PartnerRewardModal({
       // was this browser or another session that collected it first —
       // either way there's nothing left here to unlock.
       if (message.includes(t("partnerRewardModal.alreadyRedeemed"))) {
-        markPartnerRewardClaimedLocally(partnerId);
         setClaimed(true);
+        markPartnerRewardClaimed(partnerId, "video");
       }
     } finally {
       setClaiming(false);
@@ -381,8 +382,8 @@ export function PartnerRewardModal({
   function claimClickReward() {
     claimPartnerClickReward(partnerId)
       .then(() => {
-        markPartnerClickRewardClaimedLocally(partnerId);
-        setClickRewardClaimed(true);
+        setClickClaimedHere(true);
+        markPartnerRewardClaimed(partnerId, "click");
         setClickRewardError(null);
         setClickRewardJustClaimed(true);
         trackEvent("partner_click_reward_claimed", { partnerId });
