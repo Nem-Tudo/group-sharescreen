@@ -3,6 +3,8 @@
 import { useEffect } from "react";
 import useNtPopups from "ntpopups";
 import { AddBotClient } from "@/components/bots/AddBotClient";
+import { InviteClient } from "@/components/groups/InviteClient";
+import { inviteCodeFromInput, isInviteCode } from "@/lib/groupLinks";
 import { SITE_URL } from "@/lib/seo";
 
 // "Adicionar a um grupo", as a dialog over wherever it was pressed — the bot's
@@ -22,7 +24,21 @@ export function AddBotDialog({
   return <AddBotClient botId={data?.botId ?? ""} variant="dialog" onClose={() => closePopup(false)} />;
 }
 
+/** A group's invite, as a dialog — the invite page's own card (see InviteClient). */
+export type InvitePopupData = { code: string };
+
+export function InviteDialog({
+  closePopup,
+  data,
+}: {
+  closePopup: (hasAction?: boolean) => void;
+  data?: InvitePopupData;
+}) {
+  return <InviteClient code={data?.code ?? ""} variant="dialog" onClose={() => closePopup(false)} />;
+}
+
 const ADD_PATH_RE = /^\/bots\/([^/]+)\/add\/?$/;
+const INVITE_PATH_RE = /^\/invite\/([^/]+)\/?$/;
 
 /** The hosts a link has to be on to be the site's own add page. */
 function isSiteHost(host: string): boolean {
@@ -35,7 +51,8 @@ function isSiteHost(host: string): boolean {
 }
 
 /**
- * Turns every click on a link to a bot's add page into the dialog — one
+ * Turns every click on a link to a bot's add page, or to a group's invite,
+ * into its dialog — one
  * listener for the whole app rather than a handler on each such link, so the
  * ones inside a chat message, a DM or a bot's bio are caught as well.
  *
@@ -59,15 +76,25 @@ export function BotAddLinkInterceptor() {
       } catch {
         return;
       }
-      if (!isSiteHost(url.host)) return;
-      const match = ADD_PATH_RE.exec(url.pathname);
-      if (!match || window.location.pathname === url.pathname) return;
+      if (window.location.pathname === url.pathname && window.location.host === url.host) return;
+      let open: (() => void) | null = null;
+      const addMatch = isSiteHost(url.host) ? ADD_PATH_RE.exec(url.pathname) : null;
+      if (addMatch) {
+        const botId = decodeURIComponent(addMatch[1]);
+        open = () => void openPopup("add_bot", { data: { botId } });
+      } else {
+        // The site's own invite path, or any host an invite link is made on
+        // (the short one included — see inviteCodeFromInput).
+        const inviteMatch = isSiteHost(url.host) ? INVITE_PATH_RE.exec(url.pathname) : null;
+        const code = inviteMatch && isInviteCode(inviteMatch[1]) ? inviteMatch[1] : inviteCodeFromInput(url.href);
+        if (code) open = () => void openPopup("join_invite", { data: { code } });
+      }
+      if (!open) return;
       e.preventDefault();
-      const botId = decodeURIComponent(match[1]);
       // After the click's own handlers — one of which may be closing the
       // dialog the link sat in (a bot's card, a profile) — so that closing is
       // not taken for closing this one.
-      setTimeout(() => void openPopup("add_bot", { data: { botId } }), 0);
+      setTimeout(open, 0);
     }
     document.addEventListener("click", onClick, true);
     return () => document.removeEventListener("click", onClick, true);

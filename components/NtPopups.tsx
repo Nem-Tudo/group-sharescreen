@@ -27,7 +27,7 @@ import {
 import { ChannelSettingsDialog } from "@/components/groups/ChannelSettingsDialog";
 import { RoomToGroupDialog } from "@/components/RoomToGroup";
 import { BotExplorerDialog } from "@/components/bots/BotExplorerDialog";
-import { AddBotDialog, BotAddLinkInterceptor } from "@/components/bots/AddBotDialog";
+import { AddBotDialog, BotAddLinkInterceptor, InviteDialog } from "@/components/bots/AddBotDialog";
 
 // Popup types this app registers with the library, opened by name through
 // `useNtPopups().openPopup(...)`. The cast is because the library types
@@ -60,6 +60,8 @@ const customPopups: Record<string, ComponentType> = {
   bot_explorer: BotExplorerDialog as ComponentType,
   // Adding a bot to a group, from any /bots/:id/add link — see AddBotDialog.
   add_bot: AddBotDialog as ComponentType,
+  // A group's invite, from any invite link — see InviteDialog.
+  join_invite: InviteDialog as ComponentType,
 };
 
 // Mounted once in app/layout.tsx, inside AuthProvider — the popups it renders
@@ -84,7 +86,8 @@ export function NtPopups({ children }: { children: ReactNode }) {
       {/* A theme being tried on — inside the provider, since its way back
           reopens the dialog it came from. See lib/themeChoice. */}
       <ThemePreviewBar />
-      {/* Every link to a bot's add page opens it here instead of navigating. */}
+      {/* Every link to a bot's add page or a group's invite opens it here
+          instead of navigating. */}
       <BotAddLinkInterceptor />
     </NtPopupProvider>
   );
