@@ -449,47 +449,6 @@ export type AvatarOptions = {
   canUpload: boolean;
 };
 
-// Bot accounts this account created (see the API's accountRoutes.ts). A bot
-// authenticates with `Authorization: Bot <token>`; the token only ever comes
-// back from createBot and regenerateBotToken, and the API keeps no copy of it.
-
-export async function fetchMyBots(): Promise<{ bots: Account[]; max: number }> {
-  const token = getAccountToken();
-  if (!token) throw new Error(translate("accountApi.youAreNotSignedIn"));
-  const res = await fetch(`${getSignalingHttpBase()}/account/bots`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) throw new Error(await parseErrorMessage(res, translate("accountApi.couldNotLoadYourBots")));
-  return (await res.json()) as { bots: Account[]; max: number };
-}
-
-export async function createBot(
-  username: string,
-  displayName: string
-): Promise<{ bot: Account; token: string }> {
-  const token = getAccountToken();
-  if (!token) throw new Error(translate("accountApi.youAreNotSignedIn"));
-  const res = await fetch(`${getSignalingHttpBase()}/account/bots`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ username, displayName }),
-  });
-  if (!res.ok) throw new Error(await parseErrorMessage(res, translate("common.couldNotCreateTheBot")));
-  return (await res.json()) as { bot: Account; token: string };
-}
-
-/** Issues a new token for one of your bots — the old one stops working at once. */
-export async function regenerateBotToken(botId: string): Promise<string> {
-  const token = getAccountToken();
-  if (!token) throw new Error(translate("accountApi.youAreNotSignedIn"));
-  const res = await fetch(`${getSignalingHttpBase()}/account/bots/${encodeURIComponent(botId)}/token`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) throw new Error(await parseErrorMessage(res, translate("common.couldNotGenerateANewToken")));
-  return ((await res.json()) as { token: string }).token;
-}
-
 export async function fetchAvatarOptions(): Promise<AvatarOptions> {
   const token = getAccountToken();
   const res = await fetch(`${getSignalingHttpBase()}/account/avatars`, {

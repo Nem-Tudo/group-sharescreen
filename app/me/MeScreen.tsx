@@ -22,7 +22,7 @@ import {
   MdSmartToy,
 } from "react-icons/md";
 import { AccountConnections } from "@/components/AccountConnections";
-import { BotsPanel } from "@/components/BotsPanel";
+import { DEVELOPERS_URL } from "@/lib/botsApi";
 import { CompleteOAuthSignupForm } from "@/components/CompleteOAuthSignupForm";
 import { CreateAccountForm } from "@/components/CreateAccountForm";
 import { GlobeIcon } from "@/components/icons";
@@ -53,7 +53,7 @@ import { useT } from "@/lib/useI18n";
 // Nothing here is new; it is the header's links and the account menu's rows
 // on one screen, so a phone — which has neither — can reach all of it.
 
-type Mode = "home" | "rename" | "create" | "login" | "bots";
+type Mode = "home" | "rename" | "create" | "login";
 
 const card = "overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950";
 const rowClass =
@@ -125,8 +125,6 @@ export function MeScreen() {
               onSwitchToCreate={() => setMode("create")}
               onTicket={setOAuthTicket}
             />
-          ) : mode === "bots" ? (
-            <BotsPanel onBack={backHome} />
           ) : (
             <form onSubmit={handleRename} className="flex flex-col gap-3">
               <label htmlFor="me-name" className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
@@ -211,7 +209,15 @@ export function MeScreen() {
             <Row href={`/user/${account.username}`} icon={MdPersonOutline} label={t("accountMenu.myProfile")} />
             <Row onClick={() => openDirectMessages(null)} icon={MdChatBubbleOutline} label={t("common.messages")} />
             <Row href="/friends" icon={MdPeopleOutline} label={t("common.friends")} />
-            {!account.bot && <Row onClick={() => setMode("bots")} icon={MdSmartToy} label={t("common.createBot")} />}
+            {/* Bots live in the developer dashboard, its own site — opened
+                outside, where the same account signs in. */}
+            {!account.bot && (
+              <Row
+                onClick={() => window.open(DEVELOPERS_URL, "_blank", "noopener")}
+                icon={MdSmartToy}
+                label={t("accountMenu.developerPortal")}
+              />
+            )}
             {isAdmin && <Row href="/admin" icon={MdAdminPanelSettings} label={t("accountMenu.adminPanel")} tone="purple" />}
           </>
         ) : (

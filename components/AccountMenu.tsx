@@ -13,7 +13,7 @@ import { LoginForm } from "@/components/LoginForm";
 import { CompleteOAuthSignupForm } from "@/components/CompleteOAuthSignupForm";
 import Link from "next/link";
 import { AccountConnections } from "@/components/AccountConnections";
-import { BotsPanel } from "@/components/BotsPanel";
+import { DEVELOPERS_URL } from "@/lib/botsApi";
 import { ThemeSegmented } from "@/components/ThemeToggle";
 import { LanguagePicker } from "@/components/LanguageToggle";
 import { openDirectMessages } from "@/lib/dmWindow";
@@ -35,7 +35,7 @@ import { useT } from "@/lib/useI18n";
 // component owns the whole flow and no state has to be threaded through the
 // header to the page.
 
-type PanelMode = "menu" | "rename" | "create" | "login" | "bots";
+type PanelMode = "menu" | "rename" | "create" | "login";
 
 const itemClass =
   "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800";
@@ -129,10 +129,6 @@ export function AccountMenu() {
             onTicket={setOAuthTicket}
           />
         </div>
-      ) : mode === "bots" ? (
-        <div className="p-2">
-          <BotsPanel onBack={() => setMode("menu")} />
-        </div>
       ) : mode === "rename" ? (
         <form onSubmit={handleRenameSubmit} className="flex flex-col gap-2 p-2">
           <label
@@ -206,11 +202,13 @@ export function AccountMenu() {
                   {t("common.friends")}
                 </Link>
                 {/* A bot cannot own bots (the API refuses it too), so the row
-                    is only for a person's account. */}
+                    is only for a person's account. Bots are made and managed
+                    in the developer dashboard, a separate site signed into
+                    with this same account. */}
                 {authAccount?.id && !authAccount.bot && (
-                  <button type="button" onClick={() => setMode("bots")} className={itemClass}>
-                    {t("common.createBot")}
-                  </button>
+                  <a href={DEVELOPERS_URL} target="_blank" rel="noopener" onClick={close} className={itemClass}>
+                    {t("accountMenu.developerPortal")}
+                  </a>
                 )}
                 {(authAccount?.flags?.includes("ADMIN") || state.account?.flags?.includes("ADMIN")) && (
                   <Link href="/admin" onClick={close} className={`${itemClass} font-semibold text-purple-600 dark:text-purple-400`}>

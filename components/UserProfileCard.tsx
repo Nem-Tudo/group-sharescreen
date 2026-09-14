@@ -6,6 +6,7 @@ import { fetchUserProfile, formatDuration, peekUserProfile, type UserProfile } f
 import { MicIcon, ScreenIcon } from "@/components/icons";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { BotTag } from "@/components/BotTag";
+import { botAddPath } from "@/lib/botsApi";
 import { BsCoin, BsClock, BsShop } from "react-icons/bs";
 import { SocialActions } from "@/components/SocialActions";
 import { useAuth } from "@/lib/AuthContext";
@@ -1211,6 +1212,19 @@ function ProfileContent({
                 <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-emerald-500" />
                 {t("userProfileCard.isInAPublicRoomRight")} {live.peopleCount}{" "}
                 {tc("common.personNoun", live.peopleCount)}{t("userProfileCard.goInto")}{live.room}&quot;
+              </Link>
+            )}
+
+            {/* How a bot gets into a group: somebody who runs one adds it from
+                here (see app/bots/[id]/add). The page itself says whether this
+                person may — a private bot, or no group they manage. */}
+            {account.bot && (
+              <Link
+                href={botAddPath(account.id)}
+                onClick={onNavigate}
+                className="mt-4 flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-3 py-2.5 text-sm font-medium text-white transition hover:bg-indigo-500"
+              >
+                {t("addBot.addToAGroup")}
               </Link>
             )}
 
