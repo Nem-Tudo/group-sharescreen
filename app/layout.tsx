@@ -31,6 +31,13 @@ import SupressErrors from "./middlewares/SupressErrors";
 import { translate } from "@/lib/i18n";
 
 const UMAMI_WEBSITE_ID = process.env.NEXT_PUBLIC_UMAMI_WEBSITE_ID;
+// Google Analytics 4, alongside Umami rather than instead of it — see
+// lib/analytics.ts, which sends every event to both. Only an ID in GA4's own
+// shape is used: it is written into an inline script below, and a malformed
+// value there would be a script error on every page (or worse).
+const GA_MEASUREMENT_ID = /^G-[A-Z0-9]+$/.test(process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID ?? "")
+  ? process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID
+  : undefined;
 const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
 const SITE_URL = "https://golive.nemtudo.me";
@@ -286,6 +293,22 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             data-website-id={UMAMI_WEBSITE_ID}
             strategy="afterInteractive"
           />
+        )}
+        {GA_MEASUREMENT_ID && (
+          <>
+            {/* The standard gtag snippet. Page views need nothing more than
+                this: GA4's enhanced measurement counts client-side
+                navigations (history changes) on its own, which is every
+                navigation in this app after the first load. Custom events
+                arrive through lib/analytics.ts's trackEvent. */}
+            <Script
+              src={`https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`}
+              strategy="afterInteractive"
+            />
+            <Script id="ga-init" strategy="afterInteractive">
+              {`window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}window.gtag=gtag;gtag('js',new Date());gtag('config','${GA_MEASUREMENT_ID}');`}
+            </Script>
+          </>
         )}
         {TURNSTILE_SITE_KEY && (
           // Loaded here rather than on demand purely for latency: the first
