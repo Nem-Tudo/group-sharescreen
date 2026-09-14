@@ -13,6 +13,12 @@ import {
 import { connectionRegistry, createStatsSampler } from "@/lib/connectionRegistry";
 import { connectionDiagLink, type RemoteDiag } from "@/lib/connectionDiagLink";
 import type { QualityChannel } from "@/lib/qualityNegotiation";
+import { turnProvider, type TurnProvider } from "@/lib/iceConfig";
+
+const TURN_PROVIDER_KEYS: Record<TurnProvider, string> = {
+  cloudflare: "connectionStats.turnCloudflare",
+  own: "connectionStats.turnOwn",
+};
 
 // How often the panel re-reads the connection. Two seconds is short enough to
 // watch a problem happen and long enough that a delta covers a few keyframes
@@ -125,6 +131,23 @@ export function ConnectionStatsOverlay({
   const send = diag?.send ?? null;
   const causes: Cause[] = snapshot ? diagnose({ route, send, recv }) : [];
 
+  // Which TURN network each relaying side is on. Ours comes from our own
+  // stats; the other side's only from the sender's report, since the browser
+  // says nothing about which server the far end's relay candidate came from.
+  // A side that is relaying but cannot say (Firefox, or a sender on an older
+  // build) is shown as unknown rather than guessed.
+  const localRelays = route?.kind === "relay-local" || route?.kind === "relay-both";
+  const remoteRelays = route?.kind === "relay-remote" || route?.kind === "relay-both";
+  const remoteRelayUrl =
+    diag?.route && typeof diag.route.relayUrl === "string" ? diag.route.relayUrl : null;
+  const providerLabel = (provider: TurnProvider | null) =>
+    provider ? t(TURN_PROVIDER_KEYS[provider]) : t("connectionStats.turnUnknown");
+  const turnLines = [
+    localRelays &&
+      `${t("connectionStats.turnYourSide")}: ${providerLabel(turnProvider(snapshot?.route.relayUrl))}`,
+    remoteRelays && `${t("connectionStats.turnOtherSide")}: ${providerLabel(turnProvider(remoteRelayUrl))}`,
+  ].filter((line): line is string => typeof line === "string");
+
   async function copy() {
     const report = {
       at: new Date().toISOString(),
@@ -132,6 +155,10 @@ export function ConnectionStatsOverlay({
       originId,
       viaCascade: local?.viaRelay ?? false,
       route,
+      turn: {
+        ours: localRelays ? (turnProvider(snapshot?.route.relayUrl) ?? "unknown") : null,
+        theirs: remoteRelays ? (turnProvider(remoteRelayUrl) ?? "unknown") : null,
+      },
       receiving: recv,
       sender: diag,
       causes: causes.map((c) => c.id),
@@ -190,6 +217,11 @@ export function ConnectionStatsOverlay({
         </span>
         {route?.relayProtocol && ` (${route.relayProtocol.toUpperCase()})`}
         {route?.rttMs != null && ` · RTT ${route.rttMs} ms`}
+        {turnLines.map((line) => (
+          <span key={line} className="block text-zinc-400">
+            TURN · {line}
+          </span>
+        ))}
         {local?.viaRelay && (
           <span className="block text-zinc-400">{t("connectionStats.viaCascade")}</span>
         )}

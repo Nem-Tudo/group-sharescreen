@@ -368,6 +368,26 @@ export async function setAntiSpamEnabled(enabled: boolean): Promise<boolean> {
   return data.enabled;
 }
 
+// Whether Cloudflare's TURN is handed out (see the API's cloudflareTurn.ts).
+// `configured` is false when the API has no Cloudflare credentials at all, in
+// which case the switch has nothing to act on.
+export interface CloudflareTurnSetting {
+  enabled: boolean;
+  configured: boolean;
+}
+
+export async function fetchCloudflareTurn(): Promise<CloudflareTurnSetting> {
+  return adminFetch<CloudflareTurnSetting>("/admin/turn/cloudflare");
+}
+
+export async function setCloudflareTurnEnabled(enabled: boolean): Promise<CloudflareTurnSetting> {
+  return adminFetch<CloudflareTurnSetting>("/admin/turn/cloudflare", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+}
+
 // The Adsterra kill switch (see the API's adsConfig.ts). Reading it needs no
 // admin rights — it is the same value every visitor's page already fetches to
 // decide whether to render a slot — so this goes to the public route rather

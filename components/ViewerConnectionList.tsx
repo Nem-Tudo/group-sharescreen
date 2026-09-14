@@ -5,6 +5,7 @@ import { useT } from "@/lib/useI18n";
 import { diagnose, isRelayed, type PcSnapshot } from "@/lib/connectionDiagnostics";
 import { connectionRegistry, createStatsSampler } from "@/lib/connectionRegistry";
 import { signalingClient } from "@/lib/signalingClient";
+import { turnProvider } from "@/lib/iceConfig";
 
 const POLL_MS = 2000;
 
@@ -76,6 +77,7 @@ export function ViewerConnectionList() {
             const { route, send } = row.snapshot;
             const causes = diagnose({ route, send, recv: null });
             const worst = causes[0];
+            const provider = route.localType === "relay" ? turnProvider(route.relayUrl) : null;
             return (
               <li key={row.key} className="leading-snug">
                 <span className="font-medium text-zinc-900 dark:text-zinc-100">{row.name}</span>
@@ -83,6 +85,9 @@ export function ViewerConnectionList() {
                 <span className={isRelayed(route.kind) ? "text-amber-600 dark:text-amber-500" : ""}>
                   {" · "}
                   {isRelayed(route.kind) ? "TURN" : t("connectionStats.routeDirect")}
+                  {/* Only our own side is knowable from here (see
+                      ConnectionStatsOverlay) — a viewer's relay is theirs. */}
+                  {provider && ` · ${t(provider === "cloudflare" ? "connectionStats.turnCloudflare" : "connectionStats.turnOwn")}`}
                 </span>
                 {send && (
                   <span className="block font-mono text-[11px] text-zinc-500 tabular-nums">

@@ -3,6 +3,7 @@
 import { StatsOverview } from "./StatsOverview";
 import { StreamStatsPanel } from "./StreamStatsPanel";
 import { ConnectionQualityPanel } from "./ConnectionQualityPanel";
+import { CloudflareTurnPanel } from "./CloudflareTurnPanel";
 import { AnnouncementPanel } from "./AnnouncementPanel";
 import { PartnerAdsPanel } from "./PartnerAdsPanel";
 import { AdsterraPanel } from "./AdsterraPanel";
@@ -70,6 +71,9 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     get label() { return translate("admin.dashboardPanel.connectionQuality"); },
     Panel: () => (
       <Group>
+        {/* Above the numbers: when the numbers say Cloudflare's network is
+            the problem (or its bill is), this is what gets reached for. */}
+        <CloudflareTurnPanel />
         <ConnectionQualityPanel />
       </Group>
     ),

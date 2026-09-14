@@ -50,7 +50,15 @@ async function load() {
       signal: controller.signal,
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const body = (await res.json()) as { iceServers?: unknown; expiresAt?: unknown };
+    const body = (await res.json()) as { iceServers?: unknown; expiresAt?: unknown; disabled?: unknown };
+    // The admin switched Cloudflare's TURN off. Unlike every other empty
+    // answer, this one means "stop using what you have" — see the API's GET
+    // /ice-servers. Connections opened from here on go without it.
+    if (body.disabled === true) {
+      setDynamicIceServers([]);
+      schedule(RETRY_MS);
+      return;
+    }
     const servers = Array.isArray(body.iceServers) ? body.iceServers.filter(isUsableServer) : [];
     const expiresAt = typeof body.expiresAt === "number" ? body.expiresAt : null;
     if (servers.length === 0 || expiresAt === null || expiresAt <= Date.now()) {
@@ -76,5 +84,18 @@ async function load() {
 export function ensureIceServers() {
   if (started || typeof window === "undefined") return;
   started = true;
+  void load();
+}
+
+/**
+ * Asks the API again right now, instead of at the next scheduled refresh —
+ * the server said the TURN settings changed (the "ice-servers-changed"
+ * message, sent when the admin switches Cloudflare on or off). A tab that
+ * never needed ICE servers has nothing to refresh; it loads them when it does.
+ */
+export function refreshIceServers() {
+  if (!started || typeof window === "undefined") return;
+  if (timer) clearTimeout(timer);
+  timer = null;
   void load();
 }

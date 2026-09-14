@@ -40,6 +40,15 @@ export interface RouteInfo {
   protocol: string | null;
   /** How we reach our TURN server, when we use one: "udp", "tcp" or "tls". */
   relayProtocol: string | null;
+  /**
+   * The TURN server our side relays through, as the browser reports it on the
+   * relay candidate ("turn:turn.cloudflare.com:3478?transport=udp") — which of
+   * the TURN networks this connection is on (see lib/iceConfig.ts's
+   * turnProvider). Null when our side is not relaying, and when the browser
+   * does not say (Firefox leaves it out). Optional because a report from an
+   * older client does not carry it at all.
+   */
+  relayUrl?: string | null;
   rttMs: number | null;
   availableOutgoingKbps: number | null;
 }
@@ -234,6 +243,7 @@ export function readPcStats(
     remoteType,
     protocol: str(local?.protocol),
     relayProtocol: localType === "relay" ? str(local?.relayProtocol) : null,
+    relayUrl: localType === "relay" ? str(local?.url) : null,
     rttMs: pairRtt > 0 ? Math.round(pairRtt * 1000) : null,
     availableOutgoingKbps: available > 0 ? Math.round(available / 1000) : null,
   };

@@ -113,6 +113,19 @@ assert.equal(classifyRoute("unknown", "unknown"), "unknown");
   const { snapshot } = readPcStats(pairRecords("relay", "srflx", {}, { relayProtocol: "tcp" }), null, 1000);
   assert.equal(snapshot.route.kind, "relay-local");
   assert.equal(snapshot.route.relayProtocol, "tcp");
+  // The browser left the server out (Firefox): nothing to report.
+  assert.equal(snapshot.route.relayUrl, null);
+}
+
+{
+  // Which TURN server our relay candidate came from — what tells Cloudflare
+  // apart from the VPS in the stats panel. A server URL, never our address.
+  const url = "turn:turn.cloudflare.com:3478?transport=udp";
+  const { snapshot } = readPcStats(pairRecords("relay", "host", {}, { relayProtocol: "udp", url }), null, 1000);
+  assert.equal(snapshot.route.relayUrl, url);
+  // A direct connection carries none, whatever else was gathered.
+  const direct = readPcStats(pairRecords("host", "host", {}, { url }), null, 1000).snapshot;
+  assert.equal(direct.route.relayUrl, null);
 }
 
 {

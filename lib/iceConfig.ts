@@ -74,6 +74,26 @@ export function isCloudflareTurnUrl(url: string): boolean {
   );
 }
 
+/** Which TURN network a relay candidate's URL belongs to. */
+export type TurnProvider = "cloudflare" | "own";
+
+/**
+ * Which of the site's TURN networks `url` is — for telling people which one a
+ * relayed connection is on (see components/ConnectionStatsOverlay). Also
+ * works for a URL the *other* end reported: both sides load the same servers.
+ * The "cloudflare" host check is the fallback for that other end's report
+ * arriving before our own Cloudflare servers have loaded. Null for anything
+ * unrecognised or absent.
+ */
+export function turnProvider(url: string | null | undefined): TurnProvider | null {
+  if (typeof url !== "string" || !url) return null;
+  const host = turnHost(url);
+  if (!host) return null;
+  if (isCloudflareTurnUrl(url) || /(^|\.)cloudflare\.com$/.test(host)) return "cloudflare";
+  if (TURN_URLS.some((own) => turnHost(own) === host)) return "own";
+  return null;
+}
+
 /**
  * Whether any TURN server is available — the build's own or Cloudflare's.
  *

@@ -69,4 +69,16 @@ assert.equal(notified, 1);
 assert.equal(cfOnly.isTurnConfigured(), true);
 assert.equal(cfOnly.iceConfigFor(true).iceTransportPolicy, "relay");
 
+// Which network a relay candidate's URL belongs to (the stats panel's "TURN ·
+// Cloudflare" / "servidor do GoLive").
+assert.equal(withBoth.turnProvider("turn:turn.cloudflare.com:3478?transport=udp"), "cloudflare");
+assert.equal(withBoth.turnProvider("turns:vps.example.com:5349"), "own");
+assert.equal(withBoth.turnProvider("turn:someone-else.example:3478"), null);
+assert.equal(withBoth.turnProvider(null), null);
+// The other end's report can arrive before our own Cloudflare servers load;
+// the host alone still names it.
+assert.equal(cfOnly.turnProvider("turn:turn.cloudflare.com:443?transport=tcp"), "cloudflare");
+const nothingLoaded = await loadModule(undefined, "nothing");
+assert.equal(nothingLoaded.turnProvider("turn:turn.cloudflare.com:3478"), "cloudflare");
+
 console.log("iceConfig: ok");

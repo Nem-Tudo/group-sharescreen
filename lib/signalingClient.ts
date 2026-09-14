@@ -22,6 +22,7 @@ import { isUserMentionedInMessage, containsBroadcastMention } from "./chatMentio
 import { showNotification } from "./notifications";
 import { isObsClient } from "./browserEnv";
 import { getSignalingWsUrl } from "./roomsApi";
+import { refreshIceServers } from "./iceServers";
 import { translate } from "@/lib/i18n";
 import { attachmentsPreview, parseAttachments, type ChatAttachment } from "./chatAttachments";
 
@@ -930,6 +931,9 @@ function writeStoredCaptchaVerifiedAt(at: number | null): void {
 // verification call without retrying forever if Turnstile is genuinely
 // broken (blocked by an extension, network issue, misconfigured site key).
 const MAX_JOIN_RETRIES = 3;
+
+// See the "ice-servers-changed" handler.
+const ICE_REFRESH_JITTER_MS = 10_000;
 
 // The message shown for each reason the server gives in "captcha-required"
 // (the API's CaptchaResult.reason). "wrong-action" reads as expired on purpose,
@@ -2331,6 +2335,14 @@ class SignalingClient {
             typeof msg.adsterraEnabled === "boolean" ? msg.adsterraEnabled : null,
           adsConfigSeq: this.state.adsConfigSeq + 1,
         });
+        break;
+      case "ice-servers-changed":
+        // The admin switched Cloudflare's TURN on or off — see
+        // lib/iceServers.ts. Spread over a few seconds rather than acted on
+        // at once: this reaches every open tab in the same instant, and
+        // thirteen thousand simultaneous GET /ice-servers would be a burst
+        // the API has no reason to take.
+        setTimeout(refreshIceServers, Math.random() * ICE_REFRESH_JITTER_MS);
         break;
       case "supporters":
         this.setState({
