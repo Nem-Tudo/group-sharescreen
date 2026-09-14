@@ -1532,6 +1532,8 @@
   "groups.groupMessageComposer.theImagesWentOverTheMaximum": "Las imágenes han superado el tamaño máximo por mensaje.",
   "groups.groupMessageComposer.theMessageGotTooLongWith": "El mensaje se ha hecho demasiado largo con las menciones. Acórtalo un poco.",
   "groups.groupMessageComposer.youDoNotHavePermissionTo": "No tienes permiso para enviar imágenes en esta sala.",
+  "groups.groupName.privateHint": "Grupo privado. Solo las personas con la invitación pueden entrar",
+  "groups.groupName.publicHint": "Grupo público. Aparece en la pestaña descubrir grupos",
   "groups.groupPages.groupNotFound": "Grupo no encontrado",
   "groups.groupPages.groupSuspended": "Grupo suspendido",
   "groups.groupPages.isLocked": "está bloqueada",

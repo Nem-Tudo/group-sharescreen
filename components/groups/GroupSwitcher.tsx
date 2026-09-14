@@ -13,6 +13,7 @@ import { prefetchGroup, useMyGroups } from "@/lib/useGroups";
 import { useGroupContextMenu } from "@/components/groups/groupMenus";
 import { useGroupNavigation } from "@/lib/groupNavigation";
 import { useT } from "@/lib/useI18n";
+import type { GroupVisibility } from "@/lib/groupsApi";
 
 // Which group is open, and the way to every other one — a switcher in the top
 // bar, the same place the room shows its own name. From lg up the groups are
@@ -27,12 +28,15 @@ export function GroupSwitcher({
   fallbackName,
   fallbackIconUrl,
   fallbackFlags,
+  visibility,
 }: {
   activeGroupId: string | null;
   /** The open group's name from its detail, for the moment before the list has loaded. */
   fallbackName?: string | null;
   fallbackIconUrl?: string | null;
   fallbackFlags?: string[] | null;
+  /** The open group's visibility, from its detail — the list of groups does not carry it. */
+  visibility?: GroupVisibility | null;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -145,6 +149,7 @@ export function GroupSwitcher({
         <GroupName
           name={name ?? t("common.groups")}
           flags={name ? flags : null}
+          visibility={name ? visibility : null}
           className="text-base font-semibold text-zinc-950 sm:text-lg dark:text-zinc-50"
           badgeClassName="h-5 w-5"
         />

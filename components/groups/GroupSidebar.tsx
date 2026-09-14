@@ -1145,7 +1145,7 @@ export function GroupRoomsPanel({
           detail={detail}
           className="-mx-1.5 flex min-w-0 items-center gap-1 rounded-lg px-1.5 py-1 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-900"
         >
-          <GroupName name={group.name} flags={group.flags} badgeClassName="h-4 w-4" />
+          <GroupName name={group.name} flags={group.flags} visibility={group.visibility} badgeClassName="h-4 w-4" />
           <MdExpandMore className="h-4 w-4 shrink-0 text-zinc-500" />
         </GroupMenu>
         <div className="flex shrink-0 items-center gap-0.5">

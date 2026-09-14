@@ -738,7 +738,14 @@ export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: 
 
   return (
     <DialogFrame
-      title={<GroupName name={detail.group.name} flags={detail.group.flags} badgeClassName="h-5 w-5" />}
+      title={
+        <GroupName
+          name={detail.group.name}
+          flags={detail.group.flags}
+          visibility={detail.group.visibility}
+          badgeClassName="h-5 w-5"
+        />
+      }
       onClose={() => closePopup(false)}
       wide
       tabs={
