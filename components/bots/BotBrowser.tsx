@@ -554,7 +554,18 @@ function BotCard({
           <MdGroups className="h-3.5 w-3.5 shrink-0" />
           {tc("botDirectory.inGroups", bot.groupCount)}
         </p>
-        <div className="mt-auto pt-1">{action}</div>
+        <div className="mt-auto flex items-center gap-1.5 pt-1">
+          {/* The profile, in its dialog — the same one the picture and the
+              name open, as a button somebody does not have to discover. */}
+          <button
+            type="button"
+            onClick={onOpenProfile}
+            className="shrink-0 cursor-pointer rounded-lg border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+          >
+            {t("botDirectory.viewProfile")}
+          </button>
+          <div className="min-w-0 flex-1">{action}</div>
+        </div>
       </div>
     </li>
   );

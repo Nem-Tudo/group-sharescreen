@@ -3025,6 +3025,7 @@
   "botDirectory.count.other": "{count} bots",
   "botDirectory.inGroups.one": "In {count} group",
   "botDirectory.inGroups.other": "In {count} groups",
+  "botDirectory.viewProfile": "View profile",
   "botDirectory.inThisGroup": "In the group",
   "botDirectory.loadFailed": "Couldn't load the bots.",
   "botDirectory.noResultsFor": "No bots found for “{query}”.",
