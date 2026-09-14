@@ -1077,6 +1077,34 @@ html[data-app-shell] body {
   transition: opacity 120ms ease;
 }
 
+/* Beside or above the face, where under it was taken. A stack's tag keeps
+   clear of its cards and "+N", which stick out to the right and upwards. */
+.gl-pin-label[data-at="right"] {
+  top: 50%;
+  left: calc(100% + 6px);
+  transform: translateY(-50%);
+}
+
+.gl-pin-stack .gl-pin-label[data-at="right"] {
+  left: calc(100% + 14px);
+}
+
+.gl-pin-label[data-at="left"] {
+  top: 50%;
+  left: auto;
+  right: calc(100% + 6px);
+  transform: translateY(-50%);
+}
+
+.gl-pin-label[data-at="above"] {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+
+.gl-pin-stack .gl-pin-label[data-at="above"] {
+  bottom: calc(100% + 12px);
+}
+
 /* A tag that did not fit: gone until its pin is pointed at or focused. */
 .gl-pin-label.is-hidden {
   opacity: 0;

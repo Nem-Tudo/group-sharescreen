@@ -220,6 +220,12 @@ export interface GroupMessage {
   attachments?: ChatAttachment[];
   replyTo?: GroupReplyTo | null;
   mentions?: string[];
+  /**
+   * On a page from the API, for a message with an @online, @offline or
+   * expression mention: whether it took this reader in when it was sent. Absent
+   * on a message that arrived live — see lib/mentionExpr's mentionsTakeIn.
+   */
+  pingedMe?: boolean;
   /** In the order each emoji was first used. Absent when nobody has reacted (and from an older API). */
   reactions?: GroupReaction[];
   ts: number;
@@ -671,6 +677,20 @@ export const fetchReactionUsers = (
     signal
   );
 };
+
+/**
+ * Whom one mention (a `mentions` entry — "@online", "@expr:…", see
+ * lib/mentionExpr) would alert if sent in this room now: whether this person
+ * may send it, how many it would reach, and how many of those are online.
+ * For the mention editor's preview.
+ */
+export const fetchMentionAudience = (groupId: string, channelId: string, entry: string, signal?: AbortSignal) =>
+  request<{ allowed: boolean; count: number; online: number }>(
+    "GET",
+    `/groups/${enc(groupId)}/channels/${enc(channelId)}/mention-audience?${new URLSearchParams({ m: entry })}`,
+    undefined,
+    signal
+  );
 
 /** Takes `userId`'s `emoji` off a message — somebody else's needs "Gerenciar reações". */
 export const removeReactionOf = (groupId: string, channelId: string, messageId: string, emoji: string, userId: string) =>

@@ -35,11 +35,17 @@ import { DisplayUserName } from "@/components/DisplayUserName";
 import { Popover, Tooltip } from "@/components/Tooltip";
 import { UserAvatar } from "@/components/UserAvatar";
 import {
+  EVERYONE_CANDIDATE,
   GroupMessageComposer,
+  MENTION_BUILDER_CANDIDATE,
+  OFFLINE_CANDIDATE,
+  ONLINE_CANDIDATE,
   type ComposerHandle,
   type ComposerPayload,
+  type ComposerRole,
   type MentionCandidate,
 } from "@/components/groups/GroupMessageComposer";
+import { MentionBuilderDialog, describeMention, type BuilderRole } from "@/components/groups/MentionBuilderDialog";
 import { clickPerson, contextPerson } from "@/components/groups/groupProfile";
 import { QUICK_REACTIONS, ReactionPicker } from "@/components/groups/ReactionPicker";
 import { ReactionsDialog } from "@/components/groups/ReactionsDialog";
@@ -50,8 +56,11 @@ import { mentionInComposer } from "@/lib/groupMentionBridge";
 import { Twemoji } from "@/components/Twemoji";
 import { rememberChannel } from "@/components/groups/lastChannel";
 import { mentionsRegexFor, normalizeSearch, tokenizeMentions } from "@/lib/chatMentions";
+import { findMentionExprs, mentionsTakeIn, typedAtomResolver } from "@/lib/mentionExpr";
 import {
   EVERYONE_MENTION,
+  OFFLINE_MENTION,
+  ONLINE_MENTION,
   ROLE_MENTION_PREFIX,
   canInChannel,
   canManage,
@@ -216,9 +225,6 @@ const reactionChipIdle =
 /** A reaction you are on — Discord's blue border and background. */
 const reactionChipMine =
   "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-500/15 dark:text-blue-300";
-
-/** @everyone in the mention suggestions — see lib/groupPermissions' EVERYONE_MENTION. */
-const EVERYONE_CANDIDATE: MentionCandidate = { id: EVERYONE_MENTION, name: "everyone", avatarUrl: null };
 
 export function TextChannelView({ detail, channelId }: { detail: GroupDetail; channelId: string }) {
   const t = useT();
@@ -461,7 +467,9 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
           (prev) =>
             prev?.map((m) =>
               m.id === message.id
-                ? { ...m, text: message.text, mentions: message.mentions, editedAt: message.editedAt }
+                ? // pingedMe was the answer for the old mentions; the new ones
+                  // are worked out here, as for a message just arrived.
+                  { ...m, text: message.text, mentions: message.mentions, editedAt: message.editedAt, pingedMe: undefined }
                 : m
             ) ?? prev
         );
@@ -681,12 +689,36 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
   const roleCandidates: MentionCandidate[] = roles
     .filter((r) => r.mentionable || can("mentionEveryone"))
     .map((r) => ({ id: `${ROLE_MENTION_PREFIX}${r.id}`, name: r.name, avatarUrl: null, color: r.color }));
-  // Whom this person may @: the members, @everyone, roles — any of them, or none.
+  // Every role, for reading "{@Admin&@online}" — in the box as it is typed and
+  // in the messages that carry one — and for the mention editor to offer. All
+  // of them: an expression may narrow a mention this person is allowed by any
+  // role at all (see lib/mentionExpr's mayMention).
+  const composerRoles: ComposerRole[] = useMemo(
+    () => roles.map((r) => ({ id: r.id, name: r.name, color: r.color })),
+    [roles]
+  );
+  const builderRoles: BuilderRole[] = useMemo(
+    () => roles.map((r) => ({ id: r.id, name: r.name, color: r.color, mentionable: r.mentionable })),
+    [roles]
+  );
+  const resolveTyped = useMemo(() => typedAtomResolver(roles), [roles]);
+  const roleNameOf = (id: string) => roleById.get(id)?.name ?? "?";
+  // The editor can only build something sendable from an atom this person may
+  // mention on its own: @everyone's permission, or a mentionable role.
+  const builderUseful = can("mentionEveryone") || roles.some((r) => r.mentionable);
+  // Whom this person may @: the site's own mentions (@everyone, @online and
+  // @offline, all on @everyone's permission — see the API's mayMention), the
+  // editor, the roles and the members — any of them, or none.
   const candidates: MentionCandidate[] = [
-    ...(can("mentionEveryone") ? [EVERYONE_CANDIDATE] : []),
+    ...(can("mentionEveryone") ? [EVERYONE_CANDIDATE, ONLINE_CANDIDATE, OFFLINE_CANDIDATE] : []),
+    ...(builderUseful ? [MENTION_BUILDER_CANDIDATE] : []),
     ...roleCandidates,
     ...(can("mentionMembers") ? memberCandidates : []),
   ];
+  // The mention editor, while it is open: `insert` puts what it builds into
+  // the box, where "@mention" was typed (see the composer's insertBuilt).
+  const [mentionBuilder, setMentionBuilder] = useState<{ insert: (text: string) => void } | null>(null);
+  const openMentionBuilder = useCallback((insert: (text: string) => void) => setMentionBuilder({ insert }), []);
   // The roles I hold — a message that mentions one of them mentions me.
   const myRoleIds = detail.me.roleIds ?? detail.memberRoles?.[selfId] ?? [];
 
@@ -716,7 +748,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
     // The people it named, resolved by id — the message knows exactly which
     // ones it meant, even when two members share a name.
     const mentionedPeople = mentioned
-      .filter((m) => m !== EVERYONE_MENTION && !m.startsWith(ROLE_MENTION_PREFIX))
+      .filter((m) => !m.startsWith("@"))
       .map((id) => personById.get(id))
       .filter((p): p is GroupUser => Boolean(p));
     // Built from exactly what this message mentioned, since nothing else can
@@ -730,8 +762,14 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
         : mentionsRegexFor([
             ...mentionedPeople.map((p) => p.name),
             ...(mentioned.includes(EVERYONE_MENTION) ? ["everyone"] : []),
+            ...(mentioned.includes(ONLINE_MENTION) ? ["online"] : []),
+            ...(mentioned.includes(OFFLINE_MENTION) ? ["offline"] : []),
             ...mentionedRoles.map((r) => r.name),
           ]);
+    // Anything that is not a person could have been written as an expression
+    // ("{@Admin&@online}", even a lone "{@Admin}") — only then is it worth
+    // looking for braces.
+    const mayHoldExpressions = mentioned.some((m) => m.startsWith("@"));
     // A message is cut at its tokens first: <@id> and <#id> are drawn from
     // their ids. What lies between them — and the whole of any message sent
     // before the tokens existed — goes through the old "@Name" reading below.
@@ -742,7 +780,34 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
       return legacyText(segment.value, key);
     });
 
+    // Expressions first: each "{…}" whose entry the message carries is one
+    // mention, drawn whole, with what it meant in words on hover. One the
+    // message does not carry — its author could not send it, or a role in it
+    // was renamed since — is the plain text around it.
     function legacyText(text: string, keyPrefix: string): ReactNode[] {
+      const spans =
+        mayHoldExpressions && text.includes("{")
+          ? findMentionExprs(text, resolveTyped).filter((span) => mentioned.includes(span.entry))
+          : [];
+      if (spans.length === 0) return namesIn(text, keyPrefix);
+      const out: ReactNode[] = [];
+      let last = 0;
+      spans.forEach((span, index) => {
+        if (span.start > last) out.push(...namesIn(text.slice(last, span.start), `${keyPrefix}-t${index}`));
+        out.push(
+          <Tooltip key={`${keyPrefix}-x${index}`} content={describeMention(span.expr, roleNameOf, t)}>
+            <span className="cursor-help rounded bg-blue-500/15 px-0.5 font-semibold text-blue-600 dark:text-blue-400">
+              {text.slice(span.start, span.end)}
+            </span>
+          </Tooltip>
+        );
+        last = span.end;
+      });
+      if (last < text.length) out.push(...namesIn(text.slice(last), `${keyPrefix}-t${spans.length}`));
+      return out;
+    }
+
+    function namesIn(text: string, keyPrefix: string): ReactNode[] {
       const tokens = tokenizeMentions(text, regex);
       return tokens.map((token, index) => {
         const key = `${keyPrefix}-${index}`;
@@ -1320,15 +1385,11 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
         );
       }
       const author = userOf(message);
+      // By id, @everyone, a role I hold, or an @online/@offline/expression
+      // that took me in — see lib/mentionExpr's mentionsTakeIn.
       const mentionsMe =
-        Boolean(message.mentions?.includes(selfId)) ||
-        (Boolean(message.mentions?.includes(EVERYONE_MENTION)) && message.from !== selfId) ||
         (message.from !== selfId &&
-          Boolean(
-            message.mentions?.some(
-              (m) => m.startsWith(ROLE_MENTION_PREFIX) && myRoleIds.includes(m.slice(ROLE_MENTION_PREFIX.length))
-            )
-          )) ||
+          mentionsTakeIn(message.mentions, { id: selfId, roleIds: myRoleIds }, message.pingedMe)) ||
         message.replyTo?.userId === selfId;
       rows.push(
         <li
@@ -1633,6 +1694,8 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
           channelName={channelName}
           candidates={candidates}
           rooms={roomCandidates}
+          roles={composerRoles}
+          onOpenMentionBuilder={builderUseful ? openMentionBuilder : undefined}
           searchPeople={can("mentionMembers") ? searchPeople : undefined}
           replyingTo={replyTo}
           onCancelReply={() => setReplyTo(null)}
@@ -1647,6 +1710,20 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
       )}
 
       <ChatImageModal preview={preview} onClose={() => setPreview(null)} />
+
+      {mentionBuilder && (
+        <MentionBuilderDialog
+          groupId={groupId}
+          channelId={channelId}
+          roles={builderRoles}
+          canMentionEveryone={can("mentionEveryone")}
+          onInsert={(text) => {
+            mentionBuilder.insert(text);
+            setMentionBuilder(null);
+          }}
+          onClose={() => setMentionBuilder(null)}
+        />
+      )}
 
       {reactionsView &&
         (() => {

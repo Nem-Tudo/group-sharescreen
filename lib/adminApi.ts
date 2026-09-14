@@ -729,6 +729,95 @@ export async function deleteAdminGroup(groupId: string): Promise<void> {
   await adminFetch<{ ok: true }>(`/admin/groups/${encodeURIComponent(groupId)}`, { method: "DELETE" });
 }
 
+// ─── Bots ────────────────────────────────────────────────────────────────
+
+/** A bot as the admin panel sees it — see the API's adminBotRoutes. */
+export interface AdminBotHit {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarUrl: string | null;
+  bio: string | null;
+  /** Stored flags, never the projection. */
+  flags: string[];
+  /** Anybody who runs a group may add it; otherwise only its owner. */
+  public: boolean;
+  owner: { id: string; username: string | null; displayName: string | null } | null;
+  groupCount: number;
+  online: boolean;
+  suspension: { reason: string; at: number; expiresAt: number | null } | null;
+  createdAt: number;
+}
+
+export type AdminBotFilter = "all" | "public" | "private" | "suspended" | "online";
+
+export type AdminBotList = {
+  bots: AdminBotHit[];
+  total: number;
+  counts: { all: number; public: number; suspended: number; online: number };
+};
+
+/** A bot's group, as the admin panel lists it. */
+export type AdminBotGroup = { id: string; name: string; iconUrl: string | null; memberCount: number; suspended?: boolean };
+
+/** Bots by name, @username, id or owner; the newest when the query is empty. */
+export async function searchAdminBots(query: string, filter: AdminBotFilter): Promise<AdminBotList> {
+  return adminFetch<AdminBotList>(
+    `/admin/bots?q=${encodeURIComponent(query)}&filter=${encodeURIComponent(filter)}`
+  );
+}
+
+export async function fetchAdminBot(botId: string): Promise<{ bot: AdminBotHit; groups: AdminBotGroup[] }> {
+  return adminFetch(`/admin/bots/${encodeURIComponent(botId)}`);
+}
+
+/** Suspends a bot: disconnected now, its token refused, not addable to groups. */
+export async function suspendAdminBot(
+  botId: string,
+  reason: string,
+  durationMinutes: number | null
+): Promise<AdminBotHit> {
+  const data = await adminFetch<{ bot: AdminBotHit }>(`/admin/bots/${encodeURIComponent(botId)}/suspend`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason, durationMinutes }),
+  });
+  return data.bot;
+}
+
+export async function unsuspendAdminBot(botId: string): Promise<AdminBotHit> {
+  const data = await adminFetch<{ bot: AdminBotHit }>(`/admin/bots/${encodeURIComponent(botId)}/suspend`, {
+    method: "DELETE",
+  });
+  return data.bot;
+}
+
+export async function setAdminBotPublic(botId: string, isPublic: boolean): Promise<AdminBotHit> {
+  const data = await adminFetch<{ bot: AdminBotHit }>(`/admin/bots/${encodeURIComponent(botId)}/public`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ public: isPublic }),
+  });
+  return data.bot;
+}
+
+/** Kills the bot's token; the owner makes a new one from the developer dashboard. */
+export async function revokeAdminBotToken(botId: string): Promise<void> {
+  await adminFetch<void>(`/admin/bots/${encodeURIComponent(botId)}/revoke-token`, { method: "POST" });
+}
+
+/** Takes the bot out of every group it is in (not the ones it owns). */
+export async function removeAdminBotFromGroups(
+  botId: string
+): Promise<{ bot: AdminBotHit; groups: AdminBotGroup[] }> {
+  return adminFetch(`/admin/bots/${encodeURIComponent(botId)}/leave-groups`, { method: "POST" });
+}
+
+/** Deletes a bot for good. */
+export async function deleteAdminBot(botId: string): Promise<void> {
+  await adminFetch<void>(`/admin/bots/${encodeURIComponent(botId)}`, { method: "DELETE" });
+}
+
 /** One theme as the moderation panel sees it. */
 export type AdminThemeHit = {
   id: string;

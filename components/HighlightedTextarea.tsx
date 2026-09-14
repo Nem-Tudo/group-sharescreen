@@ -31,21 +31,46 @@ import { tokenizeMentions } from "@/lib/chatMentions";
 const MENTION_CLASS = "rounded-sm bg-blue-500/15 text-blue-600 dark:text-blue-400";
 
 /**
- * `text` split into spans, with every match of any of `regexes` coloured, or
- * null when nothing matched. The regexes are tried in order, each on what the
- * ones before it left as plain text ("@" people first, then "#" rooms).
+ * What to colour: a regex of names, or — for what no regex can match, like a
+ * mention expression's nested braces — a function giving the spans itself. A
+ * span marked `plain` is left uncoloured and kept from the highlighters after
+ * it: an expression that will go out as text, names inside and all.
  */
-export function highlightMentions(text: string, regexes: (RegExp | null)[]): ReactNode[] | null {
-  let parts: ({ text: string } | { mention: string })[] = [{ text }];
-  for (const regex of regexes) {
-    if (!regex) continue;
-    parts = parts.flatMap((part) =>
-      "text" in part
-        ? tokenizeMentions(part.text, regex).map((token) =>
-            token.type === "mention" ? { mention: token.value } : { text: token.value }
-          )
-        : [part]
-    );
+export type MentionHighlighter =
+  | RegExp
+  | ((text: string) => { start: number; end: number; plain?: boolean }[])
+  | null;
+
+type Part = { text: string } | { mention: string } | { plain: string };
+
+/**
+ * `text` split into spans, with every match of any of `highlighters` coloured,
+ * or null when nothing matched. They are tried in order, each on what the ones
+ * before it left as plain text (expressions first, then "@" people, then "#"
+ * rooms).
+ */
+export function highlightMentions(text: string, highlighters: MentionHighlighter[]): ReactNode[] | null {
+  let parts: Part[] = [{ text }];
+  for (const highlighter of highlighters) {
+    if (!highlighter) continue;
+    parts = parts.flatMap((part): Part[] => {
+      if (!("text" in part)) return [part];
+      if (highlighter instanceof RegExp) {
+        return tokenizeMentions(part.text, highlighter).map((token) =>
+          token.type === "mention" ? { mention: token.value } : { text: token.value }
+        );
+      }
+      const out: Part[] = [];
+      let last = 0;
+      for (const span of highlighter(part.text)) {
+        if (span.start > last) out.push({ text: part.text.slice(last, span.start) });
+        const value = part.text.slice(span.start, span.end);
+        out.push(span.plain ? { plain: value } : { mention: value });
+        last = span.end;
+      }
+      if (last < part.text.length) out.push({ text: part.text.slice(last) });
+      return out;
+    });
   }
   if (!parts.some((part) => "mention" in part)) return null;
   return parts.map((part, index) =>
@@ -53,6 +78,8 @@ export function highlightMentions(text: string, regexes: (RegExp | null)[]): Rea
       <span key={index} className={MENTION_CLASS}>
         {part.mention}
       </span>
+    ) : "plain" in part ? (
+      part.plain
     ) : (
       part.text
     )

@@ -75,10 +75,16 @@ export type PermissionSection = "manage" | "general" | GroupChannelKind;
 
 export type ChannelPermissionOverrides = Partial<Record<GroupPermissionKey, boolean>>;
 
-/** What an @everyone leaves in a message's `mentions`. */
-export const EVERYONE_MENTION = "@everyone";
-/** A role's @-mention in a message's `mentions`: this, then the role's id. */
-export const ROLE_MENTION_PREFIX = "@role:";
+// What the mentions that are not a person leave in a message's `mentions`:
+// "@everyone", "@role:" then a role's id, "@online", "@offline", and "@expr:"
+// then an expression — see lib/mentionExpr, where they are defined.
+export {
+  EVERYONE_MENTION,
+  EXPR_MENTION_PREFIX,
+  OFFLINE_MENTION,
+  ONLINE_MENTION,
+  ROLE_MENTION_PREFIX,
+} from "./mentionExpr";
 
 const MANAGE_OFF: Record<ManagePermissionKey, boolean> = {
   administrator: false,

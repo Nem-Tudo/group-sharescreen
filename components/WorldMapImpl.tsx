@@ -82,7 +82,8 @@ function escapeHtml(value: string): string {
 //     or, where it never will (the same spot, or already at the deepest
 //     zoom), lists what is in it.
 //   - A name tag is only drawn where it does not land on another tag or on
-//     another pin, biggest first. The rest keep their name one hover (see
+//     another pin, biggest first — under the face if there is room, else
+//     beside or above it. The rest keep their name one hover (see
 //     globals.css) or one click away. At every zoom that leaves a map of
 //     faces with as many names as fit, instead of names on top of names.
 //
@@ -106,6 +107,9 @@ const CLUSTER_RADIUS = 48;
 // The name tag's geometry, as globals.css draws it — only used to guess where
 // a tag would land before deciding whether it is drawn at all.
 const LABEL_GAP = 4;
+const LABEL_GAP_STACKED = 12;
+const LABEL_SIDE_GAP = 6;
+const LABEL_SIDE_GAP_STACKED = 14;
 const LABEL_HEIGHT = 17;
 const LABEL_PAD_X = 6;
 const LABEL_NAME_MAX = 104;
@@ -160,12 +164,18 @@ function wireImageFallbacks(root: HTMLElement | undefined | null) {
   });
 }
 
+// Where a pin's name tag sits around its face, in the order they are tried:
+// under it is where a name is expected, beside it is the next best thing, and
+// above it is last because that is where the popup opens.
+const LABEL_SIDES = ["below", "right", "left", "above"] as const;
+type LabelSide = (typeof LABEL_SIDES)[number];
+
 // One thing drawn on the map: a single pin, or a stack of them whose first
-// member is the face on top.
+// member is the face on top. `labelAt` is null for a name that fit nowhere.
 type Place = {
   members: WorldMapMarker[];
   point: L.Point;
-  showLabel: boolean;
+  labelAt: LabelSide | null;
 };
 
 type Box = { x1: number; y1: number; x2: number; y2: number };
@@ -210,7 +220,7 @@ function layoutPlaces(markers: WorldMapMarker[], map: L.Map, zoom: number, fontF
       taken[j] = 1;
       members.push(items[j].marker);
     }
-    places.push({ members, point: seed.point, showLabel: false });
+    places.push({ members, point: seed.point, labelAt: null });
   }
 
   // Every face is an obstacle for every other place's tag. A stack's box
@@ -227,27 +237,54 @@ function layoutPlaces(markers: WorldMapMarker[], map: L.Map, zoom: number, fontF
   const labels: Box[] = [];
   places.forEach((place, index) => {
     const face = place.members[0];
+    const stacked = place.members.length > 1;
     let width =
       Math.min(textWidth(face.label, boldFont), LABEL_NAME_MAX) + LABEL_PAD_X * 2 + 2;
     if (face.verified) width += 15;
     if (typeof face.peopleCount === "number") {
       width += textWidth(compactCount(face.peopleCount), plainFont) + 4;
     }
-    const top = place.point.y + half + LABEL_GAP;
-    const box: Box = {
-      x1: place.point.x - width / 2 - 2,
-      y1: top - 1,
-      x2: place.point.x + width / 2 + 2,
-      y2: top + LABEL_HEIGHT + 1,
-    };
-    const blocked =
-      labels.some((other) => overlaps(box, other)) ||
-      faces.some((other, i) => i !== index && overlaps(box, other));
-    if (blocked) return;
-    place.showLabel = true;
-    labels.push(box);
+    const { x, y } = place.point;
+    for (const side of LABEL_SIDES) {
+      const box = labelBox(side, x, y, width, stacked);
+      const blocked =
+        labels.some((other) => overlaps(box, other)) ||
+        faces.some((other, i) => i !== index && overlaps(box, other));
+      if (blocked) continue;
+      place.labelAt = side;
+      labels.push(box);
+      break;
+    }
   });
   return places;
+}
+
+// Where a tag of this width would land on each side of a face at (x, y) —
+// mirroring the .gl-pin-label[data-at] rules in globals.css, with a pixel of
+// air around it. A stack's tag keeps clear of its cards and "+N" on the right
+// and above.
+function labelBox(side: LabelSide, x: number, y: number, width: number, stacked: boolean): Box {
+  const half = PIN_SIZE / 2;
+  const pad = 2;
+  const middle = { y1: y - LABEL_HEIGHT / 2 - pad, y2: y + LABEL_HEIGHT / 2 + pad };
+  switch (side) {
+    case "below": {
+      const top = y + half + LABEL_GAP;
+      return { x1: x - width / 2 - pad, y1: top - pad, x2: x + width / 2 + pad, y2: top + LABEL_HEIGHT + pad };
+    }
+    case "right": {
+      const left = x + half + (stacked ? LABEL_SIDE_GAP_STACKED : LABEL_SIDE_GAP);
+      return { x1: left - pad, x2: left + width + pad, ...middle };
+    }
+    case "left": {
+      const right = x - half - LABEL_SIDE_GAP;
+      return { x1: right - width - pad, x2: right + pad, ...middle };
+    }
+    case "above": {
+      const bottom = y - half - (stacked ? LABEL_GAP_STACKED : LABEL_GAP);
+      return { x1: x - width / 2 - pad, y1: bottom - LABEL_HEIGHT - pad, x2: x + width / 2 + pad, y2: bottom + pad };
+    }
+  }
 }
 
 function pinHtml(place: Place): string {
@@ -264,12 +301,13 @@ function pinHtml(place: Place): string {
     typeof face.peopleCount === "number"
       ? `<span class="gl-pin-count">${compactCount(face.peopleCount)}</span>`
       : "";
-  // Hidden rather than left out, so it still reads to a screen reader and
-  // still shows on hover — see globals.css.
-  const label = `<span class="gl-pin-label${place.showLabel ? "" : " is-hidden"}"><span class="gl-pin-name">${escapeHtml(
-    face.label
-  )}</span>${face.verified ? VERIFIED_SVG : ""}${count}</span>`;
-  return `<div class="gl-pin-body">${cards}${faceHtml(face)}${more}${label}</div>`;
+  // A tag that fit nowhere is hidden rather than left out, so it still reads
+  // to a screen reader and still shows (under the face) on hover — see
+  // globals.css.
+  const label = `<span class="gl-pin-label${place.labelAt ? "" : " is-hidden"}" data-at="${
+    place.labelAt ?? "below"
+  }"><span class="gl-pin-name">${escapeHtml(face.label)}</span>${face.verified ? VERIFIED_SVG : ""}${count}</span>`;
+  return `<div class="gl-pin-body${rest.length > 0 ? " gl-pin-stack" : ""}">${cards}${faceHtml(face)}${more}${label}</div>`;
 }
 
 function pinIcon(html: string): L.DivIcon {

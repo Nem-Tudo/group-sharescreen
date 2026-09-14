@@ -3,7 +3,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { signalingClient, type GroupSocketEvent } from "./signalingClient";
 import { appendCachedMessage, forgetGroupMembers, removeCachedMessage, updateCachedMessage } from "./groupCache";
-import { EVERYONE_MENTION } from "./groupPermissions";
+import { mentionsTakeIn } from "./mentionExpr";
 import { isPageInFront } from "./pageFocus";
 import {
   fetchGroup,
@@ -254,11 +254,14 @@ function noteIncomingMessage(message: GroupMessage) {
     markChannelRead(groupId, channelId);
     return;
   }
+  // By id, @everyone, a role I hold, or an @online/@offline/expression that
+  // takes me in — the same reading as the room's own (see lib/mentionExpr).
+  // Roles are only known for a group whose detail is loaded.
+  const myRoleIds = (selfId && (detail?.me.roleIds ?? detail?.memberRoles?.[selfId])) || [];
   const mentionsMe =
     Boolean(selfId) &&
     message.from !== selfId &&
-    (Boolean(message.mentions?.includes(selfId!)) ||
-      Boolean(message.mentions?.includes(EVERYONE_MENTION)) ||
+    (mentionsTakeIn(message.mentions, { id: selfId!, roleIds: myRoleIds }, message.pingedMe) ||
       message.replyTo?.userId === selfId);
   if (detail) {
     patchDetail(groupId, {
@@ -468,7 +471,13 @@ function handleEvent(event: GroupSocketEvent) {
           : {};
       // Only what an edit changes: the reactions held may be newer than the
       // ones this copy was read with.
-      const patch: Partial<GroupMessage> = { text: message.text, mentions: message.mentions, editedAt: message.editedAt };
+      // pingedMe answered for the old mentions, so it goes with them.
+      const patch: Partial<GroupMessage> = {
+        text: message.text,
+        mentions: message.mentions,
+        editedAt: message.editedAt,
+        pingedMe: undefined,
+      };
       updateCachedMessage(message.channelId, message.id, patch, mentioned);
       updatedListeners.forEach((l) => l({ message, mentioned }));
       return;

@@ -555,7 +555,8 @@ export function ChatPanel({
   // Filtered and ranked autocomplete candidates based on user input after "@"
   const filteredCandidates = useMemo(() => {
     if (!mentionMenuOpen || mentionStartIndex === null) return [];
-    return filterMentionCandidates(roomParticipants, mentionQuery);
+    // @todos stays on top whenever it matches — see filterMentionCandidates.
+    return filterMentionCandidates(roomParticipants, mentionQuery, (p) => Boolean(p.isBroadcast));
   }, [mentionMenuOpen, mentionStartIndex, roomParticipants, mentionQuery]);
 
   const selectedIndex =

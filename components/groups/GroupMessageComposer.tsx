@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useImperativeHandle,
   useMemo,
@@ -11,7 +12,7 @@ import {
   type KeyboardEvent,
   type Ref,
 } from "react";
-import { MdCheck, MdClose, MdEdit, MdGif, MdGroups, MdSend, MdVolumeUp } from "react-icons/md";
+import { MdCheck, MdClose, MdEdit, MdGif, MdGroups, MdSend, MdTune, MdVolumeUp } from "react-icons/md";
 import { AttachMenu, splitPicked } from "@/components/AttachMenu";
 import { AttachmentTray } from "@/components/AttachmentTray";
 import { EmojiPickerButton } from "@/components/EmojiPicker";
@@ -36,7 +37,16 @@ import {
   tokenizeMentions,
 } from "@/lib/chatMentions";
 import type { GroupReplyTo } from "@/lib/groupsApi";
-import { EVERYONE_MENTION, ROLE_MENTION_PREFIX } from "@/lib/groupPermissions";
+import { EVERYONE_MENTION, OFFLINE_MENTION, ONLINE_MENTION, ROLE_MENTION_PREFIX } from "@/lib/groupPermissions";
+import {
+  blankSpans,
+  findMentionExprs,
+  isWritableRole,
+  mayMention,
+  typedAtomResolver,
+  type MentionExprSpan,
+  type NamedRole,
+} from "@/lib/mentionExpr";
 import { encodeMentions, userTokenIds, type Named } from "@/lib/messageTokens";
 import { createTypingAnnouncer, type TypingAnnouncer } from "@/lib/typing";
 import { registerMentionHandler, type MentionTarget } from "@/lib/groupMentionBridge";
@@ -51,7 +61,11 @@ import { useT } from "@/lib/useI18n";
 // members, which the "só menções" notification level is built on.
 
 export interface MentionCandidate {
-  /** A member's id, EVERYONE_MENTION, ROLE_MENTION_PREFIX + a role's id, or a room's id. */
+  /**
+   * A member's id, a room's id, ROLE_MENTION_PREFIX + a role's id, one of
+   * the site's own mentions (EVERYONE_MENTION, ONLINE_MENTION,
+   * OFFLINE_MENTION) or MENTION_BUILDER.
+   */
   id: string;
   name: string;
   avatarUrl: string | null;
@@ -59,14 +73,75 @@ export interface MentionCandidate {
   color?: string | null;
   /** Set on a room offered after "#": which kind, for its icon. */
   room?: "text" | "voice";
+  /** Other words that find it ("todos" for @everyone, "here" for @online). */
+  aliases?: string[];
 }
 
+/**
+ * "@mention" in the suggestions: not a mention at all but the way into the
+ * mention editor (MentionBuilderDialog) — picking it swaps the typed "@men…"
+ * for whatever the editor builds.
+ */
+export const MENTION_BUILDER = "@mention";
+
+// The site's own mentions, the same in every group — see lib/mentionExpr.
+export const EVERYONE_CANDIDATE: MentionCandidate = {
+  id: EVERYONE_MENTION,
+  name: "everyone",
+  avatarUrl: null,
+  aliases: ["todos"],
+};
+export const ONLINE_CANDIDATE: MentionCandidate = { id: ONLINE_MENTION, name: "online", avatarUrl: null, aliases: ["here"] };
+export const OFFLINE_CANDIDATE: MentionCandidate = { id: OFFLINE_MENTION, name: "offline", avatarUrl: null };
+export const MENTION_BUILDER_CANDIDATE: MentionCandidate = {
+  id: MENTION_BUILDER,
+  name: "mention",
+  avatarUrl: null,
+  aliases: ["mencao", "editor"],
+};
+
+const SITE_MENTIONS = new Set([EVERYONE_MENTION, ONLINE_MENTION, OFFLINE_MENTION, MENTION_BUILDER]);
+
+/** The site's own mentions — pinned to the top of the suggestions whenever they match. */
+function isSiteMention(candidate: MentionCandidate): boolean {
+  return SITE_MENTIONS.has(candidate.id);
+}
+
+// A member's id never starts with "@"; everything that is not a person does,
+// but for a room, which is marked.
 function isPerson(candidate: MentionCandidate): boolean {
-  return (
-    !candidate.room &&
-    candidate.id !== EVERYONE_MENTION &&
-    !candidate.id.startsWith(ROLE_MENTION_PREFIX)
-  );
+  return !candidate.room && !candidate.id.startsWith("@");
+}
+
+/** A role as the composer reads it in "{@Admin&@online}" — see lib/mentionExpr. */
+export type ComposerRole = NamedRole & { color: string | null };
+
+/**
+ * Whether `index` sits inside a "{" not yet closed on its line — an
+ * expression being written, where only what an expression can hold is offered.
+ */
+function insideOpenBrace(text: string, index: number): boolean {
+  let depth = 0;
+  for (let i = text.lastIndexOf("\n", index - 1) + 1; i < index; i += 1) {
+    if (text[i] === "{") depth += 1;
+    else if (text[i] === "}" && depth > 0) depth -= 1;
+  }
+  return depth > 0;
+}
+
+/**
+ * encodeMentions on everything but the expressions: a name inside
+ * "{@Ana&@online}" is a role's, and must not become a person's token.
+ */
+function encodeAround(text: string, spans: MentionExprSpan[], people: Named[], rooms: Named[]): string {
+  if (spans.length === 0) return encodeMentions(text, people, rooms);
+  let out = "";
+  let last = 0;
+  for (const span of spans) {
+    out += encodeMentions(text.slice(last, span.start), people, rooms) + text.slice(span.start, span.end);
+    last = span.end;
+  }
+  return out + encodeMentions(text.slice(last), people, rooms);
 }
 
 // How long typing may pause before the people search asks the API. Short
@@ -124,6 +199,7 @@ export interface ComposerHandle {
 const MAX_LENGTH = 2000;
 
 const NO_CANDIDATES: MentionCandidate[] = [];
+const NO_ROLES: ComposerRole[] = [];
 // A long message gets room to be read while it is written: the box grows with
 // it up to this share of the screen, and only then starts to scroll.
 const MAX_HEIGHT_OF_SCREEN = 0.8;
@@ -159,6 +235,8 @@ export function GroupMessageComposer({
   channelName,
   candidates,
   rooms = [],
+  roles = NO_ROLES,
+  onOpenMentionBuilder,
   searchPeople,
   replyingTo,
   onCancelReply,
@@ -181,6 +259,19 @@ export function GroupMessageComposer({
   candidates: MentionCandidate[];
   /** What "#" offers: the rooms this person can see. */
   rooms?: MentionCandidate[];
+  /**
+   * Every role in the group, highest first — what the names inside a mention
+   * expression ("{@Admin&@online}") are read against, and what is offered
+   * inside one. All of them, not only the ones this person may mention: an
+   * expression may narrow a mention they are allowed by any role at all (see
+   * lib/mentionExpr's mayMention), and the API has the last word.
+   */
+  roles?: ComposerRole[];
+  /**
+   * Opens the mention editor; `insert` puts what it builds into the box.
+   * Without it, "@mention" is not offered.
+   */
+  onOpenMentionBuilder?: (insert: (text: string) => void) => void;
   /** Members whose name contains the text — asked as somebody types after "@". */
   searchPeople?: (query: string) => Promise<MentionCandidate[]>;
   replyingTo: GroupReplyTo | null;
@@ -363,7 +454,11 @@ export function GroupMessageComposer({
       ? { ...hashTrigger, char: "#" as const }
       : { ...atTrigger, char: "@" as const };
 
-  const searchQuery = trigger.isTriggered && trigger.char === "@" ? trigger.query.trim() : "";
+  // Inside a "{" still open: an expression is being written, and it can only
+  // hold the site's mentions and roles — people are not offered, nor searched.
+  const inExpression = trigger.isTriggered && trigger.char === "@" && insideOpenBrace(text, trigger.startIndex);
+
+  const searchQuery = trigger.isTriggered && trigger.char === "@" && !inExpression ? trigger.query.trim() : "";
   // Asked of the API as a name is typed, for everybody the room does not
   // already know. The answer lands in a timer's callback, never in the effect
   // itself, and is tagged with its query so a stale one is simply not read.
@@ -395,31 +490,71 @@ export function GroupMessageComposer({
   }, [searchPeople, searchQuery]);
   const searched = found.query === searchQuery ? found.people : NO_CANDIDATES;
 
+  // Every role, as a suggestion inside an expression — but one whose name the
+  // expression could not hold ("R&D") or would read as another role.
+  const roleCandidates = useMemo(
+    () =>
+      roles.filter((r) => isWritableRole(r, roles)).map((r): MentionCandidate => ({
+        id: `${ROLE_MENTION_PREFIX}${r.id}`,
+        name: r.name,
+        avatarUrl: null,
+        color: r.color,
+      })),
+    [roles]
+  );
   const suggestions = useMemo(() => {
     if (!trigger.isTriggered) return NO_CANDIDATES;
     if (trigger.char === "#") return filterMentionCandidates(rooms, trigger.query).slice(0, 8);
+    if (inExpression) {
+      return filterMentionCandidates(
+        [EVERYONE_CANDIDATE, ONLINE_CANDIDATE, OFFLINE_CANDIDATE, ...roleCandidates],
+        trigger.query,
+        isSiteMention
+      ).slice(0, 8);
+    }
     // Ranked together, so an exact match found by the search is not buried
-    // under a looser one the room happened to know already.
-    const known = new Set(candidates.map((c) => c.id));
-    const pool = [...candidates, ...searched.filter((c) => !known.has(c.id))];
-    return filterMentionCandidates(pool, trigger.query).slice(0, 8);
-  }, [trigger.isTriggered, trigger.char, trigger.query, candidates, rooms, searched]);
+    // under a looser one the room happened to know already — except the
+    // site's own mentions, which go on top whenever they match at all.
+    const offered = onOpenMentionBuilder ? candidates : candidates.filter((c) => c.id !== MENTION_BUILDER);
+    const known = new Set(offered.map((c) => c.id));
+    const pool = [...offered, ...searched.filter((c) => !known.has(c.id))];
+    return filterMentionCandidates(pool, trigger.query, isSiteMention).slice(0, 8);
+  }, [trigger.isTriggered, trigger.char, trigger.query, inExpression, candidates, rooms, roleCandidates, searched, onOpenMentionBuilder]);
   const mentionOpen =
     trigger.isTriggered && suggestions.length > 0 && mentionDismissed !== trigger.startIndex;
 
+  // Reading "{@Admin&@online}": role names against every role, and what this
+  // person may send read off what the room offers them — @everyone is there
+  // only for whoever may mention it, and a role only when they may mention it
+  // (see TextChannelView's candidates). The API applies the same rule.
+  const resolveTyped = useMemo(() => typedAtomResolver(roles), [roles]);
+  const rights = useMemo(() => {
+    const ids = new Set(candidates.map((c) => c.id));
+    return { everyone: ids.has(EVERYONE_MENTION), role: (id: string) => ids.has(`${ROLE_MENTION_PREFIX}${id}`) };
+  }, [candidates]);
+  const findExpressions = useCallback(
+    (value: string) =>
+      findMentionExprs(value, resolveTyped).map((span) => ({ ...span, allowed: mayMention(span.expr, rights) })),
+    [resolveTyped, rights]
+  );
+
   // What lights up blue in the box: every name send would turn into a
-  // mention — the people, roles and @everyone this room offers, anybody picked
-  // or found by a search — and the rooms after "#".
+  // mention — the people, roles and site mentions this room offers, anybody
+  // picked or found by a search, the expressions this person may send — and
+  // the rooms after "#". An expression they may not send stays plain, and so
+  // do the names inside it: it goes out as text, alerting nobody.
   const peopleRegex = useMemo(
-    () => buildMentionsRegex([...candidates.map((c) => c.name), ...extraNames]),
+    () =>
+      buildMentionsRegex([...candidates.filter((c) => c.id !== MENTION_BUILDER).map((c) => c.name), ...extraNames]),
     [candidates, extraNames]
   );
   const roomRegex = useMemo(() => buildMentionsRegex(rooms.map((r) => r.name), "#"), [rooms]);
-  const highlights = useMemo(
-    () =>
-      /[@#]/.test(text) ? highlightMentions(text, [peopleRegex, roomRegex]) : null,
-    [text, peopleRegex, roomRegex]
-  );
+  const highlights = useMemo(() => {
+    if (!/[@#]/.test(text)) return null;
+    const expressions = (value: string) =>
+      findExpressions(value).map((span) => ({ start: span.start, end: span.end, plain: !span.allowed }));
+    return highlightMentions(text, [expressions, peopleRegex, roomRegex]);
+  }, [text, findExpressions, peopleRegex, roomRegex]);
   const disabled = Boolean(disabledReason);
 
   function resize() {
@@ -478,17 +613,62 @@ export function GroupMessageComposer({
   }
 
   function pickMention(candidate: MentionCandidate) {
+    // "@mention": the typed "@men…" goes, and the editor opens — whatever it
+    // builds lands where that was (see insertBuilt).
+    if (candidate.id === MENTION_BUILDER) {
+      const at = trigger.startIndex;
+      const next = text.slice(0, at) + text.slice(cursor);
+      setText(next);
+      setCursor(at);
+      noteTyping(next);
+      onOpenMentionBuilder?.((built) => insertBuilt(built, at));
+      return;
+    }
     if (isPerson(candidate)) picked.current.set(normalizeSearch(candidate.name), candidate);
     rememberNames([candidate.name]);
-    const { newText, newCursorPos } = applyMentionInsertion(
-      text,
-      cursor,
-      trigger.startIndex,
-      candidate.name,
-      trigger.char
-    );
+    // Inside an expression no space follows: "{@Admin" is waiting for its "&"
+    // or "}", and the suggestions stay shut until the next "@".
+    const { newText, newCursorPos } = inExpression
+      ? (() => {
+          const before = text.slice(0, trigger.startIndex);
+          const inserted = `@${candidate.name}`;
+          return { newText: before + inserted + text.slice(cursor), newCursorPos: before.length + inserted.length };
+        })()
+      : applyMentionInsertion(text, cursor, trigger.startIndex, candidate.name, trigger.char);
+    if (inExpression) setMentionDismissed(trigger.startIndex);
     setText(newText);
     setCursor(newCursorPos);
+    noteTyping(newText);
+    requestAnimationFrame(() => {
+      const el = textRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(newCursorPos, newCursorPos);
+      resize();
+    });
+  }
+
+  // The text as it is now, for insertBuilt — which runs from the editor's
+  // dialog, well after the render that handed it over.
+  const latestText = useRef(text);
+  useEffect(() => {
+    latestText.current = text;
+  });
+
+  /** What the mention editor built, put in at `at` — spaced off from whatever it lands between. */
+  function insertBuilt(built: string, at: number) {
+    const current = latestText.current;
+    const pos = Math.min(at, current.length);
+    const before = current.slice(0, pos);
+    const after = current.slice(pos);
+    const lead = before && !/[\s(]$/.test(before) ? " " : "";
+    const trail = after.startsWith(" ") ? "" : " ";
+    const inserted = `${lead}${built}${trail}`;
+    const newText = (before + inserted + after).slice(0, MAX_LENGTH);
+    const newCursorPos = Math.min(before.length + inserted.length, newText.length);
+    setText(newText);
+    setCursor(newCursorPos);
+    setError(null);
     noteTyping(newText);
     requestAnimationFrame(() => {
       const el = textRef.current;
@@ -559,11 +739,20 @@ export function GroupMessageComposer({
 
     // What goes out carries ids, not names (see lib/messageTokens): "@Ana"
     // becomes <@her id> and "#geral" becomes <#its id>, and the API reads who
-    // was mentioned off those. Roles and @everyone stay as typed and still
-    // travel in `mentions`, matched against the roles this room already has.
+    // was mentioned off those. Roles, @everyone, @online and @offline stay as
+    // typed and still travel in `mentions`, matched against what this room
+    // offers. So do expressions ("{@Admin&@online}", see lib/mentionExpr),
+    // as their "@expr:…" entry — and only the ones this person may send; one
+    // they may not goes out as plain text. Either way the names inside one
+    // are its own: not people to encode, not roles to mention on their own.
     // An edit is encoded the same way.
-    const special = candidates.filter((c) => !isPerson(c));
-    const specialNames = new Set(special.map((c) => normalizeSearch(c.name)));
+    const expressions = extra.url ? [] : findExpressions(trimmed);
+    const outside = blankSpans(trimmed, expressions);
+    const expressionEntries = expressions.filter((span) => span.allowed).map((span) => span.entry);
+    const special = candidates.filter((c) => !isPerson(c) && c.id !== MENTION_BUILDER);
+    // The keywords too, whether or not this person may use them: "@online"
+    // typed out is never a member who happens to be called that.
+    const specialNames = new Set([...special.map((c) => normalizeSearch(c.name)), "everyone", "online", "offline"]);
     const people: Named[] = [
       // Picked ones first, so they win any name they share.
       ...picked.current.values(),
@@ -574,7 +763,10 @@ export function GroupMessageComposer({
         (c) => !specialNames.has(normalizeSearch(c.name))
       ),
     ];
-    const encoded = extra.url ? "" : encodeMentions(trimmed, people, rooms);
+    const encoded = extra.url ? "" : encodeAround(trimmed, expressions, people, rooms);
+    const mentions = extra.url
+      ? []
+      : [...new Set([...mentionedIds(outside, special), ...expressionEntries, ...userTokenIds(encoded)])];
     // An id is longer than most names, so a message that fitted as typed can
     // outgrow the limit once encoded — and the API would cut it, splitting a
     // token in half. Better to say so than to send a broken mention.
@@ -585,7 +777,6 @@ export function GroupMessageComposer({
     setError(null);
     if (editing) {
       const messageId = editing.id;
-      const mentions = [...mentionedIds(trimmed, special), ...userTokenIds(encoded)];
       endEdit();
       onSubmitEdit?.(messageId, { text: encoded, mentions });
       textRef.current?.focus();
@@ -598,7 +789,7 @@ export function GroupMessageComposer({
       ...(hasFiles ? { attachments: uploads.tokens, files: uploads.attachments } : {}),
       // The people are in the text now; they ride here too only so an API
       // from before the tokens still alerts them.
-      mentions: extra.url ? [] : [...mentionedIds(trimmed, special), ...userTokenIds(encoded)],
+      mentions,
     });
     picked.current.clear();
     // A GIF goes on its own and leaves whatever was being typed alone.
@@ -771,6 +962,16 @@ export function GroupMessageComposer({
                   <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
                     <MdGroups className="h-3 w-3" />
                   </span>
+                ) : candidate.id === ONLINE_MENTION || candidate.id === OFFLINE_MENTION ? (
+                  <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800">
+                    <span
+                      className={`h-2 w-2 rounded-full ${candidate.id === ONLINE_MENTION ? "bg-emerald-500" : "bg-zinc-400"}`}
+                    />
+                  </span>
+                ) : candidate.id === MENTION_BUILDER ? (
+                  <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-violet-600 text-white">
+                    <MdTune className="h-3 w-3" />
+                  </span>
                 ) : candidate.id.startsWith(ROLE_MENTION_PREFIX) ? (
                   <span
                     className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white"
@@ -784,11 +985,18 @@ export function GroupMessageComposer({
                 <span className="truncate" style={candidate.color ? { color: candidate.color } : undefined}>
                   {candidate.name}
                 </span>
-                {candidate.id === EVERYONE_MENTION && (
-                  <span className="ml-auto shrink-0 text-[11px] text-zinc-400">avisa todo mundo</span>
-                )}
-                {candidate.id.startsWith(ROLE_MENTION_PREFIX) && (
-                  <span className="ml-auto shrink-0 text-[11px] text-zinc-400">avisa quem tem o cargo</span>
+                {!isPerson(candidate) && !candidate.room && (
+                  <span className="ml-auto shrink-0 text-[11px] text-zinc-400">
+                    {candidate.id === EVERYONE_MENTION
+                      ? t("groups.groupMessageComposer.hintEveryone")
+                      : candidate.id === ONLINE_MENTION
+                        ? t("groups.groupMessageComposer.hintOnline")
+                        : candidate.id === OFFLINE_MENTION
+                          ? t("groups.groupMessageComposer.hintOffline")
+                          : candidate.id === MENTION_BUILDER
+                            ? t("groups.groupMessageComposer.hintBuilder")
+                            : t("groups.groupMessageComposer.hintRole")}
+                  </span>
                 )}
               </button>
             </li>

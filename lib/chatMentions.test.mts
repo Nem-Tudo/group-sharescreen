@@ -203,6 +203,37 @@ assert.equal(filterMentionCandidates(broadcastCandidate, "everyone").length, 1);
 assert.equal(filterMentionCandidates(broadcastCandidate, "ev").length, 1);
 assert.equal(filterMentionCandidates(broadcastCandidate, "todos").length, 1);
 
+// Pinned candidates (the site's own mentions) come first whenever they match,
+// even over an exact match on a person — and drop out when they do not.
+const withSite = [
+  { id: "p1", name: "Onlinea" },
+  { id: "p2", name: "on" },
+  { id: "@online", name: "online", site: true },
+  { id: "@offline", name: "offline", site: true },
+];
+const isSite = (c: { site?: boolean }) => Boolean(c.site);
+assert.deepEqual(
+  filterMentionCandidates(withSite, "on", isSite).map((c) => c.id),
+  ["@online", "p2", "p1"]
+);
+assert.deepEqual(
+  filterMentionCandidates(withSite, "", isSite).map((c) => c.id),
+  ["@online", "@offline", "p1", "p2"]
+);
+assert.deepEqual(filterMentionCandidates(withSite, "onlinea", isSite).map((c) => c.id), ["p1"]);
+
+// Each part of a mention expression opens the suggestions as it is typed.
+for (const [text, query] of [
+  ["{@Adm", "Adm"],
+  ["{@Admin&@on", "on"],
+  ["{@Admin|@Mo", "Mo"],
+  ["{@Admin&!@VI", "VI"],
+] as const) {
+  const info = getMentionTriggerInfo(text, text.length);
+  assert.equal(info.isTriggered, true, text);
+  assert.equal(info.query, query, text);
+}
+
 // Passing a prebuilt regex is equivalent to passing the names it was built
 // from — this is the path a list of messages takes, building the regex once
 // for the whole list instead of once per message.

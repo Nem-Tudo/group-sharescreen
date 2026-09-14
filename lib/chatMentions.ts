@@ -178,6 +178,8 @@ export function isUserMentionedInMessage(
   return isUserDirectlyMentioned(text, selfName, known);
 }
 
+const TRIGGER_AFTER = new Set([" ", "\n", "\t", "(", "{", "&", "|", "!"]);
+
 export interface MentionTriggerInfo {
   isTriggered: boolean;
   query: string;
@@ -205,9 +207,12 @@ export function getMentionTriggerInfo(
     return { isTriggered: false, query: "", startIndex: -1 };
   }
 
-  // Ensure @ is at start of string or preceded by whitespace / opening delimiter
+  // Ensure @ is at start of string or preceded by whitespace / opening
+  // delimiter — or by what joins the parts of a mention expression ("{@Admin",
+  // "&@online", "|@Mod", "!@VIP"; see lib/mentionExpr), so each part is
+  // offered as it is typed.
   const charBefore = lastAtIndex > 0 ? textBeforeCursor[lastAtIndex - 1] : " ";
-  if (charBefore !== " " && charBefore !== "\n" && charBefore !== "\t" && charBefore !== "(") {
+  if (!TRIGGER_AFTER.has(charBefore)) {
     return { isTriggered: false, query: "", startIndex: -1 };
   }
 
@@ -238,7 +243,22 @@ export function getMentionTriggerInfo(
 
 // Filters and ranks a candidate list of room participants according to the
 // typed mention query.
+//
+// `pinned` marks the site's own mentions (@everyone, @online…): whichever of
+// them match come first, above any person or role however well that matched,
+// so they are always where the eye lands. Among themselves, and among the
+// rest, the usual ranking.
 export function filterMentionCandidates<T extends { name: string; aliases?: string[] }>(
+  candidates: T[],
+  query: string,
+  pinned?: (candidate: T) => boolean
+): T[] {
+  const ranked = rankMentionCandidates(candidates, query);
+  if (!pinned) return ranked;
+  return [...ranked.filter(pinned), ...ranked.filter((c) => !pinned(c))];
+}
+
+function rankMentionCandidates<T extends { name: string; aliases?: string[] }>(
   candidates: T[],
   query: string
 ): T[] {

@@ -19,6 +19,7 @@ import { SupportersPanel } from "./SupportersPanel";
 import { DesktopUpdatePanel } from "./DesktopUpdatePanel";
 import { EvalPanel } from "./EvalPanel";
 import { GroupsPanel } from "./GroupsPanel";
+import { BotsPanel } from "./BotsPanel";
 import { ReservedInvitesPanel } from "./ReservedInvitesPanel";
 import { translate } from "@/lib/i18n";
 
@@ -101,6 +102,15 @@ export const ADMIN_SECTIONS: AdminSection[] = [
             so under the day-to-day work on groups. */}
         <ReservedInvitesPanel />
       </div>
+    ),
+  },
+  {
+    id: "bots",
+    get label() { return translate("admin.dashboardPanel.bots"); },
+    Panel: () => (
+      <Group>
+        <BotsPanel />
+      </Group>
     ),
   },
   {
