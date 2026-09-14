@@ -225,6 +225,36 @@ function isCoarsePointer(): boolean {
   return typeof window !== "undefined" && Boolean(window.matchMedia?.("(pointer: coarse)").matches);
 }
 
+// Where a key pressed with nothing in particular focused may be taken over
+// by the box (see the effect that uses this). Whatever has the focus, or is
+// open on top, gets its keys first:
+//
+//   - a field of any kind already takes typing — this box included;
+//   - a menu, list or dialog that has the focus reads letters as its own
+//     (type-ahead, shortcuts), and space presses whatever button is focused;
+//   - a dialog, menu or panel open anywhere (a picker, a sheet, a profile)
+//     means the person is busy with that, not with this room;
+//   - and the box has to actually be on screen and uncovered: a backdrop
+//     over it is a modal this list does not know by name.
+const KEYS_OF_THEIR_OWN =
+  '[role="menu"], [role="menubar"], [role="listbox"], [role="tree"], [role="grid"], [role="slider"], [role="tablist"], [role="radiogroup"], [role="dialog"]';
+const OPEN_ON_TOP =
+  '[aria-modal="true"], [role="menu"], .tippy-box[data-theme~="golive-panel"]:not([data-state="hidden"])';
+
+function canTakeOverTyping(box: HTMLTextAreaElement, key: string): boolean {
+  const active = document.activeElement as HTMLElement | null;
+  if (active && active !== document.body && active !== document.documentElement) {
+    if (active.isContentEditable || active.matches("input, textarea, select")) return false;
+    if (key === " " || active.closest(KEYS_OF_THEIR_OWN)) return false;
+  }
+  if (document.querySelector(OPEN_ON_TOP)) return false;
+  const rect = box.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) return false;
+  const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+  const composer = box.closest("[data-composer]") ?? box;
+  return Boolean(hit && composer.contains(hit));
+}
+
 // Sized and nudged to sit centred on the text box's first line (48px tall),
 // and to stay on its bottom edge as the box grows.
 const iconButton =
@@ -417,6 +447,47 @@ export function GroupMessageComposer({
     const el = textRef.current;
     if (!el || el.disabled || isCoarsePointer()) return;
     el.focus({ preventScroll: true });
+  }, []);
+
+  // And it stays the place typing goes: with the focus anywhere else in the
+  // room — after clicking a message, a member, a button — a key that types
+  // something moves the focus to the box, cursor at the end, and the key
+  // lands in it. Focusing during keydown is enough for that: the character
+  // is inserted into whatever holds the focus once keydown is over, so
+  // nothing is re-typed by hand. A dead key (the ´ of "é") and a paste move
+  // the focus the same way, so the accent and the pasted text land here too.
+  // Only when nothing else wants the key — see canTakeOverTyping.
+  //
+  // The focus moves last, from a listener added to `window` while the key is
+  // still on its way up — one added mid-dispatch runs after those already
+  // there. That is where the call shortcuts listen (lib/keyboardShortcuts),
+  // and a one-letter shortcut that took the key cancels it: the box then
+  // leaves the focus where it was instead of grabbing it for a letter that
+  // never arrives.
+  useEffect(() => {
+    function onKeyDown(e: globalThis.KeyboardEvent) {
+      const el = textRef.current;
+      if (!el || el.disabled || e.defaultPrevented || e.isComposing) return;
+      // AltGr arrives as Ctrl+Alt on Windows, and types characters.
+      const altGraph = e.getModifierState?.("AltGraph") ?? false;
+      const paste = (e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "v";
+      if (!paste) {
+        if (!altGraph && (e.ctrlKey || e.metaKey || e.altKey)) return;
+        if (e.key.length !== 1 && e.key !== "Dead") return;
+      }
+      if (!canTakeOverTyping(el, e.key)) return;
+      window.addEventListener(
+        "keydown",
+        (late) => {
+          if (late !== e || e.defaultPrevented || textRef.current !== el || el.disabled) return;
+          el.focus({ preventScroll: true });
+          el.setSelectionRange(el.value.length, el.value.length);
+        },
+        { once: true }
+      );
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
   }, []);
 
   // "Digitando..." — see onTypingChange and lib/typing's createTypingAnnouncer,
