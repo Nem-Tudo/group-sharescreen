@@ -1,6 +1,7 @@
 "use client";
 
 import { MessageAttachments } from "@/components/MessageAttachments";
+import { InviteEmbeds } from "@/components/groups/InviteEmbed";
 import { ChatImages } from "@/components/ChatImages";
 import { attachmentsPreview } from "@/lib/chatAttachments";
 import {
@@ -1495,6 +1496,8 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
                   )}
                 </p>
               )}
+              {/* A group invite in the message, as a card to join from. */}
+              {message.text && <InviteEmbeds text={message.text} />}
               {message.kind === "gif" && message.url && (
                 <button
                   type="button"

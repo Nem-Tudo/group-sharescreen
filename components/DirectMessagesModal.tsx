@@ -38,6 +38,7 @@ import {
   MdSettings,
 } from "react-icons/md";
 import { GifPicker } from "@/components/GifPicker";
+import { InviteEmbeds } from "@/components/groups/InviteEmbed";
 import { Popover } from "@/components/Tooltip";
 import { AttachMenu, splitPicked } from "@/components/AttachMenu";
 import { AttachmentTray } from "@/components/AttachmentTray";
@@ -627,6 +628,7 @@ function MessageBubble({
                 {editedMark}
               </p>
             )}
+            {bubble.text && <InviteEmbeds text={bubble.text} />}
             {media}
             {reactions}
             {failure}
@@ -684,6 +686,9 @@ function MessageBubble({
             )}
           </span>
         </div>
+        {/* Under the bubble rather than in it: the card keeps its own colours
+            whichever side's bubble the link was sent in. */}
+        {bubble.text && <InviteEmbeds text={bubble.text} />}
         {reactions}
         {failure}
       </div>

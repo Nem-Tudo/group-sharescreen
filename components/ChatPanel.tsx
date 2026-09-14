@@ -35,6 +35,7 @@ import { ChatImageModal, type ChatImagePreviewState } from "@/components/ChatIma
 import { AttachMenu, splitPicked } from "@/components/AttachMenu";
 import { AttachmentTray } from "@/components/AttachmentTray";
 import { MessageAttachments } from "@/components/MessageAttachments";
+import { InviteEmbeds } from "@/components/groups/InviteEmbed";
 import { ChatImages } from "@/components/ChatImages";
 import { attachmentsPreview } from "@/lib/chatAttachments";
 import { useAttachmentUploads } from "@/lib/useAttachmentUploads";
@@ -1174,6 +1175,8 @@ export function ChatPanel({
                               {linkifyText(m.text, mentionRegex, openMentionedProfile)}
                             </p>
                           )}
+                          {/* A group invite in the message, as a card to join from. */}
+                          {m.text.trim() && <InviteEmbeds text={m.text} />}
                           <ChatImages
                             images={messageImages(m)}
                             onOpen={(index) => {
