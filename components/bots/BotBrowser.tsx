@@ -585,13 +585,8 @@ function BotCard({
           // positioned, and would otherwise cover the half that overlaps it.
           className="relative z-10 -mt-7 self-start rounded-full ring-4 ring-white dark:ring-zinc-950"
         >
+          {/* The avatar draws its own presence dot from the user id. */}
           <UserAvatar src={bot.avatarUrl} name={bot.displayName} size={52} userId={bot.id} />
-          {bot.online && (
-            <span
-              title={t("botDirectory.online")}
-              className="absolute bottom-0.5 right-0.5 h-3.5 w-3.5 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-zinc-950"
-            />
-          )}
         </button>
         <button type="button" onClick={onOpenProfile} className="min-w-0 cursor-pointer text-left">
           <span className="flex min-w-0 items-center gap-1.5">
