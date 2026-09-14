@@ -213,6 +213,7 @@ import { BetaMark } from "@/components/BetaMark";
 import { UpdateAppButton } from "@/components/UpdateAppButton";
 import { AccountModal } from "@/components/AccountModal";
 import { GuestBroadcastLimitModal } from "@/components/GuestBroadcastLimitModal";
+import { MobileScreenShareModal } from "@/components/MobileScreenShareModal";
 import { GUEST_FEATURES, hasFeature, isThemeBanned } from "@/lib/entitlements";
 import { PartnerMediaTile } from "@/components/PartnerMediaTile";
 import { usePartnerAd } from "@/lib/usePartnerAd";
@@ -1647,6 +1648,7 @@ export function WatchRoom({
   // everything below the pre-join early returns runs conditionally, and a
   // useState there changes hook order between the skeleton and the room.
   const [qualityPrompt, setQualityPrompt] = useState<"screen" | null>(null);
+  const [mobileScreenShareModalOpen, setMobileScreenShareModalOpen] = useState(false);
   // True while Android is floating this app's window (see
   // lib/androidPictureInPicture.ts). Drives `data-pip` on the room shell,
   // which is what strips the page down to the one tile being watched — the
@@ -1671,6 +1673,7 @@ export function WatchRoom({
   // still wants the desktop picker. Gated on the mount flag because it reads the
   // user agent, which the server render has no answer for.
   const onPhone = mounted && isMobileDevice();
+  const isMobileBrowser = mounted && isMobileDevice() && !isMobileApp();
   useEffect(() => {
     const id = setTimeout(() => {
       setMounted(true);
@@ -5009,7 +5012,7 @@ export function WatchRoom({
         <ShareControls
           screenSharing={Boolean(localStream)}
           cameraSharing={Boolean(localCameraStream)}
-          screenSupported={screenShareMode === "display"}
+          screenSupported={screenShareMode === "display" || isMobileBrowser}
           cameraSupported={screenShareMode !== "unsupported"}
           screenBlockedReason={screenBlockedReason}
           cameraBlockedReason={cameraBlockedReason}
@@ -5018,7 +5021,12 @@ export function WatchRoom({
               stopShare();
               return;
             }
-            // On a phone the quality question is asked here rather than left
+            // On a phone browser, screen sharing requires the mobile app (in beta)
+            if (isMobileBrowser) {
+              setMobileScreenShareModalOpen(true);
+              return;
+            }
+            // On a phone app the quality question is asked here rather than left
             // in a settings menu nobody opens — see MobileQualitySheet. The
             // start is deferred until it is answered; on anything else it
             // goes straight through, unchanged.
@@ -6412,7 +6420,7 @@ export function WatchRoom({
                     on the space where it fits. Only ever shown while nobody —
                     including us — is transmitting, so these are always "start",
                     never "stop": see nothingToShow. */}
-                {screenShareMode === "unsupported" && (
+                {screenShareMode === "unsupported" && !isMobileBrowser && (
                   <p className="text-sm text-zinc-500 dark:text-zinc-500">
                     {translate("watch.watchRoom.yourBrowserDoesNotAllowSharing2")}
                   </p>
@@ -6423,10 +6431,16 @@ export function WatchRoom({
                       reflow): this pane exists to offer what can be done right
                       now, and a wall of dead buttons is not that. The note
                       below says why, once, for whatever ends up missing. */}
-                  {screenShareMode === "display" && !screenBlockedReason && (
+                  {(screenShareMode === "display" || isMobileBrowser) && !screenBlockedReason && (
                     <button
                       type="button"
-                      onClick={() => startShare("display")}
+                      onClick={() => {
+                        if (isMobileBrowser) {
+                          setMobileScreenShareModalOpen(true);
+                          return;
+                        }
+                        startShare("display");
+                      }}
                       className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
                     >
                       <ScreenIcon className="h-5 w-5" />
@@ -6941,26 +6955,37 @@ export function WatchRoom({
                   {/* 4. [tela] */}
                   <Tooltip
                     content={
-                      screenShareMode !== "display"
-                        ? translate("watch.watchRoom.screenSharingNotSupportedInThis")
-                        : localStream
-                          ? translate("watch.watchRoom.stopSharingTheScreen")
-                          : (screenBlockedReason ?? translate("watch.watchRoom.shareScreen"))
+                      isMobileBrowser
+                        ? (screenBlockedReason ?? translate("watch.watchRoom.shareScreen"))
+                        : screenShareMode !== "display"
+                          ? translate("watch.watchRoom.screenSharingNotSupportedInThis")
+                          : localStream
+                            ? translate("watch.watchRoom.stopSharingTheScreen")
+                            : (screenBlockedReason ?? translate("watch.watchRoom.shareScreen"))
                     }
                     wrapperClassName={DOCK_SLOT}
                   >
                     <button
                       type="button"
                       onClick={() => {
+                        if (isMobileBrowser) {
+                          setMobileScreenShareModalOpen(true);
+                          return;
+                        }
                         if (screenShareMode !== "display") return;
                         if (localStream) stopShare();
+                        else if (onPhone) setQualityPrompt("screen");
                         else startShare("display");
                       }}
-                      disabled={screenShareMode !== "display" || (!localStream && Boolean(screenBlockedReason))}
+                      disabled={
+                        isMobileBrowser
+                          ? Boolean(screenBlockedReason)
+                          : screenShareMode !== "display" || (!localStream && Boolean(screenBlockedReason))
+                      }
                       aria-pressed={Boolean(localStream)}
                       aria-label={localStream ? translate("watch.watchRoom.stopSharingTheScreen") : translate("watch.watchRoom.shareScreen")}
                       className={`${DOCK_BUTTON} ${
-                        screenShareMode !== "display"
+                        !isMobileBrowser && screenShareMode !== "display"
                           ? "bg-zinc-200 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-600"
                           : localStream
                             ? DOCK_LIVE
@@ -7066,6 +7091,11 @@ export function WatchRoom({
         open={Boolean(obsModalUrl)}
         url={obsModalUrl ?? ""}
         onClose={() => setObsModalUrl(null)}
+      />
+
+      <MobileScreenShareModal
+        open={mobileScreenShareModalOpen}
+        onClose={() => setMobileScreenShareModalOpen(false)}
       />
     </div>
   );

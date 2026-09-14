@@ -3055,5 +3055,12 @@
   "botDirectory.createYourOwn": "Crea tu bot",
   "botDirectory.openBotsPage": "Abrir página de bots",
   "botDirectory.pageTitle": "Bots",
-  "botDirectory.pageSubtitle": "Bots hechos por la comunidad para tus grupos. Encuentra uno y añádelo a un grupo que gestiones."
+  "botDirectory.pageSubtitle": "Bots hechos por la comunidad para tus grupos. Encuentra uno y añádelo a un grupo que gestiones.",
+  "mobileScreenShareModal.title": "Transmisión en el Móvil",
+  "mobileScreenShareModal.appOnly": "Para transmitir la pantalla en el móvil, es necesario usar la aplicación GoLive.",
+  "mobileScreenShareModal.browserLimitation": "La transmisión de pantalla no es compatible con el navegador del móvil.",
+  "mobileScreenShareModal.betaNotice": "Aplicación en fase BETA",
+  "mobileScreenShareModal.discordInstructions": "La aplicación para móviles está actualmente en fase BETA cerrada. Para descargar la aplicación y probarla, abre un ticket en nuestro Discord solicitando acceso.",
+  "mobileScreenShareModal.openTicketOnDiscord": "Abrir Ticket en Discord",
+  "mobileScreenShareModal.understood": "Entendido"
 }

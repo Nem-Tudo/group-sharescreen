@@ -3055,5 +3055,12 @@
   "botDirectory.createYourOwn": "Crie o seu bot",
   "botDirectory.openBotsPage": "Abrir página de bots",
   "botDirectory.pageTitle": "Bots",
-  "botDirectory.pageSubtitle": "Bots feitos pela comunidade para os seus grupos. Encontre um e adicione a um grupo que você gerencia."
+  "botDirectory.pageSubtitle": "Bots feitos pela comunidade para os seus grupos. Encontre um e adicione a um grupo que você gerencia.",
+  "mobileScreenShareModal.title": "Transmissão no Celular",
+  "mobileScreenShareModal.appOnly": "Para transmitir a tela pelo celular, é necessário usar o aplicativo do GoLive.",
+  "mobileScreenShareModal.browserLimitation": "O compartilhamento de tela não é suportado pelo navegador do celular.",
+  "mobileScreenShareModal.betaNotice": "Aplicativo em fase BETA",
+  "mobileScreenShareModal.discordInstructions": "O aplicativo para celular está atualmente em fase BETA fechada. Para baixar o aplicativo e testar, abra um ticket no nosso Discord solicitando acesso.",
+  "mobileScreenShareModal.openTicketOnDiscord": "Abrir Ticket no Discord",
+  "mobileScreenShareModal.understood": "Entendi"
 }
