@@ -170,6 +170,18 @@ export interface DesktopBridge {
    */
   setNewestUnreadNotification?(at: number): void;
 
+  /**
+   * Whether the shell's window is minimised or closed to the tray: the
+   * current state first, then every change. Returns an unsubscribe.
+   *
+   * The desktop's replacement for document.visibilityState, which the shell
+   * keeps pinned to "visible" (it runs with background throttling off, and
+   * Electron switches the Page Visibility API off with it). Optional like the
+   * rest: an older build does not have it, and the presence dot of somebody
+   * on one stays green while its window is hidden.
+   */
+  onWindowBackground?(callback: (background: boolean) => void): () => void;
+
   /** The version already downloaded and waiting to be applied, or null. */
   pendingUpdate?(): Promise<string | null>;
   /**

@@ -790,6 +790,12 @@ function installChunkRecovery() {
   });
 }
 
+/** Minimised or closed to the tray — see IPC.windowBackground. */
+function isMainWindowBackground(): boolean {
+  if (!mainWindow || mainWindow.isDestroyed()) return true;
+  return !mainWindow.isVisible() || mainWindow.isMinimized();
+}
+
 function createWindow(initialUrl: string = APP_URL) {
   mainWindow = new BrowserWindow({
     width: 1660,
@@ -877,6 +883,18 @@ function createWindow(initialUrl: string = APP_URL) {
   mainWindow.on("show", refreshTaskbarFlash);
   mainWindow.on("hide", refreshTaskbarFlash);
   mainWindow.on("minimize", refreshTaskbarFlash);
+
+  // See IPC.windowBackground. Only out-of-sight counts, not merely unfocused:
+  // the app on a second monitor while somebody plays on the first is in
+  // front of them, and would be wrongly yellow.
+  const reportWindowBackground = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send(IPC.windowBackground, isMainWindowBackground());
+  };
+  mainWindow.on("show", reportWindowBackground);
+  mainWindow.on("hide", reportWindowBackground);
+  mainWindow.on("minimize", reportWindowBackground);
+  mainWindow.on("restore", reportWindowBackground);
 
   // Zoom in on Ctrl+= as well as Ctrl++. The default menu's "Zoom In" is bound
   // to CmdOrCtrl+Plus, which on Windows only matches when Shift is held (and
@@ -1633,6 +1651,8 @@ if (!gotLock) {
     // change how the machine behaves after the app is closed, so they take
     // their instruction from our own page and not from whatever might one day
     // be loaded into this window.
+    ipcMain.handle(IPC.windowBackgroundGet, () => isMainWindowBackground());
+
     ipcMain.handle(IPC.backgroundGet, (event) => {
       if (!event.sender.getURL().startsWith(APP_ORIGIN)) return null;
       return getBackgroundSettings();

@@ -166,6 +166,25 @@ export const IPC = {
    */
   unreadNotifications: "golive:notifications:unread",
 
+  /**
+   * main -> renderer: whether the main window is out of sight — minimised or
+   * closed to the tray. A boolean, sent on every change.
+   *
+   * The page cannot work this out for itself here, which is the only reason
+   * this exists: backgroundThrottling is off (see main.ts's webPreferences),
+   * and Electron ties the Page Visibility API to that same switch, so
+   * `document.visibilityState` stays "visible" through a minimise or a hide.
+   * Without this the app reports itself as in front forever, and the presence
+   * dot of everybody on it stays green.
+   */
+  windowBackground: "golive:window:background",
+  /**
+   * renderer -> main: the same thing, asked for. A page that just loaded — the
+   * site reloads on navigation, and a start at login loads it behind a hidden
+   * window — has missed every change pushed so far.
+   */
+  windowBackgroundGet: "golive:window:background-get",
+
   /** renderer -> main: register or update global shortcuts map. */
   shortcutsSet: "golive:shortcuts:set",
   /** main -> renderer: a registered global shortcut fired. */

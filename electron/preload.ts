@@ -191,6 +191,29 @@ contextBridge.exposeInMainWorld("golive", {
     );
   },
 
+  /**
+   * Whether the window is minimised or closed to the tray, now and on every
+   * change — see IPC.windowBackground for why the page cannot just read
+   * document.visibilityState. The callback gets the current state first, then
+   * each change. Returns an unsubscribe.
+   */
+  onWindowBackground(callback: unknown): () => void {
+    if (typeof callback !== "function") return () => {};
+    const emit = callback as (background: boolean) => void;
+    let active = true;
+    const listener = (_event: unknown, background: unknown) => {
+      if (typeof background === "boolean") emit(background);
+    };
+    ipcRenderer.on(IPC.windowBackground, listener);
+    void ipcRenderer.invoke(IPC.windowBackgroundGet).then((background: unknown) => {
+      if (active && typeof background === "boolean") emit(background);
+    });
+    return () => {
+      active = false;
+      ipcRenderer.off(IPC.windowBackground, listener);
+    };
+  },
+
   setGlobalShortcuts(shortcuts: unknown): void {
     if (shortcuts && typeof shortcuts === "object") {
       ipcRenderer.send(IPC.shortcutsSet, shortcuts);

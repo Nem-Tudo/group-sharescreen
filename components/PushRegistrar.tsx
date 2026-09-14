@@ -6,6 +6,7 @@ import { Capacitor } from "@capacitor/core";
 import { useAuth } from "@/lib/AuthContext";
 import { ensurePushRegistration, ensureServiceWorker } from "@/lib/pushRegistration";
 import { signalingClient } from "@/lib/signalingClient";
+import { getDesktopBridge } from "@/lib/desktop";
 import { openDirectMessages } from "@/lib/dmWindow";
 import { useGroupNavigation } from "@/lib/groupNavigation";
 import { useAccountToken } from "@/lib/accountApi";
@@ -63,11 +64,24 @@ export function PushRegistrar() {
   useEffect(() => {
     const report = (background: boolean) => signalingClient.reportAppState(background);
 
+    // The desktop shell's answer (see DesktopBridge.onWindowBackground): its
+    // document always says "visible", so without this a window minimised or
+    // closed to the tray would report itself as in front forever. Combined
+    // with the document's own answer rather than replacing it, so the two
+    // cannot overwrite each other.
+    let shellBackground = false;
+    const isHidden = () => shellBackground || document.visibilityState === "hidden";
+    const removeShell = getDesktopBridge()?.onWindowBackground?.((background) => {
+      shellBackground = background;
+      report(isHidden());
+      if (!background && document.hasFocus()) signalingClient.reportFocus();
+    });
+
     // The web answer. `visibilitychange` covers a tab going behind another
     // tab, a window being minimised and a phone browser being backgrounded,
     // which is every case that matters here.
     const onVisibility = () => {
-      const hidden = document.visibilityState === "hidden";
+      const hidden = isHidden();
       report(hidden);
       if (!hidden && document.hasFocus()) signalingClient.reportFocus();
     };
@@ -100,6 +114,7 @@ export function PushRegistrar() {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onFocus);
       remove?.();
+      removeShell?.();
     };
   }, []);
 
