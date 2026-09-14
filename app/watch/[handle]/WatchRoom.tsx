@@ -82,7 +82,7 @@ import {
   playHangUpSound,
 } from "@/lib/soundEffects";
 import { qualityNegotiator } from "@/lib/qualityNegotiation";
-import { TURN_CONFIGURED } from "@/lib/iceConfig";
+import { isTurnConfigured, subscribeIceServers, TURN_CONFIGURED } from "@/lib/iceConfig";
 import { useMediaDevices, type MediaDeviceOption } from "@/lib/useMediaDevices";
 import {
   getStoredMicsMuted,
@@ -1136,6 +1136,9 @@ export function WatchRoom({
     isRoomThemeOptedOut,
     isRoomThemeOptedOutServer
   );
+  // Whether "Impedir conexões diretas" has a TURN server to force through —
+  // the build's own, or Cloudflare's once lib/iceServers.ts has them.
+  const turnConfigured = useSyncExternalStore(subscribeIceServers, isTurnConfigured, () => TURN_CONFIGURED);
   // Keeps the tab's connection alive longer in the background on Android
   // while actually in a room — see the hook's own doc comment for why (and
   // its limits, especially on iOS).
@@ -4692,9 +4695,9 @@ export function WatchRoom({
         label={translate("watch.watchRoom.preventDirectConnections")}
         active={forceRelayIce}
         onToggle={toggleForceRelayIce}
-        disabled={!TURN_CONFIGURED}
+        disabled={!turnConfigured}
         hint={
-          TURN_CONFIGURED
+          turnConfigured
             ? translate("watch.watchRoom.forcesYourConnectionsThroughATurn")
             : translate("watch.watchRoom.unavailableNoTurnServerConfiguredOn")
         }

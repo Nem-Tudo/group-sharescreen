@@ -6,6 +6,7 @@ import { speakingDetector } from "./speakingDetector";
 import type { Feature } from "./entitlements";
 import { trackEvent } from "./analytics";
 import { iceConfigFor } from "./iceConfig";
+import { ensureIceServers } from "./iceServers";
 import {
   captureNoiseSuppressedMic,
   setGraphSuppressionEnabled,
@@ -2600,6 +2601,9 @@ export function useRoomMedia(room: string) {
   // Process-wide and idempotent, so mounting a second room is harmless.
   useEffect(() => {
     startConnectionTelemetry();
+    // Cloudflare's TURN servers (see lib/iceServers.ts). Same shape: once per
+    // tab, and a room is the first place a peer connection can be opened.
+    ensureIceServers();
   }, []);
   // "Impedir conexões diretas": forces every peer connection this client
   // creates — sending or receiving, any channel — through the TURN relay

@@ -37,4 +37,36 @@ for (const raw of [undefined, "", " ", ",", "turn:a.com,", " , turn:b.com"]) {
   assert.ok(urls.every((u) => typeof u === "string" && u.length > 0), `vazio vazou em ${JSON.stringify(raw)}`);
 }
 
+// Cloudflare's TURN (runtime, see lib/iceServers.ts) goes after STUN and ahead
+// of the VPS: the browser ranks relay candidates by server order, so a
+// connection that has to relay prefers Cloudflare and falls back to the VPS.
+async function loadModule(turnUrls: string | undefined, tag: string) {
+  if (turnUrls === undefined) delete process.env.NEXT_PUBLIC_TURN_URLS;
+  else process.env.NEXT_PUBLIC_TURN_URLS = turnUrls;
+  return import(`./iceConfig.ts?dyn=${tag}`);
+}
+const cloudflare = { urls: ["turn:turn.cloudflare.com:3478"], username: "u", credential: "c" };
+
+const withBoth = await loadModule("turn:vps.example.com:3478", "both");
+withBoth.setDynamicIceServers([cloudflare]);
+assert.deepEqual(allUrls(withBoth.iceConfigFor(false)), [
+  "stun:stun.l.google.com:19302",
+  "turn:turn.cloudflare.com:3478",
+  "turn:vps.example.com:3478",
+]);
+assert.equal(withBoth.iceConfigFor(false).iceTransportPolicy, undefined, "sem forçar, direto continua valendo");
+assert.equal(withBoth.iceConfigFor(true).iceTransportPolicy, "relay");
+
+// Only Cloudflare: "Impedir conexões diretas" becomes available once it lands,
+// and not before — relay-only with no TURN at all can never connect.
+const cfOnly = await loadModule(undefined, "cf-only");
+assert.equal(cfOnly.isTurnConfigured(), false);
+assert.equal(cfOnly.iceConfigFor(true).iceTransportPolicy, undefined, "sem TURN nenhum não pode forçar relay");
+let notified = 0;
+cfOnly.subscribeIceServers(() => (notified += 1));
+cfOnly.setDynamicIceServers([cloudflare]);
+assert.equal(notified, 1);
+assert.equal(cfOnly.isTurnConfigured(), true);
+assert.equal(cfOnly.iceConfigFor(true).iceTransportPolicy, "relay");
+
 console.log("iceConfig: ok");
