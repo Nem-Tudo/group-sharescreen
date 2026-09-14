@@ -16,7 +16,7 @@
 // travels end to end without a single backend change.
 
 import { signalingClient } from "./signalingClient";
-import { tierForRenderedSize, WORST_TIER, type QualityTier } from "./videoQuality";
+import { tierForRenderedSize, MAX_TIER_FPS, WORST_TIER, type QualityTier } from "./videoQuality";
 
 // The video channels a viewer can ask for a size on. The "fileN" ones are
 // local files being played into the room (see lib/localMediaSource.ts) — a
@@ -118,9 +118,13 @@ class QualityNegotiator {
     const entry = this.entries.get(key);
     if (!entry) return;
     const dpr = typeof window !== "undefined" ? window.devicePixelRatio : 1;
+    // MAX_TIER_FPS rather than the default 60: tile size decides pixels, never
+    // frames, so the request asks for the fastest rung at that size and the
+    // broadcaster's fps dial caps it (see capTier). Leaving the default here
+    // capped every viewer at 60 and made the 120 fps dial capture-only.
     const next = entry.hidden
       ? WORST_TIER
-      : tierForRenderedSize(entry.width, entry.height, dpr, entry.tier ?? undefined);
+      : tierForRenderedSize(entry.width, entry.height, dpr, entry.tier ?? undefined, MAX_TIER_FPS);
     if (!force && next === entry.tier) return;
     entry.tier = next;
     entry.lastSentAt = Date.now();

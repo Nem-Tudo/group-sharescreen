@@ -14,7 +14,9 @@ import {
   measureContentMultiplier,
   scaleFactorFor,
   stepDown,
+  stepDownUnder,
   tierForRenderedSize,
+  MAX_TIER_FPS,
   tierSpec,
   uploadKbps,
   TIERS,
@@ -73,12 +75,31 @@ assert.equal(tierForRenderedSize(2560, 1440, 1, undefined, 30), "1440p30");
 // 576p at 60fps gets the resolution, at the frame rate the floor offers.
 assert.equal(tierForRenderedSize(1024, 576, 1, undefined, 60), "576p30");
 
+// The paid dials are real rungs, not capture-only settings. The ladder used to
+// stop at 1440p60, so a 4K or 120 fps share was scaled and frame-dropped down to
+// it for every viewer.
+assert.equal(tierForRenderedSize(3840, 2160, 1, undefined, 60), "2160p60");
+assert.equal(tierForRenderedSize(3840, 2160, 1, undefined, 30), "2160p30");
+assert.equal(tierForRenderedSize(3840, 2160, 1, undefined, 120), "2160p120");
+assert.equal(tierForRenderedSize(2560, 1440, 1, undefined, 120), "1440p120");
+assert.equal(tierForRenderedSize(1920, 1080, 1, undefined, 120), "1080p120");
+// A 240 fps dial is sent at the fastest rung there is.
+assert.equal(tierForRenderedSize(1920, 1080, 1, undefined, 240), "1080p120");
+// No 720p120, for the same reason as no 576p60: medium tiles all land here.
+assert.equal(tierForRenderedSize(1280, 720, 1, undefined, MAX_TIER_FPS), "720p60");
+// And the grid floor stays at 30 even when viewers ask at the ladder's top fps.
+assert.equal(tierForRenderedSize(320, 216, 1, undefined, MAX_TIER_FPS), "576p30");
+
 // --- ladder invariants ----------------------------------------------------
 
 // Both cost columns must fall monotonically down the ladder. Every "step down
 // one tier" in the app is an index walk, and the planner's "retry a tier
 // lower until the room fits" loop is only correct if a step down always frees
 // both bandwidth and CPU.
+//
+// One tie is allowed on the CPU column: 2160p30 and 1080p120 are exactly the
+// same pixels per second, so that one step frees bandwidth only. Bandwidth
+// must still strictly fall at every step.
 for (let i = 1; i < TIERS.length; i += 1) {
   const better = TIERS[i - 1];
   const worse = TIERS[i];
@@ -87,7 +108,7 @@ for (let i = 1; i < TIERS.length; i += 1) {
     `${worse.tier} deveria custar menos banda que ${better.tier}`
   );
   assert.ok(
-    encodeMpxs(worse.tier) < encodeMpxs(better.tier),
+    encodeMpxs(worse.tier) <= encodeMpxs(better.tier),
     `${worse.tier} deveria custar menos CPU que ${better.tier}`
   );
 }
@@ -99,11 +120,15 @@ for (let i = 1; i < TIERS.length; i += 1) {
 // the clamp, one depth penalty turned a 1080p60 viewer into "1440p30" — a
 // 2560-wide tier nobody can produce or receive — and the planner then charged
 // their relay 4500 kbps and 111 Mpx/s for a stream really costing 3000 and 62.
+// Step-then-clamp itself stopped being enough once the 4K/120 rungs arrived
+// (2160p60 stepped twice came out dearer than stepped once), so the planner
+// walks only the rungs under the request — stepDownUnder — and that is what
+// is pinned here.
 for (const start of TIERS) {
   let prevKbps = Infinity;
   let prevMpxs = Infinity;
   for (let steps = 0; steps < TIERS.length; steps += 1) {
-    const stepped = capTier(stepDown(start.tier, steps), start.tier);
+    const stepped = stepDownUnder(start.tier, steps);
     const spec = tierSpec(stepped);
     assert.ok(
       spec.width <= start.width && spec.frameRate <= start.frameRate,
@@ -129,6 +154,17 @@ assert.equal(capTier("1080p60", "720p60"), "720p60", "teto de 720p limita resolu
 assert.equal(capTier("1440p60", "1080p60"), "1080p60");
 assert.equal(capTier("576p30", "1080p60"), "576p30", "quem pede pouco continua recebendo pouco");
 assert.equal(capTier("1080p60", "1080p60"), "1080p60", "teto igual ao pedido não mexe em nada");
+// A viewer asks at the top fps (see qualityNegotiation); the broadcaster's fps
+// dial is what brings it down.
+assert.equal(capTier("1080p120", "2160p60"), "1080p60", "teto de 60fps limita pedido de 120");
+assert.equal(capTier("1080p120", "2160p120"), "1080p120", "dial de 120 entrega 120");
+assert.equal(capTier("2160p120", "1440p120"), "1440p120");
+assert.equal(capTier("2160p60", "2160p30"), "2160p30");
+
+// The bitrate dial's scale is anchored to 1440p60, not to the ladder's top:
+// adding the 4K/120 rungs must not have cut what ordinary tiers are allowed.
+assert.equal(encoderCeilingKbps("1080p60", 32000), Math.round((32000 * 5000) / 9000));
+assert.equal(encoderCeilingKbps("2160p120", 32000), 32000, "degrau de cima recebe o dial inteiro");
 
 // What the encoder is handed is a *ceiling*, and a ceiling set at the tier's
 // average clips every busy moment. This is the regression that made shares

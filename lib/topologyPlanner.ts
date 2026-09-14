@@ -16,9 +16,8 @@
 // a weak uplink, a weak CPU, or the everyone-goes-fullscreen case.
 
 import {
-  capTier,
   encodeMpxs,
-  stepDown,
+  stepDownUnder,
   tierIndex,
   uploadKbps,
   TIERS,
@@ -316,8 +315,13 @@ function allocate(
         // viewer one hop down. Over-charging a relay is exactly how it ends up
         // with fewer children than it can carry, which deepens the tree and
         // spends global downgrade levels the room never needed.
+        //
+        // Now done by walking only the rungs under the request (stepDownUnder)
+        // rather than stepping and clamping: with the 4K/120 rungs on the
+        // ladder, step-then-clamp stopped being monotonic — one more step
+        // could come out *more* expensive than the one before it.
         const want = wanted.get(childId) ?? WORST_TIER;
-        const tier = capTier(stepDown(want, globalDowngrade + (childDepth - 1)), want);
+        const tier = stepDownUnder(want, globalDowngrade + (childDepth - 1));
         if (slotsFor(parent, tier, contentMultiplier) < 1) {
           i += 1;
           continue;

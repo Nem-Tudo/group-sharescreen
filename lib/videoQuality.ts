@@ -16,6 +16,11 @@
 // a room it could never encode for.
 
 export type QualityTier =
+  | "2160p120"
+  | "2160p60"
+  | "1440p120"
+  | "2160p30"
+  | "1080p120"
   | "1440p60"
   | "1080p60"
   | "1440p30"
@@ -52,7 +57,22 @@ export interface TierSpec {
 // two are genuinely incomparable as quality — 2K30 is better for text, 1080p60
 // better for a game — but 1440p30 is unambiguously cheaper on both axes, and
 // cost is what this ladder exists to order.
+//
+// The top five rungs are what the paid dials (4K, 120 fps) are actually sent
+// at. The ladder used to stop at 1440p60, which made those dials capture-only:
+// a 4K120 share was captured at 4K120 and then scaled down and frame-dropped to
+// 1440p60 for every viewer, paying the capture's full cost for none of its
+// quality. Same cost ordering applies up there, with one tie: 2160p30 and
+// 1080p120 are the same pixels per second, so a step between them frees
+// bandwidth only. There is no 720p120 for the reason there is no 576p60 — a
+// 720p rung is where medium tiles land, and a 120fps rung there would hand 120
+// fps to all of them.
 export const TIERS: readonly TierSpec[] = [
+  { tier: "2160p120", width: 3840, height: 2160, frameRate: 120, baseKbps: 32000 },
+  { tier: "2160p60", width: 3840, height: 2160, frameRate: 60, baseKbps: 18000 },
+  { tier: "1440p120", width: 2560, height: 1440, frameRate: 120, baseKbps: 16000 },
+  { tier: "2160p30", width: 3840, height: 2160, frameRate: 30, baseKbps: 10000 },
+  { tier: "1080p120", width: 1920, height: 1080, frameRate: 120, baseKbps: 9500 },
   { tier: "1440p60", width: 2560, height: 1440, frameRate: 60, baseKbps: 9000 },
   { tier: "1080p60", width: 1920, height: 1080, frameRate: 60, baseKbps: 5000 },
   { tier: "1440p30", width: 2560, height: 1440, frameRate: 30, baseKbps: 4500 },
@@ -95,10 +115,30 @@ export function tierIndex(tier: QualityTier): number {
 export const BEST_TIER = TIERS[0].tier;
 export const WORST_TIER = TIERS[TIERS.length - 1].tier;
 
+/** The highest frame rate any rung sends — what a viewer's request allows at most. */
+export const MAX_TIER_FPS = Math.max(...TIERS.map((t) => t.frameRate));
+
 /** Steps `tier` down by `steps` places, clamped at the worst tier. */
 export function stepDown(tier: QualityTier, steps: number): QualityTier {
   if (steps <= 0) return tier;
   return TIERS[Math.min(tierIndex(tier) + steps, TIERS.length - 1)].tier;
+}
+
+/**
+ * Steps `tier` down by `steps` places among only the rungs that fit under it —
+ * no wider and no faster. This is what "serve this viewer N steps worse" has
+ * to mean: a plain stepDown walks the cost ladder, which can land on a wider
+ * or faster rung (1080p60 → 1440p30; 2160p60 → 1440p120), and clamping that
+ * back under the request afterwards is not monotonic either — 2160p60 stepped
+ * once came out 1440p60, stepped twice 2160p30, which costs more. Walking the
+ * filtered ladder makes every step land somewhere real and never cost more
+ * than the step before.
+ */
+export function stepDownUnder(tier: QualityTier, steps: number): QualityTier {
+  const cap = tierSpec(tier);
+  const pool = TIERS.filter((t) => t.width <= cap.width && t.frameRate <= cap.frameRate);
+  const start = pool.findIndex((t) => t.tier === tier);
+  return pool[Math.min(Math.max(start, 0) + Math.max(steps, 0), pool.length - 1)].tier;
 }
 
 /** Steps `tier` up by `steps` places, clamped at the best tier. */
@@ -272,6 +312,14 @@ export function capTier(requested: QualityTier, ceiling: QualityTier): QualityTi
 // frozen rather than merely soft.
 const CEILING_HEADROOM = 1.5;
 
+// The rung the bitrate dial is scaled against: a tier costing this much gets
+// the whole dial, cheaper ones a proportional share. Pinned to 1440p60, the
+// old top of the ladder, rather than read off TIERS[0] — the 4K/120 rungs above
+// it would otherwise shrink every ordinary tier's share to a third of what it
+// was, quietly cutting a 1080p60 viewer on "extremo" from ~17.8 Mbps to 7.5.
+// Rungs above it simply get the full dial.
+const DIAL_REFERENCE_KBPS = 9000;
+
 /**
  * The bitrate ceiling to hand the encoder for one viewer at `tier`.
  *
@@ -285,9 +333,9 @@ const CEILING_HEADROOM = 1.5;
  */
 export function encoderCeilingKbps(tier: QualityTier, dialCeilingKbps: number): number {
   const base = tierSpec(tier).baseKbps;
-  // This tier's share of a top-tier stream, so the dial scales down the
+  // This tier's share of a reference stream, so the dial scales down the
   // ladder instead of handing a thumbnail-sized tier a 32 Mbps allowance.
-  const share = base / TIERS[0].baseKbps;
+  const share = base / DIAL_REFERENCE_KBPS;
   const generous = Math.max(base * CEILING_HEADROOM, dialCeilingKbps * share);
   return Math.round(Math.min(dialCeilingKbps, generous));
 }

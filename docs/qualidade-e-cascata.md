@@ -62,6 +62,19 @@ pequena, entregaria 60fps às 29 miniaturas de uma grade de uma vez. Quem
 escolhe 576p com 60fps recebe 576p30: a resolução que pediu, no framerate que
 o piso oferece.
 
+**4K e 120 fps são degraus de verdade.** A escada parava em 1440p60, então os
+dials pagos de 4K e 120/240 fps só mudavam a *captura*: tudo era capturado em
+4K120 e reduzido para 1440p60 para cada espectador, pagando o custo inteiro sem
+entregar nada. Agora há `2160p120`, `2160p60`, `1440p120`, `2160p30` e
+`1080p120`. O dial de 240 fps é enviado a 120, o degrau mais rápido. O
+espectador pede no fps máximo da escada (`MAX_TIER_FPS`) e o dial de fps de
+quem transmite é que limita, porque tamanho de tile não diz nada sobre fps.
+Não existe 720p120 pelo mesmo motivo do 576p60. O rebaixamento do planejador
+anda só pelos degraus que cabem sob o pedido (`stepDownUnder`), já que
+"descer e depois limitar" deixou de ser monotônico com esses degraus. O dial
+de bitrate continua proporcional a 1440p60, para os degraus novos não
+reduzirem a verba dos antigos.
+
 **Estado de congestionamento sobrevive a mudanças de qualidade.** Antes, todo
 ajuste de qualidade reiniciava o monitor de cada peer — e como ele também
 rodava a cada mudança no número de pessoas, um espectador em link ruim voltava
