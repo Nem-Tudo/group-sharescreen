@@ -1423,7 +1423,7 @@
   "groups.groupDialogs.exploreGroups": "Explorar grupos",
   "groups.groupDialogs.exploreGroupsHint": "Grupos públicos, que qualquer pessoa pode entrar",
   "groups.groupDialogs.addGroupQuestion": "Você quer entrar em um grupo que já existe ou criar o seu?",
-  "groups.groupDialogs.anyoneCanJoin": "Qualquer um pode entrar.",
+  "groups.groupDialogs.anyoneCanJoin": "Aparece na aba Descobrir Grupos",
   "groups.groupDialogs.aPermanentPlaceWithVoiceAnd": "Um lugar permanente com salas de voz e de texto para você e seus amigos.",
   "groups.groupDialogs.availableWhenTheGroupSOwner": "— Disponível quando o dono do grupo tem o",
   "groups.groupDialogs.banFromTheGroup": "Banir do grupo?",
