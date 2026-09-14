@@ -124,6 +124,7 @@ function useOpenBotExplorer(detail: GroupDetail) {
         groupId: detail.group.id,
         groupName: detail.group.name,
         canAdd: canManage(detail, "manageGroup"),
+        canKick: canManage(detail, "kickMembers"),
       },
     });
 }

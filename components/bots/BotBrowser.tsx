@@ -17,6 +17,7 @@ import {
   type BotDirectorySort,
   type DirectoryBot,
 } from "@/lib/botsApi";
+import { kickMember } from "@/lib/groupsApi";
 import { refreshGroup } from "@/lib/useGroups";
 import { useI18n } from "@/lib/useI18n";
 
@@ -56,6 +57,8 @@ export type BotBrowserGroup = {
   name: string;
   /** Whether this person may add bots to it — "Gerenciar grupo". */
   canAdd: boolean;
+  /** Whether this person may take a bot out of it — "Expulsar membros". */
+  canKick?: boolean;
 };
 
 export function BotBrowser({
@@ -79,7 +82,9 @@ export function BotBrowser({
   const [busyId, setBusyId] = useState<string | null>(null);
   // Added from here, so the card says so without a round trip.
   const [addedIds, setAddedIds] = useState<ReadonlySet<string>>(() => new Set());
-  const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  // Taken out from here, which outranks what the list said when it loaded.
+  const [removedIds, setRemovedIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string; hint?: string } | null>(null);
   const [profileId, setProfileId] = useState<string | null>(null);
 
   const searchRef = useRef<HTMLInputElement | null>(null);
@@ -200,7 +205,37 @@ export function BotBrowser({
       return;
     }
     setAddedIds((prev) => new Set(prev).add(bot.id));
-    setNotice({ tone: "ok", text: t("addBot.botAddedTo", { bot: bot.displayName, group: group.name }) });
+    setRemovedIds((prev) => {
+      const next = new Set(prev);
+      next.delete(bot.id);
+      return next;
+    });
+    setNotice({
+      tone: "ok",
+      text: t("addBot.botAddedTo", { bot: bot.displayName, group: group.name }),
+      hint: t("addBot.giveItARoleToModerate"),
+    });
+    void refreshGroup(group.id);
+  }
+
+  /** Kicks the bot out of the group — the same kick as anybody's. It can be added again. */
+  async function remove(bot: DirectoryBot) {
+    if (!group) return;
+    setBusyId(bot.id);
+    setNotice(null);
+    const result = await kickMember(group.id, bot.id);
+    setBusyId(null);
+    if (!result.ok) {
+      setNotice({ tone: "error", text: result.error });
+      return;
+    }
+    setRemovedIds((prev) => new Set(prev).add(bot.id));
+    setAddedIds((prev) => {
+      const next = new Set(prev);
+      next.delete(bot.id);
+      return next;
+    });
+    setNotice({ tone: "ok", text: t("botDirectory.removedFrom", { bot: bot.displayName, group: group.name }) });
     void refreshGroup(group.id);
   }
 
@@ -280,7 +315,7 @@ export function BotBrowser({
         >
           <span className="flex-1">
             {notice.text}
-            {notice.tone === "ok" && <span className="mt-0.5 block text-xs opacity-80">{t("addBot.giveItARoleToModerate")}</span>}
+            {notice.hint && <span className="mt-0.5 block text-xs opacity-80">{notice.hint}</span>}
           </span>
           <button type="button" onClick={() => setNotice(null)} aria-label={t("common.close")} className="shrink-0">
             <MdClose className="h-4 w-4" />
@@ -351,9 +386,10 @@ export function BotBrowser({
                 key={bot.id}
                 bot={bot}
                 group={group}
-                inGroup={Boolean(bot.inGroup) || addedIds.has(bot.id)}
+                inGroup={!removedIds.has(bot.id) && (Boolean(bot.inGroup) || addedIds.has(bot.id))}
                 busy={busyId === bot.id}
                 onAdd={() => void add(bot)}
+                onRemove={() => void remove(bot)}
                 onOpenProfile={() => setProfileId(bot.id)}
                 onNavigate={onNavigate}
               />
@@ -465,6 +501,7 @@ function BotCard({
   inGroup,
   busy,
   onAdd,
+  onRemove,
   onOpenProfile,
   onNavigate,
 }: {
@@ -473,6 +510,8 @@ function BotCard({
   inGroup: boolean;
   busy: boolean;
   onAdd: () => void;
+  /** Kicks it out of the group — offered only to somebody who may. */
+  onRemove: () => void;
   onOpenProfile: () => void;
   onNavigate?: () => void;
 }) {
@@ -481,13 +520,25 @@ function BotCard({
   const profileLabel = t("common.seeDisplaynameSProfile", { displayName: bot.displayName });
 
   let action: React.ReactNode;
-  if (group?.canAdd) {
-    action = inGroup ? (
+  if (group && inGroup) {
+    // Already in: out again, for whoever may kick — "no grupo" for the rest.
+    action = group.canKick ? (
+      <button
+        type="button"
+        onClick={onRemove}
+        disabled={busy}
+        className="w-full cursor-pointer rounded-lg border border-red-300 px-3 py-2 text-xs font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-60 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
+      >
+        {busy ? t("common.removing") : t("botDirectory.removeFromGroup")}
+      </button>
+    ) : (
       <span className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-emerald-500/50 px-3 py-2 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
         <MdCheck className="h-4 w-4" />
         {t("botDirectory.inThisGroup")}
       </span>
-    ) : (
+    );
+  } else if (group?.canAdd) {
+    action = (
       <button
         type="button"
         onClick={onAdd}

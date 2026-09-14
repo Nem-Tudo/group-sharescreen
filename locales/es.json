@@ -3026,6 +3026,8 @@
   "botDirectory.inGroups.one": "En {count} grupo",
   "botDirectory.inGroups.other": "En {count} grupos",
   "botDirectory.viewProfile": "Ver perfil",
+  "botDirectory.removeFromGroup": "Quitar del grupo",
+  "botDirectory.removedFrom": "{bot} fue quitado de {group}.",
   "botDirectory.inThisGroup": "En el grupo",
   "botDirectory.loadFailed": "No se pudieron cargar los bots.",
   "botDirectory.noResultsFor": "No se encontraron bots para «{query}».",

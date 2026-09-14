@@ -15,6 +15,8 @@ export type BotExplorerPopupData = {
   groupName: string;
   /** Whether this person may add bots to the group — "Gerenciar grupo". */
   canAdd: boolean;
+  /** Whether this person may take a bot out of it — "Expulsar membros". */
+  canKick?: boolean;
 };
 
 export function BotExplorerDialog({
@@ -25,7 +27,7 @@ export function BotExplorerDialog({
   data?: BotExplorerPopupData;
 }) {
   const t = useT();
-  const group = data ? { id: data.groupId, name: data.groupName, canAdd: data.canAdd } : null;
+  const group = data ? { id: data.groupId, name: data.groupName, canAdd: data.canAdd, canKick: Boolean(data.canKick) } : null;
 
   return (
     <div className="flex h-[min(52rem,calc(100dvh-2.5rem))] w-[min(62rem,calc(100vw-2rem))] flex-col bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">

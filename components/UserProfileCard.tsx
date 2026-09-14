@@ -1222,6 +1222,7 @@ function ProfileContent({
               <Link
                 href={botAddPath(account.id)}
                 onClick={onNavigate}
+                target="_blank"
                 className="mt-4 flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-3 py-2.5 text-sm font-medium text-white transition hover:bg-indigo-500"
               >
                 {t("addBot.addToAGroup")}
