@@ -15,6 +15,7 @@ import { GiftClaimDialog } from "@/components/GiftClaimDialog";
 import { ThemeEditorDialog } from "@/components/ThemeEditorDialog";
 import { ThemeHubDialog } from "@/components/ThemeHubDialog";
 import { RoomThemePicker } from "@/components/RoomThemePicker";
+import { ThemePreviewBar } from "@/components/ThemePreviewBar";
 import {
   AddGroupDialog,
   CreateGroupDialog,
@@ -74,6 +75,9 @@ export function NtPopups({ children }: { children: ReactNode }) {
       customPopups={customPopups}
     >
       {children}
+      {/* A theme being tried on — inside the provider, since its way back
+          reopens the dialog it came from. See lib/themeChoice. */}
+      <ThemePreviewBar />
     </NtPopupProvider>
   );
 }

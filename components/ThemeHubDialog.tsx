@@ -1,22 +1,11 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
-import Link from "next/link";
+import { useEffect, useState } from "react";
 import useNtPopups from "ntpopups";
-import {
-  MdAdd,
-  MdBlock,
-  MdCheck,
-  MdFavorite,
-  MdFavoriteBorder,
-  MdPalette,
-  MdPeople,
-  MdPublic,
-} from "react-icons/md";
-import { BsCoin } from "react-icons/bs";
-import { AccountModal, type AccountModalMode } from "@/components/AccountModal";
-import { CopyButton } from "@/components/CopyButton";
+import { MdAdd, MdBlock, MdClose, MdPalette, MdPublic } from "react-icons/md";
 import { planIcon } from "@/components/planIcons";
+import { ThemeBrowser } from "@/components/ThemeBrowser";
+import { ThemeMiniPreview } from "@/components/ThemeMiniPreview";
 import { useAuth } from "@/lib/AuthContext";
 import { useOpenPro } from "@/lib/proModal";
 import {
@@ -27,23 +16,9 @@ import {
   type Feature,
   type FeatureTier,
 } from "@/lib/entitlements";
-import {
-  applyTheme,
-  buyTheme,
-  fetchMyThemes,
-  fetchWorkshop,
-  isDarkTheme,
-  likeTheme,
-  themeLink,
-  setWornOverride,
-  getWornOverride,
-  getWornOverrideServer,
-  subscribeWornOverride,
-  type RoomTheme,
-} from "@/lib/roomThemes";
+import { fetchMyThemes, isDarkTheme, type RoomTheme } from "@/lib/roomThemes";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
-import { formatLocale } from "@/lib/i18n";
 
 // The theme button's home: three doors, all of them visible.
 //
@@ -53,8 +28,9 @@ import { formatLocale } from "@/lib/i18n";
 // product people discover by accident on somebody else's screen.
 //
 // It opens from inside a room (see RoomAccountCard), which is why the workshop
-// tab is a list here rather than a link to /workshop: leaving the page ends the
-// call. The full page is still one click away for browsing properly.
+// tab is the whole workshop here rather than a link to /workshop: leaving the
+// page ends the call. See ThemeBrowser — searchable, paged, and every theme
+// can be tried on the room behind before it is worn or bought.
 
 type TabId = "workshop" | "create" | "publish";
 
@@ -127,176 +103,28 @@ function LockedPanel({
   );
 }
 
-/** One theme in the browse list: the palette, the name, and one verb. */
-function ThemeRow({
-  theme,
-  worn,
-  busy,
-  onWear,
-  onEdit,
-  onBuy,
-  onLike,
+export type ThemeHubPopupData = {
+  /** Reopened from a preview: back to the same search and scroll. */
+  resume?: boolean;
+};
+
+export function ThemeHubDialog({
+  closePopup,
+  data,
 }: {
-  theme: RoomTheme;
-  worn: boolean;
-  busy: boolean;
-  onWear: () => void;
-  /** Only for a theme this account wrote. Absent for everybody else's. */
-  onEdit?: () => void;
-  onBuy: () => void;
-  onLike: () => void;
+  closePopup: (hasAction?: boolean) => void;
+  data?: ThemeHubPopupData;
 }) {
   const t = useT();
-  const { palette, accent } = theme.spec;
-  return (
-    <li className="flex flex-wrap items-center gap-2.5 rounded-lg border border-zinc-200 px-2.5 py-2 dark:border-zinc-800">
-      {/* The palette as its own swatch — four colours in the order they sit on
-          each other, which says more at this size than any name could. */}
-      <span
-        className="flex h-9 w-9 shrink-0 overflow-hidden rounded-md border"
-        style={{ borderColor: palette.border }}
-      >
-        {[palette.page, palette.surface, palette.raised, accent].map((colour, index) => (
-          <span key={index} className="h-full flex-1" style={{ background: colour }} />
-        ))}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
-          {theme.name}
-        </span>
-        <span className="flex items-center gap-1.5 truncate text-[11px] text-zinc-500 dark:text-zinc-400">
-          {isDarkTheme(theme.spec) ? t("common.dark") : t("common.light")}
-          {onEdit && !theme.published ? " · privado" : ""}
-          {!onEdit && theme.author ? ` · ${theme.author.displayName}` : ""}
-          <span className="flex items-center gap-0.5">
-            <MdPeople className="h-3 w-3 shrink-0" />
-            {theme.uses}
-          </span>
-          {theme.price > 0 && (
-            <span className="flex items-center gap-0.5 text-amber-600 dark:text-amber-400">
-              <BsCoin className="h-3 w-3 shrink-0" />
-              {theme.price.toLocaleString(formatLocale())}
-            </span>
-          )}
-        </span>
-      </span>
-      {/* Beside the verb, not in the caption above it. This list is the one
-          people scroll while actually in a room wearing these — the shortest
-          path there is to a theme they like — and a heart three points of type
-          smaller than the row is a heart nobody presses.
-          Never on a private theme: liking something with an audience of one is
-          a way of finding out it exists (the API refuses it too). */}
-      {/* Icon alone — this row is already carrying a heart, sometimes an
-          "Editar", and a verb, and it opens inside a room on a phone. The one
-          place a share control is genuinely wanted, too: somebody wearing a
-          theme mid-call is exactly who gets asked where they got it, and a
-          link costs them no navigation out of the call to answer.
-          Published only, like the heart: a private theme's page opens for
-          nobody but its author, and a link that 404s is worse than none. */}
-      {theme.published && (
-        <CopyButton
-          value={themeLink(theme.id)}
-          label={t("themeHubDialog.copyTheThemeSLink")}
-          compact
-          className="flex shrink-0 items-center rounded-lg px-2 py-1.5 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
-        />
-      )}
-      {theme.published && (
-        <button
-          type="button"
-          onClick={onLike}
-          aria-label={theme.liked ? t("common.removeLike") : t("common.likeTheme")}
-          aria-pressed={theme.liked}
-          className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-zinc-500 transition hover:bg-zinc-100 hover:text-rose-500 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-900"
-        >
-          {theme.liked ? (
-            <MdFavorite className="h-4 w-4 shrink-0 text-rose-500" />
-          ) : (
-            <MdFavoriteBorder className="h-4 w-4 shrink-0" />
-          )}
-          {theme.likes}
-        </button>
-      )}
-      {onEdit && (
-        <button
-          type="button"
-          onClick={onEdit}
-          className="shrink-0 rounded-lg border border-zinc-300 px-2 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
-        >
-          {t("common.edit")}
-        </button>
-      )}
-      {/* One verb, and which one is a fact the server sends (`owned`): a price
-          alone cannot tell "comprar" from "usar", because the author owns
-          theirs by having written it and a buyer owns it for good. */}
-      {theme.owned ? (
-        <button
-          type="button"
-          onClick={onWear}
-          disabled={busy}
-          className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold transition disabled:opacity-60 ${
-            worn
-              ? "border border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
-              : "bg-zinc-950 text-white hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
-          }`}
-        >
-          {worn ? t("common.remove") : t("themeHubDialog.use")}
-        </button>
-      ) : (
-        <button
-          type="button"
-          onClick={onBuy}
-          disabled={busy}
-          className="flex shrink-0 items-center gap-1 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-600 disabled:opacity-60"
-        >
-          <BsCoin className="h-3.5 w-3.5 shrink-0" />
-          {theme.price.toLocaleString(formatLocale())}
-        </button>
-      )}
-    </li>
-  );
-}
-
-export function ThemeHubDialog({ closePopup }: { closePopup: (hasAction?: boolean) => void }) {
-  const t = useT();
-  const { account, refresh } = useAuth();
+  const { account } = useAuth();
   const { openPopup } = useNtPopups();
   const [tab, setTab] = useState<TabId>("workshop");
-  const [themes, setThemes] = useState<RoomTheme[]>([]);
   const [mine, setMine] = useState<RoomTheme[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [accountModal, setAccountModal] = useState<AccountModalMode | null>(null);
-  // What a purchase refused, if it refused. Buying is the one action here that
-  // can fail for a reason the person can do something about — not enough
-  // points — and a button that silently does nothing is the worst way to say
-  // so.
-  const [error, setError] = useState<string | null>(null);
 
   const features = account?.features ?? [];
-  // The override first, so the button's own label flips on the press rather
-  // than when /auth/me answers. Same store the room reads (see useRoomTheme):
-  // one answer to "what am I wearing", not two that can disagree.
-  const pending = useSyncExternalStore(
-    subscribeWornOverride,
-    getWornOverride,
-    getWornOverrideServer
-  );
-  const worn = pending !== undefined ? pending : account?.roomThemeId ?? null;
 
-  useEffect(() => {
-    const controller = new AbortController();
-    void fetchWorkshop("popular", controller.signal).then((loaded) => {
-      if (controller.signal.aborted) return;
-      setThemes(loaded);
-      setLoading(false);
-    });
-    return () => controller.abort();
-  }, []);
-
-  // The ones this account wrote — private ones included, which is the whole
-  // reason this is a second request rather than a filter over the list above:
-  // an unpublished theme is in nobody's browse list, not even its author's.
+  // The ones this account wrote — for the "Publicar" tab's list of the ones
+  // never published. The workshop tab reads its own (see ThemeBrowser).
   useEffect(() => {
     if (!account) return;
     const controller = new AbortController();
@@ -320,66 +148,6 @@ export function ThemeHubDialog({ closePopup }: { closePopup: (hasAction?: boolea
     void openPopup("theme_editor", { data: { theme, startPublished } });
   }
 
-  async function buy(theme: RoomTheme) {
-    if (!account) {
-      setAccountModal("create");
-      return;
-    }
-    setBusyId(theme.id);
-    const result = await buyTheme(theme.id);
-    if (result.ok) {
-      // Re-read rather than patched: the points on the account moved, and so
-      // did ownership — both live on the server and both are on screen.
-      refresh();
-      const [fresh, own] = await Promise.all([fetchWorkshop("popular"), fetchMyThemes()]);
-      setThemes(fresh);
-      setMine(own);
-    } else {
-      setError(result.error);
-    }
-    setBusyId(null);
-  }
-
-  async function like(theme: RoomTheme) {
-    if (!account) {
-      setAccountModal("create");
-      return;
-    }
-    // Flipped now, confirmed after — the same reasoning as the workshop's.
-    const liked = !theme.liked;
-    const patch = (next: { liked: boolean; likes: number }) => (list: RoomTheme[]) =>
-      list.map((entry) => (entry.id === theme.id ? { ...entry, ...next } : entry));
-
-    const optimistic = { liked, likes: Math.max(0, theme.likes + (liked ? 1 : -1)) };
-    setThemes(patch(optimistic));
-    setMine(patch(optimistic));
-
-    const result = await likeTheme(theme.id, liked);
-    const settled = result ?? { liked: theme.liked, likes: theme.likes };
-    setThemes(patch(settled));
-    setMine(patch(settled));
-  }
-
-  async function wear(theme: RoomTheme) {
-    if (!account) {
-      setAccountModal("create");
-      return;
-    }
-    const next = worn === theme.id ? null : theme.id;
-    // Painted first, asked second — see the same move in the workshop. It
-    // matters more here than anywhere: this dialog is open *over* the room it
-    // is repainting, so the wait was happening in full view of the thing that
-    // was not changing.
-    setWornOverride(next);
-    const ok = await applyTheme(next);
-    if (!ok) {
-      setWornOverride(undefined);
-      return;
-    }
-    await refresh();
-    setWornOverride(undefined);
-  }
-
   const active = TABS.find((entry) => entry.id === tab) ?? TABS[0];
   const lockedAt = lockTier(active.feature, features);
   // Checked before the plan lock below, and shown instead of it. Selling the
@@ -390,16 +158,12 @@ export function ThemeHubDialog({ closePopup }: { closePopup: (hasAction?: boolea
   // state synchronously — and a stale list cannot outlive the account it
   // belonged to.
   const myThemes = account ? mine : [];
-  // The community list minus anything already shown above it: a theme somebody
-  // made *and* published would otherwise appear twice, once with an edit
-  // button and once without.
-  const others = themes.filter((theme) => !myThemes.some((own) => own.id === theme.id));
   // Yours that nobody else can reach yet. The list the "Publicar" tab offers.
   const unpublished = myThemes.filter((theme) => !theme.published);
 
   return (
-    <div className="flex w-96 max-w-[calc(100vw-1rem)] flex-col bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">
-      <div className="flex items-center gap-2 border-b border-zinc-200 px-5 py-4 dark:border-zinc-800">
+    <div className="flex h-[min(52rem,calc(100dvh-2.5rem))] w-[min(62rem,calc(100vw-2rem))] flex-col bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">
+      <div className="flex shrink-0 items-center gap-2 border-b border-zinc-200 px-4 py-3.5 sm:px-5 dark:border-zinc-800">
         <MdPalette className="h-5 w-5 shrink-0 text-indigo-500" />
         <h2 className="flex-1 text-base font-semibold tracking-tight">{t("common.themes")}</h2>
         <button
@@ -408,7 +172,7 @@ export function ThemeHubDialog({ closePopup }: { closePopup: (hasAction?: boolea
           aria-label={t("common.close")}
           className="-mr-1 rounded-lg p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-900 dark:hover:text-zinc-200"
         >
-          ×
+          <MdClose className="h-5 w-5" />
         </button>
       </div>
 
@@ -416,7 +180,7 @@ export function ThemeHubDialog({ closePopup }: { closePopup: (hasAction?: boolea
           A disabled tab hides what is behind it, and what is behind it is the
           pitch — somebody has to be able to look at the thing before deciding
           whether it is worth paying for. */}
-      <div className="flex gap-1 border-b border-zinc-200 px-3 dark:border-zinc-800">
+      <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-zinc-200 px-3 dark:border-zinc-800">
         {TABS.map((entry) => {
           const locked = lockTier(entry.feature, features);
           const mark = planIcon(locked === "premium_max" ? "gold_verified" : "blue_verified");
@@ -439,7 +203,11 @@ export function ThemeHubDialog({ closePopup }: { closePopup: (hasAction?: boolea
         })}
       </div>
 
-      <div className="flex max-h-[60vh] flex-col overflow-y-auto">
+      {/* The workshop scrolls inside itself, under its own search bar; the
+          other tabs are short, and scroll here if a phone makes them long. */}
+      <div
+        className={`flex min-h-0 flex-1 flex-col ${tab === "workshop" && !banned && !lockedAt ? "" : "overflow-y-auto"}`}
+      >
         {banned ? (
           <div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
             <span className="flex h-12 w-12 items-center justify-center rounded-full bg-red-500/10">
@@ -463,82 +231,17 @@ export function ThemeHubDialog({ closePopup }: { closePopup: (hasAction?: boolea
             }
           />
         ) : tab === "workshop" ? (
-          <div className="flex flex-col gap-3 px-5 py-4">
-            {/* Yours first, and in a section of its own. Mixed into the
-                community list they would be buried by whatever is popular this
-                week — and these are the ones somebody came here to reach for. */}
-            {myThemes.length > 0 && (
-              <div>
-                <p className="mb-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                  {t("common.yourThemes")}
-                </p>
-                <ul className="flex flex-col gap-1.5">
-                  {myThemes.map((theme) => (
-                    <ThemeRow
-                      key={theme.id}
-                      theme={theme}
-                      worn={worn === theme.id}
-                      busy={busyId === theme.id}
-                      onWear={() => void wear(theme)}
-                      onBuy={() => void buy(theme)}
-                      onLike={() => void like(theme)}
-                      onEdit={() => editTheme(theme)}
-                    />
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {myThemes.length > 0 && others.length > 0 && (
-              <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                {t("common.fromTheCommunity")}
-              </p>
-            )}
-            {loading ? (
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">{t("common.loading")}</p>
-            ) : others.length === 0 ? (
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                {t("themeHubDialog.thereAreNoThemesPublishedBy")}
-              </p>
-            ) : (
-              <ul className="flex flex-col gap-1.5">
-                {others.map((theme) => (
-                  <ThemeRow
-                    key={theme.id}
-                    theme={theme}
-                    worn={worn === theme.id}
-                    busy={busyId === theme.id}
-                    onWear={() => void wear(theme)}
-                    onBuy={() => void buy(theme)}
-                    onLike={() => void like(theme)}
-                  />
-                ))}
-              </ul>
-            )}
-            {error && (
-              <p role="alert" className="text-xs text-red-600 dark:text-red-400">
-                {error}
-              </p>
-            )}
-            <div className="flex items-center justify-between gap-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-              <span className="flex items-center gap-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-                <MdCheck className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
-                {t("themeHubDialog.itAppliesInRoomsWithNo")}
-              </span>
-              <Link
-                href="/workshop"
-                target="_blank"
-                className="shrink-0 text-xs font-medium text-zinc-500 underline underline-offset-2 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-              >
-                {t("themeHubDialog.seeEverything")}
-              </Link>
-            </div>
-          </div>
+          <ThemeBrowser
+            target={{ kind: "self" }}
+            onClose={closePopup}
+            resume={data?.resume}
+            onEditTheme={(theme) => editTheme(theme)}
+          />
         ) : (
           // Both unlocked tabs end in the same door: the editor is a screen of
           // its own, and stacking it inside this popup would be a dialog in a
           // dialog, over a room the editor needs to be able to repaint.
-          <div className="flex flex-col gap-4 px-5 py-4">
+          <div className="mx-auto flex w-full max-w-xl flex-col gap-4 px-5 py-4">
             {/* The ones already made and never published — the shortest path
                 to "publicar", and the one that was missing: everything here
                 existed only as "make a new one", so a theme built last week
@@ -555,25 +258,13 @@ export function ThemeHubDialog({ closePopup }: { closePopup: (hasAction?: boolea
                       key={theme.id}
                       className="flex items-center gap-2.5 rounded-lg border border-zinc-200 px-2.5 py-2 dark:border-zinc-800"
                     >
-                      <span
-                        className="flex h-9 w-9 shrink-0 overflow-hidden rounded-md border"
-                        style={{ borderColor: theme.spec.palette.border }}
-                      >
-                        {[
-                          theme.spec.palette.page,
-                          theme.spec.palette.surface,
-                          theme.spec.palette.raised,
-                          theme.spec.accent,
-                        ].map((colour, index) => (
-                          <span key={index} className="h-full flex-1" style={{ background: colour }} />
-                        ))}
-                      </span>
+                      <ThemeMiniPreview theme={theme} className="aspect-[16/10] w-16 shrink-0" />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
                           {theme.name}
                         </span>
                         <span className="block truncate text-[11px] text-zinc-500 dark:text-zinc-400">
-                          {isDarkTheme(theme.spec) ? t("common.dark") : t("common.light")} · privado
+                          {isDarkTheme(theme.spec) ? t("common.dark") : t("common.light")} · {t("common.privateAdj")}
                         </span>
                       </span>
                       {/* Opens the editor on that theme with "publicar"
@@ -618,7 +309,6 @@ export function ThemeHubDialog({ closePopup }: { closePopup: (hasAction?: boolea
         )}
       </div>
 
-      <AccountModal mode={accountModal} onModeChange={setAccountModal} />
     </div>
   );
 }

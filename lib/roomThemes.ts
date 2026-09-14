@@ -746,6 +746,92 @@ export async function fetchWorkshop(
   }
 }
 
+export type WorkshopPrice = "all" | "free" | "paid";
+
+export interface WorkshopPageQuery {
+  sort: WorkshopSort;
+  /** Matched against the name, the description and the author's name. */
+  query?: string;
+  price?: WorkshopPrice;
+  offset?: number;
+  limit?: number;
+}
+
+export interface WorkshopPage {
+  themes: RoomTheme[];
+  /** Whether asking again from the end of this page would find more. */
+  hasMore: boolean;
+  /** False when the request failed, so a caller can tell "nothing" from "no answer". */
+  ok: boolean;
+}
+
+/**
+ * One page of the workshop — searched, filtered and paged by the server (see
+ * the API's listWorkshopThemes).
+ *
+ * An API from before paging answers every request with the same sixty themes
+ * and no `hasMore`; that reads as a single last page, and the search is then
+ * applied here as well, so an older server is a smaller shop rather than a
+ * search box that ignores what is typed into it.
+ */
+export async function fetchWorkshopPage(
+  { sort, query = "", price = "all", offset = 0, limit = 24 }: WorkshopPageQuery,
+  signal?: AbortSignal
+): Promise<WorkshopPage> {
+  const params = new URLSearchParams({ sort, offset: String(offset), limit: String(limit) });
+  const needle = query.trim();
+  if (needle) params.set("q", needle);
+  if (price !== "all") params.set("price", price);
+  try {
+    const res = await fetch(`${getSignalingHttpBase()}/themes/workshop?${params}`, {
+      headers: authHeaders(),
+      signal,
+    });
+    if (!res.ok) return { themes: [], hasMore: false, ok: false };
+    const data = (await res.json()) as { themes?: RoomTheme[]; hasMore?: boolean };
+    let themes = Array.isArray(data.themes) ? data.themes : [];
+    rememberThemes(themes);
+    const paged = typeof data.hasMore === "boolean";
+    if (!paged) {
+      const folded = needle.toLowerCase();
+      themes = themes.filter(
+        (theme) =>
+          (!folded ||
+            theme.name.toLowerCase().includes(folded) ||
+            theme.description.toLowerCase().includes(folded) ||
+            (theme.author?.displayName.toLowerCase().includes(folded) ?? false) ||
+            (theme.author?.username.toLowerCase().includes(folded) ?? false)) &&
+          (price === "all" || (price === "paid" ? theme.price > 0 : theme.price === 0))
+      );
+      // The same sixty come back whatever the offset: only the first page is real.
+      if (offset > 0) themes = [];
+    }
+    return { themes, hasMore: paged ? Boolean(data.hasMore) : false, ok: true };
+  } catch {
+    return { themes: [], hasMore: false, ok: false };
+  }
+}
+
+/**
+ * The published themes this account bought — "your themes" alongside the ones
+ * it made. Empty for a guest, and for an API that predates the route.
+ */
+export async function fetchOwnedThemes(signal?: AbortSignal): Promise<RoomTheme[]> {
+  try {
+    const res = await fetch(`${getSignalingHttpBase()}/themes/owned`, {
+      headers: authHeaders(),
+      signal,
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as { themes?: RoomTheme[] };
+    const themes = Array.isArray(data.themes) ? data.themes : [];
+    rememberThemes(themes);
+    return themes;
+  } catch {
+    return [];
+  }
+}
+
 /** Everything this account made, published or not. */
 export async function fetchMyThemes(signal?: AbortSignal): Promise<RoomTheme[]> {
   try {
