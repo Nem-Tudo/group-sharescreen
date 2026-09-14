@@ -1,9 +1,7 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
 import { getAccountToken } from "./accountApi";
 import { getSignalingHttpBase } from "./roomsApi";
-import { getCaptchaToken } from "./turnstile";
 import type {
   Announcement,
   AnnouncementButtonAction,
@@ -27,110 +25,6 @@ export type {
 export type { Partner };
 export type { Supporter };
 
-const TOKEN_STORAGE_KEY = "sharescreen:adminToken";
-
-// localStorage (not localStorage) on purpose — a moderator token
-// shouldn't silently outlive the browser tab/session the same way a
-// regular viewer's display name does.
-//
-// Cached in a module-level variable (rather than re-reading localStorage
-// on every call) specifically so useAdminToken below has a stable snapshot
-// to hand useSyncExternalStore, and so login/logout notify subscribers
-// instead of components having to poll or re-render themselves in an effect.
-let cachedToken: string | null = null;
-let initialized = false;
-const listeners = new Set<() => void>();
-
-function readStoredToken(): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return window.localStorage.getItem(TOKEN_STORAGE_KEY);
-  } catch {
-    return null;
-  }
-}
-
-export function getAdminToken(): string | null {
-  if (!initialized) {
-    cachedToken = readStoredToken();
-    initialized = true;
-  }
-  return cachedToken;
-}
-
-export function setAdminToken(token: string | null) {
-  cachedToken = token;
-  initialized = true;
-  if (typeof window !== "undefined") {
-    try {
-      if (token) window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
-      else window.localStorage.removeItem(TOKEN_STORAGE_KEY);
-    } catch {
-      // ignored - localStorage may be unavailable (private mode, quota, etc.)
-    }
-  }
-  listeners.forEach((l) => l());
-}
-
-function subscribeAdminToken(cb: () => void) {
-  listeners.add(cb);
-  return () => {
-    listeners.delete(cb);
-  };
-}
-
-function getAdminTokenServer(): string | null {
-  return null;
-}
-
-export function useAdminToken(): string | null {
-  return useSyncExternalStore(subscribeAdminToken, getAdminToken, getAdminTokenServer);
-}
-
-// Admin is no longer a separate Basic-Auth credential — it's just a regular
-// account (see accountApi.ts / server/accountStore.ts) whose flags include
-// "ADMIN", so logging in here goes through the exact same /auth/login the
-// rest of the app uses. The admin token is still kept in its own
-// localStorage slot (not accountApi's localStorage one) so a moderator
-// session doesn't silently outlive the tab the way a regular viewer's does.
-/**
- * Signs in as an administrator.
- *
- * The captcha token is minted here, immediately before the request. Cloudflare
- * decides on its own whether this person is shown a challenge first (see
- * lib/turnstile.ts), so there is nothing for the page to catch and re-submit:
- * by the time this resolves, that has already happened or was never needed.
- */
-export async function adminLogin(user: string, password: string): Promise<void> {
-  // /auth/login is captcha-gated on the server exactly like the main site's
-  // login is (see the API's passesHttpCaptcha). This used to send nothing at
-  // all, which was invisible while enforcement stayed off and then refused
-  // every administrator outright the moment it was switched on — with the 403
-  // landing in the same `catch` as a wrong password and being read back as
-  // "Usuário ou senha inválidos.", which is the one thing it was not.
-  const turnstileToken = await getCaptchaToken("login");
-  const res = await fetch(`${getSignalingHttpBase()}/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username: user, password, turnstileToken }),
-  });
-  if (!res.ok) {
-    const data = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(data?.error || translate("common.invalidUsernameOrPassword"));
-  }
-  const data = (await res.json()) as { token: string; account: { flags: string[] } };
-  if (!data.account.flags.includes("ADMIN")) {
-    throw new Error(translate("adminApi.thisAccountDoesNotHaveAdministrator"));
-  }
-  setAdminToken(data.token);
-}
-
-export function adminLogout() {
-  // JWTs are stateless — there's nothing to revoke server-side, so logging
-  // out is just dropping the locally stored token.
-  setAdminToken(null);
-}
-
 // The live room list (fetchAdminRooms, AdminRoom, AdminRoomPeer) used to sit
 // here. It moved out with the panels that called it — see ../sharescreen-admin,
 // which keeps its own trimmed copy of this module. Nothing on this page reads
@@ -148,18 +42,7 @@ export type AnnouncementState = {
 };
 
 export async function fetchCurrentAnnouncement(signal?: AbortSignal): Promise<AnnouncementState> {
-  const token = getAdminToken();
-  if (!token) throw new Error("unauthorized");
-  const res = await fetch(`${getSignalingHttpBase()}/admin/announcement`, {
-    headers: { Authorization: `Bearer ${token}` },
-    signal,
-  });
-  if (res.status === 401) {
-    setAdminToken(null);
-    throw new Error("unauthorized");
-  }
-  if (!res.ok) throw new Error(translate("adminApi.couldNotLoadTheNoticeStatus", { status: res.status }));
-  return (await res.json()) as AnnouncementState;
+  return adminFetch<AnnouncementState>("/admin/announcement", { signal });
 }
 
 export type SendAnnouncementInput = {
@@ -189,25 +72,11 @@ async function postOrPutAnnouncement(
   method: "POST" | "PUT",
   input: SendAnnouncementInput | (Omit<SendAnnouncementInput, "id"> & { id: string })
 ): Promise<AnnouncementState> {
-  const token = getAdminToken();
-  if (!token) throw new Error("unauthorized");
-  const res = await fetch(`${getSignalingHttpBase()}/admin/announcement`, {
+  return adminFetch<AnnouncementState>("/admin/announcement", {
     method,
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  if (res.status === 401) {
-    setAdminToken(null);
-    throw new Error("unauthorized");
-  }
-  if (!res.ok) {
-    const data = await res.json().catch(() => null);
-    throw new Error(
-      (data && typeof data === "object" && "error" in data && String(data.error)) ||
-        translate("adminApi.couldNotSaveTheNoticeStatus", { status: res.status })
-    );
-  }
-  return (await res.json()) as AnnouncementState;
 }
 
 export async function sendAnnouncement(input: SendAnnouncementInput): Promise<AnnouncementState> {
@@ -227,22 +96,12 @@ export async function editAnnouncement(
 }
 
 export async function clearAnnouncement(): Promise<void> {
-  const token = getAdminToken();
-  if (!token) throw new Error("unauthorized");
-  const res = await fetch(`${getSignalingHttpBase()}/admin/announcement`, {
-    method: "DELETE",
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (res.status === 401) {
-    setAdminToken(null);
-    throw new Error("unauthorized");
-  }
-  if (!res.ok) throw new Error(translate("adminApi.couldNotRemoveTheNoticeStatus", { status: res.status }));
+  await adminFetch<void>("/admin/announcement", { method: "DELETE" });
 }
 
-// Shared by every admin fetch below: attaches the bearer token, treats a 401
-// as a signal to drop the stored token (mirrors fetchAdminRooms above), and
-// throws with the server's own error message when one is provided.
+// Shared by every admin fetch in this module, the announcement ones above
+// included: attaches the account's bearer token and throws with the server's
+// own error message when one is provided.
 async function adminFetch<T>(path: string, init?: RequestInit): Promise<T> {
   // The account's own session, not a second one.
   //
