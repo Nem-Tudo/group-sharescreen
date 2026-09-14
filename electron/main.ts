@@ -523,10 +523,66 @@ function installDisplayMediaHandler() {
           const message = err instanceof Error ? err.message : String(err);
           // The denial complaint above, and only that. Anything else is a
           // real fault and gets said out loud rather than swallowed with it.
-          if (!message.includes("no video stream was provided")) {
-            console.error("[golive] Falha ao responder ao pedido de captura:", message);
+          if (message.includes("no video stream was provided")) return;
+          console.error("[golive] Falha ao responder ao pedido de captura:", message);
+          // Electron validates the answer *before* handing it to Chromium, so
+          // a throw here means getDisplayMedia was never answered at all — and
+          // it waits forever, the share neither starting nor failing. That is
+          // how an unusable audio value broke every share with system audio
+          // switched off (see withAudio). The video on its own is always a
+          // valid answer, so it is the one retry worth making.
+          if (streams.video) {
+            try {
+              callback({ video: streams.video });
+            } catch (retryErr) {
+              console.error("[golive] Falha ao responder só com vídeo:", retryErr);
+            }
           }
         }
+      };
+
+      // The answer for a chosen source: video, plus system audio only where
+      // it actually exists and is wanted — see the conditions below.
+      //
+      // The `audio` key is left out entirely when there is no audio, never
+      // set to undefined. Electron checks for the key's *presence* when audio
+      // was requested, and a present-but-undefined value then fails its type
+      // check ("Unknown audio type") and throws instead of answering. The
+      // site always requests audio (the picker is where it gets switched
+      // off), so with "Compartilhar som da tela" unticked every share in the
+      // app hung without ever starting.
+      const withAudio = (video: Electron.DesktopCapturerSource): Electron.Streams => {
+        // Electron's loopback capture is a Windows capability; on macOS and
+        // Linux there is no equivalent without a virtual audio device, and
+        // asking for one anyway fails the *whole* request rather than just
+        // the audio. Returning video alone instead degrades exactly the way
+        // Firefox does, which the web app already handles.
+        //
+        // isSystemAudioCapturing() is the other half of that: the site starts
+        // our own capture (systemAudio.ts) before calling getDisplayMedia, and
+        // when it did, attaching Electron's loopback track here as well would
+        // put the room's own audio back into the share — the exact echo the
+        // helper exists to remove. So a running capture means video only, and
+        // the audio arrives as PCM instead.
+        //
+        // The settings check is the picker's checkbox, and it matters in one
+        // specific case: system audio was switched *off* when the share
+        // started, so the renderer asked getDisplayMedia for audio the
+        // ordinary way, and it is only off that nothing here would decline to
+        // give it some.
+        //
+        // The mirror image — switched on during this picker, with no capture
+        // running because it was off when the renderer asked — does get
+        // Electron's loopback track, echo and all. That is the same audio
+        // every machine without the helper gets, it is unmistakably what the
+        // user just asked for, and the next share picks up the helper
+        // properly.
+        const loopback =
+          request.audioRequested &&
+          (process.platform === "win32" || process.platform === "linux") &&
+          !isSystemAudioCapturing() &&
+          getSystemAudioSettings().enabled;
+        return loopback ? { video, audio: "loopback" } : { video };
       };
 
       void (async () => {
@@ -540,19 +596,8 @@ function installDisplayMediaHandler() {
         if (reuseSaved) {
           const savedSource = await resolveSavedShareSource();
           if (savedSource) {
-            answer({
-              video: savedSource,
-              // The same conditions as the picker path below — see its
-              // comment. Nothing about reusing a source changes what the
-              // audio may be.
-              audio:
-                request.audioRequested &&
-                  (process.platform === "win32" || process.platform === "linux") &&
-                  !isSystemAudioCapturing() &&
-                  getSystemAudioSettings().enabled
-                  ? "loopback"
-                  : undefined,
-            });
+            // Nothing about reusing a source changes what the audio may be.
+            answer(withAudio(savedSource));
             return;
           }
         }
@@ -589,42 +634,7 @@ function installDisplayMediaHandler() {
           answer({});
           return;
         }
-        answer({
-          video: source,
-          // System audio, and only where it actually exists. Electron's
-          // loopback capture is a Windows capability; on macOS and Linux
-          // there is no equivalent without a virtual audio device, and
-          // asking for one anyway fails the *whole* request rather than
-          // just the audio. Returning video alone instead degrades exactly
-          // the way Firefox does, which the web app already handles (see
-          // the NotReadableError retry in useRoomMedia's capture).
-          //
-          // isSystemAudioCapturing() is the other half of that: the site
-          // starts our own capture (systemAudio.ts) before calling
-          // getDisplayMedia, and when it did, attaching Electron's loopback
-          // track here as well would put the room's own audio back into the
-          // share — the exact echo the helper exists to remove. So a running
-          // capture means video only, and the audio arrives as PCM instead.
-          // The settings check is the picker's checkbox, and it matters in
-          // one specific case: system audio was switched *off* when the share
-          // started, so the renderer asked getDisplayMedia for audio the
-          // ordinary way, and it is only off that nothing here would decline
-          // to give it some.
-          //
-          // The mirror image — switched on during this picker, with no
-          // capture running because it was off when the renderer asked — does
-          // get Electron's loopback track, echo and all. That is the same
-          // audio every machine without the helper gets, it is unmistakably
-          // what the user just asked for, and the next share picks up the
-          // helper properly.
-          audio:
-            request.audioRequested &&
-              (process.platform === "win32" || process.platform === "linux") &&
-              !isSystemAudioCapturing() &&
-              getSystemAudioSettings().enabled
-              ? "loopback"
-              : undefined,
-        });
+        answer(withAudio(source));
       })().catch((err) => {
         // Anything that went wrong on the way to an answer — the source list
         // failing, the picker window dying, the saved-source lookup throwing.
