@@ -281,6 +281,18 @@ export type RoomLocation = {
   lng: number;
 };
 
+// The room became a group (see convertRoomToGroup): the group, its voice room
+// — where the call goes on — and whether this person was made a member. When
+// not (a guest session the server could not confirm, a guest already in as
+// many groups as one may be), `reason` says why, in the server's words.
+export type RoomConversion = {
+  groupId: string;
+  channelId: string;
+  groupName: string;
+  joined: boolean;
+  reason: string | null;
+};
+
 // Both are read defensively rather than cast: a server that predates room
 // settings sends neither, and the honest reading of "nothing was said" is
 // the wide-open default, not a locked-down room nobody can talk in.
@@ -757,6 +769,10 @@ export type SignalingState = {
   // started locally before the server had its say.
   permissionDenied: { permission: RoomPermissionKey; message: string } | null;
   permissionDeniedSeq: number;
+  // The room's owner turned it into a group (see the server's
+  // "room-converted"): where its voice room is, and whether we were made a
+  // member — WatchRoom walks there, or says why it could not take us along.
+  roomConverted: RoomConversion | null;
   // The two-hour broadcast cap for people without an account, reported by the
   // server (see its guestBroadcastStore.ts). `ended` says which of the two
   // moments this is: true when a broadcast that was running was stopped,
@@ -865,6 +881,7 @@ const initialState: SignalingState = {
   roomTheme: undefined,
   permissionDenied: null,
   permissionDeniedSeq: 0,
+  roomConverted: null,
   guestBroadcastLimit: null,
   guestBroadcastLimitSeq: 0,
   typingPeerIds: [],
@@ -1090,6 +1107,14 @@ class SignalingClient {
   private isObsSourceJoin = false;
   private obsSourceToken: string | null = null;
   private obsTarget: string | null = null;
+  private pendingRoomToGroupRequests = new Map<
+    string,
+    {
+      resolve: (groupId: string) => void;
+      reject: (err: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
   private pendingObsTokenRequests = new Map<
     string,
     {
@@ -1656,6 +1681,7 @@ class SignalingClient {
           roomTheme: typeof msg.theme === "string" && msg.theme ? msg.theme : null,
           // A refusal from the room we just left says nothing about this one.
           permissionDenied: null,
+          roomConverted: null,
         });
         trackEvent("room_joined");
         this.roomJoinedListeners.forEach((l) => l());
@@ -1840,6 +1866,30 @@ class SignalingClient {
           roomTheme: typeof msg.theme === "string" && msg.theme ? msg.theme : null,
         });
         break;
+      case "room-to-group-result": {
+        const reqId = typeof msg.requestId === "string" ? msg.requestId : "";
+        const pending = this.pendingRoomToGroupRequests.get(reqId);
+        if (!pending) break;
+        clearTimeout(pending.timer);
+        this.pendingRoomToGroupRequests.delete(reqId);
+        if (typeof msg.groupId === "string" && msg.groupId) pending.resolve(msg.groupId);
+        else pending.reject(new Error(typeof msg.error === "string" ? msg.error : translate("roomToGroup.failed")));
+        break;
+      }
+      // Sent to everybody in the room, the owner included — see RoomConversion.
+      case "room-converted": {
+        if (typeof msg.groupId !== "string" || typeof msg.channelId !== "string") break;
+        this.setState({
+          roomConverted: {
+            groupId: msg.groupId,
+            channelId: msg.channelId,
+            groupName: typeof msg.groupName === "string" ? msg.groupName : "",
+            joined: msg.joined === true,
+            reason: typeof msg.reason === "string" ? msg.reason : null,
+          },
+        });
+        break;
+      }
       case "obs-token-created": {
         const reqId = typeof msg.requestId === "string" ? msg.requestId : "";
         const pending = this.pendingObsTokenRequests.get(reqId);
@@ -2678,6 +2728,23 @@ class SignalingClient {
     this.setState({ ...initialState });
   }
 
+  /**
+   * Turns the room into a group — the room owner's alone, which the server
+   * enforces. Resolves with the new group's id; everybody in the room, us
+   * included, then gets "room-converted" and is taken to its voice room.
+   */
+  convertRoomToGroup(name: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const requestId = Math.random().toString(36).slice(2, 11);
+      const timer = setTimeout(() => {
+        this.pendingRoomToGroupRequests.delete(requestId);
+        reject(new Error(translate("roomToGroup.failed")));
+      }, 10000);
+      this.pendingRoomToGroupRequests.set(requestId, { resolve, reject, timer });
+      this.rawSend({ type: "room-convert-to-group", name, requestId });
+    });
+  }
+
   createObsToken(room: string, target = ""): Promise<string> {
     return new Promise((resolve, reject) => {
       const requestId = Math.random().toString(36).slice(2, 11);
@@ -2946,8 +3013,9 @@ class SignalingClient {
       roomLocation: null,
       roomDescription: "",
       roomCategory: null,
-  roomTheme: undefined,
+      roomTheme: undefined,
       permissionDenied: null,
+      roomConverted: null,
     });
   }
 

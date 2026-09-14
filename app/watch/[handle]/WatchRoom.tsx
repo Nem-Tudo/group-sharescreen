@@ -24,8 +24,17 @@ import {
   type RoomPermissionKey,
   type PeerInfo,
   type ChatReplyTo,
+  type RoomConversion,
 } from "@/lib/signalingClient";
 import { useSignaling, useHasStoredName } from "@/lib/useSignaling";
+import { groupPath } from "@/lib/groupLinks";
+import {
+  RoomToGroupButton,
+  ROOM_TO_GROUP_MIN_PEOPLE,
+  dismissRoomToGroup,
+  isRoomToGroupDismissed,
+  type RoomToGroupPerson,
+} from "@/components/RoomToGroup";
 import {
   setGroupVoiceControls,
   setGroupVoiceLive,
@@ -2895,6 +2904,31 @@ export function WatchRoom({
     router.push(`/watch/${fullHandle}`);
   }
 
+  // The room turned into a group (see the "Turning the room into a group"
+  // card further down): go to its voice room — the call goes on there (the
+  // group's shell joins it, which ends this one; see GroupAppShell). Or, for
+  // somebody the server could not take along, say why. Up here, above the
+  // early returns, so it runs whatever this render is showing. Once per event:
+  // openPopup is a new function on every render.
+  const roomConverted = state.roomConverted;
+  const handledConversionRef = useRef<RoomConversion | null>(null);
+  useEffect(() => {
+    if (!roomConverted || handledConversionRef.current === roomConverted) return;
+    handledConversionRef.current = roomConverted;
+    if (roomConverted.joined) {
+      router.push(groupPath(roomConverted.groupId, roomConverted.channelId));
+      return;
+    }
+    void openPopup("generic", {
+      data: {
+        title: translate("roomToGroup.notJoinedTitle", { name: roomConverted.groupName }),
+        message: account ? roomConverted.reason : translate("roomToGroup.notJoinedGuest"),
+      },
+    });
+  }, [roomConverted, router, openPopup, account]);
+  // Closed in this visit — the browser's memory of it is read where the card is.
+  const [roomToGroupClosed, setRoomToGroupClosed] = useState(false);
+
   if (!validHandle) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4 text-center">
@@ -5035,6 +5069,57 @@ export function WatchRoom({
     });
   }
 
+  // ─── Turning the room into a group ─────────────────────────────────────
+  //
+  // A button after the last participant (see components/RoomToGroup): once
+  // there are enough people here for a group to be worth having, the room's owner
+  // may make one of it — and everybody else sees the offer too, switched off,
+  // so they know whom to ask. The server does the rest and tells every one of
+  // us where the group's voice room is (see the effect on roomConverted, up
+  // above the early returns).
+  const roomToGroupPeople: RoomToGroupPerson[] = [
+    { key: "self", name: state.name ?? "", avatarUrl: account?.avatarUrl ?? null },
+  ];
+  // One face per person, however many devices they have here.
+  const roomToGroupSeen = new Set<string>(state.selfUserId ? [state.selfUserId] : []);
+  for (const p of visiblePeers) {
+    const key = p.userId ?? p.id;
+    if (roomToGroupSeen.has(key)) continue;
+    roomToGroupSeen.add(key);
+    roomToGroupPeople.push({ key, name: p.name, avatarUrl: p.avatarUrl ?? null });
+  }
+  const roomOwnerName = state.roomOwnerId
+    ? isRoomOwner
+      ? state.name
+      : visiblePeers.find((p) => p.userId === state.roomOwnerId)?.name ?? null
+    : null;
+  // The browser's memory of a closed button is read last, and after mount
+  // only: there is no storage on the server, and a button is not worth a
+  // hydration mismatch.
+  const showRoomToGroup =
+    !group &&
+    roomToGroupPeople.length >= ROOM_TO_GROUP_MIN_PEOPLE &&
+    !roomToGroupClosed &&
+    mounted &&
+    !isRoomToGroupDismissed(handle);
+  const roomToGroupButton = showRoomToGroup ? (
+    <RoomToGroupButton
+      canConvert={isRoomOwner && Boolean(account)}
+      needsAccount={isRoomOwner && !account}
+      ownerName={roomOwnerName}
+      onConvert={() =>
+        void openPopup("room_to_group", {
+          data: { defaultName: privateRoomParts?.name ?? handle, people: roomToGroupPeople },
+        })
+      }
+      onCreateAccount={() => setAccountModal("create")}
+      onDismiss={() => {
+        dismissRoomToGroup(handle);
+        setRoomToGroupClosed(true);
+      }}
+    />
+  ) : null;
+
   // Split from the list below so the desktop column can pin this as a card
   // header with the list scrolling under it — a list of twenty people used
   // to scroll its own heading away, leaving a column of names with nothing
@@ -5232,6 +5317,7 @@ export function WatchRoom({
           />
         );
       })}
+      {roomToGroupButton && <li className="mt-1">{roomToGroupButton}</li>}
     </ul>
   );
 

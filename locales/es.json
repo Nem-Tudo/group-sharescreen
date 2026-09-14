@@ -2833,5 +2833,21 @@
   "attachments.downloadName": "Descargar {name}",
   "attachments.stillUploading": "Espera a que terminen de subir los archivos.",
   "attachments.removeFailedFiles": "Quita los archivos que fallaron antes de enviar.",
-  "attachments.fileLabel": "Archivo"
+  "attachments.fileLabel": "Archivo",
+  "roomToGroup.createAccountToConvert": "Crea una cuenta para crear un grupo",
+  "roomToGroup.onlyOwner": "Solo el dueño de la sala puede convertirla en grupo.",
+  "roomToGroup.onlyOwnerNamed": "Solo el dueño de la sala ({name}) puede convertirla en grupo.",
+  "roomToGroup.dismiss": "Cerrar",
+  "roomToGroup.dialogTitle": "Convertir en grupo",
+  "roomToGroup.whoComesMany": "{a}, {b} y {count} más entran al grupo contigo.",
+  "roomToGroup.whoComesTwo": "{a} y {b} entran al grupo contigo.",
+  "roomToGroup.whoComesOne": "{a} entra al grupo contigo.",
+  "roomToGroup.pointMove": "Todos los que están aquí se vuelven miembros y van directo a la sala de voz General del grupo: la llamada sigue allí.",
+  "roomToGroup.pointPrivate": "El grupo empieza privado: después, solo entra quien tú invites.",
+  "roomToGroup.pointOwner": "Eres el dueño y puedes crear salas, roles e invitaciones cuando quieras.",
+  "roomToGroup.confirm": "Crear grupo y llevar a todos",
+  "roomToGroup.failed": "No se pudo crear el grupo. Inténtalo de nuevo.",
+  "roomToGroup.notJoinedTitle": "Esta sala se convirtió en el grupo “{name}”",
+  "roomToGroup.notJoinedGuest": "No pudimos llevarte sin una cuenta. Inicia sesión y pide una invitación a quien creó el grupo.",
+  "roomToGroup.button": "Convertir la sala en grupo"
 }

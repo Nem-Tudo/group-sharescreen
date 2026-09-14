@@ -24,6 +24,7 @@ import {
   JoinGroupDialog,
 } from "@/components/groups/GroupDialogs";
 import { ChannelSettingsDialog } from "@/components/groups/ChannelSettingsDialog";
+import { RoomToGroupDialog } from "@/components/RoomToGroup";
 
 // Popup types this app registers with the library, opened by name through
 // `useNtPopups().openPopup(...)`. The cast is because the library types
@@ -50,6 +51,8 @@ const customPopups: Record<string, ComponentType> = {
   group_settings: GroupSettingsDialog as ComponentType,
   group_location: GroupLocationDialog as ComponentType,
   group_channel: ChannelSettingsDialog as ComponentType,
+  // An ordinary room becoming a group — see components/RoomToGroup.tsx.
+  room_to_group: RoomToGroupDialog as ComponentType,
 };
 
 // Mounted once in app/layout.tsx, inside AuthProvider — the popups it renders

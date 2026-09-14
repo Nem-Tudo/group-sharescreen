@@ -2833,5 +2833,21 @@
   "attachments.downloadName": "Baixar {name}",
   "attachments.stillUploading": "Espere os arquivos terminarem de enviar.",
   "attachments.removeFailedFiles": "Remova os arquivos que falharam para enviar.",
-  "attachments.fileLabel": "Arquivo"
+  "attachments.fileLabel": "Arquivo",
+  "roomToGroup.createAccountToConvert": "Crie uma conta para criar um grupo",
+  "roomToGroup.onlyOwner": "Só o dono da sala pode transformar em grupo.",
+  "roomToGroup.onlyOwnerNamed": "Só o dono da sala ({name}) pode transformar em grupo.",
+  "roomToGroup.dismiss": "Fechar",
+  "roomToGroup.dialogTitle": "Transformar em grupo",
+  "roomToGroup.whoComesMany": "{a}, {b} e mais {count} entram no grupo com você.",
+  "roomToGroup.whoComesTwo": "{a} e {b} entram no grupo com você.",
+  "roomToGroup.whoComesOne": "{a} entra no grupo com você.",
+  "roomToGroup.pointMove": "Todo mundo que está aqui vira membro e vai direto pra sala de voz Geral do grupo — a call continua lá.",
+  "roomToGroup.pointPrivate": "O grupo começa privado: depois, só entra quem você convidar.",
+  "roomToGroup.pointOwner": "Você é o dono e pode criar salas, cargos e convites quando quiser.",
+  "roomToGroup.confirm": "Criar grupo e levar todo mundo",
+  "roomToGroup.failed": "Não foi possível criar o grupo. Tente de novo.",
+  "roomToGroup.notJoinedTitle": "Esta sala virou o grupo “{name}”",
+  "roomToGroup.notJoinedGuest": "Não deu pra te levar junto sem uma conta. Entre na sua conta e peça um convite pra quem criou o grupo.",
+  "roomToGroup.button": "Transformar sala em grupo"
 }

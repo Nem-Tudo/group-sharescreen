@@ -2833,5 +2833,21 @@
   "attachments.downloadName": "Download {name}",
   "attachments.stillUploading": "Wait for the files to finish uploading.",
   "attachments.removeFailedFiles": "Remove the files that failed before sending.",
-  "attachments.fileLabel": "File"
+  "attachments.fileLabel": "File",
+  "roomToGroup.createAccountToConvert": "Create an account to make a group",
+  "roomToGroup.onlyOwner": "Only the room's owner can turn it into a group.",
+  "roomToGroup.onlyOwnerNamed": "Only the room's owner ({name}) can turn it into a group.",
+  "roomToGroup.dismiss": "Close",
+  "roomToGroup.dialogTitle": "Turn into a group",
+  "roomToGroup.whoComesMany": "{a}, {b} and {count} more join the group with you.",
+  "roomToGroup.whoComesTwo": "{a} and {b} join the group with you.",
+  "roomToGroup.whoComesOne": "{a} joins the group with you.",
+  "roomToGroup.pointMove": "Everyone here becomes a member and goes straight to the group's General voice room — the call carries on there.",
+  "roomToGroup.pointPrivate": "The group starts private: after this, only people you invite can join.",
+  "roomToGroup.pointOwner": "You're the owner and can add rooms, roles and invites whenever you like.",
+  "roomToGroup.confirm": "Create group and bring everyone",
+  "roomToGroup.failed": "Couldn't create the group. Try again.",
+  "roomToGroup.notJoinedTitle": "This room became the group “{name}”",
+  "roomToGroup.notJoinedGuest": "We couldn't bring you along without an account. Sign in and ask whoever made the group for an invite.",
+  "roomToGroup.button": "Turn this room into a group"
 }
