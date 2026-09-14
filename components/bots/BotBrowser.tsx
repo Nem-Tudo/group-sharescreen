@@ -34,6 +34,8 @@ import { useI18n } from "@/lib/useI18n";
 const PAGE_SIZE = 24;
 
 const SORTS: { id: BotDirectorySort; key: string }[] = [
+  // The default: online bots first, then the ones more groups use.
+  { id: "relevant", key: "botDirectory.sortRelevant" },
   { id: "popular", key: "botDirectory.sortPopular" },
   { id: "recent", key: "botDirectory.sortRecent" },
 ];
@@ -75,7 +77,7 @@ export function BotBrowser({
   const { t, tc } = useI18n();
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
-  const [sort, setSort] = useState<BotDirectorySort>("popular");
+  const [sort, setSort] = useState<BotDirectorySort>("relevant");
   const [page, setPage] = useState<Page | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -584,6 +586,12 @@ function BotCard({
           className="relative z-10 -mt-7 self-start rounded-full ring-4 ring-white dark:ring-zinc-950"
         >
           <UserAvatar src={bot.avatarUrl} name={bot.displayName} size={52} userId={bot.id} />
+          {bot.online && (
+            <span
+              title={t("botDirectory.online")}
+              className="absolute bottom-0.5 right-0.5 h-3.5 w-3.5 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-zinc-950"
+            />
+          )}
         </button>
         <button type="button" onClick={onOpenProfile} className="min-w-0 cursor-pointer text-left">
           <span className="flex min-w-0 items-center gap-1.5">

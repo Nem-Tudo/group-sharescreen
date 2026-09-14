@@ -3018,6 +3018,8 @@
   "botDirectory.subtitle": "Public bots that anyone who manages a group can add.",
   "botDirectory.subtitleGroup": "Public bots for {group}.",
   "botDirectory.searchPlaceholder": "Search by name, @username or description",
+  "botDirectory.sortRelevant": "Relevant",
+  "botDirectory.online": "Online now",
   "botDirectory.sortPopular": "In most groups",
   "botDirectory.sortRecent": "Newest",
   "botDirectory.cannotManageHint": "Only people with the \"Manage group\" permission can add bots to {group}. You can still add them to a group of your own.",

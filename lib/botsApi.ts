@@ -89,12 +89,14 @@ export type DirectoryBot = {
   nameColor: string | null;
   /** How many groups it is in — up to a minute old, the directory's cache. */
   groupCount: number;
+  /** Connected right now, as of the directory's last minute. Absent from an older API. */
+  online?: boolean;
   createdAt: number;
   /** Whether it is already in the group asked about — only when one was. */
   inGroup?: boolean;
 };
 
-export type BotDirectorySort = "popular" | "recent";
+export type BotDirectorySort = "relevant" | "popular" | "recent";
 
 export type BotDirectoryPage = {
   bots: DirectoryBot[];
@@ -109,7 +111,7 @@ export type BotDirectoryPage = {
 export async function fetchBotDirectory(
   {
     query = "",
-    sort = "popular",
+    sort = "relevant",
     offset = 0,
     limit = 24,
     groupId = null,

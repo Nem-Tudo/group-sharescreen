@@ -3018,6 +3018,8 @@
   "botDirectory.subtitle": "Bots públicos, que cualquiera que gestione un grupo puede añadir.",
   "botDirectory.subtitleGroup": "Bots públicos para {group}.",
   "botDirectory.searchPlaceholder": "Buscar por nombre, @usuario o descripción",
+  "botDirectory.sortRelevant": "Relevantes",
+  "botDirectory.online": "En línea ahora",
   "botDirectory.sortPopular": "En más grupos",
   "botDirectory.sortRecent": "Más nuevos",
   "botDirectory.cannotManageHint": "Solo quien tiene el permiso \"Gestionar grupo\" puede añadir bots a {group}. Aún puedes añadirlos a un grupo tuyo.",
