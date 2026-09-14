@@ -931,6 +931,17 @@ function writeStoredCaptchaVerifiedAt(at: number | null): void {
 // broken (blocked by an extension, network issue, misconfigured site key).
 const MAX_JOIN_RETRIES = 3;
 
+// The message shown for each reason the server gives in "captcha-required"
+// (the API's CaptchaResult.reason). "wrong-action" reads as expired on purpose,
+// matching the server: to the person it is the same thing, and the retry
+// fixes both.
+const CAPTCHA_REASON_KEYS: Record<string, string> = {
+  missing: "signalingClient.captchaMissing",
+  expired: "signalingClient.captchaExpired",
+  "wrong-action": "signalingClient.captchaExpired",
+  rejected: "signalingClient.captchaRejected",
+};
+
 // How long to wait for the server to answer a "register" before treating the
 // connection as dead and starting over.
 //
@@ -1717,18 +1728,30 @@ class SignalingClient {
         // disagree, and this is how the client is told which one is right.
         const skippedToken = !this.lastJoinSentToken;
         this.markCaptchaVerified(null);
-        const captchaMessage =
-          (msg.message as string) ?? translate("signalingClient.couldNotVerifyTheRoomS");
         const captchaReason = typeof msg.reason === "string" ? msg.reason : "";
+        // In the person's language, by reason. The server's `message` is
+        // English and is kept only as the fallback for a reason this build
+        // does not know — shown raw, it put an English sentence under a
+        // Portuguese title on exactly the screen people get stuck on.
+        const captchaMessage = CAPTCHA_REASON_KEYS[captchaReason]
+          ? translate(CAPTCHA_REASON_KEYS[captchaReason])
+          : ((msg.message as string) ?? translate("signalingClient.couldNotVerifyTheRoomS"));
 
         this.joinRetryCount += 1;
         // Retrying is only worth anything when a *different* answer is
         // possible next time. A token that expired or was already spent is
         // exactly that case: the next attempt mints a fresh one. A script that
-        // never loaded is not — every further attempt sends the same nothing —
-        // and neither is a token Cloudflare rejected outright, which will be
-        // rejected identically however many times it is re-sent. Spending the
-        // budget on those just makes somebody wait for a foregone conclusion.
+        // never loaded is not — every further attempt sends the same nothing.
+        //
+        // "rejected" gets exactly one retry. It used to get none, on the
+        // reasoning that Cloudflare would reject the same token identically —
+        // true, but the retry sends a *new* token, and the rejections real
+        // people hit are not about the token: a burst of invalid-input-response
+        // on Cloudflare's side, or (until the API read CF-Connecting-IP) the
+        // wrong visitor address sent along with it. With no retry those ended
+        // on this screen at once, with nothing to do but press a button that
+        // did the same thing again. More than one would just be waiting on a
+        // foregone conclusion, so it stops there.
         //
         // "missing" is the one that has to be read together with what we
         // actually sent. It normally means the script is blocked and nothing
@@ -1740,7 +1763,7 @@ class SignalingClient {
         // into a join that failed outright instead of retrying once.
         const retryCouldHelp =
           (captchaReason !== "missing" || skippedToken) &&
-          captchaReason !== "rejected" &&
+          (captchaReason !== "rejected" || this.joinRetryCount <= 1) &&
           !isCaptchaScriptUnavailable();
         if (!retryCouldHelp || this.joinRetryCount > MAX_JOIN_RETRIES) {
           this.desiredRoom = null;

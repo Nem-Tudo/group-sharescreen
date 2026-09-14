@@ -3,7 +3,7 @@
 // Which connections get the Cloudflare cap: only one whose *selected* pair has
 // our own end on a relay candidate from Cloudflare.
 import assert from "node:assert/strict";
-import { relayedViaCloudflare } from "./turnRoute.ts";
+import { relayedViaCloudflare } from "./turnRoute";
 
 const isCf = (url: string) => url.includes("cloudflare.com");
 
