@@ -411,34 +411,18 @@ static void PrintProcessRow(DWORD pid) {
   WriteUtf8(L"\n");
 }
 
-// Every process holding a render session. Exits EXIT_UNSUPPORTED when there
-// is no output device to enumerate at all, which the shell treats the way it
-// treats an empty list.
-static int ListRenderSessions() {
-  IMMDeviceEnumerator* enumerator = nullptr;
-  HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr,
-                                CLSCTX_ALL, __uuidof(IMMDeviceEnumerator),
-                                reinterpret_cast<void**>(&enumerator));
-  if (FAILED(hr)) return EXIT_UNSUPPORTED;
-
-  IMMDevice* device = nullptr;
-  hr = enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &device);
-  enumerator->Release();
-  if (FAILED(hr)) {
-    fwprintf(stderr, L"no default render endpoint: 0x%08lX\n", hr);
-    return EXIT_UNSUPPORTED;
-  }
-
+// The processes holding a session on one output device, appended to `pids`
+// (each once — the same process routinely has a session on several devices).
+static void CollectDeviceSessions(IMMDevice* device, std::vector<DWORD>* pids) {
   IAudioSessionManager2* manager = nullptr;
-  hr = device->Activate(__uuidof(IAudioSessionManager2), CLSCTX_ALL, nullptr,
-                        reinterpret_cast<void**>(&manager));
-  device->Release();
-  if (FAILED(hr)) return EXIT_UNSUPPORTED;
+  HRESULT hr = device->Activate(__uuidof(IAudioSessionManager2), CLSCTX_ALL,
+                                nullptr, reinterpret_cast<void**>(&manager));
+  if (FAILED(hr)) return;
 
   IAudioSessionEnumerator* sessions = nullptr;
   hr = manager->GetSessionEnumerator(&sessions);
   manager->Release();
-  if (FAILED(hr)) return EXIT_UNSUPPORTED;
+  if (FAILED(hr)) return;
 
   int count = 0;
   if (FAILED(sessions->GetCount(&count))) count = 0;
@@ -458,9 +442,59 @@ static int ListRenderSessions() {
                         SUCCEEDED(control2->GetProcessId(&pid)) && pid != 0;
     control2->Release();
     if (!usable) continue;
-    PrintProcessRow(pid);
+    bool seen = false;
+    for (DWORD known : *pids) seen = seen || known == pid;
+    if (!seen) pids->push_back(pid);
   }
   sessions->Release();
+}
+
+// Every process holding a render session, on *every* active output device.
+// Exits EXIT_UNSUPPORTED when there is no output device to enumerate at all,
+// which the shell treats the way it treats an empty list.
+//
+// Every device, not only the default one, which is what this used to read.
+// Process loopback captures a process wherever it plays, but the shell only
+// learns a process exists from this list — so an application sending its
+// sound to a device other than the default (Discord set to a headset while
+// Windows' default is the speakers, a game on a second output) was never on
+// it. Muting it then did nothing: the capture never saw a muted application
+// running, stayed in "everything except GoLive" and recorded it anyway; and
+// in per-application mode, an unmuted one on another device was never
+// included, and went silent instead.
+static int ListRenderSessions() {
+  IMMDeviceEnumerator* enumerator = nullptr;
+  HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr,
+                                CLSCTX_ALL, __uuidof(IMMDeviceEnumerator),
+                                reinterpret_cast<void**>(&enumerator));
+  if (FAILED(hr)) return EXIT_UNSUPPORTED;
+
+  IMMDeviceCollection* devices = nullptr;
+  hr = enumerator->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, &devices);
+  enumerator->Release();
+  if (FAILED(hr)) {
+    fwprintf(stderr, L"cannot enumerate render endpoints: 0x%08lX\n", hr);
+    return EXIT_UNSUPPORTED;
+  }
+
+  UINT device_count = 0;
+  if (FAILED(devices->GetCount(&device_count))) device_count = 0;
+  if (device_count == 0) {
+    devices->Release();
+    fwprintf(stderr, L"no active render endpoint\n");
+    return EXIT_UNSUPPORTED;
+  }
+
+  std::vector<DWORD> pids;
+  for (UINT i = 0; i < device_count; i++) {
+    IMMDevice* device = nullptr;
+    if (FAILED(devices->Item(i, &device)) || !device) continue;
+    CollectDeviceSessions(device, &pids);
+    device->Release();
+  }
+  devices->Release();
+
+  for (DWORD pid : pids) PrintProcessRow(pid);
   fflush(stdout);
   return EXIT_OK;
 }

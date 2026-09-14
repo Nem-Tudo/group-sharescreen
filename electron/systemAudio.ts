@@ -22,12 +22,13 @@
 //
 // It does not generalise, though: AUDIOCLIENT_ACTIVATION_PARAMS carries a
 // single TargetProcessId, so "everything except GoLive *and* Discord" cannot
-// be requested at all. When the user has muted something that is actually
-// running, the set is built from the other side instead — one INCLUDE
-// capture per application that should be heard, mixed here. That costs a
-// helper process per audible app (typically two or three) and a periodic
-// re-scan to notice applications that start playing mid-share, which is why
-// it is not the path taken when nothing is muted.
+// be requested at all. When the user has muted anything, the set is built
+// from the other side instead — one INCLUDE capture per application that
+// should be heard, mixed here. That costs a helper process per audible app
+// (typically two or three) and a periodic re-scan to notice applications
+// that start playing mid-share, which is why it is not the path taken when
+// nothing is muted. (It used to be taken only when a muted application was
+// already playing; see startSystemAudioCapture for why that leaked.)
 //
 // The trade the exclusion makes deliberately: GoLive's *other* sounds — the
 // join and leave chimes, an embedded YouTube/Twitch tile — are left out too,
@@ -36,8 +37,12 @@
 // already hears those locally, so putting them in the stream would double
 // them.
 //
-// Everything here is Windows-only and degrades to nothing everywhere else;
-// see isSystemAudioExclusionSupported.
+// Windows runs the native helper. Linux has no process loopback to ask for,
+// but PulseAudio (and PipeWire's Pulse server) can record one application's
+// playback stream on its own (parec --monitor-stream), which is the INCLUDE
+// shape without a helper — so Linux always runs per-application, one parec
+// per stream that should be heard. macOS degrades to nothing; see
+// isSystemAudioExclusionSupported.
 
 import { app } from "electron";
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
@@ -143,10 +148,36 @@ function helperPath(): string {
  * app treats that exactly like an absent bridge.
  */
 export function isSystemAudioExclusionSupported(): boolean {
-  if (process.platform === "linux") return true;
+  if (process.platform === "linux") return linuxToolsAvailable();
   if (process.platform !== "win32") return false;
   if (knownUnsupported) return false;
   return existsSync(helperPath());
+}
+
+// The two PulseAudio command-line tools the Linux path runs: pactl to list the
+// playback streams, parec to record each one. Both ship in the same package
+// (pulseaudio-utils) and both speak to PipeWire's Pulse server as well. This
+// used to answer true unconditionally, so a machine without them showed the
+// per-app mute panel, "started" a capture that could never produce anything,
+// and shared silence instead of falling back.
+//
+// A PATH lookup rather than a spawn, because the preload asks this
+// synchronously at window creation (see isSystemAudioExclusionSupported).
+let linuxTools: boolean | null = null;
+function linuxToolsAvailable(): boolean {
+  if (linuxTools !== null) return linuxTools;
+  const dirs = (process.env.PATH ?? "").split(path.delimiter).filter(Boolean);
+  const has = (tool: string) => dirs.some((dir) => existsSync(path.join(dir, tool)));
+  linuxTools = has("pactl") && has("parec");
+  return linuxTools;
+}
+
+// The processes that are GoLive itself, for recognising its own playback
+// streams on Linux. Electron plays audio from a utility process rather than
+// the main one, so process.pid alone would miss exactly the stream that
+// matters; getAppMetrics lists every process the app has.
+function ownPids(): Set<number> {
+  return new Set([process.pid, ...app.getAppMetrics().map((metric) => metric.pid)]);
 }
 
 // ---------------------------------------------------------------------------
@@ -189,40 +220,53 @@ export function listOpenApps(): Promise<AudioApp[]> {
   return runListing("--list-windows");
 }
 
+// The playback streams (Pulse "sink inputs") playing right now, grouped by
+// application. On Linux `pids` holds *sink-input indexes*, not process ids:
+// that is what parec --monitor-stream records, and a stream is the unit here
+// the way a process tree is on Windows.
+//
+// It used to hold PipeWire node ids and hand them to pw-record --target, which
+// asks the session manager to link a capture to a *playback* stream — not a
+// link WirePlumber makes, so a muted-app share recorded nothing or the wrong
+// thing depending on the setup. The sink-input index and parec have no such
+// ambiguity, on PulseAudio and on PipeWire's Pulse server alike.
 async function listLinuxAudioStreams(): Promise<AudioApp[]> {
   try {
     const { stdout } = await execAsync("pactl -f json list sink-inputs");
     const inputs = JSON.parse(stdout);
     if (!Array.isArray(inputs)) return [];
 
+    const own = ownPids();
     const byKey = new Map<string, AudioApp>();
 
     for (const input of inputs) {
+      const index = Number(input.index);
+      if (!Number.isInteger(index) || index < 0) continue;
       const props = input.properties || {};
-      const nodeId = props["pipewire.node.id"] ? Number(props["pipewire.node.id"]) : input.index;
-      const binary = props["application.process.binary"] || props["application.name"] || `App ${input.index}`;
+      const binary = props["application.process.binary"] || props["application.name"] || `App ${index}`;
       const name = props["application.name"] || props["media.name"] || binary;
       const exePath = props["application.process.binary"] || binary;
-      const key = binary.toLowerCase();
-
-      // Ignora o próprio GoLive e processos internos
-      if (key.includes("golive") || key.includes("electron") || key.includes("speech-dispatcher")) {
-        continue;
-      }
+      const key = String(binary).toLowerCase();
+      // GoLive's own streams — the room's voices, the whole reason this
+      // capture exists. Recognised by process id first: a name check alone
+      // ("golive", "electron") misses a renamed build and catches every
+      // other Electron app on the machine.
+      const self =
+        own.has(Number(props["application.process.id"])) ||
+        key.includes("golive") ||
+        key === "electron";
+      // Speech synthesis is the desktop reading things out, not an
+      // application anybody shares.
+      if (key.includes("speech-dispatcher")) continue;
 
       const existing = byKey.get(key);
       if (existing) {
-        if (!existing.pids.includes(nodeId)) existing.pids.push(nodeId);
+        if (!existing.pids.includes(index)) existing.pids.push(index);
+        existing.self = existing.self || self;
         continue;
       }
 
-      byKey.set(key, {
-        key,
-        name,
-        path: exePath,
-        pids: [nodeId],
-        self: false,
-      });
+      byKey.set(key, { key, name, path: exePath, pids: [index], self });
     }
 
     return [...byKey.values()];
@@ -359,17 +403,27 @@ export async function startSystemAudioCapture(webContents: WebContents): Promise
   stopSystemAudioCapture();
 
   const muted = new Set(settings.mutedApps);
-  // Only applications that are *actually running with audio* can change the
-  // shape of the capture. An empty mute list, or one naming only things that
-  // are not playing, leaves the single EXCLUDE capture as the path — which is
-  // both the cheaper one and the one that picks up a newly started
-  // application instantly rather than at the next scan.
-  const apps = muted.size > 0 ? await listAudioApps() : [];
+  // Per-application whenever the mute list names anything at all — and always
+  // on Linux, which has no EXCLUDE to fall back on (see this file's header).
+  //
+  // It used to take this path only when a muted application was *already
+  // playing* as the share started, and the single EXCLUDE capture otherwise,
+  // on the grounds that it is cheaper and picks up new applications
+  // instantly. But EXCLUDE never re-scans, so an application muted while it
+  // happened to be quiet — Discord between two people speaking — was recorded
+  // from the first sound it made until the share was restarted. That was the
+  // "mute Discord and it is still in the stream; works one time in five"
+  // report: whether it worked depended on whether anyone was talking at the
+  // moment the share began. INCLUDE never records anything that is not asked
+  // for, and the cost of that is a newly started application being heard
+  // after the next scan (RESCAN_MS) instead of at once — the right way round
+  // for a setting whose promise is "this will not be in the stream".
+  const needsPerApp = process.platform === "linux" || muted.size > 0;
+  const apps = needsPerApp ? await listAudioApps() : [];
   // Reading that list is a process spawn, and a second share could have been
   // started across it. The stop above left this null, so anything here now is
   // someone else's capture — and taking it over would orphan their helpers.
   if (capture !== null) return false;
-  const needsPerApp = apps.some((entry) => !entry.self && muted.has(entry.key));
 
   const active: Capture = {
     target: webContents,
@@ -420,6 +474,17 @@ export async function startSystemAudioCapture(webContents: WebContents): Promise
   return ready;
 }
 
+// Applications never captured as a *tree*, whatever the mute list says.
+//
+// An INCLUDE capture takes its target and every process it started, and
+// Explorer started nearly everything the user did — every app opened from
+// the Start menu, the taskbar or a desktop shortcut, GoLive included. It holds
+// an audio session of its own now and then (a video previewed in a folder),
+// and the moment it did, including it put every one of those back into the
+// share: GoLive's own output, the room's voices with it, and whatever the
+// user had muted. Its own sounds are not worth that.
+const NEVER_INCLUDE_AS_TREE = new Set(["explorer.exe"]);
+
 // The applications to run an INCLUDE capture against: everything with an
 // audio session that the user has not muted, and never GoLive itself — that
 // exclusion is not a preference and is applied whatever the settings say.
@@ -427,6 +492,7 @@ function includablePids(apps: AudioApp[], muted: Set<string>): number[] {
   const pids: number[] = [];
   for (const entry of apps) {
     if (entry.self || muted.has(entry.key)) continue;
+    if (process.platform === "win32" && NEVER_INCLUDE_AS_TREE.has(entry.key)) continue;
     pids.push(...entry.pids);
   }
   return pids;
@@ -441,23 +507,32 @@ function addSource(
   let child: ChildProcessWithoutNullStreams;
   try {
     if (process.platform === "linux") {
-      const sampleRate = String(SYSTEM_AUDIO_FORMAT.sampleRate || 48000);
-      const channels = String(SYSTEM_AUDIO_FORMAT.channels || 2);
-      const target = pid === 0 ? "@DEFAULT_MONITOR@" : String(pid);
-
-      const pwArgs = [
-        "--raw",
-        "--format", "s16",
-        "--rate", sampleRate,
-        "--channels", channels,
-        "--target", target,
-        "-"
-      ];
-
-      child = spawn("pw-record", pwArgs, {
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-
+      // One application's playback stream, recorded on its own — `pid` is a
+      // sink-input index here (see listLinuxAudioStreams). The format is
+      // stated, as on Windows, so it is what the mixer and the renderer expect
+      // whatever the stream itself plays at; the server resamples. Short
+      // latency because parec's default buffers far more than a live share
+      // can afford.
+      //
+      // This replaced pw-record: its "everything" mode recorded the default
+      // monitor — GoLive's own output included, which is the exact echo this
+      // file exists to prevent — and its per-app mode targeted playback
+      // streams that WirePlumber does not link captures to.
+      child = spawn(
+        "parec",
+        [
+          "--raw",
+          "--format=s16le",
+          `--rate=${SYSTEM_AUDIO_FORMAT.sampleRate}`,
+          `--channels=${SYSTEM_AUDIO_FORMAT.channels}`,
+          "--latency-msec=20",
+          `--monitor-stream=${pid}`,
+        ],
+        { stdio: ["pipe", "pipe", "pipe"] }
+      );
+      // parec prints nothing when it starts, and a stream that is quiet
+      // delivers nothing either, so there is no readiness line to wait for.
+      // A spawn that failed outright reports through "error" below instead.
       setTimeout(() => onReady?.(true), 100);
     } else {
       child = spawn(helperPath(), args, {
@@ -657,7 +732,7 @@ export function applySystemAudioSettings(settings: SystemAudioSettings) {
     return;
   }
   const next = [...new Set(settings.mutedApps)].sort();
-  if (next.join(" ") === [...active.muted].sort().join(" ")) return;
+  if (next.join("\u0000") === [...active.muted].sort().join("\u0000")) return;
   const target = active.target;
   stopSystemAudioCapture();
   if (!target.isDestroyed()) void startSystemAudioCapture(target);
