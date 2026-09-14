@@ -16,6 +16,7 @@ import { formatLocale } from "@/lib/i18n";
 // here hardcodes a hex, so the two themes can never drift apart.
 
 const numberFormat = () => new Intl.NumberFormat(formatLocale());
+
 const compactFormat = () => new Intl.NumberFormat(formatLocale(), { notation: "compact", maximumFractionDigits: 1 });
 
 export function formatCount(value: number): string {
