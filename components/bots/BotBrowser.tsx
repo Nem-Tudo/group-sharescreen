@@ -528,7 +528,9 @@ function BotCard({
           type="button"
           onClick={onOpenProfile}
           aria-label={profileLabel}
-          className="-mt-7 self-start rounded-full ring-4 ring-white dark:ring-zinc-950"
+          // Positioned, so it paints over the banner above — which is itself
+          // positioned, and would otherwise cover the half that overlaps it.
+          className="relative z-10 -mt-7 self-start rounded-full ring-4 ring-white dark:ring-zinc-950"
         >
           <UserAvatar src={bot.avatarUrl} name={bot.displayName} size={52} userId={bot.id} />
         </button>

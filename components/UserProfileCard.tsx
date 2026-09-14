@@ -1219,27 +1219,25 @@ function ProfileContent({
                 here (see app/bots/[id]/add). The page itself says whether this
                 person may — a private bot, or no group they manage. */}
             {account.bot && (
-              <div className="mt-4 flex flex-col gap-2">
-                {/* Where it is used, which is most of what there is to know
-                    about a bot. From the API (see GET /users/:id); an API
-                    from before it sends none, and the line is left out. */}
+              <Link
+                href={botAddPath(account.id)}
+                onClick={onNavigate}
+                className="mt-4 flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-3 py-2.5 text-sm font-medium text-white transition hover:bg-indigo-500"
+              >
+                {t("addBot.addToAGroup")}
+                {/* How many groups it is in, on the button that adds it to
+                    one more. From the API (see GET /users/:id); an API from
+                    before it sends none, and the count is left out. */}
                 {typeof groupCount === "number" && (
-                  <p
-                    className="flex items-center justify-center gap-1.5 text-sm text-zinc-600 dark:text-zinc-400"
-                    style={themedHint}
+                  <span
+                    title={tc("botDirectory.inGroups", groupCount)}
+                    className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5 text-xs font-semibold tabular-nums"
                   >
-                    <MdGroups className="h-4 w-4 shrink-0" />
-                    {tc("botDirectory.inGroups", groupCount)}
-                  </p>
+                    <MdGroups className="h-3.5 w-3.5 shrink-0" />
+                    {groupCount}
+                  </span>
                 )}
-                <Link
-                  href={botAddPath(account.id)}
-                  onClick={onNavigate}
-                  className="flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-3 py-2.5 text-sm font-medium text-white transition hover:bg-indigo-500"
-                >
-                  {t("addBot.addToAGroup")}
-                </Link>
-              </div>
+              </Link>
             )}
 
             <div className="mt-4">
