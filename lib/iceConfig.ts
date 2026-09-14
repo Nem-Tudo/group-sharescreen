@@ -50,6 +50,30 @@ export function subscribeIceServers(listener: () => void): () => void {
   };
 }
 
+function turnHost(url: string): string | null {
+  const match = /^turns?:([^:?]+)/i.exec(url.trim());
+  return match ? match[1].toLowerCase() : null;
+}
+
+/** Whether Cloudflare's TURN servers have been loaded — see lib/iceServers.ts. */
+export function hasCloudflareTurn(): boolean {
+  return dynamicServers.length > 0;
+}
+
+/**
+ * Whether `url` (a TURN URL as the browser reports it on a relay candidate)
+ * points at one of Cloudflare's servers. Matched by host against the set the
+ * API handed out, rather than against a hard-coded name, so this stays right
+ * whatever hostnames Cloudflare answers with.
+ */
+export function isCloudflareTurnUrl(url: string): boolean {
+  const host = turnHost(url);
+  if (!host) return false;
+  return dynamicServers.some((server) =>
+    (Array.isArray(server.urls) ? server.urls : [server.urls]).some((u) => turnHost(u) === host)
+  );
+}
+
 /**
  * Whether any TURN server is available — the build's own or Cloudflare's.
  *

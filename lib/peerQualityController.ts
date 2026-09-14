@@ -32,12 +32,14 @@
 import { mediaStats, type SenderSample } from "./mediaStats";
 import { congestionStep, initialCongestionState } from "./congestionControl";
 import {
+  capTier,
   congestedBitrateKbps,
   encoderCeilingKbps,
   scaleFactorFor,
   tierSpec,
   type QualityTier,
 } from "./videoQuality";
+import { CLOUDFLARE_ROUTE_CAP, watchCloudflareRelay } from "./turnRoute";
 
 // What the broadcaster says they are sharing, which decides how the encoder
 // spends a shortage — of bits, of CPU, or both.
@@ -119,6 +121,11 @@ export class PeerQualityController {
   private congestion = initialCongestionState();
   private appliedKbps = 0;
   private appliedScale = 0;
+  // Part of the same record. Without it a change that only moves the frame
+  // rate — 1080p120 to 1080p60 under a bitrate dial low enough to cap both at
+  // the same kbps — matched the guard on every other number and never reached
+  // the sender.
+  private appliedFramerate = 0;
   // The mode those two numbers were pushed with. Null means nothing is known
   // to have reached the sender — the initial state, and what a rejected
   // setParameters restores.
@@ -130,6 +137,12 @@ export class PeerQualityController {
   private retriesLeft = APPLY_RETRIES;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
+  // Whether this connection is relayed through Cloudflare's TURN — by our end
+  // (seen here, see PeerQualityRegistry.add) or by the viewer's (which only
+  // they can see, and report). Either one caps what is encoded; see
+  // lib/turnRoute.ts.
+  private cloudflareLocal = false;
+  private cloudflareRemote = false;
 
   constructor(
     readonly peerId: string,
@@ -154,8 +167,34 @@ export class PeerQualityController {
   setTier(tier: QualityTier) {
     if (this.tier === tier) return;
     this.tier = tier;
-    mediaStats.setTier(this.statsKey, tier);
+    mediaStats.setTier(this.statsKey, this.sentTier());
     this.apply();
+  }
+
+  /**
+   * Marks this connection as relayed, or no longer relayed, through
+   * Cloudflare's TURN on one side. See lib/turnRoute.ts.
+   */
+  setCloudflareRoute(side: "local" | "remote", via: boolean) {
+    if (side === "local") {
+      if (this.cloudflareLocal === via) return;
+      this.cloudflareLocal = via;
+    } else {
+      if (this.cloudflareRemote === via) return;
+      this.cloudflareRemote = via;
+    }
+    mediaStats.setTier(this.statsKey, this.sentTier());
+    this.apply();
+  }
+
+  // What is actually encoded: the assigned tier, capped while the connection
+  // is relayed through Cloudflare. Only this send path sees the cap — getTier
+  // still answers the assigned tier, so the planner, the dials and everything
+  // on screen carry on as if the connection were direct.
+  private sentTier(): QualityTier {
+    return this.cloudflareLocal || this.cloudflareRemote
+      ? capTier(this.tier, CLOUDFLARE_ROUTE_CAP)
+      : this.tier;
   }
 
   setCaptureHeight(height: number) {
@@ -207,10 +246,11 @@ export class PeerQualityController {
     // is an observation that changes nothing about what is observed. Here it
     // is a control input, and a control input must never be the thing it
     // controls.
-    const tierKbps = tierSpec(this.tier).baseKbps;
-    const ceilingKbps = encoderCeilingKbps(this.tier, this.bitrateCeilingKbps);
+    const tier = this.sentTier();
+    const tierKbps = tierSpec(tier).baseKbps;
+    const ceilingKbps = encoderCeilingKbps(tier, this.bitrateCeilingKbps);
     const targetKbps = congestedBitrateKbps(ceilingKbps, this.congestion.ratio);
-    const tierScale = scaleFactorFor(this.tier, this.captureHeight);
+    const tierScale = scaleFactorFor(tier, this.captureHeight);
     const share = tierKbps > 0 ? targetKbps / tierKbps : 1;
     // "balanced" opts out of this extra downscale, and that opt-out is the
     // profile's whole promise: stay at the best picture the ceiling allows
@@ -238,10 +278,12 @@ export class PeerQualityController {
     // maintain-resolution — protect sharpness, throw frames away — which is
     // exactly the slideshow the switch was made to escape, and only
     // restarting the whole share cleared it.
+    const framerate = tierSpec(tier).frameRate;
     if (
       this.appliedDegradation === this.degradation &&
       Math.abs(targetKbps - this.appliedKbps) < Math.max(50, this.appliedKbps * 0.05) &&
-      scale === this.appliedScale
+      scale === this.appliedScale &&
+      framerate === this.appliedFramerate
     ) {
       return;
     }
@@ -260,13 +302,14 @@ export class PeerQualityController {
     // apply()s in the same tick collapse into one.
     this.appliedKbps = targetKbps;
     this.appliedScale = scale;
+    this.appliedFramerate = framerate;
     this.appliedDegradation = this.degradation;
     const seq = (this.applySeq += 1);
     const encodings =
       params.encodings && params.encodings.length > 0 ? params.encodings : [{} as RTCRtpEncodingParameters];
     encodings[0].maxBitrate = targetKbps * 1000;
     encodings[0].scaleResolutionDownBy = scale;
-    encodings[0].maxFramerate = tierSpec(this.tier).frameRate;
+    encodings[0].maxFramerate = framerate;
     params.encodings = encodings;
     // See DEGRADATION_PREFERENCE. Choosing wrong is not subtle: a 60fps share
     // under maintain-resolution degrades into a slideshow rather than
@@ -287,6 +330,7 @@ export class PeerQualityController {
         // swallow everything that follows.
         this.appliedKbps = 0;
         this.appliedScale = 0;
+        this.appliedFramerate = 0;
         this.appliedDegradation = null;
         // And undoing it is not enough on its own, which is the part that
         // bites. apply() runs when something moves — a tier, a dial, a
@@ -318,6 +362,9 @@ export class PeerQualityController {
  */
 export class PeerQualityRegistry {
   private controllers = new Map<string, PeerQualityController>();
+  // Each controller's Cloudflare-route watch (see lib/turnRoute.ts), stopped
+  // with it.
+  private routeWatches = new Map<string, () => void>();
   private unsubscribeSender: (() => void) | null = null;
   // Seeded to the "alto" dial position, which is also useRoomMedia's default.
   // Overwritten by setBitrateCeiling as soon as a share's preset is known.
@@ -378,6 +425,12 @@ export class PeerQualityRegistry {
     this.controllers.set(peerId, controller);
     mediaStats.register(key, pc, sender, tier);
     controller.apply();
+    // Our own end relaying through Cloudflare. The viewer's end is theirs to
+    // see — see setRemoteCloudflareRoute.
+    this.routeWatches.set(
+      peerId,
+      watchCloudflareRelay(pc, (via) => controller.setCloudflareRoute("local", via))
+    );
     this.start();
     return controller;
   }
@@ -386,7 +439,19 @@ export class PeerQualityRegistry {
     return this.controllers.get(peerId);
   }
 
+  /**
+   * The viewer reported that their end of our connection to them is (or no
+   * longer is) relayed through Cloudflare — the "route" signal. Dropped when
+   * there is no connection to them: the report is about one connection, and
+   * a new one is checked and reported afresh.
+   */
+  setRemoteCloudflareRoute(peerId: string, via: boolean) {
+    this.controllers.get(peerId)?.setCloudflareRoute("remote", via);
+  }
+
   remove(peerId: string) {
+    this.routeWatches.get(peerId)?.();
+    this.routeWatches.delete(peerId);
     this.controllers.get(peerId)?.dispose();
     this.controllers.delete(peerId);
     mediaStats.unregister(this.statsKey(peerId));

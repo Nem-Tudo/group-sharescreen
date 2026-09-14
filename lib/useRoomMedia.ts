@@ -7,6 +7,7 @@ import type { Feature } from "./entitlements";
 import { trackEvent } from "./analytics";
 import { iceConfigFor } from "./iceConfig";
 import { ensureIceServers } from "./iceServers";
+import { watchCloudflareRelay } from "./turnRoute";
 import {
   captureNoiseSuppressedMic,
   setGraphSuppressionEnabled,
@@ -113,6 +114,9 @@ type SignalData = {
   // comment.
   // "diag-request" / "diag" carry the sender's half of a connection report to
   // a viewer with the stats panel open (see connectionDiagLink.ts).
+  // "route" is a viewer telling us their end of our connection to them is (or
+  // no longer is) relayed through Cloudflare's TURN — see lib/turnRoute.ts. An
+  // older broadcaster ignores it, like any kind it does not know.
   kind?:
     | "offer"
     | "answer"
@@ -126,9 +130,12 @@ type SignalData = {
     | "relay-nack"
     | "reconnect-request"
     | "diag-request"
-    | "diag";
+    | "diag"
+    | "route";
   // Present only on "diag". Shape-checked by connectionDiagLink before use.
   diag?: unknown;
+  // Present only on "route".
+  cloudflare?: boolean;
   sdp?: RTCSessionDescriptionInit;
   // Set on an offer that renegotiates an *existing* connection with fresh ICE
   // credentials rather than opening a new session (see openSendPC's
@@ -1801,6 +1808,13 @@ function useBroadcastChannel(
           viaRelay: originId !== peerId,
           pc,
         });
+        // Our end relaying through Cloudflare is invisible to whoever sends to
+        // us, and they are the one who decides what is encoded — so say so.
+        // To the peer sending (a relay, for relayed traffic), not the origin.
+        // No cleanup needed: see watchCloudflareRelay.
+        watchCloudflareRelay(pc, (via) => {
+          signalingClient.sendSignal(peerId, { channel, role: "viewer", kind: "route", cloudflare: via });
+        });
       }
       setRecvConnectionStates((prev) => ({ ...prev, [originId]: pc.connectionState }));
       pc.ontrack = (e) => {
@@ -2174,6 +2188,14 @@ function useBroadcastChannel(
           // live controller if there is one.
           requestedTiers.current.set(from, data.tier);
           qualityRegistry.current.get(from)?.setTier(tierForPeer(from));
+        } else if (data.kind === "route") {
+          // This viewer's end of our connection to them is relayed through
+          // Cloudflare's TURN (or stopped being). Caps only what is encoded
+          // for them — see lib/turnRoute.ts. Either registry: they are our
+          // own viewer, or a child of a relay we are running.
+          const via = data.cloudflare === true;
+          qualityRegistry.current.setRemoteCloudflareRoute(from, via);
+          relays.current.findByChild(from)?.setRemoteCloudflareRoute(from, via);
         } else if (data.kind === "stop") {
           // This peer (as a viewer of OUR stream) asked us to stop sending —
           // free the upload-side connection and remember not to reopen it on
