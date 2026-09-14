@@ -153,7 +153,7 @@
   "admin.announcementPanel.whereItAppears": "Dónde aparece",
   "admin.announcementPanel.whoeverIsOnlineNowWhoeverOpens": "Quien está en línea ahora + quien lo abra después",
   "admin.announcementPanel.whoSeesIt": "Quién lo ve",
-  "admin.antiSpamPanel.automaticallyBansFor60MinutesAny": "Banea automáticamente durante 60 minutos cualquier IP que supere el límite de intentos (chat, entrar en una sala, registrar un nombre) varias veces seguidas. Desactívalo aquí si está baneando a gente real por error — por ejemplo durante una inestabilidad que hace que los clientes se reconecten o reenvíen demasiado rápido. No hace falta reiniciar la API.",
+  "admin.antiSpamPanel.automaticallyBansFor60MinutesAny": "Banea durante 60 minutos cualquier IP con comportamiento de bot: más de 1000 mensajes de chat por minuto, más de 120 entradas a salas o registros de nombre por minuto, o 25+ salas a la vez. El flood normal en el chat no banea — solo se frena. Desactívalo aquí si está baneando a gente real por error. No hace falta reiniciar la API.",
   "admin.antiSpamPanel.automaticAntispam": "Antispam automático",
   "admin.autoFlagsPanel.anyPlan": "Cualquier plan",
   "admin.autoFlagsPanel.applyNow": "Aplicar ahora",

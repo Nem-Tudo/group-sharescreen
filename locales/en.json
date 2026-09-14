@@ -153,7 +153,7 @@
   "admin.announcementPanel.whereItAppears": "Where it appears",
   "admin.announcementPanel.whoeverIsOnlineNowWhoeverOpens": "Whoever is online now + whoever opens it later",
   "admin.announcementPanel.whoSeesIt": "Who sees it",
-  "admin.antiSpamPanel.automaticallyBansFor60MinutesAny": "Automatically bans for 60 minutes any IP that goes over the attempt limit (chat, joining a room, registering a name) several times in a row. Turn it off here if it is banning real people by mistake — for example during an outage that makes clients reconnect or resend too quickly. No need to restart the API.",
+  "admin.antiSpamPanel.automaticallyBansFor60MinutesAny": "Bans for 60 minutes any IP behaving like a bot: over 1000 chat messages a minute, over 120 room joins or name registrations a minute, or 25+ rooms at once. Ordinary chat flooding does not ban — it is only slowed down. Turn it off here if it is banning real people by mistake. No need to restart the API.",
   "admin.antiSpamPanel.automaticAntispam": "Automatic antispam",
   "admin.autoFlagsPanel.anyPlan": "Any plan",
   "admin.autoFlagsPanel.applyNow": "Apply now",
