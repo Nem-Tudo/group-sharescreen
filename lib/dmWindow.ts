@@ -57,11 +57,63 @@ function storedExpanded(): boolean {
 export function openDirectMessages(withUserId?: string | null, options: { expanded?: boolean } = {}): void {
   const expanded = options.expanded ?? (state.open ? state.expanded : storedExpanded());
   set({ open: true, withUserId: withUserId ?? null, expanded });
+  if (expanded && dmNavigator?.wide()) dmNavigator.show(withUserId ?? null);
 }
 
 export function closeDirectMessages(): void {
   if (!state.open) return;
+  const routed = Boolean(dmNavigator?.onDmPage());
   set({ ...state, open: false, withUserId: null });
+  if (routed) dmNavigator?.leave();
+}
+
+// ─── The expanded window as a page ────────────────────────────────────────
+//
+// Expanded on a wide screen, the messages are an address of their own
+// (/groups/messages, see groupLinks' dmPath) rather than a layer over whatever
+// page was open — so no group loads behind them, and back/forward, a reload or
+// a shared link all mean what they say. The store stays the one answer to
+// "which thread is open"; the address follows it, and it follows the address
+// (see DirectMessagesHost, which lends the router).
+
+export type DirectMessagesNavigator = {
+  /** Wide enough for the expanded window to be a page. */
+  wide: () => boolean;
+  /** Whether the address on screen is the messages' page. */
+  onDmPage: () => boolean;
+  /** Puts the messages' page — the list, or one thread — on screen. */
+  show: (withUserId: string | null) => void;
+  /** Back to wherever the messages were opened from. */
+  leave: () => void;
+};
+
+let dmNavigator: DirectMessagesNavigator | null = null;
+// Whether the address last seen was the messages' page — so leaving it (a
+// click on a group, the back button) closes the window, but a first look at
+// some other page does not.
+let pathOnDmPage = false;
+
+export function registerDirectMessagesNavigator(next: DirectMessagesNavigator): () => void {
+  dmNavigator = next;
+  return () => {
+    if (dmNavigator === next) dmNavigator = null;
+  };
+}
+
+/**
+ * The address changed: `withUserId` is the thread it names on the messages'
+ * page (null for the list), or undefined for any other page.
+ */
+export function syncDirectMessagesWithPath(withUserId: string | null | undefined): void {
+  if (withUserId !== undefined) {
+    pathOnDmPage = true;
+    if (state.open && state.expanded && state.withUserId === withUserId) return;
+    set({ open: true, withUserId, expanded: true });
+    return;
+  }
+  const wasOnDmPage = pathOnDmPage;
+  pathOnDmPage = false;
+  if (wasOnDmPage && state.open && state.expanded) set({ ...state, open: false, withUserId: null });
 }
 
 /** Full screen (true) or the dialog (false), remembered for next time. */
@@ -74,6 +126,9 @@ export function setDirectMessagesExpanded(expanded: boolean): void {
     // Private mode or blocked storage: it still applies for this visit.
   }
   set({ ...state, expanded });
+  if (!state.open || !dmNavigator) return;
+  if (expanded && dmNavigator.wide()) dmNavigator.show(state.withUserId);
+  else if (!expanded && dmNavigator.onDmPage()) dmNavigator.leave();
 }
 
 const SERVER_STATE: WindowState = { open: false, withUserId: null, expanded: false };

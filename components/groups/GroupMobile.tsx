@@ -74,7 +74,7 @@ export function GroupMobileBar({
   const navigation = useGroupNavigation();
   const [roomMenu, setRoomMenu] = useState(false);
   const kind = route?.kind ?? "home";
-  const groupId = route && route.kind !== "home" ? route.groupId : null;
+  const groupId = route && (route.kind === "group" || route.kind === "room") ? route.groupId : null;
 
   const back = () => {
     haptic("tap");

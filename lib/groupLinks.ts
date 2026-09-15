@@ -59,13 +59,24 @@ export function groupPath(groupId: string, channelId?: string | null): string {
 export type GroupsRoute =
   | { kind: "home" }
   | { kind: "group"; groupId: string }
-  | { kind: "room"; groupId: string; roomId: string };
+  | { kind: "room"; groupId: string; roomId: string }
+  /** The private messages, expanded into a page of their own — no group behind them. */
+  | { kind: "dms"; withUserId: string | null };
+
+/** The segment the expanded private messages live under — see dmPath. */
+const DMS_SEGMENT = "messages";
+
+/** Where the expanded private messages are: the list, or one person's thread. */
+export function dmPath(withUserId?: string | null): string {
+  return withUserId ? `/groups/${DMS_SEGMENT}/${encodeURIComponent(withUserId)}` : `/groups/${DMS_SEGMENT}`;
+}
 
 export function parseGroupsPath(pathname: string | null | undefined): GroupsRoute | null {
   if (!pathname) return null;
   const parts = pathname.split(/[?#]/)[0].split("/").filter(Boolean);
   if (parts[0] !== "groups" || parts.length > 3) return null;
   if (parts.length === 1) return { kind: "home" };
+  if (parts[1] === DMS_SEGMENT) return { kind: "dms", withUserId: parts[2] ? decodeURIComponent(parts[2]) : null };
   const groupId = decodeURIComponent(parts[1]);
   if (parts.length === 2) return { kind: "group", groupId };
   return { kind: "room", groupId, roomId: decodeURIComponent(parts[2]) };

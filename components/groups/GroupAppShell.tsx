@@ -41,7 +41,7 @@ import { groupVoiceHandle, parseGroupsPath, type GroupsRoute } from "@/lib/group
 import { prefetchChannel } from "@/lib/groupCache";
 import { GroupShellContext, registerGroupShell, useGroupNavigation } from "@/lib/groupNavigation";
 import { canInChannel } from "@/lib/groupPermissions";
-import { closeDirectMessages, setDirectMessagesOutlet, useDirectMessagesWindow } from "@/lib/dmWindow";
+import { setDirectMessagesOutlet } from "@/lib/dmWindow";
 import {
   getGroupVoiceSession,
   setGroupVoiceSession,
@@ -108,7 +108,8 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   // describe whichever page the server last rendered.
   const pathname = usePathname();
   const route = parseGroupsPath(pathname);
-  const groupId = route && route.kind !== "home" ? route.groupId : null;
+  // The expanded private messages are a page of their own: no group behind them.
+  const groupId = route && (route.kind === "group" || route.kind === "room") ? route.groupId : null;
   const roomId = route?.kind === "room" ? route.roomId : null;
   const navigation = useGroupNavigation();
   useEffect(() => registerGroupShell(), []);
@@ -153,21 +154,14 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   // Where the private messages draw themselves when expanded — beside the
   // groups, in place of the group's own columns (see lib/dmWindow's outlet).
   const [dmSlot, setDmSlot] = useState<HTMLDivElement | null>(null);
-  const dmWindow = useDirectMessagesWindow();
-  const dmDocked = isWide && dmWindow.open && dmWindow.expanded;
+  const dmDocked = isWide && route?.kind === "dms";
   useEffect(() => {
     if (!dmSlot) return;
     setDirectMessagesOutlet(dmSlot);
     return () => setDirectMessagesOutlet(null, dmSlot);
   }, [dmSlot]);
-  // Picking a group or a room while the messages are docked is asking to see
-  // it: they close rather than keep covering the page that was just opened.
-  const dockedPath = useRef(pathname);
-  useEffect(() => {
-    if (dockedPath.current === pathname) return;
-    dockedPath.current = pathname;
-    if (dmDocked) closeDirectMessages();
-  }, [pathname, dmDocked]);
+  // Leaving that page — a group picked on the rail, the back button — closes
+  // them: see DirectMessagesHost, which keeps the window and the address in step.
 
   // What the call borrows from the group while the group's pages are the ones
   // on screen: this bar's two slots for the room's own controls, and the way
@@ -323,7 +317,7 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
               a screen per level (see GroupMobile). */}
           {!isWide && (
             <GroupMobileBar
-              route={route}
+              route={route?.kind === "dms" ? { kind: "home" } : route}
               detail={detail}
               channel={routeChannel}
               setRightSlot={setRightSlot}
@@ -572,7 +566,7 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
  * being written) belongs to that room.
  */
 function GroupsView({ route }: { route: GroupsRoute | null }) {
-  if (!route || route.kind === "home") return <GroupsHome />;
+  if (!route || route.kind === "home" || route.kind === "dms") return <GroupsHome />;
   if (route.kind === "group") return <GroupIndex key={route.groupId} groupId={route.groupId} />;
   return <GroupRoom key={`${route.groupId}/${route.roomId}`} groupId={route.groupId} roomId={route.roomId} />;
 }
