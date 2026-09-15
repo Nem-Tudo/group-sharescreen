@@ -57,11 +57,43 @@ function resolvePackageVersion(): string {
 // [A-Za-z0-9._-]). A prerelease like "0.2.0+build.5" would otherwise be
 // dropped on the floor there and counted as "unknown" — better to send
 // something the metric can actually hold.
-const BUILD_VERSION = `${resolvePackageVersion()}-${resolveBuildCommit()}`
+const BUILD_COMMIT = resolveBuildCommit();
+
+const BUILD_VERSION = `${resolvePackageVersion()}-${BUILD_COMMIT}`
   .replace(/[^A-Za-z0-9._-]/g, "-")
   .slice(0, 32);
 
+// Which build this is, as Next itself sees it — one answer for every instance
+// built from the same commit.
+//
+// Production is two apps behind a load balancer (see .github/workflows/
+// deploy.yml), and each runs its own `next build`. Left to itself Next mints a
+// random build id per build, so the two disagreed, and a client-side
+// navigation answered by the *other* instance looked to the router like a
+// server from a different deploy. Its answer to that is a full page reload
+// (see next/dist/client/components/router-reducer/fetch-server-response.js),
+// and a reload is the one thing a call cannot survive: it is what dropped
+// people out of a call carried around the site (see components/RoomCallHost)
+// on a coin flip of which instance answered, and what made "back to the call"
+// rejoin it from scratch.
+//
+// Only when the commit is actually known. A build that could not tell
+// ("unknown") keeps Next's random id: pinning every such build to the same
+// value would make two genuinely different deploys look identical, and hide
+// the skew Next is right to reload for.
+const STABLE_BUILD_ID =
+  BUILD_COMMIT !== "unknown" ? BUILD_COMMIT.replace(/[^A-Za-z0-9_-]/g, "-") : null;
+
 const nextConfig: NextConfig = {
+  ...(STABLE_BUILD_ID
+    ? {
+        generateBuildId: async () => STABLE_BUILD_ID,
+        // What the router actually compares on navigation when it is set (see
+        // deploymentId in the Next docs), so it has to agree across instances
+        // just the same.
+        deploymentId: STABLE_BUILD_ID,
+      }
+    : {}),
   // Memoizes components and hook results automatically, which this app had
   // none of by hand — a single chat message used to re-render the whole watch
   // room because its state comes from one big useSyncExternalStore snapshot.
