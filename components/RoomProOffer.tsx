@@ -3,10 +3,11 @@
 import type { ComponentType } from "react";
 import useNtPopups from "ntpopups";
 import { MdCardGiftcard } from "react-icons/md";
-import { GoldVerifiedBadgeIcon, VerifiedBadgeIcon } from "@/components/icons";
+import { GoldVerifiedBadgeIcon, RubyVerifiedBadgeIcon, VerifiedBadgeIcon } from "@/components/icons";
 import { Tooltip } from "@/components/Tooltip";
 import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/lib/AuthContext";
+import { usePlanOnSale } from "@/lib/usePlanOnSale";
 import { openProModal } from "@/lib/proModal";
 import { useT } from "@/lib/useI18n";
 
@@ -28,10 +29,12 @@ export interface RoomProOffer {
  * reason: a button that keeps selling "Pro" to somebody who already pays for it
  * is advertising the one thing they cannot buy.
  *
- *   no plan  → "Pro", the blue badge.
- *   Pro      → "Pro Max", in that plan's own gold mark.
- *   Pro Max  → "Presentear". Nothing left to sell them; the one thing they can
- *              still buy is a plan for somebody else.
+ *   no plan   → "Pro", the blue badge.
+ *   Pro       → "Pro Max", in that plan's own gold mark.
+ *   Pro Max   → "Pro Ultra", in its ruby mark, while it is on sale; the gift
+ *               until then (see usePlanOnSale).
+ *   Pro Ultra → "Presentear". Nothing left to sell them; the one thing they
+ *               can still buy is a plan for somebody else.
  *
  * What differs from the site header's is the door: nothing here navigates.
  * These are drawn next to a call, and openProModal (see lib/proModal) and the
@@ -43,9 +46,11 @@ export interface RoomProOffer {
 export function getRoomProOffer(
   flags: readonly string[],
   t: (key: string) => string,
-  openGiftPopup: () => void
+  openGiftPopup: () => void,
+  /** Whether Pro Ultra can be bought right now — see usePlanOnSale. */
+  ultraOnSale: boolean
 ): RoomProOffer {
-  if (flags.includes("PRO_MAX")) {
+  if (flags.includes("PRO_ULTRA") || (flags.includes("PRO_MAX") && !ultraOnSale)) {
     return {
       label: t("common.sendAsAGift"),
       tooltip: t("watch.watchRoom.giftSomeoneGolivePro"),
@@ -57,6 +62,18 @@ export function getRoomProOffer(
       className:
         "border-emerald-300 text-emerald-600 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-950/40",
       onPress: openGiftPopup,
+    };
+  }
+  if (flags.includes("PRO_MAX")) {
+    return {
+      label: t("common.proUltra"),
+      tooltip: t("watch.watchRoom.goliveProUltraRubyBadgeAndEverything"),
+      ariaLabel: t("common.goliveProUltra"),
+      Icon: RubyVerifiedBadgeIcon,
+      iconClassName: "",
+      className:
+        "border-rose-300 text-rose-700 hover:bg-rose-50 dark:border-rose-900 dark:text-rose-400 dark:hover:bg-rose-950/40",
+      onPress: () => openProModal("pro_ultra"),
     };
   }
   if (flags.includes("PRO")) {
@@ -95,7 +112,9 @@ export function useRoomProOffer(): RoomProOffer {
   const t = useT();
   const { account } = useAuth();
   const { openPopup } = useNtPopups();
-  return getRoomProOffer(account?.flags ?? [], t, () => void openPopup("gift_plan", { data: {} }));
+  const flags = account?.flags ?? [];
+  const ultraOnSale = usePlanOnSale("pro_ultra", flags.includes("PRO_MAX") && !flags.includes("PRO_ULTRA"));
+  return getRoomProOffer(flags, t, () => void openPopup("gift_plan", { data: {} }), ultraOnSale);
 }
 
 /** The offer as a header button, drawn the way the room's own is. */

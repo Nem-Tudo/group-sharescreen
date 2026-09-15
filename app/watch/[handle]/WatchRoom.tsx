@@ -49,6 +49,7 @@ import {
 } from "@/lib/groupVoiceSession";
 import { peerPresence } from "@/lib/presence";
 import { useAuth } from "@/lib/AuthContext";
+import { usePlanOnSale } from "@/lib/usePlanOnSale";
 import { sendChatImages } from "@/lib/chatImage";
 import { uploadAuthToken } from "@/lib/uploadApi";
 import {
@@ -1183,6 +1184,12 @@ export function WatchRoom({
   useBackgroundKeepAlive(Boolean(state.room));
   const hasStoredName = useHasStoredName();
   const { loading: resolvingAccount, account, points, retryIdentity } = useAuth();
+  // Up here with the other hooks rather than beside the Pro button, which is
+  // drawn past an early return (see getRoomProOffer).
+  const proUltraOnSale = usePlanOnSale(
+    "pro_ultra",
+    Boolean(account?.flags.includes("PRO_MAX") && !account.flags.includes("PRO_ULTRA"))
+  );
   const { openPopup } = useNtPopups();
   const validHandle = HANDLE_RE.test(handle);
   // Name and access code, for a private room whose handle carries one — null
@@ -2486,7 +2493,12 @@ export function WatchRoom({
 
   // The premium button — which of its three offers, decided in one place with
   // the group bar's copy (see components/RoomProOffer).
-  const proButton = getRoomProOffer(account?.flags ?? [], translate, () => void openPopup("gift_plan", { data: {} }));
+  const proButton = getRoomProOffer(
+    account?.flags ?? [],
+    translate,
+    () => void openPopup("gift_plan", { data: {} }),
+    proUltraOnSale
+  );
   const roomAllowsTheme = canUseRoomPermission("theme");
   const canSetRoomTheme = hasThemePlan && roomAllowsTheme;
   // Populated only for the ones this viewer is actually blocked on, so a
