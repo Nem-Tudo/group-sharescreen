@@ -39,6 +39,7 @@ export function InviteDialog({
 
 const ADD_PATH_RE = /^\/bots\/([^/]+)\/add\/?$/;
 const INVITE_PATH_RE = /^\/invite\/([^/]+)\/?$/;
+const GIFT_PATH_RE = /^\/gift\/([^/]+)\/?$/;
 
 /** The hosts a link has to be on to be the site's own add page. */
 function isSiteHost(host: string): boolean {
@@ -51,7 +52,7 @@ function isSiteHost(host: string): boolean {
 }
 
 /**
- * Turns every click on a link to a bot's add page, or to a group's invite,
+ * Turns every click on a link to a bot's add page, a group's invite or a gift,
  * into its dialog — one
  * listener for the whole app rather than a handler on each such link, so the
  * ones inside a chat message, a DM or a bot's bio are caught as well.
@@ -79,7 +80,12 @@ export function BotAddLinkInterceptor() {
       if (window.location.pathname === url.pathname && window.location.host === url.host) return;
       let open: (() => void) | null = null;
       const addMatch = isSiteHost(url.host) ? ADD_PATH_RE.exec(url.pathname) : null;
-      if (addMatch) {
+      const giftMatch = isSiteHost(url.host) ? GIFT_PATH_RE.exec(url.pathname) : null;
+      if (giftMatch) {
+        // Folded the same way GiftClaimHost folds the ?gift= it reads.
+        const code = decodeURIComponent(giftMatch[1]).trim().toUpperCase();
+        if (code) open = () => void openPopup("gift_claim", { data: { code } });
+      } else if (addMatch) {
         const botId = decodeURIComponent(addMatch[1]);
         open = () => void openPopup("add_bot", { data: { botId } });
       } else {
