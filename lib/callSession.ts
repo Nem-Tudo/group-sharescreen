@@ -54,7 +54,11 @@ export interface CallSession {
  * how the host knows not to draw a second one.
  */
 export interface CallChrome {
-  headerSlots: { center: HTMLElement | null; right: HTMLElement | null };
+  /**
+   * `end` is the very last thing in the bar, after the group's own buttons —
+   * where the room's "more options" goes, so the menu sits in the corner.
+   */
+  headerSlots: { center: HTMLElement | null; right: HTMLElement | null; end: HTMLElement | null };
   /**
    * The strip right under the group's header where a group voice room's music
    * bars are drawn, so the song stays in one place — and in view — whichever
@@ -212,6 +216,7 @@ export function setCallChrome(next: CallChrome | null): void {
       chrome.onOpenNav === next.onOpenNav &&
       chrome.headerSlots.center === next.headerSlots.center &&
       chrome.headerSlots.right === next.headerSlots.right &&
+      chrome.headerSlots.end === next.headerSlots.end &&
       chrome.musicSlot === next.musicSlot);
   if (same) return;
   chrome = next;

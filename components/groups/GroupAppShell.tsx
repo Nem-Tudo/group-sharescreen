@@ -7,6 +7,8 @@ import useNtPopups from "ntpopups";
 import { MdHome } from "react-icons/md";
 import { AccountMenu } from "@/components/AccountMenu";
 import { CallOutlet } from "@/components/CallOutlet";
+import { GroupHeaderMenu } from "@/components/groups/GroupHeaderMenu";
+import { RoomProOfferButton } from "@/components/RoomProOffer";
 import { ColumnResizeHandle, useColumnWidth, type ColumnWidthSpec } from "@/components/ColumnResize";
 import { DmRecentStrip } from "@/components/DmRecentStrip";
 import { useBlockNativeContextMenu } from "@/components/ContextMenuHost";
@@ -139,6 +141,7 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   // headerSlots. State rather than refs, so the room re-renders once they exist.
   const [centerSlot, setCenterSlot] = useState<HTMLDivElement | null>(null);
   const [rightSlot, setRightSlot] = useState<HTMLDivElement | null>(null);
+  const [endSlot, setEndSlot] = useState<HTMLDivElement | null>(null);
   // Where a group voice room's music bars are drawn — see CallChrome.musicSlot.
   const [musicSlot, setMusicSlot] = useState<HTMLDivElement | null>(null);
   // The bar's row and the two clusters that grow as a call fills them, for
@@ -176,12 +179,12 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   const openNav = useCallback(() => setNavOpen(true), []);
   useEffect(() => {
     setCallChrome({
-      headerSlots: { center: centerSlot, right: rightSlot },
+      headerSlots: { center: centerSlot, right: rightSlot, end: endSlot },
       musicSlot,
       onOpenNav: openNav,
     });
     return () => setCallChrome(null);
-  }, [centerSlot, rightSlot, musicSlot, openNav]);
+  }, [centerSlot, rightSlot, endSlot, musicSlot, openNav]);
 
   // A different person — logging in, out, or into another account — is a
   // different set of groups. Skipped on the first render, which is not a change.
@@ -324,6 +327,8 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
               detail={detail}
               channel={routeChannel}
               setRightSlot={setRightSlot}
+              setEndSlot={setEndSlot}
+              voiceVisible={voiceVisible}
               setCenterSlot={setCenterSlot}
               onOpenMembers={() => setMembersOpen(true)}
             />
@@ -380,15 +385,22 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
                 headerFit === 2 ? "lg:col-start-2 lg:row-start-1" : ""
               }`}
             >
-              {/* The call's page buttons (share, Pro, its options), portalled
-                  in by the room while it is on screen. */}
+              {/* The call's page buttons (Pro and the like), portalled in by
+                  the room while it is on screen. */}
               <div ref={setRightSlot} className="contents" />
+              {/* With no voice room on screen, the bar's own copy — the room
+                  puts its Pro button in the slot above while it is. */}
+              {!voiceVisible && <RoomProOfferButton />}
               {detail && <GroupActions detail={detail} />}
               {/* Private conversations, as faces. From lg up they sit on the
                   left instead, where the switcher was. */}
               <NotificationInboxBell />
               <AccountMenu />
               <UpdateAppButton />
+              {/* Last in the bar: "more options", in the corner — the voice
+                  room's while it is on screen, the group bar's own otherwise. */}
+              <div ref={setEndSlot} className="contents" />
+              {!voiceVisible && <GroupHeaderMenu />}
             </div>
           </div>
           )}

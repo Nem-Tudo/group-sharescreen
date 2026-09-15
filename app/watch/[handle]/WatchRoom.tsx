@@ -169,8 +169,6 @@ import {
   SpeakerIcon,
   SpeakerMuteIcon,
   MoreIcon,
-  GoldVerifiedBadgeIcon,
-  VerifiedBadgeIcon,
   ChevronDownIcon,
   EyeIcon,
   EyeOffIcon,
@@ -181,6 +179,8 @@ import {
 } from "@/components/icons";
 import { Tooltip, Popover } from "@/components/Tooltip";
 import { ThemeSegmented } from "@/components/ThemeToggle";
+import { MenuToggleRow } from "@/components/MenuToggleRow";
+import { getRoomProOffer } from "@/components/RoomProOffer";
 import { isAppShell } from "@/lib/desktop";
 import { getProfileSongAutoplay, setProfileSongAutoplay } from "@/lib/profileSong";
 import { useMediaQuery, SM_BREAKPOINT_QUERY, LG_BREAKPOINT_QUERY } from "@/lib/useMediaQuery";
@@ -204,7 +204,6 @@ import {
   MdOutlineKeyboard,
   MdKeyboardArrowUp,
   MdPersonAddAlt1,
-  MdCardGiftcard,
 } from "react-icons/md";
 import { BsGearFill, BsCoin } from "react-icons/bs";
 import {
@@ -248,51 +247,6 @@ import { translate } from "@/lib/i18n";
 // this lets through but the server rejects lands the user in a dead room
 // (join fails server-side, but the client's already navigated to it).
 const HANDLE_RE = /^[a-zA-Z0-9_-]{1,32}$/;
-
-// A label + on/off pill for the header's consolidated "more options" panel
-// (see WatchRoom below) — every toggle in there (sound effects, noise
-// suppression, mute mics) follows the exact same green-on/gray-off shape
-// the old per-button icons used, just as a full-width row instead of a
-// standalone icon button.
-function MenuToggleRow({
-  label,
-  active,
-  onToggle,
-  activeIcon,
-  inactiveIcon,
-  disabled = false,
-  hint,
-}: {
-  label: string;
-  active: boolean;
-  onToggle: () => void;
-  activeIcon: ReactNode;
-  inactiveIcon: ReactNode;
-  disabled?: boolean;
-  hint?: ReactNode;
-}) {
-  return (
-    // The wrapper is what a disabled row's hint hangs off of: a disabled
-    // button emits no pointer events of its own, and "why is this off?" is
-    // exactly the row that most needs explaining.
-    <Tooltip content={hint} wrapperClassName="flex w-full">
-      <button
-        type="button"
-        onClick={onToggle}
-        disabled={disabled}
-        className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:text-zinc-300 dark:hover:bg-zinc-900"
-      >
-        <span>{label}</span>
-        <span
-          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white ${active ? "bg-emerald-600" : "bg-zinc-500"
-            }`}
-        >
-          {active ? activeIcon : inactiveIcon}
-        </span>
-      </button>
-    </Tooltip>
-  );
-}
 
 // One row in the mic/speaker/camera device-picker popovers (see the split
 // buttons next to the mic and mics-muted controls, and the camera segment of
@@ -1118,7 +1072,7 @@ export function WatchRoom({
    * it, and the room's page buttons too while the room is the page shown (see
    * inHeaderSlot). Null anywhere else.
    */
-  headerSlots?: { center: HTMLElement | null; right: HTMLElement | null } | null;
+  headerSlots?: { center: HTMLElement | null; right: HTMLElement | null; end: HTMLElement | null } | null;
   /**
    * The strip under a group's header that a group voice room draws its music
    * bars into (see CallChrome.musicSlot). Used only when this room *is* a
@@ -2463,68 +2417,9 @@ export function WatchRoom({
   // see its "room-theme-set".
   const hasThemePlan = hasFeature("room_theme_set", account?.features ?? []);
 
-  // The premium button, which is three different offers wearing one slot.
-  //
-  // The same climb the site header makes (see SiteHeader's proItem), for the
-  // same reason: a button that keeps selling "Pro" to somebody who already
-  // pays for it is advertising the one thing they cannot buy, and it used to
-  // be the only place a subscriber ever saw the plan above theirs.
-  //
-  //   no plan  → "Pro", the blue badge.
-  //   Pro      → "Pro Max", in that plan's own gold mark.
-  //   Pro Max  → "Presentear". Nothing left to sell them; the one thing they
-  //              can still buy is a plan for somebody else.
-  //
-  // Read from `flags` rather than `features` — the question is which *plan*
-  // somebody holds, not what they may do — and PRO_MAX is tested first
-  // because it carries PRO with it.
-  //
-  // What differs from the header is only the door: nothing here navigates.
-  // Following a link out of a room tears down the call, which is the whole
-  // reason openProModal exists (see lib/proModal), and the gift dialog opens
-  // as a popup over the room rather than as a page.
-  const planFlags = account?.flags ?? [];
-  const proButton = planFlags.includes("PRO_MAX")
-    ? {
-        label: translate("common.sendAsAGift"),
-        tooltip: translate("watch.watchRoom.giftSomeoneGolivePro"),
-        ariaLabel: translate("common.giftPro"),
-        Icon: MdCardGiftcard,
-        // Carries its own colour, like the badges below: green is what the
-        // gift control is everywhere else on the site.
-        iconClassName: "text-emerald-500",
-        className:
-          "border-emerald-300 text-emerald-600 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-950/40",
-        onPress: () => void openPopup("gift_plan", { data: {} }),
-      }
-    : planFlags.includes("PRO")
-      ? {
-          label: translate("common.proMax"),
-          tooltip: translate("watch.watchRoom.goliveProMaxThemesGiftsAnd"),
-          ariaLabel: translate("common.goliveProMax"),
-          // The plan's own mark, which carries its colour in its gradients and
-          // therefore takes no colour class of its own.
-          Icon: GoldVerifiedBadgeIcon,
-          iconClassName: "",
-          className:
-            "border-amber-300 text-amber-600 hover:bg-amber-50 dark:border-amber-800 dark:text-amber-400 dark:hover:bg-amber-950/40",
-          // Opened straight onto the card it is about: somebody who already
-          // has Pro should not have to find the picker to see what is above it.
-          onPress: () => openProModal("premium_max"),
-        }
-      : {
-          label: translate("common.pro"),
-          tooltip: translate("watch.watchRoom.goliveProGetVerifiedBroadcastIn"),
-          ariaLabel: translate("common.golivePro"),
-          // Blue rather than inheriting the label's colour: this is the same
-          // badge that appears next to a verified name (see DisplayUserName),
-          // and it only reads as that badge if it keeps its own.
-          Icon: VerifiedBadgeIcon,
-          iconClassName: "text-blue-500",
-          className:
-            "border-blue-300 text-blue-600 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-950/40",
-          onPress: () => openProModal(),
-        };
+  // The premium button — which of its three offers, decided in one place with
+  // the group bar's copy (see components/RoomProOffer).
+  const proButton = getRoomProOffer(account?.flags ?? [], translate, () => void openPopup("gift_plan", { data: {} }));
   const roomAllowsTheme = canUseRoomPermission("theme");
   const canSetRoomTheme = hasThemePlan && roomAllowsTheme;
   // Populated only for the ones this viewer is actually blocked on, so a
@@ -5819,15 +5714,48 @@ export function WatchRoom({
   // reads one of its text rooms, and an ordinary room's carried into /groups —
   // whose controls would otherwise be nowhere at all, since the floating bar
   // stands aside for the group's.
-  function inHeaderSlot(slot: "center" | "right", node: ReactNode): ReactNode {
+  //
+  // "end" is the corner of the group's bar, after its own buttons, and only
+  // exists there — outside a group that node stays in the room's own right
+  // zone (see moreOptions).
+  function inHeaderSlot(slot: "center" | "right" | "end", node: ReactNode): ReactNode {
     const barTarget = headerSlots?.[slot] ?? null;
     if (barTarget) {
-      if (slot === "right" && !visible) return null;
+      if (slot !== "center" && !visible) return null;
       return createPortal(node, barTarget);
     }
+    if (slot === "end") return null;
     if (!visible) return slot === "center" && dockSlot ? createPortal(node, dockSlot) : null;
     return group ? null : node;
   }
+
+  // "Mais opções" — the button and, from sm up, the popover it opens (below
+  // that the same menu is a bottom sheet, drawn with the rest of the right zone).
+  const moreOptions = (
+    <Popover
+      open={isDesktopLayout && menuOpen}
+      onClose={closeMenu}
+      placement="bottom-end"
+      tooltip={translate("watch.watchRoom.moreOptions")}
+      content={
+        <div className="flex max-h-[80vh] w-80 flex-col gap-1 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-3 shadow-2xl dark:border-zinc-800 dark:bg-zinc-950">
+          {menuItems}
+        </div>
+      }
+    >
+      <button
+        type="button"
+        onClick={() => (menuOpen ? closeMenu() : setMenuOpen(true))}
+        aria-label={translate("watch.watchRoom.moreOptions")}
+        className={`shrink-0 rounded-lg border p-2 transition ${menuOpen
+          ? "border-zinc-400 bg-zinc-100 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+          : "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+          }`}
+      >
+        <MoreIcon className="h-5 w-5" />
+      </button>
+    </Popover>
+  );
 
 
   // The room's soundtrack from local files — the same strip, the same place,
@@ -6184,6 +6112,8 @@ export function WatchRoom({
                 sala" moved in there at every width — it is a once-a-session
                 action, and next to the mid-call controls it was a wide button
                 spending header space on something nobody clicks twice. */}
+            {/* Not in a group: a group's room is shared by inviting to the group. */}
+            {!group && (
             <Tooltip content={linkCopied ? translate("common.linkCopied") : translate("watch.watchRoom.copyThisRoomSLink")}>
               <button
                 type="button"
@@ -6200,6 +6130,7 @@ export function WatchRoom({
                 </span>
               </button>
             </Tooltip>
+            )}
 
             {/* Name + points, below lg only — from there up this is the card
                 at the foot of the chat column instead (see RoomAccountCard),
@@ -6289,29 +6220,9 @@ export function WatchRoom({
             {/* The group's bar has its own. */}
             {!group && <NotificationInboxBell />}
 
-            <Popover
-              open={isDesktopLayout && menuOpen}
-              onClose={closeMenu}
-              placement="bottom-end"
-              tooltip={translate("watch.watchRoom.moreOptions")}
-              content={
-                <div className="flex max-h-[80vh] w-80 flex-col gap-1 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-3 shadow-2xl dark:border-zinc-800 dark:bg-zinc-950">
-                  {menuItems}
-                </div>
-              }
-            >
-              <button
-                type="button"
-                onClick={() => (menuOpen ? closeMenu() : setMenuOpen(true))}
-                aria-label={translate("watch.watchRoom.moreOptions")}
-                className={`shrink-0 rounded-lg border p-2 transition ${menuOpen
-                  ? "border-zinc-400 bg-zinc-100 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
-                  : "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
-                  }`}
-              >
-                <MoreIcon className="h-5 w-5" />
-              </button>
-            </Popover>
+            {/* In a group's bar this goes to its far corner instead (see
+                inHeaderSlot's "end"), after the group's own buttons. */}
+            {!headerSlots?.end && moreOptions}
 
             {/* Guests only, and below lg only — the same rule as the chip
                 above, and for the same reason: from lg up the account card at
@@ -6365,6 +6276,7 @@ export function WatchRoom({
             )}
           </div>
           ))}
+          {inHeaderSlot("end", moreOptions)}
         </div>
       </header>
 

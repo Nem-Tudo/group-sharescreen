@@ -16,6 +16,7 @@ import {
   MdVolumeUp,
 } from "react-icons/md";
 import { MobileSheet } from "@/components/MobileSheet";
+import { GroupHeaderMenu } from "@/components/groups/GroupHeaderMenu";
 import { NotificationInboxBell } from "@/components/NotificationInboxBell";
 import { GroupIcon } from "@/components/groups/GroupIcon";
 import { GroupName } from "@/components/groups/GroupName";
@@ -54,13 +55,18 @@ export function GroupMobileBar({
   detail,
   channel,
   setRightSlot,
+  setEndSlot,
   setCenterSlot,
   onOpenMembers,
+  voiceVisible,
 }: {
+  /** Whether a voice room is the page — it brings its own "more options" then. */
+  voiceVisible: boolean;
   route: GroupsRoute | null;
   detail: GroupDetail | null;
   channel: GroupChannel | null;
   setRightSlot: (el: HTMLDivElement | null) => void;
+  setEndSlot: (el: HTMLDivElement | null) => void;
   setCenterSlot: (el: HTMLDivElement | null) => void;
   onOpenMembers: () => void;
 }) {
@@ -145,6 +151,12 @@ export function GroupMobileBar({
           </>
         )}
         {kind !== "room" && <NotificationInboxBell />}
+        {/* The voice room's "more options", last — see CallChrome.headerSlots.end. */}
+        <div ref={setEndSlot} className="contents" />
+        {/* The bar's own copy while no voice room is on screen. Not in a text
+            room, whose ⋮ above is already its menu — two of them side by side
+            would be a guessing game. */}
+        {!voiceVisible && !(kind === "room" && channel?.kind === "text") && <GroupHeaderMenu />}
       </div>
     </div>
   );
