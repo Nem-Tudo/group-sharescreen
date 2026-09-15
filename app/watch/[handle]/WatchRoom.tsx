@@ -4660,6 +4660,27 @@ export function WatchRoom({
   // from sm up, and the full-width bottom sheet below it — a sheet is fixed
   // to the viewport rather than positioned against the button, which is
   // exactly what a popover cannot be.
+  // Noise suppression's switch. In the options menu with the rest of the
+  // settings, and in the mic's device menu too, under its volume (see
+  // mainControls), since the mic is where somebody hearing their own keyboard
+  // goes looking.
+  // One definition, so the two can never disagree about when it is available.
+  const noiseSuppressionToggle = (
+    <MenuToggleRow
+      label={translate("watch.watchRoom.noiseSuppression")}
+      active={noiseSuppressionOn}
+      onToggle={toggleNoiseSuppression}
+      disabled={isMicOn && !noiseSuppressionAvailable}
+      hint={
+        isMicOn && !noiseSuppressionAvailable
+          ? translate("watch.watchRoom.noiseSuppressionUnavailableWithThisAudio")
+          : undefined
+      }
+      activeIcon={<NoiseSuppressionIcon className="h-4 w-4" />}
+      inactiveIcon={<NoiseSuppressionOffIcon className="h-4 w-4" />}
+    />
+  );
+
   const menuItems = (
     <>
       {!group && (
@@ -4854,19 +4875,7 @@ export function WatchRoom({
         activeIcon={<SpeakerIcon className="h-4 w-4" />}
         inactiveIcon={<SpeakerMuteIcon className="h-4 w-4" />}
       />
-      <MenuToggleRow
-        label={translate("watch.watchRoom.noiseSuppression")}
-        active={noiseSuppressionOn}
-        onToggle={toggleNoiseSuppression}
-        disabled={isMicOn && !noiseSuppressionAvailable}
-        hint={
-          isMicOn && !noiseSuppressionAvailable
-            ? translate("watch.watchRoom.noiseSuppressionUnavailableWithThisAudio")
-            : undefined
-        }
-        activeIcon={<NoiseSuppressionIcon className="h-4 w-4" />}
-        inactiveIcon={<NoiseSuppressionOffIcon className="h-4 w-4" />}
-      />
+      {noiseSuppressionToggle}
       <MenuToggleRow
         label={translate("watch.watchRoom.joinBroadcastsAutomatically")}
         active={autoJoin}
@@ -5076,6 +5085,7 @@ export function WatchRoom({
                 onChange={setMicGain}
                 disabled={isMicOn && !micGainAvailable}
               />
+              {noiseSuppressionToggle}
             </div>
           }
         >
@@ -5096,8 +5106,7 @@ export function WatchRoom({
           onClose={() => setQuickShortcutAction(null)}
           hasAccount={Boolean(state.account)}
           onRequestAccount={() => setAccountModal("create")}
-          onOpenAllShortcuts={() => setShortcutsModalOpen(true)}
-        >
+          onOpenAllShortcuts={() => setShortcutsModalOpen(true)}        >
           <MicUsageHint
             open={micHintOpen}
             onDismiss={closeMicHint}
