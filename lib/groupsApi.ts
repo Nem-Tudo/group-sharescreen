@@ -365,6 +365,10 @@ export const setGroupVisibility = (groupId: string, visibility: GroupVisibility)
 export const joinPublicGroup = (groupId: string, name?: string | null) =>
   request<{ groupId: string }>("POST", `/groups/${enc(groupId)}/join`, name ? { name } : {});
 
+/** Walks into the group a profile shows (see ProfileGroupCard). `name` is a guest's display name. */
+export const joinProfileGroup = (userId: string, name?: string | null) =>
+  request<{ groupId: string }>("POST", `/users/${enc(userId)}/profile-group/join`, name ? { name } : {});
+
 export const fetchGroup = (groupId: string, signal?: AbortSignal) =>
   request<GroupDetail>("GET", `/groups/${enc(groupId)}`, undefined, signal);
 

@@ -77,6 +77,7 @@ const FEATURE_LABELS: Partial<Record<Feature, string>> = {
   get banner_upload() { return translate("pro.proPanel.uploadYourOwnProfileBanner"); },
   get profile_gradient() { return translate("pro.proPanel.chooseYourProfileSBackgroundColours"); },
   get profile_song() { return translate("pro.proPanel.putASongOnYourProfile"); },
+  get profile_group() { return translate("pro.proPanel.showAGroupOnYourProfile"); },
   get room_theme() { return translate("pro.proPanel.createThemesAndGiveRoomsYour"); },
   get room_theme_publish() { return translate("pro.proPanel.publishYourThemesOnDiscoverFor"); },
   get room_theme_set() { return translate("pro.proPanel.changeTheThemeOfAnyRoom"); },

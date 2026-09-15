@@ -38,6 +38,8 @@ export type Account = {
   profileTheme?: { from: string; to: string; angle: number } | null;
   /** The YouTube song on this profile, stored as its id. Same gate. */
   profileSong?: { videoId: string; title: string; volume?: number } | null;
+  /** The group shown as a card on this profile (Pro Ultra), by id. */
+  profileGroupId?: string | null;
   /**
    * The room theme this account wears, by id (see lib/roomThemes.ts), or null
    * for the site's own look.
@@ -450,6 +452,8 @@ export type UpdateProfileInput = {
   avatar?: string | null;
   /** Same three shapes as `avatar`: a data URL to upload, null to clear, absent to leave alone. */
   banner?: string | null;
+  /** A group id to show on the profile; null clears it, absent leaves it alone. */
+  profileGroup?: string | null;
   /** Null clears the gradient; absent leaves it alone. */
   profileTheme?: { from: string; to: string; angle: number } | null;
   /** A YouTube link. Null or "" clears it; absent leaves it alone. */

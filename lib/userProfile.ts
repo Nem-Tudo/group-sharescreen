@@ -12,6 +12,22 @@ export type UserProfile = {
   live: LiveRoomStatus;
   /** For a bot: how many groups it is in (see GET /users/:id). Absent for a person. */
   groupCount?: number;
+  /** The group shown on this profile (Pro Ultra), when it can still be joined from it. */
+  profileGroup?: ProfileGroup | null;
+};
+
+/** See the API's profileGroup.ts. */
+export type ProfileGroup = {
+  id: string;
+  name: string;
+  description: string;
+  iconUrl: string | null;
+  flags: string[];
+  memberCount: number;
+  onlineCount: number;
+  public: boolean;
+  /** Whether whoever asked is already in it. */
+  member: boolean;
 };
 
 // Public profile page data (see app/user/[id]/page.tsx) — reachable by

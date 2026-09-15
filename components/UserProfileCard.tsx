@@ -37,6 +37,9 @@ import { DEFAULT_AVATAR_PATH } from "@/components/UserAvatar";
 import { fetchCosmeticsCatalog, type CosmeticProduct } from "@/lib/cosmetics";
 import { prepareAvatarImage, AVATAR_IMAGE_ACCEPT, AVATAR_IMAGE_MAX_BYTES } from "@/lib/avatarImage";
 import { MdCheck, MdEdit, MdGroups, MdPhotoCamera, MdDeleteOutline } from "react-icons/md";
+import { ImageCropDialog, type ImageCropKind } from "@/components/ImageCropDialog";
+import { ProfileGroupCard } from "@/components/groups/ProfileGroupCard";
+import { fetchMyGroups, type GroupSummary } from "@/lib/groupsApi";
 import useNtPopups from "ntpopups";
 import { UserBadges } from "@/components/UserBadges";
 import { useOpenPro } from "@/lib/proModal";
@@ -72,12 +75,16 @@ const cardClass =
  * something they can already use, and four decorated boxes is what the form
  * looked like before. Nothing to show is the right answer once it is theirs.
  */
-function PlanRing({ tier, locked }: { tier: "pro" | "proMax"; locked: boolean }) {
+type PlanTier = "pro" | "proMax" | "proUltra";
+
+function PlanRing({ tier, locked }: { tier: PlanTier; locked: boolean }) {
   if (!locked) return null;
   const ring =
-    tier === "proMax"
-      ? "linear-gradient(120deg, #f59e0b, #fde68a, #d97706)"
-      : "linear-gradient(120deg, #3b82f6, #93c5fd, #2563eb)";
+    tier === "proUltra"
+      ? "linear-gradient(120deg, #e11d48, #fda4af, #be123c)"
+      : tier === "proMax"
+        ? "linear-gradient(120deg, #f59e0b, #fde68a, #d97706)"
+        : "linear-gradient(120deg, #3b82f6, #93c5fd, #2563eb)";
   return (
     <span
       aria-hidden
@@ -179,7 +186,7 @@ function PlanSection({
   neutralStyle,
   children,
 }: {
-  tier: "pro" | "proMax";
+  tier: PlanTier;
   title: string;
   /** The profile theme's colours, when one is active — see ProfileContent. */
   titleStyle?: React.CSSProperties;
@@ -281,7 +288,7 @@ function PlanLink({
   label,
   className = "",
 }: {
-  tier: "pro" | "proMax";
+  tier: PlanTier;
   /** Overrides the default sentence, for a label that already names the plan. */
   label?: string;
   className?: string;
@@ -291,7 +298,7 @@ function PlanLink({
   // by the same badge the subscriber wears — gold for Pro Max, blue for Pro
   // (see components/planIcons). A sentence alone made every locked control
   // look like it belonged to the same, unnamed tier.
-  const mark = planIcon(tier === "proMax" ? "gold_verified" : "blue_verified");
+  const mark = planIcon(tier === "proUltra" ? "ruby_verified" : tier === "proMax" ? "gold_verified" : "blue_verified");
   const Mark = mark.Icon;
   // This card renders in two places — the profile page and the room's dialog
   // — so where to send somebody is not a decision it can make on its own.
@@ -302,12 +309,12 @@ function PlanLink({
       type="button"
       onClick={(e) => {
         e.preventDefault();
-        openPro();
+        openPro(tier === "proUltra" ? "pro_ultra" : undefined);
       }}
       className={`inline-flex cursor-pointer items-center gap-1 underline underline-offset-2 transition hover:text-zinc-800 dark:hover:text-zinc-200 ${className}`}
     >
       <Mark className={`h-3.5 w-3.5 shrink-0 ${mark.className}`} />
-      {label ?? t("userProfileCard.availableOnValue", { value: tier === "proMax" ? "Pro Max" : "Pro" })}
+      {label ?? t("userProfileCard.availableOnValue", { value: tier === "proUltra" ? "Pro Ultra" : tier === "proMax" ? "Pro Max" : "Pro" })}
     </button>
   );
 }
@@ -542,6 +549,10 @@ function ProfileContent({
   const [openField, setOpenField] = useState<"name" | "username" | "bio" | "song" | null>(null);
   const [bannerPickerOpen, setBannerPickerOpen] = useState(false);
   const [bannerDataUrl, setBannerDataUrl] = useState<string | null | undefined>(undefined);
+  // A picked picture waiting to be positioned before it becomes the preview.
+  const [cropping, setCropping] = useState<{ kind: ImageCropKind; src: string } | null>(null);
+  const [editProfileGroup, setEditProfileGroup] = useState<string | null>(account.profileGroupId ?? null);
+  const [myGroups, setMyGroups] = useState<GroupSummary[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -563,6 +574,7 @@ function ProfileContent({
     setEditTheme(account.profileTheme ?? null);
     setEditSong(songLinkOf(account.profileSong));
     setEditSongVolume(account.profileSong?.volume ?? DEFAULT_SONG_VOLUME);
+    setEditProfileGroup(account.profileGroupId ?? null);
   }, [account]);
 
   // Load cosmetics when entering edit mode or when owned items change
@@ -606,6 +618,16 @@ function ProfileContent({
       cancelled = true;
     };
   }, [isEditing, isOwner, t]);
+
+  // The groups this person could show, for the picker — only once editing.
+  useEffect(() => {
+    if (!isEditing || !isOwner || account.bot) return;
+    const controller = new AbortController();
+    fetchMyGroups(controller.signal)
+      .then((result) => setMyGroups(result.ok ? result.groups.filter((g) => !g.suspended) : []))
+      .catch(() => {});
+    return () => controller.abort();
+  }, [isEditing, isOwner, account.bot]);
 
   // Closing the picker: a click anywhere outside it, or Escape. Bound only
   // while it is open, so a closed panel costs no listeners.
@@ -655,6 +677,13 @@ function ProfileContent({
       setError(t("userProfileCard.theImageMustBeAtMost", { value: Math.round(AVATAR_IMAGE_MAX_BYTES / (1024 * 1024)) }));
       return;
     }
+    // A GIF skips the cropper: drawing it on a canvas would keep one frame
+    // and throw the animation away, which is the reason to upload a GIF.
+    if (file.type !== "image/gif") {
+      setCropping({ kind: "avatar", src: URL.createObjectURL(file) });
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
     try {
       const prepared = await prepareAvatarImage(file);
       setPreviewAvatar(prepared.dataUrl);
@@ -674,10 +703,15 @@ function ProfileContent({
       setError(t("userProfileCard.theBannerMustBeAtMost", { value: Math.round(AVATAR_IMAGE_MAX_BYTES / (1024 * 1024)) }));
       return;
     }
+    // Positioned in the cropper, which also caps the size and re-encodes —
+    // what keeps a 12MP phone photo from being posted to the CDN whole. A GIF
+    // is sent as it is, for the animation (see handleAvatarPicked).
+    if (file.type !== "image/gif") {
+      setCropping({ kind: "banner", src: URL.createObjectURL(file) });
+      if (bannerInputRef.current) bannerInputRef.current.value = "";
+      return;
+    }
     try {
-      // The same preparation the avatar gets, and deliberately so: it caps the
-      // dimensions and re-encodes, which is what keeps a 12MP phone photo from
-      // being posted to the CDN whole.
       const prepared = await prepareAvatarImage(file);
       setPreviewBanner(prepared.dataUrl);
       setBannerDataUrl(prepared.dataUrl);
@@ -686,6 +720,22 @@ function ProfileContent({
     } finally {
       if (bannerInputRef.current) bannerInputRef.current.value = "";
     }
+  }
+
+  function closeCropper() {
+    if (cropping) URL.revokeObjectURL(cropping.src);
+    setCropping(null);
+  }
+
+  function handleCropped(dataUrl: string) {
+    if (cropping?.kind === "banner") {
+      setPreviewBanner(dataUrl);
+      setBannerDataUrl(dataUrl);
+    } else {
+      setPreviewAvatar(dataUrl);
+      setAvatarDataUrl(dataUrl);
+    }
+    closeCropper();
   }
 
   function handleRemoveBanner() {
@@ -724,6 +774,7 @@ function ProfileContent({
     setEditTheme(account.profileTheme ?? null);
     setEditSong(songLinkOf(account.profileSong));
     setEditSongVolume(account.profileSong?.volume ?? DEFAULT_SONG_VOLUME);
+    setEditProfileGroup(account.profileGroupId ?? null);
     setAvatarPickerOpen(false);
     setBannerPickerOpen(false);
     setOpenField(null);
@@ -774,12 +825,13 @@ function ProfileContent({
           ? { songVolume: editSongVolume }
           : {}),
         equippedProfileColor: editBgColor,
+        ...(profileGroupChanged ? { profileGroup: editProfileGroup } : {}),
       });
 
-      onProfileUpdated?.({
-        ...profile,
-        account: updatedAccount,
-      });
+      // The card is built by GET /users/:id, not by the save, so a changed
+      // group is read back from there.
+      const reread = profileGroupChanged ? await fetchUserProfile(account.id).catch(() => null) : null;
+      onProfileUpdated?.(reread ?? { ...profile, account: updatedAccount });
 
       await refreshAuth();
 
@@ -821,6 +873,8 @@ function ProfileContent({
   const canUploadBanner = hasFeature("banner_upload", authAccount?.features ?? []);
   const canEditTheme = hasFeature("profile_gradient", authAccount?.features ?? []);
   const canEditSong = hasFeature("profile_song", authAccount?.features ?? []);
+  const canEditProfileGroup = hasFeature("profile_group", authAccount?.features ?? []);
+  const profileGroupChanged = editProfileGroup !== (account.profileGroupId ?? null);
   // While editing, the card *is* the preview — there is no second swatch to
   // compare against, and a preview that is not the thing itself always
   // disagrees with it somewhere.
@@ -1431,6 +1485,57 @@ function ProfileContent({
               )}
             </InlineEdit>
           </div>
+        )}
+
+        {profile.profileGroup && !(isEditing && profileGroupChanged) && (
+          <div className="mt-4">
+            <ProfileGroupCard ownerId={account.id} group={profile.profileGroup} onNavigate={onNavigate} theme={theme} />
+          </div>
+        )}
+
+        {isEditing && isOwner && !account.bot && (
+          <div className={`mt-4 ${planRowClass(!canEditProfileGroup, "flex flex-col gap-1.5")}`}>
+            <PlanRing tier="proUltra" locked={!canEditProfileGroup} />
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <label
+                htmlFor="profile-group-picker"
+                className="flex items-center gap-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300"
+                style={themedLabel}
+              >
+                <MdGroups className="h-4 w-4" />
+                {t("profileGroup.title")}
+              </label>
+              {!canEditProfileGroup && <PlanLink tier="proUltra" className="text-xs text-zinc-500 dark:text-zinc-400" />}
+            </div>
+            <select
+              id="profile-group-picker"
+              value={editProfileGroup ?? ""}
+              disabled={!canEditProfileGroup || myGroups === null}
+              onChange={(e) => setEditProfileGroup(e.target.value || null)}
+              className="themed-field w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none focus:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+              style={themedField}
+            >
+              <option value="">
+                {myGroups === null ? t("profileGroup.loading") : t("profileGroup.none")}
+              </option>
+              {/* The saved one stays choosable even if the list has not got it. */}
+              {account.profileGroupId && profile.profileGroup && !myGroups?.some((g) => g.id === account.profileGroupId) && (
+                <option value={account.profileGroupId}>{profile.profileGroup.name}</option>
+              )}
+              {myGroups?.map((group) => (
+                <option key={group.id} value={group.id}>
+                  {group.name}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400" style={themedHint}>
+              {myGroups && myGroups.length === 0 ? t("profileGroup.empty") : t("profileGroup.hint")}
+            </p>
+          </div>
+        )}
+
+        {cropping && (
+          <ImageCropDialog src={cropping.src} kind={cropping.kind} onCancel={closeCropper} onConfirm={handleCropped} />
         )}
 
         <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
