@@ -204,6 +204,7 @@ import {
   MdOutlineKeyboard,
   MdKeyboardArrowUp,
   MdPersonAddAlt1,
+  MdChevronRight,
 } from "react-icons/md";
 import { BsGearFill, BsCoin } from "react-icons/bs";
 import {
@@ -272,6 +273,50 @@ function DeviceMenuOption({
       <span className="truncate">{label}</span>
       {selected && <CheckIcon className="h-4 w-4 shrink-0" />}
     </button>
+  );
+}
+
+// A settings-panel row that names a device and opens the list of devices beside
+// it on hover — the mic's panel, where the list would otherwise push volume and
+// noise suppression far down. A tap toggles it too, for a screen with no hover.
+// Below `sm` the list opens under the row instead: beside it would be off the
+// edge of a phone. The flyout's own padding bridges the gap to it, so moving
+// the pointer across does not count as leaving.
+function DeviceSubmenuRow({
+  label,
+  current,
+  children,
+}: {
+  label: string;
+  current: string;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className={`flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm transition ${open
+          ? "bg-zinc-100 dark:bg-zinc-800"
+          : "hover:bg-zinc-100 dark:hover:bg-zinc-800"
+          }`}
+      >
+        <span className="flex min-w-0 flex-col">
+          <span className="text-xs text-zinc-500 dark:text-zinc-400">{label}</span>
+          <span className="truncate text-zinc-800 dark:text-zinc-200">{current}</span>
+        </span>
+        <MdChevronRight className="h-4 w-4 shrink-0 text-zinc-500 max-sm:rotate-90" />
+      </button>
+      {open && (
+        <div className="absolute z-20 max-sm:left-0 max-sm:right-0 max-sm:top-full max-sm:pt-1 sm:left-full sm:top-0 sm:pl-2">
+          <div className="max-h-80 w-64 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-lg border border-zinc-300 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+            {children}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -602,8 +647,6 @@ function ShareControls({
   cameraFacing,
   setCameraFacing,
   onPhone,
-  cameraMenuOpen,
-  setCameraMenuOpen,
   open,
   setOpen,
   quality,
@@ -648,8 +691,6 @@ function ShareControls({
   // Actual phone/tablet hardware, not a narrow window. A laptop dragged
   // narrow still wants the picker; a phone in landscape still wants the flip.
   onPhone: boolean;
-  cameraMenuOpen: boolean;
-  setCameraMenuOpen: Dispatch<SetStateAction<boolean>>;
   open: boolean;
   setOpen: Dispatch<SetStateAction<boolean>>;
   quality: Pick<
@@ -686,6 +727,9 @@ function ShareControls({
   const live = "bg-red-600 hover:bg-red-700";
   const idle = "bg-emerald-600 hover:bg-emerald-700";
 
+  // A list of cameras to pick from: a computer with more than one. A phone
+  // gets the flip button instead (see below), never both.
+  const canPickCamera = cameraSupported && !onPhone && cameraDevices.length > 1;
   const screenBlocked = !screenSharing && Boolean(screenBlockedReason);
   const cameraBlocked = !cameraSharing && Boolean(cameraBlockedReason);
   const screenLabel = screenSharing
@@ -766,6 +810,8 @@ function ShareControls({
           </button>
         </Tooltip>
       </ShortcutQuickPopover>
+      {/* Same panel as the mic's: which camera (where there is a choice) and
+          the shortcut, from the arrow and from a right-click alike. */}
       <ShortcutQuickPopover
         action="toggleCamera"
         open={quickShortcutAction === "toggleCamera"}
@@ -773,7 +819,35 @@ function ShareControls({
         hasAccount={quality.hasAccount}
         onRequestAccount={onRequestAccount ?? (() => {})}
         onOpenAllShortcuts={onOpenAllShortcuts}
+        extra={
+          canPickCamera ? (
+            <div className="w-64 max-w-[calc(100vw-2rem)]">
+              <DeviceSubmenuRow
+                label={t("common.chooseCamera")}
+                current={
+                  cameraDevices.find((d) => d.deviceId === cameraDeviceId)?.label ??
+                  t("watch.watchRoom.systemDefault")
+                }
+              >
+                <DeviceMenuOption
+                  label={t("watch.watchRoom.systemDefault")}
+                  selected={cameraDeviceId === null}
+                  onClick={() => setCameraDevice(null)}
+                />
+                {cameraDevices.map((d) => (
+                  <DeviceMenuOption
+                    key={d.deviceId}
+                    label={d.label}
+                    selected={cameraDeviceId === d.deviceId}
+                    onClick={() => setCameraDevice(d.deviceId)}
+                  />
+                ))}
+              </DeviceSubmenuRow>
+            </div>
+          ) : undefined
+        }
       >
+        <div className="flex items-stretch">
         <Tooltip content={cameraLabel} wrapperClassName="flex">
           <button
             type="button"
@@ -790,6 +864,27 @@ function ShareControls({
             <CameraIcon className="h-5 w-5" />
           </button>
         </Tooltip>
+        {/* Inside the panel's anchor, like the mic's arrow — see there. Only
+            where there is a choice to make: on the one-webcam laptop most
+            people are on, an arrow over a single entry is clutter. */}
+        {extra(canPickCamera ? (
+          <Tooltip content={t("watch.watchRoom.cameraSettings")}>
+            <button
+              type="button"
+              onClick={() =>
+                quickShortcutAction === "toggleCamera"
+                  ? onCloseShortcutQuick?.()
+                  : onOpenShortcutQuick?.("toggleCamera")
+              }
+              aria-label={t("watch.watchRoom.cameraSettings")}
+              aria-expanded={quickShortcutAction === "toggleCamera"}
+              className={`flex h-full items-center border-l border-black/15 px-1 text-white transition ${cameraSharing ? live : idle}`}
+            >
+              <ChevronDownIcon className="h-3.5 w-3.5" />
+            </button>
+          </Tooltip>
+        ) : null)}
+        </div>
       </ShortcutQuickPopover>
       {/* Only where there is actually a choice to make: on the one-webcam
           laptop that most people are on, a chevron whose menu offers a
@@ -820,45 +915,6 @@ function ShareControls({
             <MdFlipCameraAndroid className="h-4 w-4" />
           </button>
         </Tooltip>
-      ) : cameraSupported && cameraDevices.length > 1 ? (
-        <Popover
-          open={cameraMenuOpen}
-          onClose={() => setCameraMenuOpen(false)}
-          placement="bottom-end"
-          tooltip={t("common.chooseCamera")}
-          content={
-            <div className="w-64 max-w-[calc(100vw-1rem)] rounded-lg border border-zinc-300 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
-              <DeviceMenuOption
-                label={t("watch.watchRoom.systemDefault")}
-                selected={cameraDeviceId === null}
-                onClick={() => {
-                  setCameraDevice(null);
-                  setCameraMenuOpen(false);
-                }}
-              />
-              {cameraDevices.map((d) => (
-                <DeviceMenuOption
-                  key={d.deviceId}
-                  label={d.label}
-                  selected={cameraDeviceId === d.deviceId}
-                  onClick={() => {
-                    setCameraDevice(d.deviceId);
-                    setCameraMenuOpen(false);
-                  }}
-                />
-              ))}
-            </div>
-          }
-        >
-          <button
-            type="button"
-            onClick={() => setCameraMenuOpen((o) => !o)}
-            aria-label={t("common.chooseCamera")}
-            className={`flex items-center border-l border-black/15 px-1 text-white transition ${cameraSharing ? live : idle}`}
-          >
-            <ChevronDownIcon className="h-3.5 w-3.5" />
-          </button>
-        </Popover>
       ) : null)}
     </div>
   );
@@ -1344,9 +1400,6 @@ export function WatchRoom({
   const [renameInput, setRenameInput] = useState("");
   const [qualityOpen, setQualityOpen] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
-  const [micDeviceMenuOpen, setMicDeviceMenuOpen] = useState(false);
-  const [speakerDeviceMenuOpen, setSpeakerDeviceMenuOpen] = useState(false);
-  const [cameraDeviceMenuOpen, setCameraDeviceMenuOpen] = useState(false);
   const {
     mics: micDevices,
     speakers: speakerDevices,
@@ -4945,36 +4998,42 @@ export function WatchRoom({
   const mainControls = (
     <>
       <div className="flex items-stretch">
-        {dockExtra(
-        <Popover
-          open={micDeviceMenuOpen}
-          onClose={() => setMicDeviceMenuOpen(false)}
-          placement="bottom-start"
-          tooltip={translate("watch.watchRoom.chooseMicrophone")}
-          content={
-            <div className="w-64 max-w-[calc(100vw-1rem)] rounded-lg border border-zinc-300 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
-              <DeviceMenuOption
-                label={translate("watch.watchRoom.systemDefault")}
-                selected={micDeviceId === null}
-                onClick={() => {
-                  setMicDevice(null);
-                  setMicDeviceMenuOpen(false);
-                }}
-              />
-              {micDevices.map((d) => (
+        {/* Every setting the mic has, in one panel — which device, its volume,
+            noise suppression and its shortcut — opened the same way from the
+            arrow and from a right-click on the button. The arrow sits inside
+            the panel's anchor, so pressing it again closes the panel instead
+            of counting as a click outside that reopens it. Moving the dial
+            does not close it: it is adjusted while listening to the result. */}
+        <ShortcutQuickPopover
+          action="toggleMute"
+          open={quickShortcutAction === "toggleMute"}
+          onClose={() => setQuickShortcutAction(null)}
+          hasAccount={Boolean(state.account)}
+          onRequestAccount={() => setAccountModal("create")}
+          onOpenAllShortcuts={() => setShortcutsModalOpen(true)}
+          extra={
+            <div className="w-64 max-w-[calc(100vw-2rem)]">
+              <DeviceSubmenuRow
+                label={translate("watch.watchRoom.chooseMicrophone")}
+                current={
+                  micDevices.find((d) => d.deviceId === micDeviceId)?.label ??
+                  translate("watch.watchRoom.systemDefault")
+                }
+              >
                 <DeviceMenuOption
-                  key={d.deviceId}
-                  label={d.label}
-                  selected={micDeviceId === d.deviceId}
-                  onClick={() => {
-                    setMicDevice(d.deviceId);
-                    setMicDeviceMenuOpen(false);
-                  }}
+                  label={translate("watch.watchRoom.systemDefault")}
+                  selected={micDeviceId === null}
+                  onClick={() => setMicDevice(null)}
                 />
-              ))}
-              {/* Unlike picking a device, moving this doesn't close the
-                  menu: it is a dial to be adjusted while listening to the
-                  result, not a choice that is over once made. */}
+                {micDevices.map((d) => (
+                  <DeviceMenuOption
+                    key={d.deviceId}
+                    label={d.label}
+                    selected={micDeviceId === d.deviceId}
+                    onClick={() => setMicDevice(d.deviceId)}
+                  />
+                ))}
+              </DeviceSubmenuRow>
               <MicGainRow
                 value={micGain}
                 onChange={setMicGain}
@@ -4984,24 +5043,23 @@ export function WatchRoom({
             </div>
           }
         >
-          <button
-            type="button"
-            onClick={() => setMicDeviceMenuOpen((o) => !o)}
-            aria-label={translate("watch.watchRoom.chooseMicrophone")}
-            className={`rounded-l-lg border-r border-black/15 px-1 text-white transition ${isMicOn ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700"
-              }`}
-          >
-            <ChevronDownIcon className="h-3.5 w-3.5" />
-          </button>
-        </Popover>
-        )}
-        <ShortcutQuickPopover
-          action="toggleMute"
-          open={quickShortcutAction === "toggleMute"}
-          onClose={() => setQuickShortcutAction(null)}
-          hasAccount={Boolean(state.account)}
-          onRequestAccount={() => setAccountModal("create")}
-          onOpenAllShortcuts={() => setShortcutsModalOpen(true)}        >
+          <div className="flex items-stretch">
+          {dockExtra(
+            <Tooltip content={translate("watch.watchRoom.microphoneSettings")}>
+              <button
+                type="button"
+                onClick={() =>
+                  setQuickShortcutAction((current) => (current === "toggleMute" ? null : "toggleMute"))
+                }
+                aria-label={translate("watch.watchRoom.microphoneSettings")}
+                aria-expanded={quickShortcutAction === "toggleMute"}
+                className={`h-full rounded-l-lg border-r border-black/15 px-1 text-white transition ${isMicOn ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700"
+                  }`}
+              >
+                <ChevronDownIcon className="h-3.5 w-3.5" />
+              </button>
+            </Tooltip>
+          )}
           <MicUsageHint
             open={micHintOpen}
             onDismiss={closeMicHint}
@@ -5030,51 +5088,14 @@ export function WatchRoom({
               {isMicOn ? <MicIcon className="h-5 w-5" /> : <MicOffIcon className="h-5 w-5" />}
             </button>
           </MicUsageHint>
+          </div>
         </ShortcutQuickPopover>
       </div>
 
       <div className="flex items-stretch">
-        {canSelectSpeaker && dockExtra(
-          <Popover
-            open={speakerDeviceMenuOpen}
-            onClose={() => setSpeakerDeviceMenuOpen(false)}
-            placement="bottom-start"
-            tooltip={translate("watch.watchRoom.chooseAudioOutput")}
-            content={
-              <div className="w-64 max-w-[calc(100vw-1rem)] rounded-lg border border-zinc-300 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
-                <DeviceMenuOption
-                  label={translate("watch.watchRoom.systemDefault")}
-                  selected={speakerDeviceId === null}
-                  onClick={() => {
-                    setSpeakerDevice(null);
-                    setSpeakerDeviceMenuOpen(false);
-                  }}
-                />
-                {speakerDevices.map((d) => (
-                  <DeviceMenuOption
-                    key={d.deviceId}
-                    label={d.label}
-                    selected={speakerDeviceId === d.deviceId}
-                    onClick={() => {
-                      setSpeakerDevice(d.deviceId);
-                      setSpeakerDeviceMenuOpen(false);
-                    }}
-                  />
-                ))}
-              </div>
-            }
-          >
-            <button
-              type="button"
-              onClick={() => setSpeakerDeviceMenuOpen((o) => !o)}
-              aria-label={translate("watch.watchRoom.chooseAudioOutput")}
-              className={`rounded-l-lg border-r border-black/15 px-1 text-white transition ${micsMuted ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"
-                }`}
-            >
-              <ChevronDownIcon className="h-3.5 w-3.5" />
-            </button>
-          </Popover>
-        )}
+        {/* Same panel as the mic's, for what you hear: the output device (where
+            the browser lets it be chosen) and the shortcut, from the arrow and
+            from a right-click alike. */}
         <ShortcutQuickPopover
           action="toggleDeafen"
           open={quickShortcutAction === "toggleDeafen"}
@@ -5082,7 +5103,51 @@ export function WatchRoom({
           hasAccount={Boolean(state.account)}
           onRequestAccount={() => setAccountModal("create")}
           onOpenAllShortcuts={() => setShortcutsModalOpen(true)}
+          extra={
+            canSelectSpeaker ? (
+              <div className="w-64 max-w-[calc(100vw-2rem)]">
+                <DeviceSubmenuRow
+                  label={translate("watch.watchRoom.chooseAudioOutput")}
+                  current={
+                    speakerDevices.find((d) => d.deviceId === speakerDeviceId)?.label ??
+                    translate("watch.watchRoom.systemDefault")
+                  }
+                >
+                  <DeviceMenuOption
+                    label={translate("watch.watchRoom.systemDefault")}
+                    selected={speakerDeviceId === null}
+                    onClick={() => setSpeakerDevice(null)}
+                  />
+                  {speakerDevices.map((d) => (
+                    <DeviceMenuOption
+                      key={d.deviceId}
+                      label={d.label}
+                      selected={speakerDeviceId === d.deviceId}
+                      onClick={() => setSpeakerDevice(d.deviceId)}
+                    />
+                  ))}
+                </DeviceSubmenuRow>
+              </div>
+            ) : undefined
+          }
         >
+          <div className="flex items-stretch">
+          {canSelectSpeaker && dockExtra(
+            <Tooltip content={translate("watch.watchRoom.audioSettings")}>
+              <button
+                type="button"
+                onClick={() =>
+                  setQuickShortcutAction((current) => (current === "toggleDeafen" ? null : "toggleDeafen"))
+                }
+                aria-label={translate("watch.watchRoom.audioSettings")}
+                aria-expanded={quickShortcutAction === "toggleDeafen"}
+                className={`h-full rounded-l-lg border-r border-black/15 px-1 text-white transition ${micsMuted ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"
+                  }`}
+              >
+                <ChevronDownIcon className="h-3.5 w-3.5" />
+              </button>
+            </Tooltip>
+          )}
           <Tooltip content={micsMuted ? translate("common.unmuteMicrophones") : translate("common.muteMicrophones")}>
             <button
               type="button"
@@ -5102,6 +5167,7 @@ export function WatchRoom({
               )}
             </button>
           </Tooltip>
+          </div>
         </ShortcutQuickPopover>
       </div>
 
@@ -5146,8 +5212,6 @@ export function WatchRoom({
           setCameraFacing={setCameraFacing}
           onPhone={onPhone}
           setCameraDevice={setCameraDevice}
-          cameraMenuOpen={cameraDeviceMenuOpen}
-          setCameraMenuOpen={setCameraDeviceMenuOpen}
           open={shareQualityOpen}
           setOpen={setShareQualityOpen}
           quality={qualityControlsProps}

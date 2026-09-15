@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactElement, Ref } from "react";
+import type { ReactElement, ReactNode, Ref } from "react";
 import {
   MdKeyboard,
   MdLogin,
@@ -24,8 +24,15 @@ export function ShortcutQuickPopover({
   hasAccount,
   onRequestAccount,
   onOpenAllShortcuts,
+  extra,
   children,
 }: {
+  /**
+   * Settings of the control this was opened from, shown above its shortcut —
+   * the mic's volume and noise suppression. A right-click on a button is where
+   * people look for what else that button can do.
+   */
+  extra?: ReactNode;
   action: ShortcutAction;
   open: boolean;
   onClose: () => void;
@@ -57,6 +64,9 @@ export function ShortcutQuickPopover({
           } rounded-xl border border-zinc-200 bg-white p-3 shadow-xl dark:border-zinc-800 dark:bg-zinc-950`}
           onClick={(e) => e.stopPropagation()}
         >
+          {extra && (
+            <div className="mb-3 border-b border-zinc-100 pb-2 dark:border-zinc-800">{extra}</div>
+          )}
           <div className="mb-2 flex items-center justify-between border-b border-zinc-100 pb-2 dark:border-zinc-800">
             <div className="flex items-center gap-1.5">
               <MdKeyboard className="h-4 w-4 text-zinc-500 dark:text-zinc-400" />
