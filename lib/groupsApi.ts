@@ -64,6 +64,11 @@ export interface GroupSummary {
    * current by "group-voice" (see voiceActivityOf).
    */
   voiceActivity?: GroupVoiceActivity;
+  /**
+   * The rooms this person silenced, so a message in one does not light the
+   * group's marks even before its rooms are read. Absent when none.
+   */
+  mutedChannels?: string[];
 }
 
 export type GroupVoiceActivity = "screen" | "camera" | "voice";
@@ -102,6 +107,12 @@ export interface GroupChannel {
   roleOverrides?: Record<string, ChannelPermissionOverrides>;
   unread: boolean;
   mentions: number;
+  /**
+   * Silenced by this person ("Silenciar sala"). Its unread dot and mentions
+   * stay on the room itself but add nothing to the group's marks, and it sends
+   * them no notifications. Absent when not (and from an older API).
+   */
+  muted?: boolean;
 }
 
 /** Somebody in a group voice room — one entry per person, however many devices. */
@@ -482,6 +493,10 @@ export const leaveGroup = (groupId: string) =>
 
 export const setGroupNotify = (groupId: string, level: GroupNotifyLevel) =>
   request<{ notify: GroupNotifyLevel }>("PUT", `/groups/${enc(groupId)}/notify`, { level });
+
+/** "Silenciar sala" for this person, or undoing it — see GroupChannel.muted. */
+export const setChannelMuted = (groupId: string, channelId: string, muted: boolean) =>
+  request<{ muted: boolean }>("PUT", `/groups/${enc(groupId)}/channels/${enc(channelId)}/mute`, { muted });
 
 /** Rearranges your own list of groups (the rail). Answers with the order that now holds. */
 export const setGroupOrder = (ids: string[]) =>

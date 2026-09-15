@@ -20,6 +20,8 @@ import {
   MdMic,
   MdMicOff,
   MdMusicNote,
+  MdNotificationsActive,
+  MdNotificationsOff,
   MdPalette,
   MdPersonAdd,
   MdSettings,
@@ -53,7 +55,15 @@ import { useGroupNavigation } from "@/lib/groupNavigation";
 import { canInChannel, canManage, managesAnything, roleColorOf } from "@/lib/groupPermissions";
 import { prefetchChannel } from "@/lib/groupCache";
 import { prefetchUserProfile } from "@/lib/userProfile";
-import { forgetGroup, markChannelAsRead, markGroupRead, patchGroupDetail, refreshGroup, useGroupsState } from "@/lib/useGroups";
+import {
+  forgetGroup,
+  markChannelAsRead,
+  markGroupRead,
+  patchGroupDetail,
+  refreshGroup,
+  setChannelMutedFor,
+  useGroupsState,
+} from "@/lib/useGroups";
 import { openContextMenu } from "@/lib/contextMenu";
 import { copyText } from "@/lib/clipboard";
 import { useCollapsedCategories } from "@/lib/groupCollapse";
@@ -543,6 +553,17 @@ export function GroupRoomsPanel({
           disabled: !channel.unread && channel.mentions === 0,
           onSelect: () => markChannelAsRead(group.id, channel.id),
         },
+        // Saved on the account (see the API's mutedChannels): the room keeps
+        // its own dot, but stops lighting the group's and stops notifying.
+        channel.kind === "text" && {
+          label: channel.muted ? t("groups.contextMenu.unmuteRoom") : t("groups.contextMenu.muteRoom"),
+          icon: channel.muted ? (
+            <MdNotificationsActive className="h-4 w-4" />
+          ) : (
+            <MdNotificationsOff className="h-4 w-4" />
+          ),
+          onSelect: () => void setChannelMutedFor(group.id, channel.id, !channel.muted),
+        },
         { type: "divider" },
         { label: t("groups.groupRail.copyLink"), icon: <MdLink className="h-4 w-4" />, onSelect: () => void copyText(linkTo(channel.id)) },
         { label: t("groups.memberMenu.copyId"), icon: <MdContentCopy className="h-4 w-4" />, onSelect: () => void copyText(channel.id) },
@@ -925,13 +946,24 @@ export function GroupRoomsPanel({
           className={`group/room flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition ${
             active
               ? "bg-zinc-100 font-medium text-zinc-950 dark:bg-zinc-900 dark:text-zinc-50"
-              : channel.unread
-                ? "font-semibold text-zinc-950 hover:bg-zinc-100 dark:text-zinc-50 dark:hover:bg-zinc-900"
-                : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
+              : channel.muted
+                ? // Silenced: faded and never bold, so it does not call for
+                  // attention — its dot and mentions still say what is there.
+                  "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-600 dark:hover:bg-zinc-900 dark:hover:text-zinc-300"
+                : channel.unread
+                  ? "font-semibold text-zinc-950 hover:bg-zinc-100 dark:text-zinc-50 dark:hover:bg-zinc-900"
+                  : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
           }`}
         >
           <MdChatBubbleOutline className="h-4 w-4 shrink-0 opacity-60" />
           <span className="min-w-0 flex-1 truncate">{channel.name}</span>
+          {channel.muted && (
+            <MdNotificationsOff
+              className="h-3.5 w-3.5 shrink-0 opacity-60"
+              title={t("groups.groupSidebar.roomMuted")}
+              aria-label={t("groups.groupSidebar.roomMuted")}
+            />
+          )}
           {!active && channel.mentions > 0 ? (
             <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white">
               {channel.mentions}

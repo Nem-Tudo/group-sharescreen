@@ -9,6 +9,7 @@ import {
   fetchGroup,
   fetchMyGroups,
   markChannelRead,
+  setChannelMuted,
   setGroupOrder,
   type GroupDetail,
   type GroupMessage,
@@ -182,6 +183,26 @@ function clearUnread(groupId: string, channelId: string, tellServer: boolean) {
   syncSummaryFromDetail(groupId);
 }
 
+/**
+ * "Silenciar sala", or undoing it. Applied here at once — the group's marks
+ * stop (or start) counting the room the moment it is chosen — then saved; a
+ * refusal puts back whatever the server holds.
+ */
+export async function setChannelMutedFor(groupId: string, channelId: string, muted: boolean): Promise<void> {
+  const detail = state.details[groupId];
+  if (detail) {
+    patchDetail(groupId, {
+      channels: detail.channels.map((c) => (c.id === channelId ? { ...c, muted: muted || undefined } : c)),
+    });
+    syncSummaryFromDetail(groupId);
+  }
+  const result = await setChannelMuted(groupId, channelId, muted);
+  if (!result.ok) {
+    void refreshGroup(groupId);
+    void refreshGroups();
+  }
+}
+
 /** Clears one room's dot and mention count, here and on the server — "Marcar como lida". */
 export function markChannelAsRead(groupId: string, channelId: string): void {
   clearUnread(groupId, channelId, true);
@@ -228,13 +249,18 @@ function patchSummaryVoiceActivity(groupId: string, voiceActivity: GroupVoiceAct
 function syncSummaryFromDetail(groupId: string) {
   const detail = state.details[groupId];
   if (!detail || !state.groups) return;
-  const unread = detail.channels.some((c) => c.unread);
-  const mentions = detail.channels.reduce((n, c) => n + c.mentions, 0);
+  // A silenced room keeps its own marks but adds nothing to the group's.
+  const heard = detail.channels.filter((c) => !c.muted);
+  const unread = heard.some((c) => c.unread);
+  const mentions = heard.reduce((n, c) => n + c.mentions, 0);
+  const mutedIds = detail.channels.filter((c) => c.muted).map((c) => c.id);
+  const mutedChannels = mutedIds.length > 0 ? mutedIds : undefined;
   const summary = state.groups.find((g) => g.id === groupId);
   if (!summary) return;
   if (
     summary.unread === unread &&
     summary.mentions === mentions &&
+    (summary.mutedChannels ?? []).join() === (mutedChannels ?? []).join() &&
     summary.name === detail.group.name &&
     summary.iconUrl === detail.group.iconUrl &&
     summary.role === detail.me.role
@@ -244,7 +270,15 @@ function syncSummaryFromDetail(groupId: string) {
   setState({
     groups: state.groups.map((g) =>
       g.id === groupId
-        ? { ...g, unread, mentions, name: detail.group.name, iconUrl: detail.group.iconUrl, role: detail.me.role }
+        ? {
+            ...g,
+            unread,
+            mentions,
+            mutedChannels,
+            name: detail.group.name,
+            iconUrl: detail.group.iconUrl,
+            role: detail.me.role,
+          }
         : g
     ),
   });
@@ -281,7 +315,9 @@ function noteIncomingMessage(message: GroupMessage) {
     });
     syncSummaryFromDetail(groupId);
   } else if (state.groups) {
-    // A group whose rooms were never opened: only its dot on the rail.
+    // A group whose rooms were never opened: only its dot on the rail — and
+    // not even that from a room this person silenced.
+    if (state.groups.find((g) => g.id === groupId)?.mutedChannels?.includes(channelId)) return;
     setState({
       groups: state.groups.map((g) =>
         g.id === groupId ? { ...g, unread: true, mentions: g.mentions + (mentionsMe ? 1 : 0) } : g
