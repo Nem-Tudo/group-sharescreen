@@ -17,9 +17,9 @@ import { translate } from "@/lib/i18n";
  * Where the developer dashboard lives. Overridable for a staging deploy; the
  * default is the production one.
  */
-export const DEVELOPERS_URL = (
-  process.env.NEXT_PUBLIC_DEVELOPERS_URL || "https://golive-developers.nemtudo.me"
-).replace(/\/+$/, "");
+// Same origin (rewritten to the portal app in next.config.ts), so the portal
+// sees this site's session.
+export const DEVELOPERS_URL = (process.env.NEXT_PUBLIC_DEVELOPERS_URL || "/developers").replace(/\/+$/, "");
 
 /** The link a bot's owner hands out so group managers can add it. */
 export function botAddPath(botId: string): string {

@@ -90,6 +90,12 @@ const API_BASE = (process.env.NEXT_PUBLIC_SIGNALING_URL || "ws://localhost:4000/
   .replace(/^ws/, "http")
   .replace(/\/ws\/?$/, "");
 
+// Where the developer portal app actually runs — reached by the rewrite below,
+// never by the browser. Server-side only, read at build time.
+const DEVELOPERS_ORIGIN = (
+  process.env.DEVELOPERS_ORIGIN || "https://golive-developers.nemtudo.me"
+).replace(/\/+$/, "");
+
 const nextConfig: NextConfig = {
   ...(STABLE_BUILD_ID
     ? {
@@ -128,6 +134,19 @@ const nextConfig: NextConfig = {
   },
   async rewrites() {
     return [
+      // The developer portal (its own repo, sharescreen-developers, deployed
+      // as its own app with basePath "/developers"). Served from this origin
+      // rather than its own domain so it shares this site's localStorage —
+      // whoever is signed in here is signed in there, no second login. The
+      // basePath keeps its /developers/_next assets apart from ours.
+      {
+        source: "/developers",
+        destination: `${DEVELOPERS_ORIGIN}/developers`,
+      },
+      {
+        source: "/developers/:path*",
+        destination: `${DEVELOPERS_ORIGIN}/developers/:path*`,
+      },
       // OpenID Connect discovery. This site is the issuer (see app/api/
       // oidc-configuration), and the specification requires the document to
       // sit at exactly this path under it.
