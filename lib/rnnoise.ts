@@ -33,8 +33,13 @@ const WASM_SIMD_URL = "/rnnoise/rnnoise_simd.wasm";
 // The ceiling is 2x (+6 dB). This is a digital multiplier applied after
 // capture, so it lifts the noise floor exactly as much as the voice and
 // clips whatever was already near full scale; past this the cure is
-// reliably worse than the quiet. A genuinely quiet input is better fixed at
-// the device's own level, which is what the browser's autoGainControl is for.
+// reliably worse than the quiet. autoGainControl is deliberately turned off
+// in micConstraints below rather than relied on for this: on Windows in
+// particular, Chrome's AGC doesn't stay inside the digital signal — it winds
+// the OS's own microphone level down when someone talks loudly, and that
+// slider stays down for every other app after the call ends too. A genuinely
+// quiet input is better fixed with this dial, which never touches anything
+// outside the tab.
 export const MIN_MIC_GAIN = 0.01;
 export const MAX_MIC_GAIN = 2;
 export const DEFAULT_MIC_GAIN = 1;
@@ -114,7 +119,11 @@ export function graphSuppressionAvailable(graph: MicNoiseGraph | null): boolean 
 // input 2 of an interface, VoiceMeeter, VB-Cable) broadcast nothing at all.
 // This is only a request, so the graph is pinned to mono as well.
 function micConstraints(deviceId?: string | null): MediaTrackConstraints {
-  return deviceId ? { channelCount: 1, deviceId: { exact: deviceId } } : { channelCount: 1 };
+  // autoGainControl: false so Chrome's own AGC never touches the OS mic
+  // level — see the MIN_MIC_GAIN/MAX_MIC_GAIN comment above for why that's
+  // the wrong tool even when the intent (fixing a too-quiet mic) is right.
+  const base = { channelCount: 1, autoGainControl: false };
+  return deviceId ? { ...base, deviceId: { exact: deviceId } } : base;
 }
 
 // The picked input is gone — unplugged since it was chosen, or its id
