@@ -11,7 +11,7 @@ import {
 } from "react-icons/md";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { PixIcon } from "@/components/icons";
-import { PlanBand } from "@/components/PlanBand";
+import { PlanBand, planTone, PLAN_TONE_BUTTON } from "@/components/PlanBand";
 import { planIcon } from "@/components/planIcons";
 import { PurchaseCelebration, type CelebrationFace } from "@/components/PurchaseCelebration";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -244,7 +244,7 @@ function PaidScreen({
   onClose: () => void;
 }) {
   const { t, tc } = useI18n();
-  const tone = confirmation && planTierOf(confirmation.planId) === "premium_max" ? "gold" : "blue";
+  const tone = planTone(confirmation ? planTierOf(confirmation.planId) : null);
   const mark = planIcon(confirmation?.planIconId);
   const recipient = confirmation?.recipient ?? null;
   const gift = Boolean(confirmation?.gift);
@@ -323,7 +323,7 @@ function PaidScreen({
           type="button"
           onClick={onClose}
           className={`mt-5 w-full rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-sm transition ${
-            tone === "gold" ? "bg-amber-500 hover:bg-amber-600" : "bg-blue-600 hover:bg-blue-700"
+            PLAN_TONE_BUTTON[tone]
           }`}
         >
           {gift ? t("common.close") : t("pixChargeModal.startUsingIt")}

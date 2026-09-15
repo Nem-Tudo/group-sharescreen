@@ -1,4 +1,4 @@
-import { GoldVerifiedBadgeIcon, VerifiedBadgeIcon } from "@/components/icons";
+import { GoldVerifiedBadgeIcon, RubyVerifiedBadgeIcon, VerifiedBadgeIcon } from "@/components/icons";
 import { verifiedBadge } from "@/lib/entitlements";
 
 // A person's verified mark, from their flags.
@@ -25,11 +25,9 @@ export function VerifiedBadge({
 }) {
   const tone = verifiedBadge(flags);
   if (!tone) return null;
-  // Gold carries its colour in its own gradients and ignores a text colour;
-  // blue takes currentColor, so it gets one.
-  return tone === "gold" ? (
-    <GoldVerifiedBadgeIcon className={className} />
-  ) : (
-    <VerifiedBadgeIcon className={`${className} text-blue-500`} />
-  );
+  // Ruby and gold carry their colour in their own gradients and ignore a text
+  // colour; blue takes currentColor, so it gets one.
+  if (tone === "ruby") return <RubyVerifiedBadgeIcon className={className} />;
+  if (tone === "gold") return <GoldVerifiedBadgeIcon className={className} />;
+  return <VerifiedBadgeIcon className={`${className} text-blue-500`} />;
 }

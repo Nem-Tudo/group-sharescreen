@@ -1,6 +1,6 @@
 "use client";
 
-import { DEFAULT_PLAN_ICON_ID, PLAN_ICONS } from "@/components/planIcons";
+import { DEFAULT_PLAN_ICON_ID, PLAN_ICONS, type PlanIconId } from "@/components/planIcons";
 import { translate } from "@/lib/i18n";
 
 // The client's half of the entitlement table — the mirror of the API's
@@ -41,7 +41,7 @@ export type Feature =
   | "room_theme_gradient"
   | "force_relay";
 
-export type FeatureTier = "free" | "account" | "premium" | "premium_max";
+export type FeatureTier = "free" | "account" | "premium" | "premium_max" | "pro_ultra";
 
 /** Which tier each gated option belongs to. Display only — see the header. */
 export const FEATURE_TIERS: Record<Feature, FeatureTier> = {
@@ -60,7 +60,7 @@ export const FEATURE_TIERS: Record<Feature, FeatureTier> = {
   room_theme_publish: "premium_max",
   room_theme_set: "premium_max",
   room_theme_gradient: "premium_max",
-  force_relay: "premium_max",
+  force_relay: "pro_ultra",
 };
 
 /**
@@ -91,15 +91,17 @@ export function hasVerifiedBadge(flags: readonly string[] | undefined | null): b
  * cannot render a badge without having been told which one, so a new rung
  * added here reaches every name in the app at once.
  *
- * PRO_MAX is checked first because a Pro Max subscriber carries PRO as well —
- * the API publishes both, so that every rule written against PRO keeps
- * matching them (see its entitlements.ts). Testing PRO first would make gold
+ * Checked from the top down, because every rung carries the flags of the ones
+ * below it — a Pro Ultra subscriber has PRO_ULTRA, PRO_MAX and PRO, so that
+ * every rule written against a lower flag keeps matching them (see the API's
+ * entitlements.ts). Testing a lower flag first would make the higher mark
  * unreachable.
  */
-export type VerifiedTone = "blue" | "gold" | null;
+export type VerifiedTone = "blue" | "gold" | "ruby" | null;
 
 export function verifiedBadge(flags: readonly string[] | undefined | null): VerifiedTone {
   if (!flags) return null;
+  if (flags.includes("PRO_ULTRA")) return "ruby";
   if (flags.includes("PRO_MAX")) return "gold";
   if (flags.includes("VERIFIED") || flags.includes("PRO")) return "blue";
   return null;
@@ -136,6 +138,7 @@ export const TIER_NAMES: Record<FeatureTier, string> = {
   get account() { return translate("entitlements.accountRequired"); },
   get premium() { return translate("common.pro"); },
   get premium_max() { return translate("common.proMax"); },
+  get pro_ultra() { return translate("common.proUltra"); },
 };
 
 /** What the missing tier is called, in words. Null when nothing is missing. */
@@ -167,7 +170,7 @@ export function lockLabel(
   const name = TIER_NAMES[tier];
   // The mark belongs to a paid rung. "conta necessária" is not a product and
   // wearing a plan's badge would be claiming it is one.
-  const paid = tier === "premium" || tier === "premium_max";
+  const paid = tierAtLeast(tier, "premium");
   const mark = paid ? ` ${PLAN_ICONS[DEFAULT_PLAN_ICON_ID].glyph}` : "";
   return ` ${name}${mark}`;
 }
@@ -181,7 +184,20 @@ export function lockLabel(
  * still the server's, which is the only side that knows what is true.
  */
 export function planTierOf(planId: string): FeatureTier {
+  if (planId === "pro_ultra") return "pro_ultra";
   return planId === "premium_max" ? "premium_max" : "premium";
+}
+
+/**
+ * The plan mark that belongs to a rung — ruby, gold or blue — for anywhere a
+ * *tier* rather than a person is being labelled (a locked option, a plan
+ * card). Mirrors verifiedBadge's colours, so the mark on "available on Pro
+ * Ultra" is the same one Pro Ultra subscribers wear.
+ */
+export function tierIconId(tier: FeatureTier | null | undefined): PlanIconId {
+  if (tier === "pro_ultra") return "ruby_verified";
+  if (tier === "premium_max") return "gold_verified";
+  return "blue_verified";
 }
 
 /**
@@ -213,6 +229,7 @@ export const THEME_BAN_MESSAGE =
  */
 export function accountTierOf(flags: readonly string[] | undefined | null): FeatureTier {
   if (!flags) return "free";
+  if (flags.includes("PRO_ULTRA")) return "pro_ultra";
   if (flags.includes("PRO_MAX")) return "premium_max";
   if (flags.includes("PRO")) return "premium";
   return "account";
@@ -223,11 +240,21 @@ const TIER_RANK: Record<FeatureTier, number> = {
   account: 1,
   premium: 2,
   premium_max: 3,
+  pro_ultra: 4,
 };
 
 /** Whether `tier` is strictly above `other` — "I already have more than this". */
 export function tierAbove(tier: FeatureTier, other: FeatureTier): boolean {
   return TIER_RANK[tier] > TIER_RANK[other];
+}
+
+/**
+ * Whether `tier` is at least `floor` — "has Pro Max or better". Ask this
+ * instead of `=== "premium_max"`: an equality check quietly takes a perk away
+ * from everybody on a rung above it.
+ */
+export function tierAtLeast(tier: FeatureTier, floor: FeatureTier): boolean {
+  return TIER_RANK[tier] >= TIER_RANK[floor];
 }
 
 export function hasFeature(feature: Feature | undefined, features: readonly string[]): boolean {

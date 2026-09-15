@@ -740,3 +740,67 @@ export function GoldVerifiedBadgeIcon({ className }: IconProps) {
     </Tooltip>
   );
 }
+
+/**
+ * Pro Ultra's mark: the gold badge's exact shape in ruby, a deep red.
+ *
+ * A copy of GoldVerifiedBadgeIcon with the colours swapped, not a shared
+ * component with a palette prop, and on purpose: the two are recognised by
+ * their colour alone, and a mark that can be rendered in any colour is one
+ * a caller can render in the wrong one — which is the bug VerifiedBadge exists
+ * to prevent. Keep the paths in step with the gold one if either changes.
+ */
+export function RubyVerifiedBadgeIcon({ className }: IconProps) {
+  const t = useT();
+  const uid = useId();
+  const outer = `ruby-verified-outer-${uid}`;
+  const inner = `ruby-verified-inner-${uid}`;
+  return (
+    <Tooltip content={t("common.verified")}>
+      <svg viewBox="0 0 22 22" className={className} aria-hidden="true">
+        <linearGradient
+          gradientUnits="userSpaceOnUse"
+          id={outer}
+          x1="4.411"
+          x2="18.083"
+          y1="2.495"
+          y2="21.508"
+        >
+          <stop offset="0" stopColor="#e0115f" />
+          <stop offset=".539" stopColor="#9b111e" />
+          <stop offset=".68" stopColor="#8a0f1b" />
+          <stop offset="1" stopColor="#d4145a" />
+        </linearGradient>
+        <linearGradient
+          gradientUnits="userSpaceOnUse"
+          id={inner}
+          x1="5.355"
+          x2="16.361"
+          y1="3.395"
+          y2="19.133"
+        >
+          <stop offset="0" stopColor="#f25c7a" />
+          <stop offset=".406" stopColor="#b3122b" />
+          <stop offset=".989" stopColor="#b3122b" />
+        </linearGradient>
+        <g clipRule="evenodd" fillRule="evenodd">
+          {/* The tick is a hole in the badge, not a painted shape — it shows
+              whatever sits behind, which is what keeps it readable on both
+              the light and the dark theme without a second colour. */}
+          <path
+            d="M13.324 3.848L11 1.6 8.676 3.848l-3.201-.453-.559 3.184L2.06 8.095 3.48 11l-1.42 2.904 2.856 1.516.559 3.184 3.201-.452L11 20.4l2.324-2.248 3.201.452.559-3.184 2.856-1.516L18.52 11l1.42-2.905-2.856-1.516-.559-3.184zm-7.09 7.575l3.428 3.428 5.683-6.206-1.347-1.247-4.4 4.795-2.072-2.072z"
+            fill={`url(#${outer})`}
+          />
+          <path
+            d="M13.101 4.533L11 2.5 8.899 4.533l-2.895-.41-.505 2.88-2.583 1.37L4.2 11l-1.284 2.627 2.583 1.37.505 2.88 2.895-.41L11 19.5l2.101-2.033 2.895.41.505-2.88 2.583-1.37L17.8 11l1.284-2.627-2.583-1.37-.505-2.88zm-6.868 6.89l3.429 3.428 5.683-6.206-1.347-1.247-4.4 4.795-2.072-2.072z"
+            fill={`url(#${inner})`}
+          />
+          <path
+            d="M6.233 11.423l3.429 3.428 5.65-6.17.038-.033-.005 1.398-5.683 6.206-3.429-3.429-.003-1.405.005.003z"
+            fill="#7a0c18"
+          />
+        </g>
+      </svg>
+    </Tooltip>
+  );
+}

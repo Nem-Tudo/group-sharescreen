@@ -56,7 +56,7 @@ export function DisplayUserName({
           boolean still means the blue one, as it always did. */}
       {verified && (
         <VerifiedBadge
-          flags={verified === "gold" ? ["PRO_MAX"] : ["VERIFIED"]}
+          flags={verified === "ruby" ? ["PRO_ULTRA"] : verified === "gold" ? ["PRO_MAX"] : ["VERIFIED"]}
           className="ml-1 inline h-5.5 w-5.5 shrink-0 align-text-top"
         />
       )}

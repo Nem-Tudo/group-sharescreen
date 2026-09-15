@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { MdCardGiftcard, MdCheckCircle, MdClose } from "react-icons/md";
 import { AccountModal, type AccountModalMode } from "@/components/AccountModal";
 import { DisplayUserName } from "@/components/DisplayUserName";
-import { PlanBand } from "@/components/PlanBand";
+import { PlanBand, planTone, PLAN_TONE_BUTTON } from "@/components/PlanBand";
 import { UserAvatar } from "@/components/UserAvatar";
 import { planIcon } from "@/components/planIcons";
 import { useAuth } from "@/lib/AuthContext";
@@ -94,7 +94,7 @@ export function GiftClaimDialog({
 
   const gift = state.kind === "ready" || state.kind === "done" ? state.gift : null;
   const mark = planIcon(gift?.planIconId);
-  const tone = gift && planTierOf(gift.planId) === "premium_max" ? "gold" : "blue";
+  const tone = planTone(gift ? planTierOf(gift.planId) : null);
   // What this account already has, against what the present is worth. Worked
   // out here so the screen can say it *before* the button — a refusal that
   // only appears after pressing "resgatar" reads as a failure, and this one is
@@ -284,11 +284,7 @@ export function GiftClaimDialog({
                   <button
                     type="button"
                     onClick={() => setAccountModal("create")}
-                    className={`w-full rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-sm transition ${
-                      tone === "gold"
-                        ? "bg-amber-500 hover:bg-amber-600"
-                        : "bg-blue-600 hover:bg-blue-700"
-                    }`}
+                    className={`w-full rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-sm transition ${PLAN_TONE_BUTTON[tone]}`}
                   >
                     {t("giftClaimDialog.createAnAccountAndRedeem")}
                   </button>
@@ -306,11 +302,7 @@ export function GiftClaimDialog({
                     type="button"
                     onClick={() => void redeem()}
                     disabled={busy || resolvingAccount}
-                    className={`w-full rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-sm transition disabled:opacity-60 ${
-                      tone === "gold"
-                        ? "bg-amber-500 hover:bg-amber-600"
-                        : "bg-blue-600 hover:bg-blue-700"
-                    }`}
+                    className={`w-full rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-sm transition disabled:opacity-60 ${PLAN_TONE_BUTTON[tone]}`}
                   >
                     {busy ? t("giftClaimDialog.redeeming") : t("giftClaimDialog.redeemGift")}
                   </button>

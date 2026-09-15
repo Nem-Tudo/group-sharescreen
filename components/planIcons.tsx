@@ -1,4 +1,4 @@
-import { GoldVerifiedBadgeIcon, VerifiedBadgeIcon } from "@/components/icons";
+import { GoldVerifiedBadgeIcon, RubyVerifiedBadgeIcon, VerifiedBadgeIcon } from "@/components/icons";
 import { translate } from "@/lib/i18n";
 
 // What a plan's `iconId` resolves to on screen.
@@ -19,7 +19,7 @@ import { translate } from "@/lib/i18n";
 //     character. It is a compromise and it is written down here rather than
 //     inline at the call site, so the two never drift into different marks.
 
-export type PlanIconId = "blue_verified" | "gold_verified";
+export type PlanIconId = "blue_verified" | "gold_verified" | "ruby_verified";
 
 export interface PlanIcon {
   Icon: (props: { className?: string }) => React.ReactElement;
@@ -48,6 +48,14 @@ export const PLAN_ICONS: Record<PlanIconId, PlanIcon> = {
     className: "",
     glyph: "✔",
     get label() { return translate("planIcons.proMaxVerified"); },
+  },
+  // Pro Ultra's. Same arrangement as gold: the colour lives in the icon's own
+  // gradients, so no text colour class.
+  ruby_verified: {
+    Icon: RubyVerifiedBadgeIcon,
+    className: "",
+    glyph: "✔",
+    get label() { return translate("planIcons.proUltraVerified"); },
   },
 };
 

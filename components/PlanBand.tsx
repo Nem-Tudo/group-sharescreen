@@ -12,15 +12,32 @@ import type { ReactNode } from "react";
  * (GiftClaimDialog) and a payment landing (PixChargeModal) — so both look like
  * the same kind of event.
  */
-export function PlanBand({ tone, children }: { tone: "gold" | "blue"; children: ReactNode }) {
+export type PlanTone = "ruby" | "gold" | "blue";
+
+/** A plan's colour, from the rung it sells. Matches the badge its subscribers wear. */
+export function planTone(tier: string | null | undefined): PlanTone {
+  if (tier === "pro_ultra") return "ruby";
+  if (tier === "premium_max") return "gold";
+  return "blue";
+}
+
+/** The solid button colour for a plan's tone. */
+export const PLAN_TONE_BUTTON: Record<PlanTone, string> = {
+  ruby: "bg-rose-800 hover:bg-rose-900",
+  gold: "bg-amber-500 hover:bg-amber-600",
+  blue: "bg-blue-600 hover:bg-blue-700",
+};
+
+const PLAN_TONE_BAND: Record<PlanTone, string> = {
+  // Ruby: a deep red, darker at the far corner, like the badge's gradient.
+  ruby: "bg-gradient-to-br from-rose-500 via-rose-700 to-red-950",
+  gold: "bg-gradient-to-br from-amber-300 via-amber-500 to-orange-600",
+  blue: "bg-gradient-to-br from-sky-400 via-blue-500 to-indigo-600",
+};
+
+export function PlanBand({ tone, children }: { tone: PlanTone; children: ReactNode }) {
   return (
-    <div
-      className={`relative h-32 overflow-hidden ${
-        tone === "gold"
-          ? "bg-gradient-to-br from-amber-300 via-amber-500 to-orange-600"
-          : "bg-gradient-to-br from-sky-400 via-blue-500 to-indigo-600"
-      }`}
-    >
+    <div className={`relative h-32 overflow-hidden ${PLAN_TONE_BAND[tone]}`}>
       {/* The ribbons. Off-centre on purpose: dead centre reads as a target,
           slightly off reads as something somebody tied. */}
       <span aria-hidden className="absolute inset-y-0 left-[38%] w-9 bg-white/15" />

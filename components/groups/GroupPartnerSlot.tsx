@@ -6,7 +6,7 @@ import { AdsterraNative } from "@/components/AdsterraNative";
 import { PartnerCard, PartnerCardMinimized } from "@/components/PartnerCard";
 import { ChevronUpIcon } from "@/components/icons";
 import { useAuth } from "@/lib/AuthContext";
-import { accountTierOf } from "@/lib/entitlements";
+import { accountTierOf, tierAtLeast } from "@/lib/entitlements";
 import { NATIVE_BANNER } from "@/lib/adsterra";
 import { useAdsterraBlocked } from "@/lib/adsterraFill";
 import { useAdsterraAvailable } from "@/lib/useAdsAllowed";
@@ -87,7 +87,7 @@ function useGroupAdDismissed(): boolean {
 export function useGroupAdHidden(): boolean {
   const { account } = useAuth();
   const closed = useGroupAdDismissed();
-  return accountTierOf(account?.flags) === "premium_max" && closed;
+  return tierAtLeast(accountTierOf(account?.flags), "premium_max") && closed;
 }
 
 export function GroupPartnerSlot({
@@ -98,7 +98,7 @@ export function GroupPartnerSlot({
 }) {
   const t = useT();
   const { account } = useAuth();
-  const canDismiss = accountTierOf(account?.flags) === "premium_max";
+  const canDismiss = tierAtLeast(accountTierOf(account?.flags), "premium_max");
   const hidden = useGroupAdHidden();
   // "Anuncie aqui você também!" pressed on the folded row: the card comes back
   // on the house ad that pitch is about, whoever's turn it was — until its

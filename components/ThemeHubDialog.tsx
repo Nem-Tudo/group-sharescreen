@@ -14,8 +14,7 @@ import {
   THEME_BAN_MESSAGE,
   TIER_NAMES,
   type Feature,
-  type FeatureTier,
-} from "@/lib/entitlements";
+  type FeatureTier, tierIconId } from "@/lib/entitlements";
 import { fetchMyThemes, isDarkTheme, type RoomTheme } from "@/lib/roomThemes";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
@@ -61,11 +60,11 @@ function LockedPanel({
   onLeave: () => void;
 }) {
   const t = useT();
-  const mark = planIcon(tier === "premium_max" ? "gold_verified" : "blue_verified");
+  const mark = planIcon(tierIconId(tier));
   const openPro = useOpenPro();
   // The plan this rung names, so the panel opens on the card it is about
   // rather than on whichever one happens to be cheapest.
-  const planId = tier === "premium_max" ? "premium_max" : "premium";
+  const planId = tier === "pro_ultra" ? "pro_ultra" : tier === "premium_max" ? "premium_max" : "premium";
   // Closes before opening: somebody pressing this has stopped browsing themes,
   // and a popup left standing behind a pricing screen is two things asking for
   // attention when one of them has already lost it.
@@ -183,7 +182,7 @@ export function ThemeHubDialog({
       <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-zinc-200 px-3 dark:border-zinc-800">
         {TABS.map((entry) => {
           const locked = lockTier(entry.feature, features);
-          const mark = planIcon(locked === "premium_max" ? "gold_verified" : "blue_verified");
+          const mark = planIcon(tierIconId(locked));
           return (
             <button
               key={entry.id}
