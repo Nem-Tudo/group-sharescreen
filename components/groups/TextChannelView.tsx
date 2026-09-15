@@ -1407,10 +1407,21 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
     ];
     for (const { message, outgoing } of display) {
       const newDay = !previous || dayKey(previous.ts) !== dayKey(message.ts);
+      // `from` alone is enough to tell two people's messages apart, but not a
+      // webhook's: every message it posts carries the same `from`
+      // ("webhook:<id>") no matter who or what is actually speaking through
+      // it — a Discord↔GoLive bridge, say, relaying several different
+      // Discord members one after another. `fromName` and the picture it
+      // posted with (`webhook.avatarUrl`, captured per message — see
+      // GroupMessage.webhook) are what actually change per message, so both
+      // have to match too before two of a webhook's lines are grouped as the
+      // same speaker.
       const grouped =
         !newDay &&
         previous !== null &&
         previous.from === message.from &&
+        previous.fromName === message.fromName &&
+        (previous.webhook?.avatarUrl ?? null) === (message.webhook?.avatarUrl ?? null) &&
         message.ts - previous.ts < GROUP_GAP_MS &&
         !message.replyTo;
       if (newDay) {
@@ -1721,13 +1732,22 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
         )}
       </div>
 
-      {detail.chatAvailable && typingNames.length > 0 && (
-        // Same line as a room's chat (components/ChatPanel). Taking its row
-        // shrinks the conversation, and the ResizeObserver above keeps
-        // whoever is reading the newest line on it.
-        <p aria-live="polite" className="shrink-0 truncate px-3 pt-1.5 text-xs text-zinc-500 italic">
-          {formatTypingLabel(typingNames)}
-        </p>
+      {detail.chatAvailable && (
+        // Always here, at a fixed height, whether or not anyone is typing —
+        // a row that only appears when needed changes this box's height each
+        // time, and the conversation itself visibly shifts up and down as a
+        // result. Kept out of the message log's own box (rather than a
+        // fade-in overlay over its last line) so a long name never sits on
+        // top of what somebody just said. The gradient is decoration, not
+        // cover-up: from transparent to the panel's own background, top to
+        // bottom.
+        <div className="h-6 shrink-0 overflow-hidden bg-gradient-to-b from-transparent to-white px-3 dark:to-zinc-950">
+          {typingNames.length > 0 && (
+            <p aria-live="polite" className="truncate text-xs leading-6 text-zinc-500 italic">
+              {formatTypingLabel(typingNames)}
+            </p>
+          )}
+        </div>
       )}
 
       {detail.chatAvailable && (

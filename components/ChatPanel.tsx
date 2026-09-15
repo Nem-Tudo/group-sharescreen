@@ -994,12 +994,22 @@ export function ChatPanel({
               // indents under the name that's already there; the gap above a
               // new speaker is what separates them now.
               // Replies always show their author and spine (matching Discord).
+              //
+              // `from` alone identifies the sender for a person or a bot, but
+              // not for a webhook: every message it posts carries the same
+              // `from` ("webhook:<id>") no matter who or what is actually
+              // speaking through it — a Discord↔GoLive bridge, say, relaying
+              // several different Discord members one after another. Name and
+              // picture are what a webhook's messages actually carry per
+              // message (see ChatMessage.avatarUrl), so both have to match
+              // too before two of its lines are treated as the same speaker.
               const previous = messages[i - 1];
               const grouped =
                 !m.replyTo &&
                 Boolean(previous) &&
                 previous.from === m.from &&
                 previous.name === m.name &&
+                (previous.avatarUrl ?? null) === (m.avatarUrl ?? null) &&
                 m.ts - previous.ts < GROUP_WINDOW_MS;
               const hasMenu = Boolean(renderAuthorMenu || onAuthorContextMenu);
               const row = (
@@ -1302,15 +1312,24 @@ export function ChatPanel({
         )}
       </div>
 
+      {/* Always here, at a fixed height, whether or not anyone is typing — a
+          row that only appears when needed changes this box's height each
+          time, and the conversation itself visibly shifts up and down as a
+          result. Kept out of the log's own box (rather than a fade-in
+          overlay over its last line) so a long name never sits on top of
+          what somebody just said. The gradient is decoration, not cover-up:
+          from transparent to the panel's own background, top to bottom. */}
+      <div className="h-6 shrink-0 overflow-hidden bg-gradient-to-b from-transparent to-white px-3 dark:to-zinc-950">
+        {typingNames && typingNames.length > 0 && (
+          <p className="truncate text-xs leading-6 text-zinc-500 italic dark:text-zinc-500">
+            {formatTypingLabel(typingNames)}
+          </p>
+        )}
+      </div>
+
       {(blockedMessage || imageError || uploads.error) && (
         <p className="border-t border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-600 dark:border-red-900 dark:bg-red-950/40 dark:text-red-400">
           {blockedMessage || imageError || uploads.error}
-        </p>
-      )}
-
-      {typingNames && typingNames.length > 0 && (
-        <p className="truncate px-3 pt-1.5 text-xs text-zinc-500 italic dark:text-zinc-500">
-          {formatTypingLabel(typingNames)}
         </p>
       )}
 
