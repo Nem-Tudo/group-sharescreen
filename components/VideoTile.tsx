@@ -48,6 +48,10 @@ function getPipSupportedServer() {
 // feel laggy, shorter would let a slow double click pause the video first.
 const DOUBLE_CLICK_WINDOW_MS = 250;
 
+// How long a still mouse leaves the controls up in fullscreen before they,
+// and the cursor, get out of the picture's way. Any movement brings them back.
+const FULLSCREEN_IDLE_MS = 3000;
+
 export function VideoTile({
   stream,
   label,
@@ -198,6 +202,11 @@ export function VideoTile({
   // header — defaults to hidden on entry so the video actually gets the
   // whole screen instead of a permanent button bar across it.
   const [fullscreenControlsVisible, setFullscreenControlsVisible] = useState(false);
+  // The mouse's side of the same problem. Outside fullscreen hover reveals the
+  // controls, but a fullscreen tile is the whole screen, so the pointer is
+  // always "hovering" it and the controls would never leave. There they follow
+  // the mouse moving instead — see the idle timer below.
+  const [fullscreenMouseActive, setFullscreenMouseActive] = useState(true);
   const [isPiP, setIsPiP] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
   // Video keeps showing the last frame's black backdrop until the stream
@@ -321,7 +330,12 @@ export function VideoTile({
     function onFullscreenChange() {
       const nowFullscreen = document.fullscreenElement === containerRef.current;
       setIsFullscreen(nowFullscreen);
-      if (nowFullscreen) setFullscreenControlsVisible(false);
+      if (nowFullscreen) {
+        setFullscreenControlsVisible(false);
+        // Arrived here by clicking a button, so the mouse is right there — show
+        // the controls and let the idle timer take them away.
+        setFullscreenMouseActive(true);
+      }
     }
 
     function onWebkitBeginFullscreen() {
@@ -359,6 +373,47 @@ export function VideoTile({
       );
     };
   }, []);
+
+  // The fullscreen idle timer for a mouse: every movement (or key press) shows
+  // the controls again and restarts the countdown. Touch is left to the
+  // tap-to-toggle in handleVideoTap — a tap fires pointer events too, and
+  // letting them in here would reveal what that tap was trying to hide.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!isFullscreen || !container) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    function scheduleHide() {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(function hide() {
+        // Still resting on a button (or holding the volume slider): pulling
+        // the control out from under the cursor would be worse than leaving
+        // it up. Check again later instead.
+        if (container?.querySelector("[data-tile-controls]:hover")) {
+          timer = setTimeout(hide, FULLSCREEN_IDLE_MS);
+          return;
+        }
+        timer = null;
+        setFullscreenMouseActive(false);
+      }, FULLSCREEN_IDLE_MS);
+    }
+    function wake() {
+      setFullscreenMouseActive(true);
+      scheduleHide();
+    }
+    function onPointer(e: PointerEvent) {
+      if (e.pointerType === "mouse") wake();
+    }
+    scheduleHide();
+    container.addEventListener("pointermove", onPointer);
+    container.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", wake);
+    return () => {
+      if (timer) clearTimeout(timer);
+      container.removeEventListener("pointermove", onPointer);
+      container.removeEventListener("pointerdown", onPointer);
+      document.removeEventListener("keydown", wake);
+    };
+  }, [isFullscreen]);
 
   // Watches the <video> itself rather than the container: the container may
   // be letterboxed around a differently-shaped video, and it is the video's
@@ -529,9 +584,16 @@ export function VideoTile({
   // always-on (nothing else can reveal them there), but inside fullscreen
   // that would just paper the video in permanent buttons, so they start
   // hidden and only appear once handleVideoTap flips them on.
+  // Hover stops meaning anything once the tile is the whole screen, though, so
+  // in fullscreen a mouse gets the idle timer instead (fullscreenMouseActive).
   const touchHiddenInFullscreen = isFullscreen && !fullscreenControlsVisible;
+  const mouseVisibilityClass = !isFullscreen
+    ? "[@media(hover:hover)]:pointer-events-auto [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100"
+    : fullscreenMouseActive
+      ? "[@media(hover:hover)]:pointer-events-auto [@media(hover:hover)]:opacity-100"
+      : "[@media(hover:hover)]:pointer-events-none [@media(hover:hover)]:opacity-0";
   const overlayVisibilityClass = `${touchHiddenInFullscreen ? "opacity-0 pointer-events-none" : "opacity-100"
-    } [@media(hover:hover)]:pointer-events-auto [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100`;
+    } ${mouseVisibilityClass}`;
 
   return (
     <div
@@ -549,7 +611,7 @@ export function VideoTile({
         // forced a scroll — h-full alone always stays within whatever main
         // gives it.
         fill ? "h-full" : "aspect-video"
-        } ${className}`}
+        } ${isFullscreen && !fullscreenMouseActive ? "[@media(hover:hover)]:cursor-none" : ""} ${className}`}
     >
       {/* Every one of these means "there is a picture now", and any single one
           of them is enough. `loadeddata` alone used to be the only way out of
@@ -698,9 +760,10 @@ export function VideoTile({
       {/* Outside fullscreen: hidden until hovered, so a busy grid isn't
           wall-to-wall buttons — but always shown on a touch device, which
           has no hover state to reveal them with in the first place. In
-          fullscreen: hidden until the video itself is tapped (see
-          handleVideoTap), since a touch device has no hover to fall back
-          on and a permanent button bar defeats the point of fullscreen. */}
+          fullscreen: on touch, hidden until the video itself is tapped (see
+          handleVideoTap); with a mouse, shown while it moves and gone a few
+          seconds after it stops (see fullscreenMouseActive). Either way a
+          permanent button bar would defeat the point of fullscreen. */}
       <div
         // Marked so app/globals.css can take the whole cluster away while
         // Android is floating the window — see its [data-pip] rules. None of
