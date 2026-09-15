@@ -29,6 +29,7 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  powerMonitor,
   screen,
   session,
   shell,
@@ -800,10 +801,27 @@ function installChunkRecovery() {
   });
 }
 
-/** Minimised or closed to the tray — see IPC.windowBackground. */
+// Whether Windows (or macOS) has the screen locked or the machine asleep.
+// `mainWindow.isVisible()` stays true through both — the window is still
+// there, just nobody can see it — so without this a locked machine would keep
+// the desktop app electable as the account's alert target (see the API's
+// electAlertTarget/canAlertLocally) and a call or message would ring into a
+// lock screen instead of falling through to push on the phone.
+let systemLocked = false;
+
+/** Minimised, closed to the tray, or the system locked/asleep — see IPC.windowBackground. */
 function isMainWindowBackground(): boolean {
+  if (systemLocked) return true;
   if (!mainWindow || mainWindow.isDestroyed()) return true;
   return !mainWindow.isVisible() || mainWindow.isMinimized();
+}
+
+// See IPC.windowBackground. Only out-of-sight counts, not merely unfocused:
+// the app on a second monitor while somebody plays on the first is in front
+// of them, and would be wrongly yellow.
+function reportWindowBackground() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send(IPC.windowBackground, isMainWindowBackground());
 }
 
 function createWindow(initialUrl: string = APP_URL) {
@@ -894,13 +912,6 @@ function createWindow(initialUrl: string = APP_URL) {
   mainWindow.on("hide", refreshTaskbarFlash);
   mainWindow.on("minimize", refreshTaskbarFlash);
 
-  // See IPC.windowBackground. Only out-of-sight counts, not merely unfocused:
-  // the app on a second monitor while somebody plays on the first is in
-  // front of them, and would be wrongly yellow.
-  const reportWindowBackground = () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    mainWindow.webContents.send(IPC.windowBackground, isMainWindowBackground());
-  };
   mainWindow.on("show", reportWindowBackground);
   mainWindow.on("hide", reportWindowBackground);
   mainWindow.on("minimize", reportWindowBackground);
@@ -1620,6 +1631,28 @@ if (!gotLock) {
     installDisplayMediaHandler();
   installShareSourceHandlers();
     installChunkRecovery();
+
+    // Windows' lock screen (Win+L, or the screensaver's own lock) and system
+    // sleep both leave the window "visible" as far as Electron is concerned,
+    // so without these the desktop app would keep answering calls and chat
+    // notifications nobody is there to see, instead of letting them fall
+    // through to a push on the phone — see isMainWindowBackground.
+    powerMonitor.on("lock-screen", () => {
+      systemLocked = true;
+      reportWindowBackground();
+    });
+    powerMonitor.on("suspend", () => {
+      systemLocked = true;
+      reportWindowBackground();
+    });
+    powerMonitor.on("unlock-screen", () => {
+      systemLocked = false;
+      reportWindowBackground();
+    });
+    powerMonitor.on("resume", () => {
+      systemLocked = false;
+      reportWindowBackground();
+    });
 
     ipcMain.handle(IPC.oauthStart, (_event, startUrl: unknown, nonce: unknown) => {
       if (typeof startUrl !== "string" || typeof nonce !== "string") return null;
