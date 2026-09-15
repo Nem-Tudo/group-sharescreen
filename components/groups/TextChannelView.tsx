@@ -1407,10 +1407,21 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
     ];
     for (const { message, outgoing } of display) {
       const newDay = !previous || dayKey(previous.ts) !== dayKey(message.ts);
+      // `from` alone is enough to tell two people's messages apart, but not a
+      // webhook's: every message it posts carries the same `from`
+      // ("webhook:<id>") no matter who or what is actually speaking through
+      // it — a Discord↔GoLive bridge, say, relaying several different
+      // Discord members one after another. `fromName` and the picture it
+      // posted with (`webhook.avatarUrl`, captured per message — see
+      // GroupMessage.webhook) are what actually change per message, so both
+      // have to match too before two of a webhook's lines are grouped as the
+      // same speaker.
       const grouped =
         !newDay &&
         previous !== null &&
         previous.from === message.from &&
+        previous.fromName === message.fromName &&
+        (previous.webhook?.avatarUrl ?? null) === (message.webhook?.avatarUrl ?? null) &&
         message.ts - previous.ts < GROUP_GAP_MS &&
         !message.replyTo;
       if (newDay) {

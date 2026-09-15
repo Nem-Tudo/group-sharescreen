@@ -994,12 +994,22 @@ export function ChatPanel({
               // indents under the name that's already there; the gap above a
               // new speaker is what separates them now.
               // Replies always show their author and spine (matching Discord).
+              //
+              // `from` alone identifies the sender for a person or a bot, but
+              // not for a webhook: every message it posts carries the same
+              // `from` ("webhook:<id>") no matter who or what is actually
+              // speaking through it — a Discord↔GoLive bridge, say, relaying
+              // several different Discord members one after another. Name and
+              // picture are what a webhook's messages actually carry per
+              // message (see ChatMessage.avatarUrl), so both have to match
+              // too before two of its lines are treated as the same speaker.
               const previous = messages[i - 1];
               const grouped =
                 !m.replyTo &&
                 Boolean(previous) &&
                 previous.from === m.from &&
                 previous.name === m.name &&
+                (previous.avatarUrl ?? null) === (m.avatarUrl ?? null) &&
                 m.ts - previous.ts < GROUP_WINDOW_MS;
               const hasMenu = Boolean(renderAuthorMenu || onAuthorContextMenu);
               const row = (
