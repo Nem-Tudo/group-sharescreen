@@ -292,6 +292,15 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   // to give it their width — the group's "ocultar participantes" (see
   // lib/groupVoiceSession's GroupVoiceColumns). Only while that call is the
   // page: every other page of the group has them as always.
+  // A direct call is drawn inside the private messages, on the thread of the
+  // person it is with (see DirectMessagesModal) — so while that is the page,
+  // the call is on screen just as a group's voice room is, and this bar must
+  // not offer the way back to a call already in front of you, nor repeat the
+  // buttons the room itself is putting in it.
+  const dmCallVisible = Boolean(
+    route?.kind === "dms" && call?.dm && call.dm.userId === route.withUserId
+  );
+  const callOnScreen = voiceVisible || dmCallVisible;
   const voiceColumns = useGroupVoiceColumns();
   const columnsCollapsed = voiceVisible && isWide && Boolean(voiceColumns?.collapsed);
   const collapseColumns = voiceVisible && voiceColumns?.canCollapse ? voiceColumns.toggle : undefined;
@@ -322,7 +331,7 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
               channel={routeChannel}
               setRightSlot={setRightSlot}
               setEndSlot={setEndSlot}
-              voiceVisible={voiceVisible}
+              voiceVisible={callOnScreen}
               setCenterSlot={setCenterSlot}
               onOpenMembers={() => setMembersOpen(true)}
             />
@@ -369,7 +378,7 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
                 headerFit === 2 ? "lg:col-span-2 lg:row-start-2" : ""
               }`}
             >
-              {call && !voiceVisible && <VoiceCallLink />}
+              {call && !callOnScreen && <VoiceCallLink />}
               <div ref={setCenterSlot} className="contents" />
             </div>
 
@@ -384,7 +393,7 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
               <div ref={setRightSlot} className="contents" />
               {/* With no voice room on screen, the bar's own copy — the room
                   puts its Pro button in the slot above while it is. */}
-              {!voiceVisible && <RoomProOfferButton />}
+              {!callOnScreen && <RoomProOfferButton />}
               {detail && <GroupActions detail={detail} />}
               {/* Private conversations, as faces. From lg up they sit on the
                   left instead, where the switcher was. */}
@@ -394,7 +403,7 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
               {/* Last in the bar: "more options", in the corner — the voice
                   room's while it is on screen, the group bar's own otherwise. */}
               <div ref={setEndSlot} className="contents" />
-              {!voiceVisible && <GroupHeaderMenu />}
+              {!callOnScreen && <GroupHeaderMenu />}
             </div>
           </div>
           )}
@@ -408,7 +417,7 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
         <div ref={setMusicSlot} className="flex shrink-0 flex-col" />
 
         {/* Below lg the call gets a strip of its own under the bar. */}
-        {call && !voiceVisible && (
+        {call && !callOnScreen && (
           <div className="shrink-0 border-b border-black/10 bg-white px-3 py-1.5 lg:hidden dark:border-white/10 dark:bg-zinc-950">
             <VoiceControls className="w-full" />
           </div>

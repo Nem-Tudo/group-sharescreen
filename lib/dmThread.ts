@@ -1,5 +1,5 @@
 import { attachmentsPreview } from "./chatAttachments";
-import type { Conversation, DirectMessage, DmReaction } from "./dmApi";
+import type { Conversation, DirectMessage, DmCallInfo, DmReaction } from "./dmApi";
 import { translate } from "./i18n";
 
 // The arithmetic of one conversation on screen, kept apart from the dialog
@@ -247,12 +247,33 @@ export function newestOutside(
  * and the old list drew an empty line under the name for both.
  */
 export function messageSummary(
-  message: Pick<DirectMessage, "text" | "kind" | "images"> & Pick<Partial<DirectMessage>, "attachments">
+  message: Pick<DirectMessage, "text" | "kind" | "images"> &
+    Pick<Partial<DirectMessage>, "attachments" | "call">
 ): string {
+  // A call has no text of its own either: the line the conversation keeps is
+  // what happened, said here in the fewest words the list has room for (the
+  // thread itself says it properly — see DirectMessagesModal's call row).
+  if (message.kind === "call") return callSummary(message.call?.state);
   if (message.text) return message.text;
   if (message.kind === "gif") return "GIF";
   const count = message.images?.length ?? 0;
   if (count > 1) return `${count} imagens`;
   if (count === 1 || message.kind === "image") return translate("common.image");
   return attachmentsPreview(message.attachments);
+}
+
+/** A call's line in the conversation list. See messageSummary. */
+function callSummary(state: DmCallInfo["state"] | undefined): string {
+  switch (state) {
+    case "ended":
+      return translate("dmThread.callEnded");
+    case "missed":
+      return translate("dmThread.callMissed");
+    case "declined":
+      return translate("dmThread.callDeclined");
+    case "cancelled":
+      return translate("dmThread.callCancelled");
+    default:
+      return translate("common.call");
+  }
 }

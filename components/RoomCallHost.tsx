@@ -109,9 +109,12 @@ export function RoomCallHost() {
   const hangUp = useCallback(() => {
     if (!session) return;
     endCall();
-    // Only when the page being looked at is the call's own, which is about to
-    // have nothing left to show. From anywhere else, hanging up is not a
-    // reason to move somebody off the page they are reading.
+    // A direct call's page is the conversation it was made in, which is still
+    // worth looking at once the call is over: nobody is moved off it.
+    if (session.dm) return;
+    // Otherwise, only when the page being looked at is the call's own, which is
+    // about to have nothing left to show. From anywhere else, hanging up is not
+    // a reason to move somebody off the page they are reading.
     if (typeof window !== "undefined" && window.location.pathname === callPath) {
       router.push(session.group ? groupPath(session.group.groupId) : "/");
     }
@@ -154,6 +157,9 @@ export function RoomCallHost() {
                     }
                   : undefined
               }
+              // A direct call is drawn inside the conversation it belongs to,
+              // as a call and not as a room page (see WatchRoom's `dm`).
+              dm={session.dm ?? null}
             />
           </>,
           surface

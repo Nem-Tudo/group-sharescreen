@@ -70,6 +70,55 @@ export function isOwnCall(callId: string): boolean {
   return ownCallsInMemory.has(callId) || readOwnCalls().includes(callId);
 }
 
+// ─── Who is on the other end ──────────────────────────────────────────────
+//
+// A direct call is drawn inside the conversation it came out of (see
+// components/CallHost and lib/callSession's `dm`), so walking into the room
+// means knowing whose conversation it is. The "call-accepted" message carries
+// only the call's id and its room, so the person is remembered here — by the
+// side that placed the call and by the side that answered it — from the ring,
+// which carries both.
+//
+// sessionStorage as well as memory, for the same reason as the ids above: the
+// tab that placed a call may reload while it is still ringing.
+
+export type CallPeer = { userId: string; displayName: string; avatarUrl: string | null };
+
+const PEERS_KEY = "golive:callPeers";
+const PEERS_MAX = 20;
+const peersInMemory = new Map<string, CallPeer>();
+
+function readPeers(): Record<string, CallPeer> {
+  try {
+    const raw = window.sessionStorage.getItem(PEERS_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, CallPeer>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Remembers the other person on `roomHandle` — the caller's or the callee's. */
+export function rememberCallPeer(roomHandle: string, peer: CallPeer): void {
+  if (typeof window === "undefined") return;
+  peersInMemory.set(roomHandle, peer);
+  const stored = readPeers();
+  delete stored[roomHandle];
+  const entries = Object.entries(stored).slice(-(PEERS_MAX - 1));
+  entries.push([roomHandle, peer]);
+  try {
+    window.sessionStorage.setItem(PEERS_KEY, JSON.stringify(Object.fromEntries(entries)));
+  } catch {
+    // The memory copy above still answers for the life of this page.
+  }
+}
+
+/** The other person on a call's room, or null when this tab never knew. */
+export function callPeerFor(roomHandle: string): CallPeer | null {
+  if (typeof window === "undefined") return null;
+  return peersInMemory.get(roomHandle) ?? readPeers()[roomHandle] ?? null;
+}
+
 /**
  * Starts ringing somebody.
  *
@@ -92,6 +141,12 @@ export async function startCall(userId: string, room?: string): Promise<CallResu
     }
     // This tab is the one that walks into the room if it is answered.
     markOwnCall(data.call.id);
+    // The person being rung: whose conversation the call belongs to.
+    rememberCallPeer(data.call.roomHandle, {
+      userId: data.call.to.id,
+      displayName: data.call.to.displayName,
+      avatarUrl: data.call.to.avatarUrl,
+    });
     return { ok: true, call: data.call };
   } catch {
     return { ok: false, error: translate("common.noConnectionToTheServer") };

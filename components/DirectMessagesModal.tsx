@@ -18,6 +18,7 @@ import useNtPopups from "ntpopups";
 import {
   MdArrowBack,
   MdCall,
+  MdCallEnd,
   MdChatBubbleOutline,
   MdCheck,
   MdClose,
@@ -64,6 +65,8 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { useAuth } from "@/lib/AuthContext";
 import { verifiedBadge } from "@/lib/entitlements";
 import { openDirectMessages, setDirectMessagesExpanded, useDirectMessagesOutlet } from "@/lib/dmWindow";
+import { CallOutlet } from "@/components/CallOutlet";
+import { useCallSession } from "@/lib/callSession";
 import { startCall } from "@/lib/callsApi";
 import { useSignalingSelector } from "@/lib/useSignalingSelector";
 import { selectRecentDms } from "@/lib/signalingSelectors";
@@ -80,6 +83,7 @@ import {
   sendDmTyping,
   type Conversation,
   type DirectMessage,
+  type DmCallInfo,
   type DmReaction,
   type DmReplyTo,
 } from "@/lib/dmApi";
@@ -309,6 +313,8 @@ type Bubble = {
   mine: boolean;
   text: string;
   kind?: DirectMessage["kind"];
+  /** Set only on a call's line, which is drawn as a line and not as a bubble. */
+  call?: DmCallInfo;
   url?: string;
   images?: string[];
   attachments?: ChatAttachment[];
@@ -746,6 +752,76 @@ function ThreadSkeleton() {
   );
 }
 
+/**
+ * A call's own line in the conversation — not a bubble but a note across the
+ * middle, the way every messenger records one.
+ *
+ * What it says depends on which end of the call the reader was on: the same
+ * record is "ninguém atendeu" to whoever rang and "chamada perdida" to
+ * whoever was rung. That is why the API stores what happened and never a
+ * sentence (see its callMessages.ts).
+ */
+function CallLine({
+  call,
+  mine,
+  otherName,
+  ts,
+}: {
+  call: DmCallInfo;
+  /** Whether this account is the one that placed the call. */
+  mine: boolean;
+  otherName: string;
+  ts: number;
+}) {
+  const t = useT();
+  // Missed, refused, given up on: the three that are worth spotting while
+  // scrolling past. An answered call is just something that happened.
+  const failed = call.state === "missed" || call.state === "declined" || call.state === "cancelled";
+  const label = (() => {
+    switch (call.state) {
+      case "ringing":
+        return mine ? t("directMessagesModal.callRinging") : t("directMessagesModal.callRingingYou", { displayName: otherName });
+      case "ongoing":
+        return mine
+          ? t("directMessagesModal.callStartedByYou")
+          : t("directMessagesModal.callStartedBy", { displayName: otherName });
+      case "ended":
+        return t("directMessagesModal.callEndedIn", { duration: callDuration(call.durationMs ?? 0) });
+      case "missed":
+        return mine ? t("directMessagesModal.callNobodyAnswered") : t("directMessagesModal.callMissed");
+      case "declined":
+        return mine ? t("directMessagesModal.callDeclined") : t("directMessagesModal.callYouDeclined");
+      case "cancelled":
+        return mine ? t("directMessagesModal.callYouCancelled") : t("directMessagesModal.callMissed");
+    }
+  })();
+  return (
+    <li className="my-2 flex justify-center">
+      <span
+        className={`inline-flex max-w-full items-center gap-2 rounded-full px-3 py-1 text-xs font-medium ${
+          failed
+            ? "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-400"
+            : "bg-zinc-100 text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300"
+        }`}
+      >
+        {failed ? <MdCallEnd className="h-4 w-4 shrink-0" /> : <MdCall className="h-4 w-4 shrink-0" />}
+        <span className="truncate">{label}</span>
+        <span className="shrink-0 text-[11px] font-normal opacity-70">{timeLabel(ts)}</span>
+      </span>
+    </li>
+  );
+}
+
+/** How long a call lasted, as a clock: "4:07", or "1:02:30" past an hour. */
+function callDuration(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const seconds = total % 60;
+  const minutes = Math.floor(total / 60) % 60;
+  const hours = Math.floor(total / 3600);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${minutes}:${pad(seconds)}`;
+}
+
 // ─── The dialog ─────────────────────────────────────────────────────────
 
 export function DirectMessagesModal({
@@ -782,6 +858,9 @@ export function DirectMessagesModal({
   // of groups): drawn there, as part of the page, instead of over all of it.
   const outlet = useDirectMessagesOutlet();
   const docked = split && outlet !== null;
+  // A direct call belongs to a conversation: it is drawn on that person's
+  // thread rather than on a room page of its own (see lib/callSession's `dm`).
+  const call = useCallSession();
 
   // null until the first answer, so "loading" and "no conversations" are two
   // different screens instead of one that lies for a second.
@@ -847,6 +926,7 @@ export function DirectMessagesModal({
   }>({ node: null, threadId: null, firstKey: null, lastKey: null, typing: false, height: 0 });
 
   const activeId = openWith ?? null;
+  const callHere = Boolean(activeId && call?.dm && call.dm.userId === activeId);
   const loaded = thread?.userId === activeId ? thread : null;
   // The name comes from the list when the thread has not arrived yet, so the
   // header is right on the first frame instead of saying "Carregando…".
@@ -1702,6 +1782,9 @@ export function DirectMessagesModal({
         mine,
         text: message.text,
         kind: message.kind,
+        // Whatever the call is doing now, over what the page said when it
+        // was read: a call goes on changing while it is on screen.
+        call: message.call ? live.calls[message.id] ?? message.call : undefined,
         url: message.url,
         images: message.images,
         attachments: message.attachments,
@@ -1722,7 +1805,9 @@ export function DirectMessagesModal({
             : message.attachments?.length
               ? { text: attachmentsPreview(message.attachments) }
               : {}),
-          ...(message.kind ? { kind: message.kind } : {}),
+          // A call is not something to quote, and "call" is not one of the
+          // kinds a quoted line can be.
+          ...(message.kind && message.kind !== "call" ? { kind: message.kind } : {}),
           ...(message.images ? { images: message.images } : {}),
         },
       };
@@ -1768,6 +1853,18 @@ export function DirectMessagesModal({
           </span>
         </li>
       );
+    }
+    if (bubble.call) {
+      threadItems.push(
+        <CallLine
+          key={bubble.key}
+          call={bubble.call}
+          mine={bubble.mine}
+          otherName={active?.displayName ?? t("common.someone")}
+          ts={bubble.ts}
+        />
+      );
+      return;
     }
     const grouped =
       !newDay &&
@@ -2053,6 +2150,17 @@ export function DirectMessagesModal({
   );
 
   // ── One thread ──
+
+  // The call with the person whose thread this is, drawn above their messages
+  // — a call is part of the conversation, not a place you are sent to (see
+  // lib/callSession's `dm`). The room itself is mounted at the root of the app
+  // and merely moved in here (components/CallOutlet), so it goes on whether or
+  // not this window is the page on screen.
+  const callPane = callHere ? (
+    <div className="flex min-h-[12rem] flex-[2] flex-col overflow-hidden border-b border-zinc-200 p-2 dark:border-zinc-800">
+      <CallOutlet />
+    </div>
+  ) : null;
 
   const threadPane = (
     <>
@@ -2356,6 +2464,7 @@ export function DirectMessagesModal({
               {expandButton}
               {closeButton}
             </div>
+            {callPane}
             {activeId ? (
               threadPane
             ) : (
@@ -2401,7 +2510,14 @@ export function DirectMessagesModal({
               {expandButton}
               {closeButton}
             </div>
-            {listVisible ? listPane : threadPane}
+            {listVisible ? (
+              listPane
+            ) : (
+              <>
+                {callPane}
+                {threadPane}
+              </>
+            )}
           </div>
         </div>
       )}

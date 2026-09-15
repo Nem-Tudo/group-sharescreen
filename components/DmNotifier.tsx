@@ -48,6 +48,10 @@ export function DmNotifier() {
     if (!lastDm || !account) return;
     const { message, fromUser } = lastDm;
     if (message.from === account.id) return;
+    // A call announces itself, out loud and on every device (see
+    // components/CallHost). The line it leaves in the conversation is a
+    // record of it, not news of its own, and must not chime a second time.
+    if (message.kind === "call") return;
     if (announcedRef.current === message.id) return;
     // The thread is on screen and the page is in front: the message is
     // already being read. Marked as announced anyway, so it cannot come back

@@ -121,6 +121,7 @@ import { LocalMusicBar, RemoteMusicBar } from "@/components/LocalMusicBar";
 import { MemberActionsMenu, type MemberActions } from "@/components/MemberActionsModal";
 import { isDesktopApp, isMobileApp, armSavedShareSource } from "@/lib/desktop";
 import { OpenInAppBanner } from "@/components/OpenInAppBanner";
+import { CallStage, type CallStagePerson } from "@/components/CallStage";
 import { NotificationInboxBell } from "@/components/NotificationInboxBell";
 import { PartnerCard } from "@/components/PartnerCard";
 import { QualitySelect } from "@/components/QualitySelect";
@@ -1096,6 +1097,7 @@ export function WatchRoom({
   headerSlots = null,
   musicSlot = null,
   group,
+  dm = null,
 }: {
   handle: string;
   /** A theme this room was opened to show. See useRoomTheme. */
@@ -1138,8 +1140,19 @@ export function WatchRoom({
   musicSlot?: HTMLElement | null;
   /** Set only when the room is a group's voice room. See WatchRoomGroupMode. */
   group?: WatchRoomGroupMode;
+  /**
+   * Set only when the room is a direct call — somebody rang, somebody answered
+   * (see lib/callSession's `dm`). It is not another kind of room but another
+   * kind of page: the call is drawn inside a conversation, a pane beside the
+   * messages rather than a screen of its own, so everything a room page is
+   * made of *around* the call — its header, its participant column, its own
+   * chat, the ads — is left out, and what is left is the call (see callLayout).
+   */
+  dm?: { userId: string; displayName: string; avatarUrl: string | null } | null;
 }) {
   const router = useRouter();
+  // The room stripped down to the call itself. See the `dm` prop.
+  const callLayout = Boolean(dm);
   const state = useSignaling();
   useRoomSoundEffects(state);
   // Paints the room. The room's own theme when it has one, this account's
@@ -1798,7 +1811,7 @@ export function WatchRoom({
     // rooms column does (see GroupPartnerSlot) — so this one must not count;
     // not until that column is folded away, when the ad is this room's to draw.
   } = usePartnerAd({
-    visible: visible && !showAdsterra && !(group && isWideLayout && !leftSidebarCollapsed),
+    visible: visible && !showAdsterra && !callLayout && !(group && isWideLayout && !leftSidebarCollapsed),
   });
   // A Pro Max subscriber may close the group's ad (see GroupPartnerSlot); the
   // one this room draws in its place is the same ad, and stays closed with it.
@@ -4340,6 +4353,9 @@ export function WatchRoom({
     isWideLayout &&
     !activeHyperfocusId &&
     (isFocusMode || realMediaTileCount >= 3) &&
+    // A call is a pane inside a conversation, not a page: there is no room in
+    // it for an advertisement, and the conversation's page carries its own.
+    !callLayout &&
     !(group && groupAdHidden)
   ) {
     const adId = "sponsored-partner-tile";
@@ -5542,6 +5558,32 @@ export function WatchRoom({
     </ul>
   );
 
+  // The faces a direct call shows while nobody is sharing anything (see
+  // components/CallStage). The same people as the list above, without
+  // anything a call does not need to say about them.
+  const callStagePeople: CallStagePerson[] = callLayout
+    ? [
+        {
+          key: "self",
+          name: state.name,
+          avatarUrl: account?.avatarUrl ?? null,
+          userId: state.selfUserId,
+          isGuest: !state.account,
+          micOn: isMicOn,
+          micStream: localMicStream,
+        },
+        ...visiblePeers.map((p) => ({
+          key: p.id,
+          name: p.name,
+          avatarUrl: p.avatarUrl ?? null,
+          userId: p.userId,
+          isGuest: p.isGuest,
+          micOn: p.mic,
+          micStream: remoteMicStreams[p.id] ?? null,
+        })),
+      ]
+    : [];
+
   // Heading and list together, for the phone sheet — the desktop column
   // splits them across a fixed header and a scrolling body instead (see the
   // participants aside below).
@@ -5861,20 +5903,26 @@ export function WatchRoom({
       // Only while a page is actually showing the room: those rules pin the
       // document to the viewport, and a docked call is a call on somebody
       // else's page, which must go on scrolling like the page it is.
-      data-room-shell={visible ? "" : undefined}
+      // Nor in a direct call, which is a pane inside a conversation and not
+      // a page at all: pinning it to the viewport would take the messages
+      // under it off the screen.
+      data-room-shell={visible && !callLayout ? "" : undefined}
       // Read by app/globals.css, which hides the header, both side columns
       // and the bottom bar while Android is floating the window. A React
       // branch would mean unmounting the video element the floating window is
       // showing, which is exactly the thing that must survive.
       data-pip={pipActive ? "true" : undefined}
-      className="flex min-h-0 flex-1 flex-col bg-zinc-50 dark:bg-black"
+      className={`flex min-h-0 flex-1 flex-col ${
+        // The conversation's own card is what this is drawn on.
+        callLayout ? "" : "bg-zinc-50 dark:bg-black"
+      }`}
     >
       {/* Above the header so it reads as a property of the page rather than
           of the room's controls. Renders nothing inside the app itself, and
           nothing for anyone who has already answered — or whose installation
           is already known, since RoomAppGate then asks before the room is
           joined at all. */}
-      {!group && <OpenInAppBanner />}
+      {!group && !callLayout && <OpenInAppBanner />}
       {/* The call's picture in the corner while somebody reads another page —
           portalled to the body, so where this room is parked does not matter.
           Mounted even
@@ -5915,7 +5963,11 @@ export function WatchRoom({
         className={
           // Hidden in a group: what matters in it is portalled into the
           // group's bar (see inHeaderSlot), and the rest is said there already.
-          group
+          // A direct call has no header of its own either: its controls go
+          // to the bar of whatever page is showing it (see inHeaderSlot), and
+          // the room's name, its link and its settings are not what a call
+          // with one person is about.
+          group || callLayout
             ? "hidden"
             : "shrink-0 border-b border-black/10 bg-white px-3 py-2 dark:border-white/10 dark:bg-zinc-950 sm:px-4"
         }
@@ -6176,8 +6228,10 @@ export function WatchRoom({
                 sala" moved in there at every width — it is a once-a-session
                 action, and next to the mid-call controls it was a wide button
                 spending header space on something nobody clicks twice. */}
-            {/* Not in a group: a group's room is shared by inviting to the group. */}
-            {!group && (
+            {/* Not in a group: a group's room is shared by inviting to the group.
+                Nor in a direct call: its room is the two of them, and its link
+                is a way for a third person to walk into a private conversation. */}
+            {!group && !callLayout && (
             <Tooltip content={linkCopied ? translate("common.linkCopied") : translate("watch.watchRoom.copyThisRoomSLink")}>
               <button
                 type="button"
@@ -6523,7 +6577,7 @@ export function WatchRoom({
       )}
 
       {/* In a group the shell around this already pads it (see GroupAppShell). */}
-      <div className={`flex min-h-0 flex-1 flex-col lg:flex-row lg:gap-3 ${group ? "" : "lg:p-3"}`}>
+      <div className={`flex min-h-0 flex-1 flex-col lg:flex-row lg:gap-3 ${group || callLayout ? "" : "lg:p-3"}`}>
         {/* From lg up, participants get this dedicated full-height column
             instead of sharing a pane with chat — see isWideLayout. A card of
             its own rather than loose text on the page background: the room is
@@ -6538,7 +6592,7 @@ export function WatchRoom({
             card, and the ad lives in the group's rooms column. */}
         {/* Nor while docked — same reason as the bottom bar below: the ad
             in it would be counting impressions nobody saw. */}
-        {isWideLayout && visible && !leftSidebarCollapsed && !group && (
+        {isWideLayout && visible && !leftSidebarCollapsed && !group && !callLayout && (
           <aside className="flex h-full w-[300px] shrink-0 flex-col gap-3">
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
               <div className="shrink-0 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
@@ -6572,7 +6626,7 @@ export function WatchRoom({
         <main className="relative flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-2 lg:p-0">
           {/* Floating expand buttons when sidebars are collapsed on wide screens */}
           {/* In a group, what comes back is the group's rail and rooms column. */}
-          {isWideLayout && leftSidebarCollapsed && (
+          {isWideLayout && leftSidebarCollapsed && !callLayout && (
             <div className="absolute left-2 top-2 z-20">
               <Tooltip
                 content={translate(group ? "watch.watchRoom.showGroupsAndRooms" : "watch.watchRoom.showParticipants")}
@@ -6591,7 +6645,7 @@ export function WatchRoom({
             </div>
           )}
 
-          {isWideLayout && rightSidebarCollapsed && (
+          {isWideLayout && rightSidebarCollapsed && !callLayout && (
             <div className="absolute right-2 top-2 z-20">
               <Tooltip content={translate("watch.watchRoom.showChatAndProfile")} placement="left">
                 <button
@@ -6608,6 +6662,27 @@ export function WatchRoom({
           )}
 
           {nothingToShow ? (
+            callLayout ? (
+              // A call with nobody sharing anything is not an empty room: it
+              // is two people talking. See components/CallStage.
+              <div onContextMenu={ownPreviewMenu} className="flex min-h-0 flex-1 flex-col">
+                <CallStage
+                  people={callStagePeople}
+                  footer={
+                    ownPreviewHidden && hasOwnPreview ? (
+                      <button
+                        type="button"
+                        onClick={() => setOwnPreviewHidden(false)}
+                        className="flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                      >
+                        <EyeIcon className="h-4 w-4" />
+                        {translate("watch.watchRoom.showMyBroadcast")}
+                      </button>
+                    ) : null
+                  }
+                />
+              </div>
+            ) : (
             // Wrapped the same way the tile grid is: `main` doesn't scroll,
             // so the one thing in it that has a minimum height of its own
             // needs a box that can.
@@ -6704,6 +6779,7 @@ export function WatchRoom({
                 )}
               </div>
             </div>
+            )
           ) : (
             <>
               {/* Centred and slim rather than a full-size button in the top
@@ -6842,7 +6918,7 @@ export function WatchRoom({
             else in here but the owner/admin "Gerenciar sala" button, so
             chatSection's flex-1 (see its heightClassName) still has
             practically the whole column to fill. */}
-        {isWideLayout && !rightSidebarCollapsed && (
+        {isWideLayout && !rightSidebarCollapsed && !callLayout && (
           <aside
             ref={chatAsideRef}
             className="relative flex h-full shrink-0 flex-col"
@@ -6897,11 +6973,12 @@ export function WatchRoom({
                 take turns here instead of stacking. A 320x50 is what the
                 budget affords on the Adsterra minute; see
                 NEXT_PUBLIC_ADSTERRA_BANNER_MOBILE_KEY. */}
-            {showAdsterra ? (
-              <AdsterraBanner slot="room" className="shrink-0" />
-            ) : (
-              <PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />
-            )}
+            {!callLayout &&
+              (showAdsterra ? (
+                <AdsterraBanner slot="room" className="shrink-0" />
+              ) : (
+                <PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />
+              ))}
 
             {mobilePanel && (
               <section
@@ -7239,9 +7316,14 @@ export function WatchRoom({
                 </div>
 
                 {/* Divisor | */}
-                <span className="mx-0.5 sm:mx-1 h-8 w-px shrink-0 bg-zinc-200 dark:bg-zinc-800" />
+                {!callLayout && (
+                  <span className="mx-0.5 sm:mx-1 h-8 w-px shrink-0 bg-zinc-200 dark:bg-zinc-800" />
+                )}
 
-                {/* 6. Chat e 7. Pessoas */}
+                {/* 6. Chat e 7. Pessoas — a direct call has neither: the
+                    conversation is right under it, and it says who is in it
+                    (see components/CallStage). */}
+                {!callLayout && (
                 <div className="flex shrink-0 items-center gap-1">
                   <button
                     type="button"
@@ -7281,6 +7363,7 @@ export function WatchRoom({
                     <span className="text-[10px] font-medium leading-none truncate max-w-full">{translate("watch.watchRoom.people")}</span>
                   </button>
                 </div>
+                )}
               </nav>
             </div>
           </>

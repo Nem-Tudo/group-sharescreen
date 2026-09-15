@@ -84,6 +84,12 @@ const BUILD_VERSION = `${resolvePackageVersion()}-${BUILD_COMMIT}`
 const STABLE_BUILD_ID =
   BUILD_COMMIT !== "unknown" ? BUILD_COMMIT.replace(/[^A-Za-z0-9_-]/g, "-") : null;
 
+// The API, derived from the signaling URL like lib/roomsApi does — one
+// variable for what is really one server.
+const API_BASE = (process.env.NEXT_PUBLIC_SIGNALING_URL || "ws://localhost:4000/ws")
+  .replace(/^ws/, "http")
+  .replace(/\/ws\/?$/, "");
+
 const nextConfig: NextConfig = {
   ...(STABLE_BUILD_ID
     ? {
@@ -120,6 +126,22 @@ const nextConfig: NextConfig = {
     // is what lets that page use it instead of a plain <img>.
     remotePatterns: [{ protocol: "https", hostname: "cdn.nemtudo.me" },{ protocol: "https", hostname: "public-blob.squarecloud.dev" }],
   },
+  async rewrites() {
+    return [
+      // OpenID Connect discovery. This site is the issuer (see app/api/
+      // oidc-configuration), and the specification requires the document to
+      // sit at exactly this path under it.
+      //
+      // A rewrite onto a normal route rather than an app/.well-known folder:
+      // a directory whose name starts with a dot is not something to rely on
+      // the file-system router picking up, and this keeps the served URL
+      // exact either way.
+      {
+        source: "/.well-known/openid-configuration",
+        destination: "/api/oidc-configuration",
+      },
+    ];
+  },
   async redirects() {
     return [
       // The routes these replaced were Portuguese, and they were renamed once
@@ -134,6 +156,14 @@ const nextConfig: NextConfig = {
       // so /tema/:id could not swallow /tema/:id/painel anyway — but the two
       // read as a pair, and the order is what makes that obvious to whoever
       // adds the third.
+      // The other half of OpenID Connect discovery. The document above points
+      // `jwks_uri` at the API, which is where the key actually is — this is
+      // only for whoever guesses that it sits next to the configuration.
+      {
+        source: "/.well-known/jwks.json",
+        destination: `${API_BASE}/.well-known/jwks.json`,
+        permanent: false,
+      },
       { source: "/tema/:id/painel", destination: "/theme/:id/panel", permanent: true },
       { source: "/tema/:id", destination: "/theme/:id", permanent: true },
       { source: "/anuncio/:token", destination: "/ad/:token", permanent: true },

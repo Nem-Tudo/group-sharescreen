@@ -22,6 +22,7 @@ import {
   MdSmartToy,
 } from "react-icons/md";
 import { AccountConnections } from "@/components/AccountConnections";
+import { AuthorizedApps } from "@/components/oauth2/AuthorizedApps";
 import { DEVELOPERS_URL } from "@/lib/botsApi";
 import { CompleteOAuthSignupForm } from "@/components/CompleteOAuthSignupForm";
 import { CreateAccountForm } from "@/components/CreateAccountForm";
@@ -239,8 +240,12 @@ export function MeScreen() {
 
       {account && (
         // Its own collapsible block, padding included — see AccountConnections.
+        // AuthorizedApps sits in the same card and hides itself when this
+        // account has never signed into anything with "Entrar com GoLive",
+        // so the card stays a single row for almost everybody.
         <div className={`${card} py-1 empty:hidden`}>
           <AccountConnections />
+          <AuthorizedApps />
         </div>
       )}
 

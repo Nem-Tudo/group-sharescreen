@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { groupPath } from "./groupLinks";
+import { dmPath, groupPath } from "./groupLinks";
 import {
   getGroupVoiceSession,
   setGroupVoiceSession,
@@ -36,6 +36,13 @@ export interface CallSessionGroup {
   groupName: string;
 }
 
+/** The other person, when the call is a direct one. See CallSession.dm. */
+export interface CallSessionPeer {
+  userId: string;
+  displayName: string;
+  avatarUrl: string | null;
+}
+
 export interface CallSession {
   /** The room handle the call runs under. */
   handle: string;
@@ -43,6 +50,13 @@ export interface CallSession {
   viewThemeId: string | null;
   /** Set when the call is a group's voice room; null for an ordinary room. */
   group: CallSessionGroup | null;
+  /**
+   * Set when the call is a direct one — somebody rang, somebody answered (see
+   * components/CallHost). It is what makes the call belong to that
+   * conversation: it is drawn inside the private messages, on that person's
+   * thread, instead of on a room page of its own.
+   */
+  dm?: CallSessionPeer | null;
 }
 
 /**
@@ -103,7 +117,8 @@ function sameSession(a: CallSession | null, b: CallSession | null): boolean {
     a.group?.groupId === b.group?.groupId &&
     a.group?.channelId === b.group?.channelId &&
     a.group?.channelName === b.group?.channelName &&
-    a.group?.groupName === b.group?.groupName
+    a.group?.groupName === b.group?.groupName &&
+    a.dm?.userId === b.dm?.userId
   );
 }
 
@@ -146,12 +161,17 @@ export function endCall(): void {
 
 /** The call's own page — the way back to it from anywhere on the site. */
 export function callPathFor(call: CallSession): string {
-  return call.group ? groupPath(call.group.groupId, call.group.channelId) : `/watch/${call.handle}`;
+  if (call.group) return groupPath(call.group.groupId, call.group.channelId);
+  // A direct call lives in the conversation it came out of, not on a room page.
+  if (call.dm) return dmPath(call.dm.userId);
+  return `/watch/${call.handle}`;
 }
 
 /** What to call the call on a button: the voice room's name, or the room's. */
 export function callNameFor(call: CallSession): string {
-  return call.group ? call.group.channelName : recentRoomPresentation(call.handle).name;
+  if (call.group) return call.group.channelName;
+  if (call.dm) return call.dm.displayName;
+  return recentRoomPresentation(call.handle).name;
 }
 
 subscribeGroupVoiceSession(() => {

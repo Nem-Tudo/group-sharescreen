@@ -23,13 +23,33 @@ export interface DmReplyTo {
   images?: string[];
 }
 
+/**
+ * The line a call left in the conversation. Mirrors the API's DmCallInfo.
+ *
+ * It carries what happened, never a sentence: the same record reads as "você
+ * ligou" on one side and "chamada perdida" on the other, and a stored
+ * sentence would freeze both the language and the point of view (see
+ * DirectMessagesModal's call row).
+ */
+export interface DmCallInfo {
+  callId: string;
+  roomHandle: string;
+  state: "ringing" | "ongoing" | "ended" | "missed" | "declined" | "cancelled";
+  startedAt?: number;
+  endedAt?: number;
+  /** How long they talked, on an answered call that has ended. */
+  durationMs?: number;
+}
+
 export interface DirectMessage {
   id: string;
   from: string;
   to: string;
   text: string;
   /** Absent reads as "text" — see the API's dmModels. */
-  kind?: "text" | "gif" | "image";
+  kind?: "text" | "gif" | "image" | "call";
+  /** What the call did, when `kind` is "call". Nothing else carries it. */
+  call?: DmCallInfo;
   url?: string;
   images?: string[];
   /** Videos, audio and documents — see lib/chatAttachments. Absent when there are none. */

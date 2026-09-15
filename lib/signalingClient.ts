@@ -403,7 +403,16 @@ export type DirectMessageWire = {
   from: string;
   to: string;
   text: string;
-  kind?: "text" | "gif" | "image";
+  kind?: "text" | "gif" | "image" | "call";
+  /** See lib/dmApi's DmCallInfo — a call's own line in the conversation. */
+  call?: {
+    callId: string;
+    roomHandle: string;
+    state: "ringing" | "ongoing" | "ended" | "missed" | "declined" | "cancelled";
+    startedAt?: number;
+    endedAt?: number;
+    durationMs?: number;
+  };
   url?: string;
   images?: string[];
   replyTo?: {
@@ -808,7 +817,7 @@ type SignalListener = (from: string, data: Record<string, unknown>) => void;
  * each by its `type`.
  */
 export type GroupSocketEvent = { type: string; groupId?: string } & Record<string, unknown>;
-/** "dm-typing", "dm-seen", "dm-reactions", "dm-edited", "dm-deleted", "dm-settings" and a copy of every "dm" — see onDmEvent. */
+/** "dm-typing", "dm-seen", "dm-reactions", "dm-edited", "dm-call", "dm-deleted", "dm-settings" and a copy of every "dm" — see onDmEvent. */
 export type DmSocketEvent = { type: string } & Record<string, unknown>;
 
 const NAME_STORAGE_KEY = "sharescreen:name";
@@ -2153,6 +2162,9 @@ class SignalingClient {
       case "dm-seen":
       case "dm-reactions":
       case "dm-edited":
+      // How a call went, as its line in the conversation changes — see the
+      // API's callMessages and lib/dmLive.
+      case "dm-call":
       case "dm-deleted":
       case "dm-settings":
         this.emitDmEvent(msg as DmSocketEvent);

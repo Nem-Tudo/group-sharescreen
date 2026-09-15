@@ -2,7 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import { signalingClient, type DmSocketEvent } from "./signalingClient";
-import { fetchDmSettings, saveDmSettings, type DirectMessage, type DmReaction } from "./dmApi";
+import { fetchDmSettings, saveDmSettings, type DirectMessage, type DmCallInfo, type DmReaction } from "./dmApi";
 import type { DmChange } from "./dmThread";
 import { TYPING_REFRESH_MS } from "./typing";
 
@@ -29,6 +29,8 @@ export const DM_TYPING_EXPIRE_MS = TYPING_REFRESH_MS + 3000;
 const MAX_REACTION_UPDATES = 400;
 /** Edits and deletions heard live, the same. */
 const MAX_CHANGES = 400;
+/** Calls whose line changed while it was on screen. A conversation has few. */
+const MAX_CALL_UPDATES = 100;
 
 export type DmReactionUpdate = {
   reactions: DmReaction[];
@@ -46,6 +48,14 @@ export type DmLiveState = {
   /** Messages edited or deleted since they were read, by id — see dmThread's withChanges. */
   changes: Readonly<Record<string, DmChange>>;
   /**
+   * How each call line stands now, by message id.
+   *
+   * A call's line changes while it is on screen — ringing, answered, over —
+   * and the page it was read in says whatever it said when it was read (see
+   * the API's callMessages). This is what the thread draws over it.
+   */
+  calls: Readonly<Record<string, DmCallInfo>>;
+  /**
    * How many deletions have been heard. The conversation list re-reads on it:
    * a row whose newest line went needs the server to say what is newest now.
    */
@@ -54,7 +64,15 @@ export type DmLiveState = {
   readReceipts: { accountId: string; value: boolean } | null;
 };
 
-let state: DmLiveState = { typing: {}, seen: {}, reactions: {}, changes: {}, deletions: 0, readReceipts: null };
+let state: DmLiveState = {
+  typing: {},
+  seen: {},
+  reactions: {},
+  changes: {},
+  calls: {},
+  deletions: 0,
+  readReceipts: null,
+};
 const listeners = new Set<() => void>();
 const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let wired = false;
@@ -110,6 +128,16 @@ export function noteDmChange(messageId: string, change: DmChange | null): void {
   set({ changes: next, ...(change?.deleted ? { deletions: state.deletions + 1 } : {}) });
 }
 
+/** How a call stands now — the server's word, for a line already on screen. */
+export function noteDmCall(messageId: string, call: DmCallInfo): void {
+  const next: Record<string, DmCallInfo> = { ...state.calls };
+  delete next[messageId];
+  next[messageId] = call;
+  const ids = Object.keys(next);
+  for (let i = 0; i < ids.length - MAX_CALL_UPDATES; i += 1) delete next[ids[i]];
+  set({ calls: next });
+}
+
 /** An edit this tab made, drawn before the server answers — stamped now, or when the server said. */
 export function noteDmEdit(messageId: string, text: string, editedAt?: number): void {
   noteDmChange(messageId, { text, editedAt: editedAt ?? Date.now() });
@@ -150,6 +178,12 @@ function handle(event: DmSocketEvent) {
       noteDmChange(message.id, { text: message.text, editedAt: message.editedAt });
       return;
     }
+    case "dm-call": {
+      const message = event.message as Partial<DirectMessage> | undefined;
+      if (typeof message?.id !== "string" || !message.call) return;
+      noteDmCall(message.id, message.call);
+      return;
+    }
     case "dm-deleted": {
       if (typeof event.messageId !== "string") return;
       noteDmChange(event.messageId, { deleted: true });
@@ -177,7 +211,15 @@ function subscribe(onChange: () => void) {
   };
 }
 
-const SERVER_STATE: DmLiveState = { typing: {}, seen: {}, reactions: {}, changes: {}, deletions: 0, readReceipts: null };
+const SERVER_STATE: DmLiveState = {
+  typing: {},
+  seen: {},
+  reactions: {},
+  changes: {},
+  calls: {},
+  deletions: 0,
+  readReceipts: null,
+};
 
 export function useDmLive(): DmLiveState {
   return useSyncExternalStore(subscribe, () => state, () => SERVER_STATE);

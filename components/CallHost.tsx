@@ -7,7 +7,18 @@ import { useAuth } from "@/lib/AuthContext";
 import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
 import { selectCallNudge } from "@/lib/signalingSelectors";
 import { signalingClient } from "@/lib/signalingClient";
-import { acceptCall, endCall, fetchPendingCalls, isOwnCall, markOwnCall } from "@/lib/callsApi";
+import {
+  acceptCall,
+  callPeerFor,
+  endCall,
+  fetchPendingCalls,
+  isOwnCall,
+  markOwnCall,
+  rememberCallPeer,
+} from "@/lib/callsApi";
+import { setCallSession } from "@/lib/callSession";
+import { dmPath } from "@/lib/groupLinks";
+import { useGroupNavigation } from "@/lib/groupNavigation";
 import { showNotification } from "@/lib/notifications";
 import { upsertNotification } from "@/lib/notificationInbox";
 import { getDesktopBridge } from "@/lib/desktop";
@@ -70,6 +81,32 @@ export function CallHost() {
   const t = useT();
   const { account } = useAuth();
   const router = useRouter();
+  // Shallow while the group pages are the ones on screen — a direct call lands
+  // in the private messages, which are one of them (see lib/groupNavigation).
+  const navigation = useGroupNavigation();
+  // Walking into the room a call turned into.
+  //
+  // A direct call is not a place of its own: it belongs to the conversation
+  // the two of them have, and is drawn there, on that person's thread, the way
+  // a group's call is drawn in the group (see lib/callSession's `dm` and
+  // components/DirectMessagesModal). So the session is opened here and the
+  // address that follows is the conversation's.
+  //
+  // Anything else — an invitation into a room that already existed ("chamar
+  // para esta sala"), or a call this tab never saw ring and so cannot name the
+  // other end of — is the room page it always was.
+  const enterRoom = useCallback(
+    (roomHandle: string) => {
+      const peer = isCallRoomHandle(roomHandle) ? callPeerFor(roomHandle) : null;
+      if (!peer) {
+        router.push(`/watch/${roomHandle}`);
+        return;
+      }
+      setCallSession({ handle: roomHandle, viewThemeId: null, group: null, dm: peer });
+      navigation.push(dmPath(peer.userId));
+    },
+    [navigation, router]
+  );
   const {
     incomingCalls,
     outgoingCall,
@@ -312,8 +349,8 @@ export function CallHost() {
     // the room — answering on one tab put the person in the call on all of
     // them. The rest just stop ringing, which the line above already did.
     if (!isOwnCall(callAccepted.callId)) return;
-    router.push(`/watch/${callAccepted.roomHandle}`);
-  }, [callAccepted, callAcceptedSeq, router]);
+    enterRoom(callAccepted.roomHandle);
+  }, [callAccepted, callAcceptedSeq, enterRoom]);
 
   // A notice is a passing remark, not a state: it takes itself down so there
   // is never a stale "ninguém atendeu" sitting over the next call. The
@@ -348,11 +385,17 @@ export function CallHost() {
       return;
     }
     signalingClient.clearCall(incomingCall.id);
+    // Whose conversation this call belongs to — the person who rang.
+    rememberCallPeer(result.roomHandle, {
+      userId: incomingCall.from.id,
+      displayName: incomingCall.from.displayName,
+      avatarUrl: incomingCall.from.avatarUrl,
+    });
     // Navigated here as well as from the socket message above: on a cold start
     // the socket may not even be connected yet, and the person who pressed
     // "atender" must not be left looking at a button that did nothing.
-    router.push(`/watch/${result.roomHandle}`);
-  }, [busy, incomingCall, router]);
+    enterRoom(result.roomHandle);
+  }, [busy, incomingCall, enterRoom]);
 
   const onDecline = useCallback(
     (reason?: string) => {
