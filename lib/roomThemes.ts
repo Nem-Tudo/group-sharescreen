@@ -966,8 +966,18 @@ async function saveRequest(url: string, method: string, input: SaveThemeInput) {
     headers: { ...authHeaders(), "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  const data = (await res.json().catch(() => ({}))) as { theme?: RoomTheme; error?: string };
+  const data = (await res.json().catch(() => ({}))) as {
+    theme?: RoomTheme;
+    error?: string;
+    reason?: string;
+    limit?: number;
+  };
   if (!res.ok || !data.theme) {
+    // The one refusal said in the reader's language: it is the one somebody
+    // hits in the normal course of using the feature, and its number matters.
+    if (data.reason === "theme_publish_limit" && typeof data.limit === "number") {
+      return { ok: false as const, error: translate("roomThemes.publishLimitReached", { limit: data.limit }) };
+    }
     return { ok: false as const, error: data.error ?? translate("roomThemes.couldNotSaveTheTheme") };
   }
   return { ok: true as const, theme: data.theme };

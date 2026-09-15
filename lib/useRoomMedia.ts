@@ -8,7 +8,7 @@ import { useAuth } from "./AuthContext";
 import { trackEvent } from "./analytics";
 import { iceConfigFor } from "./iceConfig";
 import { ensureIceServers } from "./iceServers";
-import { watchCloudflareRelay } from "./turnRoute";
+import { watchTurnRelay } from "./turnRoute";
 import {
   captureNoiseSuppressedMic,
   setGraphSuppressionEnabled,
@@ -65,6 +65,7 @@ import {
 import {
   PeerQualityRegistry,
   contentHintForDegradation,
+  setRelayCapExempt,
   type DegradationMode,
 } from "./peerQualityController";
 import { qualityNegotiator, type QualityChannel } from "./qualityNegotiation";
@@ -118,7 +119,7 @@ type SignalData = {
   // "diag-request" / "diag" carry the sender's half of a connection report to
   // a viewer with the stats panel open (see connectionDiagLink.ts).
   // "route" is a viewer telling us their end of our connection to them is (or
-  // no longer is) relayed through Cloudflare's TURN — see lib/turnRoute.ts. An
+  // no longer is) relayed through a TURN server — see lib/turnRoute.ts. An
   // older broadcaster ignores it, like any kind it does not know.
   kind?:
     | "offer"
@@ -138,6 +139,7 @@ type SignalData = {
   // Present only on "diag". Shape-checked by connectionDiagLink before use.
   diag?: unknown;
   // Present only on "route".
+  // Named for when only Cloudflare's relay was capped; now means any TURN relay.
   cloudflare?: boolean;
   sdp?: RTCSessionDescriptionInit;
   // Set on an offer that renegotiates an *existing* connection with fresh ICE
@@ -1819,11 +1821,11 @@ function useBroadcastChannel(
           viaRelay: originId !== peerId,
           pc,
         });
-        // Our end relaying through Cloudflare is invisible to whoever sends to
+        // Our end relaying through TURN is invisible to whoever sends to
         // us, and they are the one who decides what is encoded — so say so.
         // To the peer sending (a relay, for relayed traffic), not the origin.
-        // No cleanup needed: see watchCloudflareRelay.
-        watchCloudflareRelay(pc, (via) => {
+        // No cleanup needed: see watchTurnRelay.
+        watchTurnRelay(pc, (via) => {
           signalingClient.sendSignal(peerId, { channel, role: "viewer", kind: "route", cloudflare: via });
         });
       }
@@ -2201,12 +2203,12 @@ function useBroadcastChannel(
           qualityRegistry.current.get(from)?.setTier(tierForPeer(from));
         } else if (data.kind === "route") {
           // This viewer's end of our connection to them is relayed through
-          // Cloudflare's TURN (or stopped being). Caps only what is encoded
+          // a TURN server (or stopped being). Caps only what is encoded
           // for them — see lib/turnRoute.ts. Either registry: they are our
           // own viewer, or a child of a relay we are running.
           const via = data.cloudflare === true;
-          qualityRegistry.current.setRemoteCloudflareRoute(from, via);
-          relays.current.findByChild(from)?.setRemoteCloudflareRoute(from, via);
+          qualityRegistry.current.setRemoteRelayRoute(from, via);
+          relays.current.findByChild(from)?.setRemoteRelayRoute(from, via);
         } else if (data.kind === "stop") {
           // This peer (as a viewer of OUR stream) asked us to stop sending —
           // free the upload-side connection and remember not to reopen it on
@@ -2687,6 +2689,13 @@ export function useRoomMedia(room: string) {
   useEffect(() => {
     setForceRelayAllowed(forceRelayAllowed);
   }, [forceRelayAllowed]);
+  // Pro Ultra: connections relayed through TURN are not capped (see
+  // lib/turnRoute.ts). Unlike force_relay, a resolving account is not trusted
+  // here — the cap is the safe default.
+  const relayCapExempt = hasFeature("uncapped_relay", account?.features ?? []);
+  useEffect(() => {
+    setRelayCapExempt(relayCapExempt);
+  }, [relayCapExempt]);
   const toggleForceRelayIce = useCallback(() => {
     setForceRelayIceState((prev: boolean) => {
       const next = !prev;

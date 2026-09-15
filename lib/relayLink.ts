@@ -493,9 +493,9 @@ export class RelayLink {
     this.closeChild(peerId, "requested");
   }
 
-  /** The child's end of our connection to them is relayed through Cloudflare — see lib/turnRoute.ts. */
-  setRemoteCloudflareRoute(peerId: string, via: boolean) {
-    this.quality.setRemoteCloudflareRoute(peerId, via);
+  /** The child's end of our connection to them is relayed through TURN — see lib/turnRoute.ts. */
+  setRemoteRelayRoute(peerId: string, via: boolean) {
+    this.quality.setRemoteRelayRoute(peerId, via);
   }
 
   // Watches the *incoming* stream. A relay whose own source died is worse

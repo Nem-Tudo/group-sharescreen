@@ -39,7 +39,7 @@ import {
   tierSpec,
   type QualityTier,
 } from "./videoQuality";
-import { CLOUDFLARE_ROUTE_CAP, watchCloudflareRelay } from "./turnRoute";
+import { RELAY_ROUTE_CAP, RELAY_ROUTE_MAX_KBPS, watchTurnRelay } from "./turnRoute";
 
 // What the broadcaster says they are sharing, which decides how the encoder
 // spends a shortage — of bits, of CPU, or both.
@@ -117,6 +117,18 @@ const APPLY_RETRIES = 3;
 const SCALE_HARD = 0.35;
 const SCALE_SOFT = 0.55;
 
+// Every live controller, so the account's "uncapped_relay" feature (Pro Ultra)
+// can lift or restore the relay cap on shares already running.
+const liveControllers = new Set<PeerQualityController>();
+let relayCapExempt = false;
+
+/** Whether this account's relayed connections skip the relay cap. Set by useRoomMedia. */
+export function setRelayCapExempt(exempt: boolean) {
+  if (relayCapExempt === exempt) return;
+  relayCapExempt = exempt;
+  for (const c of liveControllers) c.refreshRouteCap();
+}
+
 export class PeerQualityController {
   private congestion = initialCongestionState();
   private appliedKbps = 0;
@@ -137,12 +149,12 @@ export class PeerQualityController {
   private retriesLeft = APPLY_RETRIES;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
-  // Whether this connection is relayed through Cloudflare's TURN — by our end
+  // Whether this connection is relayed through a TURN server — by our end
   // (seen here, see PeerQualityRegistry.add) or by the viewer's (which only
   // they can see, and report). Either one caps what is encoded; see
   // lib/turnRoute.ts.
-  private cloudflareLocal = false;
-  private cloudflareRemote = false;
+  private relayLocal = false;
+  private relayRemote = false;
 
   constructor(
     readonly peerId: string,
@@ -158,7 +170,9 @@ export class PeerQualityController {
     // viewer may be given; the tier decides how much of it is actually used.
     private bitrateCeilingKbps: number,
     private degradation: DegradationMode
-  ) {}
+  ) {
+    liveControllers.add(this);
+  }
 
   /**
    * Assign a new tier (tile resized, topology changed, dial moved).
@@ -173,27 +187,39 @@ export class PeerQualityController {
 
   /**
    * Marks this connection as relayed, or no longer relayed, through
-   * Cloudflare's TURN on one side. See lib/turnRoute.ts.
+   * a TURN server on one side. See lib/turnRoute.ts.
    */
-  setCloudflareRoute(side: "local" | "remote", via: boolean) {
+  setRelayRoute(side: "local" | "remote", via: boolean) {
     if (side === "local") {
-      if (this.cloudflareLocal === via) return;
-      this.cloudflareLocal = via;
+      if (this.relayLocal === via) return;
+      this.relayLocal = via;
     } else {
-      if (this.cloudflareRemote === via) return;
-      this.cloudflareRemote = via;
+      if (this.relayRemote === via) return;
+      this.relayRemote = via;
     }
     mediaStats.setTier(this.statsKey, this.sentTier());
     this.apply();
   }
 
+  /** Re-applies after the relay-cap exemption changed. */
+  refreshRouteCap() {
+    mediaStats.setTier(this.statsKey, this.sentTier());
+    this.apply();
+  }
+
+  // Whether the relay cap applies: relayed on either side, and the account
+  // is not exempt (Pro Ultra).
+  private routeCapped(): boolean {
+    return (this.relayLocal || this.relayRemote) && !relayCapExempt;
+  }
+
   // What is actually encoded: the assigned tier, capped while the connection
-  // is relayed through Cloudflare. Only this send path sees the cap — getTier
+  // is relayed through TURN. Only this send path sees the cap — getTier
   // still answers the assigned tier, so the planner, the dials and everything
   // on screen carry on as if the connection were direct.
   private sentTier(): QualityTier {
-    return this.cloudflareLocal || this.cloudflareRemote
-      ? capTier(this.tier, CLOUDFLARE_ROUTE_CAP)
+    return this.routeCapped()
+      ? capTier(this.tier, RELAY_ROUTE_CAP)
       : this.tier;
   }
 
@@ -248,7 +274,9 @@ export class PeerQualityController {
     // controls.
     const tier = this.sentTier();
     const tierKbps = tierSpec(tier).baseKbps;
-    const ceilingKbps = encoderCeilingKbps(tier, this.bitrateCeilingKbps);
+    const ceilingKbps = this.routeCapped()
+      ? Math.min(encoderCeilingKbps(tier, this.bitrateCeilingKbps), RELAY_ROUTE_MAX_KBPS)
+      : encoderCeilingKbps(tier, this.bitrateCeilingKbps);
     const targetKbps = congestedBitrateKbps(ceilingKbps, this.congestion.ratio);
     const tierScale = scaleFactorFor(tier, this.captureHeight);
     const share = tierKbps > 0 ? targetKbps / tierKbps : 1;
@@ -351,6 +379,7 @@ export class PeerQualityController {
 
   dispose() {
     this.disposed = true;
+    liveControllers.delete(this);
     if (this.retryTimer) clearTimeout(this.retryTimer);
     this.retryTimer = null;
   }
@@ -362,7 +391,7 @@ export class PeerQualityController {
  */
 export class PeerQualityRegistry {
   private controllers = new Map<string, PeerQualityController>();
-  // Each controller's Cloudflare-route watch (see lib/turnRoute.ts), stopped
+  // Each controller's TURN-route watch (see lib/turnRoute.ts), stopped
   // with it.
   private routeWatches = new Map<string, () => void>();
   private unsubscribeSender: (() => void) | null = null;
@@ -425,11 +454,11 @@ export class PeerQualityRegistry {
     this.controllers.set(peerId, controller);
     mediaStats.register(key, pc, sender, tier);
     controller.apply();
-    // Our own end relaying through Cloudflare. The viewer's end is theirs to
-    // see — see setRemoteCloudflareRoute.
+    // Our own end relaying through TURN. The viewer's end is theirs to
+    // see — see setRemoteRelayRoute.
     this.routeWatches.set(
       peerId,
-      watchCloudflareRelay(pc, (via) => controller.setCloudflareRoute("local", via))
+      watchTurnRelay(pc, (via) => controller.setRelayRoute("local", via))
     );
     this.start();
     return controller;
@@ -441,12 +470,12 @@ export class PeerQualityRegistry {
 
   /**
    * The viewer reported that their end of our connection to them is (or no
-   * longer is) relayed through Cloudflare — the "route" signal. Dropped when
+   * longer is) relayed through TURN — the "route" signal. Dropped when
    * there is no connection to them: the report is about one connection, and
    * a new one is checked and reported afresh.
    */
-  setRemoteCloudflareRoute(peerId: string, via: boolean) {
-    this.controllers.get(peerId)?.setCloudflareRoute("remote", via);
+  setRemoteRelayRoute(peerId: string, via: boolean) {
+    this.controllers.get(peerId)?.setRelayRoute("remote", via);
   }
 
   remove(peerId: string) {
