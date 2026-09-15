@@ -5,7 +5,6 @@ on:
     branches:
       - main
 
-# Impede dois deploys acontecendo ao mesmo tempo.
 concurrency:
   group: frontend-production
   cancel-in-progress: false
@@ -18,11 +17,15 @@ jobs:
     timeout-minutes: 20
 
     steps:
+      # Baixa o código do GitHub para o runner
+      - name: Checkout
+        uses: actions/checkout@v4
+
       # ============================================================
       # APP 1
       # ============================================================
 
-      - name: Pegar status atual da APP 1
+      - name: Verificar status da APP 1
         id: app1_before
         env:
           SQUARE_TOKEN: ${{ secrets.SQUARE_TOKEN }}
@@ -56,7 +59,7 @@ jobs:
         run: |
           set -e
 
-          echo "Esperando a APP 1 reiniciar..."
+          echo "Esperando APP 1 reiniciar..."
 
           for i in {1..60}; do
             response=$(curl -fsS \
@@ -68,7 +71,6 @@ jobs:
 
             echo "Tentativa $i/60 - running=$running uptime=$uptime"
 
-            # O uptime mudou = a aplicação reiniciou.
             if [ "$running" = "true" ] && [ "$uptime" != "$OLD_UPTIME" ]; then
               echo "APP 1 reiniciou com sucesso."
               exit 0
@@ -77,14 +79,14 @@ jobs:
             sleep 5
           done
 
-          echo "ERRO: APP 1 não reiniciou dentro do tempo esperado."
+          echo "APP 1 não reiniciou dentro do tempo esperado."
           exit 1
 
       # ============================================================
       # APP 2
       # ============================================================
 
-      - name: Pegar status atual da APP 2
+      - name: Verificar status da APP 2
         id: app2_before
         env:
           SQUARE_TOKEN: ${{ secrets.SQUARE_TOKEN }}
@@ -118,7 +120,7 @@ jobs:
         run: |
           set -e
 
-          echo "Esperando a APP 2 reiniciar..."
+          echo "Esperando APP 2 reiniciar..."
 
           for i in {1..60}; do
             response=$(curl -fsS \
@@ -138,13 +140,13 @@ jobs:
             sleep 5
           done
 
-          echo "ERRO: APP 2 não reiniciou dentro do tempo esperado."
+          echo "APP 2 não reiniciou dentro do tempo esperado."
           exit 1
 
       - name: Deploy concluído
         run: |
           echo "======================================"
-          echo " Deploy concluído com sucesso!"
-          echo " APP 1: atualizada"
-          echo " APP 2: atualizada"
+          echo "Deploy concluído com sucesso!"
+          echo "APP 1: atualizada"
+          echo "APP 2: atualizada"
           echo "======================================"
