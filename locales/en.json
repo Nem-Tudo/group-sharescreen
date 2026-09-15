@@ -3079,5 +3079,12 @@
   "botDirectory.createYourOwn": "Make your own bot",
   "botDirectory.openBotsPage": "Open bots page",
   "botDirectory.pageTitle": "Bots",
-  "botDirectory.pageSubtitle": "Bots made by the community for your groups. Find one and add it to a group you manage."
+  "botDirectory.pageSubtitle": "Bots made by the community for your groups. Find one and add it to a group you manage.",
+  "mobileScreenShareModal.title": "Mobile Screen Sharing",
+  "mobileScreenShareModal.appOnly": "To share your screen on mobile, you need to use the GoLive app.",
+  "mobileScreenShareModal.browserLimitation": "Screen sharing is not supported by mobile browsers.",
+  "mobileScreenShareModal.betaNotice": "App is in BETA",
+  "mobileScreenShareModal.discordInstructions": "The mobile app is currently in closed BETA. To download the app and test it, open a ticket on our Discord requesting access.",
+  "mobileScreenShareModal.openTicketOnDiscord": "Open Ticket on Discord",
+  "mobileScreenShareModal.understood": "Got it"
 }
