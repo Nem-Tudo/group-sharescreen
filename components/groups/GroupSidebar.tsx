@@ -48,7 +48,7 @@ import {
   type GroupNotifyLevel,
   type GroupVoiceParticipant,
 } from "@/lib/groupsApi";
-import { groupPath } from "@/lib/groupLinks";
+import { groupPath, groupVoiceHandle } from "@/lib/groupLinks";
 import { useGroupNavigation } from "@/lib/groupNavigation";
 import { canInChannel, canManage, managesAnything, roleColorOf } from "@/lib/groupPermissions";
 import { prefetchChannel } from "@/lib/groupCache";
@@ -71,6 +71,7 @@ import { GroupName } from "@/components/groups/GroupName";
 import { clickPerson, contextPerson } from "@/components/groups/groupProfile";
 import { useOpenChannelSettings } from "@/components/groups/ChannelSettingsDialog";
 import {
+  requestGroupVoiceFocus,
   setGroupVoiceSession,
   useGroupVoiceControls,
   useGroupVoiceLive,
@@ -172,11 +173,23 @@ function fromServerPresence(person: GroupVoiceParticipant): GroupVoiceLivePerson
 const VoicePersonRow = memo(function VoicePersonRow({
   person,
   color = null,
+  groupId,
+  channelId = null,
+  onNavigate,
 }: {
   person: GroupVoiceLivePerson;
   color?: string | null;
+  groupId: string;
+  /**
+   * The room they are in, when this viewer may go in — what makes their
+   * "ao vivo" badge a way to watch them. Null in a room without "Conectar",
+   * where the badge only says so.
+   */
+  channelId?: string | null;
+  onNavigate?: () => void;
 }) {
   const t = useT();
+  const navigation = useGroupNavigation();
   const speaking = useSpeaking(person.micStream);
   // Only for somebody else in the room you are in (see
   // GroupVoiceLivePerson.audio) — and only once the call has published how to
@@ -218,7 +231,7 @@ const VoicePersonRow = memo(function VoicePersonRow({
         >
           {person.name}
         </span>
-        {person.screen && (
+        {person.screen && !channelId && (
           <span className="shrink-0 rounded bg-red-600 px-1 py-px text-[9px] font-bold uppercase text-white">
             {t("groups.groupSidebar.live")}
           </span>
@@ -237,6 +250,26 @@ const VoicePersonRow = memo(function VoicePersonRow({
           <MdHeadsetOff className="h-3.5 w-3.5 shrink-0 opacity-60" title={t("groups.groupSidebar.deafened")} aria-label={t("groups.groupSidebar.deafened")} />
         )}
       </button>
+      {/* Its own button beside the profile one, not inside it (a button in a
+          button is not something a browser will build): opens their room with
+          their transmission on the stage — the room decides which tile that
+          is, see WatchRoom's focusRequest. The request goes in before the
+          navigation, so a room that mounts on arrival already finds it. */}
+      {person.screen && channelId && (
+        <button
+          type="button"
+          onClick={() => {
+            requestGroupVoiceFocus(groupVoiceHandle(channelId), person.userId);
+            onNavigate?.();
+            navigation.push(groupPath(groupId, channelId));
+          }}
+          title={t("groups.groupSidebar.watchLive", { name: person.name })}
+          aria-label={t("groups.groupSidebar.watchLive", { name: person.name })}
+          className="shrink-0 cursor-pointer rounded bg-red-600 px-1 py-px text-[9px] font-bold uppercase text-white transition hover:bg-red-700"
+        >
+          {t("groups.groupSidebar.live")}
+        </button>
+      )}
       {/* This listener's own dial for them — the same control, and the same
           saved value, as the participant list's (see ParticipantRow). */}
       {audio && controls && (
@@ -854,7 +887,14 @@ export function GroupRoomsPanel({
         {people.length > 0 && (
           <ul className="flex flex-col gap-0.5 pb-1 pl-5">
             {people.map((person) => (
-              <VoicePersonRow key={person.userId} person={person} color={roleColorOf(detail, { id: person.userId })} />
+              <VoicePersonRow
+                key={person.userId}
+                person={person}
+                color={roleColorOf(detail, { id: person.userId })}
+                groupId={group.id}
+                channelId={locked ? null : channel.id}
+                onNavigate={onNavigate}
+              />
             ))}
           </ul>
         )}

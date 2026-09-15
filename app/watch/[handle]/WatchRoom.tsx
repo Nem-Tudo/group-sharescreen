@@ -40,6 +40,7 @@ import {
   setGroupVoiceColumns,
   setGroupVoiceControls,
   setGroupVoiceLive,
+  useGroupVoiceFocusRequest,
   type GroupVoiceLive,
   type GroupVoiceLivePerson,
 } from "@/lib/groupVoiceSession";
@@ -991,6 +992,16 @@ const SELF_TILE_OWNER = "self";
 function tileId(kind: TileKind, ownerId: string): string {
   return `${kind}:${ownerId}`;
 }
+
+// How long a focus request from the rooms list waits for the transmission it
+// prefers before taking what is there. Someone sharing screen and camera
+// announces both at once, but the two streams connect separately, and the
+// camera arriving first should not win the stage just by being quicker.
+const FOCUS_REQUEST_SETTLE_MS = 5000;
+
+// The order a focus request picks a person's tiles in when they have several:
+// the screen first, then a file they are playing, then the camera.
+const FOCUS_KIND_ORDER = ["screen", "file", "camera"] as const;
 
 // Null for anything this doesn't recognise — an id left over from an older
 // scheme, say — which every caller treats as "that tile is gone", the same
@@ -2335,6 +2346,33 @@ export function WatchRoom({
     setGroupVoiceLive(groupVoiceLive);
   }, [groupVoiceLive]);
   useEffect(() => () => setGroupVoiceLive(null), []);
+
+  // The rooms list's "ao vivo" badge: put that person's transmission on the
+  // stage (see lib/groupVoiceSession's requestGroupVoiceFocus). Their tile
+  // usually does not exist yet when the request lands — the room is still
+  // joining, or the stream still connecting — so it stays pending until it
+  // does, and is resolved against the tiles further down (see pendingFocus
+  // there). `handled` is which request that already happened for, so each
+  // click focuses once and the viewer is free to focus something else after.
+  const focusRequest = useGroupVoiceFocusRequest();
+  const [handledFocusRequestId, setHandledFocusRequestId] = useState(0);
+  // Which request has waited long enough to settle for whatever of that person
+  // is on screen, rather than for the transmission it prefers (the screen over
+  // the camera) — see FOCUS_REQUEST_SETTLE_MS.
+  const [settledFocusRequestId, setSettledFocusRequestId] = useState(0);
+  const pendingFocus =
+    joinedGroupRoom &&
+    focusRequest &&
+    focusRequest.handle === handle &&
+    focusRequest.id !== handledFocusRequestId
+      ? focusRequest
+      : null;
+  const pendingFocusId = pendingFocus?.id ?? null;
+  useEffect(() => {
+    if (pendingFocusId === null) return;
+    const timer = setTimeout(() => setSettledFocusRequestId(pendingFocusId), FOCUS_REQUEST_SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [pendingFocusId]);
 
   // Whether the tile an id points at still has anything to show. The one
   // place that knows how each kind of tile answers that — used both by the
@@ -4259,6 +4297,58 @@ export function WatchRoom({
       id: tileId("file", `${slot}:${peer.id}`),
       render: (fill) => <ResumingPeerTile fill={fill} />,
     });
+  }
+
+  // The rooms list's focus request (see focusRequest up top), resolved now
+  // that every tile is known. Adjusted during render, React's pattern for
+  // state that follows from other state: the handled id changes with it, so
+  // it runs once per request, and the next render already draws the stage.
+  if (pendingFocus) {
+    // Every tile that is this person: our own when it is us, and each device
+    // they are in the room on, in FOCUS_KIND_ORDER.
+    const devices = state.peers.filter((p) => (p.userId ?? p.id) === pendingFocus.userId);
+    const owners = [
+      ...(pendingFocus.userId === state.selfUserId ? [SELF_TILE_OWNER] : []),
+      ...devices.map((p) => p.id),
+    ];
+    const candidates = FOCUS_KIND_ORDER.flatMap((kind) =>
+      owners.flatMap((owner): { kind: (typeof FOCUS_KIND_ORDER)[number]; id: string }[] =>
+        kind === "file"
+          ? LOCAL_MEDIA_SLOTS.map((slot) => ({ kind, id: tileId("file", `${slot}:${owner}`) }))
+          : [{ kind, id: tileId(kind, owner) }]
+      )
+    );
+    if (activeHyperfocusId) {
+      // Hyperfocus hides every other tile and outranks "Focar", so it has to
+      // go first — unless it is already on this very person.
+      if (candidates.some((c) => c.id === activeHyperfocusId)) setHandledFocusRequestId(pendingFocus.id);
+      else setHyperfocusId(null);
+    } else {
+      // What they say they are transmitting, which is known before the
+      // streams arrive: the tile worth waiting for. Our own tiles need no
+      // waiting, they are local.
+      const announces = (kind: (typeof FOCUS_KIND_ORDER)[number]) =>
+        devices.some((p) =>
+          kind === "screen"
+            ? p.screen === true ||
+              (p.screen == null && p.sharing && p.camera !== true && !(p.files?.length ?? 0))
+            : kind === "file"
+              ? (p.files ?? []).some((f) => f.mode !== "music")
+              : p.camera === true
+        );
+      const preferred = FOCUS_KIND_ORDER.findIndex(announces);
+      const tileIds = new Set(tiles.map((tile) => tile.id));
+      const best = candidates.find((c) => tileIds.has(c.id));
+      if (
+        best &&
+        (preferred < 0 ||
+          FOCUS_KIND_ORDER.indexOf(best.kind) <= preferred ||
+          settledFocusRequestId === pendingFocus.id)
+      ) {
+        setSpotlightId(best.id);
+        setHandledFocusRequestId(pendingFocus.id);
+      }
+    }
   }
 
   const realMediaTileCount = tiles.length;

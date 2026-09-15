@@ -209,6 +209,52 @@ export function useGroupVoiceColumns(): GroupVoiceColumns | null {
   return useSyncExternalStore(subscribe, getColumns, () => null);
 }
 
+/**
+ * "Show me what this person is transmitting": the "ao vivo" badge next to
+ * somebody in the rooms list opens their voice room with their transmission
+ * focused. The list and the room are not parent and child, and the room may
+ * not even be mounted yet (it mounts when the navigation lands), so the
+ * request waits here and the room picks it up once that person's tile exists
+ * (see WatchRoom's focusRequest). `id` tells one click from the next, even
+ * for the same person.
+ */
+export interface GroupVoiceFocusRequest {
+  id: number;
+  /** The room handle it is meant for — see groupVoiceHandle. */
+  handle: string;
+  userId: string;
+}
+
+// Long enough for joining a room and the transmission connecting; short
+// enough that a request nobody could honour does not fire, out of nowhere,
+// the next time that room is opened.
+const FOCUS_REQUEST_TTL_MS = 30_000;
+
+let focusRequest: GroupVoiceFocusRequest | null = null;
+let focusRequestCount = 0;
+let focusRequestTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function requestGroupVoiceFocus(handle: string, userId: string): void {
+  focusRequestCount += 1;
+  const request = { id: focusRequestCount, handle, userId };
+  focusRequest = request;
+  if (focusRequestTimer) clearTimeout(focusRequestTimer);
+  focusRequestTimer = setTimeout(() => {
+    if (focusRequest !== request) return;
+    focusRequest = null;
+    notify();
+  }, FOCUS_REQUEST_TTL_MS);
+  notify();
+}
+
+function getFocusRequest(): GroupVoiceFocusRequest | null {
+  return focusRequest;
+}
+
+export function useGroupVoiceFocusRequest(): GroupVoiceFocusRequest | null {
+  return useSyncExternalStore(subscribe, getFocusRequest, () => null);
+}
+
 /** Whether the room this tab is in right now is the active group voice room. */
 export function isActiveGroupVoiceRoom(room: string | null | undefined): boolean {
   return Boolean(room && session && session.handle === room);

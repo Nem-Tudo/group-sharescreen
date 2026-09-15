@@ -1663,6 +1663,7 @@
   "groups.groupSidebar.toComeBackYouWillNeed": "Para volver, necesitarás una nueva invitación.",
   "groups.groupSidebar.turnMicrophoneOff": "Apagar micrófono",
   "groups.groupSidebar.turnMicrophoneOn": "Encender micrófono",
+  "groups.groupSidebar.watchLive": "Ver la transmisión de {name}",
   "groups.groupSidebar.youAreHere": "Estás aquí",
   "groups.groupSidebar.youDoNotHavePermissionTo": "No tienes permiso para entrar en esta sala",
   "groups.groupSwitcher.allGroups": "Todos los grupos",
