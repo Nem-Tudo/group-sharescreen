@@ -10,12 +10,14 @@ import {
   useSyncExternalStore,
   type Dispatch,
   type FormEvent,
+  type MouseEvent as ReactMouseEvent,
   type ReactElement,
   type ReactNode,
   type Ref,
   type SetStateAction,
 } from "react";
 import { createPortal } from "react-dom";
+import { openContextMenu } from "@/lib/contextMenu";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -1410,6 +1412,23 @@ export function WatchRoom({
   // actually free up bandwidth/CPU, not just screen space. Mutually
   // exclusive with spotlightId.
   const [hyperfocusId, setHyperfocusId] = useState<string | null>(null);
+  // Our own screen and camera previews taken off the grid, for somebody who
+  // does not need to watch themselves share. Only the tiles: the share goes on
+  // for everybody else. Put back from the right-click menu on the video pane
+  // (see ownPreviewMenu). Remembered in this browser, like the side columns.
+  const [ownPreviewHidden, setOwnPreviewHidden] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem("sharescreen:ownPreviewHidden") === "true";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("sharescreen:ownPreviewHidden", String(ownPreviewHidden));
+    } catch {}
+  }, [ownPreviewHidden]);
   // "Adicionar fonte de vídeo" itself lives in the AddVideoSourceModal
   // popup (see handleAddVideoSource below) — nothing about that box's own
   // state belongs here.
@@ -3496,12 +3515,17 @@ export function WatchRoom({
   // "Except the chosen one" means exactly one tile now. Sharing your screen
   // and your camera at once used to keep both of them on screen, because both
   // answered to the same id.
+  // ...and our own previews only while they have not been hidden (see
+  // ownPreviewHidden). Hiding one clears any focus on it first, see
+  // hideOwnPreview.
   const localScreenVisible =
-    !hyperfocusTarget ||
-    (hyperfocusTarget.kind === "screen" && hyperfocusTarget.ownerId === SELF_TILE_OWNER);
+    !ownPreviewHidden &&
+    (!hyperfocusTarget ||
+      (hyperfocusTarget.kind === "screen" && hyperfocusTarget.ownerId === SELF_TILE_OWNER));
   const localCameraVisible =
-    !hyperfocusTarget ||
-    (hyperfocusTarget.kind === "camera" && hyperfocusTarget.ownerId === SELF_TILE_OWNER);
+    !ownPreviewHidden &&
+    (!hyperfocusTarget ||
+      (hyperfocusTarget.kind === "camera" && hyperfocusTarget.ownerId === SELF_TILE_OWNER));
   const visibleScreenEntries = hyperfocusTarget
     ? hyperfocusTarget.kind === "screen"
       ? remoteScreenEntries.filter(([peerId]) => peerId === hyperfocusTarget.ownerId)
@@ -3877,6 +3901,8 @@ export function WatchRoom({
           allowUnmute={false}
           fill={fill}
           compact={compact}
+          onStopWatching={hideOwnPreview}
+          stopWatchingLabel={translate("watch.watchRoom.hideMyBroadcast")}
           onDoubleClick={doubleClickFocus ? () => toggleSpotlight(id) : undefined}
           onFocus={() => toggleSpotlight(id)}
           isSpotlighted={spotlightId === id}
@@ -3915,6 +3941,8 @@ export function WatchRoom({
           allowUnmute={false}
           fill={fill}
           compact={compact}
+          onStopWatching={hideOwnPreview}
+          stopWatchingLabel={translate("watch.watchRoom.hideMyBroadcast")}
           onDoubleClick={doubleClickFocus ? () => toggleSpotlight(id) : undefined}
           onFocus={() => toggleSpotlight(id)}
           isSpotlighted={spotlightId === id}
@@ -4499,6 +4527,41 @@ export function WatchRoom({
 
   function toggleSpotlight(id: string) {
     setSpotlightId((prev) => (prev === id ? null : id));
+  }
+
+  // Takes our own previews off the grid. A focus or hyperfocus on one of them
+  // goes with it: a stage built around a tile that is no longer drawn is an
+  // empty box, and a hyperfocus on one would leave everybody else hidden with
+  // nothing on screen to undo it from.
+  const ownPreviewIds = [tileId("screen", SELF_TILE_OWNER), tileId("camera", SELF_TILE_OWNER)];
+  function hideOwnPreview() {
+    setOwnPreviewHidden(true);
+    if (spotlightId && ownPreviewIds.includes(spotlightId)) setSpotlightId(null);
+    if (hyperfocusId && ownPreviewIds.includes(hyperfocusId)) setHyperfocusId(null);
+  }
+  const hasOwnPreview = Boolean((isSharing && localStream) || localCameraStream);
+
+  // Right-click on the video pane: bring our own previews back, or hide them
+  // again. Not over a control (its own click is what that is for), and only
+  // while there is something of ours to show or hide.
+  function ownPreviewMenu(e: ReactMouseEvent<HTMLElement>) {
+    if (!hasOwnPreview) return;
+    if ((e.target as Element).closest("button, a, input, textarea, select, iframe, [data-tile-controls]")) return;
+    openContextMenu(e, {
+      entries: [
+        ownPreviewHidden
+          ? {
+              label: translate("watch.watchRoom.showMyBroadcast"),
+              icon: <EyeIcon className="h-4 w-4" />,
+              onSelect: () => setOwnPreviewHidden(false),
+            }
+          : {
+              label: translate("watch.watchRoom.hideMyBroadcast"),
+              icon: <EyeOffIcon className="h-4 w-4" />,
+              onSelect: hideOwnPreview,
+            },
+      ],
+    });
   }
 
   // Actually frees up the other transmissions' bandwidth/CPU instead of just
@@ -5820,6 +5883,15 @@ export function WatchRoom({
         <DockedPip
           sources={dockedPipSources}
           focusedId={activeHyperfocusId ?? (isFocusMode ? spotlightId : null)}
+          onOpen={(id) => {
+            // Already hyperfocused on it: that is more focus than asked for.
+            if (activeHyperfocusId === id) return;
+            // Hyperfocus on something else outranks "Focar" and would hide it.
+            if (hyperfocusId) setHyperfocusId(null);
+            // Our own preview may have been hidden from the grid.
+            if (ownPreviewIds.includes(id)) setOwnPreviewHidden(false);
+            setSpotlightId(id);
+          }}
         />
       )}
       {/* One bar, three zones from lg up: where you are on the left, what
@@ -6554,8 +6626,27 @@ export function WatchRoom({
             // Wrapped the same way the tile grid is: `main` doesn't scroll,
             // so the one thing in it that has a minimum height of its own
             // needs a box that can.
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            <div onContextMenu={ownPreviewMenu} className="min-h-0 flex-1 overflow-y-auto">
               <div className="flex h-full min-h-75 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-300 bg-white/50 px-4 text-center dark:border-zinc-800 dark:bg-zinc-950/40">
+                {/* Empty only because our own previews are hidden: saying nobody
+                    is broadcasting, and offering to start, would be wrong about
+                    the share that is going out right now. */}
+                {ownPreviewHidden && hasOwnPreview ? (
+                  <>
+                    <p className="text-zinc-600 dark:text-zinc-400">
+                      {translate("watch.watchRoom.yourBroadcastIsHidden")}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setOwnPreviewHidden(false)}
+                      className="mt-2 flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                    >
+                      <EyeIcon className="h-5 w-5" />
+                      {translate("watch.watchRoom.showMyBroadcast")}
+                    </button>
+                  </>
+                ) : (
+                <>
                 <p className="text-zinc-600 dark:text-zinc-400">
                   {translate("watch.watchRoom.nobodyIsBroadcastingYet")}
                 </p>
@@ -6624,6 +6715,8 @@ export function WatchRoom({
                     </div>
                   )}
                 </div>
+                </>
+                )}
               </div>
             </div>
           ) : (
@@ -6650,7 +6743,7 @@ export function WatchRoom({
               {/* Nothing scrolls the page: from lg up `main` is a
                   fixed-height pane, so whichever layout is on below scrolls
                   inside this box or not at all. */}
-              <div ref={videoPaneRef} className="min-h-0 flex-1 overflow-y-auto">
+              <div ref={videoPaneRef} onContextMenu={ownPreviewMenu} className="min-h-0 flex-1 overflow-y-auto">
                 {stageTile ? (
                   /* "Focar": a stage with the rest of the room as a strip of
                      thumbnails under it.

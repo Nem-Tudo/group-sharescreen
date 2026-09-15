@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { MdClose } from "react-icons/md";
+import { MdClose, MdMovie, MdScreenShare, MdVideocam } from "react-icons/md";
 import { PipIcon } from "@/components/icons";
 import { Tooltip } from "@/components/Tooltip";
 import { callPathFor, useCallSession } from "@/lib/callSession";
@@ -91,6 +91,19 @@ function clampOffset(
  * preference for a person's several tiles (screen, file, camera), so the first
  * match for a person is the one worth showing.
  */
+// The kind half of a room tile id (see WatchRoom's tileId), as a sort order.
+function kindRank(id: string): number {
+  if (id.startsWith("screen:")) return 0;
+  if (id.startsWith("file:")) return 1;
+  return 2;
+}
+
+function KindIcon({ id, className }: { id: string; className: string }) {
+  if (id.startsWith("screen:")) return <MdScreenShare className={className} />;
+  if (id.startsWith("file:")) return <MdMovie className={className} />;
+  return <MdVideocam className={className} />;
+}
+
 function pickSource(
   sources: DockedPipSource[],
   focusedId: string | null,
@@ -137,9 +150,12 @@ function useLastSpeaker(sources: DockedPipSource[]): string | null {
 export function DockedPip({
   sources,
   focusedId,
+  onOpen,
 }: {
   sources: DockedPipSource[];
   focusedId: string | null;
+  /** Going back to the call from the picture: the room puts that transmission in focus. */
+  onOpen: (sourceId: string) => void;
 }) {
   const t = useT();
   const session = useCallSession();
@@ -163,7 +179,7 @@ export function DockedPip({
   const suppressClickRef = useRef(false);
 
   function onPointerDown(e: PointerEvent<HTMLDivElement>) {
-    if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
+    if (e.button !== 0 || (e.target as HTMLElement).closest("button, [data-pip-list]")) return;
     const box = boxRef.current;
     if (!box) return;
     // With the pointer captured, a drag's click may land on the box rather
@@ -300,7 +316,15 @@ export function DockedPip({
   const [dismissed, setDismissed] = useState(false);
   const [nativePip, setNativePip] = useState(false);
   const lastSpeaker = useLastSpeaker(sources);
-  const source = dismissed ? null : pickSource(sources, focusedId, lastSpeaker);
+  // Picked by hand from the list along the bottom. Wins over every automatic
+  // rule for as long as that transmission exists; once it ends, the automatic
+  // choice takes over again.
+  const [pickedId, setPickedId] = useState<string | null>(null);
+  const picked = pickedId ? sources.find((s) => s.id === pickedId) : undefined;
+  const source = dismissed ? null : (picked ?? pickSource(sources, focusedId, lastSpeaker));
+  // The list itself: screens first, the way a person's tiles are preferred
+  // everywhere else, and then everything else going out.
+  const listed = [...sources].sort((a, b) => kindRank(a.id) - kindRank(b.id));
   const stream = source?.stream ?? null;
 
   useEffect(() => {
@@ -410,7 +434,10 @@ export function DockedPip({
               suppressClickRef.current = false;
               return;
             }
-            if (session) navigation.push(callPathFor(session));
+            if (!session) return;
+            // Whatever was being watched here is what the room opens on.
+            if (source) onOpen(source.id);
+            navigation.push(callPathFor(session));
           }}
           title={t("common.backToTheCall")}
           // A drag started on the picture must not turn into the browser
@@ -418,9 +445,46 @@ export function DockedPip({
           draggable={false}
           className="h-full w-full object-contain"
         />
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-linear-to-t from-black/85 to-transparent px-2 py-1 text-xs font-medium text-white">
+        {/* Whose it is — until the pointer is over the box, when the list
+            below takes its place and says the same thing among the rest. */}
+        <div
+          className={`pointer-events-none absolute inset-x-0 bottom-0 truncate bg-linear-to-t from-black/85 to-transparent px-2 py-1 text-xs font-medium text-white transition-opacity ${
+            listed.length > 1 ? "[@media(hover:hover)]:group-hover:opacity-0" : ""
+          }`}
+        >
           {source?.label}
         </div>
+        {/* Everything going out in the call, to switch the picture to by hand.
+            Only when there is something to switch to. Revealed on hover like
+            the buttons; a touchscreen has no hover, so it gets the label above
+            instead and switching stays with the room itself. Scrolls sideways
+            when it does not fit, which is why a finger gets pan-x back here
+            from the box's touch-action. */}
+        {listed.length > 1 && (
+          <div
+            data-pip-list
+            style={{ touchAction: "pan-x" }}
+            className="absolute inset-x-0 bottom-0 hidden gap-1 overflow-x-auto bg-linear-to-t from-black/90 via-black/70 to-transparent px-1.5 pb-1.5 pt-4 opacity-0 transition-opacity [@media(hover:hover)]:flex [@media(hover:hover)]:group-hover:opacity-100"
+          >
+            {listed.map((s) => {
+              const current = s.id === source?.id;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => setPickedId(s.id)}
+                  aria-pressed={current}
+                  className={`flex max-w-[10rem] shrink-0 cursor-pointer items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium text-white transition ${
+                    current ? "bg-emerald-600 hover:bg-emerald-700" : "bg-white/15 hover:bg-white/25"
+                  }`}
+                >
+                  <KindIcon id={s.id} className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">{s.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
         <div className="absolute right-1 top-1 flex gap-1 transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100">
           {nativePipSupported && (
             <Tooltip content={t("videoTile.pictureInPicture")}>

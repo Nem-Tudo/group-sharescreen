@@ -64,6 +64,7 @@ export function VideoTile({
   fill = false,
   compact = false,
   onStopWatching,
+  stopWatchingLabel,
   onDoubleClick,
   onRenderedSizeChange,
   onVisibilityChange,
@@ -136,6 +137,9 @@ export function VideoTile({
   // else's tile. Omitted for the local "Você" tile, which has nothing to
   // stop watching.
   onStopWatching?: () => void;
+  // What that button says, when "parar de assistir" is not quite it — on our
+  // own preview it hides the tile, and the share itself goes on.
+  stopWatchingLabel?: string;
   onDoubleClick?: () => void;
   // "Focar": grow this tile and shrink the rest, without touching anyone's
   // connection — see WatchRoom's spotlightId. Omitted where focusing makes
@@ -899,11 +903,11 @@ export function VideoTile({
           </button>
         </Tooltip>
         {onStopWatching && (
-          <Tooltip content={t("videoTile.stopWatching")}>
+          <Tooltip content={stopWatchingLabel ?? t("videoTile.stopWatching")}>
             <button
               type="button"
               onClick={onStopWatching}
-              aria-label={t("videoTile.stopWatching")}
+              aria-label={stopWatchingLabel ?? t("videoTile.stopWatching")}
               className="rounded-full bg-black/60 p-2 text-white hover:bg-black/80 active:bg-black/80"
             >
               <EyeOffIcon className="h-5 w-5" />
