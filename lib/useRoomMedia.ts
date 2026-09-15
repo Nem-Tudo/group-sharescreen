@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { signalingClient, type PeerInfo } from "./signalingClient";
 import { speakingDetector } from "./speakingDetector";
-import type { Feature } from "./entitlements";
+import { hasFeature, type Feature } from "./entitlements";
+import { useAuth } from "./AuthContext";
 import { trackEvent } from "./analytics";
 import { iceConfigFor } from "./iceConfig";
 import { ensureIceServers } from "./iceServers";
@@ -20,6 +21,7 @@ import {
 import {
   getStoredAutoJoin,
   getStoredForceRelayIce,
+  setForceRelayAllowed,
   getStoredMicOn,
   getStoredNoiseSuppressionOn,
   getStoredCameraDeviceId,
@@ -2670,7 +2672,21 @@ export function useRoomMedia(room: string) {
   // else's stream, this is about hiding your own IP from whoever you
   // connect to, middleman or not. Seeded from localStorage like the other
   // device-local preferences below.
-  const [forceRelayIce, setForceRelayIceState] = useState(getStoredForceRelayIce);
+  //
+  // Pro Max only (feature "force_relay"). The stored switch is kept as it is,
+  // but only counts while the account has the feature — so somebody whose plan
+  // lapsed with it on stops relaying, and gets it back if they resubscribe.
+  // While the account is still resolving, the stored switch is trusted: the
+  // alternative is a paying subscriber opening their first connections
+  // directly, leaking the IP this exists to hide, and a wrong "yes" only costs
+  // one reconnect when the answer arrives (see the forceRelayIce effect).
+  const { account, loading: resolvingAccount } = useAuth();
+  const forceRelayAllowed = resolvingAccount || hasFeature("force_relay", account?.features ?? []);
+  const [storedForceRelayIce, setForceRelayIceState] = useState(getStoredForceRelayIce);
+  const forceRelayIce = storedForceRelayIce && forceRelayAllowed;
+  useEffect(() => {
+    setForceRelayAllowed(forceRelayAllowed);
+  }, [forceRelayAllowed]);
   const toggleForceRelayIce = useCallback(() => {
     setForceRelayIceState((prev: boolean) => {
       const next = !prev;
@@ -3568,6 +3584,7 @@ export function useRoomMedia(room: string) {
     meshTopology: topology,
 
     forceRelayIce,
+    forceRelayAllowed,
     toggleForceRelayIce,
     autoJoin,
     toggleAutoJoin,

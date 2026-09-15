@@ -146,6 +146,22 @@ export function setStoredMicsMuted(value: boolean) {
 export function getStoredForceRelayIce(): boolean {
   return getStoredBoolean(FORCE_RELAY_ICE_KEY, false);
 }
+
+// Whether this account may use it at all — the Pro Max "force_relay"
+// feature. Kept here, set by useRoomMedia from the account, so readers that
+// have no account in reach (connectionTelemetry) report what is actually in
+// effect rather than what was once switched on.
+//
+// The stored switch is left alone when the plan lapses: it simply stops
+// counting, and comes back on its own if the plan does.
+let forceRelayAllowed = true;
+export function setForceRelayAllowed(allowed: boolean) {
+  forceRelayAllowed = allowed;
+}
+/** The stored switch, counted only for an account that may use it. */
+export function getEffectiveForceRelayIce(): boolean {
+  return forceRelayAllowed && getStoredForceRelayIce();
+}
 export function setStoredForceRelayIce(value: boolean) {
   setStoredBoolean(FORCE_RELAY_ICE_KEY, value);
 }

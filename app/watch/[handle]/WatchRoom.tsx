@@ -1258,6 +1258,7 @@ export function WatchRoom({
     noiseSuppressionAvailable,
     toggleNoiseSuppression,
     forceRelayIce,
+    forceRelayAllowed,
     toggleForceRelayIce,
     autoJoin,
     toggleAutoJoin,
@@ -4866,6 +4867,10 @@ export function WatchRoom({
           inactiveIcon={<MdOutlineDesktopWindows className="h-4 w-4 opacity-50" />}
         />
       )}
+      {/* Pro Max only — see useRoomMedia. Hidden rather than shown locked:
+          somebody without the plan has no switch to see, and the stored
+          value, if any, already stopped counting. */}
+      {forceRelayAllowed && (
       <MenuToggleRow
         label={translate("watch.watchRoom.preventDirectConnections")}
         active={forceRelayIce}
@@ -4879,6 +4884,7 @@ export function WatchRoom({
         activeIcon={<ShieldIcon className="h-4 w-4" />}
         inactiveIcon={<ShieldOffIcon className="h-4 w-4" />}
       />
+      )}
       {forceRelayIce && (
         <p className="mb-1 px-2 text-xs text-amber-600 dark:text-amber-500">
           {translate("watch.watchRoom.yourConnectionsAlwaysGoThroughAn")}

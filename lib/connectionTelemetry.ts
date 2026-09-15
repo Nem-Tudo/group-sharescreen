@@ -34,7 +34,7 @@ import { getAccountToken } from "./accountApi";
 import { getStoredGuestToken } from "./guestToken";
 import { isDesktopApp, isMobileApp } from "./desktop";
 import {
-  getStoredForceRelayIce,
+  getEffectiveForceRelayIce,
   getStoredShareBitrate,
   getStoredShareFps,
   getStoredShareProfile,
@@ -201,7 +201,7 @@ class ConnectionTelemetry {
       viaRelay: connection.viaRelay,
       startedAt: acc.startedAt,
       endedBy,
-      forceRelay: getStoredForceRelayIce(),
+      forceRelay: getEffectiveForceRelayIce(),
       // The dials as they stand now. Stored rather than threaded through,
       // since they only change from the picker, which writes them here.
       settings: ownShare
