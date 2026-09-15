@@ -26,7 +26,7 @@ export type LocalePreference = "auto" | Locale;
 // English is the fallback for everything: the server renders it (a browser's
 // language is not knowable at build time), and any key missing from another
 // catalog reads from here rather than showing a raw key to a person.
-export const DEFAULT_LOCALE: Locale = "en";
+export const DEFAULT_LOCALE: Locale = "pt";
 
 export const LOCALE_STORAGE_KEY = "sharescreen:locale";
 
