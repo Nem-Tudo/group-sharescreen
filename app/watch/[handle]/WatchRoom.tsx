@@ -36,6 +36,7 @@ import {
   type RoomToGroupPerson,
 } from "@/components/RoomToGroup";
 import { useGroupAdHidden } from "@/components/groups/GroupPartnerSlot";
+import { DockedPip, type DockedPipSource } from "@/components/DockedPip";
 import {
   setGroupVoiceColumns,
   setGroupVoiceControls,
@@ -4402,6 +4403,51 @@ export function WatchRoom({
       : null;
   const stripTiles = stageTile ? tiles.filter((tile) => tile !== stageTile) : [];
 
+  // What the corner player can show while the room is off screen (see
+  // components/DockedPip, which picks among them). One person's tiles in the
+  // order a focus request prefers them — screen, file, camera — everybody
+  // else's before ours. Video sources are left out: they are players embedded
+  // in the page, not streams a <video> can take.
+  const dockedPipSources: DockedPipSource[] = [];
+  if (!visible) {
+    for (const p of state.peers) {
+      const micStream = remoteMicStreams[p.id] ?? null;
+      const label = p.name;
+      const screen = remoteStreams[p.id];
+      if (screen) {
+        dockedPipSources.push({ id: tileId("screen", p.id), stream: screen, label, peerId: p.id, micStream, channel: "screen" });
+      }
+      for (const { slot, peerId, stream, shared } of remoteFileEntries) {
+        if (peerId !== p.id) continue;
+        dockedPipSources.push({
+          id: tileId("file", `${slot}:${p.id}`),
+          stream,
+          label: shared?.name ?? label,
+          peerId: p.id,
+          micStream,
+          channel: slot,
+        });
+      }
+      const camera = remoteCameraStreams[p.id];
+      if (camera) {
+        dockedPipSources.push({ id: tileId("camera", p.id), stream: camera, label, peerId: p.id, micStream, channel: "camera" });
+      }
+    }
+    const you = translate("common.you");
+    if (isSharing && localStream) {
+      dockedPipSources.push({ id: tileId("screen", SELF_TILE_OWNER), stream: localStream, label: you, peerId: null, micStream: null });
+    }
+    for (const slot of localFileSlots) {
+      const stream = fileChannels[slot].localStream;
+      if (stream) {
+        dockedPipSources.push({ id: tileId("file", `${slot}:${SELF_TILE_OWNER}`), stream, label: you, peerId: null, micStream: null });
+      }
+    }
+    if (localCameraStream) {
+      dockedPipSources.push({ id: tileId("camera", SELF_TILE_OWNER), stream: localCameraStream, label: you, peerId: null, micStream: null });
+    }
+  }
+
   // Below `sm`, 2 tiles side by side are still each bigger than a single
   // full-width 16:9 tile would end up after the header/aside eat into a
   // phone's height, so they stay stacked — but 3+ was the actual complaint
@@ -5765,6 +5811,17 @@ export function WatchRoom({
           is already known, since RoomAppGate then asks before the room is
           joined at all. */}
       {!group && <OpenInAppBanner />}
+      {/* The call's picture in the corner while somebody reads another page —
+          portalled to the body, so where this room is parked does not matter.
+          Mounted even
+          with nothing to show for a moment, so a closed box stays closed and a
+          browser picture-in-picture opened from it is not torn down. */}
+      {!visible && (
+        <DockedPip
+          sources={dockedPipSources}
+          focusedId={activeHyperfocusId ?? (isFocusMode ? spotlightId : null)}
+        />
+      )}
       {/* One bar, three zones from lg up: where you are on the left, what
           you do in the call in the middle, who you are (and everything about
           the page) on the right.
