@@ -1,6 +1,6 @@
 export async function GET() {
     return Response.json({
         status: "ok",
-        commit: process.env.GIT_BUILD_COMMIT_HASH ?? "unknown",
+        commit: process.env.NEXT_PUBLIC_BUILD_COMMIT ?? "unknown",
     });
 }

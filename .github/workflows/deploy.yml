@@ -28,7 +28,7 @@ jobs:
       # APP 1
       # ============================================================
 
-      - name: Definir GIT_BUILD_COMMIT_HASH da APP 1
+      - name: Definir NEXT_PUBLIC_BUILD_COMMIT da APP 1
         env:
           SQUARE_TOKEN: ${{ secrets.SQUARE_TOKEN }}
           APP_ID: ${{ secrets.SQUARE_APP_1 }}
@@ -36,14 +36,14 @@ jobs:
         run: |
           set -e
 
-          echo "Definindo GIT_BUILD_COMMIT_HASH da APP 1..."
+          echo "Definindo NEXT_PUBLIC_BUILD_COMMIT da APP 1..."
 
           curl -fsS \
             -X POST \
             "https://api.squarecloud.app/v2/apps/$APP_ID/envs" \
             -H "Authorization: $SQUARE_TOKEN" \
             -H "Content-Type: application/json" \
-            -d "{\"envs\":{\"GIT_BUILD_COMMIT_HASH\":\"$COMMIT_HASH\"}}"
+            -d "{\"envs\":{\"NEXT_PUBLIC_BUILD_COMMIT\":\"$COMMIT_HASH\"}}"
 
           echo "Variável atualizada."
 
@@ -130,7 +130,7 @@ jobs:
       # APP 2
       # ============================================================
 
-      - name: Definir GIT_BUILD_COMMIT_HASH da APP 2
+      - name: Definir NEXT_PUBLIC_BUILD_COMMIT da APP 2
         env:
           SQUARE_TOKEN: ${{ secrets.SQUARE_TOKEN }}
           APP_ID: ${{ secrets.SQUARE_APP_2 }}
@@ -138,14 +138,14 @@ jobs:
         run: |
           set -e
 
-          echo "Definindo GIT_BUILD_COMMIT_HASH da APP 2..."
+          echo "Definindo NEXT_PUBLIC_BUILD_COMMIT da APP 2..."
 
           curl -fsS \
             -X POST \
             "https://api.squarecloud.app/v2/apps/$APP_ID/envs" \
             -H "Authorization: $SQUARE_TOKEN" \
             -H "Content-Type: application/json" \
-            -d "{\"envs\":{\"GIT_BUILD_COMMIT_HASH\":\"$COMMIT_HASH\"}}"
+            -d "{\"envs\":{\"NEXT_PUBLIC_BUILD_COMMIT\":\"$COMMIT_HASH\"}}"
 
           echo "Variável atualizada."
 
