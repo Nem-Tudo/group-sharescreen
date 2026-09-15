@@ -34,6 +34,8 @@ export type BotInstallGroup = {
   suspended?: boolean;
   /** The bot is already in it. */
   member: boolean;
+  /** Bitfield: the permissions the person asking may give the bot here. Absent from an older API. */
+  grantablePermissions?: number;
 };
 
 export type BotInstallInfo = {
@@ -55,6 +57,8 @@ export type BotInstallInfo = {
   /** The person asking may add it at all (public, or theirs). */
   canInstall: boolean;
   signedIn: boolean;
+  /** Bitfield: what the bot asks for when the link carries no ?permissions= (set by its owner). */
+  defaultPermissions?: number;
   /** The groups the person asking manages — empty when signed out or not allowed. */
   groups: BotInstallGroup[];
 };
@@ -135,15 +139,20 @@ export async function fetchBotDirectory(
   }
 }
 
+/**
+ * `permissions` is a bitfield (lib/permissionBits) for the bot's own role;
+ * left out, the API uses the bot's default from the developer portal.
+ */
 export async function addBotToGroup(
   groupId: string,
-  botId: string
+  botId: string,
+  permissions?: number
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     const res = await fetch(`${getSignalingHttpBase()}/groups/${encodeURIComponent(groupId)}/bots`, {
       method: "POST",
       headers: { ...authHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ botId }),
+      body: JSON.stringify(permissions === undefined ? { botId } : { botId, permissions }),
     });
     if (res.ok) return { ok: true };
     const data = (await res.json().catch(() => null)) as { error?: string } | null;

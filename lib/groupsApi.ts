@@ -37,6 +37,12 @@ export interface GroupRoleInfo {
   mentionable: boolean;
   /** What it turns on — a false takes nothing away from @everyone. */
   permissions: GroupPermissions;
+  /**
+   * The bot this role belongs to — made when the bot was added, deleted when
+   * it leaves. Editable like any role, but never given to anybody else, taken
+   * off the bot, or deleted by hand. Null (or absent, from an older API) otherwise.
+   */
+  managedBy?: string | null;
 }
 export type GroupChannelKind = "text" | "voice";
 export type GroupNotifyLevel = "all" | "mentions" | "none";

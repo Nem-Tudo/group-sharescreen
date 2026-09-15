@@ -21,6 +21,7 @@ import {
   type GiftCharge,
   type PremiumPlan,
   type PurchasedGift,
+  RECOMMENDED_PLAN_ID,
 } from "@/lib/premiumApi";
 import { useI18n } from "@/lib/useI18n";
 import { useShake } from "@/lib/useShake";
@@ -500,10 +501,13 @@ export function GiftPlanDialog({
           {ready && plans.length > 0 && (
             <div className="mt-4 flex flex-col gap-3">
               {plans.length > 1 && (
-                <div className="flex flex-wrap gap-2">
+                // Room above and between rows for the "Recomendado" tag, which
+                // sits half outside its card.
+                <div className="mt-2 flex flex-wrap gap-x-2 gap-y-4">
                   {plans.map((entry) => {
                     const entryMark = planIcon(entry.iconId);
                     const chosen = entry.id === plan?.id;
+                    const recommended = entry.id === RECOMMENDED_PLAN_ID;
                     return (
                       <button
                         key={entry.id}
@@ -511,12 +515,17 @@ export function GiftPlanDialog({
                         disabled={Boolean(charge)}
                         onClick={() => setSelectedPlanId(entry.id)}
                         aria-pressed={chosen}
-                        className={`flex flex-1 items-center gap-2 rounded-xl border px-3 py-2.5 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                        className={`relative flex flex-1 items-center gap-2 rounded-xl border px-3 py-2.5 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${
                           chosen
                             ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
                             : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300"
                         }`}
                       >
+                        {recommended && (
+                          <span className="absolute -top-2.5 left-3 rounded-full bg-amber-500 px-2 py-0.5 text-[11px] leading-4 font-semibold text-white shadow-sm">
+                            {t("pro.proPanel.recommended")}
+                          </span>
+                        )}
                         <entryMark.Icon
                           className={`h-4 w-4 shrink-0 ${chosen ? "" : entryMark.className}`}
                         />

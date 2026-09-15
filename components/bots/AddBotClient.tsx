@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { MdCheckCircle, MdClose } from "react-icons/md";
+import { MdCheckCircle, MdClose, MdLockOutline } from "react-icons/md";
 import { BotTag } from "@/components/BotTag";
 import { LoginForm } from "@/components/LoginForm";
 import { DEFAULT_AVATAR_PATH } from "@/components/UserAvatar";
@@ -12,6 +12,8 @@ import { useAuth } from "@/lib/AuthContext";
 import { useAccountToken } from "@/lib/accountApi";
 import { addBotToGroup, fetchBotInstall, type BotInstallInfo } from "@/lib/botsApi";
 import { groupPath } from "@/lib/groupLinks";
+import { PERMISSION_LABELS } from "@/lib/groupPermissions";
+import { bitOf, hasBit, PERMISSION_BITS } from "@/lib/permissionBits";
 import { useGroupNavigation } from "@/lib/groupNavigation";
 import { refreshGroups } from "@/lib/useGroups";
 import { useI18n } from "@/lib/useI18n";
@@ -28,10 +30,13 @@ const primaryButtonClass =
 
 export function AddBotClient({
   botId,
+  requestedPermissions = null,
   variant = "page",
   onClose,
 }: {
   botId: string;
+  /** The link's ?permissions= bitfield; null to use the bot's default. */
+  requestedPermissions?: number | null;
   /** The /bots/:id/add page, or the same card as a dialog (see AddBotDialog). */
   variant?: "page" | "dialog";
   /** Closes the dialog. */
@@ -50,6 +55,10 @@ export function AddBotClient({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [added, setAdded] = useState<{ groupId: string; name: string } | null>(null);
+  // Discord's second screen: once a group is picked, what the bot asks for,
+  // each switch uncheckable. The bot gets a role of its own holding them.
+  const [step, setStep] = useState<"group" | "permissions">("group");
+  const [unchecked, setUnchecked] = useState(0);
 
   // Read again whenever the signed-in account changes: signing in on this
   // very page is what turns "sign in to continue" into a list of groups.
@@ -71,12 +80,20 @@ export function AddBotClient({
     return () => controller.abort();
   }, [botId, token]);
 
+  // What the bot asks for: the link's, or its owner's default.
+  const requested = requestedPermissions ?? info?.defaultPermissions ?? 0;
+  const selectedGroup = info?.groups.find((g) => g.id === selected);
+  // An older API says nothing about it; the server filters either way.
+  const grantable = selectedGroup?.grantablePermissions ?? requested;
+  const requestedKeys = PERMISSION_BITS.filter((key) => hasBit(requested, key));
+  const granted = requested & ~unchecked & grantable;
+
   async function add() {
     if (!info || !selected) return;
     const group = info.groups.find((g) => g.id === selected);
     setBusy(true);
     setError(null);
-    const result = await addBotToGroup(selected, info.bot.id);
+    const result = await addBotToGroup(selected, info.bot.id, granted);
     setBusy(false);
     if (!result.ok) {
       setError(result.error);
@@ -130,7 +147,7 @@ export function AddBotClient({
           <p className="text-sm text-zinc-700 dark:text-zinc-300">
             {t("addBot.botAddedTo", { bot: bot.displayName, group: added.name })}
           </p>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">{t("addBot.giveItARoleToModerate")}</p>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">{t("addBot.itsRoleIsInTheSettings")}</p>
           <button
             type="button"
             onClick={() => {
@@ -205,11 +222,82 @@ export function AddBotClient({
               );
             })}
           </ul>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">{t("addBot.itJoinsWithEveryonePermissions")}</p>
-          {error && <p className="text-sm text-red-500">{error}</p>}
-          <button type="button" disabled={!selected || busy} onClick={add} className={primaryButtonClass}>
-            {busy ? t("addBot.adding") : t("addBot.addToGroup")}
+          <button
+            type="button"
+            disabled={!selected}
+            onClick={() => {
+              setError(null);
+              setStep("permissions");
+            }}
+            className={primaryButtonClass}
+          >
+            {t("addBot.continue")}
           </button>
+        </div>
+      );
+    }
+    if (!added && account && info.canInstall && step === "permissions" && selectedGroup) {
+      action = (
+        <div className="flex w-full flex-col gap-3 text-left">
+          <div className="flex items-center gap-2">
+            <GroupIcon name={selectedGroup.name} iconUrl={selectedGroup.iconUrl} seed={selectedGroup.id} size={28} />
+            <p className="min-w-0 truncate text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              {t("addBot.itWillHaveThesePermissions", { group: selectedGroup.name })}
+            </p>
+          </div>
+          {requestedKeys.length === 0 ? (
+            <p className="rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
+              {t("addBot.noExtraPermissions")}
+            </p>
+          ) : (
+            <ul className="flex max-h-72 flex-col divide-y divide-zinc-200 overflow-y-auto rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
+              {requestedKeys.map((key) => {
+                const canGive = hasBit(grantable, key);
+                const checked = canGive && !hasBit(unchecked, key);
+                return (
+                  <li key={key}>
+                    <label
+                      className={`flex items-center gap-3 px-3 py-2 ${
+                        canGive ? "cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-900" : "cursor-not-allowed opacity-60"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={!canGive}
+                        onChange={() => setUnchecked((bits) => bits ^ bitOf(key))}
+                        className="h-4 w-4 shrink-0 accent-zinc-900 dark:accent-zinc-100"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm text-zinc-900 dark:text-zinc-100">{PERMISSION_LABELS[key].label}</span>
+                        {!canGive && (
+                          <span className="flex items-center gap-1 text-xs text-zinc-500 dark:text-zinc-400">
+                            <MdLockOutline className="h-3.5 w-3.5" />
+                            {t("addBot.youDoNotHaveThisPermission")}
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">{t("addBot.itGetsARoleOfItsOwn")}</p>
+          {error && <p className="text-sm text-red-500">{error}</p>}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setStep("group")}
+              className="rounded-lg border border-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+            >
+              {t("common.back")}
+            </button>
+            <button type="button" disabled={busy} onClick={add} className={`${primaryButtonClass} flex-1`}>
+              {busy ? t("addBot.adding") : t("addBot.authorize")}
+            </button>
+          </div>
         </div>
       );
     }

@@ -77,7 +77,8 @@ function permissionsOver(detail: GroupDetail, targetId: string, targetGuest: boo
     roles: rolesWithIds(detail, roleIds),
     canRoles,
     rank,
-    assignable: canRoles ? rolesInOrder(detail).filter((r) => r.position < rank) : [],
+    // A bot's own role is never handed to anybody (see GroupRoleInfo.managedBy).
+    assignable: canRoles ? rolesInOrder(detail).filter((r) => r.position < rank && !r.managedBy) : [],
     canKick: !self && above && canManage(detail, "kickMembers"),
     canBan: !self && above && canManage(detail, "banMembers"),
     canTransfer: !self && !targetGuest && detail.me.role === "owner",
@@ -163,7 +164,7 @@ function GroupMemberPanel({ detail, target }: { detail: GroupDetail; target: Gro
             name={role.name}
             color={role.color}
             onRemove={
-              rules.canRoles && role.position < rules.rank
+              rules.canRoles && role.position < rules.rank && !role.managedBy
                 ? () => void change(heldIds.filter((id) => id !== role.id))
                 : undefined
             }

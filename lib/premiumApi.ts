@@ -32,6 +32,14 @@ export type PlanCycle = {
   periodDays: number;
 };
 
+/**
+ * The plan the pickers mark "Recomendado" — on /pro, in the Pro popup (the same
+ * ProPanel) and in the gift popup. By id rather than a flag on the plan document:
+ * it is a merchandising choice made on the site, not a property of what the plan
+ * sells.
+ */
+export const RECOMMENDED_PLAN_ID = "premium_max";
+
 export type PremiumPlan = {
   id: string;
   title: string;

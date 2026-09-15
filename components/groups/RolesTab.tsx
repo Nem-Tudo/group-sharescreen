@@ -8,6 +8,7 @@ import {
   MdLockOutline,
   MdOutlineFormatColorReset,
   MdShield,
+  MdSmartToy,
 } from "react-icons/md";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -241,6 +242,9 @@ export function RolesTab({ groupId }: { groupId: string }) {
                       style={{ backgroundColor: role.color ?? "#99aab5" }}
                     />
                     <span className="min-w-0 flex-1 truncate">{role.name}</span>
+                    {role.managedBy && (
+                      <MdSmartToy className="h-3.5 w-3.5 shrink-0 opacity-50" title={t("groups.rolesTab.botRole")} />
+                    )}
                     {role.permissions.manage?.administrator && (
                       <MdShield className="h-3.5 w-3.5 shrink-0 opacity-50" title={t("common.administrator")} />
                     )}
@@ -502,6 +506,13 @@ function RoleEditor({
         </p>
       )}
 
+      {role.managedBy && (
+        <p className="flex items-center gap-1.5 rounded-lg bg-indigo-500/10 px-3 py-2 text-xs text-indigo-700 dark:text-indigo-300">
+          <MdSmartToy className="h-4 w-4 shrink-0" />
+          {t("groups.rolesTab.thisRoleBelongsToABot")}
+        </p>
+      )}
+
       <form onSubmit={rename} className="flex flex-col gap-1.5">
         <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("groups.rolesTab.roleName")}</span>
         <div className="flex gap-2">
@@ -627,7 +638,7 @@ function RoleEditor({
 
       {message && <p className={`text-sm ${message.ok ? "text-emerald-600" : "text-red-500"}`}>{message.text}</p>}
 
-      {editable && (
+      {editable && !role.managedBy && (
         <div className="flex flex-col gap-2 rounded-lg border border-red-200 p-3 dark:border-red-900/60">
           <p className="text-sm font-medium text-red-600 dark:text-red-400">{t("groups.rolesTab.deleteRole")}</p>
           <p className="text-xs text-zinc-500 dark:text-zinc-400">
@@ -684,7 +695,7 @@ function RoleHolders({ detail, role, editable }: { detail: GroupDetail; role: Gr
       <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
         {t("groups.rolesTab.membersWithThisRole")} {members ? holding.length : "…"}
       </p>
-      {editable && others.length > 0 && (
+      {editable && !role.managedBy && others.length > 0 && (
         <select
           value=""
           disabled={busy}
@@ -715,7 +726,7 @@ function RoleHolders({ detail, role, editable }: { detail: GroupDetail; role: Gr
               color={roleColorOf(detail, { id: m.id }) ?? m.nameColor}
               className="min-w-0 flex-1 truncate text-sm"
             />
-            {editable && (
+            {editable && !role.managedBy && (
               <button
                 type="button"
                 disabled={busy}

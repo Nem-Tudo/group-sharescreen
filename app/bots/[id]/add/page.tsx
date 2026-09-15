@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { SiteHeader } from "@/components/SiteHeader";
 import { AddBotClient } from "@/components/bots/AddBotClient";
+import { parsePermissionBits } from "@/lib/permissionBits";
 
 // /bots/:id/add — the link a bot's owner hands out (see the developer
 // dashboard's "Instalação" page), and what the "Adicionar a um grupo" button
@@ -19,10 +20,12 @@ export const metadata: Metadata = {
 
 export default async function AddBotPage(props: PageProps<"/bots/[id]/add">) {
   const { id } = await props.params;
+  // ?permissions=<bitfield>, Discord's way — see lib/permissionBits.
+  const { permissions } = await props.searchParams;
   return (
     <div className="flex min-h-dvh flex-col bg-zinc-50 dark:bg-black">
       <SiteHeader />
-      <AddBotClient botId={id} />
+      <AddBotClient botId={id} requestedPermissions={parsePermissionBits(typeof permissions === "string" ? permissions : null)} />
     </div>
   );
 }

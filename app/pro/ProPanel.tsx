@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { MdCardGiftcard, MdCheck, MdClose, MdLock, MdAttachFile } from "react-icons/md";
+import { MdCardGiftcard, MdCheck, MdClose, MdLock, MdAttachFile, MdOpenInNew } from "react-icons/md";
 import Link from "next/link";
 import { BsCoin, BsStars } from "react-icons/bs";
 // No wrapperClassName: Tippy then attaches straight to the <li>, keeping the
@@ -27,6 +27,7 @@ import {
   startPremiumCheckout,
   type PixCharge,
   type PremiumPlan,
+  RECOMMENDED_PLAN_ID,
 } from "@/lib/premiumApi";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
@@ -667,6 +668,26 @@ export function ProPanel({
           </p>
         </div>
         {onClose && (
+          <div className="flex shrink-0 items-center gap-1">
+          {/* The whole page, from the popup. A new tab rather than a
+              navigation: this popup is opened inside rooms precisely so that
+              looking at plans does not leave the call (see lib/proModal).
+              Opened on the plan on screen, so it continues rather than
+              starts over. */}
+          {isModal && (
+            <Link
+              href={plan ? `/pro?plan=${encodeURIComponent(plan.id)}` : "/pro"}
+              target="_blank"
+              rel="noopener"
+              aria-disabled={generating || undefined}
+              className={`inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-zinc-500 transition hover:bg-zinc-200 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 ${
+                generating ? "pointer-events-none opacity-40" : ""
+              }`}
+            >
+              <MdOpenInNew className="h-4 w-4" />
+              <span className="hidden sm:inline">{t("pro.proPanel.openFullPage")}</span>
+            </Link>
+          )}
           <button
             type="button"
             onClick={onClose}
@@ -677,6 +698,7 @@ export function ProPanel({
           >
             <MdClose className="h-5 w-5" />
           </button>
+          </div>
         )}
       </div>
 
@@ -707,22 +729,33 @@ export function ProPanel({
           and drawing one would make the page look like it is withholding an
           option that does not exist. */}
       {plans.length > 1 && (
-        <div className="mt-5 flex flex-wrap gap-2">
+        // Extra top room and row gap for the "Recomendado" tag, which sits
+        // half above its card and would otherwise touch the row above.
+        <div className="mt-7 flex flex-wrap gap-x-2 gap-y-5">
           {plans.map((entry) => {
             const entryMark = planIcon(entry.iconId);
             const active = entry.id === plan?.id;
+            // The plan the page steers people toward. By id rather than a
+            // flag on the plan document: it is a merchandising choice made
+            // here, not a property of what the plan sells.
+            const recommended = entry.id === RECOMMENDED_PLAN_ID;
             return (
               <button
                 key={entry.id}
                 type="button"
                 onClick={() => setSelectedPlanId(entry.id)}
                 aria-pressed={active}
-                className={`flex flex-1 items-center gap-2 rounded-xl border px-4 py-3 text-left transition ${
+                className={`relative flex flex-1 items-center gap-2 rounded-xl border px-4 py-3 text-left transition ${
                   active
                     ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
                     : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300"
                 }`}
               >
+                {recommended && (
+                  <span className="absolute -top-2.5 left-3 rounded-full bg-amber-500 px-2 py-0.5 text-[11px] leading-4 font-semibold text-white shadow-sm">
+                    {t("pro.proPanel.recommended")}
+                  </span>
+                )}
                 <entryMark.Icon className={`h-5 w-5 shrink-0 ${active ? "" : entryMark.className}`} />
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-semibold">{entry.title}</span>
