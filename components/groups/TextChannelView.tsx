@@ -1730,19 +1730,25 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
             {unseen === 1 ? "1 mensagem nova" : `${unseen} mensagens novas`}
           </button>
         )}
-        {detail.chatAvailable && typingNames.length > 0 && (
-          // Floating over the messages rather than a row between them and the
-          // composer: an in-flow row changes this box's height every time
-          // someone starts or stops typing, and the conversation itself
-          // visibly shifts up and down as a result — what this avoids.
-          <p
-            aria-live="polite"
-            className="absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-white from-70% px-3 pt-4 pb-1.5 text-xs text-zinc-500 italic dark:from-zinc-950"
-          >
-            {formatTypingLabel(typingNames)}
-          </p>
-        )}
       </div>
+
+      {detail.chatAvailable && (
+        // Always here, at a fixed height, whether or not anyone is typing —
+        // a row that only appears when needed changes this box's height each
+        // time, and the conversation itself visibly shifts up and down as a
+        // result. Kept out of the message log's own box (rather than a
+        // fade-in overlay over its last line) so a long name never sits on
+        // top of what somebody just said. The gradient is decoration, not
+        // cover-up: from transparent to the panel's own background, top to
+        // bottom.
+        <div className="h-6 shrink-0 overflow-hidden bg-gradient-to-b from-transparent to-white px-3 dark:to-zinc-950">
+          {typingNames.length > 0 && (
+            <p aria-live="polite" className="truncate text-xs leading-6 text-zinc-500 italic">
+              {formatTypingLabel(typingNames)}
+            </p>
+          )}
+        </div>
+      )}
 
       {detail.chatAvailable && (
         <GroupMessageComposer

@@ -1310,13 +1310,18 @@ export function ChatPanel({
             <span aria-hidden>↓</span>
           </button>
         )}
+      </div>
+
+      {/* Always here, at a fixed height, whether or not anyone is typing — a
+          row that only appears when needed changes this box's height each
+          time, and the conversation itself visibly shifts up and down as a
+          result. Kept out of the log's own box (rather than a fade-in
+          overlay over its last line) so a long name never sits on top of
+          what somebody just said. The gradient is decoration, not cover-up:
+          from transparent to the panel's own background, top to bottom. */}
+      <div className="h-6 shrink-0 overflow-hidden bg-gradient-to-b from-transparent to-white px-3 dark:to-zinc-950">
         {typingNames && typingNames.length > 0 && (
-          // Floating over the log rather than a row between it and the
-          // composer, same reasoning as the "jump to the newest" pill above:
-          // an in-flow row changes this box's height every time someone
-          // starts or stops typing, and the conversation itself visibly
-          // shifts up and down as a result — what this avoids.
-          <p className="absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-white from-70% px-3 pt-4 pb-1.5 text-xs text-zinc-500 italic dark:from-zinc-950 dark:text-zinc-500">
+          <p className="truncate text-xs leading-6 text-zinc-500 italic dark:text-zinc-500">
             {formatTypingLabel(typingNames)}
           </p>
         )}
