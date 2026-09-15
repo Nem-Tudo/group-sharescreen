@@ -1310,17 +1310,21 @@ export function ChatPanel({
             <span aria-hidden>↓</span>
           </button>
         )}
+        {typingNames && typingNames.length > 0 && (
+          // Floating over the log rather than a row between it and the
+          // composer, same reasoning as the "jump to the newest" pill above:
+          // an in-flow row changes this box's height every time someone
+          // starts or stops typing, and the conversation itself visibly
+          // shifts up and down as a result — what this avoids.
+          <p className="absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-white from-70% px-3 pt-4 pb-1.5 text-xs text-zinc-500 italic dark:from-zinc-950 dark:text-zinc-500">
+            {formatTypingLabel(typingNames)}
+          </p>
+        )}
       </div>
 
       {(blockedMessage || imageError || uploads.error) && (
         <p className="border-t border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-600 dark:border-red-900 dark:bg-red-950/40 dark:text-red-400">
           {blockedMessage || imageError || uploads.error}
-        </p>
-      )}
-
-      {typingNames && typingNames.length > 0 && (
-        <p className="truncate px-3 pt-1.5 text-xs text-zinc-500 italic dark:text-zinc-500">
-          {formatTypingLabel(typingNames)}
         </p>
       )}
 

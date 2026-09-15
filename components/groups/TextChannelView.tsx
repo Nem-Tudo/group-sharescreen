@@ -1730,16 +1730,19 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
             {unseen === 1 ? "1 mensagem nova" : `${unseen} mensagens novas`}
           </button>
         )}
+        {detail.chatAvailable && typingNames.length > 0 && (
+          // Floating over the messages rather than a row between them and the
+          // composer: an in-flow row changes this box's height every time
+          // someone starts or stops typing, and the conversation itself
+          // visibly shifts up and down as a result — what this avoids.
+          <p
+            aria-live="polite"
+            className="absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-white from-70% px-3 pt-4 pb-1.5 text-xs text-zinc-500 italic dark:from-zinc-950"
+          >
+            {formatTypingLabel(typingNames)}
+          </p>
+        )}
       </div>
-
-      {detail.chatAvailable && typingNames.length > 0 && (
-        // Same line as a room's chat (components/ChatPanel). Taking its row
-        // shrinks the conversation, and the ResizeObserver above keeps
-        // whoever is reading the newest line on it.
-        <p aria-live="polite" className="shrink-0 truncate px-3 pt-1.5 text-xs text-zinc-500 italic">
-          {formatTypingLabel(typingNames)}
-        </p>
-      )}
 
       {detail.chatAvailable && (
         <GroupMessageComposer
