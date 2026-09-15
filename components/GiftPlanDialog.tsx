@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MdCardGiftcard, MdCheckCircle, MdClose, MdContentCopy, MdSearch } from "react-icons/md";
+import { MdCardGiftcard, MdCheckCircle, MdClose, MdContentCopy, MdLink, MdOpenInNew, MdPersonSearch, MdSearch } from "react-icons/md";
 import useNtPopups from "ntpopups";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -9,7 +9,8 @@ import { PixIcon } from "@/components/icons";
 import { planIcon } from "@/components/planIcons";
 import { PixChargeContent } from "@/components/PixChargeModal";
 import { useAuth } from "@/lib/AuthContext";
-import { verifiedBadge } from "@/lib/entitlements";
+import { planTierOf, verifiedBadge } from "@/lib/entitlements";
+import { planTone, type PlanTone } from "@/components/PlanBand";
 import { searchPeople, type SocialUser } from "@/lib/socialApi";
 import { useSocialGraph } from "@/lib/useSocialGraph";
 import {
@@ -107,6 +108,32 @@ function PersonRow({ user, onSelect }: { user: SocialUser; onSelect: () => void 
     </li>
   );
 }
+
+/** A numbered section heading — the form reads as two steps, then a button. */
+function StepTitle({ n, children }: { n: number; children: React.ReactNode }) {
+  return (
+    <h3 className="flex items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-900 text-[11px] font-bold text-white dark:bg-zinc-100 dark:text-zinc-900">
+        {n}
+      </span>
+      {children}
+    </h3>
+  );
+}
+
+/** A chosen plan card, in its plan's colour — ruby, gold or blue, like its badge. */
+const TONE_CARD_CHOSEN: Record<PlanTone, string> = {
+  ruby: "border-rose-700 bg-rose-50 dark:border-rose-600 dark:bg-rose-950/40",
+  gold: "border-amber-500 bg-amber-50 dark:border-amber-500 dark:bg-amber-950/30",
+  blue: "border-blue-500 bg-blue-50 dark:border-blue-500 dark:bg-blue-950/30",
+};
+
+const TONE_CHECK: Record<PlanTone, string> = {
+  ruby: "text-rose-700 dark:text-rose-500",
+  gold: "text-amber-500",
+  blue: "text-blue-500",
+};
+
 
 /**
  * One code, with the button that matters.
@@ -328,7 +355,7 @@ export function GiftPlanDialog({
     <div
       ref={rootRef}
       aria-busy={busy || undefined}
-      className="flex w-96 max-w-[calc(100vw-1rem)] flex-col bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50"
+      className={`flex ${charge ? "w-96" : "w-[40rem]"} max-w-[calc(100vw-1rem)] flex-col bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50`}
     >
       {charge ? (
         // The Pix step, in place of the form rather than over it. Keyed by the
@@ -384,267 +411,310 @@ export function GiftPlanDialog({
           }}
         />
       ) : (
-        <div className="flex max-h-[80vh] flex-col overflow-y-auto p-5">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h2 className="flex items-center gap-1.5 text-lg font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-                <MdCardGiftcard className="h-5 w-5 shrink-0 text-emerald-500" />
-                {t("giftPlanDialog.giftAPlan")}
-              </h2>
-              <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-                {t("giftPlanDialog.youPayOnceAndThePerson")}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => closePopup(false)}
-              disabled={busy}
-              aria-label={t("common.close")}
-              className="rounded-lg p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-zinc-900 dark:hover:text-zinc-200"
-            >
-              <MdClose className="h-5 w-5" />
-            </button>
-          </div>
-
-          {/* Which shape. Locked once a code exists: the charge already names
-              a shape on the server, and letting this change afterwards would
-              show a purchase that is not the one being paid for. */}
-          <div className="mt-4 inline-flex rounded-xl border border-zinc-200 p-1 dark:border-zinc-800">
-            {(["link", "person"] as const).map((option) => {
-              const chosen = mode === option;
-              return (
-                <button
-                  key={option}
-                  type="button"
-                  disabled={Boolean(charge)}
-                  onClick={() => setMode(option)}
-                  aria-pressed={chosen}
-                  className={`flex-1 rounded-lg px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                    chosen
-                      ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                      : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+        <div className="flex max-h-[85vh] flex-col overflow-y-auto">
+          {/* Header: a soft band in the gift colour, so the popup reads as a
+              present before a word of it is read. */}
+          <div className="relative overflow-hidden border-b border-zinc-200 bg-gradient-to-br from-emerald-50 via-white to-teal-50 px-6 pt-6 pb-5 dark:border-zinc-800 dark:from-emerald-950/50 dark:via-zinc-950 dark:to-teal-950/40">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-500 text-white shadow-sm shadow-emerald-500/30">
+                  <MdCardGiftcard className="h-6 w-6" />
+                </span>
+                <h2 className="text-xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
+                  {t("giftPlanDialog.giftAPlan")}
+                </h2>
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                {/* The full Pro page, in a new tab — same reasoning as the Pro
+                    popup's (see ProPanel): this is opened from inside rooms,
+                    and navigating would leave the call. */}
+                <a
+                  href={plan ? `/pro?plan=${encodeURIComponent(plan.id)}` : "/pro"}
+                  target="_blank"
+                  rel="noopener"
+                  aria-disabled={busy || undefined}
+                  className={`inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-zinc-500 transition hover:bg-black/5 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-100 ${
+                    busy ? "pointer-events-none opacity-40" : ""
                   }`}
                 >
-                  {option === "link" ? t("giftPlanDialog.generateALink") : t("giftPlanDialog.chooseSomeone")}
-                </button>
-              );
-            })}
-          </div>
-
-          {mode === "link" ? (
-            <p className="mt-3 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
-              {t("giftPlanDialog.youGetALinkToSend")}
-            </p>
-          ) : recipient ? (
-            <div className="mt-3 flex items-center gap-2.5 rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-2 dark:border-zinc-800 dark:bg-zinc-900/60">
-              <UserAvatar
-                src={recipient.avatarUrl}
-                name={recipient.displayName}
-                size={32}
-                className="shrink-0"
-                userId={recipient.id}
-              />
-              <span className="min-w-0 flex-1">
-                <DisplayUserName
-                  name={recipient.displayName}
-                  verified={verifiedBadge(recipient.flags)}
-                  bot={recipient.bot}
-                  color={recipient.nameColor}
-                  className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100"
-                />
-                <span className="block truncate text-xs text-zinc-500 dark:text-zinc-400">
-                  @{recipient.username}
-                </span>
-              </span>
-              {/* Disabled once a code exists: the charge names this person on
-                  the server, and letting the name on screen change would show
-                  a present being paid for somebody who is not going to get
-                  it. */}
-              <button
-                type="button"
-                disabled={Boolean(charge)}
-                onClick={() => setRecipient(null)}
-                className="shrink-0 text-xs font-medium text-zinc-500 underline-offset-2 transition hover:underline disabled:cursor-not-allowed disabled:opacity-40 dark:text-zinc-400"
-              >
-                {t("common.change")}
-              </button>
-            </div>
-          ) : (
-            <>
-              <div className="relative mt-3">
-                <MdSearch className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
-                <input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder={t("giftPlanDialog.searchByUsername")}
-                  className="w-full rounded-lg border border-zinc-300 py-2 pl-9 pr-3 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-                />
-              </div>
-              {choices.length === 0 ? (
-                <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-                  {searchable
-                    ? t("common.nobodyFoundWithThatName")
-                    : t("giftPlanDialog.searchByTheUsernameOfWhoever")}
-                </p>
-              ) : (
-                <ul className="mt-3 flex max-h-56 flex-col gap-1.5 overflow-y-auto">
-                  {choices.map((user) => (
-                    <PersonRow key={user.id} user={user} onSelect={() => setRecipient(user)} />
-                  ))}
-                </ul>
-              )}
-            </>
-          )}
-
-          {/* Which plan. Only with something to choose between — a single plan
-              needs no picker, exactly as on /pro. */}
-          {ready && plans.length > 0 && (
-            <div className="mt-4 flex flex-col gap-3">
-              {plans.length > 1 && (
-                // Room above and between rows for the "Recomendado" tag, which
-                // sits half outside its card.
-                <div className="mt-2 flex flex-wrap gap-x-2 gap-y-4">
-                  {plans.map((entry) => {
-                    const entryMark = planIcon(entry.iconId);
-                    const chosen = entry.id === plan?.id;
-                    const recommended = entry.id === RECOMMENDED_PLAN_ID;
-                    return (
-                      <button
-                        key={entry.id}
-                        type="button"
-                        disabled={Boolean(charge)}
-                        onClick={() => setSelectedPlanId(entry.id)}
-                        aria-pressed={chosen}
-                        className={`relative flex flex-1 items-center gap-2 rounded-xl border px-3 py-2.5 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                          chosen
-                            ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
-                            : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300"
-                        }`}
-                      >
-                        {recommended && (
-                          <span className="absolute -top-2.5 left-3 rounded-full bg-amber-500 px-2 py-0.5 text-[11px] leading-4 font-semibold text-white shadow-sm">
-                            {t("pro.proPanel.recommended")}
-                          </span>
-                        )}
-                        <entryMark.Icon
-                          className={`h-4 w-4 shrink-0 ${chosen ? "" : entryMark.className}`}
-                        />
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm font-semibold">
-                            {entry.title}
-                          </span>
-                          <span className="block text-xs opacity-80">
-                            {entry.cycles?.find((c) => c.cycle === cycle)?.pixPriceLabel ??
-                              entry.pixPriceLabel}
-                          </span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* How long. Labelled in days rather than "Mensal"/"Anual": a
-                  present does not renew, so a word that names a billing period
-                  would be promising a subscription this cannot hold. */}
-              {plan?.cycles && plan.cycles.length > 1 && (
-                <div className="inline-flex self-start rounded-xl border border-zinc-200 p-1 dark:border-zinc-800">
-                  {plan.cycles.map((entry) => {
-                    const chosen = entry.cycle === cycle;
-                    return (
-                      <button
-                        key={entry.cycle}
-                        type="button"
-                        disabled={Boolean(charge)}
-                        onClick={() => setCycle(entry.cycle)}
-                        aria-pressed={chosen}
-                        className={`rounded-lg px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                          chosen
-                            ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                            : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-                        }`}
-                      >
-                        {tc("common.dayCount", entry.periodDays)}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
-              {needsEmail && (
-                <label className="flex flex-col gap-1 text-sm text-zinc-700 dark:text-zinc-300">
-                  <span>{t("common.emailForThePayment")}</span>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    autoComplete="email"
-                    placeholder="voce@exemplo.com"
-                    className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-                  />
-                  <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                    {t("common.usedOnlyForTheChargeOn")}
-                  </span>
-                </label>
-              )}
-
-              {/* Hidden while a code is on screen rather than disabled:
-                  pressing it again would mint a second charge for a present
-                  already waiting to be paid, and the dialog above is where
-                  that one is. */}
-              {!charge && (
+                  <MdOpenInNew className="h-4 w-4" />
+                  <span className="hidden sm:inline">{t("pro.proPanel.openFullPage")}</span>
+                </a>
                 <button
                   type="button"
-                  onClick={() => void pay()}
-                  disabled={busy || !plan?.available || (needsEmail && !email.trim())}
-                  className="flex items-center justify-center gap-2 self-start rounded-lg bg-[#32BCAD] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#2ba99b] disabled:opacity-60"
+                  onClick={() => closePopup(false)}
+                  disabled={busy}
+                  aria-label={t("common.close")}
+                  className="rounded-lg p-1.5 text-zinc-400 transition hover:bg-black/5 hover:text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-white/10 dark:hover:text-zinc-200"
                 >
-                  <PixIcon className="h-4 w-4 shrink-0" />
-                  {busy
-                    ? t("common.generating")
-                    : t("giftPlanDialog.giftItForValue", { value: pricing?.pixPriceLabel ?? plan?.pixPriceLabel ?? "" })}
+                  <MdClose className="h-5 w-5" />
                 </button>
-              )}
-              {plan && !plan.available && (
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  {t("giftPlanDialog.thisPlanIsUnavailableAtThe")}
-                </p>
-              )}
-              {plan && (
-                <p className="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
-                  <mark.Icon className={`h-3.5 w-3.5 shrink-0 ${mark.className}`} />
-                  {addressed ? addressed.displayName : t("giftPlanDialog.whoRedeemsIt")} recebe{" "}
-                  {pricing?.periodDays ?? 30} dias de {plan.title}{t("giftPlanDialog.itDoesNotRenewOnIts")}
-                </p>
-              )}
-            </div>
-          )}
-
-          {error && (
-            <p className="mt-3 text-sm text-red-600 dark:text-red-400" role="alert">
-              {error}
-            </p>
-          )}
-
-          {/* Codes bought and not yet handed over. Only the ones still going
-              spare: a present somebody already redeemed is a link that does
-              nothing, and a list of those is a list of dead ends. */}
-          {unclaimed.length > 0 && !charge && (
-            <div className="mt-6 border-t border-zinc-200 pt-4 dark:border-zinc-800">
-              <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                {t("giftPlanDialog.giftsThatHaveNotBeenRedeemed")}
-              </p>
-              <div className="mt-2 flex flex-col gap-3">
-                {unclaimed.map((gift) => (
-                  <CodeRow
-                    key={gift.id}
-                    code={gift.code as string}
-                    label={t("giftPlanDialog.plantitleDaysDays", { planTitle: gift.planTitle, days: gift.days })}
-                  />
-                ))}
               </div>
             </div>
-          )}
+            {/* Below the row rather than beside the title, so it gets the full
+                width instead of sharing it with the buttons on the right. */}
+            <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
+              {t("giftPlanDialog.youPayOnceAndThePerson")}
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-6 px-6 py-5">
+            {/* 1. Who it is for. */}
+            <section className="flex flex-col gap-3">
+              <StepTitle n={1}>{t("giftPlanDialog.whoIsItFor")}</StepTitle>
+              {/* Which shape. Locked once a code exists: the charge already
+                  names a shape on the server. */}
+              <div className="grid grid-cols-2 gap-1 rounded-xl bg-zinc-100 p-1 dark:bg-zinc-900">
+                {(["link", "person"] as const).map((option) => {
+                  const chosen = mode === option;
+                  const Icon = option === "link" ? MdLink : MdPersonSearch;
+                  return (
+                    <button
+                      key={option}
+                      type="button"
+                      disabled={Boolean(charge)}
+                      onClick={() => setMode(option)}
+                      aria-pressed={chosen}
+                      className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                        chosen
+                          ? "bg-white text-zinc-950 shadow-sm dark:bg-zinc-800 dark:text-zinc-50"
+                          : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+                      }`}
+                    >
+                      <Icon className="h-4 w-4 shrink-0" />
+                      {option === "link" ? t("giftPlanDialog.generateALink") : t("giftPlanDialog.chooseSomeone")}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {mode === "link" ? (
+                <p className="text-sm leading-relaxed text-zinc-500 dark:text-zinc-400">
+                  {t("giftPlanDialog.youGetALinkToSend")}
+                </p>
+              ) : recipient ? (
+                <div className="flex items-center gap-3 rounded-xl border border-emerald-500/40 bg-emerald-500/5 px-3 py-2.5">
+                  <UserAvatar
+                    src={recipient.avatarUrl}
+                    name={recipient.displayName}
+                    size={36}
+                    className="shrink-0"
+                    userId={recipient.id}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <DisplayUserName
+                      name={recipient.displayName}
+                      verified={verifiedBadge(recipient.flags)}
+                      bot={recipient.bot}
+                      color={recipient.nameColor}
+                      className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100"
+                    />
+                    <span className="block truncate text-xs text-zinc-500 dark:text-zinc-400">
+                      @{recipient.username}
+                    </span>
+                  </span>
+                  {/* Disabled once a code exists: the charge names this
+                      person on the server. */}
+                  <button
+                    type="button"
+                    disabled={Boolean(charge)}
+                    onClick={() => setRecipient(null)}
+                    className="shrink-0 rounded-lg px-2.5 py-1 text-xs font-medium text-zinc-600 transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-40 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  >
+                    {t("common.change")}
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="relative">
+                    <MdSearch className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                    <input
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder={t("giftPlanDialog.searchByUsername")}
+                      className="w-full rounded-xl border border-zinc-300 bg-white py-2.5 pl-9 pr-3 text-sm text-zinc-950 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                    />
+                  </div>
+                  {choices.length === 0 ? (
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                      {searchable
+                        ? t("common.nobodyFoundWithThatName")
+                        : t("giftPlanDialog.searchByTheUsernameOfWhoever")}
+                    </p>
+                  ) : (
+                    <ul className="flex max-h-56 flex-col gap-1.5 overflow-y-auto">
+                      {choices.map((user) => (
+                        <PersonRow key={user.id} user={user} onSelect={() => setRecipient(user)} />
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
+            </section>
+
+            {/* 2. Which plan, and for how long. */}
+            {ready && plans.length > 0 && (
+              <section className="flex flex-col gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <StepTitle n={2}>{t("giftPlanDialog.whichPlan")}</StepTitle>
+                  {/* How long. In days rather than "Mensal"/"Anual": a present
+                      does not renew, so a billing word would promise a
+                      subscription this cannot hold. */}
+                  {plan?.cycles && plan.cycles.length > 1 && (
+                    <div className="inline-flex rounded-xl bg-zinc-100 p-1 dark:bg-zinc-900">
+                      {plan.cycles.map((entry) => {
+                        const chosen = entry.cycle === cycle;
+                        return (
+                          <button
+                            key={entry.cycle}
+                            type="button"
+                            disabled={Boolean(charge)}
+                            onClick={() => setCycle(entry.cycle)}
+                            aria-pressed={chosen}
+                            className={`rounded-lg px-3 py-1 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                              chosen
+                                ? "bg-white text-zinc-950 shadow-sm dark:bg-zinc-800 dark:text-zinc-50"
+                                : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+                            }`}
+                          >
+                            {tc("common.dayCount", entry.periodDays)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Cards side by side, one per plan, each in its own colour.
+                    Only with something to choose between, exactly as on /pro. */}
+                {plans.length > 1 && (
+                  <div className="grid grid-cols-1 gap-3 pt-2 sm:grid-cols-3">
+                    {plans.map((entry) => {
+                      const entryMark = planIcon(entry.iconId);
+                      const chosen = entry.id === plan?.id;
+                      const recommended = entry.id === RECOMMENDED_PLAN_ID;
+                      const tone = planTone(planTierOf(entry.id));
+                      return (
+                        <button
+                          key={entry.id}
+                          type="button"
+                          disabled={Boolean(charge)}
+                          onClick={() => setSelectedPlanId(entry.id)}
+                          aria-pressed={chosen}
+                          className={`relative flex items-center gap-3 rounded-2xl border-2 px-4 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-60 sm:flex-col sm:items-start sm:gap-2 sm:py-4 ${
+                            chosen
+                              ? `${TONE_CARD_CHOSEN[tone]}`
+                              : "border-zinc-200 bg-white hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-700"
+                          }`}
+                        >
+                          {recommended && (
+                            <span className="absolute -top-2.5 right-3 rounded-full bg-amber-500 px-2 py-0.5 text-[11px] leading-4 font-semibold text-white shadow-sm sm:right-auto sm:left-1/2 sm:-translate-x-1/2">
+                              {t("pro.proPanel.recommended")}
+                            </span>
+                          )}
+                          <entryMark.Icon className={`h-7 w-7 shrink-0 ${entryMark.className}`} />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-semibold text-zinc-950 dark:text-zinc-50">
+                              {entry.title.replace(/^GoLive\s+/i, "")}
+                            </span>
+                            <span className="mt-0.5 block text-lg font-bold tracking-tight text-zinc-950 dark:text-zinc-50">
+                              {entry.cycles?.find((c) => c.cycle === cycle)?.pixPriceLabel ?? entry.pixPriceLabel}
+                            </span>
+                          </span>
+                          {chosen && (
+                            <MdCheckCircle className={`absolute top-2.5 right-2.5 hidden h-5 w-5 sm:block ${TONE_CHECK[tone]}`} />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {needsEmail && (
+                  <label className="flex flex-col gap-1 text-sm text-zinc-700 dark:text-zinc-300">
+                    <span>{t("common.emailForThePayment")}</span>
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      autoComplete="email"
+                      placeholder="voce@exemplo.com"
+                      className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm text-zinc-950 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                    />
+                    <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                      {t("common.usedOnlyForTheChargeOn")}
+                    </span>
+                  </label>
+                )}
+              </section>
+            )}
+
+            {/* The summary and the button, together, so what is being paid
+                for is right next to the thing that pays for it. */}
+            {ready && plan && (
+              <section className="flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900/50">
+                <p className="flex items-start gap-2 text-sm text-zinc-600 dark:text-zinc-300">
+                  <mark.Icon className={`mt-0.5 h-4 w-4 shrink-0 ${mark.className}`} />
+                  <span>
+                    {addressed ? addressed.displayName : t("giftPlanDialog.whoRedeemsIt")} recebe{" "}
+                    <strong className="font-semibold text-zinc-900 dark:text-zinc-50">
+                      {pricing?.periodDays ?? 30} dias de {plan.title}
+                    </strong>
+                    {t("giftPlanDialog.itDoesNotRenewOnIts")}
+                  </span>
+                </p>
+                {/* Hidden while a code is on screen rather than disabled:
+                    pressing it again would mint a second charge. */}
+                {!charge && (
+                  <button
+                    type="button"
+                    onClick={() => void pay()}
+                    disabled={busy || !plan.available || (needsEmail && !email.trim())}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#32BCAD] px-4 py-3 text-sm font-semibold text-white shadow-sm shadow-[#32BCAD]/30 transition hover:bg-[#2ba99b] disabled:opacity-60"
+                  >
+                    <PixIcon className="h-4 w-4 shrink-0" />
+                    {busy
+                      ? t("common.generating")
+                      : t("giftPlanDialog.giftItForValue", { value: pricing?.pixPriceLabel ?? plan.pixPriceLabel ?? "" })}
+                  </button>
+                )}
+                {!plan.available && (
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    {t("giftPlanDialog.thisPlanIsUnavailableAtThe")}
+                  </p>
+                )}
+              </section>
+            )}
+
+            {error && (
+              <p className="-mt-3 text-sm text-red-600 dark:text-red-400" role="alert">
+                {error}
+              </p>
+            )}
+
+            {/* Codes bought and not yet handed over. Only the ones still going
+                spare: a redeemed present is a link that does nothing. */}
+            {unclaimed.length > 0 && !charge && (
+              <section className="flex flex-col gap-3 border-t border-zinc-200 pt-5 dark:border-zinc-800">
+                <p className="flex items-center gap-2 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                  <MdLink className="h-4 w-4 text-zinc-400" />
+                  {t("giftPlanDialog.giftsThatHaveNotBeenRedeemed")}
+                  <span className="rounded-full bg-zinc-200 px-1.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                    {unclaimed.length}
+                  </span>
+                </p>
+                <div className="flex flex-col gap-3">
+                  {unclaimed.map((gift) => (
+                    <CodeRow
+                      key={gift.id}
+                      code={gift.code as string}
+                      label={t("giftPlanDialog.plantitleDaysDays", { planTitle: gift.planTitle, days: gift.days })}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+          </div>
         </div>
       )}
     </div>

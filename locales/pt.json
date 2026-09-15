@@ -1342,6 +1342,8 @@
   "giftPlanDialog.searchByTheUsernameOfWhoever": "Procure pelo nome de usuário de quem vai receber.",
   "giftPlanDialog.searchByUsername": "Procurar por nome de usuário",
   "giftPlanDialog.thisPlanIsUnavailableAtThe": "Esse plano está indisponível no momento.",
+  "giftPlanDialog.whichPlan": "Qual plano",
+  "giftPlanDialog.whoIsItFor": "Para quem",
   "giftPlanDialog.whoRedeemsIt": "Quem resgatar",
   "giftPlanDialog.youGetALinkToSend": "Você recebe um link para mandar por onde quiser. Quem abrir resgata na hora.",
   "giftPlanDialog.youPayOnceAndThePerson": "Você paga uma vez e a pessoa recebe os dias na hora.",
