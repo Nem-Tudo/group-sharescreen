@@ -1,0 +1,150 @@
+name: Deploy Frontend
+
+on:
+  push:
+    branches:
+      - main
+
+# Impede dois deploys acontecendo ao mesmo tempo.
+concurrency:
+  group: frontend-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy Frontend
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 20
+
+    steps:
+      # ============================================================
+      # APP 1
+      # ============================================================
+
+      - name: Pegar status atual da APP 1
+        id: app1_before
+        env:
+          SQUARE_TOKEN: ${{ secrets.SQUARE_TOKEN }}
+          APP_ID: ${{ secrets.SQUARE_APP_1 }}
+        run: |
+          set -e
+
+          response=$(curl -fsS \
+            -H "Authorization: $SQUARE_TOKEN" \
+            "https://api.squarecloud.app/v2/apps/$APP_ID/status")
+
+          echo "$response"
+
+          running=$(echo "$response" | jq -r '.response.running')
+          uptime=$(echo "$response" | jq -r '.response.uptime')
+
+          echo "running=$running" >> "$GITHUB_OUTPUT"
+          echo "uptime=$uptime" >> "$GITHUB_OUTPUT"
+
+      - name: Atualizar APP 1
+        uses: squarecloudofc/github-action@v2
+        with:
+          token: ${{ secrets.SQUARE_TOKEN }}
+          command: commit ${{ secrets.SQUARE_APP_1 }} --restart
+
+      - name: Esperar APP 1 reiniciar
+        env:
+          SQUARE_TOKEN: ${{ secrets.SQUARE_TOKEN }}
+          APP_ID: ${{ secrets.SQUARE_APP_1 }}
+          OLD_UPTIME: ${{ steps.app1_before.outputs.uptime }}
+        run: |
+          set -e
+
+          echo "Esperando a APP 1 reiniciar..."
+
+          for i in {1..60}; do
+            response=$(curl -fsS \
+              -H "Authorization: $SQUARE_TOKEN" \
+              "https://api.squarecloud.app/v2/apps/$APP_ID/status")
+
+            running=$(echo "$response" | jq -r '.response.running')
+            uptime=$(echo "$response" | jq -r '.response.uptime')
+
+            echo "Tentativa $i/60 - running=$running uptime=$uptime"
+
+            # O uptime mudou = a aplicação reiniciou.
+            if [ "$running" = "true" ] && [ "$uptime" != "$OLD_UPTIME" ]; then
+              echo "APP 1 reiniciou com sucesso."
+              exit 0
+            fi
+
+            sleep 5
+          done
+
+          echo "ERRO: APP 1 não reiniciou dentro do tempo esperado."
+          exit 1
+
+      # ============================================================
+      # APP 2
+      # ============================================================
+
+      - name: Pegar status atual da APP 2
+        id: app2_before
+        env:
+          SQUARE_TOKEN: ${{ secrets.SQUARE_TOKEN }}
+          APP_ID: ${{ secrets.SQUARE_APP_2 }}
+        run: |
+          set -e
+
+          response=$(curl -fsS \
+            -H "Authorization: $SQUARE_TOKEN" \
+            "https://api.squarecloud.app/v2/apps/$APP_ID/status")
+
+          echo "$response"
+
+          running=$(echo "$response" | jq -r '.response.running')
+          uptime=$(echo "$response" | jq -r '.response.uptime')
+
+          echo "running=$running" >> "$GITHUB_OUTPUT"
+          echo "uptime=$uptime" >> "$GITHUB_OUTPUT"
+
+      - name: Atualizar APP 2
+        uses: squarecloudofc/github-action@v2
+        with:
+          token: ${{ secrets.SQUARE_TOKEN }}
+          command: commit ${{ secrets.SQUARE_APP_2 }} --restart
+
+      - name: Esperar APP 2 reiniciar
+        env:
+          SQUARE_TOKEN: ${{ secrets.SQUARE_TOKEN }}
+          APP_ID: ${{ secrets.SQUARE_APP_2 }}
+          OLD_UPTIME: ${{ steps.app2_before.outputs.uptime }}
+        run: |
+          set -e
+
+          echo "Esperando a APP 2 reiniciar..."
+
+          for i in {1..60}; do
+            response=$(curl -fsS \
+              -H "Authorization: $SQUARE_TOKEN" \
+              "https://api.squarecloud.app/v2/apps/$APP_ID/status")
+
+            running=$(echo "$response" | jq -r '.response.running')
+            uptime=$(echo "$response" | jq -r '.response.uptime')
+
+            echo "Tentativa $i/60 - running=$running uptime=$uptime"
+
+            if [ "$running" = "true" ] && [ "$uptime" != "$OLD_UPTIME" ]; then
+              echo "APP 2 reiniciou com sucesso."
+              exit 0
+            fi
+
+            sleep 5
+          done
+
+          echo "ERRO: APP 2 não reiniciou dentro do tempo esperado."
+          exit 1
+
+      - name: Deploy concluído
+        run: |
+          echo "======================================"
+          echo " Deploy concluído com sucesso!"
+          echo " APP 1: atualizada"
+          echo " APP 2: atualizada"
+          echo "======================================"
