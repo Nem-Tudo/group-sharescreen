@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { pushNotification } from "@/lib/notificationInbox";
 import { showNotification } from "@/lib/notifications";
 import { playFriendRequestSound } from "@/lib/soundEffects";
@@ -31,9 +31,16 @@ export function GiftNotifier() {
   const { account, refresh } = useAuth();
   // See DmNotifier: the bell everywhere, the noise on one connection only.
   const { lastGift, lastGiftRedeemed, alertTarget } = useSignalingSelector(selectGiftNudge, shallow);
+  // The message this tab has already acted on. refresh() replaces `account`
+  // with a new object, which re-runs the effect below — without this, every
+  // refresh caused another one, an endless stream of /auth/me that the
+  // hosting's anti-DDoS blocked.
+  const handledGiftRef = useRef<typeof lastGift>(null);
 
   useEffect(() => {
     if (!account || !lastGift) return;
+    if (handledGiftRef.current === lastGift) return;
+    handledGiftRef.current = lastGift;
 
     // First, because it is the part that matters: the entitlement changed
     // under this tab without this tab doing anything, and until the account is
