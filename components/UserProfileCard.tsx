@@ -14,7 +14,14 @@ import { useSignaling } from "@/lib/useSignaling";
 import { usePresence } from "@/lib/presence";
 import { PresenceDot } from "@/components/PresenceDot";
 import { signalingClient } from "@/lib/signalingClient";
-import { getAccountToken, fetchAvatarOptions, type AvatarOptions } from "@/lib/accountApi";
+import {
+  changeUsername,
+  fetchAvatarOptions,
+  fetchUsernameChangeAllowance,
+  getAccountToken,
+  type AvatarOptions,
+  type UsernameChangeAllowance,
+} from "@/lib/accountApi";
 import { hasFeature } from "@/lib/entitlements";
 import { planIcon } from "@/components/planIcons";
 import { DEFAULT_SONG_VOLUME, ProfileSongPlayer } from "@/components/ProfileSongPlayer";
@@ -514,6 +521,10 @@ function ProfileContent({
 
   const [isEditing, setIsEditing] = useState(false);
   const [editDisplayName, setEditDisplayName] = useState(account.displayName);
+  const [editUsername, setEditUsername] = useState(account.username);
+  // Loaded when editing starts; null until then (and for a bot, whose
+  // username is changed in the developer portal).
+  const [usernameAllowance, setUsernameAllowance] = useState<UsernameChangeAllowance | null>(null);
   const [editBio, setEditBio] = useState(account.bio ?? "");
   const [editBgColor, setEditBgColor] = useState<string | null>(account.equippedProfileColor ?? null);
   const [previewAvatar, setPreviewAvatar] = useState<string | null>(account.avatarUrl ?? null);
@@ -530,7 +541,7 @@ function ProfileContent({
   );
   // Which field is open for editing, or none. One at a time: two inputs open
   // at once is a form again, which is the thing this replaced.
-  const [openField, setOpenField] = useState<"name" | "bio" | "song" | null>(null);
+  const [openField, setOpenField] = useState<"name" | "username" | "bio" | "song" | null>(null);
   const [bannerPickerOpen, setBannerPickerOpen] = useState(false);
   const [bannerDataUrl, setBannerDataUrl] = useState<string | null | undefined>(undefined);
   const [saving, setSaving] = useState(false);
@@ -544,6 +555,7 @@ function ProfileContent({
   // Sync state if profile prop changes
   useEffect(() => {
     setEditDisplayName(account.displayName);
+    setEditUsername(account.username);
     setEditBio(account.bio ?? "");
     setEditBgColor(account.equippedProfileColor ?? null);
     setPreviewAvatar(account.avatarUrl ?? null);
@@ -688,9 +700,23 @@ function ProfileContent({
     setAvatarDataUrl(null);
   }
 
+  useEffect(() => {
+    if (!isEditing || !isOwner || account.bot) return;
+    let cancelled = false;
+    fetchUsernameChangeAllowance()
+      .then((allowance) => {
+        if (!cancelled) setUsernameAllowance(allowance);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isEditing, isOwner, account.bot]);
+
   function handleCancel() {
     setIsEditing(false);
     setEditDisplayName(account.displayName);
+    setEditUsername(account.username);
     setEditBio(account.bio ?? "");
     setEditBgColor(account.equippedProfileColor ?? null);
     setPreviewAvatar(account.avatarUrl ?? null);
@@ -717,6 +743,21 @@ function ProfileContent({
     setError(null);
 
     try {
+      // First and on its own: it is the one change that can be refused for
+      // reasons that have nothing to do with the rest (taken, or the weekly
+      // limit), and nothing else should be saved half-way when it is.
+      const trimmedUsername = editUsername.trim();
+      if (!account.bot && trimmedUsername !== account.username) {
+        const changed = await changeUsername(trimmedUsername);
+        setUsernameAllowance(changed.usernameChange);
+        // The profile page's address has the old name in it, and that name
+        // is free for anybody to take now.
+        const oldPath = `/user/${account.username}`;
+        if (window.location.pathname.toLowerCase() === oldPath.toLowerCase()) {
+          window.history.replaceState(null, "", `/user/${changed.account.username}${window.location.search}`);
+        }
+      }
+
       const updatedAccount = await updateProfile({
         displayName: trimmedName,
         bio: editBio.trim() ? editBio.trim() : null,
@@ -1177,12 +1218,50 @@ function ProfileContent({
                   </h1>
                 </InlineEdit>
                 <div className="flex flex-wrap items-center gap-2 mt-0.5">
-                  <p
-                    className="text-sm text-zinc-500 dark:text-zinc-400"
-                    style={theme ? { color: theme.muted, textShadow: theme.textShadow } : undefined}
+                  <InlineEdit
+                    editable={isEditing && !account.bot}
+                    open={openField === "username"}
+                    onOpen={() => setOpenField("username")}
+                    onClose={() => setOpenField(null)}
+                    label={t("userProfileCard.editUsername")}
+                    editor={
+                      <div>
+                        <input
+                          autoFocus
+                          maxLength={20}
+                          value={editUsername}
+                          onChange={(e) => setEditUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ""))}
+                          disabled={usernameAllowance?.remaining === 0}
+                          className="themed-field w-full rounded-lg border border-zinc-300 bg-white px-3 py-1 text-sm text-zinc-950 outline-none focus:border-zinc-500 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                          style={themedField}
+                        />
+                        {usernameAllowance && (
+                          <p
+                            className="mt-1 text-xs text-zinc-500 dark:text-zinc-400"
+                            style={theme ? { color: theme.muted } : undefined}
+                          >
+                            {usernameAllowance.remaining > 0 || !usernameAllowance.nextAt
+                              ? tc("userProfileCard.usernameChangesLeft", usernameAllowance.remaining)
+                              : t("userProfileCard.usernameChangeLockedUntil", {
+                                  date: new Date(usernameAllowance.nextAt).toLocaleString(formatLocale(), {
+                                    day: "numeric",
+                                    month: "long",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  }),
+                                })}
+                          </p>
+                        )}
+                      </div>
+                    }
                   >
-                    @{account.username}
-                  </p>
+                    <p
+                      className="text-sm text-zinc-500 dark:text-zinc-400"
+                      style={theme ? { color: theme.muted, textShadow: theme.textShadow } : undefined}
+                    >
+                      @{isEditing ? editUsername : account.username}
+                    </p>
+                  </InlineEdit>
                   {account.bot && <BotTag />}
                   <UserBadges account={account} isOwner={isOwner} theme={theme ?? undefined} />
                 </div>

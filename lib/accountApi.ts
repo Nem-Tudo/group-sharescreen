@@ -400,6 +400,50 @@ export async function unlinkOAuthProvider(provider: string): Promise<void> {
   if (!res.ok) throw new Error(await parseErrorMessage(res, translate("common.couldNotDisconnect")));
 }
 
+/** How many username changes are left (2 per 7 days, see the API's changeAccountUsername). */
+export type UsernameChangeAllowance = {
+  remaining: number;
+  /** When the next change frees up; null when one is available now. */
+  nextAt: number | null;
+};
+
+export async function fetchUsernameChangeAllowance(): Promise<UsernameChangeAllowance> {
+  const token = getAccountToken();
+  if (!token) throw new Error(translate("accountApi.youAreNotSignedIn"));
+  const res = await fetch(`${getSignalingHttpBase()}/account/username`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, translate("accountApi.couldNotUpdateTheProfile")));
+  return ((await res.json()) as { usernameChange: UsernameChangeAllowance }).usernameChange;
+}
+
+/**
+ * Changes this account's username. The API answers with a fresh session
+ * token carrying the new name, which replaces the stored one.
+ */
+export async function changeUsername(
+  username: string
+): Promise<{ account: Account; usernameChange: UsernameChangeAllowance }> {
+  const token = getAccountToken();
+  if (!token) throw new Error(translate("accountApi.youAreNotSignedIn"));
+  const res = await fetch(`${getSignalingHttpBase()}/account/username`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ username }),
+  });
+  const data = (await res.json().catch(() => null)) as
+    | { error?: string; account: Account; token: string; usernameChange: UsernameChangeAllowance }
+    | null;
+  if (!res.ok || !data) {
+    if (res.status === 409) throw new Error(translate("accountApi.usernameTaken"));
+    if (res.status === 400) throw new Error(translate("accountApi.usernameInvalid"));
+    if (res.status === 429) throw new Error(translate("accountApi.usernameChangeLimit"));
+    throw new Error(data?.error || translate("accountApi.couldNotUpdateTheProfile"));
+  }
+  setAccountToken(data.token);
+  return { account: data.account, usernameChange: data.usernameChange };
+}
+
 export type UpdateProfileInput = {
   displayName?: string;
   bio?: string | null;
