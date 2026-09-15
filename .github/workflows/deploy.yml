@@ -25,15 +25,6 @@ jobs:
         uses: actions/checkout@v4
 
       # ============================================================
-      # CONFIGURAÇÃO
-      # ============================================================
-
-      - name: Mostrar commit
-        run: |
-          echo "Commit que será publicado:"
-          echo "${{ github.sha }}"
-
-      # ============================================================
       # APP 1
       # ============================================================
 
@@ -62,7 +53,7 @@ jobs:
           token: ${{ secrets.SQUARE_TOKEN }}
           command: commit ${{ secrets.SQUARE_APP_1 }} --restart
 
-      - name: Esperar APP 1 ficar pronta
+      - name: Esperar APP 1 terminar o build
         env:
           HEALTH_URL: ${{ secrets.APP_1_HEALTH_URL }}
           EXPECTED_COMMIT: ${{ github.sha }}
@@ -74,30 +65,56 @@ jobs:
 
           for i in {1..120}; do
 
-            response=$(curl \
+            echo ""
+            echo "Tentativa $i/120..."
+
+            # Faz a requisição.
+            # Qualquer erro/timeout vira HTTP 000.
+            http_code=$(curl \
               -s \
-              --max-time 5 \
-              "$HEALTH_URL" || true)
+              -o /tmp/health_response \
+              -w "%{http_code}" \
+              --max-time 10 \
+              "$HEALTH_URL" || echo "000")
 
-            echo "Tentativa $i/120"
-            echo "Resposta: $response"
-
-            if [ -n "$response" ]; then
-              status=$(echo "$response" | jq -r '.status // empty')
-              commit=$(echo "$response" | jq -r '.commit // empty')
-
-              echo "Status: $status"
-              echo "Commit: $commit"
-
-              if [ "$status" = "ok" ] && [ "$commit" = "$EXPECTED_COMMIT" ]; then
-                echo ""
-                echo "======================================"
-                echo "APP 1 está rodando o novo commit!"
-                echo "Commit: $commit"
-                echo "======================================"
-                exit 0
-              fi
+            # Qualquer coisa que não seja HTTP 200 é considerada offline.
+            if [ "$http_code" != "200" ]; then
+              echo "APP 1 está offline ou indisponível (HTTP $http_code)."
+              echo "Tentando novamente em 5 segundos..."
+              sleep 5
+              continue
             fi
+
+            # Tenta interpretar a resposta como JSON.
+            # Se for HTML da Square Cloud, por exemplo, simplesmente ignora.
+            if ! jq empty /tmp/health_response 2>/dev/null; then
+              echo "Resposta não é JSON válido. Considerando APP 1 offline."
+              echo "Tentando novamente em 5 segundos..."
+              sleep 5
+              continue
+            fi
+
+            status=$(jq -r '.status // empty' /tmp/health_response)
+            commit=$(jq -r '.commit // empty' /tmp/health_response)
+
+            echo "Status recebido: $status"
+            echo "Commit recebido: $commit"
+
+            # Só considera pronto se TODAS as condições forem satisfeitas.
+            if [ "$status" = "ok" ] && [ "$commit" = "$EXPECTED_COMMIT" ]; then
+              echo ""
+              echo "======================================"
+              echo "APP 1 está pronta!"
+              echo "Commit: $commit"
+              echo "======================================"
+
+              exit 0
+            fi
+
+            echo "APP 1 ainda não está pronta."
+            echo "Esperado: $EXPECTED_COMMIT"
+            echo "Recebido: $commit"
+            echo "Tentando novamente em 5 segundos..."
 
             sleep 5
           done
@@ -105,7 +122,6 @@ jobs:
           echo ""
           echo "======================================"
           echo "ERRO: APP 1 não ficou pronta."
-          echo "Commit esperado: $EXPECTED_COMMIT"
           echo "======================================"
 
           exit 1
@@ -139,7 +155,7 @@ jobs:
           token: ${{ secrets.SQUARE_TOKEN }}
           command: commit ${{ secrets.SQUARE_APP_2 }} --restart
 
-      - name: Esperar APP 2 ficar pronta
+      - name: Esperar APP 2 terminar o build
         env:
           HEALTH_URL: ${{ secrets.APP_2_HEALTH_URL }}
           EXPECTED_COMMIT: ${{ github.sha }}
@@ -151,30 +167,50 @@ jobs:
 
           for i in {1..120}; do
 
-            response=$(curl \
+            echo ""
+            echo "Tentativa $i/120..."
+
+            http_code=$(curl \
               -s \
-              --max-time 5 \
-              "$HEALTH_URL" || true)
+              -o /tmp/health_response \
+              -w "%{http_code}" \
+              --max-time 10 \
+              "$HEALTH_URL" || echo "000")
 
-            echo "Tentativa $i/120"
-            echo "Resposta: $response"
-
-            if [ -n "$response" ]; then
-              status=$(echo "$response" | jq -r '.status // empty')
-              commit=$(echo "$response" | jq -r '.commit // empty')
-
-              echo "Status: $status"
-              echo "Commit: $commit"
-
-              if [ "$status" = "ok" ] && [ "$commit" = "$EXPECTED_COMMIT" ]; then
-                echo ""
-                echo "======================================"
-                echo "APP 2 está rodando o novo commit!"
-                echo "Commit: $commit"
-                echo "======================================"
-                exit 0
-              fi
+            if [ "$http_code" != "200" ]; then
+              echo "APP 2 está offline ou indisponível (HTTP $http_code)."
+              echo "Tentando novamente em 5 segundos..."
+              sleep 5
+              continue
             fi
+
+            if ! jq empty /tmp/health_response 2>/dev/null; then
+              echo "Resposta não é JSON válido. Considerando APP 2 offline."
+              echo "Tentando novamente em 5 segundos..."
+              sleep 5
+              continue
+            fi
+
+            status=$(jq -r '.status // empty' /tmp/health_response)
+            commit=$(jq -r '.commit // empty' /tmp/health_response)
+
+            echo "Status recebido: $status"
+            echo "Commit recebido: $commit"
+
+            if [ "$status" = "ok" ] && [ "$commit" = "$EXPECTED_COMMIT" ]; then
+              echo ""
+              echo "======================================"
+              echo "APP 2 está pronta!"
+              echo "Commit: $commit"
+              echo "======================================"
+
+              exit 0
+            fi
+
+            echo "APP 2 ainda não está pronta."
+            echo "Esperado: $EXPECTED_COMMIT"
+            echo "Recebido: $commit"
+            echo "Tentando novamente em 5 segundos..."
 
             sleep 5
           done
@@ -182,7 +218,6 @@ jobs:
           echo ""
           echo "======================================"
           echo "ERRO: APP 2 não ficou pronta."
-          echo "Commit esperado: $EXPECTED_COMMIT"
           echo "======================================"
 
           exit 1
