@@ -14,36 +14,47 @@ jobs:
     name: Deploy Frontend
     runs-on: ubuntu-latest
 
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
-      # Baixa o código do GitHub para o runner
+      # ============================================================
+      # CHECKOUT
+      # ============================================================
+
       - name: Checkout
         uses: actions/checkout@v4
+
+      # ============================================================
+      # CONFIGURAÇÃO
+      # ============================================================
+
+      - name: Mostrar commit
+        run: |
+          echo "Commit que será publicado:"
+          echo "${{ github.sha }}"
 
       # ============================================================
       # APP 1
       # ============================================================
 
-      - name: Verificar status da APP 1
-        id: app1_before
+      - name: Definir GIT_BUILD_COMMIT_HASH da APP 1
         env:
           SQUARE_TOKEN: ${{ secrets.SQUARE_TOKEN }}
           APP_ID: ${{ secrets.SQUARE_APP_1 }}
+          COMMIT_HASH: ${{ github.sha }}
         run: |
           set -e
 
-          response=$(curl -fsS \
+          echo "Definindo GIT_BUILD_COMMIT_HASH da APP 1..."
+
+          curl -fsS \
+            -X POST \
+            "https://api.squarecloud.app/v2/apps/$APP_ID/envs" \
             -H "Authorization: $SQUARE_TOKEN" \
-            "https://api.squarecloud.app/v2/apps/$APP_ID/status")
+            -H "Content-Type: application/json" \
+            -d "{\"envs\":{\"GIT_BUILD_COMMIT_HASH\":\"$COMMIT_HASH\"}}"
 
-          echo "$response"
-
-          running=$(echo "$response" | jq -r '.response.running')
-          uptime=$(echo "$response" | jq -r '.response.uptime')
-
-          echo "running=$running" >> "$GITHUB_OUTPUT"
-          echo "uptime=$uptime" >> "$GITHUB_OUTPUT"
+          echo "Variável atualizada."
 
       - name: Atualizar APP 1
         uses: squarecloudofc/github-action@v2
@@ -51,60 +62,76 @@ jobs:
           token: ${{ secrets.SQUARE_TOKEN }}
           command: commit ${{ secrets.SQUARE_APP_1 }} --restart
 
-      - name: Esperar APP 1 reiniciar
+      - name: Esperar APP 1 ficar pronta
         env:
-          SQUARE_TOKEN: ${{ secrets.SQUARE_TOKEN }}
-          APP_ID: ${{ secrets.SQUARE_APP_1 }}
-          OLD_UPTIME: ${{ steps.app1_before.outputs.uptime }}
+          HEALTH_URL: ${{ secrets.APP_1_HEALTH_URL }}
+          EXPECTED_COMMIT: ${{ github.sha }}
         run: |
           set -e
 
-          echo "Esperando APP 1 reiniciar..."
+          echo "Esperando APP 1 terminar o build..."
+          echo "Commit esperado: $EXPECTED_COMMIT"
 
-          for i in {1..60}; do
-            response=$(curl -fsS \
-              -H "Authorization: $SQUARE_TOKEN" \
-              "https://api.squarecloud.app/v2/apps/$APP_ID/status")
+          for i in {1..120}; do
 
-            running=$(echo "$response" | jq -r '.response.running')
-            uptime=$(echo "$response" | jq -r '.response.uptime')
+            response=$(curl \
+              -s \
+              --max-time 5 \
+              "$HEALTH_URL" || true)
 
-            echo "Tentativa $i/60 - running=$running uptime=$uptime"
+            echo "Tentativa $i/120"
+            echo "Resposta: $response"
 
-            if [ "$running" = "true" ] && [ "$uptime" != "$OLD_UPTIME" ]; then
-              echo "APP 1 reiniciou com sucesso."
-              exit 0
+            if [ -n "$response" ]; then
+              status=$(echo "$response" | jq -r '.status // empty')
+              commit=$(echo "$response" | jq -r '.commit // empty')
+
+              echo "Status: $status"
+              echo "Commit: $commit"
+
+              if [ "$status" = "ok" ] && [ "$commit" = "$EXPECTED_COMMIT" ]; then
+                echo ""
+                echo "======================================"
+                echo "APP 1 está rodando o novo commit!"
+                echo "Commit: $commit"
+                echo "======================================"
+                exit 0
+              fi
             fi
 
             sleep 5
           done
 
-          echo "APP 1 não reiniciou dentro do tempo esperado."
+          echo ""
+          echo "======================================"
+          echo "ERRO: APP 1 não ficou pronta."
+          echo "Commit esperado: $EXPECTED_COMMIT"
+          echo "======================================"
+
           exit 1
 
       # ============================================================
       # APP 2
       # ============================================================
 
-      - name: Verificar status da APP 2
-        id: app2_before
+      - name: Definir GIT_BUILD_COMMIT_HASH da APP 2
         env:
           SQUARE_TOKEN: ${{ secrets.SQUARE_TOKEN }}
           APP_ID: ${{ secrets.SQUARE_APP_2 }}
+          COMMIT_HASH: ${{ github.sha }}
         run: |
           set -e
 
-          response=$(curl -fsS \
+          echo "Definindo GIT_BUILD_COMMIT_HASH da APP 2..."
+
+          curl -fsS \
+            -X POST \
+            "https://api.squarecloud.app/v2/apps/$APP_ID/envs" \
             -H "Authorization: $SQUARE_TOKEN" \
-            "https://api.squarecloud.app/v2/apps/$APP_ID/status")
+            -H "Content-Type: application/json" \
+            -d "{\"envs\":{\"GIT_BUILD_COMMIT_HASH\":\"$COMMIT_HASH\"}}"
 
-          echo "$response"
-
-          running=$(echo "$response" | jq -r '.response.running')
-          uptime=$(echo "$response" | jq -r '.response.uptime')
-
-          echo "running=$running" >> "$GITHUB_OUTPUT"
-          echo "uptime=$uptime" >> "$GITHUB_OUTPUT"
+          echo "Variável atualizada."
 
       - name: Atualizar APP 2
         uses: squarecloudofc/github-action@v2
@@ -112,41 +139,65 @@ jobs:
           token: ${{ secrets.SQUARE_TOKEN }}
           command: commit ${{ secrets.SQUARE_APP_2 }} --restart
 
-      - name: Esperar APP 2 reiniciar
+      - name: Esperar APP 2 ficar pronta
         env:
-          SQUARE_TOKEN: ${{ secrets.SQUARE_TOKEN }}
-          APP_ID: ${{ secrets.SQUARE_APP_2 }}
-          OLD_UPTIME: ${{ steps.app2_before.outputs.uptime }}
+          HEALTH_URL: ${{ secrets.APP_2_HEALTH_URL }}
+          EXPECTED_COMMIT: ${{ github.sha }}
         run: |
           set -e
 
-          echo "Esperando APP 2 reiniciar..."
+          echo "Esperando APP 2 terminar o build..."
+          echo "Commit esperado: $EXPECTED_COMMIT"
 
-          for i in {1..60}; do
-            response=$(curl -fsS \
-              -H "Authorization: $SQUARE_TOKEN" \
-              "https://api.squarecloud.app/v2/apps/$APP_ID/status")
+          for i in {1..120}; do
 
-            running=$(echo "$response" | jq -r '.response.running')
-            uptime=$(echo "$response" | jq -r '.response.uptime')
+            response=$(curl \
+              -s \
+              --max-time 5 \
+              "$HEALTH_URL" || true)
 
-            echo "Tentativa $i/60 - running=$running uptime=$uptime"
+            echo "Tentativa $i/120"
+            echo "Resposta: $response"
 
-            if [ "$running" = "true" ] && [ "$uptime" != "$OLD_UPTIME" ]; then
-              echo "APP 2 reiniciou com sucesso."
-              exit 0
+            if [ -n "$response" ]; then
+              status=$(echo "$response" | jq -r '.status // empty')
+              commit=$(echo "$response" | jq -r '.commit // empty')
+
+              echo "Status: $status"
+              echo "Commit: $commit"
+
+              if [ "$status" = "ok" ] && [ "$commit" = "$EXPECTED_COMMIT" ]; then
+                echo ""
+                echo "======================================"
+                echo "APP 2 está rodando o novo commit!"
+                echo "Commit: $commit"
+                echo "======================================"
+                exit 0
+              fi
             fi
 
             sleep 5
           done
 
-          echo "APP 2 não reiniciou dentro do tempo esperado."
+          echo ""
+          echo "======================================"
+          echo "ERRO: APP 2 não ficou pronta."
+          echo "Commit esperado: $EXPECTED_COMMIT"
+          echo "======================================"
+
           exit 1
+
+      # ============================================================
+      # FINAL
+      # ============================================================
 
       - name: Deploy concluído
         run: |
+          echo ""
           echo "======================================"
-          echo "Deploy concluído com sucesso!"
-          echo "APP 1: atualizada"
-          echo "APP 2: atualizada"
+          echo "       DEPLOY CONCLUÍDO"
+          echo "======================================"
+          echo "Commit: ${{ github.sha }}"
+          echo "APP 1: OK"
+          echo "APP 2: OK"
           echo "======================================"
