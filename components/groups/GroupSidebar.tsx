@@ -322,6 +322,9 @@ export function GroupRoomsPanel({
   const { group, channels, voice, voiceRooms: voiceRoomStates } = detail;
   // Creating, renaming, moving and configuring rooms — "Gerenciar salas".
   const isManager = canManage(detail, "manageChannels");
+  // A room's settings also hold its webhooks, so whoever manages webhooks
+  // (without managing rooms) gets the gear too — and sees only that tab.
+  const canOpenRoomSettings = isManager || canManage(detail, "manageWebhooks");
   const { collapsed, toggle: toggleCollapsed } = useCollapsedCategories(group.id);
   const sections = useMemo(() => buildSections(channels, detail.categories ?? []), [channels, detail.categories]);
   const hasCategories = sections.length > 1;
@@ -510,8 +513,8 @@ export function GroupRoomsPanel({
         { type: "divider" },
         { label: t("groups.groupRail.copyLink"), icon: <MdLink className="h-4 w-4" />, onSelect: () => void copyText(linkTo(channel.id)) },
         { label: t("groups.memberMenu.copyId"), icon: <MdContentCopy className="h-4 w-4" />, onSelect: () => void copyText(channel.id) },
-        isManager && { type: "divider" },
-        isManager && {
+        canOpenRoomSettings && { type: "divider" },
+        canOpenRoomSettings && {
           label: t("groups.groupSidebar.roomSettings"),
           icon: <MdSettings className="h-4 w-4" />,
           onSelect: () => {
@@ -808,7 +811,7 @@ export function GroupRoomsPanel({
         ) : people.length === 0 ? (
           <span className="shrink-0 text-xs text-zinc-400 dark:text-zinc-500">vazia</span>
         ) : null}
-        {isManager && editButton(channel.id)}
+        {canOpenRoomSettings && editButton(channel.id)}
       </>
     );
     return (
@@ -896,7 +899,7 @@ export function GroupRoomsPanel({
           ) : !active && channel.unread ? (
             <span className="h-2 w-2 shrink-0 rounded-full bg-zinc-950 dark:bg-zinc-50" aria-label={t("common.newMessages")} />
           ) : null}
-          {isManager && editButton(channel.id)}
+          {canOpenRoomSettings && editButton(channel.id)}
         </GroupLink>
       </li>
     );

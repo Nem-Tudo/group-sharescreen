@@ -25,6 +25,7 @@ import {
   prepareChatImage,
 } from "@/lib/chatImage";
 import { DisplayUserName } from "@/components/DisplayUserName";
+import { WebhookProfileDialog } from "@/components/WebhookProfileDialog";
 import { UserAvatar } from "@/components/UserAvatar";
 import { withDeviceSuffix } from "@/lib/displayName";
 import { Popover, Tooltip } from "@/components/Tooltip";
@@ -399,6 +400,9 @@ export function ChatPanel({
 
   // Active message being replied to (Discord style)
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
+  // The webhook whose name was clicked — see WebhookProfileDialog. A webhook
+  // has no profile for onOpenProfile to open.
+  const [webhookCard, setWebhookCard] = useState<{ name: string; avatarUrl: string | null } | null>(null);
   // Temporarily highlighted message when clicking on a reply reference
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1084,15 +1088,32 @@ export function ChatPanel({
                           src={m.avatarUrl}
                           name={m.name}
                           size={20}
-                          userId={m.userId}
+                          userId={m.webhook ? null : m.userId}
                           isGuest={m.isGuest}
                         />
                         <span className="flex min-w-0 items-baseline gap-1.5">
                         {/* Clickable only for a real account: a guest has no
                             profile to open, and `userId` is absent on messages
                             from before it was sent at all. Both keep the plain
-                            name rather than a control that would 404. */}
-                        {onOpenProfile && m.userId && !m.isGuest ? (
+                            name rather than a control that would 404. A
+                            webhook opens a card saying what it is instead. */}
+                        {m.webhook ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setWebhookCard({ name: m.name, avatarUrl: m.avatarUrl ?? null });
+                            }}
+                            title={t("webhook.tagTitle")}
+                            className="min-w-0 cursor-pointer text-left"
+                          >
+                            <DisplayUserName
+                              name={m.name}
+                              webhook
+                              className={"min-w-0 font-medium text-zinc-700 hover:underline dark:text-zinc-300"}
+                            />
+                          </button>
+                        ) : onOpenProfile && m.userId && !m.isGuest ? (
                           <button
                             type="button"
                             onClick={(e) => {
@@ -1532,6 +1553,13 @@ export function ChatPanel({
         preview={imageModalPreview}
         onClose={() => setImageModalPreview(null)}
       />
+      {webhookCard && (
+        <WebhookProfileDialog
+          name={webhookCard.name}
+          avatarUrl={webhookCard.avatarUrl}
+          onClose={() => setWebhookCard(null)}
+        />
+      )}
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { VerifiedBadge } from "./VerifiedBadge";
 import type { VerifiedTone } from "@/lib/entitlements";
 import { Tooltip } from "./Tooltip";
 import { BotTag } from "./BotTag";
+import { WebhookTag } from "./WebhookTag";
 import { translate } from "@/lib/i18n";
 
 // Single place that renders a person's display name — every "name" shown
@@ -14,6 +15,7 @@ export function DisplayUserName({
   isGuest,
   verified,
   bot,
+  webhook,
   color,
   connectionLost,
   className,
@@ -31,6 +33,8 @@ export function DisplayUserName({
   // A bot account (the `bot` field every person projection carries) — gets
   // the BOT tag after the name, see components/BotTag.
   bot?: boolean;
+  // A group webhook's message — gets the WEBHOOK tag, see components/WebhookTag.
+  webhook?: boolean;
   // Cosmetics-store name color (see PeerInfo.nameColor / lib/cosmetics.ts) —
   // a hex value applied to the name text itself. Undefined/null for no
   // color equipped, which leaves the name at whatever color its container
@@ -57,6 +61,7 @@ export function DisplayUserName({
         />
       )}
       {bot && <BotTag className="ml-1" />}
+      {webhook && <WebhookTag className="ml-1" />}
       {isGuest && <span className="font-normal text-zinc-500" style={{ marginLeft: "4px" }}>(guest)</span>}
       {connectionLost && (
         <Tooltip content={translate("displayUserName.connectionLostWithThisPersonTrying")}>

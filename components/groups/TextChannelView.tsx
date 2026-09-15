@@ -86,6 +86,7 @@ import {
   reactToGroupMessage,
   searchMembers,
   sendGroupTyping,
+  WEBHOOK_AUTHOR_PREFIX,
   type GroupDetail,
   type GroupMessage,
   type GroupReaction,
@@ -726,6 +727,21 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
   const myRoleIds = detail.me.roleIds ?? detail.memberRoles?.[selfId] ?? [];
 
   function userOf(message: GroupMessage): GroupUser {
+    // A webhook's message is drawn as it was sent — the name and picture it
+    // posted under (which can differ message to message), not the webhook as
+    // it is now, and never a member.
+    if (message.webhook) {
+      return {
+        id: message.from,
+        name: message.fromName || "Webhook",
+        username: null,
+        avatarUrl: message.webhook.avatarUrl,
+        nameColor: null,
+        flags: [],
+        guest: false,
+        webhook: true,
+      };
+    }
     return (
       personById.get(message.from) ?? {
         id: message.from,
@@ -1291,11 +1307,14 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
     if (!reply.userId) {
       return <span className="shrink-0 font-medium text-zinc-700 dark:text-zinc-300">{label}</span>;
     }
+    // Answering a webhook's message: its card, not a profile it does not have.
+    const webhook = reply.userId.startsWith(WEBHOOK_AUTHOR_PREFIX);
     const person = {
       id: reply.userId,
-      name: known?.name ?? reply.name,
+      name: webhook ? reply.name : known?.name ?? reply.name,
       avatarUrl: known?.avatarUrl ?? null,
-      guest: known?.guest ?? reply.userId.startsWith("guest:"),
+      guest: !webhook && (known?.guest ?? reply.userId.startsWith("guest:")),
+      webhook,
     };
     return (
       <button
@@ -1307,8 +1326,8 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
         }}
         onKeyDown={(e) => e.stopPropagation()}
         onContextMenu={(e) => contextPerson(e, person)}
-        onMouseEnter={() => !person.guest && prefetchUserProfile(person.id)}
-        title={t("groups.people.profileHint")}
+        onMouseEnter={() => !person.guest && !person.webhook && prefetchUserProfile(person.id)}
+        title={person.webhook ? t("webhook.tagTitle") : t("groups.people.profileHint")}
         className="shrink-0 cursor-pointer font-medium text-zinc-700 hover:underline dark:text-zinc-300"
         style={color ? { color } : undefined}
       >
@@ -1454,15 +1473,15 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
                 type="button"
                 onClick={(e) => clickPerson(e, author)}
                 onContextMenu={(e) => contextPerson(e, author)}
-                onMouseEnter={() => !author.guest && prefetchUserProfile(author.id)}
-                title={t("groups.people.profileHint")}
+                onMouseEnter={() => !author.guest && !author.webhook && prefetchUserProfile(author.id)}
+                title={author.webhook ? t("webhook.tagTitle") : t("groups.people.profileHint")}
                 className="flex min-w-0 cursor-pointer items-center gap-1.5 text-left"
               >
                 <UserAvatar
                   src={author.avatarUrl}
                   name={author.name}
                   size={20}
-                  userId={author.guest ? null : author.id}
+                  userId={author.guest || author.webhook ? null : author.id}
                   isGuest={author.guest}
                 />
                 <span className="flex min-w-0 items-baseline gap-1.5">
@@ -1471,6 +1490,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
                     isGuest={author.guest}
                     verified={verifiedBadge(author.flags)}
                     bot={author.bot}
+                    webhook={author.webhook}
                     color={roleColorOf(detail, { id: author.id }) ?? author.nameColor}
                     className="min-w-0 font-medium text-zinc-700 hover:underline dark:text-zinc-300"
                   />

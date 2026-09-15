@@ -173,6 +173,8 @@ export interface GroupUser {
   flags: string[];
   bot?: boolean;
   guest: boolean;
+  /** A webhook, not a person — see GroupWebhook. Absent on everybody else (and from an older API). */
+  webhook?: boolean;
 }
 
 export interface GroupMember extends GroupUser {
@@ -231,6 +233,30 @@ export interface GroupMessage {
   ts: number;
   /** When its author last changed the text. Absent on one never edited (and from an older API). */
   editedAt?: number;
+  /**
+   * Set when a webhook posted it: `from` is then "webhook:<id>", `fromName`
+   * the name it posted under, and this its picture at the time — what the
+   * message is drawn with, rather than the webhook as it is now.
+   */
+  webhook?: { id: string; avatarUrl: string | null };
+}
+
+/** The prefix a webhook's `from` carries on its messages. */
+export const WEBHOOK_AUTHOR_PREFIX = "webhook:";
+
+/**
+ * A room's webhook, as whoever manages them sees it. `token` is the secret
+ * half of its URL (see webhookUrl) — anybody holding the URL can post in the
+ * room under any name.
+ */
+export interface GroupWebhook {
+  id: string;
+  channelId: string;
+  name: string;
+  avatarUrl: string | null;
+  token: string;
+  createdAt: number;
+  createdBy: { id: string; name: string };
 }
 
 export interface GroupInvite {
@@ -318,6 +344,40 @@ export const uploadGroupIcon = (groupId: string, image: string) =>
 
 export const removeGroupIcon = (groupId: string) =>
   request<{ group: GroupInfo }>("DELETE", `/groups/${enc(groupId)}/icon`);
+
+// ─── Webhooks ─────────────────────────────────────────────────────────────
+//
+// See the API's webhookStore.ts. Everything here takes "manage webhooks".
+
+/** Every webhook of the group, in rooms the caller can see. */
+export const listGroupWebhooks = (groupId: string) =>
+  request<{ webhooks: GroupWebhook[] }>("GET", `/groups/${enc(groupId)}/webhooks`);
+
+export const createGroupWebhook = (groupId: string, channelId: string, name: string) =>
+  request<{ webhook: GroupWebhook }>("POST", `/groups/${enc(groupId)}/channels/${enc(channelId)}/webhooks`, { name });
+
+/** Renames it, or moves it to another room of the group — whichever is given. */
+export const updateGroupWebhook = (groupId: string, webhookId: string, patch: { name?: string; channelId?: string }) =>
+  request<{ webhook: GroupWebhook }>("PATCH", `/groups/${enc(groupId)}/webhooks/${enc(webhookId)}`, patch);
+
+/** `image` is a data URL, already downscaled by lib/avatarImage's prepareAvatarImage. */
+export const uploadGroupWebhookAvatar = (groupId: string, webhookId: string, image: string) =>
+  request<{ webhook: GroupWebhook }>("POST", `/groups/${enc(groupId)}/webhooks/${enc(webhookId)}/avatar`, { image });
+
+export const removeGroupWebhookAvatar = (groupId: string, webhookId: string) =>
+  request<{ webhook: GroupWebhook }>("DELETE", `/groups/${enc(groupId)}/webhooks/${enc(webhookId)}/avatar`);
+
+/** A new URL — the old one stops working at once. */
+export const regenerateGroupWebhookToken = (groupId: string, webhookId: string) =>
+  request<{ webhook: GroupWebhook }>("POST", `/groups/${enc(groupId)}/webhooks/${enc(webhookId)}/token`);
+
+export const deleteGroupWebhook = (groupId: string, webhookId: string) =>
+  request<{ ok: true }>("DELETE", `/groups/${enc(groupId)}/webhooks/${enc(webhookId)}`);
+
+/** The URL an outside service posts to — Discord's shape, so a Discord webhook client works pointed at it. */
+export function webhookUrl(webhook: Pick<GroupWebhook, "id" | "token">): string {
+  return `${getSignalingHttpBase()}/webhooks/${enc(webhook.id)}/${enc(webhook.token)}`;
+}
 
 /** Puts the group on the public map (owner/admins), or takes it off with null. */
 export const setGroupLocation = (groupId: string, location: { lat: number; lng: number } | null) =>

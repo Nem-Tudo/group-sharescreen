@@ -20,6 +20,8 @@ export interface GroupProfileTarget {
   avatarUrl: string | null;
   /** Guests have no profile to fetch; the dialog draws one from name and picture. */
   guest: boolean;
+  /** A webhook's messages: no profile and no member menu — a card saying what it is (see WebhookProfileDialog). */
+  webhook?: boolean;
 }
 
 export interface GroupMemberMenuState {
@@ -78,7 +80,9 @@ export function useGroupMemberMenu(): GroupMemberMenuState | null {
  * there is one on screen), anything else opens their member profile.
  */
 export function clickPerson(event: MouseEvent, target: GroupProfileTarget): void {
-  if (event.shiftKey && mentionInComposer(target)) {
+  // A webhook cannot be mentioned — it is not a member — so Shift does nothing
+  // different: the card opens either way.
+  if (event.shiftKey && !target.webhook && mentionInComposer(target)) {
     event.preventDefault();
     return;
   }
@@ -87,6 +91,10 @@ export function clickPerson(event: MouseEvent, target: GroupProfileTarget): void
 
 /** The right button on a person: the menu, where the pointer is. */
 export function contextPerson(event: MouseEvent, target: GroupProfileTarget): void {
+  // Every entry of the member menu (message, mention, kick, roles...) is about
+  // a person in the group. A webhook is neither, so the browser's own menu
+  // stays — and the message's own menu, where the row has one.
+  if (target.webhook) return;
   event.preventDefault();
   event.stopPropagation();
   openGroupMemberMenu(target, event.clientX, event.clientY);

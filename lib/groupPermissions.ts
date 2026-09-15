@@ -24,6 +24,7 @@ export const MANAGE_PERMISSION_KEYS = [
   "manageMessages",
   "manageReactions",
   "createInvites",
+  "manageWebhooks",
 ] as const;
 export type ManagePermissionKey = (typeof MANAGE_PERMISSION_KEYS)[number];
 
@@ -96,6 +97,7 @@ const MANAGE_OFF: Record<ManagePermissionKey, boolean> = {
   manageMessages: false,
   manageReactions: false,
   createInvites: false,
+  manageWebhooks: false,
 };
 
 export const DEFAULT_GROUP_PERMISSIONS: GroupPermissions = {
@@ -139,6 +141,10 @@ export const PERMISSION_LABELS: Record<AnyPermissionKey, { label: string; hint: 
     get hint() { return translate("groupPermissions.removeOtherPeopleSReactions"); },
   },
   createInvites: { get label() { return translate("groupPermissions.createInvites"); }, get hint() { return translate("groupPermissions.createInviteLinksForTheGroup"); } },
+  manageWebhooks: {
+    get label() { return translate("groupPermissions.manageWebhooks"); },
+    get hint() { return translate("groupPermissions.manageWebhooksHint"); },
+  },
   viewChannel: { get label() { return translate("groupPermissions.seeTheRoom"); }, get hint() { return translate("groupPermissions.withoutItTheRoomDoesNot"); } },
   sendMessages: { get label() { return translate("groupPermissions.sendMessages"); }, get hint() { return translate("groupPermissions.theBasisOfAllTheOthers"); } },
   sendGifs: { get label() { return translate("groupPermissions.sendGifs"); }, get hint() { return translate("groupPermissions.throughTheGifPicker"); } },

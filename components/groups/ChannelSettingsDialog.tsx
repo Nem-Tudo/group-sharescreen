@@ -35,6 +35,7 @@ import {
   type GroupPermissionKey,
 } from "@/lib/groupPermissions";
 import { groupPath } from "@/lib/groupLinks";
+import { ChannelWebhooksTab } from "@/components/groups/ChannelWebhooksTab";
 import { useGroupNavigation } from "@/lib/groupNavigation";
 import { refreshGroup, useGroupDetail } from "@/lib/useGroups";
 import { useT } from "@/lib/useI18n";
@@ -51,7 +52,11 @@ import { useT } from "@/lib/useI18n";
 // The owner and administrators may always do everything; none of this applies
 // to them. Whoever manages the rooms opens it.
 
-type ChannelTab = "general" | "permissions";
+//   Webhooks    — URLs that post into this room (see ChannelWebhooksTab).
+//                 The one tab that takes "manage webhooks" rather than
+//                 managing the rooms, so somebody with only that sees only it.
+
+type ChannelTab = "general" | "permissions" | "webhooks";
 
 /** Opens a room's settings. */
 export function useOpenChannelSettings() {
@@ -68,8 +73,11 @@ export function ChannelSettingsDialog({
   const groupId = data?.groupId ?? "";
   const { detail } = useGroupDetail(groupId || null);
   const channel = detail?.channels.find((c) => c.id === data?.channelId) ?? null;
-  const [tab, setTab] = useState<ChannelTab>(data?.tab ?? "general");
   const isManager = detail ? canManage(detail, "manageChannels") : false;
+  const managesWebhooks = detail ? canManage(detail, "manageWebhooks") : false;
+  const [picked, setTab] = useState<ChannelTab>(data?.tab ?? "general");
+  // Somebody who may only manage webhooks has no other tab to be on.
+  const tab: ChannelTab = !isManager && managesWebhooks ? "webhooks" : picked;
 
   if (!detail || !channel) {
     return (
@@ -91,11 +99,16 @@ export function ChannelSettingsDialog({
       onClose={() => closePopup(false)}
       wide
       tabs={
-        isManager && (
+        (isManager || managesWebhooks) && (
           <DialogTabs
             tabs={[
-              { id: "general" as const, label: t("common.general") },
-              { id: "permissions" as const, label: t("groups.channelSettingsDialog.permissions") },
+              ...(isManager
+                ? [
+                    { id: "general" as const, label: t("common.general") },
+                    { id: "permissions" as const, label: t("groups.channelSettingsDialog.permissions") },
+                  ]
+                : []),
+              ...(managesWebhooks ? [{ id: "webhooks" as const, label: t("webhook.tabTitle") }] : []),
             ]}
             current={tab}
             onChange={setTab}
@@ -103,12 +116,15 @@ export function ChannelSettingsDialog({
         )
       }
     >
-      {!isManager ? (
+      {!isManager && !managesWebhooks ? (
         <p className="text-sm text-zinc-500">{t("groups.channelSettingsDialog.youDoNotHavePermissionTo")}</p>
       ) : (
         <>
-          {tab === "general" && <GeneralTab detail={detail} channel={channel} onDeleted={() => closePopup(true)} />}
-          {tab === "permissions" && <ChannelPermissionsTab detail={detail} channel={channel} />}
+          {tab === "general" && isManager && (
+            <GeneralTab detail={detail} channel={channel} onDeleted={() => closePopup(true)} />
+          )}
+          {tab === "permissions" && isManager && <ChannelPermissionsTab detail={detail} channel={channel} />}
+          {tab === "webhooks" && managesWebhooks && <ChannelWebhooksTab detail={detail} channel={channel} />}
         </>
       )}
     </DialogFrame>

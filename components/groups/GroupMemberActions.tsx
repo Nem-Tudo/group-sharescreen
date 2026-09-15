@@ -22,6 +22,7 @@ import { DisplayUserName } from "@/components/DisplayUserName";
 import { Popover } from "@/components/Tooltip";
 import { UserAvatar } from "@/components/UserAvatar";
 import { UserProfileDialog } from "@/components/UserProfileDialog";
+import { WebhookProfileDialog } from "@/components/WebhookProfileDialog";
 import { VolumeSlider } from "@/components/VolumeSlider";
 import { RoleChip } from "@/components/groups/RoleChip";
 import {
@@ -101,6 +102,11 @@ async function saveRoles(groupId: string, userId: string, roleIds: string[]): Pr
 export function GroupProfileHost({ detail }: { detail: GroupDetail | null }) {
   const target = useGroupProfileTarget();
   if (!target) return null;
+  // A webhook has no profile to fetch and no place in the group — see
+  // WebhookProfileDialog.
+  if (target.webhook) {
+    return <WebhookProfileDialog name={target.name} avatarUrl={target.avatarUrl} onClose={closeGroupProfile} />;
+  }
   return (
     <UserProfileDialog
       key={target.id}

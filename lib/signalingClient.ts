@@ -353,6 +353,9 @@ export type ChatMessage = {
   flags?: string[];
   // See PeerInfo.bot — captured at send time, same as `flags`.
   bot?: boolean;
+  // Posted by a group webhook (see the API's webhookStore.ts), not by anybody
+  // in the call: there is no profile behind the name. Absent otherwise.
+  webhook?: boolean;
   // See PeerInfo.nameColor's doc comment.
   nameColor?: string | null;
   // See PeerInfo.avatarUrl — captured per-message at send time, same as
@@ -2402,6 +2405,7 @@ class SignalingClient {
           isGuest: Boolean(msg.isGuest),
           flags: Array.isArray(msg.flags) ? (msg.flags as string[]) : undefined,
           bot: msg.bot === true,
+          ...(msg.webhook === true ? { webhook: true } : {}),
           nameColor: typeof msg.nameColor === "string" ? msg.nameColor : null,
           avatarUrl: typeof msg.avatarUrl === "string" ? msg.avatarUrl : null,
           kind: msg.kind === "gif" ? "gif" : "text",
