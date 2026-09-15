@@ -13,6 +13,7 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false, nocache: true, noarchive: true },
 };
 
+
 export default async function PartnerReportPage(props: PageProps<"/ad/[token]">) {
   const { token } = await props.params;
   return (
