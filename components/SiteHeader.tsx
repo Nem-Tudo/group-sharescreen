@@ -8,7 +8,7 @@ import { AccountMenu } from "@/components/AccountMenu";
 import { NotificationInboxBell } from "@/components/NotificationInboxBell";
 import { UpdateAppButton } from "@/components/UpdateAppButton";
 import { useProOffer } from "@/components/ProOffer";
-import { useTabBarEnabled } from "@/lib/mobileShell";
+import { useIsAppShell, useTabBarEnabled } from "@/lib/mobileShell";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
 
@@ -106,8 +106,15 @@ export function SiteHeader() {
   // The premium row — see ProOffer for the three offers it climbs through.
   const proItem: SecondaryItem = { ...useProOffer(), target: "", alwaysVisible: true };
 
+  // Inside one of GoLive's own apps, "App para PC" is an offer for something
+  // already in hand — the Você screen drops the same row for the same reason
+  // (see app/me). False until hydration, so the server render still has it.
+  const appShell = useIsAppShell();
+
   // Ahead of the app and the bot, where "Pro" has always sat.
-  const secondary: SecondaryItem[] = [SECONDARY[0], proItem, ...SECONDARY.slice(1)];
+  const secondary: SecondaryItem[] = [SECONDARY[0], proItem, ...SECONDARY.slice(1)].filter(
+    (item) => !(appShell && item.key === "app")
+  );
 
   return (
     // Sticky and translucent: on the long marketing pages the way back to the
