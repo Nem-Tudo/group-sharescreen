@@ -114,6 +114,9 @@ import {
 import { prefetchUserProfile } from "@/lib/userProfile";
 import { useGroupNavigation } from "@/lib/groupNavigation";
 import { UNKNOWN_ROOM, UNKNOWN_USER, plainTokens, splitTokens, type Named } from "@/lib/messageTokens";
+import { stripMarkdown } from "@/lib/markdown";
+import { Markdown } from "@/components/Markdown";
+import { MessageEmbeds } from "@/components/MessageEmbeds";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
 import { formatLocale } from "@/lib/i18n";
@@ -755,7 +758,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
     );
   }
 
-  function renderText(message: GroupMessage): ReactNode {
+  function renderText(message: GroupMessage, trailing?: ReactNode): ReactNode {
     // Lit up only when the message actually mentioned somebody: an @name
     // typed without the permission to mention alerts nobody (the server drops
     // it), so it reads as the plain text it is.
@@ -792,12 +795,23 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
     // A message is cut at its tokens first: <@id> and <#id> are drawn from
     // their ids. What lies between them — and the whole of any message sent
     // before the tokens existed — goes through the old "@Name" reading below.
-    return splitTokens(message.text).flatMap((segment, s) => {
-      const key = `${message.id}-${s}`;
-      if (segment.type === "user") return [userToken(segment.id, mentioned.includes(segment.id), key)];
-      if (segment.type === "room") return [roomToken(segment.id, key)];
-      return legacyText(segment.value, key);
-    });
+    //
+    // All of that happens to the plain text between the markdown (see
+    // components/Markdown), which never cuts through a token.
+    return (
+      <Markdown
+        text={message.text}
+        trailing={trailing}
+        renderText={(plain, at) =>
+          splitTokens(plain).flatMap((segment, s) => {
+            const key = `${message.id}-${at}-${s}`;
+            if (segment.type === "user") return [userToken(segment.id, mentioned.includes(segment.id), key)];
+            if (segment.type === "room") return [roomToken(segment.id, key)];
+            return legacyText(segment.value, key);
+          })
+        }
+      />
+    );
 
     // Expressions first: each "{…}" whose entry the message carries is one
     // mention, drawn whole, with what it meant in words on hover. One the
@@ -1460,7 +1474,7 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
               </svg>
               {replyAuthor(message)}
               <span className="truncate text-zinc-400 dark:text-zinc-500">
-                {message.replyTo.text ||
+                {stripMarkdown(message.replyTo.text ?? "") ||
                   (message.replyTo.kind === "gif" ? <span className="italic">[GIF]</span> : <span className="italic">[Imagem]</span>)}
               </span>
             </div>
@@ -1503,21 +1517,28 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
           <div className={grouped ? "flex items-start justify-between gap-1.5" : ""}>
             <div className="min-w-0 flex-1">
               {message.text && (
-                <p className="select-text whitespace-pre-wrap break-words text-zinc-900 dark:text-zinc-100">
-                  {renderText(message)}
-                  {message.editedAt && (
-                    // Discord's "(editado)", at the end of the words, with when on hover.
-                    <span
-                      title={t("groups.textChannelView.editedAt", { when: editedLabel(message.editedAt) })}
-                      className="ml-1 select-none text-[11px] text-zinc-400 dark:text-zinc-500"
-                    >
-                      ({t("groups.textChannelView.edited")})
-                    </span>
+                <div className="select-text break-words text-zinc-900 dark:text-zinc-100">
+                  {renderText(
+                    message,
+                    message.editedAt ? (
+                      // Discord's "(editado)", at the end of the words, with when on hover.
+                      <span
+                        title={t("groups.textChannelView.editedAt", { when: editedLabel(message.editedAt) })}
+                        className="ml-1 select-none whitespace-normal text-[11px] font-normal text-zinc-400 dark:text-zinc-500"
+                      >
+                        ({t("groups.textChannelView.edited")})
+                      </span>
+                    ) : undefined
                   )}
-                </p>
+                </div>
               )}
               {/* A group invite in the message, as a card to join from. */}
               {message.text && <InviteEmbeds text={message.text} />}
+              <MessageEmbeds
+                embeds={message.embeds}
+                onOpenImage={(src) => setPreview({ src, alt: t("common.image") })}
+                onLoad={onMediaLoad}
+              />
               {message.kind === "gif" && message.url && (
                 <button
                   type="button"

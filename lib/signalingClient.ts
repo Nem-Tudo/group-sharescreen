@@ -4,6 +4,7 @@ import { trackEvent } from "./analytics";
 import type { VideoSource, VideoSourceKind } from "./videoSource";
 import type { MusicSource, MusicSourceKind } from "./musicSource";
 import type { Announcement } from "./announcement";
+import { readEmbeds, type MessageEmbed } from "./messageEmbeds";
 import type { Partner } from "./partner";
 import type { Supporter } from "./supporter";
 import { getAccountToken } from "./accountApi";
@@ -356,6 +357,8 @@ export type ChatMessage = {
   // Posted by a group webhook (see the API's webhookStore.ts), not by anybody
   // in the call: there is no profile behind the name. Absent otherwise.
   webhook?: boolean;
+  // Rich cards a webhook sent (see lib/messageEmbeds). Absent when none.
+  embeds?: MessageEmbed[];
   // See PeerInfo.nameColor's doc comment.
   nameColor?: string | null;
   // See PeerInfo.avatarUrl — captured per-message at send time, same as
@@ -2406,6 +2409,7 @@ class SignalingClient {
           flags: Array.isArray(msg.flags) ? (msg.flags as string[]) : undefined,
           bot: msg.bot === true,
           ...(msg.webhook === true ? { webhook: true } : {}),
+          embeds: readEmbeds(msg.embeds),
           nameColor: typeof msg.nameColor === "string" ? msg.nameColor : null,
           avatarUrl: typeof msg.avatarUrl === "string" ? msg.avatarUrl : null,
           kind: msg.kind === "gif" ? "gif" : "text",

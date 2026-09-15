@@ -4,6 +4,7 @@ import { getAccountToken } from "./accountApi";
 import { getStoredGuestToken } from "./guestToken";
 import { getSignalingHttpBase } from "./roomsApi";
 import type { ChatAttachment } from "./chatAttachments";
+import type { MessageEmbed } from "./messageEmbeds";
 import type { ChannelPermissionOverrides, GroupPermissions } from "./groupPermissions";
 import { translate } from "@/lib/i18n";
 
@@ -220,6 +221,8 @@ export interface GroupMessage {
   images?: string[];
   /** Videos, audio and documents — see lib/chatAttachments. Absent when there are none. */
   attachments?: ChatAttachment[];
+  /** Rich cards from a webhook or bot — see lib/messageEmbeds. Absent when there are none. */
+  embeds?: MessageEmbed[];
   replyTo?: GroupReplyTo | null;
   mentions?: string[];
   /**

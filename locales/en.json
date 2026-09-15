@@ -1997,6 +1997,7 @@
   "manageRoomModal.youCreatedAPublicRoom": "You created a public room!",
   "manageRoomModal.yourRoomIsAlreadyLiveAnd": "Your room is already live and appears in the list of",
   "manifest.broadcastYourScreenToSeveralPeople": "Broadcast your screen to several people at once, right from the browser. Create a room in 4 clicks with no sign-up.",
+  "markdown.spoiler": "Spoiler — click to reveal",
   "memberActionsModal.banFromTheRoom": "Ban from the room",
   "memberActionsModal.banningRemoves": "Banning removes",
   "memberActionsModal.canKickBanAndManageThe": "Can kick, ban and manage the room",

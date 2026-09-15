@@ -37,6 +37,9 @@ import { AttachMenu, splitPicked } from "@/components/AttachMenu";
 import { AttachmentTray } from "@/components/AttachmentTray";
 import { MessageAttachments } from "@/components/MessageAttachments";
 import { InviteEmbeds } from "@/components/groups/InviteEmbed";
+import { Markdown } from "@/components/Markdown";
+import { MessageEmbeds } from "@/components/MessageEmbeds";
+import { stripMarkdown } from "@/lib/markdown";
 import { ChatImages } from "@/components/ChatImages";
 import { attachmentsPreview } from "@/lib/chatAttachments";
 import { useAttachmentUploads } from "@/lib/useAttachmentUploads";
@@ -1058,7 +1061,7 @@ export function ChatPanel({
                       </span>
                       <span className="truncate text-zinc-400 group-hover/reply:text-zinc-600 dark:text-zinc-500 dark:group-hover/reply:text-zinc-300">
                         {m.replyTo.text ? (
-                          m.replyTo.text
+                          stripMarkdown(m.replyTo.text)
                         ) : m.replyTo.kind === "gif" ? (
                           <span className="italic">[GIF]</span>
                         ) : (m.replyTo.images && m.replyTo.images.length > 0) || m.replyTo.kind === "image" ? (
@@ -1192,12 +1195,27 @@ export function ChatPanel({
                               can be a caption with its pictures under it. Empty
                               text draws nothing rather than an empty line. */}
                           {m.text.trim() && (
-                            <p className="break-words text-zinc-800 dark:text-zinc-200">
-                              {linkifyText(m.text, mentionRegex, openMentionedProfile)}
-                            </p>
+                            <div className="break-words text-zinc-800 dark:text-zinc-200">
+                              <Markdown
+                                text={m.text}
+                                compact
+                                renderText={(plain) => linkifyText(plain, mentionRegex, openMentionedProfile)}
+                              />
+                            </div>
                           )}
                           {/* A group invite in the message, as a card to join from. */}
                           {m.text.trim() && <InviteEmbeds text={m.text} />}
+                          <MessageEmbeds
+                            embeds={m.embeds}
+                            onOpenImage={(src) =>
+                              setImageModalPreview({
+                                src,
+                                alt: t("chatPanel.imageSentInTheChat"),
+                                images: [src],
+                                currentIndex: 0,
+                              })
+                            }
+                          />
                           <ChatImages
                             images={messageImages(m)}
                             onOpen={(index) => {

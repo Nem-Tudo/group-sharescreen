@@ -108,6 +108,8 @@ import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
 import { formatLocale } from "@/lib/i18n";
 import { usePageInFront } from "@/lib/pageFocus";
+import { Markdown } from "@/components/Markdown";
+import { stripMarkdown } from "@/lib/markdown";
 
 // Private messages, in a dialog — or across the whole screen.
 //
@@ -490,7 +492,7 @@ function MessageBubble({
     >
       <span className="block font-medium">@{bubble.replyTo.name}</span>
       <span className="line-clamp-2 break-words">
-        {bubble.replyTo.text || (bubble.replyTo.kind === "gif" ? "GIF" : t("common.image"))}
+        {stripMarkdown(bubble.replyTo.text ?? "") || (bubble.replyTo.kind === "gif" ? "GIF" : t("common.image"))}
       </span>
     </span>
   );
@@ -623,10 +625,9 @@ function MessageBubble({
         <div className={grouped ? "flex items-start justify-between gap-1.5" : ""}>
           <div className="min-w-0 flex-1">
             {bubble.text && (
-              <p className="select-text whitespace-pre-wrap break-words text-zinc-900 dark:text-zinc-100">
-                {linkify(bubble.text, false)}
-                {editedMark}
-              </p>
+              <div className="select-text break-words text-zinc-900 dark:text-zinc-100">
+                <Markdown text={bubble.text} renderText={(plain) => linkify(plain, false)} trailing={editedMark} />
+              </div>
             )}
             {bubble.text && <InviteEmbeds text={bubble.text} />}
             {media}
@@ -666,10 +667,9 @@ function MessageBubble({
           {quote}
           {media}
           {bubble.text && (
-            <span className="select-text whitespace-pre-wrap break-words">
-              {linkify(bubble.text, mine)}
-              {editedMark}
-            </span>
+            <div className="select-text break-words">
+              <Markdown text={bubble.text} compact renderText={(plain) => linkify(plain, mine)} trailing={editedMark} />
+            </div>
           )}
           <span
             className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] leading-none ${

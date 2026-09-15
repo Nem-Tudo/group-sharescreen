@@ -1997,6 +1997,7 @@
   "manageRoomModal.youCreatedAPublicRoom": "¡Has creado una sala pública!",
   "manageRoomModal.yourRoomIsAlreadyLiveAnd": "Tu sala ya está en el aire y aparece en la lista de",
   "manifest.broadcastYourScreenToSeveralPeople": "Transmite tu pantalla a varias personas a la vez, directamente desde el navegador. Crea una sala en 4 clics sin registro.",
+  "markdown.spoiler": "Spoiler — haz clic para ver",
   "memberActionsModal.banFromTheRoom": "Banear de la sala",
   "memberActionsModal.banningRemoves": "Banear saca a",
   "memberActionsModal.canKickBanAndManageThe": "Puede expulsar, banear y gestionar la sala",
