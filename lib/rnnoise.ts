@@ -78,6 +78,11 @@ export type MicNoiseGraph = {
   // "is there a graph" and "is suppression available" are now two questions
   // (see graphSuppressionAvailable).
   rnnoiseNode: RnnoiseWorkletNode | null;
+  // The fixed leveler that stands in for the browser's own autoGainControl —
+  // see MIC_LEVELER_* below for why it exists and connectUpstream for where
+  // it sits in the chain.
+  compressor: DynamicsCompressorNode;
+  makeupGainNode: GainNode;
   // The input-volume dial, last in the chain — see connectUpstream for why
   // it sits after the suppressor rather than before it.
   gainNode: GainNode;
@@ -118,6 +123,33 @@ export function graphSuppressionAvailable(graph: MicNoiseGraph | null): boolean 
 // digital silence. Anyone whose voice arrives on the right channel (a mic in
 // input 2 of an interface, VoiceMeeter, VB-Cable) broadcast nothing at all.
 // This is only a request, so the graph is pinned to mono as well.
+
+// A fixed stand-in for the boost autoGainControl used to provide.
+// autoGainControl (see micConstraints below) had two effects at once: it
+// quietly wound down the OS's own mic level whenever someone spoke up, which
+// is the bug this file now avoids, but it also brought a too-quiet mic up to
+// a normal speaking volume — losing that along with it made every input
+// sound noticeably quieter than before, even though nothing about the actual
+// microphones changed.
+//
+// This replaces just the second half: a compressor narrows the signal's
+// dynamic range (loud stays loud, quiet comes up closer to it) and a fixed
+// gain after it restores the overall level — "fixed" meaning a constant
+// multiplier baked in at build time, never adjusted at runtime the way AGC's
+// was, so there is nothing here that can decide to touch a system setting
+// again. It sits before the user's own input-gain dial (gainNode), so that
+// dial still means "how loud on top of a normal level" rather than having to
+// account for this makeup gain itself.
+const MIC_LEVELER_THRESHOLD_DB = -50;
+const MIC_LEVELER_KNEE_DB = 30;
+const MIC_LEVELER_RATIO = 12;
+const MIC_LEVELER_ATTACK_SECONDS = 0.003;
+const MIC_LEVELER_RELEASE_SECONDS = 0.25;
+// +9 dB — enough to bring a quiet mic back up to something like its old,
+// AGC-boosted loudness. The compressor above is what keeps this from
+// clipping a mic that was already loud to begin with.
+const MIC_LEVELER_MAKEUP_GAIN = 10 ** (9 / 20);
+
 function micConstraints(deviceId?: string | null): MediaTrackConstraints {
   // autoGainControl: false so Chrome's own AGC never touches the OS mic
   // level — see the MIN_MIC_GAIN/MAX_MIC_GAIN comment above for why that's
@@ -196,32 +228,32 @@ async function createRnnoiseNode(audioCtx: AudioContext): Promise<RnnoiseWorklet
   }
 }
 
-// Wires — or re-wires — everything upstream of the gain node:
+// Wires — or re-wires — everything upstream of the leveler:
 //
-//   source -> [rnnoise] -> gain -> destination
+//   source -> [rnnoise] -> compressor -> makeup gain -> gain -> destination
 //
 // Two things about that order are deliberate.
 //
-// The gain node comes last, so the suppressor always sees the capture at the
-// level the device produced. RNNoise decides what is speech and what is
-// noise from the signal it is handed, and a signal turned down to 1% is one
-// it quite reasonably classifies as silence: with the dial in front, turning
-// the mic down would gate the voice away entirely instead of quietening it,
-// and turning it up would feed the detector a noise floor it was never
-// trained on.
+// The leveler comes after the suppressor, so RNNoise always sees the capture
+// at the level the device produced. RNNoise decides what is speech and what
+// is noise from the signal it is handed, and a signal already pushed up by
+// the leveler is one whose noise floor it was never trained on; a signal
+// turned down to 1% by the dial ahead of it would be one it quite reasonably
+// classifies as silence, which is why the user's own gain dial stays after
+// the leveler rather than before it too.
 //
-// And gain -> destination is made once, at build time, and never touched
-// here. The destination's track is the one being broadcast, so leaving that
-// last link alone is what lets suppression be toggled mid-call without
-// interrupting it or making peers renegotiate.
+// And makeup gain -> gain -> destination is made once, at build time, and
+// never touched here. The destination's track is the one being broadcast, so
+// leaving that last link alone is what lets suppression be toggled mid-call
+// without interrupting it or making peers renegotiate.
 function connectUpstream(graph: MicNoiseGraph, suppressionEnabled: boolean) {
   graph.source.disconnect();
   graph.rnnoiseNode?.disconnect();
   if (suppressionEnabled && graph.rnnoiseNode) {
     graph.source.connect(graph.rnnoiseNode);
-    graph.rnnoiseNode.connect(graph.gainNode);
+    graph.rnnoiseNode.connect(graph.compressor);
   } else {
-    graph.source.connect(graph.gainNode);
+    graph.source.connect(graph.compressor);
   }
 }
 
@@ -263,16 +295,30 @@ export async function captureNoiseSuppressedMic(
 
   try {
     const source = audioCtx.createMediaStreamSource(rawStream);
+    const compressor = audioCtx.createDynamicsCompressor();
+    compressor.threshold.value = MIC_LEVELER_THRESHOLD_DB;
+    compressor.knee.value = MIC_LEVELER_KNEE_DB;
+    compressor.ratio.value = MIC_LEVELER_RATIO;
+    compressor.attack.value = MIC_LEVELER_ATTACK_SECONDS;
+    compressor.release.value = MIC_LEVELER_RELEASE_SECONDS;
+    const makeupGainNode = audioCtx.createGain();
+    makeupGainNode.gain.value = MIC_LEVELER_MAKEUP_GAIN;
     const gainNode = audioCtx.createGain();
     gainNode.gain.value = clampMicGain(initialGain);
     const destination = audioCtx.createMediaStreamDestination();
-    // Both pinned mono for the reason createRnnoiseNode pins its node, and
+    // All pinned mono for the reason createRnnoiseNode pins its node, and
     // pinned here as well because connectUpstream's bypass path reaches the
     // destination without passing through that node at all.
+    compressor.channelCount = 1;
+    compressor.channelCountMode = "explicit";
+    makeupGainNode.channelCount = 1;
+    makeupGainNode.channelCountMode = "explicit";
     gainNode.channelCount = 1;
     gainNode.channelCountMode = "explicit";
     destination.channelCount = 1;
     destination.channelCountMode = "explicit";
+    compressor.connect(makeupGainNode);
+    makeupGainNode.connect(gainNode);
     gainNode.connect(destination);
 
     // Only the suppressor is optional — a graph without it is still a graph,
@@ -291,6 +337,8 @@ export async function captureNoiseSuppressedMic(
       rawStream.getTracks().forEach((t) => t.stop());
       destination.stream.getTracks().forEach((t) => t.stop());
       source.disconnect();
+      compressor.disconnect();
+      makeupGainNode.disconnect();
       gainNode.disconnect();
       rnnoiseNode?.disconnect();
       rnnoiseNode?.destroy();
@@ -306,6 +354,8 @@ export async function captureNoiseSuppressedMic(
       audioCtx,
       source,
       rnnoiseNode,
+      compressor,
+      makeupGainNode,
       gainNode,
       destination,
       stop: teardown,
