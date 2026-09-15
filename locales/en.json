@@ -2272,6 +2272,7 @@
   "pro.proPanel.renew": "Renew",
   "pro.proPanel.reopenWindow": "Reopen window",
   "pro.proPanel.seeTheBadges": "See the badges",
+  "pro.proPanel.sendFilesOfUpToValue": "Send files of up to {value}",
   "pro.proPanel.subscribe": "Subscribe",
   "pro.proPanel.subscriptionCancelledYourAccessContinues": "Subscription cancelled — your access continues until {value}.",
   "pro.proPanel.subscriptionsAreUnavailableAtTheMoment": "Subscriptions are unavailable at the moment.",

@@ -2272,6 +2272,7 @@
   "pro.proPanel.renew": "Renovar",
   "pro.proPanel.reopenWindow": "Reabrir janela",
   "pro.proPanel.seeTheBadges": "Ver as badges",
+  "pro.proPanel.sendFilesOfUpToValue": "Envie arquivos de até {value}",
   "pro.proPanel.subscribe": "Assinar",
   "pro.proPanel.subscriptionCancelledYourAccessContinues": "Assinatura cancelada — seu acesso continua até {value}.",
   "pro.proPanel.subscriptionsAreUnavailableAtTheMoment": "As assinaturas estão indisponíveis no momento.",

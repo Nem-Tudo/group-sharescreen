@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { MdCardGiftcard, MdCheck, MdClose, MdLock } from "react-icons/md";
+import { MdCardGiftcard, MdCheck, MdClose, MdLock, MdAttachFile } from "react-icons/md";
 import Link from "next/link";
 import { BsCoin, BsStars } from "react-icons/bs";
 // No wrapperClassName: Tippy then attaches straight to the <li>, keeping the
@@ -48,6 +48,12 @@ import { formatLocale } from "@/lib/i18n";
 // database (see the API's premiumPlan.ts), which is the whole point of that
 // document: changing what premium costs is an edit to one row, and every
 // surface that quotes a price follows.
+
+/** An upload limit in MiB, as people say it: "100 MB", or "1 GB" from 1024 up. */
+function formatUploadLimit(mb: number): string {
+  if (mb >= 1024 && mb % 1024 === 0) return `${mb / 1024} GB`;
+  return `${mb} MB`;
+}
 
 // What each entitlement is called in front of a person. Keys come from
 // lib/entitlements.ts; a feature with no entry here still counts and is
@@ -379,15 +385,28 @@ export function ProPanel({
       ) : null,
     ].filter(Boolean);
 
-  /** The whole list, in order, with the points slotted in at their anchor. */
+  // The upload limit, which is not a feature for the same reason the points
+  // are not: `features` says what an account may *do*, and this is a number
+  // on the plan's document (uploadLimitMb). Quoted from the API, so editing
+  // the document changes the page with no deploy.
+  const uploadRow = (entry: PremiumPlan) =>
+    typeof entry.uploadLimitMb === "number" && entry.uploadLimitMb > 0 ? (
+      <li key="upload-limit" className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+        <MdCheck className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-500" />
+        <MdAttachFile className="-mr-0.5 h-4 w-4 shrink-0 text-zinc-500 dark:text-zinc-400" />
+        {t("pro.proPanel.sendFilesOfUpToValue", { value: formatUploadLimit(entry.uploadLimitMb) })}
+      </li>
+    ) : null;
+
+  /** The whole list, in order, with the points and the upload limit slotted in at their anchor. */
   const featureRows = (entry: PremiumPlan) => {
     const rows: ReactNode[] = [];
     for (const feature of sellableFeatures) {
       rows.push(featureRow(feature, entry.features.includes(feature)));
-      if (feature === POINTS_AFTER) rows.push(...pointsRows(entry));
+      if (feature === POINTS_AFTER) rows.push(...pointsRows(entry), uploadRow(entry));
     }
-    // No plan sells the anchor benefit — the points still have to appear.
-    if (!sellableFeatures.includes(POINTS_AFTER)) rows.push(...pointsRows(entry));
+    // No plan sells the anchor benefit — these still have to appear.
+    if (!sellableFeatures.includes(POINTS_AFTER)) rows.push(...pointsRows(entry), uploadRow(entry));
     return rows;
   };
   /** The money for the code on screen has landed and bought time. */

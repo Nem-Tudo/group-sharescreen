@@ -73,6 +73,12 @@ export type PremiumPlan = {
   /** Points credited per whole day the subscription stays active. */
   dailyPoints: number;
   /**
+   * The biggest file a subscriber may attach, in MiB — read from the plan's
+   * document by the API, so the page quotes whatever the database says today.
+   * Absent from an older API, which the page reads as "don't mention it".
+   */
+  uploadLimitMb?: number;
+  /**
    * Whether a checkout can be started at all. False when an admin has taken
    * the plan off sale *or* when the deployment has no payment credentials —
    * the page shows the plan either way and hides only the button, since a
