@@ -15,8 +15,10 @@ import {
   type GroupReaction,
   type GroupSummary,
   type GroupUser,
+  type GroupVoiceActivity,
   type GroupVoiceMap,
   type GroupVoiceRoomMap,
+  voiceActivityOf,
 } from "./groupsApi";
 import { translate } from "@/lib/i18n";
 
@@ -102,6 +104,7 @@ export function refreshGroup(groupId: string): Promise<void> {
       delete errors[groupId];
       setState({ details: { ...state.details, [groupId]: { ...detail, channels } }, detailErrors: errors });
       syncSummaryFromDetail(groupId);
+      patchSummaryVoiceActivity(groupId, voiceActivityOf(detail.voice));
     } else if (result.status !== 0) {
       // Gone, or suspended by the site (423): what was held is no longer
       // something to keep drawing — the rooms, the calls, the members.
@@ -212,6 +215,13 @@ function patchDetail(groupId: string, patch: Partial<GroupDetail>) {
   const detail = state.details[groupId];
   if (!detail) return;
   setState({ details: { ...state.details, [groupId]: { ...detail, ...patch } } });
+}
+
+/** The rail's call mark for one group — see GroupSummary.voiceActivity. */
+function patchSummaryVoiceActivity(groupId: string, voiceActivity: GroupVoiceActivity | undefined) {
+  const summary = state.groups?.find((g) => g.id === groupId);
+  if (!state.groups || !summary || summary.voiceActivity === voiceActivity) return;
+  setState({ groups: state.groups.map((g) => (g.id === groupId ? { ...g, voiceActivity } : g)) });
 }
 
 /** Keeps the rail's dot for a group in step with its rooms' dots, when the rooms are known. */
@@ -516,11 +526,15 @@ function handleEvent(event: GroupSocketEvent) {
     }
     case "group-voice": {
       if (!groupId) return;
+      const voice = (event.voice as GroupVoiceMap | undefined) ?? {};
       patchDetail(groupId, {
-        voice: (event.voice as GroupVoiceMap | undefined) ?? {},
+        voice,
         // Absent from an older API: no room has anything on, as far as it says.
         voiceRooms: (event.voiceRooms as GroupVoiceRoomMap | undefined) ?? {},
       });
+      // For every group, opened or not: the server sends this to all of a
+      // group's members online, and the rail's mark on the icon reads it.
+      patchSummaryVoiceActivity(groupId, voiceActivityOf(voice));
       return;
     }
     case "group-updated": {

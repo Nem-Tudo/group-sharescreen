@@ -28,9 +28,12 @@ import {
   MdKeyboardArrowUp,
   MdKeyboardDoubleArrowLeft,
   MdKeyboardDoubleArrowRight,
+  MdScreenShare,
   MdSearch,
   MdVerticalAlignBottom,
   MdVerticalAlignTop,
+  MdVideocam,
+  MdVolumeUp,
 } from "react-icons/md";
 import { GroupIcon } from "@/components/groups/GroupIcon";
 import { GroupLink } from "@/components/groups/GroupLink";
@@ -731,7 +734,16 @@ function GroupTile({
         : group.onlineCount
           ? t("groups.groupRail.onlineCount", { count: group.onlineCount })
           : null;
-  const label = [group.name, status].filter(Boolean).join(" — ");
+  const voiceActivity = group.suspended ? undefined : group.voiceActivity;
+  const activityLabel =
+    voiceActivity === "screen"
+      ? t("groups.groupRail.callScreen")
+      : voiceActivity === "camera"
+        ? t("groups.groupRail.callCamera")
+        : voiceActivity === "voice"
+          ? t("groups.groupRail.callVoice")
+          : null;
+  const label = [group.name, activityLabel, status].filter(Boolean).join(" — ");
 
   return (
     <GroupLink
@@ -772,6 +784,26 @@ function GroupTile({
         {inCall && (
           <span className="absolute -bottom-1 -left-1 flex h-[18px] w-[18px] items-center justify-center rounded-full bg-emerald-600 text-white ring-2 ring-white dark:ring-zinc-950">
             <MdHeadsetMic className="h-3 w-3" />
+          </span>
+        )}
+        {/* What is on in its calls, in the one corner nothing else uses: a
+            speaker while people are talking, a screen once somebody shares
+            one, a camera once somebody turns one on (a screen wins). Red for
+            the two that are something to watch, like the "ao vivo" badge. */}
+        {voiceActivity && (
+          <span
+            title={activityLabel ?? undefined}
+            className={`absolute -left-1 -top-1 flex h-[18px] w-[18px] items-center justify-center rounded-full text-white ring-2 ring-white dark:ring-zinc-950 ${
+              voiceActivity === "voice" ? "bg-emerald-600" : "bg-red-600"
+            }`}
+          >
+            {voiceActivity === "screen" ? (
+              <MdScreenShare className="h-3 w-3" />
+            ) : voiceActivity === "camera" ? (
+              <MdVideocam className="h-3 w-3" />
+            ) : (
+              <MdVolumeUp className="h-3 w-3" />
+            )}
           </span>
         )}
       </span>

@@ -58,6 +58,27 @@ export interface GroupSummary {
   onlineCount?: number;
   /** Suspended by the site's administrators — listed, but out of use (opening it says why). */
   suspended?: boolean;
+  /**
+   * What is going on in the calls this person can see — the mark on its icon
+   * in the rail. Absent when nobody is in one (and from an older API). Kept
+   * current by "group-voice" (see voiceActivityOf).
+   */
+  voiceActivity?: GroupVoiceActivity;
+}
+
+export type GroupVoiceActivity = "screen" | "camera" | "voice";
+
+/**
+ * Anybody sharing a screen, else anybody with a camera on, else anybody in a
+ * call at all; undefined when every room is empty. The same rule as the API's
+ * voiceActivityOf, which answers it for GET /groups — they must agree.
+ */
+export function voiceActivityOf(voice: GroupVoiceMap): GroupVoiceActivity | undefined {
+  const people = Object.values(voice).flat();
+  if (people.length === 0) return undefined;
+  if (people.some((p) => p.screen ?? p.sharing)) return "screen";
+  if (people.some((p) => p.camera)) return "camera";
+  return "voice";
 }
 
 /** A heading rooms are gathered under — see the API's GroupCategory and lib/groupLayout. */
