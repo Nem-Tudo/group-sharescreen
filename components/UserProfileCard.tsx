@@ -204,9 +204,8 @@ function PlanSection({
     // Locked: the plan's ring. Unlocked: the same neutral border every other
     // section has, so the group still holds together without claiming a plan.
     <div
-      className={`relative flex flex-col gap-3 rounded-xl p-3 ${
-        locked ? "" : "border border-zinc-200 dark:border-zinc-800"
-      }`}
+      className={`relative flex flex-col gap-3 rounded-xl p-3 ${locked ? "" : "border border-zinc-200 dark:border-zinc-800"
+        }`}
       style={locked ? undefined : neutralStyle}
     >
       <PlanRing tier={tier} locked={Boolean(locked)} />
@@ -355,11 +354,10 @@ function AvatarRow({
             onClick={() => onPick(path)}
             aria-label={label}
             aria-pressed={selected === path}
-            className={`h-11 w-11 overflow-hidden rounded-full border-2 transition ${
-              selected === path
+            className={`h-11 w-11 overflow-hidden rounded-full border-2 transition ${selected === path
                 ? "border-emerald-500"
                 : "border-transparent hover:border-zinc-300 dark:hover:border-zinc-600"
-            } ${locked ? "cursor-not-allowed opacity-40" : "cursor-pointer"}`}
+              } ${locked ? "cursor-not-allowed opacity-40" : "cursor-pointer"}`}
           >
             {/* Plain <img>: these are static files under public/, and one that
                 is not there yet simply draws nothing rather than breaking the
@@ -707,7 +705,7 @@ function ProfileContent({
       .then((allowance) => {
         if (!cancelled) setUsernameAllowance(allowance);
       })
-      .catch(() => {});
+      .catch(() => { });
     return () => {
       cancelled = true;
     };
@@ -846,9 +844,8 @@ function ProfileContent({
 
   return (
     <div
-      className={`overflow-hidden rounded-2xl border transition-colors ${
-        theme ? "" : "border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950"
-      }`}
+      className={`overflow-hidden rounded-2xl border transition-colors ${theme ? "" : "border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950"
+        }`}
       // The gradient is the card, not a strip behind it: borders, panels and
       // text all come from the same two colours (see lib/profileTheme), which
       // is the difference between a themed profile and a background shoved
@@ -861,16 +858,16 @@ function ProfileContent({
         style={
           currentBanner
             ? {
-                backgroundImage: `url(${currentBanner})`,
-                backgroundSize: "cover",
-                backgroundPosition: "center",
-              }
+              backgroundImage: `url(${currentBanner})`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }
             : activeBgColor
-            ? {
+              ? {
                 background: activeBgColor,
               }
-            : theme
-              ? // A band of its own, in the theme's own colours.
+              : theme
+                ? // A band of its own, in the theme's own colours.
                 //
                 // This was `transparent`, on the reasoning that the card's
                 // gradient should run unbroken from the top. What that
@@ -884,7 +881,7 @@ function ProfileContent({
                   backgroundImage: `linear-gradient(${theme.surface}, ${theme.surface}), ${theme.background}`,
                   borderBottom: `1px solid ${theme.border}`,
                 }
-              : {
+                : {
                   background: "linear-gradient(135deg, #18181b 0%, #10b981 140%)",
                 }
         }
@@ -915,94 +912,92 @@ function ProfileContent({
                 // panel opening under it.
                 className="absolute right-0 top-full z-40 mt-2 flex w-80 max-w-[calc(100vw-3rem)] flex-col gap-3 rounded-xl border border-zinc-200 bg-white p-3 text-left shadow-lg dark:border-zinc-800 dark:bg-zinc-950"
               >
-              <div className="flex items-center justify-between gap-2">
-                <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300" style={themedLabel}>
-                  {t("userProfileCard.changeBanner")}
-                </label>
-                <button
-                  type="button"
-                  onClick={() => openPopup("cosmetics_store", { data: {} })}
-                  className="flex items-center gap-1 text-xs font-medium text-emerald-600 transition hover:text-emerald-700 hover:underline dark:text-emerald-400 dark:hover:text-emerald-300"
-                >
-                  <BsShop className="h-3 w-3" />
-                  {t("common.cosmeticsShop")}
-                </button>
-              </div>
-              {/* The gold ring, same as every other Pro Max control. Only
-                  this row wears one: the store colours below are bought with
-                  points, not with a plan, so a plan's colour on them would be
-                  saying something untrue. */}
-              <div className={planRowClass(!canUploadBanner, "flex flex-wrap items-center gap-2")}>
-                <PlanRing tier="proMax" locked={!canUploadBanner} />
-                <button
-                  type="button"
-                  disabled={!canUploadBanner}
-                  onClick={() => bannerInputRef.current?.click()}
-                  className="flex items-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-800 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                >
-                  <MdPhotoCamera className="h-3.5 w-3.5" />
-                  {t("userProfileCard.uploadBanner")}
-                </button>
-                {previewBanner && canUploadBanner && (
-                  <button
-                    type="button"
-                    onClick={handleRemoveBanner}
-                    className="flex items-center gap-1 text-xs font-medium text-red-600 transition hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
-                  >
-                    <MdDeleteOutline className="h-4 w-4" />
-                    {t("userProfileCard.removeBanner")}
-                  </button>
-                )}
-                {!canUploadBanner && (
-                  <PlanLink tier="proMax" className="text-xs text-zinc-500 dark:text-zinc-400" />
-                )}
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setEditBgColor(null)}
-                  className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
-                    editBgColor === null
-                      ? "border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                      : "border-zinc-200 hover:bg-zinc-100 dark:border-zinc-800 dark:hover:bg-zinc-900 text-zinc-700 dark:text-zinc-300"
-                  }`}
-                >
-                  <span className="h-4 w-4 rounded-full bg-gradient-to-br from-zinc-800 to-emerald-500 border border-zinc-300 dark:border-zinc-700" />
-                  {t("userProfileCard.default")}
-                </button>
-
-                {ownedBgColors.map((colorProduct) => (
-                  <button
-                    key={colorProduct.id}
-                    type="button"
-                    onClick={() => setEditBgColor(colorProduct.value)}
-                    className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
-                      editBgColor === colorProduct.value
-                        ? "border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                        : "border-zinc-200 hover:bg-zinc-100 dark:border-zinc-800 dark:hover:bg-zinc-900 text-zinc-700 dark:text-zinc-300"
-                    }`}
-                  >
-                    <span
-                      className="h-4 w-4 rounded-full border border-black/20"
-                      style={{ background: colorProduct.value }}
-                    />
-                    {colorProduct.label}
-                  </button>
-                ))}
-              </div>
-
-              {ownedBgColors.length === 0 && (
-                <div className="flex items-center justify-between gap-2 rounded-lg border border-zinc-200 bg-zinc-50 p-2.5 text-xs text-zinc-500 dark:border-zinc-800/80 dark:bg-zinc-900/50 dark:text-zinc-400">
-                  <span>{t("userProfileCard.youHaveNotBoughtAnyBanner")}</span>
+                <div className="flex items-center justify-between gap-2">
+                  <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300" style={themedLabel}>
+                    {t("userProfileCard.changeBanner")}
+                  </label>
                   <button
                     type="button"
                     onClick={() => openPopup("cosmetics_store", { data: {} })}
-                    className="shrink-0 font-semibold text-emerald-600 underline hover:text-emerald-700 dark:text-emerald-400"
+                    className="flex items-center gap-1 text-xs font-medium text-emerald-600 transition hover:text-emerald-700 hover:underline dark:text-emerald-400 dark:hover:text-emerald-300"
                   >
-                    {t("userProfileCard.buyColours")}
+                    <BsShop className="h-3 w-3" />
+                    {t("common.cosmeticsShop")}
                   </button>
                 </div>
-              )}
+                {/* The gold ring, same as every other Pro Max control. Only
+                  this row wears one: the store colours below are bought with
+                  points, not with a plan, so a plan's colour on them would be
+                  saying something untrue. */}
+                <div className={planRowClass(!canUploadBanner, "flex flex-wrap items-center gap-2")}>
+                  <PlanRing tier="proMax" locked={!canUploadBanner} />
+                  <button
+                    type="button"
+                    disabled={!canUploadBanner}
+                    onClick={() => bannerInputRef.current?.click()}
+                    className="flex items-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-800 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                  >
+                    <MdPhotoCamera className="h-3.5 w-3.5" />
+                    {t("userProfileCard.uploadBanner")}
+                  </button>
+                  {previewBanner && canUploadBanner && (
+                    <button
+                      type="button"
+                      onClick={handleRemoveBanner}
+                      className="flex items-center gap-1 text-xs font-medium text-red-600 transition hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                    >
+                      <MdDeleteOutline className="h-4 w-4" />
+                      {t("userProfileCard.removeBanner")}
+                    </button>
+                  )}
+                  {!canUploadBanner && (
+                    <PlanLink tier="proMax" className="text-xs text-zinc-500 dark:text-zinc-400" />
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditBgColor(null)}
+                    className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${editBgColor === null
+                        ? "border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                        : "border-zinc-200 hover:bg-zinc-100 dark:border-zinc-800 dark:hover:bg-zinc-900 text-zinc-700 dark:text-zinc-300"
+                      }`}
+                  >
+                    <span className="h-4 w-4 rounded-full bg-gradient-to-br from-zinc-800 to-emerald-500 border border-zinc-300 dark:border-zinc-700" />
+                    {t("userProfileCard.default")}
+                  </button>
+
+                  {ownedBgColors.map((colorProduct) => (
+                    <button
+                      key={colorProduct.id}
+                      type="button"
+                      onClick={() => setEditBgColor(colorProduct.value)}
+                      className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${editBgColor === colorProduct.value
+                          ? "border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                          : "border-zinc-200 hover:bg-zinc-100 dark:border-zinc-800 dark:hover:bg-zinc-900 text-zinc-700 dark:text-zinc-300"
+                        }`}
+                    >
+                      <span
+                        className="h-4 w-4 rounded-full border border-black/20"
+                        style={{ background: colorProduct.value }}
+                      />
+                      {colorProduct.label}
+                    </button>
+                  ))}
+                </div>
+
+                {ownedBgColors.length === 0 && (
+                  <div className="flex items-center justify-between gap-2 rounded-lg border border-zinc-200 bg-zinc-50 p-2.5 text-xs text-zinc-500 dark:border-zinc-800/80 dark:bg-zinc-900/50 dark:text-zinc-400">
+                    <span>{t("userProfileCard.youHaveNotBoughtAnyBanner")}</span>
+                    <button
+                      type="button"
+                      onClick={() => openPopup("cosmetics_store", { data: {} })}
+                      className="shrink-0 font-semibold text-emerald-600 underline hover:text-emerald-700 dark:text-emerald-400"
+                    >
+                      {t("userProfileCard.buyColours")}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1017,9 +1012,8 @@ function ProfileContent({
           corner. */}
       <div className="pointer-events-none relative -mt-12 flex items-end justify-between px-5 sm:-mt-16 sm:px-6">
         <div
-          className={`group pointer-events-auto relative flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-2xl border-4 shadow-md sm:h-28 sm:w-28 ${
-            theme ? "" : "border-white bg-zinc-100 dark:border-zinc-950 dark:bg-zinc-900"
-          }`}
+          className={`group pointer-events-auto relative flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-2xl border-4 shadow-md sm:h-28 sm:w-28 ${theme ? "" : "border-white bg-zinc-100 dark:border-zinc-950 dark:bg-zinc-900"
+            }`}
           style={theme ? { borderColor: theme.ring, background: theme.surface } : undefined}
         >
           {/* No empty case left to handle: currentAvatar falls back to the
@@ -1067,30 +1061,30 @@ function ProfileContent({
             ref={avatarPickerRef}
             className="pointer-events-auto absolute left-5 top-full z-30 mt-2 w-80 max-w-[calc(100%-2.5rem)] rounded-xl border border-zinc-200 bg-white p-3 shadow-lg sm:left-6 dark:border-zinc-800 dark:bg-zinc-950"
           >
-                  {avatarOptions ? (
-                    <div className="flex flex-col gap-3">
-        {/* No close button: the popover closes on a click outside and on
+            {avatarOptions ? (
+              <div className="flex flex-col gap-3">
+                {/* No close button: the popover closes on a click outside and on
             Escape, and a second way out only takes room from the options. */}
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
-            {t("userProfileCard.profilePicture")}
-          </span>
-          {/* Lost when the old form went away — it lived in that form's
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                    {t("userProfileCard.profilePicture")}
+                  </span>
+                  {/* Lost when the old form went away — it lived in that form's
               header. It belongs here anyway: this is where the picture is
               chosen, so it is where clearing it belongs too. */}
-          {previewAvatar && (
-            <button
-              type="button"
-              onClick={handleRemoveAvatar}
-              className="flex items-center gap-1 text-xs font-medium text-red-600 transition hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
-            >
-              <MdDeleteOutline className="h-4 w-4" />
-              {t("common.remove")}
-            </button>
-          )}
-        </div>
+                  {previewAvatar && (
+                    <button
+                      type="button"
+                      onClick={handleRemoveAvatar}
+                      className="flex items-center gap-1 text-xs font-medium text-red-600 transition hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                    >
+                      <MdDeleteOutline className="h-4 w-4" />
+                      {t("common.remove")}
+                    </button>
+                  )}
+                </div>
 
-        {/* currentAvatar, not previewAvatar: somebody who never chose
+                {/* currentAvatar, not previewAvatar: somebody who never chose
             is *wearing* the first default everywhere else in the app,
             so the picker has to show it as theirs. Marking nothing
             would invite them to "pick" the avatar they already have
@@ -1099,51 +1093,51 @@ function ProfileContent({
             "Remover foto" above stays on previewAvatar on purpose —
             that one asks whether there is a stored picture to clear,
             which is a different question. */}
-        <AvatarRow
-          label={t("userProfileCard.default")}
-          paths={avatarOptions.defaults}
-          selected={currentAvatar}
-          onPick={handlePickPreset}
-        />
+                <AvatarRow
+                  label={t("userProfileCard.default")}
+                  paths={avatarOptions.defaults}
+                  selected={currentAvatar}
+                  onPick={handlePickPreset}
+                />
 
-        {avatarOptions.gallery.length > 0 && (
-          <div className={planRowClass(!avatarOptions.canUseGallery, "")}>
-            <PlanRing tier="pro" locked={!avatarOptions.canUseGallery} />
-            <AvatarRow
-            label={t("userProfileCard.proAvatars")}
-            paths={avatarOptions.gallery}
-            selected={currentAvatar}
-            onPick={handlePickPreset}
-            locked={!avatarOptions.canUseGallery}
-            lockedHint={t("userProfileCard.availableOnPro")}
-              lockedTier="pro"
-            />
-          </div>
-        )}
+                {avatarOptions.gallery.length > 0 && (
+                  <div className={planRowClass(!avatarOptions.canUseGallery, "")}>
+                    <PlanRing tier="pro" locked={!avatarOptions.canUseGallery} />
+                    <AvatarRow
+                      label={t("userProfileCard.proAvatars")}
+                      paths={avatarOptions.gallery}
+                      selected={currentAvatar}
+                      onPick={handlePickPreset}
+                      locked={!avatarOptions.canUseGallery}
+                      lockedHint={t("userProfileCard.availableOnPro")}
+                      lockedTier="pro"
+                    />
+                  </div>
+                )}
 
-        {/* The same hairline ring the form's sections wear, so the two paid
+                {/* The same hairline ring the form's sections wear, so the two paid
             rows in here are told apart the same way they are outside. */}
-        <div className={planRowClass(!avatarOptions.canUpload, "flex flex-wrap items-center gap-2")}>
-          <PlanRing tier="proMax" locked={!avatarOptions.canUpload} />
-          <button
-            type="button"
-            disabled={!avatarOptions.canUpload}
-            onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-800 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
-          >
-            <MdPhotoCamera className="h-3.5 w-3.5" />
-            {t("userProfileCard.uploadMyImage")}
-          </button>
-          {!avatarOptions.canUpload && (
-              <PlanLink tier="proMax" className="text-xs text-zinc-500 dark:text-zinc-400" />
-          )}
-        </div>
-      </div>
-                  ) : (
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400" style={themedHint}>
-                      {avatarOptionsError ?? t("userProfileCard.loadingTheAvatars")}
-                    </p>
+                <div className={planRowClass(!avatarOptions.canUpload, "flex flex-wrap items-center gap-2")}>
+                  <PlanRing tier="proMax" locked={!avatarOptions.canUpload} />
+                  <button
+                    type="button"
+                    disabled={!avatarOptions.canUpload}
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex items-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-800 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                  >
+                    <MdPhotoCamera className="h-3.5 w-3.5" />
+                    {t("userProfileCard.uploadMyImage")}
+                  </button>
+                  {!avatarOptions.canUpload && (
+                    <PlanLink tier="proMax" className="text-xs text-zinc-500 dark:text-zinc-400" />
                   )}
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-zinc-500 dark:text-zinc-400" style={themedHint}>
+                {avatarOptionsError ?? t("userProfileCard.loadingTheAvatars")}
+              </p>
+            )}
           </div>
         )}
 
@@ -1182,303 +1176,302 @@ function ProfileContent({
             out. Now the fields are edited where they sit (see InlineEdit),
             and what is left down here is the part with nowhere else to live:
             the background, which is the card itself, and the actions. */}
-            <div className="flex flex-wrap items-end justify-between gap-3 pt-3">
-              <div className="min-w-0">
-                <InlineEdit
-                  editable={isEditing}
-                  open={openField === "name"}
-                  onOpen={() => setOpenField("name")}
-                  onClose={() => setOpenField(null)}
-                  label={t("userProfileCard.editName")}
-                  editor={
-                    <input
-                      autoFocus
-                      maxLength={24}
-                      value={editDisplayName}
-                      onChange={(e) => setEditDisplayName(e.target.value)}
-                      className="themed-field w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-2xl font-semibold text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-                      style={themedField}
-                    />
+        <div className="flex flex-wrap items-end justify-between gap-3 pt-3">
+          <div className="min-w-0">
+            <InlineEdit
+              editable={isEditing}
+              open={openField === "name"}
+              onOpen={() => setOpenField("name")}
+              onClose={() => setOpenField(null)}
+              label={t("userProfileCard.editName")}
+              editor={
+                <input
+                  autoFocus
+                  maxLength={24}
+                  value={editDisplayName}
+                  onChange={(e) => setEditDisplayName(e.target.value)}
+                  className="themed-field w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-2xl font-semibold text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                  style={themedField}
+                />
+              }
+            >
+              <h1
+                className="flex items-center gap-1.5 truncate text-2xl font-semibold text-zinc-950 dark:text-zinc-50"
+                style={theme ? { color: theme.text, textShadow: theme.textShadow } : undefined}
+              >
+                {/* The pending value, not the saved one: closing an editor
+                        has to leave the card showing what saving would give. */}
+                <span
+                  style={
+                    account.equippedNameColor ? { color: account.equippedNameColor } : undefined
                   }
                 >
-                  <h1
-                    className="flex items-center gap-1.5 truncate text-2xl font-semibold text-zinc-950 dark:text-zinc-50"
-                    style={theme ? { color: theme.text, textShadow: theme.textShadow } : undefined}
-                  >
-                    {/* The pending value, not the saved one: closing an editor
-                        has to leave the card showing what saving would give. */}
-                    <span
-                      style={
-                        account.equippedNameColor ? { color: account.equippedNameColor } : undefined
-                      }
-                    >
-                      {isEditing ? editDisplayName : account.displayName}
-                    </span>
-                    <VerifiedBadge flags={account?.flags} className="h-6 w-6 shrink-0" />
-                  </h1>
-                </InlineEdit>
-                <div className="flex flex-wrap items-center gap-2 mt-0.5">
-                  <InlineEdit
-                    editable={isEditing && !account.bot}
-                    open={openField === "username"}
-                    onOpen={() => setOpenField("username")}
-                    onClose={() => setOpenField(null)}
-                    label={t("userProfileCard.editUsername")}
-                    editor={
-                      <div>
-                        <input
-                          autoFocus
-                          maxLength={20}
-                          value={editUsername}
-                          onChange={(e) => setEditUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ""))}
-                          disabled={usernameAllowance?.remaining === 0}
-                          className="themed-field w-full rounded-lg border border-zinc-300 bg-white px-3 py-1 text-sm text-zinc-950 outline-none focus:border-zinc-500 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-                          style={themedField}
-                        />
-                        {usernameAllowance && (
-                          <p
-                            className="mt-1 text-xs text-zinc-500 dark:text-zinc-400"
-                            style={theme ? { color: theme.muted } : undefined}
-                          >
-                            {usernameAllowance.remaining > 0 || !usernameAllowance.nextAt
-                              ? tc("userProfileCard.usernameChangesLeft", usernameAllowance.remaining)
-                              : t("userProfileCard.usernameChangeLockedUntil", {
-                                  date: new Date(usernameAllowance.nextAt).toLocaleString(formatLocale(), {
-                                    day: "numeric",
-                                    month: "long",
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  }),
-                                })}
-                          </p>
-                        )}
-                      </div>
-                    }
-                  >
-                    <p
-                      className="text-sm text-zinc-500 dark:text-zinc-400"
-                      style={theme ? { color: theme.muted, textShadow: theme.textShadow } : undefined}
-                    >
-                      @{isEditing ? editUsername : account.username}
-                    </p>
-                  </InlineEdit>
-                  {account.bot && <BotTag />}
-                  <UserBadges account={account} isOwner={isOwner} theme={theme ?? undefined} />
-                </div>
-              </div>
-              <span
-                className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-semibold ${
-                  theme
-                    ? ""
-                    : "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
-                }`}
-                // Amber is a fixed accent that fights an arbitrary palette;
-                // themed, the pill borrows the card's own colours and the coin
-                // stays gold on its own.
-                style={theme ? { borderColor: theme.border, background: theme.surface, color: theme.text } : undefined}
-              >
-                <BsCoin className="h-4 w-4 shrink-0" />
-                {tc("common.pointsCount", account.points ?? 0)}
-              </span>
-            </div>
-
-            {live && (
-              <Link
-                href={`/watch/${live.room}`}
-                onClick={onNavigate}
-                className="mt-4 flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2.5 text-sm font-medium text-emerald-700 transition hover:bg-emerald-500/20 dark:text-emerald-400"
-              >
-                <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-emerald-500" />
-                {t("userProfileCard.isInAPublicRoomRight")} {live.peopleCount}{" "}
-                {tc("common.personNoun", live.peopleCount)}{t("userProfileCard.goInto")}{live.room}&quot;
-              </Link>
-            )}
-
-            {/* How a bot gets into a group: somebody who runs one adds it from
-                here (see app/bots/[id]/add). The page itself says whether this
-                person may — a private bot, or no group they manage. */}
-            {account.bot && (
-              <Link
-                href={botAddPath(account.id)}
-                onClick={onNavigate}
-                target="_blank"
-                className="mt-4 flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-3 py-2.5 text-sm font-medium text-white transition hover:bg-indigo-500"
-              >
-                {t("addBot.addToAGroup")}
-                {/* How many groups it is in, on the button that adds it to
-                    one more. From the API (see GET /users/:id); an API from
-                    before it sends none, and the count is left out. */}
-                {typeof groupCount === "number" && (
-                  <span
-                    title={tc("botDirectory.inGroups", groupCount)}
-                    className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5 text-xs font-semibold tabular-nums"
-                  >
-                    <MdGroups className="h-3.5 w-3.5 shrink-0" />
-                    {groupCount}
-                  </span>
-                )}
-              </Link>
-            )}
-
-            <div className="mt-4">
+                  {isEditing ? editDisplayName : account.displayName}
+                </span>
+                <VerifiedBadge flags={account?.flags} className="h-6 w-6 shrink-0" />
+              </h1>
+            </InlineEdit>
+            <div className="flex flex-wrap items-center gap-2 mt-0.5">
               <InlineEdit
-                editable={isEditing}
-                open={openField === "bio"}
-                onOpen={() => setOpenField("bio")}
+                editable={isEditing && !account.bot}
+                open={openField === "username"}
+                onOpen={() => setOpenField("username")}
                 onClose={() => setOpenField(null)}
-                label={t("userProfileCard.editDescription")}
+                label={t("userProfileCard.editUsername")}
                 editor={
-                  <textarea
-                    autoFocus
-                    rows={3}
-                    maxLength={300}
-                    value={editBio}
-                    onChange={(e) => setEditBio(e.target.value)}
-                    placeholder={t("userProfileCard.writeSomethingAboutYourself")}
-                    className="themed-field w-full resize-none rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-                    style={themedField}
-                  />
+                  <div>
+                    <input
+                      autoFocus
+                      maxLength={20}
+                      value={editUsername}
+                      onChange={(e) => setEditUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ""))}
+                      disabled={(usernameAllowance?.remaining === 0) && !account.flags.includes("ADMIN")}
+                      className="themed-field w-full rounded-lg border border-zinc-300 bg-white px-3 py-1 text-sm text-zinc-950 outline-none focus:border-zinc-500 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                      style={themedField}
+                    />
+                    {usernameAllowance && (
+                      <p
+                        className="mt-1 text-xs text-zinc-500 dark:text-zinc-400"
+                        style={theme ? { color: theme.muted } : undefined}
+                      >
+                        {usernameAllowance.remaining > 0 || !usernameAllowance.nextAt
+                          ? tc("userProfileCard.usernameChangesLeft", usernameAllowance.remaining)
+                          : t("userProfileCard.usernameChangeLockedUntil", {
+                            date: new Date(usernameAllowance.nextAt).toLocaleString(formatLocale(), {
+                              day: "numeric",
+                              month: "long",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            }),
+                          })}
+                      </p>
+                    )}
+                  </div>
                 }
               >
                 <p
-                  className="whitespace-pre-line text-sm text-zinc-700 dark:text-zinc-300"
+                  className="text-sm text-zinc-500 dark:text-zinc-400"
                   style={theme ? { color: theme.muted, textShadow: theme.textShadow } : undefined}
                 >
-                  {(isEditing ? editBio : account.bio) || t("userProfileCard.noDescription")}
+                  @{isEditing ? editUsername : account.username}
                 </p>
               </InlineEdit>
+              {account.bot && <BotTag />}
+              <UserBadges account={account} isOwner={isOwner} theme={theme ?? undefined} />
             </div>
+          </div>
+          <span
+            className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-semibold ${theme
+                ? ""
+                : "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+              }`}
+            // Amber is a fixed accent that fights an arbitrary palette;
+            // themed, the pill borrows the card's own colours and the coin
+            // stays gold on its own.
+            style={theme ? { borderColor: theme.border, background: theme.surface, color: theme.text } : undefined}
+          >
+            <BsCoin className="h-4 w-4 shrink-0" />
+            {tc("common.pointsCount", account.points ?? 0)}
+          </span>
+        </div>
 
-            {/* The song, edited where it plays.
+        {live && (
+          <Link
+            href={`/watch/${live.room}`}
+            onClick={onNavigate}
+            className="mt-4 flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2.5 text-sm font-medium text-emerald-700 transition hover:bg-emerald-500/20 dark:text-emerald-400"
+          >
+            <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-emerald-500" />
+            {t("userProfileCard.isInAPublicRoomRight")} {live.peopleCount}{" "}
+            {tc("common.personNoun", live.peopleCount)}{t("userProfileCard.goInto")}{live.room}&quot;
+          </Link>
+        )}
+
+        {/* How a bot gets into a group: somebody who runs one adds it from
+                here (see app/bots/[id]/add). The page itself says whether this
+                person may — a private bot, or no group they manage. */}
+        {account.bot && (
+          <Link
+            href={botAddPath(account.id)}
+            onClick={onNavigate}
+            target="_blank"
+            className="mt-4 flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-3 py-2.5 text-sm font-medium text-white transition hover:bg-indigo-500"
+          >
+            {t("addBot.addToAGroup")}
+            {/* How many groups it is in, on the button that adds it to
+                    one more. From the API (see GET /users/:id); an API from
+                    before it sends none, and the count is left out. */}
+            {typeof groupCount === "number" && (
+              <span
+                title={tc("botDirectory.inGroups", groupCount)}
+                className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5 text-xs font-semibold tabular-nums"
+              >
+                <MdGroups className="h-3.5 w-3.5 shrink-0" />
+                {groupCount}
+              </span>
+            )}
+          </Link>
+        )}
+
+        <div className="mt-4">
+          <InlineEdit
+            editable={isEditing}
+            open={openField === "bio"}
+            onOpen={() => setOpenField("bio")}
+            onClose={() => setOpenField(null)}
+            label={t("userProfileCard.editDescription")}
+            editor={
+              <textarea
+                autoFocus
+                rows={3}
+                maxLength={300}
+                value={editBio}
+                onChange={(e) => setEditBio(e.target.value)}
+                placeholder={t("userProfileCard.writeSomethingAboutYourself")}
+                className="themed-field w-full resize-none rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                style={themedField}
+              />
+            }
+          >
+            <p
+              className="whitespace-pre-line text-sm text-zinc-700 dark:text-zinc-300"
+              style={theme ? { color: theme.muted, textShadow: theme.textShadow } : undefined}
+            >
+              {(isEditing ? editBio : account.bio) || t("userProfileCard.noDescription")}
+            </p>
+          </InlineEdit>
+        </div>
+
+        {/* The song, edited where it plays.
                 Shown for the whole of edit mode, including to somebody
                 without the plan. It used to be gated on `canEditSong`, which
                 made the entire slot vanish for them — no editor, no lock, no
                 sign the feature exists — and vanish just the same if the API
                 had not yet started publishing the permission. A locked row
                 says which of those it is. */}
-            {(account.profileSong || isEditing) && (
-              // The gold ring, like every other locked Pro Max control — and
-              // only while editing: on somebody else's profile the ring would
-              // be selling a plan around a song that is simply playing.
-              <div className={`mt-4 ${planRowClass(isEditing && !canEditSong, "")}`}>
-                <PlanRing tier="proMax" locked={isEditing && !canEditSong} />
-                <InlineEdit
-                  editable={isEditing && canEditSong}
-                  open={openField === "song"}
-                  onOpen={() => setOpenField("song")}
-                  onClose={() => setOpenField(null)}
-                  label={t("userProfileCard.editMusic")}
-                  editor={
-                    <div className="flex flex-col gap-1">
-                      <input
-                        autoFocus
-                        type="url"
-                        inputMode="url"
-                        value={editSong}
-                        onChange={(e) => setEditSong(e.target.value)}
-                        placeholder="https://www.youtube.com/watch?v=..."
-                        className="themed-field w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-                        style={themedField}
-                      />
-                      {songError && <p className="text-xs text-red-500">{songError}</p>}
-                      {/* The volume visitors hear, not a control for whoever
+        {(account.profileSong || isEditing) && (
+          // The gold ring, like every other locked Pro Max control — and
+          // only while editing: on somebody else's profile the ring would
+          // be selling a plan around a song that is simply playing.
+          <div className={`mt-4 ${planRowClass(isEditing && !canEditSong, "")}`}>
+            <PlanRing tier="proMax" locked={isEditing && !canEditSong} />
+            <InlineEdit
+              editable={isEditing && canEditSong}
+              open={openField === "song"}
+              onOpen={() => setOpenField("song")}
+              onClose={() => setOpenField(null)}
+              label={t("userProfileCard.editMusic")}
+              editor={
+                <div className="flex flex-col gap-1">
+                  <input
+                    autoFocus
+                    type="url"
+                    inputMode="url"
+                    value={editSong}
+                    onChange={(e) => setEditSong(e.target.value)}
+                    placeholder="https://www.youtube.com/watch?v=..."
+                    className="themed-field w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                    style={themedField}
+                  />
+                  {songError && <p className="text-xs text-red-500">{songError}</p>}
+                  {/* The volume visitors hear, not a control for whoever
                           is listening: it is part of the choice, and the
                           person who picked the song is the one who knows how
                           loud it should sit under a page. */}
-                      <label
-                        className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400"
-                        style={themedHint}
-                      >
-                        {t("userProfileCard.volume")}
-                        <input
-                          type="range"
-                          min={0}
-                          max={100}
-                          step={5}
-                          value={editSongVolume}
-                          onChange={(e) => setEditSongVolume(Number(e.target.value))}
-                          className="h-1 flex-1 cursor-pointer accent-emerald-600"
-                        />
-                        <span className="w-9 shrink-0 tabular-nums text-right">
-                          {editSongVolume}%
-                        </span>
-                      </label>
-                    </div>
-                  }
-                >
-                  {pendingSongId ? (
-                    <ProfileSongPlayer
-                      // The pending id, so closing the editor leaves the card
-                      // showing what saving would produce — the same rule the
-                      // name and the bio follow. The title only arrives from
-                      // the API on save, so an unsaved song names itself
-                      // generically until then.
-                      song={{
-                        videoId: pendingSongId,
-                        title:
-                          account.profileSong?.videoId === pendingSongId
-                            ? account.profileSong.title
-                            : "",
-                        volume: isEditing ? editSongVolume : account.profileSong?.volume,
-                      }}
-                      // Never while editing: the card is being worked on, and
-                      // music starting under that is not a preview anybody
-                      // asked for.
-                      autoPlay={autoPlaySong && !isEditing}
-                      theme={theme}
+                  <label
+                    className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400"
+                    style={themedHint}
+                  >
+                    {t("userProfileCard.volume")}
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={5}
+                      value={editSongVolume}
+                      onChange={(e) => setEditSongVolume(Number(e.target.value))}
+                      className="h-1 flex-1 cursor-pointer accent-emerald-600"
                     />
-                  ) : (
-                    <p
-                      className="flex flex-wrap items-center gap-1.5 text-sm text-zinc-500 dark:text-zinc-400"
-                      style={themedHint}
-                    >
-                      {t("userProfileCard.noMusicOnTheProfile")}
-                      {isEditing && !canEditSong && <PlanLink tier="proMax" className="text-xs" />}
-                    </p>
-                  )}
-                </InlineEdit>
-              </div>
-            )}
+                    <span className="w-9 shrink-0 tabular-nums text-right">
+                      {editSongVolume}%
+                    </span>
+                  </label>
+                </div>
+              }
+            >
+              {pendingSongId ? (
+                <ProfileSongPlayer
+                  // The pending id, so closing the editor leaves the card
+                  // showing what saving would produce — the same rule the
+                  // name and the bio follow. The title only arrives from
+                  // the API on save, so an unsaved song names itself
+                  // generically until then.
+                  song={{
+                    videoId: pendingSongId,
+                    title:
+                      account.profileSong?.videoId === pendingSongId
+                        ? account.profileSong.title
+                        : "",
+                    volume: isEditing ? editSongVolume : account.profileSong?.volume,
+                  }}
+                  // Never while editing: the card is being worked on, and
+                  // music starting under that is not a preview anybody
+                  // asked for.
+                  autoPlay={autoPlaySong && !isEditing}
+                  theme={theme}
+                />
+              ) : (
+                <p
+                  className="flex flex-wrap items-center gap-1.5 text-sm text-zinc-500 dark:text-zinc-400"
+                  style={themedHint}
+                >
+                  {t("userProfileCard.noMusicOnTheProfile")}
+                  {isEditing && !canEditSong && <PlanLink tier="proMax" className="text-xs" />}
+                </p>
+              )}
+            </InlineEdit>
+          </div>
+        )}
 
-            <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <StatCard
-                theme={theme}
-                icon={<BsClock className="h-3.5 w-3.5" />}
-                label={t("userProfileCard.timeInACall")}
-                seconds={account.callSeconds ?? 0}
-              />
-              <StatCard
-                theme={theme}
-                icon={<MicIcon className="h-3.5 w-3.5" />}
-                label={t("userProfileCard.timeWithTheMicOpen")}
-                seconds={account.micSeconds ?? 0}
-              />
-              <StatCard
-                theme={theme}
-                icon={<ScreenIcon className="h-3.5 w-3.5" />}
-                label={t("userProfileCard.timeSharingAScreen")}
-                seconds={account.shareSeconds ?? 0}
-              />
-            </div>
+        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <StatCard
+            theme={theme}
+            icon={<BsClock className="h-3.5 w-3.5" />}
+            label={t("userProfileCard.timeInACall")}
+            seconds={account.callSeconds ?? 0}
+          />
+          <StatCard
+            theme={theme}
+            icon={<MicIcon className="h-3.5 w-3.5" />}
+            label={t("userProfileCard.timeWithTheMicOpen")}
+            seconds={account.micSeconds ?? 0}
+          />
+          <StatCard
+            theme={theme}
+            icon={<ScreenIcon className="h-3.5 w-3.5" />}
+            label={t("userProfileCard.timeSharingAScreen")}
+            seconds={account.shareSeconds ?? 0}
+          />
+        </div>
 
-            {/* Adding and blocking live on the profile because that is where you
+        {/* Adding and blocking live on the profile because that is where you
                 land after clicking a name anywhere else — the room's participant
                 list, a chat message, the header. See components/SocialActions. */}
-            <SocialActions
-              userId={account.id}
-              displayName={account.displayName}
-              className="mt-5"
-              // Same callback the profile links use: opening the conversation
-              // window is leaving this card, so the dialog holding it closes.
-              onLeave={onNavigate}
-            />
+        <SocialActions
+          userId={account.id}
+          displayName={account.displayName}
+          className="mt-5"
+          // Same callback the profile links use: opening the conversation
+          // window is leaving this card, so the dialog holding it closes.
+          onLeave={onNavigate}
+        />
 
-            <p
-              className="mt-5 text-xs text-zinc-400 dark:text-zinc-600"
-              style={theme ? { color: theme.faint, textShadow: theme.textShadow } : undefined}
-            >
-              {t("userProfileCard.onGoliveSince")} {memberSince}.
-            </p>
+        <p
+          className="mt-5 text-xs text-zinc-400 dark:text-zinc-600"
+          style={theme ? { color: theme.faint, textShadow: theme.textShadow } : undefined}
+        >
+          {t("userProfileCard.onGoliveSince")} {memberSince}.
+        </p>
 
         {isEditing && (
           <form onSubmit={handleSave} className="mt-5 flex flex-col gap-4">
@@ -1497,9 +1490,8 @@ function ProfileContent({
               <fieldset disabled={!canEditTheme} className="contents">
                 <>
                   <div
-                    className={`flex flex-wrap items-end gap-3 ${
-                      canEditTheme ? "" : "cursor-not-allowed opacity-50"
-                    }`}
+                    className={`flex flex-wrap items-end gap-3 ${canEditTheme ? "" : "cursor-not-allowed opacity-50"
+                      }`}
                   >
                     <label
                       className="flex flex-col gap-1 text-xs text-zinc-600 dark:text-zinc-400"
