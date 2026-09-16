@@ -40,6 +40,28 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "monthly",
       priority: 0.7,
     },
+    // Pages that exist, are indexable and were simply missing from this list.
+    // A page Google has never been told about gets crawled only if something
+    // links to it, and /pro, /workshop and /bots were reachable mostly from
+    // menus inside the app.
+    {
+      url: `${SITE_URL}/pro`,
+      lastModified: new Date(),
+      changeFrequency: "monthly",
+      priority: 0.7,
+    },
+    {
+      url: `${SITE_URL}/workshop`,
+      lastModified: new Date(),
+      changeFrequency: "daily",
+      priority: 0.6,
+    },
+    {
+      url: `${SITE_URL}/bots`,
+      lastModified: new Date(),
+      changeFrequency: "weekly",
+      priority: 0.5,
+    },
     {
       url: `${SITE_URL}/terms`,
       lastModified: new Date(),

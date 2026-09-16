@@ -23,7 +23,8 @@ import { PushRegistrar } from "@/components/PushRegistrar";
 import { ProModalHost } from "@/components/ProModalHost";
 import { NtPopups } from "@/components/NtPopups";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
-import { LOCALE_INIT_SCRIPT } from "@/lib/i18n";
+import { IOS_VIEWPORT_SCRIPT } from "@/lib/iosViewport";
+import { LOCALE_INIT_SCRIPT, LOCALE_TAGS, SERVER_LOCALE } from "@/lib/i18n";
 import { I18nGate } from "@/components/I18nGate";
 import { CHUNK_RECOVERY_SCRIPT } from "@/lib/chunkRecovery";
 import "./globals.css";
@@ -42,7 +43,15 @@ const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
 const SITE_URL = "https://golive.nemtudo.me";
 const SITE_NAME = translate("common.golive");
-const TITLE = translate("common.goliveFreeOnlineGroupScreenSharing");
+// Two titles on purpose. TITLE is what goes in <title> and it leads with what
+// people actually type into Google ("transmitir tela online em grupo"), because
+// the first words of a title carry the most weight and a title that opened with
+// the brand was spending that weight on a word nobody searches for yet.
+// SHARE_TITLE keeps the brand-first wording for Open Graph/Twitter, where the
+// reader already clicked a link from someone they know and the brand is the
+// useful part.
+const TITLE = translate("layout.seoTitle");
+const SHARE_TITLE = translate("common.goliveFreeOnlineGroupScreenSharing");
 const DESCRIPTION =
   translate("layout.broadcastYourVoiceScreenOrCamera");
 
@@ -103,13 +112,24 @@ export const metadata: Metadata = {
   get creator() { return translate("layout.nemtudo"); },
   alternates: {
     canonical: "/",
+    // The site serves one URL in whichever language the browser asks for, so
+    // every one of these points at the same page. That is exactly what
+    // x-default is for, and naming the three catalogs the app actually ships
+    // tells Google the page is a valid result for a search in any of them
+    // instead of leaving it to guess from the rendered copy.
+    languages: {
+      "pt-BR": "/",
+      en: "/",
+      es: "/",
+      "x-default": "/",
+    },
   },
   openGraph: {
     type: "website",
     locale: "pt_BR",
     url: SITE_URL,
     siteName: SITE_NAME,
-    title: TITLE,
+    title: SHARE_TITLE,
     description: DESCRIPTION,
     images: [
       {
@@ -127,7 +147,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: TITLE,
+    title: SHARE_TITLE,
     description: DESCRIPTION,
     images: ["/assets/oembed/image.png"],
   },
@@ -174,30 +194,68 @@ export const viewport: Viewport = {
   themeColor: "#09090b",
 };
 
+// A @graph rather than a single node, so the two things this site is can both
+// be stated: a free web app, and a website with a name Google can show as a
+// sitelink title. `inLanguage` follows the language actually rendered — it
+// used to say "en" under Portuguese copy, which is the same contradiction the
+// <html lang> below had.
 const jsonLd = {
   "@context": "https://schema.org",
-  "@type": "WebApplication",
-  name: SITE_NAME,
-  url: SITE_URL,
-  description: DESCRIPTION,
-  applicationCategory: "CommunicationApplication",
-  operatingSystem: "Any (navegador web)",
-  inLanguage: "en",
-  offers: {
-    "@type": "Offer",
-    price: "0",
-    priceCurrency: "BRL",
-  },
+  "@graph": [
+    {
+      "@type": "WebApplication",
+      "@id": `${SITE_URL}/#app`,
+      name: SITE_NAME,
+      url: SITE_URL,
+      description: DESCRIPTION,
+      applicationCategory: "CommunicationApplication",
+      // Free, browser-based and with no account required are the three things
+      // that separate this from Zoom/Meet in a search result, so they are
+      // stated as data and not only as prose.
+      operatingSystem: translate("layout.anyWebBrowser"),
+      browserRequirements: translate("layout.requiresAModernBrowserWith"),
+      inLanguage: LOCALE_TAGS[SERVER_LOCALE],
+      offers: {
+        "@type": "Offer",
+        price: "0",
+        priceCurrency: "BRL",
+      },
+      featureList: [
+        translate("layout.featureShareScreenWithAudio"),
+        translate("layout.featureCameraAndMicrophone"),
+        translate("layout.featurePublicAndPrivateRooms"),
+        translate("layout.featureNoInstallNoSignup"),
+        translate("layout.featureGroupTextChat"),
+      ],
+    },
+    {
+      "@type": "WebSite",
+      "@id": `${SITE_URL}/#website`,
+      name: SITE_NAME,
+      url: SITE_URL,
+      description: DESCRIPTION,
+      inLanguage: LOCALE_TAGS[SERVER_LOCALE],
+      publisher: {
+        "@type": "Person",
+        name: translate("layout.nemtudo"),
+        url: "https://nemtudo.me",
+      },
+    },
+  ],
 };
 
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
-      // English, because that is what the server renders: a browser's
-      // language is not knowable here, so LOCALE_INIT_SCRIPT corrects this
-      // attribute before paint and I18nGate swaps the words after hydration.
-      lang="en"
+      // The language the server actually renders (lib/i18n's DEFAULT_LOCALE,
+      // today pt-BR) — not a fixed "en". This attribute is a ranking and
+      // snippet signal: Google reads it to decide which language's results
+      // this page belongs in, and declaring English over Portuguese body copy
+      // was keeping the site out of pt-BR queries entirely. A browser that
+      // wants another language is still corrected before paint by
+      // LOCALE_INIT_SCRIPT, and I18nGate swaps the words after hydration.
+      lang={LOCALE_TAGS[SERVER_LOCALE]}
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
       // The script below stamps data-theme/color-scheme onto this element
       // before React hydrates, which is by definition a difference from what
@@ -213,6 +271,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             parse time and buys never showing a white flash to someone who
             chose the dark theme. */}
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        {/* Stops iOS zooming into every text box that is focused — see
+            lib/iosViewport.ts. Inline and this early because the first thing
+            somebody does on a shared room link can be tapping the name field,
+            which is well before hydration. */}
+        <script dangerouslySetInnerHTML={{ __html: IOS_VIEWPORT_SCRIPT }} />
         {/* Same reasoning as the theme script above, for <html lang>: a
             screen reader picks its voice from that attribute, and waiting for
             React would mean reading the first paint in the wrong accent. */}
@@ -222,8 +285,14 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             Inline for the same reason the theme script above is: it has to
             work in the one situation where none of the app's own code runs. */}
         <script dangerouslySetInnerHTML={{ __html: CHUNK_RECOVERY_SCRIPT }} />
-        <Script
-          id="jsonld-webapplication"
+        {/* A plain <script>, not next/script. next/script defaults to
+            afterInteractive, which injects the tag from JavaScript after
+            hydration - so this block existed only inside the RSC payload and
+            never as a real element in the served HTML. Structured data that a
+            crawler has to execute the app to find is structured data doing
+            half its job; it carries no behaviour, so there is nothing to defer
+            in the first place. */}
+        <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />

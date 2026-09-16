@@ -192,7 +192,11 @@ function GroupsPanelBody({
 
   return (
     <aside
-      className={`w-full max-w-md rounded-2xl border border-black/10 bg-white p-5 shadow-sm lg:w-88 dark:border-white/10 dark:bg-zinc-950 ${className}`}
+      // flex-col so the list below can take whatever height is left once this
+      // panel is stretched to match the two beside it on the home page (see
+      // app/page.tsx's items-stretch). Without it the panel would simply grow
+      // and leave the extra space blank under a short list.
+      className={`flex w-full max-w-md flex-col rounded-2xl border border-black/10 bg-white p-5 shadow-sm lg:w-88 dark:border-white/10 dark:bg-zinc-950 ${className}`}
     >
       <div className="flex items-baseline justify-between gap-2">
         <h2 className="flex items-center text-sm font-semibold text-zinc-900 dark:text-zinc-100">
@@ -309,7 +313,7 @@ function GroupsPanelBody({
         // Each group as a card — the same one the official group has in the
         // "+" menu: its face, its name, who and how many, and a button. The
         // whole card is the link; "Abrir" is drawn on it, not a second target.
-        <ul className="mt-3 flex max-h-[26rem] flex-col gap-1.5 overflow-y-auto">
+        <ul className="mt-3 flex max-h-[26rem] min-h-0 flex-col gap-1.5 overflow-y-auto lg:max-h-none lg:flex-1">
           {groups.map((group) => (
             <li key={group.id}>
               <Link

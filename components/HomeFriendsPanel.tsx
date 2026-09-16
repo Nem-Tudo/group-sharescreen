@@ -192,7 +192,11 @@ export function HomeFriendsPanel({ className = "" }: { className?: string }) {
 
   return (
     <aside
-      className={`w-full max-w-md rounded-2xl border border-black/10 bg-white p-5 shadow-sm lg:w-88 dark:border-white/10 dark:bg-zinc-950 ${className}`}
+      // flex-col so the list below can take whatever height is left once this
+      // panel is stretched to match the two beside it on the home page (see
+      // app/page.tsx's items-stretch). Without it the panel would simply grow
+      // and leave the extra space blank under a short list.
+      className={`flex w-full max-w-md flex-col rounded-2xl border border-black/10 bg-white p-5 shadow-sm lg:w-88 dark:border-white/10 dark:bg-zinc-950 ${className}`}
     >
       <div className="flex items-baseline justify-between gap-2">
         <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
@@ -262,7 +266,7 @@ export function HomeFriendsPanel({ className = "" }: { className?: string }) {
         // Capped and scrolled rather than allowed to run: this sits next to a
         // form, and a list of forty people would decide how tall the whole
         // page is.
-        <ul className="mt-3 flex max-h-[26rem] flex-col gap-1.5 overflow-y-auto">
+        <ul className="mt-3 flex max-h-[26rem] min-h-0 flex-col gap-1.5 overflow-y-auto lg:max-h-none lg:flex-1">
           {friends.map((user) => (
             <FriendRow
               key={user.id}

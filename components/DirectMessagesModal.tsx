@@ -38,6 +38,7 @@ import {
   MdSend,
   MdSettings,
 } from "react-icons/md";
+import { LuPanelLeftClose, LuPanelLeftOpen } from "react-icons/lu";
 import { GifPicker } from "@/components/GifPicker";
 import { InviteEmbeds } from "@/components/groups/InviteEmbed";
 import { Popover } from "@/components/Tooltip";
@@ -66,10 +67,14 @@ import { useAuth } from "@/lib/AuthContext";
 import { verifiedBadge } from "@/lib/entitlements";
 import { openDirectMessages, setDirectMessagesExpanded, useDirectMessagesOutlet } from "@/lib/dmWindow";
 import { CallOutlet } from "@/components/CallOutlet";
+import { ColumnResizeHandle, useColumnWidth, type ColumnWidthSpec } from "@/components/ColumnResize";
 import { useCallSession } from "@/lib/callSession";
+import { useCallActions } from "@/lib/callActions";
 import { startCall } from "@/lib/callsApi";
-import { useSignalingSelector } from "@/lib/useSignalingSelector";
-import { selectRecentDms } from "@/lib/signalingSelectors";
+import { toggleDmCallColumns, useDmCallColumnsCollapsed } from "@/lib/dmCallColumns";
+import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
+import { selectCallNudge, selectRecentDms } from "@/lib/signalingSelectors";
+import type { CallWire } from "@/lib/signalingClient";
 import { presenceLabel, usePresence } from "@/lib/presence";
 import {
   DM_MAX_REACTIONS_PER_MESSAGE,
@@ -161,6 +166,24 @@ const NEAR_BOTTOM_PX = 96;
 const NEAR_TOP_PX = 80;
 const COMPOSER_MAX_HEIGHT_PX = 144;
 const MAX_LENGTH = 2000;
+// How long a call line that still says "em chamada" is believed. It is closed
+// by the call's room emptying out (see the API's callMessages' finishCallRoom),
+// so the only way one stays open is a room that was never cleaned up — and a
+// conversation is better off forgetting such a call than offering to join it
+// forever.
+const ONGOING_CALL_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+// The conversations column, dragged wider or narrower from its inner edge and
+// remembered per browser — the group shell's two columns, with the same grip
+// and the same double-click back to the default (see components/ColumnResize).
+// Only in the expanded layout: the narrow window is one column at a time.
+const LIST_COLUMN: ColumnWidthSpec = {
+  storageKey: "dms:listColumnWidth",
+  defaultWidth: 320,
+  min: 240,
+  max: 480,
+  maxShare: 0.3,
+  side: "left",
+};
 const DAY_MS = 86_400_000;
 
 // ─── A clock for the labels ─────────────────────────────────────────────
@@ -822,6 +845,84 @@ function callDuration(ms: number): string {
   return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${minutes}:${pad(seconds)}`;
 }
 
+/**
+ * A call this conversation has, that you are not in.
+ *
+ * Discord's rule, and the one people expect: a call is not a modal you either
+ * catch or lose, it is a thing the conversation *has* — so opening somebody's
+ * thread while they are ringing you shows the ring there, with the same two
+ * buttons, and a call still going on after you left it shows a way back in.
+ *
+ * Which of the two is decided by the caller, not here: `incoming` is a ring the
+ * socket still holds (see lib/signalingClient), `ongoing` is the conversation's
+ * own record of a call that was answered and whose room has not emptied yet
+ * (see the API's callMessages). They cannot both be true — a call stops ringing
+ * the moment it is answered.
+ */
+function DmCallInvite({
+  name,
+  avatarUrl,
+  ringing,
+  busy,
+  onAnswer,
+  onDecline,
+  onJoin,
+}: {
+  name: string;
+  avatarUrl: string | null;
+  /** A ring waiting to be answered, rather than a call already under way. */
+  ringing: boolean;
+  busy: boolean;
+  onAnswer: () => void;
+  onDecline: () => void;
+  onJoin: () => void;
+}) {
+  const t = useT();
+  return (
+    <div className="shrink-0 border-b border-zinc-200 px-3 py-3 dark:border-zinc-800">
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50/70 px-3 py-2.5 dark:border-emerald-900 dark:bg-emerald-950/30">
+        <UserAvatar
+          src={avatarUrl}
+          name={name}
+          size={40}
+          // Only a ring pulses. A call already going on is a state, not a
+          // question being asked of you.
+          className={`shrink-0 ${ringing ? "animate-pulse" : ""}`}
+        />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-zinc-950 dark:text-zinc-50">{name}</p>
+          <p className="truncate text-xs text-emerald-700 dark:text-emerald-400">
+            {ringing ? t("directMessagesModal.isCallingYou") : t("directMessagesModal.callInProgress")}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {/* Refusing is only ever on offer for a ring. There is nothing to
+              refuse about a call that is simply happening without you. */}
+          {ringing && (
+            <button
+              type="button"
+              onClick={onDecline}
+              className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+            >
+              <MdCallEnd className="h-4 w-4" />
+              {t("common.decline")}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={ringing ? onAnswer : onJoin}
+            disabled={busy}
+            className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <MdCall className="h-4 w-4" />
+            {ringing ? t("callHost.answer") : t("directMessagesModal.joinTheCall")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── The dialog ─────────────────────────────────────────────────────────
 
 export function DirectMessagesModal({
@@ -861,6 +962,21 @@ export function DirectMessagesModal({
   // A direct call belongs to a conversation: it is drawn on that person's
   // thread rather than on a room page of its own (see lib/callSession's `dm`).
   const call = useCallSession();
+  // Answering a ring, refusing it, walking into a call already going on — the
+  // same steps the ringing screen uses (see lib/callActions).
+  const { answer, stopRinging, joinOngoing } = useCallActions();
+  // Every ring this account has, in either direction. Not filtered by
+  // `alertTarget` the way the ringing screen is: that decides which connection
+  // makes the *noise*, and a conversation showing whose call is waiting in it
+  // is not noise. It is also the only way to answer from a tab the server did
+  // not pick.
+  const { incomingCalls, outgoingCall } = useSignalingSelector(selectCallNudge, shallow);
+  // The lists beside the call, folded away — this window's own conversations
+  // column and the rail of groups outside it, together (see lib/dmCallColumns).
+  const columnsCollapsed = useDmCallColumnsCollapsed();
+  const [answering, setAnswering] = useState(false);
+  const { setElement: setListColumn, style: listColumnStyle, handle: listColumnHandle } =
+    useColumnWidth(LIST_COLUMN);
 
   // null until the first answer, so "loading" and "no conversations" are two
   // different screens instead of one that lies for a second.
@@ -989,6 +1105,49 @@ export function DirectMessagesModal({
   );
   const newestIncomingId = newestFrom(messages, activeId);
 
+  // ── The call this conversation has ──
+  //
+  // Three states, and the thread shows at most one of them: you are in it
+  // (`callHere`, drawn as the call itself), somebody is ringing you from it, or
+  // it is going on without you and can be walked back into.
+
+  /** A ring from — or to — the person whose thread is open. */
+  const ringingHere: CallWire | null =
+    (activeId && incomingCalls.find((entry) => entry.from.id === activeId)) || null;
+  const callingHere = Boolean(
+    activeId && outgoingCall && outgoingCall.to.id === activeId
+  );
+  /**
+   * A call that was answered and is not over — which is exactly what the
+   * conversation's own call line says while its room still has somebody in it
+   * (see the API's callMessages: the line goes to "ended" when the room empties
+   * out). So one person leaving and the other staying leaves a way back in,
+   * without a second source of truth to keep in step.
+   *
+   * Bounded by age all the same. The line is only ever closed by the room
+   * emptying, and a room that was never cleaned up would otherwise leave an
+   * "entrar na chamada" button in a conversation for good.
+   */
+  const ongoingHere = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const message = messages[i];
+      if (!message.call) continue;
+      const info = live.calls[message.id] ?? message.call;
+      // The newest call line is the only one worth looking at: an older one
+      // that still says "ongoing" is a line the server never got to close.
+      if (info.state !== "ongoing") return null;
+      const startedAt = info.startedAt ?? message.ts;
+      // The screen's own clock, not Date.now(): reading the time during render
+      // is what makes a render impure (see subscribeClock above).
+      if (now - startedAt > ONGOING_CALL_MAX_AGE_MS) return null;
+      return info;
+    }
+    return null;
+  }, [messages, live.calls, now]);
+  // Never both: a call stops ringing the moment it is answered, and the call
+  // you are already in is drawn as the call and not as an invitation.
+  const callInvite = callHere || callingHere ? null : ringingHere ? "ringing" : ongoingHere ? "ongoing" : null;
+
   const atBottom = scroll?.userId === activeId ? scroll.atBottom : true;
   const seenIncoming = scroll?.userId === activeId ? scroll.seen : newestIncomingId;
   const showNewPill = !atBottom && newestIncomingId !== null && newestIncomingId !== seenIncoming;
@@ -1005,6 +1164,10 @@ export function DirectMessagesModal({
     [conversations, recentDms, account, live.changes]
   );
   const listVisible = !activeId || split;
+  // Folded away only while the call it made room for is on this very thread:
+  // moving to another conversation brings the list back, because the reason it
+  // was gone is no longer on screen.
+  const listFolded = columnsCollapsed && callHere;
   // What the list re-reads on: a delivery outside the open thread (see
   // newestOutside). With no thread open, that is every delivery.
   const listNudge = account ? newestOutside(recentDms, account.id, activeId) : null;
@@ -1271,6 +1434,31 @@ export function DirectMessagesModal({
   async function placeCall(userId: string) {
     const result = await startCall(userId);
     if (!result.ok) setError({ userId, value: result.error });
+  }
+
+  /** "Atender", from the conversation rather than from the ringing screen. */
+  async function answerHere() {
+    if (!ringingHere || answering) return;
+    setAnswering(true);
+    const result = await answer(ringingHere);
+    setAnswering(false);
+    // The ring is off the screen either way (see lib/callActions); the error
+    // goes where this conversation's errors go.
+    if (!result.ok && activeId) setError({ userId: activeId, value: result.error });
+  }
+
+  function declineHere() {
+    if (ringingHere) void stopRinging(ringingHere.id, "decline");
+  }
+
+  /** Back into a call still going on — one left, or answered on another device. */
+  function joinHere() {
+    if (!ongoingHere || !activeId || !active) return;
+    joinOngoing(ongoingHere.roomHandle, {
+      userId: activeId,
+      displayName: active.displayName,
+      avatarUrl: active.avatarUrl ?? null,
+    });
   }
 
   function submit() {
@@ -2067,6 +2255,25 @@ export function DirectMessagesModal({
     </button>
   );
 
+  // Folds the lists beside a direct call away — this window's conversations
+  // column and the rail of groups outside it — and brings them back. Only while
+  // the call is actually on this thread and there is a row to fold: the narrow
+  // window is one column at a time, and folding the only one would leave an
+  // empty screen. The lists come back on their own when the call ends (see
+  // lib/dmCallColumns), so this is never a state to get stuck in.
+  const foldButton = split && callHere && (
+    <button
+      type="button"
+      onClick={toggleDmCallColumns}
+      aria-pressed={columnsCollapsed}
+      aria-label={t(columnsCollapsed ? "directMessagesModal.showTheLists" : "directMessagesModal.hideTheLists")}
+      title={t(columnsCollapsed ? "directMessagesModal.showTheLists" : "directMessagesModal.hideTheLists")}
+      className={headerButton}
+    >
+      {columnsCollapsed ? <LuPanelLeftOpen className="h-5 w-5" /> : <LuPanelLeftClose className="h-5 w-5" />}
+    </button>
+  );
+
   const headerRow = "flex shrink-0 items-center gap-1.5 border-b border-zinc-200 px-3 py-2.5 dark:border-zinc-800";
 
   // ── The list ──
@@ -2179,6 +2386,16 @@ export function DirectMessagesModal({
     <div className="flex min-h-[12rem] flex-[2] flex-col overflow-hidden border-b border-zinc-200 p-2 dark:border-zinc-800">
       <CallOutlet />
     </div>
+  ) : callInvite && active ? (
+    <DmCallInvite
+      name={active.displayName}
+      avatarUrl={active.avatarUrl ?? null}
+      ringing={callInvite === "ringing"}
+      busy={answering}
+      onAnswer={() => void answerHere()}
+      onDecline={declineHere}
+      onJoin={joinHere}
+    />
   ) : null;
 
   const threadPane = (
@@ -2466,19 +2683,33 @@ export function DirectMessagesModal({
               : "fixed inset-0 z-50 flex select-none gap-3 bg-zinc-50 p-3 dark:bg-black"
           }
         >
-          <aside className="flex w-80 shrink-0 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white lg:w-[22rem] dark:border-zinc-800 dark:bg-zinc-950">
-            <div className={headerRow}>
-              <MdChatBubbleOutline className="ml-1 h-5 w-5 shrink-0 text-zinc-500" />
-              <h2 className="flex-1 truncate px-1 text-base font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-                {t("common.messages")}
-              </h2>
-              {settingsButton}
+          {/* Hidden rather than unmounted while a call folds it away: the list
+              comes back scrolled where it was left, and its conversations are
+              not re-read for the sake of a button press. */}
+          <aside
+            ref={setListColumn}
+            style={listColumnStyle}
+            className={`relative shrink-0 flex-col ${listFolded ? "hidden" : "flex"}`}
+          >
+            <ColumnResizeHandle {...listColumnHandle} label={t("groups.groupAppShell.dragToResizeColumn")} />
+            {/* The card, inside the column rather than being it: the grip sits
+                in the gap on the column's edge, and a card that clipped its
+                overflow would clip the grip away with it. */}
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+              <div className={headerRow}>
+                <MdChatBubbleOutline className="ml-1 h-5 w-5 shrink-0 text-zinc-500" />
+                <h2 className="flex-1 truncate px-1 text-base font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
+                  {t("common.messages")}
+                </h2>
+                {settingsButton}
+              </div>
+              {listPane}
             </div>
-            {listPane}
           </aside>
           <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
             <div className={headerRow}>
               {threadIdentity}
+              {foldButton}
               {callButton}
               {expandButton}
               {closeButton}

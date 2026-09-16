@@ -424,6 +424,20 @@ export async function launchDesktopUpdate(): Promise<number> {
   return data.notified;
 }
 
+export type DesktopUpdateClicks = {
+  /** Presses of the app's install button since the current rollout was launched. */
+  clicks: number;
+  /** When "lançar atualização" was last pressed, or null if it never was. */
+  launchedAt: number | null;
+  byVersion: { version: string; clicks: number }[];
+};
+
+// How many people installed the update that is being rolled out now — see the
+// API's desktopUpdateClickStore.ts. Launching a new one starts the count over.
+export async function fetchDesktopUpdateClicks(): Promise<DesktopUpdateClicks> {
+  return adminFetch<DesktopUpdateClicks>("/admin/desktop-update/clicks");
+}
+
 export async function fetchAdminSupporters(): Promise<Supporter[]> {
   const data = await adminFetch<{ supporters: Supporter[] }>("/admin/supporters");
   return data.supporters;

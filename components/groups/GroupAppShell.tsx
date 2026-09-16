@@ -42,6 +42,7 @@ import { prefetchChannel } from "@/lib/groupCache";
 import { GroupShellContext, registerGroupShell, useGroupNavigation } from "@/lib/groupNavigation";
 import { canInChannel } from "@/lib/groupPermissions";
 import { setDirectMessagesOutlet } from "@/lib/dmWindow";
+import { useDmCallColumnsCollapsed } from "@/lib/dmCallColumns";
 import {
   getGroupVoiceSession,
   setGroupVoiceSession,
@@ -304,6 +305,12 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   const voiceColumns = useGroupVoiceColumns();
   const columnsCollapsed = voiceVisible && isWide && Boolean(voiceColumns?.collapsed);
   const collapseColumns = voiceVisible && voiceColumns?.canCollapse ? voiceColumns.toggle : undefined;
+  // The same fold, for a direct call: it is drawn inside the private messages,
+  // which already have a list column of their own, so what a call there folds
+  // away is this rail and that list together (see lib/dmCallColumns, which is
+  // also what puts them back when the call ends).
+  const dmColumnsCollapsed = useDmCallColumnsCollapsed();
+  const railHidden = columnsCollapsed || (dmCallVisible && isWide && dmColumnsCollapsed);
   const { setElement: setRoomsColumn, style: roomsColumnStyle, handle: roomsColumnHandle } =
     useColumnWidth(ROOMS_COLUMN);
   const { setElement: setMembersColumn, style: membersColumnStyle, handle: membersColumnHandle } =
@@ -429,7 +436,7 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
               unmounted while a call folds it away, so it comes back as it was
               left, scrolled and all. */}
           {isWide && (
-            <div className={columnsCollapsed ? "hidden" : "contents"}>
+            <div className={railHidden ? "hidden" : "contents"}>
               <GroupRail activeGroupId={groupId} />
             </div>
           )}

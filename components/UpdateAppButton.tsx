@@ -8,6 +8,7 @@ import { useSignalingSelector } from "@/lib/useSignalingSelector";
 import { selectDesktopUpdateSeq } from "@/lib/signalingSelectors";
 import { signalingClient } from "@/lib/signalingClient";
 import { trackEvent } from "@/lib/analytics";
+import { reportDesktopUpdateClick } from "@/lib/desktopUpdate";
 import { useT } from "@/lib/useI18n";
 
 // "A new version is ready — press when you feel like it."
@@ -80,6 +81,11 @@ export function UpdateAppButton() {
     const bridge = getDesktopBridge();
     if (!bridge?.installUpdate) return;
     trackEvent("desktop_update_installed", { version });
+    // The admin panel's count of how many people took this rollout (see the
+    // API's POST /desktop-update/click). Fired and forgotten: the app is
+    // about to quit, and a counter must never be the reason an install waits
+    // — or fails.
+    void reportDesktopUpdateClick(version);
     // Latched before the call: quitAndInstall tears the app down over a
     // second or so, and a button that still looks idle through that reads as
     // "nothing happened" and invites a second press.

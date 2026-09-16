@@ -142,6 +142,17 @@ export const PALETTE_KEYS = [
 /** The band a paid theme's price has to fall in. Mirrors the API's roomTheme.ts. */
 export const MIN_THEME_PRICE = 100;
 export const MAX_THEME_PRICE = 10_000;
+
+/**
+ * How many themes each plan may keep published on Discover at once.
+ *
+ * A copy of the API's PUBLISHED_THEME_LIMITS (see its themeStore.ts), which is
+ * the side that enforces it. This one exists so the plan page can say the
+ * number before somebody subscribes, and so the editor can name the bigger
+ * limit when a save is refused — neither of which can wait for a refusal to
+ * find out. Publishing starts at Pro Max, so those are the only two rungs.
+ */
+export const PUBLISHED_THEME_LIMITS = { premium_max: 10, pro_ultra: 100 } as const;
 /** The author's cut, for showing what a price is worth before it is saved. */
 export const THEME_AUTHOR_SHARE = 0.85;
 
@@ -958,7 +969,13 @@ export type SaveThemeInput = {
 
 export type SaveThemeResult =
   | { ok: true; theme: RoomTheme }
-  | { ok: false; error: string };
+  /**
+   * `limitReached` is set only when the save was refused for having too many
+   * themes on Discover already, and carries the plan's own limit. The editor
+   * uses it to offer the plan that has a bigger one instead of only repeating
+   * the refusal — see ThemeEditorDialog.
+   */
+  | { ok: false; error: string; limitReached?: number };
 
 async function saveRequest(url: string, method: string, input: SaveThemeInput) {
   const res = await fetch(url, {
@@ -976,7 +993,11 @@ async function saveRequest(url: string, method: string, input: SaveThemeInput) {
     // The one refusal said in the reader's language: it is the one somebody
     // hits in the normal course of using the feature, and its number matters.
     if (data.reason === "theme_publish_limit" && typeof data.limit === "number") {
-      return { ok: false as const, error: translate("roomThemes.publishLimitReached", { limit: data.limit }) };
+      return {
+        ok: false as const,
+        error: translate("roomThemes.publishLimitReached", { limit: data.limit }),
+        limitReached: data.limit,
+      };
     }
     return { ok: false as const, error: data.error ?? translate("roomThemes.couldNotSaveTheTheme") };
   }
