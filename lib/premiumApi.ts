@@ -491,6 +491,74 @@ export async function redeemGiftCode(code: string): Promise<RedeemGiftResult> {
   }
 }
 
+export type UpgradeQuote = {
+  currentPlanId: string;
+  targetPlanId: string;
+  cycle: BillingCycle;
+  remainingDays: number;
+  amountLabel: string;
+  amountCents: number;
+};
+
+/**
+ * Prices moving to a higher plan mid-cycle, without charging anything.
+ *
+ * Only ever a higher plan than the one already active — the API refuses
+ * anything else, since a downgrade takes effect on its own at the next
+ * renewal rather than being bought.
+ */
+export async function fetchUpgradeQuote(planId: string): Promise<UpgradeQuote | null> {
+  try {
+    const res = await fetch(`${getSignalingHttpBase()}/premium/upgrade/quote`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ planId }),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as UpgradeQuote;
+  } catch {
+    return null;
+  }
+}
+
+export type StartUpgradeResult =
+  | { ok: true; charge: PixCharge & { remainingDays: number } }
+  | { ok: false; error: string; needsEmail?: boolean };
+
+/**
+ * Charges the prorated top-up for moving to a higher plan mid-cycle, and
+ * returns the Pix code to pay it with.
+ *
+ * Access does not change until the charge is confirmed — same as every other
+ * Pix charge in this file — and settling it swaps the plan without adding any
+ * days: the point of a top-up over a fresh purchase is paying for exactly the
+ * upgrade, not for another cycle.
+ */
+export async function startUpgradePix(planId: string, email?: string): Promise<StartUpgradeResult> {
+  try {
+    const res = await fetch(`${getSignalingHttpBase()}/premium/upgrade/pix`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ planId, ...(email ? { email } : {}) }),
+    });
+    const data = (await res.json().catch(() => ({}))) as Partial<PixCharge> & {
+      remainingDays?: number;
+      error?: string;
+      needsEmail?: boolean;
+    };
+    if (!res.ok || !data.paymentId) {
+      return {
+        ok: false,
+        error: data.error ?? translate("premiumApi.couldNotGenerateThePix"),
+        needsEmail: data.needsEmail,
+      };
+    }
+    return { ok: true, charge: { ...(data as PixCharge), remainingDays: data.remainingDays ?? 0 } };
+  } catch {
+    return { ok: false, error: translate("common.noConnectionToTheServer") };
+  }
+}
+
 /**
  * This account's subscription, re-read from Mercado Pago by the API.
  *
