@@ -4660,7 +4660,7 @@ export function WatchRoom({
 
   const menuItems = (
     <>
-      {!group && (
+      {!group && !callLayout && (
         <span
           className={`mb-2 inline-block w-fit shrink-0 rounded-full px-2.5 py-1 text-xs font-medium text-white sm:hidden ${
             isPrivateRoomHandle(handle) ? "bg-red-600" : "bg-emerald-600"
@@ -4697,8 +4697,12 @@ export function WatchRoom({
 
       {/* Also reachable from the main row on desktop (see the
           quick-access group below) — kept here too since mobile
-          has no room for it outside this menu. */}
-      {canShareNatively() && (
+          has no room for it outside this menu.
+          Not in a group (shared by inviting to the group instead), and not in
+          a direct call: its room is the two of them, and its link is a way
+          for a third person to walk into a private conversation — the same
+          rule the desktop copy-link button follows below. */}
+      {!group && !callLayout && canShareNatively() && (
         <button
           type="button"
           onClick={() => {
@@ -4712,6 +4716,7 @@ export function WatchRoom({
         </button>
       )}
 
+      {!group && !callLayout && (
       <button
         type="button"
         onClick={handleCopyLink}
@@ -4727,6 +4732,7 @@ export function WatchRoom({
             ? translate("common.copyLink")
             : translate("watch.watchRoom.shareRoom")}
       </button>
+      )}
 
       {/* The premium offer, which a phone's header has no room for. */}
       {!isDesktopLayout && (
@@ -4976,8 +4982,12 @@ export function WatchRoom({
       {/* At every width now, not just on a phone: it used to have its own
           button in the desktop header, where a once-a-session action was
           taking permanent space from the controls used all call long. */}
-      {/* Not in a group: its rooms are one click away in the group's own list. */}
-      <div className={group ? "hidden" : undefined}>
+      {/* Not in a group: its rooms are one click away in the group's own list.
+          Nor in a direct call: it has no other room to switch to — "trocar de
+          sala" here would silently drop the call and its `dm` (see
+          lib/callSession and components/WatchRoomStage), leaving the other
+          person's call hung up with nothing said about it. */}
+      <div className={group || callLayout ? "hidden" : undefined}>
         <button
           type="button"
           onClick={() => setSwitching((s) => !s)}

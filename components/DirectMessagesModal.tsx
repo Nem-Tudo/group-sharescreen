@@ -1260,6 +1260,19 @@ export function DirectMessagesModal({
     setPending((current) => current.filter((p) => p.clientId !== clientId));
   }
 
+  /**
+   * Rings `userId`, and says why on this composer if it could not — blocked,
+   * rate-limited, "recebendo outras chamadas agora". `startCall` used to be
+   * fired here without ever looking at what it returned, unlike every other
+   * caller of it in the app (HomeFriendsPanel, FriendsPanel, SocialActions),
+   * so a call that failed to even start looked identical to one that rang and
+   * was never answered.
+   */
+  async function placeCall(userId: string) {
+    const result = await startCall(userId);
+    if (!result.ok) setError({ userId, value: result.error });
+  }
+
   function submit() {
     if (!activeId) return;
     if (editingHere) {
@@ -1623,7 +1636,13 @@ export function DirectMessagesModal({
         {
           label: t("common.callDisplayname", { displayName: user.displayName }),
           icon: <MdCall className="h-4 w-4" />,
-          onSelect: () => void startCall(user.id),
+          // Opens the thread too — a refusal is shown on its composer (see
+          // placeCall), and there is otherwise nowhere on screen for it to
+          // appear when the call was placed from the list.
+          onSelect: () => {
+            openThread(user.id);
+            void placeCall(user.id);
+          },
         },
         {
           label: t("groups.groupRail.markAsRead"),
@@ -1650,7 +1669,7 @@ export function DirectMessagesModal({
         {
           label: t("common.callDisplayname", { displayName: active.displayName }),
           icon: <MdCall className="h-4 w-4" />,
-          onSelect: () => void startCall(activeId),
+          onSelect: () => void placeCall(activeId),
         },
         wide && {
           label: expanded ? t("directMessagesModal.collapse") : t("directMessagesModal.expand"),
@@ -2039,7 +2058,7 @@ export function DirectMessagesModal({
   const callButton = activeId && active && (
     <button
       type="button"
-      onClick={() => void startCall(activeId)}
+      onClick={() => void placeCall(activeId)}
       aria-label={t("common.callDisplayname", { displayName: active.displayName })}
       title={t("common.callDisplayname", { displayName: active.displayName })}
       className="shrink-0 rounded-full p-1.5 text-emerald-600 transition hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"

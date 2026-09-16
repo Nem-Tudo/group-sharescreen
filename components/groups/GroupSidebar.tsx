@@ -1529,7 +1529,11 @@ export function VoiceControls({ className = "" }: { className?: string }) {
             const wasOnCall =
               typeof window !== "undefined" && window.location.pathname === callPathFor(call);
             endCall();
-            if (wasOnCall) navigation.push(callGroup ? groupPath(callGroup.groupId) : "/");
+            // A direct call's page is the conversation it was made in, which
+            // is still worth looking at once the call is over — nobody is
+            // moved off it (see RoomCallHost's own hangUp, which this mirrors).
+            if (wasOnCall && !callGroup && !call.dm) navigation.push("/");
+            else if (wasOnCall && callGroup) navigation.push(groupPath(callGroup.groupId));
           }}
           aria-label={t("common.leaveTheCall")}
           className="flex h-8 shrink-0 cursor-pointer items-center rounded-lg bg-red-600 px-2.5 text-white transition hover:bg-red-700"

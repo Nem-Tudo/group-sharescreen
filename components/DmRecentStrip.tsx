@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import useNtPopups from "ntpopups";
 import { MdCall, MdChatBubbleOutline, MdContentCopy, MdDoneAll, MdOpenInFull, MdPictureInPicture } from "react-icons/md";
 import { Tooltip } from "@/components/Tooltip";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -46,6 +47,7 @@ const FACE_VISIBILITY = ["hidden sm:flex", "hidden sm:flex", "hidden md:flex", "
 export function DmRecentStrip({ compact = false, leading = false }: { compact?: boolean; leading?: boolean }) {
   const t = useT();
   const tCount = useTCount();
+  const { openPopup } = useNtPopups();
   const { account } = useAuth();
   const live = useDmLive();
   const recentDms = useSignalingSelector(selectRecentDms);
@@ -84,6 +86,21 @@ export function DmRecentStrip({ compact = false, leading = false }: { compact?: 
   if (!account) return null;
 
   const totalUnread = (conversations ?? []).reduce((total, c) => total + c.unread, 0);
+
+  /**
+   * Rings `userId`, and says why if it could not — blocked, rate-limited,
+   * "recebendo outras chamadas agora". A popup rather than an inline error
+   * (as DirectMessagesModal's own call button uses) because this strip has no
+   * composer of its own to show one on: this button rings without opening the
+   * conversation at all. `startCall` used to be fired here without ever
+   * looking at what it returned, unlike every other caller of it in the app.
+   */
+  async function placeCall(userId: string) {
+    const result = await startCall(userId);
+    if (!result.ok) {
+      void openPopup("generic", { data: { title: t("common.couldNotCall"), message: result.error } });
+    }
+  }
 
   const allMessages = (
     <Tooltip content={t("dmRecentStrip.allMessages")} placement="bottom">
@@ -167,7 +184,7 @@ export function DmRecentStrip({ compact = false, leading = false }: { compact?: 
                       {
                         label: t("common.callDisplayname", { displayName: user.displayName }),
                         icon: <MdCall className="h-4 w-4" />,
-                        onSelect: () => void startCall(user.id),
+                        onSelect: () => void placeCall(user.id),
                       },
                       {
                         label: t("groups.groupRail.markAsRead"),
