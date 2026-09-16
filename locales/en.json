@@ -1,4 +1,9 @@
 {
+  "common.refresh": "Refresh",
+  "admin.desktopUpdatePanel.installsTitle": "Installs of this rollout",
+  "admin.desktopUpdatePanel.installsSince": "Since the launch on {date}.",
+  "admin.desktopUpdatePanel.installsNoRollout": "No update has been launched from here yet.",
+  "admin.desktopUpdatePanel.installsHint": "Counts presses of the install button inside the app. People who update on quit are not counted here.",
   "pro.proPanel.showAGroupOnYourProfile": "Show a group on your profile that anyone can join",
   "profileGroup.label": "Group",
   "profileGroup.signInToJoin": "Choose a name or sign in to your account to join.",

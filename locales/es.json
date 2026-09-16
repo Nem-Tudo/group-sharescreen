@@ -1,4 +1,9 @@
 {
+  "common.refresh": "Actualizar",
+  "admin.desktopUpdatePanel.installsTitle": "Instalaciones de este lanzamiento",
+  "admin.desktopUpdatePanel.installsSince": "Desde el lanzamiento del {date}.",
+  "admin.desktopUpdatePanel.installsNoRollout": "Todavía no se ha lanzado ninguna actualización desde aquí.",
+  "admin.desktopUpdatePanel.installsHint": "Cuenta clics en el botón de instalar dentro de la app. Quien actualiza al cerrar la app no aparece aquí.",
   "pro.proPanel.showAGroupOnYourProfile": "Muestra un grupo en tu perfil para que cualquiera entre",
   "profileGroup.label": "Grupo",
   "profileGroup.signInToJoin": "Elige un nombre o inicia sesión para unirte.",
