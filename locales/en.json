@@ -3278,5 +3278,12 @@
   "email.notConfirmed": "Email not confirmed (optional)",
   "email.confirmAction": "Confirm",
   "email.codeSentTo": "We sent a code to {email}. It expires in {minutes} minutes.",
-  "accountMenu.manageAccount": "Manage account"
+  "accountMenu.manageAccount": "Manage account",
+  "profileLinks.title": "Social links",
+  "profileLinks.network": "Network",
+  "profileLinks.link": "Link",
+  "profileLinks.add": "Add a network",
+  "profileLinks.remove": "Remove",
+  "profileLinks.hint": "Up to {max} links. Each one has to be on the chosen network's own site.",
+  "pro.proPanel.linkYourSocialNetworksOnYour": "Link your social networks on your profile"
 }

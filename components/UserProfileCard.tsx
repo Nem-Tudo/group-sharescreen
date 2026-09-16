@@ -10,6 +10,9 @@ import { botAddPath } from "@/lib/botsApi";
 import { BsCoin, BsClock, BsShop } from "react-icons/bs";
 import { SocialActions } from "@/components/SocialActions";
 import { useAuth } from "@/lib/AuthContext";
+import { ProfileLinksRow } from "@/components/ProfileLinksRow";
+import { ProfileLinksEditor } from "@/components/ProfileLinksEditor";
+import { MAX_PROFILE_LINKS, type ProfileLink } from "@/lib/profileLinks";
 import { useSignaling } from "@/lib/useSignaling";
 import { usePresence } from "@/lib/presence";
 import { PresenceDot } from "@/components/PresenceDot";
@@ -37,7 +40,7 @@ import { DEFAULT_AVATAR_PATH } from "@/components/UserAvatar";
 import { fetchCosmeticsCatalog, type CosmeticProduct } from "@/lib/cosmetics";
 import { prepareAvatarImage, AVATAR_IMAGE_ACCEPT, AVATAR_IMAGE_MAX_BYTES } from "@/lib/avatarImage";
 import { canCropAnimatedGif } from "@/lib/gifCrop";
-import { MdCheck, MdEdit, MdGroups, MdPhotoCamera, MdDeleteOutline } from "react-icons/md";
+import { MdCheck, MdEdit, MdGroups, MdLink, MdPhotoCamera, MdDeleteOutline } from "react-icons/md";
 import { ImageCropDialog, type ImageCropKind } from "@/components/ImageCropDialog";
 import { ProfileGroupCard } from "@/components/groups/ProfileGroupCard";
 import { fetchMyGroups, type GroupSummary } from "@/lib/groupsApi";
@@ -555,6 +558,7 @@ function ProfileContent({
     null
   );
   const [editProfileGroup, setEditProfileGroup] = useState<string | null>(account.profileGroupId ?? null);
+  const [editLinks, setEditLinks] = useState<ProfileLink[]>(account.profileLinks ?? []);
   const [myGroups, setMyGroups] = useState<GroupSummary[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -578,6 +582,7 @@ function ProfileContent({
     setEditSong(songLinkOf(account.profileSong));
     setEditSongVolume(account.profileSong?.volume ?? DEFAULT_SONG_VOLUME);
     setEditProfileGroup(account.profileGroupId ?? null);
+    setEditLinks(account.profileLinks ?? []);
   }, [account]);
 
   // Load cosmetics when entering edit mode or when owned items change
@@ -780,6 +785,7 @@ function ProfileContent({
     setEditSong(songLinkOf(account.profileSong));
     setEditSongVolume(account.profileSong?.volume ?? DEFAULT_SONG_VOLUME);
     setEditProfileGroup(account.profileGroupId ?? null);
+    setEditLinks(account.profileLinks ?? []);
     setAvatarPickerOpen(false);
     setBannerPickerOpen(false);
     setOpenField(null);
@@ -831,6 +837,9 @@ function ProfileContent({
           : {}),
         equippedProfileColor: editBgColor,
         ...(profileGroupChanged ? { profileGroup: editProfileGroup } : {}),
+        // Same rule as the song: sent only when it moved, so an unrelated bio
+        // edit is never refused over a link somebody typed wrong weeks ago.
+        ...(linksChanged ? { profileLinks: linksToSave } : {}),
       });
 
       // The card is built by GET /users/:id, not by the save, so a changed
@@ -879,7 +888,17 @@ function ProfileContent({
   const canEditTheme = hasFeature("profile_gradient", authAccount?.features ?? []);
   const canEditSong = hasFeature("profile_song", authAccount?.features ?? []);
   const canEditProfileGroup = hasFeature("profile_group", authAccount?.features ?? []);
+  const canEditLinks = hasFeature("profile_links", authAccount?.features ?? []);
   const profileGroupChanged = editProfileGroup !== (account.profileGroupId ?? null);
+  // Rows with nothing typed in them are simply dropped on save rather than
+  // refused: an empty row is somebody who added one and changed their mind,
+  // not an error worth stopping the whole profile for.
+  const linksToSave = editLinks.filter((link) => link.url.trim().length > 0);
+  const linksChanged =
+    JSON.stringify(linksToSave) !== JSON.stringify(account.profileLinks ?? []);
+  // What is drawn under the name: the live edit while editing, the saved list
+  // otherwise — so the card stays its own preview (see the theme note below).
+  const shownLinks = isEditing ? linksToSave : account.profileLinks ?? [];
   // While editing, the card *is* the preview — there is no second swatch to
   // compare against, and a preview that is not the thing itself always
   // disagrees with it somewhere.
@@ -1400,6 +1419,41 @@ function ProfileContent({
             </p>
           </InlineEdit>
         </div>
+
+        {/* The social links, under the description where a profile's links
+            belong. The row itself is not an InlineEdit: unlike the bio it is
+            a list, and a pencil that opens "one field" would have to mean the
+            whole list at once — so the editor simply appears below it for the
+            whole of edit mode, the way the group picker does. */}
+        <ProfileLinksRow links={shownLinks} theme={theme} />
+
+        {isEditing && isOwner && !account.bot && (
+          // The ruby ring, like every other locked Pro Ultra control. Shown to
+          // somebody without the plan too, locked — the same reasoning as the
+          // song above: a slot that simply vanishes gives no sign the feature
+          // exists, and cannot be told apart from an API that has not started
+          // publishing the permission yet.
+          <div className={`mt-4 ${planRowClass(!canEditLinks, "flex flex-col gap-1.5")}`}>
+            <PlanRing tier="proUltra" locked={!canEditLinks} />
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span
+                className="flex items-center gap-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300"
+                style={themedLabel}
+              >
+                <MdLink className="h-4 w-4" />
+                {t("profileLinks.title")}
+              </span>
+              {!canEditLinks && <PlanLink tier="proUltra" className="text-xs text-zinc-500 dark:text-zinc-400" />}
+            </div>
+            <ProfileLinksEditor
+              links={editLinks}
+              onChange={setEditLinks}
+              disabled={!canEditLinks}
+              fieldStyle={themedField}
+              hintStyle={themedHint}
+            />
+          </div>
+        )}
 
         {/* The song, edited where it plays.
                 Shown for the whole of edit mode, including to somebody

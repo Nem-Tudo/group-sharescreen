@@ -41,6 +41,17 @@ export type Account = {
   /** The group shown as a card on this profile (Pro Ultra), by id. */
   profileGroupId?: string | null;
   /**
+   * The social links under the name (Pro Ultra) — see lib/profileLinks.ts.
+   *
+   * No OAuth behind them: the person picked a network and pasted their own
+   * link, so this is a claim and is never shown as verified. The API does
+   * guarantee the link is on that network's own domain, which is the part
+   * that matters — an Instagram icon cannot lead somewhere else.
+   *
+   * Absent on a response from an older API, read as an empty list.
+   */
+  profileLinks?: { network: string; url: string }[];
+  /**
    * The room theme this account wears, by id (see lib/roomThemes.ts), or null
    * for the site's own look.
    *
@@ -462,6 +473,11 @@ export type UpdateProfileInput = {
   banner?: string | null;
   /** A group id to show on the profile; null clears it, absent leaves it alone. */
   profileGroup?: string | null;
+  /**
+   * The whole list of social links, replacing whatever was there. An empty
+   * array clears them; absent leaves them alone.
+   */
+  profileLinks?: { network: string; url: string }[];
   /** Null clears the gradient; absent leaves it alone. */
   profileTheme?: { from: string; to: string; angle: number } | null;
   /** A YouTube link. Null or "" clears it; absent leaves it alone. */
