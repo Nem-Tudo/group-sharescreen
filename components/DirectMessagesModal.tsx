@@ -41,7 +41,7 @@ import {
 import { LuPanelLeftClose, LuPanelLeftOpen } from "react-icons/lu";
 import { GifPicker } from "@/components/GifPicker";
 import { InviteEmbeds } from "@/components/groups/InviteEmbed";
-import { Popover } from "@/components/Tooltip";
+import { Popover, Tooltip } from "@/components/Tooltip";
 import { AttachMenu, splitPicked } from "@/components/AttachMenu";
 import { AttachmentTray } from "@/components/AttachmentTray";
 import { MessageAttachments } from "@/components/MessageAttachments";
@@ -2261,17 +2261,36 @@ export function DirectMessagesModal({
   // window is one column at a time, and folding the only one would leave an
   // empty screen. The lists come back on their own when the call ends (see
   // lib/dmCallColumns), so this is never a state to get stuck in.
-  const foldButton = split && callHere && (
-    <button
-      type="button"
-      onClick={toggleDmCallColumns}
-      aria-pressed={columnsCollapsed}
-      aria-label={t(columnsCollapsed ? "directMessagesModal.showTheLists" : "directMessagesModal.hideTheLists")}
-      title={t(columnsCollapsed ? "directMessagesModal.showTheLists" : "directMessagesModal.hideTheLists")}
-      className={headerButton}
-    >
-      {columnsCollapsed ? <LuPanelLeftOpen className="h-5 w-5" /> : <LuPanelLeftClose className="h-5 w-5" />}
-    </button>
+  //
+  // Two buttons rather than one that changes its icon, because the two live in
+  // different places — the room's own rule (see WatchRoom's left sidebar). The
+  // one that folds sits with the list it folds, beside the conversations'
+  // settings; the one that brings it back cannot, because by then that header
+  // has gone with the column, so it waits in the thread's own bar.
+  const foldable = split && callHere;
+  const hideListsButton = foldable && !columnsCollapsed && (
+    <Tooltip content={t("directMessagesModal.hideTheLists")} placement="bottom">
+      <button
+        type="button"
+        onClick={toggleDmCallColumns}
+        aria-label={t("directMessagesModal.hideTheLists")}
+        className={`cursor-pointer ${headerButton}`}
+      >
+        <LuPanelLeftClose className="h-5 w-5" />
+      </button>
+    </Tooltip>
+  );
+  const showListsButton = foldable && columnsCollapsed && (
+    <Tooltip content={t("directMessagesModal.showTheLists")} placement="bottom">
+      <button
+        type="button"
+        onClick={toggleDmCallColumns}
+        aria-label={t("directMessagesModal.showTheLists")}
+        className={`cursor-pointer ${headerButton}`}
+      >
+        <LuPanelLeftOpen className="h-5 w-5" />
+      </button>
+    </Tooltip>
   );
 
   const headerRow = "flex shrink-0 items-center gap-1.5 border-b border-zinc-200 px-3 py-2.5 dark:border-zinc-800";
@@ -2701,6 +2720,7 @@ export function DirectMessagesModal({
                 <h2 className="flex-1 truncate px-1 text-base font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
                   {t("common.messages")}
                 </h2>
+                {hideListsButton}
                 {settingsButton}
               </div>
               {listPane}
@@ -2709,7 +2729,7 @@ export function DirectMessagesModal({
           <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
             <div className={headerRow}>
               {threadIdentity}
-              {foldButton}
+              {showListsButton}
               {callButton}
               {expandButton}
               {closeButton}
