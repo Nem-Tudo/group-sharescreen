@@ -189,7 +189,11 @@ function linkify(text: string, keyPrefix: string): ReactNode[] {
         href={href}
         target="_blank"
         rel="noopener noreferrer"
-        className="break-all underline underline-offset-2 hover:text-zinc-950 dark:hover:text-white"
+        // Blue and unadorned, underlined only on hover — the colour is what
+        // says "link" in a chat, and a permanent underline under every URL in
+        // a busy conversation is noise. Same blue as a mention, which is
+        // already the colour of everything clickable inside a message.
+        className="break-all text-blue-600 hover:underline hover:underline-offset-2 dark:text-blue-400"
       >
         {part}
       </a>
