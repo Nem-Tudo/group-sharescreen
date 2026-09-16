@@ -739,6 +739,30 @@ body:has([data-group-shell]) {
 }
 
 /*
+ * The rows inside a <select> on a themed profile.
+ *
+ * The inline `color` above is chosen against the person's own gradient, and
+ * on a dark one it is white. A native dropdown does not open on that gradient
+ * — it opens on the OS's own popup, which is white — so those rows inherited
+ * white text on a white background and the list read as empty until you
+ * happened to hover a row.
+ *
+ * So the popup is opted out of the theme entirely and follows the *site's*
+ * light/dark instead, which is what it is actually drawn on top of. Set on
+ * `option` rather than by dropping the inline colour, because the closed
+ * select still has to match the field beside it.
+ */
+.themed-field option {
+  background: #ffffff;
+  color: #09090b;
+}
+
+[data-theme="dark"] .themed-field option {
+  background: #18181b;
+  color: #fafafa;
+}
+
+/*
  * The bars of the "playing" indicator on a profile song.
  *
  * Three bars on the same animation at different delays, which is enough to
