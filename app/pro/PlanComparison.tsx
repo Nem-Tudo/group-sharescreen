@@ -90,19 +90,14 @@ export function PlanComparison({
     differing.splice(differing.findIndex((entry) => entry.key === row.after) + 1, 0, row);
   }
 
-  // Each plan column is one rounded box: its cells carry the side borders,
-  // the header the top and the footer the bottom. The recommended plan is
-  // amber; the selected one (when different) violet; both get a tint.
+  // The recommended plan's column is one amber box: its cells carry the side
+  // borders, the header the top and the footer the bottom. The border means
+  // "recommended" and nothing else — the selection is shown by the plan
+  // picker in the price card (ProPanel), so the two never read as one signal.
   const column = (planId: string, position: "top" | "middle" | "bottom") => {
-    const recommended = planId === recommendedId;
-    const selected = planId === selectedId;
-    if (!recommended && !selected) return "border-x-2 border-transparent";
+    if (planId !== recommendedId) return "border-x-2 border-transparent";
     const edge = position === "top" ? "rounded-t-xl border-t-2" : position === "bottom" ? "rounded-b-xl border-b-2" : "";
-    const colour = recommended
-      ? "border-amber-500 dark:border-amber-400"
-      : "border-violet-500 dark:border-violet-400";
-    const tint = selected ? "bg-violet-500/10 dark:bg-violet-400/10" : "bg-amber-500/5";
-    return `border-x-2 ${colour} ${tint} ${edge}`;
+    return `border-x-2 border-amber-500 bg-amber-500/5 dark:border-amber-400 ${edge}`;
   };
 
   const renderCell = (row: ComparisonRow, index: number) => {
@@ -188,9 +183,6 @@ export function PlanComparison({
                       <mark.Icon className={`h-6 w-6 ${mark.className}`} />
                       <span className="text-xs font-extrabold tracking-wide text-zinc-950 uppercase italic sm:text-sm dark:text-zinc-50">
                         {plan.title}
-                      </span>
-                      <span className={`text-[11px] font-medium ${selected ? "text-violet-600 dark:text-violet-300" : "text-zinc-400"}`}>
-                        {selected ? t("pro.compare.selected") : t("pro.compare.choose")}
                       </span>
                     </button>
                   </th>

@@ -3469,5 +3469,6 @@
   "admin.features.weightsHint": "Porcentagem de quem está no rollout que cai em cada variante. O resto do alvo é o controle.",
   "admin.features.weightsNormalized": "Soma {total}% — será ajustado proporcionalmente para 100%.",
   "admin.features.evenSplit": "Dividir igualmente",
-  "admin.features.weightsWarning": "Mudar a divisão move parte das pessoas de uma variante para outra, e os números antigos passam a misturar as duas divisões. Continuar?"
+  "admin.features.weightsWarning": "Mudar a divisão move parte das pessoas de uma variante para outra, e os números antigos passam a misturar as duas divisões. Continuar?",
+  "pro.compare.choosePlan": "Escolha o plano"
 }

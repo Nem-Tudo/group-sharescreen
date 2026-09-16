@@ -1114,6 +1114,52 @@ export function ProPanel({
               </div>
             )}
 
+            {/* The comparison experiment's plan picker: under the cycle, in the
+                card that holds the price and the buttons it drives. One line
+                of pills; the price is the big figure right below. */}
+            {compareLayout && (
+              <div className="mb-4 flex flex-wrap gap-1.5" role="radiogroup" aria-label={t("pro.compare.choosePlan")}>
+                {plans.map((entry) => {
+                  const entryMark = planIcon(entry.iconId);
+                  const chosen = entry.id === plan.id;
+                  return (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={chosen}
+                      onClick={() => selectPlan(entry.id)}
+                      className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition ${
+                        chosen
+                          ? "border-zinc-900 dark:border-zinc-100"
+                          : "border-zinc-200 hover:border-zinc-400 dark:border-zinc-800 dark:hover:border-zinc-600"
+                      }`}
+                    >
+                      <span
+                        aria-hidden
+                        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                          chosen
+                            ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
+                            : "border-zinc-400 dark:border-zinc-600"
+                        }`}
+                      >
+                        {chosen && <MdCheck className="h-3 w-3" />}
+                      </span>
+                      <entryMark.Icon className={`h-4 w-4 shrink-0 ${entryMark.className}`} />
+                      <span className={`whitespace-nowrap ${chosen ? "font-semibold text-zinc-950 dark:text-zinc-50" : "text-zinc-700 dark:text-zinc-300"}`}>
+                        {entry.title}
+                      </span>
+                      {entry.id === recommendedPlanId && (
+                        <span className="shrink-0 rounded-full bg-amber-500 px-1.5 text-[10px] leading-4 font-semibold text-white">
+                          {t("pro.proPanel.recommended")}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
               {/* The old price first and struck through, then the real one:
                   read left to right that is "was this, is now this", which is

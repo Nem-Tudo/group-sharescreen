@@ -3469,5 +3469,6 @@
   "admin.features.weightsHint": "Share of the people inside the rollout that lands in each treatment. The rest of the target is control.",
   "admin.features.weightsNormalized": "Adds up to {total}% — it will be scaled to 100%.",
   "admin.features.evenSplit": "Split evenly",
-  "admin.features.weightsWarning": "Changing the split moves some people between treatments, and the existing numbers will mix both splits. Continue?"
+  "admin.features.weightsWarning": "Changing the split moves some people between treatments, and the existing numbers will mix both splits. Continue?",
+  "pro.compare.choosePlan": "Choose a plan"
 }
