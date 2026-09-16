@@ -3452,5 +3452,13 @@
   "groups.categorySettings.syncedRooms": "{count} synced rooms",
   "mobileQualitySheet.shareSystemAudio": "Share system audio",
   "mobileQualitySheet.systemAudioHint": "Sends what the phone is playing. It does not include the room’s own audio, and some music and video apps do not allow being captured.",
-  "watch.watchRoom.systemAudioCouldNotBeCaptured": "System audio could not be captured. The broadcast carries on, but without sound."
+  "watch.watchRoom.systemAudioCouldNotBeCaptured": "System audio could not be captured. The broadcast carries on, but without sound.",
+  "pro.compare.title": "What you get",
+  "pro.compare.pricingAndFeatures": "Pricing and features",
+  "pro.compare.price": "Price",
+  "pro.compare.pointsOnPurchase": "Points on every payment",
+  "pro.compare.pointsPerDay": "Points per subscribed day",
+  "pro.compare.uploadLimit": "File uploads",
+  "pro.compare.selected": "Selected",
+  "pro.compare.choose": "Choose"
 }

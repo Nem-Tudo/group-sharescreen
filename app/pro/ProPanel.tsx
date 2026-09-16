@@ -44,6 +44,8 @@ import {
   RECOMMENDED_PLAN_ID,
 } from "@/lib/premiumApi";
 import { useT } from "@/lib/useI18n";
+import { trackFeatureEvent, useFeature } from "@/lib/features";
+import { PlanComparison, PRO_COMPARE_FEATURE, type ComparisonRow } from "./PlanComparison";
 import { translate } from "@/lib/i18n";
 import { formatLocale } from "@/lib/i18n";
 
@@ -248,6 +250,14 @@ export function ProPanel({
         }
       : null);
   const [loadingPlan, setLoadingPlan] = useState(true);
+  // The comparison-table experiment (see PlanComparison). Nothing plan-shaped
+  // is drawn until it is decided, so nobody sees one layout flip to the other.
+  const compare = useFeature(PRO_COMPARE_FEATURE);
+  const compareLayout = compare.enabled && plans.length > 1;
+  const selectPlan = useCallback((planId: string) => {
+    setSelectedPlanId(planId);
+    trackFeatureEvent("pro_plan_click");
+  }, []);
   const [busy, setBusy] = useState(false);
   // A payment is being created right now — the card checkout or a Pix code.
   // Narrower than `busy`, which also covers cancelling: that one is not a
@@ -471,6 +481,63 @@ export function ProPanel({
     ) : null;
 
   /** The whole list, in order, with the points and the upload limit slotted in at their anchor. */
+  /**
+   * The same benefits as featureRows, one row per benefit with a cell per
+   * plan — for the comparison table experiment (PlanComparison).
+   */
+  const comparisonRows = (): ComparisonRow[] => {
+    const cyclePrice = (entry: PremiumPlan) =>
+      `${entry.cycles?.find((c) => c.cycle === cycle)?.priceLabel ?? entry.priceLabel}${
+        cycle === "yearly" ? " / ano" : t("pro.proPanel.month")
+      }`;
+    const rows: ComparisonRow[] = [
+      { key: "price", label: t("pro.compare.price"), cells: plans.map(cyclePrice) },
+    ];
+    const extras = (): ComparisonRow[] => [
+      {
+        key: "purchase-points",
+        label: t("pro.compare.pointsOnPurchase"),
+        cells: plans.map((entry) => (entry.purchasePoints > 0 ? String(entry.purchasePoints) : false)),
+      },
+      {
+        key: "daily-points",
+        label: t("pro.compare.pointsPerDay"),
+        cells: plans.map((entry) => (entry.dailyPoints > 0 ? String(entry.dailyPoints) : false)),
+      },
+      {
+        key: "upload-limit",
+        label: t("pro.compare.uploadLimit"),
+        cells: plans.map((entry) =>
+          typeof entry.uploadLimitMb === "number" && entry.uploadLimitMb > 0
+            ? formatUploadLimit(entry.uploadLimitMb)
+            : false
+        ),
+      },
+    ];
+    for (const feature of sellableFeatures) {
+      const label = FEATURE_LABELS[feature];
+      if (label) {
+        rows.push({
+          key: feature,
+          label,
+          cells: plans.map((entry) => {
+            const included = entry.features.includes(feature);
+            // The one perk that differs by a number between paying rungs.
+            if (feature === "room_theme_publish" && included) {
+              const limit = PUBLISHED_THEME_LIMITS[planTierOf(entry.id) as keyof typeof PUBLISHED_THEME_LIMITS];
+              if (limit) return String(limit);
+            }
+            return included;
+          }),
+        });
+      }
+      if (feature === POINTS_AFTER) rows.push(...extras());
+    }
+    if (!sellableFeatures.includes(POINTS_AFTER)) rows.push(...extras());
+    // A row every plan leaves empty says nothing in a comparison.
+    return rows.filter((row) => row.cells.some((cell) => cell !== false));
+  };
+
   const featureRows = (entry: PremiumPlan) => {
     const rows: ReactNode[] = [];
     for (const feature of sellableFeatures) {
@@ -820,7 +887,7 @@ export function ProPanel({
 
 
   return (
-    <div className={isModal ? "w-full p-5 sm:p-7" : "mx-auto w-full max-w-2xl px-4 py-10"}>
+    <div className={isModal ? "w-full p-5 sm:p-7" : `mx-auto w-full ${compareLayout ? "max-w-3xl" : "max-w-2xl"} px-4 py-10`}>
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
@@ -896,7 +963,16 @@ export function ProPanel({
       {/* Only with something to choose between. A single plan needs no picker,
           and drawing one would make the page look like it is withholding an
           option that does not exist. */}
-      {plans.length > 1 && (
+      {compare.ready && compareLayout && (
+        <PlanComparison
+          plans={plans}
+          rows={comparisonRows()}
+          selectedId={plan?.id ?? null}
+          recommendedId={RECOMMENDED_PLAN_ID}
+          onSelect={selectPlan}
+        />
+      )}
+      {compare.ready && !compareLayout && plans.length > 1 && (
         // Extra top room and row gap for the "Recomendado" tag, which sits
         // half above its card and would otherwise touch the row above.
         <div className="mt-7 flex flex-wrap gap-x-2 gap-y-5">
@@ -911,7 +987,7 @@ export function ProPanel({
               <button
                 key={entry.id}
                 type="button"
-                onClick={() => setSelectedPlanId(entry.id)}
+                onClick={() => selectPlan(entry.id)}
                 aria-pressed={active}
                 className={`relative flex flex-1 items-center gap-2 rounded-xl border px-4 py-3 text-left transition ${
                   active
@@ -1017,9 +1093,12 @@ export function ProPanel({
               </p>
             )}
 
-            <ul className="mt-4 flex flex-col gap-2">
-              {featureRows(plan)}
-            </ul>
+            {/* The table above already lists every benefit, per plan. */}
+            {!compareLayout && (
+              <ul className="mt-4 flex flex-col gap-2">
+                {featureRows(plan)}
+              </ul>
+            )}
 
             <div className="mt-6">
               {/* A refusal, said plainly and with a way forward. Mercado

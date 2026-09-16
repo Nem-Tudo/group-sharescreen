@@ -3452,5 +3452,13 @@
   "groups.categorySettings.syncedRooms": "{count} salas sincronizadas",
   "mobileQualitySheet.shareSystemAudio": "Compartilhar áudio do sistema",
   "mobileQualitySheet.systemAudioHint": "Envia o som que o celular está tocando. Não inclui o áudio da própria sala, e alguns apps de música e vídeo não permitem ser capturados.",
-  "watch.watchRoom.systemAudioCouldNotBeCaptured": "Não foi possível capturar o áudio do sistema. A transmissão continua, mas sem som."
+  "watch.watchRoom.systemAudioCouldNotBeCaptured": "Não foi possível capturar o áudio do sistema. A transmissão continua, mas sem som.",
+  "pro.compare.title": "O que você ganha",
+  "pro.compare.pricingAndFeatures": "Preços e recursos",
+  "pro.compare.price": "Preço",
+  "pro.compare.pointsOnPurchase": "Pontos a cada pagamento",
+  "pro.compare.pointsPerDay": "Pontos por dia de assinatura",
+  "pro.compare.uploadLimit": "Envio de arquivos",
+  "pro.compare.selected": "Selecionado",
+  "pro.compare.choose": "Escolher"
 }
