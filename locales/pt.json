@@ -3284,6 +3284,6 @@
   "profileLinks.link": "Link",
   "profileLinks.add": "Adicionar rede",
   "profileLinks.remove": "Remover",
-  "profileLinks.hint": "Até {max} links. Cada link precisa ser do site da rede escolhida.",
+  "profileLinks.hint": "Até {max} redes sociais",
   "pro.proPanel.linkYourSocialNetworksOnYour": "Divulgue suas redes sociais no seu perfil"
 }
