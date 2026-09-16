@@ -7,6 +7,7 @@ import { ButtonSpinner } from "@/components/ButtonSpinner";
 import { prewarmCaptcha } from "@/lib/turnstile";
 import { OAuthButtons } from "./OAuthButtons";
 import { CompleteOAuthSignupForm } from "./CompleteOAuthSignupForm";
+import { ForgotPasswordForm } from "./ForgotPasswordForm";
 import type { OAuthResult } from "@/lib/oauthApi";
 import { useT } from "@/lib/useI18n";
 
@@ -49,6 +50,11 @@ export function LoginForm({
   const [oauthTicket, setOAuthTicket] = useState<
     Extract<OAuthResult, { kind: "ticket" }> | null
   >(null);
+  // "Esqueci minha senha" takes this whole component over rather than opening
+  // a dialog: it ends in a session exactly like the password form does, so the
+  // caller's onSuccess is the right ending for both and nothing else here has
+  // to know which of the two the person went through.
+  const [forgot, setForgot] = useState(false);
 
   // Mint the captcha token while this form is being filled in, not when it is
   // submitted. Turnstile does its work when its widget renders, so asking for
@@ -82,6 +88,20 @@ export function LoginForm({
     setFormError(null);
     if (!username.trim() || !password) return;
     void submitLogin();
+  }
+
+  if (forgot) {
+    return (
+      <ForgotPasswordForm
+        // Whatever is already in the username box — somebody clicking this
+        // link has usually just typed their name and had the password refused.
+        initialIdentifier={username.trim()}
+        onSuccess={onSuccess}
+        // Back to the password form, not out of the flow: whoever got here
+        // still meant to sign in.
+        onCancel={() => setForgot(false)}
+      />
+    );
   }
 
   if (oauthTicket) {
@@ -140,6 +160,9 @@ export function LoginForm({
             {t("common.back")}
           </button>
         </div>
+        <button type="button" onClick={() => setForgot(true)} className={linkButtonClass}>
+          {t("email.forgotPassword")}
+        </button>
         {onSwitchToCreate && (
           <button type="button" onClick={onSwitchToCreate} className={linkButtonClass}>
             {t("common.createAnAccount")}
