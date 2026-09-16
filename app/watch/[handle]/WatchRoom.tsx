@@ -6363,8 +6363,14 @@ export function WatchRoom({
             {/* Immediately left of "mais opções": the two are the only
                 controls in this row that open a panel, and this is the one
                 that can be asking for attention. */}
-            {/* The group's bar has its own. */}
-            {!group && <NotificationInboxBell />}
+            {/* Only when this row is the room's own. Portalled into a host
+                bar (a group's, or the one over the private messages while a
+                direct call is drawn in them) this whole zone lands beside that
+                bar's own bell — which is how a direct call ended up with two
+                of them: the old test was "not a group", and a direct call is
+                not a group either. What decides it is whether there is a bar
+                lending us its right-hand slot, not what kind of call it is. */}
+            {!group && !headerSlots?.right && <NotificationInboxBell />}
 
             {/* In a group's bar this goes to its far corner instead (see
                 inHeaderSlot's "end"), after the group's own buttons. */}

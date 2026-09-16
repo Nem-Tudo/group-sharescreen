@@ -3242,5 +3242,10 @@
   "homeSeo.linkBadges": "As insígnias do GoLive",
   "homeSeo.linkBlog": "Blog do GoLive: dicas pra transmitir tela e fazer live",
   "botsPage.title": "Bots para os seus grupos no GoLive",
-  "botsPage.description": "Bots feitos pela comunidade para moderar, animar e automatizar os seus grupos e salas no GoLive. Navegue pelo diretório, veja o que cada um faz e adicione ao seu grupo em um clique."
+  "botsPage.description": "Bots feitos pela comunidade para moderar, animar e automatizar os seus grupos e salas no GoLive. Navegue pelo diretório, veja o que cada um faz e adicione ao seu grupo em um clique.",
+  "directMessagesModal.isCallingYou": "Está te ligando…",
+  "directMessagesModal.callInProgress": "Chamada em andamento",
+  "directMessagesModal.joinTheCall": "Entrar",
+  "directMessagesModal.hideTheLists": "Ocultar conversas e grupos",
+  "directMessagesModal.showTheLists": "Mostrar conversas e grupos"
 }

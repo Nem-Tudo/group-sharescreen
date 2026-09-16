@@ -200,6 +200,15 @@ export function useCallSession(): CallSession | null {
   return useSyncExternalStore(subscribe, getCallSession, () => null);
 }
 
+/**
+ * Every change to the session, for the few things that follow a call around
+ * from outside React — see lib/dmCallColumns, which puts the columns beside a
+ * direct call back the moment that call is over.
+ */
+export function subscribeCallSession(listener: () => void): () => void {
+  return subscribe(listener);
+}
+
 // ─── Where it is drawn ────────────────────────────────────────────────────
 
 /** Claimed by the outlet on screen. See components/CallOutlet. */

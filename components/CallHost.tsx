@@ -1,24 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { MdCall, MdCallEnd } from "react-icons/md";
 import { useAuth } from "@/lib/AuthContext";
 import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
 import { selectCallNudge } from "@/lib/signalingSelectors";
 import { signalingClient } from "@/lib/signalingClient";
-import {
-  acceptCall,
-  callPeerFor,
-  endCall,
-  fetchPendingCalls,
-  isOwnCall,
-  markOwnCall,
-  rememberCallPeer,
-} from "@/lib/callsApi";
-import { setCallSession } from "@/lib/callSession";
-import { dmPath } from "@/lib/groupLinks";
-import { useGroupNavigation } from "@/lib/groupNavigation";
+import { fetchPendingCalls, isOwnCall } from "@/lib/callsApi";
+import { useCallActions } from "@/lib/callActions";
 import { showNotification } from "@/lib/notifications";
 import { upsertNotification } from "@/lib/notificationInbox";
 import { getDesktopBridge } from "@/lib/desktop";
@@ -40,9 +29,9 @@ import { translate } from "@/lib/i18n";
 //
 // What it deliberately does *not* do is any calling. Answering is one request;
 // everything after it is an ordinary private room (see the API's callStore),
-// so this component's whole job ends at router.push. There is no media here,
-// no peer connection, nothing to tear down — which is why "the call dropped
-// but the room stayed up" cannot happen.
+// so this component's whole job ends at opening the conversation. There is no
+// media here, no peer connection, nothing to tear down — which is why "the
+// call dropped but the room stayed up" cannot happen.
 
 /** How the ring is announced on a device that is open but not being watched. */
 const CALL_NOTIFICATION_TAG = "call";
@@ -80,33 +69,10 @@ function noticeFor(reason: string | null): string | null {
 export function CallHost() {
   const t = useT();
   const { account } = useAuth();
-  const router = useRouter();
-  // Shallow while the group pages are the ones on screen — a direct call lands
-  // in the private messages, which are one of them (see lib/groupNavigation).
-  const navigation = useGroupNavigation();
-  // Walking into the room a call turned into.
-  //
-  // A direct call is not a place of its own: it belongs to the conversation
-  // the two of them have, and is drawn there, on that person's thread, the way
-  // a group's call is drawn in the group (see lib/callSession's `dm` and
-  // components/DirectMessagesModal). So the session is opened here and the
-  // address that follows is the conversation's.
-  //
-  // Anything else — an invitation into a room that already existed ("chamar
-  // para esta sala"), or a call this tab never saw ring and so cannot name the
-  // other end of — is the room page it always was.
-  const enterRoom = useCallback(
-    (roomHandle: string) => {
-      const peer = isCallRoomHandle(roomHandle) ? callPeerFor(roomHandle) : null;
-      if (!peer) {
-        router.push(`/watch/${roomHandle}`);
-        return;
-      }
-      setCallSession({ handle: roomHandle, viewThemeId: null, group: null, dm: peer });
-      navigation.push(dmPath(peer.userId));
-    },
-    [navigation, router]
-  );
+  // Answering, refusing, and walking into the room a call turned into — the
+  // same steps the conversation's own ring uses (see lib/callActions and
+  // components/DirectMessagesModal), rather than a second copy of them here.
+  const { enterRoom, answer, stopRinging } = useCallActions();
   const {
     incomingCalls,
     outgoingCall,
@@ -369,41 +335,18 @@ export function CallHost() {
   const onAccept = useCallback(async () => {
     if (!incomingCall || busy) return;
     setBusy(true);
-    stopRingtone();
-    // Before the request, not after: the "call-accepted" it causes can reach
-    // this tab ahead of the response, and has to find it already marked as the
-    // one that walks in.
-    markOwnCall(incomingCall.id);
-    const result = await acceptCall(incomingCall.id);
+    const result = await answer(incomingCall);
     setBusy(false);
-    if (!result.ok) {
-      // Taken off screen either way: whatever the reason, this call is not
-      // ringing any more, and leaving the buttons up would offer to answer
-      // something that no longer exists.
-      signalingClient.clearCall(incomingCall.id);
-      setNotice((current) => ({ ...current, text: result.error }));
-      return;
-    }
-    signalingClient.clearCall(incomingCall.id);
-    // Whose conversation this call belongs to — the person who rang.
-    rememberCallPeer(result.roomHandle, {
-      userId: incomingCall.from.id,
-      displayName: incomingCall.from.displayName,
-      avatarUrl: incomingCall.from.avatarUrl,
-    });
-    // Navigated here as well as from the socket message above: on a cold start
-    // the socket may not even be connected yet, and the person who pressed
-    // "atender" must not be left looking at a button that did nothing.
-    enterRoom(result.roomHandle);
-  }, [busy, incomingCall, enterRoom]);
+    // Whatever went wrong, the call is off this tab's screen already (see
+    // lib/callActions) — all that is left is saying why.
+    if (!result.ok) setNotice((current) => ({ ...current, text: result.error }));
+  }, [busy, incomingCall, answer]);
 
   const onDecline = useCallback(
     (reason?: string) => {
       if (!incomingCall) return;
-      stopRingtone();
       setNotice((current) => ({ ...current, selfEnded: incomingCall.id }));
-      signalingClient.clearCall(incomingCall.id);
-      void endCall(incomingCall.id, "decline", reason).then((result) => {
+      void stopRinging(incomingCall.id, "decline", reason).then((result) => {
         // The refusal went through either way — only the sentence did not.
         // Said out loud rather than swallowed: somebody who typed an
         // explanation should not be left believing it was delivered.
@@ -414,16 +357,14 @@ export function CallHost() {
         }));
       });
     },
-    [incomingCall, t]
+    [incomingCall, stopRinging, t]
   );
 
   const onCancel = useCallback(() => {
     if (!outgoingCall) return;
-    stopRingtone();
     setNotice((current) => ({ ...current, selfEnded: outgoingCall.id }));
-    signalingClient.clearCall(outgoingCall.id);
-    void endCall(outgoingCall.id, "cancel");
-  }, [outgoingCall]);
+    void stopRinging(outgoingCall.id, "cancel");
+  }, [outgoingCall, stopRinging]);
 
   // ─── A call that rang out ───────────────────────────────────────────────
   //

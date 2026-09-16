@@ -3242,5 +3242,10 @@
   "homeSeo.linkBadges": "The GoLive badges",
   "homeSeo.linkBlog": "The GoLive blog: tips on screen sharing and going live",
   "botsPage.title": "Bots for your GoLive groups",
-  "botsPage.description": "Community-made bots that moderate, liven up and automate your groups and rooms on GoLive. Browse the directory, see what each one does and add it to your group in one click."
+  "botsPage.description": "Community-made bots that moderate, liven up and automate your groups and rooms on GoLive. Browse the directory, see what each one does and add it to your group in one click.",
+  "directMessagesModal.isCallingYou": "Is calling you…",
+  "directMessagesModal.callInProgress": "Call in progress",
+  "directMessagesModal.joinTheCall": "Join",
+  "directMessagesModal.hideTheLists": "Hide conversations and groups",
+  "directMessagesModal.showTheLists": "Show conversations and groups"
 }
