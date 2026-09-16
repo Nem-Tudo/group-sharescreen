@@ -3460,5 +3460,7 @@
   "pro.compare.pointsPerDay": "Points per subscribed day",
   "pro.compare.uploadLimit": "File uploads",
   "pro.compare.selected": "Selected",
-  "pro.compare.choose": "Choose"
+  "pro.compare.choose": "Choose",
+  "pro.compare.inEveryPlan": "All of this in every plan ({count})",
+  "pro.compare.getPlan": "Subscribe"
 }

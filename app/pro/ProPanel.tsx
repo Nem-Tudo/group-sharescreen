@@ -26,7 +26,7 @@ import { PixChargeModal } from "@/components/PixChargeModal";
 import useNtPopups from "ntpopups";
 import { isIosDevice, isStandaloneDisplay } from "@/lib/browserEnv";
 import { getDesktopBridge } from "@/lib/desktop";
-import { planTierOf, tierAbove, type Feature } from "@/lib/entitlements";
+import { accountTierOf, planTierOf, tierAbove, tierAtLeast, type Feature } from "@/lib/entitlements";
 import { PUBLISHED_THEME_LIMITS } from "@/lib/roomThemes";
 import {
   cancelPremium,
@@ -45,7 +45,7 @@ import {
 } from "@/lib/premiumApi";
 import { useT } from "@/lib/useI18n";
 import { trackFeatureEvent, useFeature } from "@/lib/features";
-import { PlanComparison, PRO_COMPARE_FEATURE, type ComparisonRow } from "./PlanComparison";
+import { PlanComparison, PRO_COMPARE_BUY_TOP, PRO_COMPARE_FEATURE, type ComparisonRow } from "./PlanComparison";
 import { translate } from "@/lib/i18n";
 import { formatLocale } from "@/lib/i18n";
 
@@ -103,6 +103,17 @@ const FEATURE_LABELS: Partial<Record<Feature, string>> = {
   get force_relay() { return translate("pro.proPanel.hideYourIpFromEveryoneInA"); },
   get room_theme_gradient() { return translate("pro.proPanel.useAGradientInYourThemes"); },
 };
+
+// The perks about the broadcast itself — what GoLive is for — which the
+// comparison table lists before everything else.
+const BROADCAST_FEATURES = new Set<Feature>([
+  "quality_2160p",
+  "quality_1440p",
+  "fps_120",
+  "bitrate_maximo",
+  "uncapped_relay",
+  "force_relay",
+]);
 
 function periodEndLabel(timestamp: number): string {
   try {
@@ -254,10 +265,32 @@ export function ProPanel({
   // is drawn until it is decided, so nobody sees one layout flip to the other.
   const compare = useFeature(PRO_COMPARE_FEATURE);
   const compareLayout = compare.enabled && plans.length > 1;
+  // The "buy-top" treatment: the price and checkout card above the table.
+  const buyOnTop = compare.variant === PRO_COMPARE_BUY_TOP;
   const selectPlan = useCallback((planId: string) => {
     setSelectedPlanId(planId);
     trackFeatureEvent("pro_plan_click");
   }, []);
+  // Where the table's "Assinar" buttons send the person: the price and the
+  // checkout for the plan they just picked.
+  const checkoutCardRef = useRef<HTMLDivElement>(null);
+  const buyPlan = useCallback(
+    (planId: string) => {
+      selectPlan(planId);
+      requestAnimationFrame(() =>
+        checkoutCardRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
+      );
+    },
+    [selectPlan]
+  );
+  // The plan to steer toward: Pro Max, unless the account already has it —
+  // then the one above it, and nothing once they are at the top.
+  const accountTier = accountTierOf(account?.flags);
+  const recommendedPlanId = tierAtLeast(accountTier, "pro_ultra")
+    ? null
+    : tierAtLeast(accountTier, "premium_max")
+      ? plans.find((entry) => planTierOf(entry.id) === "pro_ultra")?.id ?? null
+      : RECOMMENDED_PLAN_ID;
   const [busy, setBusy] = useState(false);
   // A payment is being created right now — the card checkout or a Pix code.
   // Narrower than `busy`, which also covers cancelling: that one is not a
@@ -490,42 +523,58 @@ export function ProPanel({
       `${entry.cycles?.find((c) => c.cycle === cycle)?.priceLabel ?? entry.priceLabel}${
         cycle === "yearly" ? " / ano" : t("pro.proPanel.month")
       }`;
+    const amount = (value: number, label = String(value), icon?: ReactNode) => ({ amount: value, label, icon });
+    // The same coin the benefit list and the profile use for a balance.
+    const points = (value: number) =>
+      amount(value, String(value), <BsCoin className="h-3.5 w-3.5 shrink-0 text-amber-500" />);
     const rows: ComparisonRow[] = [
-      { key: "price", label: t("pro.compare.price"), cells: plans.map(cyclePrice) },
+      {
+        key: "price",
+        label: t("pro.compare.price"),
+        pinned: true,
+        cells: plans.map((entry) => amount(entry.priceCents, cyclePrice(entry))),
+      },
     ];
     const extras = (): ComparisonRow[] => [
       {
         key: "purchase-points",
         label: t("pro.compare.pointsOnPurchase"),
-        cells: plans.map((entry) => (entry.purchasePoints > 0 ? String(entry.purchasePoints) : false)),
+        cells: plans.map((entry) => (entry.purchasePoints > 0 ? points(entry.purchasePoints) : false)),
       },
       {
         key: "daily-points",
+        after: "purchase-points",
         label: t("pro.compare.pointsPerDay"),
-        cells: plans.map((entry) => (entry.dailyPoints > 0 ? String(entry.dailyPoints) : false)),
+        cells: plans.map((entry) => (entry.dailyPoints > 0 ? points(entry.dailyPoints) : false)),
       },
       {
         key: "upload-limit",
         label: t("pro.compare.uploadLimit"),
         cells: plans.map((entry) =>
           typeof entry.uploadLimitMb === "number" && entry.uploadLimitMb > 0
-            ? formatUploadLimit(entry.uploadLimitMb)
+            ? amount(entry.uploadLimitMb, formatUploadLimit(entry.uploadLimitMb))
             : false
         ),
       },
     ];
     for (const feature of sellableFeatures) {
       const label = FEATURE_LABELS[feature];
-      if (label) {
+      // "Up to 4K" already says 2K; the 2K row only earns its place on a plan
+      // that has 2K without 4K.
+      const redundant =
+        feature === "quality_1440p" &&
+        plans.every((entry) => !entry.features.includes("quality_1440p") || entry.features.includes("quality_2160p"));
+      if (label && !redundant) {
         rows.push({
           key: feature,
           label,
+          priority: BROADCAST_FEATURES.has(feature) ? 0 : 1,
           cells: plans.map((entry) => {
             const included = entry.features.includes(feature);
             // The one perk that differs by a number between paying rungs.
             if (feature === "room_theme_publish" && included) {
               const limit = PUBLISHED_THEME_LIMITS[planTierOf(entry.id) as keyof typeof PUBLISHED_THEME_LIMITS];
-              if (limit) return String(limit);
+              if (limit) return amount(limit);
             }
             return included;
           }),
@@ -963,15 +1012,6 @@ export function ProPanel({
       {/* Only with something to choose between. A single plan needs no picker,
           and drawing one would make the page look like it is withholding an
           option that does not exist. */}
-      {compare.ready && compareLayout && (
-        <PlanComparison
-          plans={plans}
-          rows={comparisonRows()}
-          selectedId={plan?.id ?? null}
-          recommendedId={RECOMMENDED_PLAN_ID}
-          onSelect={selectPlan}
-        />
-      )}
       {compare.ready && !compareLayout && plans.length > 1 && (
         // Extra top room and row gap for the "Recomendado" tag, which sits
         // half above its card and would otherwise touch the row above.
@@ -982,7 +1022,7 @@ export function ProPanel({
             // The plan the page steers people toward. By id rather than a
             // flag on the plan document: it is a merchandising choice made
             // here, not a property of what the plan sells.
-            const recommended = entry.id === RECOMMENDED_PLAN_ID;
+            const recommended = entry.id === recommendedPlanId;
             return (
               <button
                 key={entry.id}
@@ -1017,7 +1057,17 @@ export function ProPanel({
         </div>
       )}
 
-      <div className="mt-6 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
+      {compare.ready && compareLayout && !buyOnTop && (
+        <PlanComparison
+          plans={plans}
+          rows={comparisonRows()}
+          selectedId={plan?.id ?? null}
+          recommendedId={recommendedPlanId}
+          onSelect={selectPlan}
+          onBuy={buyPlan}
+        />
+      )}
+      <div ref={checkoutCardRef} className="mt-6 scroll-mt-20 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
         {loadingPlan ? (
           <p className="text-sm text-zinc-500 dark:text-zinc-400">{t("pro.proPanel.loadingThePlan")}</p>
         ) : !plan ? (
@@ -1449,6 +1499,16 @@ export function ProPanel({
           </>
         )}
       </div>
+      {compare.ready && compareLayout && buyOnTop && (
+        <PlanComparison
+          plans={plans}
+          rows={comparisonRows()}
+          selectedId={plan?.id ?? null}
+          recommendedId={recommendedPlanId}
+          onSelect={selectPlan}
+          onBuy={buyPlan}
+        />
+      )}
 
       {/* Rendered here rather than beside the button: it is fixed to the
           viewport, so where it sits in the tree only decides who owns its

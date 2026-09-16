@@ -3460,5 +3460,7 @@
   "pro.compare.pointsPerDay": "Puntos por día de suscripción",
   "pro.compare.uploadLimit": "Envío de archivos",
   "pro.compare.selected": "Seleccionado",
-  "pro.compare.choose": "Elegir"
+  "pro.compare.choose": "Elegir",
+  "pro.compare.inEveryPlan": "Todo esto en todos los planes ({count})",
+  "pro.compare.getPlan": "Suscribirse"
 }
