@@ -5,7 +5,7 @@ import { MdClose, MdDelete, MdImage, MdPalette } from "react-icons/md";
 import { HexColorPicker } from "react-colorful";
 import { BsCoin } from "react-icons/bs";
 import { useAuth } from "@/lib/AuthContext";
-import { hasFeature } from "@/lib/entitlements";
+import { accountTierOf, hasFeature } from "@/lib/entitlements";
 import { planIcon } from "@/components/planIcons";
 import { useOpenPro } from "@/lib/proModal";
 import {
@@ -27,6 +27,7 @@ import {
   GRADIENT_DIRECTIONS,
   MAX_THEME_PRICE,
   MIN_THEME_PRICE,
+  PUBLISHED_THEME_LIMITS,
   THEME_AUTHOR_SHARE,
   type RoomTheme,
   type RoomThemeSpec,
@@ -231,6 +232,8 @@ export function ThemeEditorDialog({
   const canGradient = hasFeature("room_theme_gradient", features);
   // The top plan's mark, worn by every lock in this dialog.
   const proMaxMark = planIcon("gold_verified");
+  /** Pro Ultra's ruby, worn by the upgrade offer when the publish quota runs out. */
+  const proUltraMark = planIcon("ruby_verified");
   // Opens the plan the right way for where this is: the modal inside a
   // room, the page anywhere else — and on Pro Max, because that is the
   // thing the lock just named.
@@ -247,9 +250,9 @@ export function ThemeEditorDialog({
    * It also settles the layering for good: the plan can be a dialog of its own
    * without having to out-rank a popup that is no longer there.
    */
-  function leaveForPro() {
+  function leaveForPro(planId = "premium_max") {
     closePopup(false);
-    openPro("premium_max");
+    openPro(planId);
   }
 
   const [name, setName] = useState(existing?.name ?? "");
@@ -278,6 +281,12 @@ export function ThemeEditorDialog({
   const [pendingImage, setPendingImage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set when a save was refused for having the plan's full quota of themes on
+  // Discover. It turns the refusal into the one thing that actually gets the
+  // person unstuck: the plan whose quota is bigger. Not shown to somebody
+  // already on Pro Ultra — there is nothing above it to sell, and offering it
+  // would read as being asked to buy what they have.
+  const [publishLimitHit, setPublishLimitHit] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
   // Which row has its picker open, by key. Held here rather than per row so
   // opening one closes the last: eight open pickers in a column is a dialog
@@ -368,6 +377,7 @@ export function ThemeEditorDialog({
     }
     setBusy(true);
     setError(null);
+    setPublishLimitHit(false);
     const input = {
       name: name.trim(),
       description: description.trim(),
@@ -380,6 +390,9 @@ export function ThemeEditorDialog({
     setBusy(false);
     if (!result.ok) {
       setError(result.error);
+      setPublishLimitHit(
+        typeof result.limitReached === "number" && accountTierOf(account?.flags) !== "pro_ultra"
+      );
       return;
     }
     // Before closing, so that when the preview drops a moment later the room
@@ -567,7 +580,7 @@ export function ThemeEditorDialog({
             {!canGradient && (
               <button
                 type="button"
-                onClick={leaveForPro}
+                onClick={() => leaveForPro()}
                 className="flex cursor-pointer items-center gap-1 self-start rounded-lg text-[11px] font-medium text-zinc-500 underline-offset-2 transition hover:text-zinc-900 hover:underline dark:text-zinc-400 dark:hover:text-zinc-100"
               >
                 <proMaxMark.Icon className={`h-3.5 w-3.5 shrink-0 ${proMaxMark.className}`} />
@@ -783,7 +796,7 @@ export function ThemeEditorDialog({
           {!canPublish && (
             <button
               type="button"
-              onClick={leaveForPro}
+              onClick={() => leaveForPro()}
               className="flex cursor-pointer items-center gap-1 self-start rounded-lg text-[11px] font-medium text-zinc-500 underline-offset-2 transition hover:text-zinc-900 hover:underline dark:text-zinc-400 dark:hover:text-zinc-100"
             >
               <proMaxMark.Icon className={`h-3.5 w-3.5 shrink-0 ${proMaxMark.className}`} />
@@ -857,6 +870,25 @@ export function ThemeEditorDialog({
           <p role="alert" className="text-sm text-red-600 dark:text-red-400">
             {error}
           </p>
+        )}
+
+        {publishLimitHit && (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 dark:border-rose-900/60 dark:bg-rose-950/40">
+            <p className="flex-1 text-sm text-zinc-700 dark:text-zinc-300">
+              {t("themeEditorDialog.publishLimitUpgrade", { limit: PUBLISHED_THEME_LIMITS.pro_ultra })}
+            </p>
+            <button
+              type="button"
+              onClick={() => leaveForPro("pro_ultra")}
+              className="flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-rose-700"
+            >
+              {/* The rung's own mark, the same ruby a Pro Ultra name wears —
+                  so the button and the plan it opens are recognisably one
+                  thing (see entitlements' tierIconId). */}
+              <proUltraMark.Icon className={`h-4 w-4 shrink-0 ${proUltraMark.className}`} />
+              {t("themeEditorDialog.seeProUltra")}
+            </button>
+          </div>
         )}
       </div>
 

@@ -202,6 +202,16 @@ export function HomeSeoContent({ className = "" }: { className?: string }) {
               {t("homeSeo.linkBadges")}
             </Link>
           </li>
+          {/* A plain <a>, because it leaves the app for another deployment.
+              The blog already links back here (see its site footer) and this
+              side of that pair was missing, which left the articles written to
+              bring people in with nothing pointing at them from the page that
+              actually gets the traffic. */}
+          <li>
+            <a href="https://golive-blog.nemtudo.me" className={linkClass}>
+              {t("homeSeo.linkBlog")}
+            </a>
+          </li>
         </ul>
       </nav>
 

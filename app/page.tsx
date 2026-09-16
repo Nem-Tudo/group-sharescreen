@@ -37,6 +37,7 @@ import { SocialLinks } from "@/components/SocialLinks";
 import { SiteHeader } from "@/components/SiteHeader";
 import { AdsterraBanner } from "@/components/AdsterraBanner";
 import { HomeFriendsPanel } from "@/components/HomeFriendsPanel";
+import { HomeSeoContent } from "@/components/HomeSeoContent";
 import { Tooltip } from "@/components/Tooltip";
 import { useI18n } from "@/lib/useI18n";
 import { FINE_POINTER_QUERY } from "@/lib/useMediaQuery";
@@ -146,6 +147,39 @@ export default function Home() {
   // — that would restart the very fetch that produced it. Kept current from
   // an effect rather than during render, which is what React asks for.
   const roomExistsAnswersRef = useRef(roomExistsAnswers);
+
+  // The form's height, published to the row around it as --home-form-h so the
+  // panels on either side can cap themselves to it.
+  //
+  // This is measured rather than written in CSS because there is no CSS way to
+  // say it. Side by side, the row is as tall as its tallest card, and the
+  // panels are lists: somebody with twenty-three friends made that list the
+  // tallest thing on the page and dragged the other two cards down to match.
+  // Capping the panels at the form's height inverts it — the form, whose
+  // height is its own content and never depends on the panels, is what decides
+  // the row, and a long list scrolls inside a card that stays put.
+  //
+  // No feedback loop, and that is worth stating because a resize observer that
+  // feeds its own input is the usual way this goes wrong: nothing about the
+  // form's height depends on the panels, so this only ever runs when the form
+  // itself changes — a login form opening, a room-type tab switching.
+  const formRef = useRef<HTMLElement | null>(null);
+  const rowRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const form = formRef.current;
+    const row = rowRef.current;
+    if (!form || !row) return;
+    const observer = new ResizeObserver((entries) => {
+      // The border box, not contentRect: the card's padding and border are
+      // part of how tall it looks, and a cap short by those would leave the
+      // panels visibly shy of the form they are matching.
+      const entry = entries[0];
+      const height = entry.borderBoxSize?.[0]?.blockSize ?? form.offsetHeight;
+      row.style.setProperty("--home-form-h", `${Math.round(height)}px`);
+    });
+    observer.observe(form);
+    return () => observer.disconnect();
+  }, []);
 
   // Which shell this is, read once. `useState` with an initializer rather
   // than a plain call: the answer comes from window, so it must not run
@@ -403,7 +437,32 @@ export default function Home() {
   return (
     <>
       <SiteHeader />
-      <div className="flex flex-1 flex-col items-center justify-start gap-3 bg-zinc-50 px-4 pt-4 pb-6 dark:bg-black lg:justify-center lg:py-16">
+      {/* min-h is what keeps this a screenful of its own now that something
+        follows it. It used to get that for free: `flex-1` inside body's
+        full-height column meant this div *was* the space under the header, so
+        `lg:justify-center` centred the form against the viewport. The moment a
+        sibling was added below, the flex column had two things to fit into a
+        fixed height, this one shrank to its content, and the form slid up
+        under the header. Pinning the minimum to the viewport minus the chrome
+        around it restores the old geometry and, incidentally, guarantees what
+        it is here for: nothing below can reach the first screen.
+
+        That chrome is the h-14 header *and* --app-tabbar-h (see globals.css),
+        which is the bottom tab bar below lg and 0px everywhere else.
+        Subtracting only the header was wrong on a phone: the bar is fixed, so
+        the last 4rem of this block sat behind it.
+
+        shrink-0 rather than the `flex-1` that used to be here, and the two are
+        not interchangeable. `flex-1` is `flex: 1 1 0%` — it carries a shrink
+        factor of 1, and once the page outgrew body's fixed height there was
+        negative free space for that factor to act on. A min-height only sets
+        the floor: this block's real content (form, friends, groups) is taller
+        than one screen on a phone, so the flex algorithm was free to squeeze
+        it from its content height down toward that floor, which is what was
+        slicing the bottom off the friends panel. Nothing needs to grow here
+        any more — the min-height is what fills the screen now — so the honest
+        declaration is "never shrink me". */}
+      <div className="flex min-h-[calc(100dvh-3.5rem-var(--app-tabbar-h))] shrink-0 flex-col items-center justify-start gap-3 bg-zinc-50 px-4 pt-4 pb-6 dark:bg-black lg:justify-center lg:py-16">
         {peopleOnline !== null && (<div className="inline-flex gap-2">
           <span className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3.5 py-1.5 text-xs font-medium text-zinc-600 shadow-sm dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
             <span className="h-2 w-2 rounded-full bg-emerald-500" />
@@ -442,7 +501,22 @@ export default function Home() {
 
           A guest sees none of this: HomeFriendsPanel renders nothing without an
           account, and the grid's middle column is the form either way. */}
-        <div className="flex w-full flex-col items-center justify-center gap-4 lg:flex-row lg:flex-wrap lg:items-start xl:grid xl:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+        {/* items-stretch, where this used to say items-start: side by side, the
+          three cards are one row of the same thing and ragged bottoms read as
+          a mistake. Stretching makes every card as tall as the tallest, and
+          each panel spends the extra height on its own list rather than on
+          blank space — see the lg:flex-1 on the lists in HomeFriendsPanel and
+          HomeGroupsPanel. Stacked, below lg, stretch means nothing: a column's
+          items are already full width and their heights are their own. */}
+        <div
+          ref={rowRef}
+          // The starting value of the cap, and the one a browser with no
+          // ResizeObserver keeps: the 26rem the lists were capped at before
+          // any of this. The effect above replaces it with the form's real
+          // height on the first measurement.
+          style={{ "--home-form-h": "26rem" } as React.CSSProperties}
+          className="flex w-full flex-col items-center justify-center gap-4 lg:flex-row lg:flex-wrap lg:items-stretch xl:grid xl:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]"
+        >
           {/* The groups, in what used to be an empty counterweight column: from
               xl the grid's left column, hugging the form from that side as the
               friends hug it from the other, and the form stays dead centre
@@ -458,11 +532,25 @@ export default function Home() {
               (xl:empty:block), and below xl an empty one simply disappears
               (empty:hidden) instead of leaving a gap in the stack. */}
           <div className="order-3 flex w-full max-w-md justify-center empty:hidden lg:w-auto xl:order-none xl:block xl:w-auto xl:max-w-none xl:justify-self-end xl:empty:block">
-            <HomeGroupsPanel />
+            {/* h-full because at xl the wrapper above is a block, and a block
+                does not hand its height to its child the way a flex parent
+                does. Below xl the wrapper is a flex row and the panel would
+                stretch anyway; h-full is harmless there, since a percentage
+                height against an auto-height parent simply resolves to auto. */}
+            <HomeGroupsPanel className="h-full lg:max-h-[var(--home-form-h)]" />
           </div>
-          <main className="w-full max-w-md rounded-2xl border border-black/10 bg-white p-5 shadow-sm sm:p-8 dark:border-white/10 dark:bg-zinc-950">
+          <main
+            ref={formRef}
+            className="w-full max-w-md rounded-2xl border border-black/10 bg-white p-5 shadow-sm sm:p-8 dark:border-white/10 dark:bg-zinc-950"
+          >
+            {/* The page's one h1, and it says what the page does rather than
+              what it is called. "GoLive" is already the wordmark in the header
+              above and the <title>'s tail, so spending the strongest heading
+              on the brand name meant the document never stated, anywhere in
+              its text, that this is a place to stream a screen to a group -
+              which is the thing people search for. */}
             <h1 className="text-xl font-semibold tracking-tight text-zinc-950 sm:text-2xl dark:text-zinc-50">
-              {t("common.golive")}
+              {t("page.seoHeadline")}
             </h1>
             <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
               {t("page.shareYourScreenWithWhoeverIs")}
@@ -843,7 +931,7 @@ export default function Home() {
           </main>
           {/* Hard against the start of its column, so it stays beside the form
               instead of drifting to the right edge on a wide screen. */}
-          <HomeFriendsPanel className="xl:justify-self-start" />
+          <HomeFriendsPanel className="h-full lg:max-h-[var(--home-form-h)] xl:justify-self-start" />
         </div>
         {/* Below the form rather than above it: somebody landing here came to
           type a room name, and a slot between the headline and that field
@@ -853,6 +941,11 @@ export default function Home() {
           fill in, and three handles under it explain themselves. */}
         {/* On a phone these live on the Você tab (app/me), with the rest of
             what is about GoLive rather than about getting into a room. */}
+        {/* Below everything interactive, because it is for the visitor who has
+          not arrived yet rather than the one already typing a room name - see
+          components/HomeSeoContent. Hidden inside the desktop/mobile app
+          shell, where the reader has plainly already found the product and a
+          crawler never looks. */}
         <SocialLinks title={null} className={`mt-6 ${tabBar ? "hidden lg:block" : ""}`} />
         <p
           className={`mt-4 gap-5 text-center text-xs text-zinc-400 dark:text-zinc-600 ${tabBar ? "hidden lg:flex" : "flex"}`}
@@ -869,6 +962,27 @@ export default function Home() {
           </Link>
         </p>
       </div>
+      {/* Outside the block above, which is the whole point: that block is one
+        screen tall by construction, so this starts exactly where the fold
+        ends and is reached only by scrolling. Someone who came to type a room
+        name never sees it; a crawler, which has no fold, reads the document
+        whole. See components/HomeSeoContent for why the page needs it at all.
+
+        Hidden in the desktop/mobile app shell, where the reader has plainly
+        already found the product and no crawler ever looks.
+
+        shrink-0 for the same reason MobileTabBar's spacer carries it: this is
+        a flex item of body, body is h-full, and the page now overflows that
+        height — so the flex algorithm has negative free space to hand out and
+        squeezes every child left at the default shrink factor of 1. That
+        squeeze is what was pressing this section's text up into the block
+        above it on a phone. The block above escapes it only because its own
+        min-height is explicit. */}
+      {!appShell && (
+        <div className="shrink-0 border-t border-black/5 bg-zinc-50 px-4 py-10 dark:border-white/5 dark:bg-black">
+          <HomeSeoContent />
+        </div>
+      )}
     </>
   );
 }

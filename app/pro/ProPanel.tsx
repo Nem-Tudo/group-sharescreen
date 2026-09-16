@@ -17,7 +17,8 @@ import { PixChargeModal } from "@/components/PixChargeModal";
 import useNtPopups from "ntpopups";
 import { isIosDevice, isStandaloneDisplay } from "@/lib/browserEnv";
 import { getDesktopBridge } from "@/lib/desktop";
-import { type Feature } from "@/lib/entitlements";
+import { planTierOf, type Feature } from "@/lib/entitlements";
+import { PUBLISHED_THEME_LIMITS } from "@/lib/roomThemes";
 import {
   cancelPremium,
   fetchPremiumPlans,
@@ -314,9 +315,27 @@ export function ProPanel({
   // moved them whenever a plan included a different number of perks.
   const POINTS_AFTER: Feature = "avatar_gallery";
 
+  /**
+   * The benefit's sentence on this particular card.
+   *
+   * Almost every perk reads the same on every plan, so FEATURE_LABELS is one
+   * fixed table. Publishing themes is the exception: both paying rungs have
+   * it and they differ by a number (ten against a hundred), and a row that
+   * only said "publique seus temas" would hide the very difference somebody
+   * comparing the two cards is looking for. Only the plans that include it
+   * get the number — on a card where the row is a ✕ it would read as an offer.
+   */
+  const featureLabel = (feature: Feature, entry: PremiumPlan | null, included: boolean): string | undefined => {
+    if (feature === "room_theme_publish" && entry && included) {
+      const limit = PUBLISHED_THEME_LIMITS[planTierOf(entry.id) as keyof typeof PUBLISHED_THEME_LIMITS];
+      if (limit) return t("pro.proPanel.publishThemesWithLimit", { limit });
+    }
+    return FEATURE_LABELS[feature];
+  };
+
   // One row of the benefits list.
-  const featureRow = (feature: Feature, included: boolean) => {
-    const label = FEATURE_LABELS[feature];
+  const featureRow = (feature: Feature, included: boolean, entry: PremiumPlan | null = null) => {
+    const label = featureLabel(feature, entry, included);
     if (!label) return null;
     const row = (
       <li
@@ -405,7 +424,7 @@ export function ProPanel({
   const featureRows = (entry: PremiumPlan) => {
     const rows: ReactNode[] = [];
     for (const feature of sellableFeatures) {
-      rows.push(featureRow(feature, entry.features.includes(feature)));
+      rows.push(featureRow(feature, entry.features.includes(feature), entry));
       if (feature === POINTS_AFTER) rows.push(...pointsRows(entry), uploadRow(entry));
     }
     // No plan sells the anchor benefit — these still have to appear.

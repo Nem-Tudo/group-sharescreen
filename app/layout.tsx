@@ -285,8 +285,14 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             Inline for the same reason the theme script above is: it has to
             work in the one situation where none of the app's own code runs. */}
         <script dangerouslySetInnerHTML={{ __html: CHUNK_RECOVERY_SCRIPT }} />
-        <Script
-          id="jsonld-webapplication"
+        {/* A plain <script>, not next/script. next/script defaults to
+            afterInteractive, which injects the tag from JavaScript after
+            hydration - so this block existed only inside the RSC payload and
+            never as a real element in the served HTML. Structured data that a
+            crawler has to execute the app to find is structured data doing
+            half its job; it carries no behaviour, so there is nothing to defer
+            in the first place. */}
+        <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
