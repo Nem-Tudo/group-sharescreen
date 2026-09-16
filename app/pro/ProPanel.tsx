@@ -1,7 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { MdCardGiftcard, MdCheck, MdClose, MdLock, MdAttachFile, MdOpenInNew } from "react-icons/md";
+import {
+  MdArrowUpward,
+  MdCardGiftcard,
+  MdCheck,
+  MdClose,
+  MdExpandMore,
+  MdLock,
+  MdAttachFile,
+  MdOpenInNew,
+} from "react-icons/md";
 import Link from "next/link";
 import { BsCoin, BsStars } from "react-icons/bs";
 // No wrapperClassName: Tippy then attaches straight to the <li>, keeping the
@@ -17,17 +26,21 @@ import { PixChargeModal } from "@/components/PixChargeModal";
 import useNtPopups from "ntpopups";
 import { isIosDevice, isStandaloneDisplay } from "@/lib/browserEnv";
 import { getDesktopBridge } from "@/lib/desktop";
-import { planTierOf, type Feature } from "@/lib/entitlements";
+import { planTierOf, tierAbove, type Feature } from "@/lib/entitlements";
 import { PUBLISHED_THEME_LIMITS } from "@/lib/roomThemes";
 import {
   cancelPremium,
   fetchPremiumPlans,
   fetchPremiumStatus,
+  fetchUpgradeQuote,
   isPremiumActive,
   startPixPayment,
   startPremiumCheckout,
+  startUpgradePix,
+  startUpgradeSchedule,
   type PixCharge,
   type PremiumPlan,
+  type UpgradeQuote,
   RECOMMENDED_PLAN_ID,
 } from "@/lib/premiumApi";
 import { useT } from "@/lib/useI18n";
@@ -272,6 +285,28 @@ export function ProPanel({
   // the old inline block managed to render nothing at all for a renewal.
   const [pixBaselineEnd, setPixBaselineEnd] = useState(0);
 
+  // What moving to the plan on screen would cost right now, mid-cycle — a
+  // prorated top-up, not the plan's own price. Fetched fresh whenever the
+  // plan on screen changes, since it depends on both plans and on how many
+  // days are left, none of which this component may assume are still what
+  // they were the last time it asked.
+  const [upgradeQuote, setUpgradeQuote] = useState<UpgradeQuote | null>(null);
+  // Whether the collapsed upgrade header has been opened. Closed by default:
+  // most people opening this page are not mid-upgrade, and a card of price
+  // breakdowns nobody asked to see yet is exactly the clutter a one-line
+  // header avoids.
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
+  // A future-dated mandate is being scheduled right now — see
+  // handleScheduleUpgrade. Its own flag rather than reusing `busy`: that one
+  // drives the Pix dialog's shake behaviour (see onCheckoutLockChange), which
+  // has nothing to do with this button.
+  const [scheduling, setScheduling] = useState(false);
+  // The Pix charge for an upgrade top-up, held apart from `pix` above: the
+  // two settle completely differently (see the API's syncUpgradePayment),
+  // and `pixPaid`'s test — `currentPeriodEnd` moving — is never true for an
+  // upgrade, since the whole point of a top-up is that it does not move.
+  const [upgradePix, setUpgradePix] = useState<(PixCharge & { remainingDays: number }) | null>(null);
+
   // Resolved before the plan loads too — planIcon falls back to the default
   // mark, so the heading never renders a hole while the request is in flight.
   //
@@ -296,6 +331,19 @@ export function ProPanel({
   // payment buttons. Switching *to another plan* is offered freely — the API
   // ends the old mandate when the new payment lands.
   const liveCardSub = active && !viaPix && !cancelled;
+
+  // Whether the plan on screen is a genuine step up from the one this account
+  // already has time left on. Never true for a downgrade or a same-tier
+  // switch — those already take effect at the next renewal without a charge,
+  // through the ordinary "assinar"/"pix" buttons below, and topping them up
+  // would be charging for nothing.
+  const canUpgrade = Boolean(
+    active && !activeHere && premium && plan && tierAbove(planTierOf(plan.id), planTierOf(premium.plan))
+  );
+  /** The upgrade charge on screen has not been paid yet. */
+  const upgradePending = Boolean(upgradePix) && premium?.lastPaymentId !== upgradePix?.paymentId;
+  /** The money for the upgrade charge on screen has landed. */
+  const upgradePaid = Boolean(upgradePix) && premium?.lastPaymentId === upgradePix?.paymentId;
 
   // Every benefit any plan sells, in one fixed order — FEATURE_LABELS's.
   //
@@ -647,18 +695,115 @@ export function ProPanel({
   // when it does: the dialog stays open on a confirmation, which is what
   // somebody who just paid in another app came back to see. Closing it is
   // theirs to do.
+  //
+  // Also covers an upgrade top-up in flight — same reasoning, same silence
+  // from the payment side.
   useEffect(() => {
-    if (!pixPending) return;
+    if (!pixPending && !upgradePending) return;
     const timer = setInterval(() => void syncStatus(true), 4000);
     return () => clearInterval(timer);
-  }, [pixPending, syncStatus]);
+  }, [pixPending, upgradePending, syncStatus]);
+
+  // Priced fresh whenever the plan on screen changes — the quote depends on
+  // how many days are left and on both plans' prices, and none of those are
+  // this component's to assume are still what they were a render ago.
+  useEffect(() => {
+    if (!canUpgrade || !plan) {
+      setUpgradeQuote(null);
+      return;
+    }
+    let cancelled = false;
+    void fetchUpgradeQuote(plan.id).then((quote) => {
+      if (!cancelled) setUpgradeQuote(quote);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [canUpgrade, plan]);
+
+  const handleUpgrade = useCallback(async () => {
+    if (!plan) return;
+    setBusy(true);
+    setGenerating(true);
+    setError(null);
+    const result = await startUpgradePix(plan.id, email.trim() || undefined);
+    if (!result.ok) {
+      setError(result.error);
+      if (result.needsEmail) setNeedsEmail(true);
+      setBusy(false);
+      setGenerating(false);
+      return;
+    }
+    setUpgradePix(result.charge);
+    setBusy(false);
+    setGenerating(false);
+  }, [email, plan]);
+
+  // Schedules the mandate that takes over billing, at the new plan's full
+  // price, the moment the current cycle runs out — see startUpgradeSchedule.
+  // Opens Mercado Pago's checkout the same way handleSubscribe does: a blank
+  // tab first, while the click is still a user gesture, so a popup blocker
+  // has nothing to object to once the request comes back.
+  const handleScheduleUpgrade = useCallback(async () => {
+    if (!plan) return;
+    setScheduling(true);
+    setError(null);
+    const bridge = getDesktopBridge();
+    const replacePage = !bridge && checkoutMustReplacePage();
+    const tab = bridge || replacePage ? null : window.open("", "_blank");
+    const result = await startUpgradeSchedule(plan.id, email.trim() || undefined);
+    if (!result.ok) {
+      if (tab && !tab.closed) tab.close();
+      setError(result.error);
+      if (result.needsEmail) setNeedsEmail(true);
+      setScheduling(false);
+      return;
+    }
+    if (bridge?.openExternal) {
+      void bridge.openExternal(result.checkoutUrl);
+    } else if (tab && !tab.closed && navigateTab(tab, result.checkoutUrl)) {
+      // Left open for the person to approve there — nothing here polls it:
+      // approving costs the payer nothing (see the endpoint), so there is no
+      // "did it work" moment to catch the way a real charge has one.
+    } else {
+      if (tab && !tab.closed) tab.close();
+      window.location.href = result.checkoutUrl;
+      return;
+    }
+    setScheduling(false);
+    // Picks up `premium.scheduledUpgradeRef`, which is what turns the button
+    // below into the "already scheduled" note.
+    await refresh();
+  }, [email, plan, refresh]);
+
+  /**
+   * The "Assinatura" upgrade option: today's top-up plus tomorrow's renewal,
+   * as one button. Neither half alone is the whole product — paying the
+   * top-up without scheduling the mandate leaves this exactly where "Pix"
+   * already does (bought again by hand once the days run out), and
+   * scheduling the mandate without paying today's top-up leaves the current
+   * plan exactly as it is until the mandate takes over — so both run every
+   * time this is pressed.
+   *
+   * The Pix charge goes first: it only ever opens an in-page dialog, while
+   * scheduling can — on iOS or an installed PWA — replace this page outright
+   * (see checkoutMustReplacePage), and doing that first would risk leaving
+   * before the Pix code ever appears.
+   */
+  const handleUpgradeSubscription = useCallback(async () => {
+    await handleUpgrade();
+    await handleScheduleUpgrade();
+  }, [handleUpgrade, handleScheduleUpgrade]);
 
   // See onCheckoutLockChange. `pix` is what tells the two cases apart: with a
   // code already on screen, a charge being created is a *new* code, requested
   // from inside the Pix dialog, and that dialog shakes itself.
   useEffect(() => {
-    onCheckoutLockChange?.({ locked: generating, shake: generating && !pix });
-  }, [generating, pix, onCheckoutLockChange]);
+    onCheckoutLockChange?.({
+      locked: generating,
+      shake: generating && !pix && !upgradePix,
+    });
+  }, [generating, pix, upgradePix, onCheckoutLockChange]);
 
   const handleCancel = useCallback(async () => {
     setBusy(true);
@@ -1014,6 +1159,125 @@ export function ProPanel({
                       </span>
                     </label>
                   )}
+                  {/* Offered only to somebody already paying for a lower
+                      plan: it swaps them onto this one for just the top-up
+                      the remaining days are worth, instead of a fresh
+                      purchase at the full price. Sits above the ordinary
+                      "assinar"/"pix" pair rather than replacing it — both
+                      stay, since a subscriber can still choose to buy this
+                      plan outright instead (a fresh cycle, at the full
+                      price) if that suits them better. */}
+                  {canUpgrade && !checkoutUrl && !pixPending && !upgradePending && (
+                    <div className="overflow-hidden rounded-xl border border-zinc-200 shadow-sm dark:border-zinc-800">
+                      <button
+                        type="button"
+                        onClick={() => setUpgradeOpen((open) => !open)}
+                        aria-expanded={upgradeOpen}
+                        className="flex w-full items-center gap-3 px-3.5 py-3 text-left transition hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                      >
+                        {/* The arrow, not the plan being left behind: this
+                            header is about the move, not about what somebody
+                            already has — that plan's own mark is on screen
+                            everywhere else on this page. */}
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                          <MdArrowUpward className="h-4 w-4" />
+                        </span>
+                        <span className="inline-flex min-w-0 flex-1 flex-wrap items-center gap-1.5 text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                          {t("pro.proPanel.upgradeTo")}
+                          <PlanMark className={`h-4 w-4 shrink-0 ${mark.className}`} />
+                          <span className="truncate">{plan.title}</span>
+                        </span>
+                        {upgradeQuote && (
+                          <span className="shrink-0 text-sm text-zinc-500 dark:text-zinc-400">
+                            {upgradeQuote.amountLabel}
+                          </span>
+                        )}
+                        <MdExpandMore
+                          className={`h-4 w-4 shrink-0 text-zinc-400 transition-transform ${
+                            upgradeOpen ? "rotate-180" : ""
+                          }`}
+                        />
+                      </button>
+                      {upgradeOpen && (
+                        <div className="flex flex-col gap-3 border-t border-zinc-200 bg-zinc-50/70 px-3.5 py-3.5 dark:border-zinc-800 dark:bg-zinc-900/40">
+                          <p className="text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+                            {t("pro.proPanel.upgradeNow")}
+                          </p>
+                          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-zinc-200 bg-white px-3.5 py-3 dark:border-zinc-800 dark:bg-zinc-950">
+                            <div>
+                              <p className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+                                {upgradeQuote ? upgradeQuote.amountLabel : "—"}
+                              </p>
+                              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                                {upgradeQuote
+                                  ? t("pro.proPanel.upgradeRemainingDays", { days: upgradeQuote.remainingDays })
+                                  : t("pro.proPanel.calculatingTheUpgrade")}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Two complete ways to pay the same amount above —
+                              same pairing as the ordinary purchase buttons
+                              below, and for the same reason: they are two
+                              products, not a default and an alternative.
+                              "Assinatura" is the one that keeps working after
+                              today: it charges this same top-up now *and*
+                              schedules the mandate that takes over billing —
+                              at the new plan's full price — the moment the
+                              current cycle ends, so nobody has to come back
+                              and buy the upgrade again next month. "Pix" is
+                              just today: the plan changes now, and renewing
+                              it again later is a manual purchase, same as any
+                              other Pix plan. */}
+                          {premium?.scheduledUpgradeRef ? (
+                            <p className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+                              {t("pro.proPanel.upgradeScheduled", {
+                                value: periodEndLabel(premium.currentPeriodEnd),
+                              })}
+                            </p>
+                          ) : (
+                            <p className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+                              {t("pro.proPanel.upgradeSubscriptionHint", {
+                                value: pricing?.priceLabel ?? plan.priceLabel,
+                                date: premium ? periodEndLabel(premium.currentPeriodEnd) : "",
+                              })}
+                            </p>
+                          )}
+                          <div className="flex flex-wrap gap-2">
+                            {!premium?.scheduledUpgradeRef && (
+                              <button
+                                type="button"
+                                onClick={handleUpgradeSubscription}
+                                disabled={
+                                  busy || scheduling || !upgradeQuote || (needsEmail && !email.trim())
+                                }
+                                className="rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+                              >
+                                {scheduling || busy
+                                  ? t("pro.proPanel.openingThePayment")
+                                  : `${t("pro.proPanel.upgradeViaSubscription")} por ${
+                                      upgradeQuote?.amountLabel ?? "—"
+                                    }`}
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={handleUpgrade}
+                              disabled={busy || !upgradeQuote || (needsEmail && !email.trim())}
+                              className="flex items-center gap-2 rounded-lg bg-[#32BCAD] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#2ba99b] disabled:opacity-60"
+                            >
+                              <PixIcon className="h-4 w-4 shrink-0" />
+                              {busy
+                                ? t("common.generating")
+                                : `${upgradeQuote?.amountLabel ?? "—"} por ${
+                                    upgradeQuote ? Math.ceil(upgradeQuote.remainingDays) : 30
+                                  } dias`}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {/* Both ways to pay, side by side and equal in weight —
                       they are two products, not a default and an alternative:
                       one starts a renewal, the other buys days. Wrapping
@@ -1136,6 +1400,33 @@ export function ProPanel({
         onRegenerate={handlePix}
         onCheckNow={() => void syncStatus(true)}
         onClose={() => setPix(null)}
+      />
+
+      {/* The upgrade top-up's own dialog, apart from the one above: `upgradePaid`
+          is decided by `lastPaymentId`, not by `currentPeriodEnd` moving — an
+          upgrade settles without ever touching that date (see the API's
+          syncUpgradePayment), so the ordinary Pix dialog's own test for "did
+          this land" would never fire for one. */}
+      <PixChargeModal
+        charge={upgradePix}
+        paid={upgradePaid}
+        paidUntilLabel={premium ? periodEndLabel(premium.currentPeriodEnd) : null}
+        confirmation={
+          plan
+            ? {
+                planId: plan.id,
+                planTitle: plan.title,
+                planIconId: plan.iconId,
+                face: account
+                  ? { name: account.displayName, avatarUrl: account.avatarUrl }
+                  : null,
+              }
+            : null
+        }
+        busy={busy}
+        onRegenerate={handleUpgrade}
+        onCheckNow={() => void syncStatus(true)}
+        onClose={() => setUpgradePix(null)}
       />
 
       <p className="mt-4 text-xs text-zinc-400 dark:text-zinc-500">

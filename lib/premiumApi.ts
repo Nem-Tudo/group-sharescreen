@@ -560,6 +560,45 @@ export async function startUpgradePix(planId: string, email?: string): Promise<S
 }
 
 /**
+ * Schedules the card mandate that takes over billing, at the new plan's full
+ * price, the moment this account's current cycle runs out — so a card
+ * subscriber who upgrades does not have to come back and resubscribe by hand
+ * once the days the top-up bought them are spent.
+ *
+ * Card subscribers only: a Pix plan has no mandate to hand off to. Approving
+ * the checkout this returns changes nothing about the account yet — Mercado
+ * Pago charges nothing until the scheduled date, and it only actually takes
+ * over once it produces its first real charge then.
+ */
+export async function startUpgradeSchedule(
+  planId: string,
+  email?: string
+): Promise<StartCheckoutResult> {
+  try {
+    const res = await fetch(`${getSignalingHttpBase()}/premium/upgrade/subscribe`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ planId, ...(email ? { email } : {}) }),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      checkoutUrl?: string;
+      error?: string;
+      needsEmail?: boolean;
+    };
+    if (!res.ok || !data.checkoutUrl) {
+      return {
+        ok: false,
+        error: data.error ?? translate("premiumApi.couldNotStartThePayment"),
+        needsEmail: data.needsEmail,
+      };
+    }
+    return { ok: true, checkoutUrl: data.checkoutUrl };
+  } catch {
+    return { ok: false, error: translate("common.noConnectionToTheServer") };
+  }
+}
+
+/**
  * This account's subscription, re-read from Mercado Pago by the API.
  *
  * Worth calling when the page loads after a checkout: the webhook that
