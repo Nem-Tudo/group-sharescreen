@@ -235,7 +235,7 @@ function allocate(
   const currentRelays = new Set(currentParents ? [...currentParents.values()] : []);
   // Most expensive first, so the strongest parent absorbs the fullscreen
   // viewers and relays are left with cheap grid tiles.
-  const pending = [...viewers]
+  let pending = [...viewers]
     .sort((a, b) => tierIndex(a.wantTier) - tierIndex(b.wantTier))
     .map((v) => v.id);
 
@@ -278,22 +278,23 @@ function allocate(
       // serves whom across the whole room. Each reshuffle costs the moved
       // viewer a torn-down connection and a visibly blank tile, for no gain
       // whatsoever: the plan it moved to was no better, only different.
+      //
+      // A stable partition, in one pass: it is exactly what the stable sort on
+      // "kept first" it replaced produced, without sorting the whole pending
+      // list once per parent.
       if (currentParents) {
-        pending.sort((a, b) => {
-          const keepA = currentParents.get(a) === parent.id ? 0 : 1;
-          const keepB = currentParents.get(b) === parent.id ? 0 : 1;
-          return keepA - keepB;
-        });
+        const kept: string[] = [];
+        const others: string[] = [];
+        for (const id of pending) (currentParents.get(id) === parent.id ? kept : others).push(id);
+        if (kept.length > 0) pending = kept.concat(others);
       }
 
-      let i = 0;
-      while (i < pending.length) {
-        const childId = pending[i];
+      // Whoever this parent cannot take stays pending, in order. Collected
+      // rather than spliced out one by one, which was quadratic in the room.
+      const stillPending: string[] = [];
+      for (const childId of pending) {
         const child = nodes.get(childId);
-        if (!child) {
-          pending.splice(i, 1);
-          continue;
-        }
+        if (!child) continue;
         // Deeper hops are served one tier lower. This is not a penalty: it
         // cuts the relay's upload and encode cost, limits how much quality
         // compounding re-encodes can destroy, and matches who actually ends
@@ -323,7 +324,7 @@ function allocate(
         const want = wanted.get(childId) ?? WORST_TIER;
         const tier = stepDownUnder(want, globalDowngrade + (childDepth - 1));
         if (slotsFor(parent, tier, contentMultiplier) < 1) {
-          i += 1;
+          stillPending.push(childId);
           continue;
         }
         parent.usedUploadKbps += uploadKbps(tier, contentMultiplier);
@@ -332,9 +333,9 @@ function allocate(
         child.served = true;
         child.depth = childDepth;
         edges.push({ from: parent.id, to: childId, tier, depth: childDepth });
-        pending.splice(i, 1);
         progressed = true;
       }
+      pending = stillPending;
     }
 
     // Nothing more fits anywhere at this quality level. Stop; the caller

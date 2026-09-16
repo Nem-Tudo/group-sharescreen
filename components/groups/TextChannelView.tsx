@@ -238,6 +238,45 @@ const reactionChipIdle =
 const reactionChipMine =
   "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-500/15 dark:text-blue-300";
 
+type RowContext = Record<string, unknown>;
+
+/**
+ * One message in the log, memoised.
+ *
+ * `draw` is the room's own drawing function from the current render, so a
+ * line that does redraw reads everything as it stands now. The comparison
+ * deliberately leaves `draw` out — it is a new function every render — and
+ * redraws only for what can change a line: its message (a reaction or an
+ * edit replaces the object), its place in a run, being edited, its picker,
+ * and `context`, which carries what all lines share. Without this every new
+ * message redrew all of the up to MAX_LIVE_MESSAGES lines before it.
+ */
+const MessageRow = memo(
+  function MessageRow({
+    draw,
+    message,
+    outgoing,
+    grouped,
+  }: {
+    draw: (message: GroupMessage, outgoing: OutgoingMessage | undefined, grouped: boolean) => ReactNode;
+    message: GroupMessage;
+    outgoing: OutgoingMessage | undefined;
+    grouped: boolean;
+    editing: boolean;
+    picker: string | null;
+    context: RowContext;
+  }) {
+    return <>{draw(message, outgoing, grouped)}</>;
+  },
+  (a, b) =>
+    a.message === b.message &&
+    a.outgoing === b.outgoing &&
+    a.grouped === b.grouped &&
+    a.editing === b.editing &&
+    a.picker === b.picker &&
+    a.context === b.context
+);
+
 // Memoised: its parent re-renders on every change to the group, and this is
 // the heaviest thing on a group's page (up to MAX_LIVE_MESSAGES lines of
 // markdown, mentions and embeds). See GroupRoom's `textDetail`.
@@ -1393,6 +1432,255 @@ export const TextChannelView = memo(function TextChannelView({
     );
   }
 
+  // What every line of the log reads besides its own message: who people are,
+  // the rooms and roles, the permissions (all on `detail`) and the language.
+  // A line is redrawn when this changes, or when its own message does — not
+  // when anything else in this room moves (see MessageRow).
+  const rowContext = useMemo(
+    () => ({ personById, roomById, roleById, resolveTyped, detail, channelId, t, navigation }),
+    [personById, roomById, roleById, resolveTyped, detail, channelId, t, navigation]
+  );
+  // A reply's quote jumps through this, so a line that was not redrawn still
+  // reaches the jump as it stands now — it reads the messages loaded so far.
+  const jumpRef = useRef(jumpToMessage);
+  useLayoutEffect(() => {
+    jumpRef.current = jumpToMessage;
+  });
+  const jumpTo = useCallback((messageId: string) => void jumpRef.current(messageId), []);
+
+  /**
+   * One line of the log — drawn through MessageRow, which calls this only when
+   * the line (or something every line reads, see rowContext) has changed.
+   */
+  function drawRow(message: GroupMessage, outgoing: OutgoingMessage | undefined, grouped: boolean): ReactNode {
+    const author = userOf(message);
+    // By id, @everyone, a role I hold, or an @online/@offline/expression
+    // that took me in — see lib/mentionExpr's mentionsTakeIn. My own
+    // messages too: mentioning myself, or everybody, lights it up here the
+    // way it does for anybody else (the API alerts nobody about it).
+    const mentionsMe =
+      mentionsTakeIn(message.mentions, { id: selfId, roleIds: myRoleIds }, message.pingedMe) ||
+      message.replyTo?.userId === selfId;
+    return (
+      <li
+        key={message.id}
+        data-message-id={outgoing ? undefined : message.id}
+        onContextMenu={(e) => messageMenu(e, message, outgoing)}
+        className={`group relative -mx-1.5 rounded-lg px-2 text-sm transition-colors ${
+          grouped ? "pb-0.5" : "mt-2.5 pb-0.5"
+        } ${
+          editingId === message.id && !outgoing
+            ? "bg-amber-50 ring-1 ring-amber-300 dark:bg-amber-500/10 dark:ring-amber-500/40"
+            : mentionsMe
+              ? "bg-blue-100/70 py-1 dark:bg-blue-500/25"
+              : "hover:bg-zinc-100/80 dark:hover:bg-zinc-900/70"
+        } ${
+          outgoing?.status === "sending" ? "opacity-60" : ""
+        }`}
+      >
+        {message.replyTo && (
+          // The quote is a way to the message it answers; its author's name,
+          // a way to them (the same three gestures as any name here).
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => jumpTo(message.replyTo!.id)}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter" && e.key !== " ") return;
+              e.preventDefault();
+              jumpTo(message.replyTo!.id);
+            }}
+            title={t("groups.textChannelView.jumpToReply")}
+            className="mb-1 flex max-w-full cursor-pointer items-center gap-1.5 rounded text-xs text-zinc-500 transition hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
+          >
+            <svg
+              className="h-3.5 w-3.5 shrink-0 text-zinc-300 dark:text-zinc-600"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <path d="M 4 19 V 9 A 5 5 0 0 1 9 4 H 20" />
+            </svg>
+            {replyAuthor(message)}
+            <span className="truncate text-zinc-400 dark:text-zinc-500">
+              {stripMarkdown(message.replyTo.text ?? "") ||
+                (message.replyTo.kind === "gif" ? <span className="italic">[GIF]</span> : <span className="italic">[Imagem]</span>)}
+            </span>
+          </div>
+        )}
+        {!grouped && (
+          <div className="flex items-center justify-between gap-1.5">
+            {/* The author, as a way to their profile — the same thing the
+                room's chat does with a name. */}
+            <button
+              type="button"
+              onClick={(e) => clickPerson(e, author)}
+              onContextMenu={(e) => contextPerson(e, author)}
+              onMouseEnter={() => !author.guest && !author.webhook && prefetchUserProfile(author.id)}
+              title={author.webhook ? t("webhook.tagTitle") : t("groups.people.profileHint")}
+              className="flex min-w-0 cursor-pointer items-center gap-1.5 text-left"
+            >
+              <UserAvatar
+                src={author.avatarUrl}
+                name={author.name}
+                size={20}
+                userId={author.guest || author.webhook ? null : author.id}
+                isGuest={author.guest}
+              />
+              <span className="flex min-w-0 items-baseline gap-1.5">
+                <DisplayUserName
+                  name={author.name}
+                  isGuest={author.guest}
+                  verified={verifiedBadge(author.flags)}
+                  bot={author.bot}
+                  webhook={author.webhook}
+                  color={roleColorOf(detail, { id: author.id }) ?? author.nameColor}
+                  className="min-w-0 font-medium text-zinc-700 hover:underline dark:text-zinc-300"
+                />
+                <span className="shrink-0 text-xs tabular-nums text-zinc-400 dark:text-zinc-600">{timeLabel(message.ts)}</span>
+              </span>
+            </button>
+            {!outgoing && actionsFor(message)}
+          </div>
+        )}
+        <div className={grouped ? "flex items-start justify-between gap-1.5" : ""}>
+          <div className="min-w-0 flex-1">
+            {message.text && (
+              <div className="select-text break-words text-zinc-900 dark:text-zinc-100">
+                {renderText(
+                  message,
+                  message.editedAt ? (
+                    // Discord's "(editado)", at the end of the words, with when on hover.
+                    <span
+                      title={t("groups.textChannelView.editedAt", { when: editedLabel(message.editedAt) })}
+                      className="ml-1 select-none whitespace-normal text-[11px] font-normal text-zinc-400 dark:text-zinc-500"
+                    >
+                      ({t("groups.textChannelView.edited")})
+                    </span>
+                  ) : undefined
+                )}
+              </div>
+            )}
+            {/* A group invite in the message, as a card to join from. */}
+            {message.text && <InviteEmbeds text={message.text} />}
+            <MessageEmbeds
+              embeds={message.embeds}
+              onOpenImage={(src) => setPreview({ src, alt: t("common.image") })}
+              onLoad={onMediaLoad}
+            />
+            {message.kind === "gif" && message.url && (
+              <button
+                type="button"
+                onClick={() => setPreview({ src: message.url!, alt: "GIF" })}
+                className="mt-1 block cursor-zoom-in"
+                aria-label={t("common.enlargeTheGif")}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={message.url}
+                  alt="GIF"
+                  onLoad={onMediaLoad}
+                  className="block max-h-48 max-w-full rounded-lg object-contain"
+                />
+              </button>
+            )}
+            <ChatImages
+              images={message.images ?? []}
+              onOpen={(index) =>
+                setPreview({ src: message.images![index], alt: t("common.image"), images: message.images, currentIndex: index })
+              }
+              onLoad={onMediaLoad}
+              alt={t("common.image")}
+              label={t("common.enlargeTheImage")}
+              className="mt-1 max-w-sm"
+              bordered
+            />
+            <MessageAttachments attachments={message.attachments} />
+            {!outgoing && message.reactions && message.reactions.length > 0 && (
+              // Discord's row: each emoji with how many, lit up when one of
+              // them is yours. Clicking joins it or takes yours back — taking
+              // it back is always allowed, joining needs "Reagir".
+              <div className="mt-1 flex flex-wrap items-center gap-1">
+                {message.reactions.map((reaction) => {
+                  const mine = reaction.users.includes(selfId);
+                  const allowed = mine || can("react");
+                  return (
+                    <button
+                      key={reaction.emoji}
+                      type="button"
+                      disabled={!allowed}
+                      aria-pressed={mine}
+                      onClick={() => void toggleReaction(message, reaction.emoji)}
+                      onContextMenu={(e) =>
+                        openContextMenu(e, {
+                          entries: [
+                            {
+                              label: t("groups.reactionsDialog.viewReactions"),
+                              icon: <MdEmojiEmotions className="h-4 w-4" />,
+                              onSelect: () => setReactionsView({ messageId: message.id, emoji: reaction.emoji }),
+                            },
+                            allowed && {
+                              label: mine
+                                ? t("groups.reactionsDialog.removeMine")
+                                : t("groups.reactionsDialog.addMine"),
+                              icon: <Twemoji emoji={reaction.emoji} size={16} />,
+                              onSelect: () => void toggleReaction(message, reaction.emoji),
+                            },
+                          ],
+                        })
+                      }
+                      title={describeReaction(reaction, reactorName)}
+                      className={`${reactionChip} ${mine ? reactionChipMine : reactionChipIdle} ${
+                        !allowed
+                          ? "cursor-default"
+                          : mine
+                            ? "cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-500/25"
+                            : "cursor-pointer hover:border-zinc-400 dark:hover:border-zinc-600"
+                      }`}
+                    >
+                      <Twemoji emoji={reaction.emoji} size={16} />
+                      <span className="tabular-nums">{reaction.users.length}</span>
+                    </button>
+                  );
+                })}
+                {can("addReactions") &&
+                  message.reactions.length < 20 &&
+                  reactionPicker(message, "row", <MdOutlineAddReaction className="h-3.5 w-3.5 opacity-70" />)}
+              </div>
+            )}
+            {outgoing?.status === "failed" && (
+              <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-red-500">
+                <span>{t("common.notSent")}{outgoing.error ? ` — ${outgoing.error}` : "."}</span>
+                <button
+                  type="button"
+                  onClick={() => retryGroupMessage(channelId, outgoing.nonce)}
+                  className="cursor-pointer font-medium underline underline-offset-2"
+                >
+                  {t("common.tryAgain2")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => discardGroupMessage(channelId, outgoing.nonce)}
+                  className="cursor-pointer text-zinc-500 underline underline-offset-2 dark:text-zinc-400"
+                >
+                  {t("common.discard")}
+                </button>
+              </p>
+            )}
+            {outgoing?.status === "sending" && outgoing.retrying && (
+              <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{t("groups.textChannelView.itDidNotGoThroughFirst")}</p>
+            )}
+          </div>
+          {grouped && !outgoing && actionsFor(message)}
+        </div>
+      </li>
+    );
+  }
+
   let body: ReactNode;
   if (!detail.chatAvailable) {
     body = (
@@ -1446,231 +1734,17 @@ export const TextChannelView = memo(function TextChannelView({
           </li>
         );
       }
-      const author = userOf(message);
-      // By id, @everyone, a role I hold, or an @online/@offline/expression
-      // that took me in — see lib/mentionExpr's mentionsTakeIn. My own
-      // messages too: mentioning myself, or everybody, lights it up here the
-      // way it does for anybody else (the API alerts nobody about it).
-      const mentionsMe =
-        mentionsTakeIn(message.mentions, { id: selfId, roleIds: myRoleIds }, message.pingedMe) ||
-        message.replyTo?.userId === selfId;
       rows.push(
-        <li
+        <MessageRow
           key={message.id}
-          data-message-id={outgoing ? undefined : message.id}
-          onContextMenu={(e) => messageMenu(e, message, outgoing)}
-          className={`group relative -mx-1.5 rounded-lg px-2 text-sm transition-colors ${
-            grouped ? "pb-0.5" : "mt-2.5 pb-0.5"
-          } ${
-            editingId === message.id && !outgoing
-              ? "bg-amber-50 ring-1 ring-amber-300 dark:bg-amber-500/10 dark:ring-amber-500/40"
-              : mentionsMe
-                ? "bg-blue-100/70 py-1 dark:bg-blue-500/25"
-                : "hover:bg-zinc-100/80 dark:hover:bg-zinc-900/70"
-          } ${
-            outgoing?.status === "sending" ? "opacity-60" : ""
-          }`}
-        >
-          {message.replyTo && (
-            // The quote is a way to the message it answers; its author's name,
-            // a way to them (the same three gestures as any name here).
-            <div
-              role="button"
-              tabIndex={0}
-              onClick={() => void jumpToMessage(message.replyTo!.id)}
-              onKeyDown={(e) => {
-                if (e.key !== "Enter" && e.key !== " ") return;
-                e.preventDefault();
-                void jumpToMessage(message.replyTo!.id);
-              }}
-              title={t("groups.textChannelView.jumpToReply")}
-              className="mb-1 flex max-w-full cursor-pointer items-center gap-1.5 rounded text-xs text-zinc-500 transition hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
-            >
-              <svg
-                className="h-3.5 w-3.5 shrink-0 text-zinc-300 dark:text-zinc-600"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden
-              >
-                <path d="M 4 19 V 9 A 5 5 0 0 1 9 4 H 20" />
-              </svg>
-              {replyAuthor(message)}
-              <span className="truncate text-zinc-400 dark:text-zinc-500">
-                {stripMarkdown(message.replyTo.text ?? "") ||
-                  (message.replyTo.kind === "gif" ? <span className="italic">[GIF]</span> : <span className="italic">[Imagem]</span>)}
-              </span>
-            </div>
-          )}
-          {!grouped && (
-            <div className="flex items-center justify-between gap-1.5">
-              {/* The author, as a way to their profile — the same thing the
-                  room's chat does with a name. */}
-              <button
-                type="button"
-                onClick={(e) => clickPerson(e, author)}
-                onContextMenu={(e) => contextPerson(e, author)}
-                onMouseEnter={() => !author.guest && !author.webhook && prefetchUserProfile(author.id)}
-                title={author.webhook ? t("webhook.tagTitle") : t("groups.people.profileHint")}
-                className="flex min-w-0 cursor-pointer items-center gap-1.5 text-left"
-              >
-                <UserAvatar
-                  src={author.avatarUrl}
-                  name={author.name}
-                  size={20}
-                  userId={author.guest || author.webhook ? null : author.id}
-                  isGuest={author.guest}
-                />
-                <span className="flex min-w-0 items-baseline gap-1.5">
-                  <DisplayUserName
-                    name={author.name}
-                    isGuest={author.guest}
-                    verified={verifiedBadge(author.flags)}
-                    bot={author.bot}
-                    webhook={author.webhook}
-                    color={roleColorOf(detail, { id: author.id }) ?? author.nameColor}
-                    className="min-w-0 font-medium text-zinc-700 hover:underline dark:text-zinc-300"
-                  />
-                  <span className="shrink-0 text-xs tabular-nums text-zinc-400 dark:text-zinc-600">{timeLabel(message.ts)}</span>
-                </span>
-              </button>
-              {!outgoing && actionsFor(message)}
-            </div>
-          )}
-          <div className={grouped ? "flex items-start justify-between gap-1.5" : ""}>
-            <div className="min-w-0 flex-1">
-              {message.text && (
-                <div className="select-text break-words text-zinc-900 dark:text-zinc-100">
-                  {renderText(
-                    message,
-                    message.editedAt ? (
-                      // Discord's "(editado)", at the end of the words, with when on hover.
-                      <span
-                        title={t("groups.textChannelView.editedAt", { when: editedLabel(message.editedAt) })}
-                        className="ml-1 select-none whitespace-normal text-[11px] font-normal text-zinc-400 dark:text-zinc-500"
-                      >
-                        ({t("groups.textChannelView.edited")})
-                      </span>
-                    ) : undefined
-                  )}
-                </div>
-              )}
-              {/* A group invite in the message, as a card to join from. */}
-              {message.text && <InviteEmbeds text={message.text} />}
-              <MessageEmbeds
-                embeds={message.embeds}
-                onOpenImage={(src) => setPreview({ src, alt: t("common.image") })}
-                onLoad={onMediaLoad}
-              />
-              {message.kind === "gif" && message.url && (
-                <button
-                  type="button"
-                  onClick={() => setPreview({ src: message.url!, alt: "GIF" })}
-                  className="mt-1 block cursor-zoom-in"
-                  aria-label={t("common.enlargeTheGif")}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={message.url}
-                    alt="GIF"
-                    onLoad={onMediaLoad}
-                    className="block max-h-48 max-w-full rounded-lg object-contain"
-                  />
-                </button>
-              )}
-              <ChatImages
-                images={message.images ?? []}
-                onOpen={(index) =>
-                  setPreview({ src: message.images![index], alt: t("common.image"), images: message.images, currentIndex: index })
-                }
-                onLoad={onMediaLoad}
-                alt={t("common.image")}
-                label={t("common.enlargeTheImage")}
-                className="mt-1 max-w-sm"
-                bordered
-              />
-              <MessageAttachments attachments={message.attachments} />
-              {!outgoing && message.reactions && message.reactions.length > 0 && (
-                // Discord's row: each emoji with how many, lit up when one of
-                // them is yours. Clicking joins it or takes yours back — taking
-                // it back is always allowed, joining needs "Reagir".
-                <div className="mt-1 flex flex-wrap items-center gap-1">
-                  {message.reactions.map((reaction) => {
-                    const mine = reaction.users.includes(selfId);
-                    const allowed = mine || can("react");
-                    return (
-                      <button
-                        key={reaction.emoji}
-                        type="button"
-                        disabled={!allowed}
-                        aria-pressed={mine}
-                        onClick={() => void toggleReaction(message, reaction.emoji)}
-                        onContextMenu={(e) =>
-                          openContextMenu(e, {
-                            entries: [
-                              {
-                                label: t("groups.reactionsDialog.viewReactions"),
-                                icon: <MdEmojiEmotions className="h-4 w-4" />,
-                                onSelect: () => setReactionsView({ messageId: message.id, emoji: reaction.emoji }),
-                              },
-                              allowed && {
-                                label: mine
-                                  ? t("groups.reactionsDialog.removeMine")
-                                  : t("groups.reactionsDialog.addMine"),
-                                icon: <Twemoji emoji={reaction.emoji} size={16} />,
-                                onSelect: () => void toggleReaction(message, reaction.emoji),
-                              },
-                            ],
-                          })
-                        }
-                        title={describeReaction(reaction, reactorName)}
-                        className={`${reactionChip} ${mine ? reactionChipMine : reactionChipIdle} ${
-                          !allowed
-                            ? "cursor-default"
-                            : mine
-                              ? "cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-500/25"
-                              : "cursor-pointer hover:border-zinc-400 dark:hover:border-zinc-600"
-                        }`}
-                      >
-                        <Twemoji emoji={reaction.emoji} size={16} />
-                        <span className="tabular-nums">{reaction.users.length}</span>
-                      </button>
-                    );
-                  })}
-                  {can("addReactions") &&
-                    message.reactions.length < 20 &&
-                    reactionPicker(message, "row", <MdOutlineAddReaction className="h-3.5 w-3.5 opacity-70" />)}
-                </div>
-              )}
-              {outgoing?.status === "failed" && (
-                <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-red-500">
-                  <span>{t("common.notSent")}{outgoing.error ? ` — ${outgoing.error}` : "."}</span>
-                  <button
-                    type="button"
-                    onClick={() => retryGroupMessage(channelId, outgoing.nonce)}
-                    className="cursor-pointer font-medium underline underline-offset-2"
-                  >
-                    {t("common.tryAgain2")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => discardGroupMessage(channelId, outgoing.nonce)}
-                    className="cursor-pointer text-zinc-500 underline underline-offset-2 dark:text-zinc-400"
-                  >
-                    {t("common.discard")}
-                  </button>
-                </p>
-              )}
-              {outgoing?.status === "sending" && outgoing.retrying && (
-                <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{t("groups.textChannelView.itDidNotGoThroughFirst")}</p>
-              )}
-            </div>
-            {grouped && !outgoing && actionsFor(message)}
-          </div>
-        </li>
+          draw={drawRow}
+          message={message}
+          outgoing={outgoing}
+          grouped={grouped}
+          editing={editingId === message.id}
+          picker={pickerFor?.startsWith(`${message.id}:`) ? pickerFor : null}
+          context={rowContext}
+        />
       );
       previous = message;
     }

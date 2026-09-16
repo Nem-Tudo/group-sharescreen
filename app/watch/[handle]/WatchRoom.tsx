@@ -4,6 +4,7 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -2117,15 +2118,6 @@ export function WatchRoom({
     trackEvent(next ? "mics_muted" : "mics_unmuted");
   }
 
-  function togglePeerMute(peerId: string) {
-    setMutedPeerIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(peerId)) next.delete(peerId);
-      else next.add(peerId);
-      return next;
-    });
-  }
-
   // Keyed by the peer's stable userId (falling back to their current
   // connection id for a peer an older server hasn't sent one for yet) —
   // NOT the WebRTC connection id, so a saved dial survives that peer
@@ -2994,6 +2986,73 @@ export function WatchRoom({
   // early returns, so it runs whatever this render is showing. Once per event:
   // openPopup is a new function on every render.
   const roomConverted = state.roomConverted;
+  // ── The people, derived once per change ──
+  //
+  // Up here, above the early returns, because they are memoised: this room
+  // re-renders on anything in the call, and these used to be rebuilt every
+  // time — which also handed every participant row "new" props, so the rows'
+  // memo (see ParticipantRow) could never hold.
+  //
+  // Moderator "ghost" peers (see server/signaling.ts's admin-join) ride the
+  // same peer list so their WebRTC connections get set up transparently,
+  // but must never show up to real participants — filtered out here rather
+  // than never added, so this is the one place that has to remember it.
+  const visiblePeers = useMemo(
+    () => state.peers.filter((p) => p.role !== "moderator" && !isObsPeer(p)),
+    [state.peers]
+  );
+  // Built from the peer list *plus this client*, because the peer list never
+  // contains us and our own second device has to be numbered like anybody
+  // else's. Rebuilt whenever the list changes: the label is a fact about the
+  // room right now, so a device leaving un-numbers the one left behind with no
+  // message from the server. See lib/displayName.ts.
+  const selfUserIdForCounts = state.selfUserId ?? undefined;
+  const deviceCounts = useMemo(
+    () => countDevicesByOwner([...visiblePeers, { userId: selfUserIdForCounts }]),
+    [visiblePeers, selfUserIdForCounts]
+  );
+  // Three lookups the render used to do by scanning an array per item, which
+  // is fine at six people and quadratic at six hundred: the mic fan-out below
+  // looked up a peer per stream, the file entries did the same per slot, and
+  // every participant row asked whether that person was an admin or had a
+  // video source on screen.
+  const peersById = useMemo(() => new Map(state.peers.map((p) => [p.id, p])), [state.peers]);
+  const adminIds = useMemo(() => new Set(state.roomAdmins.map((a) => a.id)), [state.roomAdmins]);
+  const videoSourceOwners = useMemo(
+    () => new Set(state.videoSources.map((v) => v.addedById)),
+    [state.videoSources]
+  );
+
+  // What a participant row calls back into, stable for the life of the room.
+  // Each takes the peer's id; the ones that need more than a state setter
+  // look the current peer and handlers up at the moment they are used.
+  const [memberMenuFor, setMemberMenuFor] = useState<string | null>(null);
+  const participantActionsRef = useRef({ peersById, openMemberActions });
+  useLayoutEffect(() => {
+    participantActionsRef.current = { peersById, openMemberActions };
+  });
+  // Keyed by connection, so whoever left since is dropped on the way — the set
+  // otherwise kept every connection id ever muted for as long as the room was
+  // open.
+  const toggleParticipantMute = useCallback((peerId: string) => {
+    const live = participantActionsRef.current.peersById;
+    setMutedPeerIds((prev) => {
+      const next = new Set([...prev].filter((id) => live.has(id)));
+      if (next.has(peerId)) next.delete(peerId);
+      else next.add(peerId);
+      return next;
+    });
+  }, []);
+  const setParticipantMenuOpen = useCallback((peerId: string, open: boolean) => {
+    setMemberMenuFor((current) => (open ? peerId : current === peerId ? null : current));
+  }, []);
+  const closeParticipantMenu = useCallback(() => setMemberMenuFor(null), []);
+  const openParticipantActions = useCallback((peerId: string) => {
+    const { peersById: byId, openMemberActions: open } = participantActionsRef.current;
+    const peer = byId.get(peerId);
+    if (peer) open(peer);
+  }, []);
+
   const handledConversionRef = useRef<RoomConversion | null>(null);
   useEffect(() => {
     if (!roomConverted || handledConversionRef.current === roomConverted) return;
@@ -3420,27 +3479,15 @@ export function WatchRoom({
   // same peer list so their WebRTC connections get set up transparently,
   // but must never show up to real participants — filtered out here rather
   // than never added, so this is the one place that has to remember it.
-  const visiblePeers = state.peers.filter(
-    (p) => p.role !== "moderator" && !isObsPeer(p)
-  );
-  // Built from the peer list *plus this client*, because the peer list never
-  // contains us and our own second device has to be numbered like anybody
-  // else's. Recomputed every render on purpose: the label is a fact about the
-  // room right now, so a device leaving un-numbers the one left behind with no
-  // message from the server. See lib/displayName.ts.
-  const deviceCounts = countDevicesByOwner([
-    ...visiblePeers,
-    { userId: state.selfUserId ?? undefined },
-  ]);
+  // (visiblePeers and deviceCounts are derived above the early returns — see
+  // "The people, derived once per change".)
   const peerCount = visiblePeers.length + (state.name ? 1 : 0);
   // Three lookups the render used to do by scanning an array per item, which
   // is fine at six people and quadratic at six hundred: the mic fan-out below
   // looked up a peer per stream, the file entries did the same per slot, and
   // every participant row asked whether that person was an admin or had a
   // video source on screen.
-  const peersById = new Map(state.peers.map((p) => [p.id, p]));
-  const adminIds = new Set(state.roomAdmins.map((a) => a.id));
-  const videoSourceOwners = new Set(state.videoSources.map((v) => v.addedById));
+  // (All three are memoised above the early returns, with the people.)
   // A peer showing mic-on doesn't mean their audio is actually reaching us
   // yet — the recvPC for it still has to come up, which right after joining
   // a room that already has people talking can take a moment (everyone
@@ -5569,6 +5616,7 @@ export function WatchRoom({
         return (
           <ParticipantRow
             key={p.id}
+            peerId={p.id}
             name={withDeviceSuffix(p.name, p.userId, p.device, deviceCounts)}
             onOpenProfile={setProfileUserId}
             isGuest={p.isGuest}
@@ -5579,15 +5627,15 @@ export function WatchRoom({
             // browser's own context menu is more use than an empty one. Which
             // of the two shells it gets is the screen's call — see
             // openMemberActions.
-            renderMenu={
-              isRoomManager && p.userId && isDesktopLayout
-                ? (close) => renderMemberMenu(p, close)
-                : undefined
+            onMenuOpenChange={
+              isRoomManager && p.userId && isDesktopLayout ? setParticipantMenuOpen : undefined
             }
+            menuOpen={memberMenuFor === p.id}
+            // Drawn only for the row whose menu is open, so only that one
+            // redraws with the room while it is.
+            menuContent={memberMenuFor === p.id ? renderMemberMenu(p, closeParticipantMenu) : null}
             onContextMenu={
-              isRoomManager && p.userId && !isDesktopLayout
-                ? () => openMemberActions(p)
-                : undefined
+              isRoomManager && p.userId && !isDesktopLayout ? openParticipantActions : undefined
             }
             isOwner={Boolean(p.userId) && p.userId === state.roomOwnerId}
             isAdmin={p.userId ? adminIds.has(p.userId) : false}
@@ -5604,9 +5652,8 @@ export function WatchRoom({
             sharingVideo={peerSharesVideo(p.userId)}
             micStream={remoteMicStreams[p.id]}
             muted={micsMuted || mutedPeerIds.has(p.id)}
-            onToggleMute={() => togglePeerMute(p.id)}
+            onToggleMute={toggleParticipantMute}
             volume={peerVolumes[volumeKey] ?? 1}
-            onVolumeChange={(volume) => setPeerVolume(volumeKey, volume)}
             connectionLost={micConnectionStates[p.id] === "disconnected"}
           />
         );

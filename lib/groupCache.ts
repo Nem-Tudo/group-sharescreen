@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { isPageHidden, onPageHiddenChange } from "./pageHidden";
 import {
   fetchMembers,
   fetchMessages,
@@ -241,7 +242,7 @@ export function forgetGroupMembers(groupId: string): void {
  * the online dots honest on a screen that stays open.
  */
 /**
- * Runs `poll` every `everyMs` while the page is on screen, and once on coming
+ * Runs `poll` every `everyMs` while the page is on screen (lib/pageHidden), and once on coming
  * back if a tick was skipped meanwhile. A member list in a background tab is
  * shown to nobody, and at a big group each read is the whole online roster.
  * Returns the cleanup.
@@ -249,18 +250,17 @@ export function forgetGroupMembers(groupId: string): void {
 function pollWhileVisible(poll: () => void, everyMs: number): () => void {
   let missed = false;
   const timer = window.setInterval(() => {
-    if (document.hidden) missed = true;
+    if (isPageHidden()) missed = true;
     else poll();
   }, everyMs);
-  const onVisibility = () => {
-    if (document.hidden || !missed) return;
+  const unsubscribe = onPageHiddenChange(() => {
+    if (isPageHidden() || !missed) return;
     missed = false;
     poll();
-  };
-  document.addEventListener("visibilitychange", onVisibility);
+  });
   return () => {
     window.clearInterval(timer);
-    document.removeEventListener("visibilitychange", onVisibility);
+    unsubscribe();
   };
 }
 

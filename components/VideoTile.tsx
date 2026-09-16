@@ -1,6 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import {
+  memo,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ComponentProps,
+  type ReactNode,
+} from "react";
 import {
   SpeakerIcon,
   SpeakerMuteIcon,
@@ -31,6 +40,7 @@ import {
   refreshAndroidPipSupport,
 } from "@/lib/androidPictureInPicture";
 import { useT } from "@/lib/useI18n";
+import { isPageHidden, onPageHiddenChange } from "@/lib/pageHidden";
 
 function noopSubscribe() {
   return () => { };
@@ -52,7 +62,7 @@ const DOUBLE_CLICK_WINDOW_MS = 250;
 // and the cursor, get out of the picture's way. Any movement brings them back.
 const FULLSCREEN_IDLE_MS = 3000;
 
-export function VideoTile({
+const VideoTileView = memo(function VideoTileView({
   stream,
   label,
   accessibleLabel,
@@ -284,11 +294,11 @@ export function VideoTile({
   }, []);
 
   useEffect(() => {
-    if (typeof document === "undefined") return;
-    const onVis = () => setPageVisible(document.visibilityState === "visible");
+    // lib/pageHidden rather than the document: the desktop app's document
+    // says "visible" through a minimise, which is when this matters most.
+    const onVis = () => setPageVisible(!isPageHidden());
     onVis();
-    document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
+    return onPageHiddenChange(onVis);
   }, []);
 
   // Picture-in-picture and fullscreen are both showing this video somewhere
@@ -917,7 +927,72 @@ export function VideoTile({
       </div>
     </div>
   );
+}, (a, b) => {
+  const keys = Object.keys(a) as (keyof typeof a)[];
+  if (keys.length !== Object.keys(b).length) return false;
+  for (const key of keys) {
+    if (key === "connectionStats") {
+      if (a.connectionStats?.channel !== b.connectionStats?.channel) return false;
+      if (a.connectionStats?.originId !== b.connectionStats?.originId) return false;
+    } else if (!Object.is(a[key], b[key])) {
+      return false;
+    }
+  }
+  return true;
+});
+
+type VideoTileProps = ComponentProps<typeof VideoTileView>;
+
+/** Every callback a tile takes — each handed on as a stable stand-in (see VideoTile). */
+const TILE_CALLBACKS = [
+  "onVolumeChange",
+  "onStopWatching",
+  "onDoubleClick",
+  "onRenderedSizeChange",
+  "onVisibilityChange",
+  "onFocus",
+  "onNativePip",
+  "onHyperfocus",
+  "onObsSource",
+  "onToggleMic",
+  "onToggleMicsMuted",
+  "onTogglePlay",
+] as const satisfies readonly (keyof VideoTileProps)[];
+
+type AnyCallback = (...args: unknown[]) => unknown;
+
+/**
+ * One video on the room's stage.
+ *
+ * The room builds its tiles fresh on every render — and it renders on
+ * anything in the call — with a dozen arrow functions per tile, so a memo on
+ * the tile alone could never hold. This thin shell runs on every render
+ * instead and swaps each callback for a stand-in made once, which calls
+ * whatever the room passed most recently. The tile inside (VideoTileView) is
+ * then redrawn only when something it shows changed. The stand-ins are only
+ * ever called from events and observers, never while drawing, so they always
+ * reach the current handler.
+ */
+export function VideoTile(props: VideoTileProps) {
+  const latest = useRef(props);
+  useLayoutEffect(() => {
+    latest.current = props;
+  });
+  const [stable] = useState(() => {
+    const out: Partial<Record<(typeof TILE_CALLBACKS)[number], AnyCallback>> = {};
+    for (const key of TILE_CALLBACKS) {
+      out[key] = (...args) => (latest.current[key] as AnyCallback | undefined)?.(...args);
+    }
+    return out;
+  });
+  const passed: Record<string, unknown> = { ...props };
+  for (const key of TILE_CALLBACKS) {
+    // Absent stays absent: whether a callback is there decides which buttons show.
+    if (props[key]) passed[key] = stable[key];
+  }
+  return <VideoTileView {...(passed as VideoTileProps)} />;
 }
+
 
 function PlaceholderTile({
   fill,

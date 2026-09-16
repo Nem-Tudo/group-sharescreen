@@ -18,6 +18,7 @@ import {
 import { Tooltip } from "@/components/Tooltip";
 import { VolumeSlider } from "@/components/VolumeSlider";
 import { signalingClient } from "@/lib/signalingClient";
+import { isPageHidden, onPageHiddenChange } from "@/lib/pageHidden";
 import { musicPosition, formatMusicTime, type MusicSource } from "@/lib/musicSource";
 import { isYouTubeVideoId } from "@/lib/videoSource";
 import {
@@ -104,6 +105,8 @@ const PUSH_SETTLE_MS = 350;
 // How often the progress readout re-reads the player. Fast enough that the
 // bar moves smoothly, slow enough to be nothing on a timer.
 const PROGRESS_TICK_MS = 500;
+/** How long after a pause or a seek, while paused, the readout is read again. */
+const PAUSED_SETTLE_MS = 600;
 // Autoplay with sound is blocked until a page has been interacted with. Most
 // people reach a room through several clicks, so this rarely fires — but when
 // it does, the bar has to say so rather than silently playing nothing.
@@ -434,6 +437,13 @@ export function MusicBar({
 
   // The readout. Reads the player when it has one and falls back to the
   // room's own arithmetic before it is ready, so the bar is never blank.
+  //
+  // Only ticks while the music is playing and the page is on screen: a paused
+  // song's position moves only when the room says so (a seek, a pause — each
+  // a new `music`, which restarts this and reads it again), and a hidden tab
+  // shows the readout to nobody. It used to re-render the bar twice a second
+  // for the whole life of a room with music in it.
+  const musicPlaying = music.playing;
   useEffect(() => {
     function tick() {
       const player = playerRef.current;
@@ -447,9 +457,23 @@ export function MusicBar({
       }
     }
     tick();
-    const timer = setInterval(tick, PROGRESS_TICK_MS);
-    return () => clearInterval(timer);
-  }, [ready]);
+    if (!musicPlaying) {
+      // Once more when the player has had a moment: a seek or a pause the
+      // room just applied (see the sync above) lands a beat after it is asked.
+      const settle = setTimeout(tick, PAUSED_SETTLE_MS);
+      return () => clearTimeout(settle);
+    }
+    const timer = setInterval(() => {
+      if (!isPageHidden()) tick();
+    }, PROGRESS_TICK_MS);
+    const unsubscribe = onPageHiddenChange(() => {
+      if (!isPageHidden()) tick();
+    });
+    return () => {
+      clearInterval(timer);
+      unsubscribe();
+    };
+  }, [ready, musicPlaying, music]);
 
   // Autoplay with sound needs the page to have been interacted with. When it
   // hasn't been, the player sits at PAUSED/unstarted while the room believes

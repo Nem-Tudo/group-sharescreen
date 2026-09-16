@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { useSpeaking } from "@/lib/useSpeaking";
 import {
   MicIcon,
@@ -25,7 +25,12 @@ import type { PresenceInfo } from "@/lib/signalingClient";
 import { Tooltip, Popover } from "./Tooltip";
 import { useT } from "@/lib/useI18n";
 
-export function ParticipantRow({
+// Memoised: the room re-renders on anything in the call, and a list of tens of
+// people redrew every row each time. The room hands this stable callbacks that
+// take the peer's id (see WatchRoom's participant handlers), and `presence` is
+// compared by what it says rather than by the object carrying it.
+export const ParticipantRow = memo(function ParticipantRow({
+  peerId,
   name,
   isSelf = false,
   isGuest = false,
@@ -41,7 +46,6 @@ export function ParticipantRow({
   muted = false,
   onToggleMute,
   volume = 1,
-  onVolumeChange,
   connectionLost = false,
   verified = false,
   bot = false,
@@ -52,9 +56,13 @@ export function ParticipantRow({
   isApp = false,
   isMobileApp = false,
   presence = { state: "online" },
-  renderMenu,
+  menuOpen = false,
+  menuContent = null,
+  onMenuOpenChange,
   onContextMenu,
 }: {
+  /** The peer this row is — what the callbacks below are called with. Absent on your own row. */
+  peerId?: string;
   name: string;
   isSelf?: boolean;
   isGuest?: boolean;
@@ -90,9 +98,8 @@ export function ParticipantRow({
   sharingVideo?: boolean;
   micStream?: MediaStream | null;
   muted?: boolean;
-  onToggleMute?: () => void;
+  onToggleMute?: (peerId: string) => void;
   volume?: number;
-  onVolumeChange?: (volume: number) => void;
   // This peer's audio peer connection is down (failed/disconnected) while we
   // still expect one — see useRoomMedia's recvConnectionStates.
   connectionLost?: boolean;
@@ -129,20 +136,22 @@ export function ParticipantRow({
   // and for anyone when this viewer does not run the room — so the browser's
   // own context menu is left alone rather than replaced with an empty one.
   //
-  // Two shapes, and the caller picks by which one it passes. `renderMenu`
-  // opens the panel right beside this row, which is where a menu about
-  // somebody belongs; `onContextMenu` just reports the click and lets the
-  // caller open whatever it likes, which is what a phone gets — a panel
-  // hanging off a row in a 360px column has nowhere to hang.
-  // Handed a `close` so an action taken inside can dismiss the panel it is
-  // in — the open state lives here, not with whoever built the content.
-  renderMenu?: (close: () => void) => ReactNode;
-  onContextMenu?: () => void;
+  // Two shapes, and the caller picks by which one it passes.
+  // `onMenuOpenChange` opens the panel right beside this row, which is where a
+  // menu about somebody belongs; `onContextMenu` just reports the click and
+  // lets the caller open whatever it likes, which is what a phone gets — a
+  // panel hanging off a row in a 360px column has nowhere to hang.
+  // The panel's open state lives with the caller, which draws `menuContent`
+  // only for the one row whose menu is open — so that row alone redraws while
+  // it is, and the content is never older than the room around it.
+  menuOpen?: boolean;
+  menuContent?: ReactNode;
+  onMenuOpenChange?: (peerId: string, open: boolean) => void;
+  onContextMenu?: (peerId: string) => void;
 }) {
   const t = useT();
   const speaking = useSpeaking(micOn ? micStream : null);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const hasMenu = Boolean(renderMenu || onContextMenu);
+  const hasMenu = Boolean(peerId && (onMenuOpenChange || onContextMenu));
   // Whether the screen/camera split is actually known for this peer — see
   // the `screen`/`camera` props.
   const knowsChannels = screen != null || camera != null;
@@ -185,8 +194,9 @@ export function ParticipantRow({
         hasMenu
           ? (e) => {
               e.preventDefault();
-              if (renderMenu) setMenuOpen((open) => !open);
-              else onContextMenu?.();
+              if (!peerId) return;
+              if (onMenuOpenChange) onMenuOpenChange(peerId, !menuOpen);
+              else onContextMenu?.(peerId);
             }
           : undefined
       }
@@ -329,7 +339,7 @@ export function ParticipantRow({
               type="button"
               onClick={(event) => {
                 event.stopPropagation();
-                onToggleMute();
+                if (peerId) onToggleMute(peerId);
               }}
               aria-label={muted ? t("volumeSlider.unmuteAudio") : t("volumeSlider.muteAudio")}
               className="flex shrink-0 items-center rounded p-1 transition hover:text-zinc-700 dark:hover:text-zinc-200"
@@ -346,7 +356,7 @@ export function ParticipantRow({
     </li>
   );
 
-  if (!renderMenu) return row;
+  if (!onMenuOpenChange || !peerId) return row;
 
   // The panel points at this row, so what it is about needs no explaining.
   // "right-start" on a sidebar list puts it beside the name and lets Tippy
@@ -354,11 +364,22 @@ export function ParticipantRow({
   return (
     <Popover
       open={menuOpen}
-      onClose={() => setMenuOpen(false)}
+      onClose={() => onMenuOpenChange(peerId, false)}
       placement="right-start"
-      content={menuOpen ? renderMenu(() => setMenuOpen(false)) : null}
+      content={menuOpen ? menuContent : null}
     >
       {row}
     </Popover>
   );
-}
+}, (a, b) => {
+  const keys = Object.keys(a) as (keyof typeof a)[];
+  if (keys.length !== Object.keys(b).length) return false;
+  for (const key of keys) {
+    if (key === "presence") {
+      if (a.presence?.state !== b.presence?.state || a.presence?.device !== b.presence?.device) return false;
+    } else if (!Object.is(a[key], b[key])) {
+      return false;
+    }
+  }
+  return true;
+});

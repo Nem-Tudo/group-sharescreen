@@ -67,6 +67,22 @@ export function isLocale(value: unknown): value is Locale {
   return typeof value === "string" && (LOCALES as readonly string[]).includes(value);
 }
 
+// Search engine renderers. They run a real Chrome whose language is en-US, so
+// left to "auto" they would hydrate the Portuguese HTML the server sent and
+// then index the English page I18nGate swaps in — under a pt-BR <html lang>,
+// title and description, and with none of the Portuguese copy the page exists
+// to rank for. A crawler has no preference to honour, so it reads the
+// server's language, which is also what the metadata says the page is.
+// Named tokens rather than a bare "bot": that would also match phone models
+// such as CUBOT, whose owners do want their own language.
+const CRAWLER_UA_SOURCE =
+  "googlebot|google-inspectiontool|storebot-google|adsbot-google|mediapartners-google|bingbot|yandexbot|duckduckbot|baiduspider|applebot|petalbot|slurp|crawler|spider";
+
+export function isCrawler(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return new RegExp(CRAWLER_UA_SOURCE, "i").test(navigator.userAgent || "");
+}
+
 // Runs in the document before anything paints, so it is a string of plain ES5
 // rather than an import — same reason as THEME_INIT_SCRIPT, and it sets the
 // same kind of thing: `<html lang>`, which is what a screen reader picks a
@@ -74,13 +90,15 @@ export function isLocale(value: unknown): value is Locale {
 // themselves still arrive with React; this is only the document's own label.
 export const LOCALE_INIT_SCRIPT = `(function(){try{var k=${JSON.stringify(
   LOCALE_STORAGE_KEY
-)};var s=${JSON.stringify(LOCALES)};var p=localStorage.getItem(k);if(s.indexOf(p)<0){p=null;var n=(navigator.languages&&navigator.languages.length?navigator.languages:[navigator.language||"en"]);for(var i=0;i<n.length&&!p;i++){var b=String(n[i]||"").toLowerCase().split("-")[0];if(s.indexOf(b)>=0)p=b;}}document.documentElement.lang=p||${JSON.stringify(
+)};var s=${JSON.stringify(LOCALES)};var c=new RegExp(${JSON.stringify(
+  CRAWLER_UA_SOURCE
+)},"i").test(navigator.userAgent||"");if(c)document.documentElement.setAttribute("data-crawler","");var p=c?null:localStorage.getItem(k);if(!c&&s.indexOf(p)<0){p=null;var n=(navigator.languages&&navigator.languages.length?navigator.languages:[navigator.language||"en"]);for(var i=0;i<n.length&&!p;i++){var b=String(n[i]||"").toLowerCase().split("-")[0];if(s.indexOf(b)>=0)p=b;}}document.documentElement.lang=p||${JSON.stringify(
   DEFAULT_LOCALE
 )};}catch(e){}})();`;
 
 /** The first of the browser's languages we actually have words for. */
 export function detectBrowserLocale(): Locale {
-  if (typeof navigator === "undefined") return DEFAULT_LOCALE;
+  if (typeof navigator === "undefined" || isCrawler()) return DEFAULT_LOCALE;
   const list =
     navigator.languages && navigator.languages.length
       ? navigator.languages

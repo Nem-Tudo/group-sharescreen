@@ -20,6 +20,7 @@
 
 import { useSyncExternalStore } from "react";
 import { fetchPeopleOnline } from "./roomsApi";
+import { isPageHidden, onPageHiddenChange } from "./pageHidden";
 
 // Slower than the 8s the two pollers used. This is a headline number on a
 // landing page, not a live readout: nobody is watching it tick, and the extra
@@ -43,7 +44,7 @@ async function load() {
   // background timers, but they do not stop them, and a few thousand
   // backgrounded tabs politely asking for a headcount they will not draw is a
   // meaningful share of the traffic this endpoint sees.
-  if (typeof document !== "undefined" && document.hidden) return;
+  if (isPageHidden()) return;
   inFlight?.abort();
   const controller = new AbortController();
   inFlight = controller;
@@ -62,6 +63,8 @@ async function load() {
   }
 }
 
+let unsubscribeHidden: (() => void) | null = null;
+
 function start() {
   if (timer !== null) return;
   void load();
@@ -70,9 +73,7 @@ function start() {
   // that has been in the background for an hour shows a current number the
   // moment it is looked at again, instead of an hour-old one until the next
   // tick.
-  if (typeof document !== "undefined") {
-    document.addEventListener("visibilitychange", onVisibility);
-  }
+  unsubscribeHidden = onPageHiddenChange(onVisibility);
 }
 
 function stop() {
@@ -81,13 +82,12 @@ function stop() {
   timer = null;
   inFlight?.abort();
   inFlight = null;
-  if (typeof document !== "undefined") {
-    document.removeEventListener("visibilitychange", onVisibility);
-  }
+  unsubscribeHidden?.();
+  unsubscribeHidden = null;
 }
 
 function onVisibility() {
-  if (!document.hidden) void load();
+  if (!isPageHidden()) void load();
 }
 
 /**

@@ -19,6 +19,7 @@
 // microphone (which has no receiver) and for browsers that report no level.
 
 import { getSharedAudioContext, ensureSharedAudioContextRunning } from "./audioContext";
+import { isPageHidden, onPageHiddenChange } from "./pageHidden";
 
 // Unchanged from the per-row implementation, so the indicator behaves as it
 // did: a short hold keeps pauses between syllables from making it flicker.
@@ -166,7 +167,7 @@ class SpeakingDetector {
   private ensureRunning() {
     this.bindVisibility();
     if (this.timer !== null) return;
-    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+    if (isPageHidden()) return;
     this.timer = setInterval(() => this.tick(), TICK_MS);
   }
 
@@ -181,13 +182,15 @@ class SpeakingDetector {
    * the whole pass stops. This is most of what a minimised desktop window was
    * burning a core on: it runs with backgroundThrottling disabled (see
    * electron/main.ts) precisely so its timers are *not* clamped, which means
-   * nothing else was going to stop this one.
+   * nothing else was going to stop this one — and it is also why this listens
+   * to lib/pageHidden rather than to the document, whose visibility that same
+   * setting pins to "visible" there.
    */
   private bindVisibility() {
     if (this.visibilityBound || typeof document === "undefined") return;
     this.visibilityBound = true;
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "hidden") {
+    onPageHiddenChange(() => {
+      if (isPageHidden()) {
         this.stop();
         for (const entry of this.entries.values()) {
           if (!entry.speaking) continue;

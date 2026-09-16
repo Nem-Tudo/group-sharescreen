@@ -501,7 +501,12 @@ export default function Home() {
         slicing the bottom off the friends panel. Nothing needs to grow here
         any more — the min-height is what fills the screen now — so the honest
         declaration is "never shrink me". */}
-      <div className="flex min-h-[calc(100dvh-3.5rem-var(--app-tabbar-h))] shrink-0 flex-col items-center justify-start gap-3 bg-zinc-50 px-4 pt-4 pb-6 dark:bg-black lg:justify-center lg:py-16">
+      {/* Except for a crawler (html[data-crawler], see lib/i18n's init
+        script). Google renders with a viewport stretched to the page's own
+        height, so a floor of "one screen" grew with it and pushed everything
+        below out of the rendered snapshot, leaving an empty grey block where
+        the copy should be. */}
+      <div className="flex min-h-[calc(100dvh-3.5rem-var(--app-tabbar-h))] [html[data-crawler]_&]:min-h-0 shrink-0 flex-col items-center justify-start gap-3 bg-zinc-50 px-4 pt-4 pb-6 dark:bg-black lg:justify-center lg:py-16">
         {peopleOnline !== null && (<div className="inline-flex gap-2">
           <span className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3.5 py-1.5 text-xs font-medium text-zinc-600 shadow-sm dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
             <span className="h-2 w-2 rounded-full bg-emerald-500" />
