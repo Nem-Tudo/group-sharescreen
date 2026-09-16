@@ -4,9 +4,11 @@ import { mock } from "node:test";
 import { createTypingAnnouncer, formatTypingLabel, TYPING_IDLE_MS, TYPING_REFRESH_MS } from "./typing";
 
 // 1. The line
-assert.equal(formatTypingLabel(["Ana"]), "Ana is typing...");
-assert.equal(formatTypingLabel(["Ana", "Bia"]), "Ana and Bia are typing...");
-assert.equal(formatTypingLabel(["Ana", "Bia", "Caio"]), "3 people are typing...");
+// In the fallback language, which is what anything unactivated answers in
+// (see lib/i18n's DEFAULT_LOCALE).
+assert.equal(formatTypingLabel(["Ana"]), "Ana está digitando...");
+assert.equal(formatTypingLabel(["Ana", "Bia"]), "Ana e Bia estão digitando...");
+assert.equal(formatTypingLabel(["Ana", "Bia", "Caio"]), "3 pessoas estão digitando...");
 
 mock.timers.enable({ apis: ["setTimeout"] });
 

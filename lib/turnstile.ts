@@ -58,7 +58,12 @@ const SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
  * expensive one. A value that only one side knows about silently turns that
  * check into a rejection, so the two lists move together.
  */
-export type CaptchaAction = "join_room" | "register_account" | "login" | "oauth_signup";
+export type CaptchaAction =
+  | "join_room"
+  | "register_account"
+  | "login"
+  | "oauth_signup"
+  | "password_reset";
 
 // `render=explicit` because the widgets here are created on demand, one per
 // gated action, rather than existing in the page's markup for the script to

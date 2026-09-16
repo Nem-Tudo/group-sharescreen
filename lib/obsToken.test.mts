@@ -25,7 +25,7 @@ test("obsToken: rejects a token for a different room", async () => {
   const result = await verifyObsSecurityToken(token, "sala-diferente");
 
   assert.equal(result.valid, false);
-  assert.match(result.error ?? "", /does not belong to this room/i);
+  assert.match(result.error ?? "", /não pertence a esta sala/i);
 });
 
 test("obsToken: rejects a tampered token", async () => {
@@ -42,7 +42,7 @@ test("obsToken: rejects a tampered token", async () => {
 test("obsToken: rejects generation without an authorId", async () => {
   await assert.rejects(async () => {
     await createObsSecurityToken("sala", "target", "");
-  }, /authorId is required/i);
+  }, /authorId é obrigatório/i);
 });
 
 test("obsToken: rejects a null or empty token", async () => {

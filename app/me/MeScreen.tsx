@@ -22,6 +22,7 @@ import {
   MdSmartToy,
 } from "react-icons/md";
 import { AccountConnections } from "@/components/AccountConnections";
+import { EmailVerification } from "@/components/EmailVerification";
 import { AuthorizedApps } from "@/components/oauth2/AuthorizedApps";
 import { DEVELOPERS_URL } from "@/lib/botsApi";
 import { CompleteOAuthSignupForm } from "@/components/CompleteOAuthSignupForm";
@@ -244,6 +245,7 @@ export function MeScreen() {
         // account has never signed into anything with "Entrar com GoLive",
         // so the card stays a single row for almost everybody.
         <div className={`${card} py-1 empty:hidden`}>
+          <EmailVerification />
           <AccountConnections />
           <AuthorizedApps />
         </div>

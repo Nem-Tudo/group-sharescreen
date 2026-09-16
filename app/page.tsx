@@ -1,7 +1,14 @@
 "use client";
 
 import { isAppShell } from "@/lib/desktop";
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type FormEvent,
+} from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { signalingClient, getStoredName } from "@/lib/signalingClient";
@@ -47,6 +54,11 @@ import { useTabBarEnabled } from "@/lib/mobileShell";
 // this lets through but the server rejects lands the user in a dead room
 // (join fails server-side, but the client's already navigated to it).
 const HANDLE_RE = /^[a-zA-Z0-9_-]{1,32}$/;
+// Which shell this is never changes while the page is open, so the subscribe
+// half of the store below has nothing to listen to. Module scope because
+// useSyncExternalStore resubscribes whenever this identity changes, and a
+// function built during render is a new one every time.
+const subscribeNever = () => () => {};
 // How long typing has to settle before the room lookup fires. Long enough
 // that a name typed straight through costs one request rather than one per
 // letter, short enough that the button has settled by the time someone's
@@ -185,6 +197,31 @@ export default function Home() {
   // than a plain call: the answer comes from window, so it must not run
   // during the server render — and it cannot change while the page is open.
   const [appShell] = useState(() => isAppShell());
+  // The same question as `appShell` above, asked a beat later, and the delay is
+  // the entire point.
+  //
+  // `appShell` is read in a useState initializer, so on a full page load into
+  // the desktop shell it answers "true" during hydration — while the HTML being
+  // hydrated was rendered by a server that has no window and therefore always
+  // says "false". Gating the SEO block on it meant the markup React expected
+  // and the markup it was handed disagreed, which is a hydration mismatch. With
+  // SupressErrors swallowing the complaint, what was left was orphaned DOM the
+  // reconciler never took ownership of: a screenful of home-page text still
+  // painted over whatever the app navigated to next. It vanished on the way
+  // back because a client-side navigation has no server HTML to disagree with.
+  //
+  // Answering false until after mount makes the server's render and the first
+  // client render identical — nothing to mismatch — and the effect then removes
+  // the block on the second pass, which is an ordinary state change.
+  //
+  // useSyncExternalStore rather than an effect, because that is what its third
+  // argument is for: the server snapshot is a separate answer from the client
+  // one, by design, and React renders the server's during hydration and the
+  // client's immediately after. An effect calling setState would reach the same
+  // place through a cascading render, which this project's lint rules forbid —
+  // and the store is the house idiom here anyway (see lib/useTheme.ts and
+  // components/I18nGate).
+  const hideSeoContent = useSyncExternalStore(subscribeNever, isAppShell, () => false);
   const [mode, setMode] = useState<IdentityMode>("landing");
   const [nameInput, setNameInput] = useState("");
   // A social login that turned out to be a signup. It takes over the whole
@@ -978,7 +1015,7 @@ export default function Home() {
         squeeze is what was pressing this section's text up into the block
         above it on a phone. The block above escapes it only because its own
         min-height is explicit. */}
-      {!appShell && (
+      {!hideSeoContent && (
         <div className="shrink-0 border-t border-black/5 bg-zinc-50 px-4 py-10 dark:border-white/5 dark:bg-black">
           <HomeSeoContent />
         </div>

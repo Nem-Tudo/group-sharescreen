@@ -69,8 +69,135 @@ function writeSaved(key: string, width: number) {
   listeners.forEach((l) => l());
 }
 
+/** Forgets a saved size, handing the element back to the layout around it. */
+function clearSaved(key: string) {
+  savedWidths.set(key, null);
+  try {
+    localStorage.removeItem(key);
+  } catch {}
+  listeners.forEach((l) => l());
+}
+
 function clamp(width: number, min: number, max: number) {
   return Math.min(Math.max(width, min), max);
+}
+
+// The same idea turned on its side: a row whose *height* is dragged from its
+// bottom edge — the call inside a conversation, which shares its column with
+// the messages under it (see components/DirectMessagesModal).
+//
+// One difference, and it is the point: there is no default height. Until
+// somebody drags it the row is left to the layout that holds it, which is what
+// keeps it a share of the window rather than a number of pixels that is too
+// tall on a laptop and too short on a monitor. A drag pins it; a double-click
+// on the grip hands it back to the layout.
+
+export interface RowHeightSpec {
+  storageKey: string;
+  min: number;
+  /** Never taller than this share of the box it sits in. */
+  maxShare: number;
+}
+
+export function useRowHeight({ storageKey, min, maxShare }: RowHeightSpec) {
+  const saved = useSyncExternalStore(
+    subscribe,
+    () => readSaved(storageKey),
+    () => null
+  );
+  const [dragHeight, setDragHeight] = useState<number | null>(null);
+  const dragging = dragHeight !== null;
+  const height = dragHeight ?? saved;
+  const [row, setRow] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!dragging || !row) return;
+    let latest: number | null = null;
+    const onMove = (e: PointerEvent) => {
+      // Measured every move, so the edge follows the pointer exactly whatever
+      // padding sits around the row. The top stays put and the bottom is what
+      // the pointer is holding.
+      const box = row.getBoundingClientRect();
+      const parent = row.parentElement;
+      let boxHeight = window.innerHeight;
+      if (parent) {
+        const parentStyle = getComputedStyle(parent);
+        boxHeight =
+          parent.clientHeight -
+          parseFloat(parentStyle.paddingTop) -
+          parseFloat(parentStyle.paddingBottom);
+      }
+      const ceiling = Math.max(min, boxHeight * maxShare);
+      latest = Math.round(Math.min(Math.max(e.clientY - box.top, min), ceiling));
+      setDragHeight(latest);
+    };
+    const onUp = () => {
+      if (latest !== null) writeSaved(storageKey, latest);
+      setDragHeight(null);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, [dragging, row, storageKey, min, maxShare]);
+
+  // A double-click gives the row back to the layout — see the header. Told
+  // apart here rather than with onDoubleClick, for the reason the columns give.
+  const lastDownRef = useRef(-Infinity);
+  const onPointerDown = useCallback(
+    (e: ReactPointerEvent) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      if (e.timeStamp - lastDownRef.current < DOUBLE_CLICK_MS) {
+        lastDownRef.current = -Infinity;
+        clearSaved(storageKey);
+        return;
+      }
+      lastDownRef.current = e.timeStamp;
+      // From whatever the layout had settled on, so the first pixel of the
+      // drag does not jump.
+      setDragHeight(height ?? row?.getBoundingClientRect().height ?? min);
+    },
+    [height, row, min, storageKey]
+  );
+
+  const style: CSSProperties | undefined =
+    height === null ? undefined : { height: `${height}px`, maxHeight: `${maxShare * 100}%` };
+  return { setElement: setRow, style, handle: { dragging, onPointerDown } };
+}
+
+/**
+ * The grip for a row that is `relative`: lying along its bottom edge, showing
+ * itself on hover. While a drag is under way a sheet covers the page, so the
+ * pointer is not lost to a <video> or an iframe it passes over.
+ */
+export function RowResizeHandle({
+  dragging,
+  onPointerDown,
+  label,
+}: ReturnType<typeof useRowHeight>["handle"] & { label: string }) {
+  return (
+    <>
+      <div
+        onPointerDown={onPointerDown}
+        role="separator"
+        aria-orientation="horizontal"
+        title={label}
+        className="group absolute inset-x-0 bottom-0 z-30 flex h-2.5 cursor-ns-resize items-center justify-center"
+      >
+        <div
+          className={`h-1 w-12 rounded-full bg-zinc-300 transition-opacity group-hover:opacity-100 dark:bg-zinc-600 ${
+            dragging ? "opacity-100" : "opacity-0"
+          }`}
+        />
+      </div>
+      {dragging && <div className="fixed inset-0 z-[100] cursor-ns-resize" />}
+    </>
+  );
 }
 
 export function useColumnWidth({ storageKey, defaultWidth, min, max, maxShare, side }: ColumnWidthSpec) {

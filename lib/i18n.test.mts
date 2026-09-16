@@ -19,10 +19,12 @@ import {
   LOCALE_TAGS,
 } from "@/lib/i18n";
 
-test("before activation everything answers in English, whatever is stored", () => {
+test("before activation everything answers in the fallback, whatever is stored", () => {
   // This is what keeps the hydrating render identical to the server's HTML.
+  // The fallback is Portuguese — the wording the site was written in, and what
+  // the server renders (see DEFAULT_LOCALE and SERVER_LOCALE).
   assert.equal(getLocale(), DEFAULT_LOCALE);
-  assert.equal(translate("common.save"), "Save");
+  assert.equal(translate("common.save"), "Salvar");
 });
 
 test("activation hands over the real language", () => {

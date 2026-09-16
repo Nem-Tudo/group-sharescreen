@@ -13,6 +13,7 @@ import { LoginForm } from "@/components/LoginForm";
 import { CompleteOAuthSignupForm } from "@/components/CompleteOAuthSignupForm";
 import Link from "next/link";
 import { AccountConnections } from "@/components/AccountConnections";
+import { EmailVerification } from "@/components/EmailVerification";
 import { DEVELOPERS_URL } from "@/lib/botsApi";
 import { ThemeSegmented } from "@/components/ThemeToggle";
 import { LanguagePicker } from "@/components/LanguageToggle";
@@ -218,6 +219,9 @@ export function AccountMenu() {
                 {/* Brings its own collapsible section, so it sits in the
                     panel as one row until someone opens it — and it carries
                     the row's own padding, so no wrapper here. */}
+                {/* Hides itself entirely when there is nothing to confirm —
+                    see the note at the top of EmailVerification. */}
+                <EmailVerification />
                 <AccountConnections />
                 <button type="button" onClick={() => { logout(); close(); }} className={itemClass}>
                   {t("accountMenu.signOut")}
