@@ -160,7 +160,9 @@ export function PlanComparison({
       <h2 className="text-center text-xl font-bold tracking-tight text-zinc-950 dark:text-zinc-50">
         {t("pro.compare.title")}
       </h2>
-      <div className="mt-4 overflow-x-auto">
+      {/* pt-3: a horizontal scroller clips vertically too, and the
+          "Recomendado" tag sits half above its column. */}
+      <div className="mt-1 overflow-x-auto pt-3">
         <table className="w-full min-w-[30rem] border-separate border-spacing-0">
           <thead>
             <tr>
