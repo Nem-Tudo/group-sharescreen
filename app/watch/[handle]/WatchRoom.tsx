@@ -71,7 +71,7 @@ import {
   splitPrivateRoomHandle,
   MAX_PRIVATE_ROOM_NAME_LENGTH,
 } from "@/lib/roomsApi";
-import { rememberRecentRoom } from "@/lib/recentRooms";
+import { rememberRecentRoom } from "@/lib/recentRoomsSync";
 import type { CallDockPhase } from "@/lib/callSession";
 import { useRoomSoundEffects } from "@/lib/useRoomSoundEffects";
 import { useBackgroundKeepAlive } from "@/lib/useBackgroundKeepAlive";

@@ -17,6 +17,7 @@ import {
   type AuthorizeInfo,
 } from "@/lib/oauth2Api";
 import { useI18n } from "@/lib/useI18n";
+import { avatarShapeClass } from "@/lib/avatarShape";
 
 // The consent screen: who is asking, what for, and two buttons.
 //
@@ -126,7 +127,7 @@ export function AuthorizeClient() {
         <img
           src={application.avatarUrl ?? DEFAULT_AVATAR_PATH}
           alt=""
-          className="h-20 w-20 rounded-full object-cover ring-4 ring-white dark:ring-zinc-950"
+          className={`h-20 w-20 ${avatarShapeClass(application.avatarUrl)} object-cover ring-4 ring-white dark:ring-zinc-950`}
         />
         <div className="flex items-center gap-1.5">
           <h1 className="text-xl font-semibold text-zinc-950 dark:text-zinc-50">

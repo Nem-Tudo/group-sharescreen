@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { MdMicOff } from "react-icons/md";
 import { UserAvatar } from "@/components/UserAvatar";
 import { useSpeaking } from "@/lib/useSpeaking";
+import { avatarShapeClass } from "@/lib/avatarShape";
 
 // What a direct call looks like while nobody is sharing anything: the people
 // in it, as faces.
@@ -52,7 +53,7 @@ function CallStageFace({ person, size }: { person: CallStagePerson; size: number
   return (
     <li className="flex w-28 flex-col items-center gap-2 text-center">
       <span
-        className={`relative flex items-center justify-center rounded-full transition-[box-shadow,transform] duration-150 ${
+        className={`relative flex items-center justify-center ${avatarShapeClass(person.avatarUrl)} transition-[box-shadow,transform] duration-150 ${
           speaking
             ? "shadow-[0_0_0_3px_var(--color-emerald-500)] scale-105"
             : "shadow-[0_0_0_3px_transparent]"

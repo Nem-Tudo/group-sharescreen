@@ -39,12 +39,14 @@ import { useAuth } from "@/lib/AuthContext";
 import { trackEvent } from "@/lib/analytics";
 import { getDesktopBridge } from "@/lib/desktop";
 import { useIsAppShell } from "@/lib/mobileShell";
+import { setReopenLastScreenEnabled, useReopenLastScreen } from "@/lib/lastScreen";
 import { useBackHandler } from "@/lib/useBackHandler";
 import { openDirectMessages } from "@/lib/dmWindow";
 import type { OAuthResult } from "@/lib/oauthApi";
 import { signalingClient } from "@/lib/signalingClient";
 import { useSignaling } from "@/lib/useSignaling";
 import { useT } from "@/lib/useI18n";
+import { avatarShapeClass } from "@/lib/avatarShape";
 
 // "Você" — the last of the bottom tabs (see components/MobileTabBar), and the
 // one screen that holds everything about the person and the app that the
@@ -161,7 +163,7 @@ export function MeScreen() {
           <img
             src={account?.avatarUrl || DEFAULT_AVATAR_PATH}
             alt=""
-            className="h-16 w-16 shrink-0 rounded-full object-cover ring-1 ring-black/5 dark:ring-white/10"
+            className={`h-16 w-16 shrink-0 ${avatarShapeClass(account?.avatarUrl)} object-cover ring-1 ring-black/5 dark:ring-white/10`}
           />
           <div className="min-w-0 flex-1">
             <p className="truncate text-lg font-semibold text-zinc-950 dark:text-zinc-50">
@@ -267,6 +269,9 @@ export function MeScreen() {
         <LanguagePicker />
       </section>
 
+      {/* Only the app is ever reopened anywhere (see lib/lastScreen). */}
+      {appShell && <ReopenLastScreenSetting />}
+
       <Section title={t("mobile.about")}>
         {/* The desktop app's page is about a program for a computer: worth
             finding from a phone's browser, pointless from inside the app. */}
@@ -345,6 +350,42 @@ function Row({
     <button type="button" onClick={onClick} className={`${rowClass} ${color} cursor-pointer`}>
       {inner}
     </button>
+  );
+}
+
+/** Whether the app reopens on the screen it was closed on — this device only. */
+function ReopenLastScreenSetting() {
+  const t = useT();
+  const on = useReopenLastScreen();
+  return (
+    <section className={`${card} p-2`}>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={on}
+        onClick={() => setReopenLastScreenEnabled(!on)}
+        className="flex w-full cursor-pointer items-start gap-3 rounded-lg p-2 text-left"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-medium text-zinc-900 dark:text-zinc-100">{t("mobile.reopenLastScreen")}</span>
+          <span className="mt-0.5 block text-xs leading-snug text-zinc-500 dark:text-zinc-400">
+            {t("mobile.reopenLastScreenHint")}
+          </span>
+        </span>
+        <span
+          aria-hidden
+          className={`relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition-colors ${
+            on ? "bg-emerald-500" : "bg-zinc-300 dark:bg-zinc-700"
+          }`}
+        >
+          <span
+            className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+              on ? "translate-x-4" : "translate-x-0"
+            }`}
+          />
+        </span>
+      </button>
+    </section>
   );
 }
 

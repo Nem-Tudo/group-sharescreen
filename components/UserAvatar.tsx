@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { PresenceDot, type PresenceSurface } from "@/components/PresenceDot";
 import { usePresence } from "@/lib/presence";
+import { avatarShapeClass } from "@/lib/avatarShape";
 import type { PresenceInfo } from "@/lib/signalingClient";
 
 // One face, drawn the same way everywhere it appears.
@@ -67,7 +68,7 @@ export function UserAvatar({
 }: {
   src?: string | null;
   name: string;
-  /** Rendered size in pixels — the circle is always square. */
+  /** Rendered size in pixels — the face is always as tall as it is wide. */
   size?: number;
   className?: string;
   /** Whose face this is (see the server's stableUserId). Passing it is what
@@ -100,7 +101,10 @@ export function UserAvatar({
   const shownPresence = presence !== undefined ? presence : watched;
 
   const style = { width: size, height: size };
-  const shared = `shrink-0 rounded-full object-cover ${className}`;
+  // Circle or rounded square, read off the URL itself (see lib/avatarShape) —
+  // which is what makes a Pro Ultra's choice show on every face in the app
+  // without any caller having to pass it.
+  const shared = `shrink-0 ${avatarShapeClass(src)} object-cover ${className}`;
 
   // Wrapped only when there is actually a dot to place: an avatar with nobody
   // online behind it stays the single element every layout here was built

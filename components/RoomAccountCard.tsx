@@ -14,6 +14,7 @@ import { BetaMark } from "@/components/BetaMark";
 import { DEFAULT_AVATAR_PATH } from "@/components/UserAvatar";
 import { useT } from "@/lib/useI18n";
 import { formatLocale } from "@/lib/i18n";
+import { avatarShapeClass } from "@/lib/avatarShape";
 
 // Who you are, at the foot of the room's chat column (see WatchRoom, from lg
 // up). It used to be a chip wedged into the header between "Compartilhar
@@ -70,7 +71,7 @@ export function RoomAccountCard({
     <img
       src={account.avatarUrl ?? DEFAULT_AVATAR_PATH}
       alt={state.name}
-      className="h-10 w-10 shrink-0 rounded-xl object-cover [@media(max-height:52rem)]:h-8 [@media(max-height:52rem)]:w-8 [@media(max-height:52rem)]:rounded-lg"
+      className={`h-10 w-10 shrink-0 ${avatarShapeClass(account.avatarUrl)} object-cover [@media(max-height:52rem)]:h-8 [@media(max-height:52rem)]:w-8`}
     />
   ) : (
     <span

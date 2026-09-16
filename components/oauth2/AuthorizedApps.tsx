@@ -6,6 +6,7 @@ import { DEFAULT_AVATAR_PATH } from "@/components/UserAvatar";
 import { useAuth } from "@/lib/AuthContext";
 import { fetchAuthorizations, revokeAuthorization, type Authorization } from "@/lib/oauth2Api";
 import { useT } from "@/lib/useI18n";
+import { avatarShapeClass } from "@/lib/avatarShape";
 
 // The applications this account has said yes to, and the button that takes it
 // back — the other half of the consent screen (see AuthorizeClient).
@@ -93,7 +94,7 @@ export function AuthorizedApps() {
             <img
               src={app.application?.avatarUrl ?? DEFAULT_AVATAR_PATH}
               alt=""
-              className="h-8 w-8 shrink-0 rounded-full object-cover"
+              className={`h-8 w-8 shrink-0 ${avatarShapeClass(app.application?.avatarUrl)} object-cover`}
             />
             <span className="min-w-0">
               <span className="flex items-center gap-1.5">

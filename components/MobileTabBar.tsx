@@ -22,6 +22,7 @@ import { LG_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 import { refreshGroups, useGroupsState } from "@/lib/useGroups";
 import { useSignaling } from "@/lib/useSignaling";
 import { useT } from "@/lib/useI18n";
+import { avatarShapeClass } from "@/lib/avatarShape";
 
 // The app's bottom tabs, below lg — see lib/mobileShell for which screens show
 // them and why the desktop app never does.
@@ -123,13 +124,13 @@ function TabBar({ pathname, counting }: { pathname: string; counting: boolean })
           active={active.me}
           custom={
             <span
-              className={`flex h-7 w-7 items-center justify-center overflow-hidden rounded-full ring-2 transition ${
+              className={`flex h-7 w-7 items-center justify-center overflow-hidden ${avatarShapeClass(avatar)} ring-2 transition ${
                 active.me ? "ring-zinc-950 dark:ring-zinc-50" : "ring-transparent"
               }`}
             >
               {name ? (
                 // eslint-disable-next-line @next/next/no-img-element -- a 28px avatar from any host
-                <img src={avatar} alt="" className="h-6 w-6 rounded-full object-cover" />
+                <img src={avatar} alt="" className={`h-6 w-6 ${avatarShapeClass(avatar)} object-cover`} />
               ) : (
                 <span className="h-6 w-6 rounded-full bg-zinc-300 dark:bg-zinc-700" />
               )}

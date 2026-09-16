@@ -17,6 +17,7 @@ import { startCall } from "@/lib/callsApi";
 import { copyText } from "@/lib/clipboard";
 import { openContextMenu } from "@/lib/contextMenu";
 import { markConversationRead } from "@/lib/dmApi";
+import { avatarShapeClass } from "@/lib/avatarShape";
 
 // The people this account talks to, one click from a group's top bar.
 //
@@ -207,7 +208,7 @@ export function DmRecentStrip({ compact = false, leading = false }: { compact?: 
                   })
                 }
                 aria-label={t("common.chatWithDisplayname", { displayName: user.displayName })}
-                className={`${FACE_VISIBILITY[index]} relative shrink-0 cursor-pointer items-center justify-center rounded-full p-0.5 transition hover:bg-zinc-200/60 dark:hover:bg-zinc-900`}
+                className={`${FACE_VISIBILITY[index]} relative shrink-0 cursor-pointer items-center justify-center ${avatarShapeClass(user.avatarUrl)} p-0.5 transition hover:bg-zinc-200/60 dark:hover:bg-zinc-900`}
               >
                 <UserAvatar
                   src={user.avatarUrl}

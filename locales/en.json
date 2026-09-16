@@ -1,4 +1,8 @@
 {
+  "pro.proPanel.chooseYourAvatarShape": "Choose your profile picture's shape: circle or square",
+  "userProfileCard.shapeSquare": "Square",
+  "userProfileCard.shapeCircle": "Circle",
+  "userProfileCard.avatarShape": "Shape",
   "themeEditorDialog.seeProUltra": "See Pro Ultra",
   "themeEditorDialog.publishLimitUpgrade": "On Pro Ultra you can publish up to {limit} themes.",
   "pro.proPanel.publishThemesWithLimit": "Publish up to {limit} themes on Discover for everyone to use",
@@ -3094,6 +3098,8 @@
   "mobile.chats": "Chats",
   "mobile.you": "You",
   "mobile.noNameYet": "No name yet",
+  "mobile.reopenLastScreen": "Open on the last screen",
+  "mobile.reopenLastScreenHint": "When the app opens, go back to the screen you were on. Never joins a call by itself. Applies to this device only.",
   "mobile.guest": "Guest",
   "mobile.accountPitch": "With an account you keep your name and points, and get friends, groups and chats.",
   "mobile.explore": "Explore",

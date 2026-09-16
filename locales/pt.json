@@ -1,4 +1,8 @@
 {
+  "pro.proPanel.chooseYourAvatarShape": "Escolha o formato da sua foto de perfil: circular ou quadrado",
+  "userProfileCard.shapeSquare": "Quadrado",
+  "userProfileCard.shapeCircle": "Circular",
+  "userProfileCard.avatarShape": "Formato",
   "themeEditorDialog.seeProUltra": "Ver Pro Ultra",
   "themeEditorDialog.publishLimitUpgrade": "No Pro Ultra você pode publicar até {limit} temas.",
   "pro.proPanel.publishThemesWithLimit": "Publique até {limit} temas no Descobrir para todo mundo usar",
@@ -3094,6 +3098,8 @@
   "mobile.chats": "Conversas",
   "mobile.you": "Você",
   "mobile.noNameYet": "Sem nome ainda",
+  "mobile.reopenLastScreen": "Abrir na última tela",
+  "mobile.reopenLastScreenHint": "Ao abrir o app, volta para a tela em que você estava. Nunca entra em chamadas sozinho. Vale só para este dispositivo.",
   "mobile.guest": "Convidado",
   "mobile.accountPitch": "Com uma conta você guarda seu nome e seus pontos, e ganha amigos, grupos e conversas.",
   "mobile.explore": "Explorar",

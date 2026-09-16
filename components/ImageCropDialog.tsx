@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { MdZoomIn, MdZoomOut } from "react-icons/md";
 import { useI18n } from "@/lib/useI18n";
 import { canCropAnimatedGif, cropAnimatedGif } from "@/lib/gifCrop";
+import { shapeRoundingClass, type AvatarShape } from "@/lib/avatarShape";
 
 // Reposition and resize a picture before it is sent as an avatar or a banner.
 //
@@ -62,6 +63,7 @@ export function ImageCropDialog({
   src,
   kind,
   mimeType,
+  avatarShape = "circle",
   onCancel,
   onConfirm,
 }: {
@@ -70,6 +72,12 @@ export function ImageCropDialog({
   kind: ImageCropKind;
   /** The picked file's type. An animated GIF is cropped frame by frame. */
   mimeType?: string;
+  /**
+   * The outline the avatar will be drawn in, so the frame shows the crop the
+   * way everybody will see it. The saved picture is always the full square
+   * (the outline is applied when drawing), so this only changes the preview.
+   */
+  avatarShape?: AvatarShape;
   onCancel: () => void;
   /** The cropped picture, as the data URL the profile save sends. */
   onConfirm: (dataUrl: string) => void;
@@ -244,7 +252,7 @@ export function ImageCropDialog({
         <div
           className={`relative touch-none select-none overflow-hidden bg-zinc-100 dark:bg-zinc-900 ${
             image ? "cursor-grab active:cursor-grabbing" : ""
-          } ${kind === "avatar" ? "rounded-2xl" : "rounded-lg"}`}
+          } ${kind === "avatar" ? shapeRoundingClass(avatarShape) : "rounded-lg"}`}
           style={{ width: frameWidth, height: frameHeight }}
           onPointerDown={image ? onPointerDown : undefined}
           onPointerMove={onPointerMove}

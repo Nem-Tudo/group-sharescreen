@@ -76,20 +76,24 @@ function isRecentRoom(value: unknown): value is RecentRoom {
 function parseStoredRooms(raw: string | null): RecentRoom[] {
   if (!raw) return EMPTY_ROOMS;
   try {
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return EMPTY_ROOMS;
-    const rooms: RecentRoom[] = [];
-    const seen = new Set<string>();
-    for (const item of parsed) {
-      if (!isRecentRoom(item) || seen.has(item.handle)) continue;
-      seen.add(item.handle);
-      rooms.push(item);
-      if (rooms.length >= MAX_RECENT_ROOMS) break;
-    }
-    return rooms.length === 0 ? EMPTY_ROOMS : rooms;
+    return cleanRecentRooms(JSON.parse(raw));
   } catch {
     return EMPTY_ROOMS;
   }
+}
+
+/** Keeps only valid, distinct rooms, at most MAX_RECENT_ROOMS — for any source. */
+export function cleanRecentRooms(parsed: unknown): RecentRoom[] {
+  if (!Array.isArray(parsed)) return EMPTY_ROOMS;
+  const rooms: RecentRoom[] = [];
+  const seen = new Set<string>();
+  for (const item of parsed) {
+    if (!isRecentRoom(item) || seen.has(item.handle)) continue;
+    seen.add(item.handle);
+    rooms.push(item);
+    if (rooms.length >= MAX_RECENT_ROOMS) break;
+  }
+  return rooms.length === 0 ? EMPTY_ROOMS : rooms;
 }
 
 export function getRecentRooms(): RecentRoom[] {
@@ -133,18 +137,27 @@ function persist(next: RecentRoom[]) {
 
 export function rememberRecentRoom(handle: string, now = Date.now()) {
   if (typeof window === "undefined") return;
-  if (!HANDLE_RE.test(handle)) return;
+  const next = withRecentRoom(getRecentRooms(), handle, now);
+  if (next) persist(next);
+}
+
+/**
+ * The list after entering `handle`, or null when that room is not one to
+ * remember. Pure, so the account-synced list (lib/recentRoomsSync) applies
+ * exactly the same rules.
+ */
+export function withRecentRoom(existing: RecentRoom[], handle: string, now: number): RecentRoom[] | null {
+  if (!HANDLE_RE.test(handle)) return null;
   // A call is not somewhere you go back to. Its room is generated per call,
   // named after nothing, and dead the moment both people leave — so a button
   // offering to re-enter it is a button that leads to an empty room with a
   // name nobody recognizes, taking one of the three slots from a room that
   // somebody actually chose.
-  if (isCallRoomHandle(handle)) return;
+  if (isCallRoomHandle(handle)) return null;
   // Same for the rooms a theme page opens to make or look at a theme: minted
   // per press, named after the task, and the way back to the theme is its
   // page — not a room it was once looked at in.
-  if (isThemeRoomHandle(handle)) return;
-  const existing = getRecentRooms();
+  if (isThemeRoomHandle(handle)) return null;
   // Already on the list: leave the *order* alone. Re-entering the second slot
   // would otherwise bump it to the top and shuffle the other two, which is
   // the opposite of a stable "salas recentes" shortcut — the whole value of
@@ -159,12 +172,17 @@ export function rememberRecentRoom(handle: string, now = Date.now()) {
   // which now picks by this timestamp rather than by position.
   const known = existing.find((room) => room.handle === handle);
   if (known) {
-    persist(
-      existing.map((room) => (room.handle === handle ? { ...room, visitedAt: now } : room))
-    );
-    return;
+    return existing.map((room) => (room.handle === handle ? { ...room, visitedAt: now } : room));
   }
-  persist([{ handle, visitedAt: now }, ...existing].slice(0, MAX_RECENT_ROOMS));
+  return [{ handle, visitedAt: now }, ...existing].slice(0, MAX_RECENT_ROOMS);
+}
+
+/** This browser's own list, handed over and cleared — see lib/recentRoomsSync. */
+export function takeLocalRecentRooms(): RecentRoom[] {
+  if (typeof window === "undefined") return EMPTY_ROOMS;
+  const rooms = getRecentRooms();
+  if (rooms.length > 0) persist([]);
+  return rooms;
 }
 
 export function forgetRecentRoom(handle: string) {

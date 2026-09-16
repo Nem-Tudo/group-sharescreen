@@ -4,6 +4,7 @@ import { useSyncExternalStore } from "react";
 import { getSignalingHttpBase } from "./roomsApi";
 import { getCaptchaToken, type CaptchaAction } from "./turnstile";
 import { translate } from "@/lib/i18n";
+import type { AvatarShape } from "@/lib/avatarShape";
 
 export type Account = {
   id: string;
@@ -29,6 +30,12 @@ export type Account = {
   // userProfile.ts) — DB-edited only, unlike points above.
   bio?: string | null;
   avatarUrl?: string | null;
+  /**
+   * The outline the picture is drawn in. Already folded into avatarUrl (see
+   * lib/avatarShape) — this copy is for the profile editor, which shows the
+   * choice selected. "circle" whenever the plan does not allow another.
+   */
+  avatarShape?: AvatarShape;
   bannerUrl?: string | null;
   /**
    * The profile's gradient (see lib/profileTheme). Null for the default look,
@@ -176,7 +183,7 @@ export function setAccountToken(token: string | null) {
   listeners.forEach((l) => l());
 }
 
-function subscribeAccountToken(cb: () => void) {
+export function subscribeAccountToken(cb: () => void) {
   listeners.add(cb);
   return () => {
     listeners.delete(cb);
@@ -473,6 +480,8 @@ export type UpdateProfileInput = {
   banner?: string | null;
   /** A group id to show on the profile; null clears it, absent leaves it alone. */
   profileGroup?: string | null;
+  /** The picture's outline (Pro Ultra for "square"); absent leaves it alone. */
+  avatarShape?: AvatarShape;
   /**
    * The whole list of social links, replacing whatever was there. An empty
    * array clears them; absent leaves them alone.

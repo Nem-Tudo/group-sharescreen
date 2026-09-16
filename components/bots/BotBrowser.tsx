@@ -20,6 +20,7 @@ import {
 import { kickMember } from "@/lib/groupsApi";
 import { refreshGroup } from "@/lib/useGroups";
 import { useI18n } from "@/lib/useI18n";
+import { avatarShapeClass } from "@/lib/avatarShape";
 
 // Every public bot, to find one for a group — the body of a group's
 // "Explorar bots" (see BotExplorerDialog) and of the /bots page.
@@ -583,7 +584,7 @@ function BotCard({
           aria-label={profileLabel}
           // Positioned, so it paints over the banner above — which is itself
           // positioned, and would otherwise cover the half that overlaps it.
-          className="relative z-10 -mt-7 self-start rounded-full ring-4 ring-white dark:ring-zinc-950"
+          className={`relative z-10 -mt-7 self-start ${avatarShapeClass(bot.avatarUrl)} ring-4 ring-white dark:ring-zinc-950`}
         >
           {/* The avatar draws its own presence dot from the user id. */}
           <UserAvatar src={bot.avatarUrl} name={bot.displayName} size={52} userId={bot.id} />

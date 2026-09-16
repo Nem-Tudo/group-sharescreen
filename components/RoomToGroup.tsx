@@ -7,6 +7,7 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { DialogFrame, inputClass, secondaryButton, type PopupProps } from "@/components/groups/dialogKit";
 import { signalingClient } from "@/lib/signalingClient";
 import { useT } from "@/lib/useI18n";
+import { avatarShapeClass } from "@/lib/avatarShape";
 
 // Turning an ordinary room into a group, the way somebody in it finds out it
 // can be done: a button after the room's last participant (see WatchRoom), and
@@ -57,7 +58,7 @@ function Faces({ people, max, size }: { people: RoomToGroupPerson[]; max: number
       {shown.map((person, i) => (
         <span
           key={person.key}
-          className={`flex shrink-0 rounded-full ring-2 ring-white dark:ring-zinc-950 ${i > 0 ? "-ml-2" : ""}`}
+          className={`flex shrink-0 ${avatarShapeClass(person.avatarUrl)} ring-2 ring-white dark:ring-zinc-950 ${i > 0 ? "-ml-2" : ""}`}
           title={person.name}
         >
           <UserAvatar src={person.avatarUrl} name={person.name} size={size} />

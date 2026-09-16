@@ -99,6 +99,7 @@ import { hasFeature } from "@/lib/entitlements";
 import { openProModal } from "@/lib/proModal";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
+import { avatarShapeClass } from "@/lib/avatarShape";
 
 // The pieces of a group's screen around the conversation itself:
 //
@@ -227,7 +228,7 @@ const VoicePersonRow = memo(function VoicePersonRow({
         className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
       >
         <span
-          className={`flex shrink-0 rounded-full transition-shadow duration-150 ${
+          className={`flex shrink-0 ${avatarShapeClass(person.avatarUrl)} transition-shadow duration-150 ${
             speaking ? "ring-2 ring-emerald-500" : "ring-0 ring-transparent"
           }`}
         >

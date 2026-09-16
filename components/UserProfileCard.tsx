@@ -40,7 +40,14 @@ import { DEFAULT_AVATAR_PATH } from "@/components/UserAvatar";
 import { fetchCosmeticsCatalog, type CosmeticProduct } from "@/lib/cosmetics";
 import { prepareAvatarImage, AVATAR_IMAGE_ACCEPT, AVATAR_IMAGE_MAX_BYTES } from "@/lib/avatarImage";
 import { canCropAnimatedGif } from "@/lib/gifCrop";
-import { MdCheck, MdEdit, MdGroups, MdLink, MdPhotoCamera, MdDeleteOutline } from "react-icons/md";
+import { MdCheck, MdEdit, MdGroups, MdLink, MdPhotoCamera, MdDeleteOutline, MdCircle, MdSquare } from "react-icons/md";
+import {
+  AVATAR_SHAPES,
+  avatarShapeOf,
+  shapeRoundingClass,
+  stripAvatarShape,
+  type AvatarShape,
+} from "@/lib/avatarShape";
 import { ImageCropDialog, type ImageCropKind } from "@/components/ImageCropDialog";
 import { ProfileGroupCard } from "@/components/groups/ProfileGroupCard";
 import { fetchMyGroups, type GroupSummary } from "@/lib/groupsApi";
@@ -538,6 +545,12 @@ function ProfileContent({
   const [editBgColor, setEditBgColor] = useState<string | null>(account.equippedProfileColor ?? null);
   const [previewAvatar, setPreviewAvatar] = useState<string | null>(account.avatarUrl ?? null);
   const [avatarDataUrl, setAvatarDataUrl] = useState<string | null | undefined>(undefined);
+  // The outline being edited. Kept apart from previewAvatar on purpose: a
+  // freshly picked preset or upload has no shape of its own in its URL, and
+  // the choice must survive changing the picture underneath it.
+  const [editAvatarShape, setEditAvatarShape] = useState<AvatarShape>(
+    account.avatarShape ?? avatarShapeOf(account.avatarUrl)
+  );
   const [ownedBgColors, setOwnedBgColors] = useState<CosmeticProduct[]>([]);
   const [avatarOptions, setAvatarOptions] = useState<AvatarOptions | null>(null);
   const [avatarOptionsError, setAvatarOptionsError] = useState<string | null>(null);
@@ -576,6 +589,7 @@ function ProfileContent({
     setEditBgColor(account.equippedProfileColor ?? null);
     setPreviewAvatar(account.avatarUrl ?? null);
     setAvatarDataUrl(undefined);
+    setEditAvatarShape(account.avatarShape ?? avatarShapeOf(account.avatarUrl));
     setPreviewBanner(account.bannerUrl ?? null);
     setBannerDataUrl(undefined);
     setEditTheme(account.profileTheme ?? null);
@@ -779,6 +793,7 @@ function ProfileContent({
     setEditBgColor(account.equippedProfileColor ?? null);
     setPreviewAvatar(account.avatarUrl ?? null);
     setAvatarDataUrl(undefined);
+    setEditAvatarShape(account.avatarShape ?? avatarShapeOf(account.avatarUrl));
     setPreviewBanner(account.bannerUrl ?? null);
     setBannerDataUrl(undefined);
     setEditTheme(account.profileTheme ?? null);
@@ -837,6 +852,9 @@ function ProfileContent({
           : {}),
         equippedProfileColor: editBgColor,
         ...(profileGroupChanged ? { profileGroup: editProfileGroup } : {}),
+        // Only when it moved, like the rows around it, so somebody whose
+        // plan lapsed can still save a bio without the shape being refused.
+        ...(avatarShapeChanged ? { avatarShape: editAvatarShape } : {}),
         // Same rule as the song: sent only when it moved, so an unrelated bio
         // edit is never refused over a link somebody typed wrong weeks ago.
         ...(linksChanged ? { profileLinks: linksToSave } : {}),
@@ -889,6 +907,12 @@ function ProfileContent({
   const canEditSong = hasFeature("profile_song", authAccount?.features ?? []);
   const canEditProfileGroup = hasFeature("profile_group", authAccount?.features ?? []);
   const canEditLinks = hasFeature("profile_links", authAccount?.features ?? []);
+  const canChooseShape = hasFeature("avatar_shape", authAccount?.features ?? []);
+  const savedAvatarShape = account.avatarShape ?? avatarShapeOf(account.avatarUrl);
+  const avatarShapeChanged = editAvatarShape !== savedAvatarShape;
+  // What the card draws: the choice being edited, or the one everybody else
+  // sees, which is the one on the URL (see lib/avatarShape).
+  const shownAvatarShape = isEditing ? editAvatarShape : avatarShapeOf(account.avatarUrl);
   const profileGroupChanged = editProfileGroup !== (account.profileGroupId ?? null);
   // Rows with nothing typed in them are simply dropped on save rather than
   // refused: an empty row is somebody who added one and changed their mind,
@@ -1090,7 +1114,7 @@ function ProfileContent({
           corner. */}
       <div className="pointer-events-none relative -mt-12 flex items-end justify-between px-5 sm:-mt-16 sm:px-6">
         <div
-          className={`group pointer-events-auto relative flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-2xl border-4 shadow-md sm:h-28 sm:w-28 ${theme ? "" : "border-white bg-zinc-100 dark:border-zinc-950 dark:bg-zinc-900"
+          className={`group pointer-events-auto relative flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden ${shapeRoundingClass(shownAvatarShape)} border-4 shadow-md sm:h-28 sm:w-28 ${theme ? "" : "border-white bg-zinc-100 dark:border-zinc-950 dark:bg-zinc-900"
             }`}
           style={theme ? { borderColor: theme.ring, background: theme.surface } : undefined}
         >
@@ -1128,7 +1152,16 @@ function ProfileContent({
           // Parked on the avatar box's bottom-right corner, in the row's
           // coordinates: px-5 (20px) + w-24 (96px) puts that corner at 116px,
           // less half the dot; the sm: pair is the same sum with px-6 and w-28.
-          className="pointer-events-none absolute bottom-1 left-[6.4rem] z-10 sm:left-[7.6rem]"
+          //
+          // A circle has no corner there (the box's corner is empty space), so
+          // on one the dot moves in to where the edge actually is, on the 45
+          // degree line: about 29% of the radius in from each side (14px on
+          // the 96px box, 16px on the 112px one).
+          className={`pointer-events-none absolute z-10 ${
+            shownAvatarShape === "circle"
+              ? "bottom-[1.125rem] left-[5.5rem] sm:bottom-5 sm:left-[6.6rem]"
+              : "bottom-1 left-[6.4rem] sm:left-[7.6rem]"
+          }`}
         />
 
         {/* Outside the avatar's own box on purpose: that one is
@@ -1174,7 +1207,7 @@ function ProfileContent({
                 <AvatarRow
                   label={t("userProfileCard.default")}
                   paths={avatarOptions.defaults}
-                  selected={currentAvatar}
+                  selected={stripAvatarShape(currentAvatar)}
                   onPick={handlePickPreset}
                 />
 
@@ -1184,7 +1217,7 @@ function ProfileContent({
                     <AvatarRow
                       label={t("userProfileCard.proAvatars")}
                       paths={avatarOptions.gallery}
-                      selected={currentAvatar}
+                      selected={stripAvatarShape(currentAvatar)}
                       onPick={handlePickPreset}
                       locked={!avatarOptions.canUseGallery}
                       lockedHint={t("userProfileCard.availableOnPro")}
@@ -1209,6 +1242,48 @@ function ProfileContent({
                   {!avatarOptions.canUpload && (
                     <PlanLink tier="proMax" className="text-xs text-zinc-500 dark:text-zinc-400" />
                   )}
+                </div>
+
+                {/* The outline, for the top plan. Shown locked rather than
+            hidden, like every other paid row in here: a choice nobody can
+            see is one people only find out about on somebody else's face. */}
+                <div className={planRowClass(!canChooseShape, "flex flex-col gap-1.5")}>
+                  <PlanRing tier="proUltra" locked={!canChooseShape} />
+                  <span className="flex items-center gap-1 text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
+                    {t("userProfileCard.avatarShape")}
+                    {!canChooseShape && (
+                      <>
+                        <span aria-hidden>·</span>
+                        <PlanLink tier="proUltra" className="text-[11px] text-zinc-500 dark:text-zinc-400" />
+                      </>
+                    )}
+                  </span>
+                  <div className="flex gap-2">
+                    {AVATAR_SHAPES.map((shape) => {
+                      const selected = editAvatarShape === shape;
+                      const Icon = shape === "square" ? MdSquare : MdCircle;
+                      return (
+                        <button
+                          key={shape}
+                          type="button"
+                          // Going back to the circle is always allowed, the
+                          // same rule the API follows: a lapsed plan must not
+                          // trap a look on a profile.
+                          disabled={!canChooseShape && shape !== "circle"}
+                          onClick={() => setEditAvatarShape(shape)}
+                          aria-pressed={selected}
+                          className={`flex items-center gap-1.5 rounded-lg border-2 px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                            selected
+                              ? "border-emerald-500 text-zinc-900 dark:text-zinc-50"
+                              : "cursor-pointer border-zinc-200 text-zinc-600 hover:border-zinc-300 dark:border-zinc-800 dark:text-zinc-300 dark:hover:border-zinc-600"
+                          }`}
+                        >
+                          <Icon className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
+                          {shape === "square" ? t("userProfileCard.shapeSquare") : t("userProfileCard.shapeCircle")}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             ) : (
@@ -1597,6 +1672,7 @@ function ProfileContent({
           <ImageCropDialog
             src={cropping.src}
             kind={cropping.kind}
+            avatarShape={editAvatarShape}
             mimeType={cropping.mimeType}
             onCancel={closeCropper}
             onConfirm={handleCropped}

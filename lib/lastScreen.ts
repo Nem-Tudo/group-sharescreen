@@ -1,5 +1,6 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
 import { isAppShell } from "@/lib/desktop";
 
 // Reopening the app where it was closed — desktop and Android alike.
@@ -17,6 +18,36 @@ import { isAppShell } from "@/lib/desktop";
 
 const STORAGE_KEY = "golive:lastScreen";
 const SESSION_KEY = "golive:lastScreenRestored";
+// This device's choice, set on /me. On unless turned off.
+const ENABLED_KEY = "golive:reopenLastScreen";
+
+const enabledListeners = new Set<() => void>();
+
+export function isReopenLastScreenEnabled(): boolean {
+  try {
+    return localStorage.getItem(ENABLED_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+export function setReopenLastScreenEnabled(enabled: boolean): void {
+  try {
+    localStorage.setItem(ENABLED_KEY, enabled ? "1" : "0");
+  } catch {
+    // Storage refused: the choice lasts only for this page.
+  }
+  enabledListeners.forEach((listener) => listener());
+}
+
+function subscribeEnabled(listener: () => void): () => void {
+  enabledListeners.add(listener);
+  return () => enabledListeners.delete(listener);
+}
+
+export function useReopenLastScreen(): boolean {
+  return useSyncExternalStore(subscribeEnabled, isReopenLastScreenEnabled, () => true);
+}
 
 // Addresses that join something, or only exist to hand a result over and move
 // on (a login callback, a claim link), and so must not be the first thing a
@@ -86,6 +117,7 @@ export function takeScreenToRestore(): string | null {
   try {
     if (sessionStorage.getItem(SESSION_KEY)) return null;
     sessionStorage.setItem(SESSION_KEY, "1");
+    if (!isReopenLastScreenEnabled()) return null;
     if (window.location.pathname !== "/" || window.location.search || window.location.hash) return null;
     const saved = localStorage.getItem(STORAGE_KEY);
     if (!saved || saved === "/" || !isRestorable(saved)) return null;

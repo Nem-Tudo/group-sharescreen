@@ -20,6 +20,7 @@ import { LanguagePicker } from "@/components/LanguageToggle";
 import { openDirectMessages } from "@/lib/dmWindow";
 import type { OAuthResult } from "@/lib/oauthApi";
 import { useT } from "@/lib/useI18n";
+import { avatarShapeClass } from "@/lib/avatarShape";
 
 // Who you are, and everything you can do about it, in the header.
 //
@@ -295,7 +296,7 @@ export function AccountMenu() {
           <img
             src={authAccount.avatarUrl ?? DEFAULT_AVATAR_PATH}
             alt={name}
-            className="h-6 w-6 shrink-0 rounded-md object-cover"
+            className={`h-6 w-6 shrink-0 ${avatarShapeClass(authAccount.avatarUrl)} object-cover`}
           />
         ) : (
           <span

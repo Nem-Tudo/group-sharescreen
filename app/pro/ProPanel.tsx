@@ -88,6 +88,7 @@ const FEATURE_LABELS: Partial<Record<Feature, string>> = {
   get no_ads() { return translate("pro.proPanel.browseWithNoAds"); },
   get avatar_gallery() { return translate("pro.proPanel.exclusiveAvatarsForYourProfilePicture"); },
   get avatar_upload() { return translate("pro.proPanel.useAnyImageOfYoursAs"); },
+  get avatar_shape() { return translate("pro.proPanel.chooseYourAvatarShape"); },
   get banner_upload() { return translate("pro.proPanel.uploadYourOwnProfileBanner"); },
   get profile_gradient() { return translate("pro.proPanel.chooseYourProfileSBackgroundColours"); },
   get profile_song() { return translate("pro.proPanel.putASongOnYourProfile"); },

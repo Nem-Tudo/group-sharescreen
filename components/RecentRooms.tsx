@@ -6,13 +6,13 @@ import { MdChevronRight, MdClose, MdLock } from "react-icons/md";
 import { GlobeIcon } from "@/components/icons";
 import { ButtonSpinner } from "@/components/ButtonSpinner";
 import { trackEvent } from "@/lib/analytics";
+import { recentRoomPresentation } from "@/lib/recentRooms";
 import {
   forgetRecentRoom,
   getRecentRooms,
   getRecentRoomsServer,
-  recentRoomPresentation,
   subscribeRecentRooms,
-} from "@/lib/recentRooms";
+} from "@/lib/recentRoomsSync";
 import { useT } from "@/lib/useI18n";
 
 export function RecentRooms() {

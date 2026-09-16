@@ -17,6 +17,7 @@ import { bitOf, hasBit, PERMISSION_BITS } from "@/lib/permissionBits";
 import { useGroupNavigation } from "@/lib/groupNavigation";
 import { refreshGroups } from "@/lib/useGroups";
 import { useI18n } from "@/lib/useI18n";
+import { avatarShapeClass } from "@/lib/avatarShape";
 
 // The "add this bot to a group" card: the bot, the groups this person runs,
 // one button. The API decides everything that matters — whether the bot is
@@ -126,7 +127,7 @@ export function AddBotClient({
         <img
           src={bot.avatarUrl ?? DEFAULT_AVATAR_PATH}
           alt=""
-          className="h-20 w-20 rounded-full object-cover ring-4 ring-white dark:ring-zinc-950"
+          className={`h-20 w-20 ${avatarShapeClass(bot.avatarUrl)} object-cover ring-4 ring-white dark:ring-zinc-950`}
         />
         <div className="flex items-center gap-1.5">
           <h1 className="text-xl font-semibold text-zinc-950 dark:text-zinc-50">{bot.displayName}</h1>

@@ -37,6 +37,7 @@ export type Feature =
   | "profile_song"
   | "profile_group"
   | "profile_links"
+  | "avatar_shape"
   | "room_theme"
   | "room_theme_publish"
   | "room_theme_set"
@@ -61,6 +62,7 @@ export const FEATURE_TIERS: Record<Feature, FeatureTier> = {
   profile_song: "premium_max",
   profile_group: "pro_ultra",
   profile_links: "pro_ultra",
+  avatar_shape: "pro_ultra",
   room_theme: "premium",
   room_theme_publish: "premium_max",
   room_theme_set: "premium_max",
