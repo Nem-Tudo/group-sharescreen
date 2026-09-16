@@ -10,6 +10,7 @@ import { AdsterraPanel } from "./AdsterraPanel";
 import { GrantPremiumPanel } from "./GrantPremiumPanel";
 import { GiftPanel } from "./GiftPanel";
 import { AccountFlagsPanel } from "./AccountFlagsPanel";
+import { BadgesAdminPanel } from "./BadgesAdminPanel";
 import { AccountPointsPanel } from "./AccountPointsPanel";
 import { AutoFlagsPanel } from "./AutoFlagsPanel";
 import { AntiSpamPanel } from "./AntiSpamPanel";
@@ -22,6 +23,7 @@ import { EvalPanel } from "./EvalPanel";
 import { GroupsPanel } from "./GroupsPanel";
 import { BotsPanel } from "./BotsPanel";
 import { ReservedInvitesPanel } from "./ReservedInvitesPanel";
+import { FeaturesPanel } from "./FeaturesPanel";
 import { translate } from "@/lib/i18n";
 
 // The admin area, in sections.
@@ -91,6 +93,8 @@ export const ADMIN_SECTIONS: AdminSection[] = [
             asked when there is nobody to aim it at yet. */}
         <GiftPanel />
         <AccountFlagsPanel />
+        {/* Next to the flags: most badges are given by one. */}
+        <BadgesAdminPanel />
         <AccountPointsPanel />
         <AutoFlagsPanel />
       </Group>
@@ -129,6 +133,18 @@ export const ADMIN_SECTIONS: AdminSection[] = [
         <BannedWordsPanel />
         <AntiSpamPanel />
         <EvalPanel />
+      </Group>
+    ),
+  },
+  {
+    // Rollouts and A/B tests. Its own tab rather than under "Site": it is
+    // aimed at users, rooms and groups alike, and it is where a launch is
+    // watched day by day.
+    id: "features",
+    get label() { return translate("admin.dashboardPanel.features"); },
+    Panel: () => (
+      <Group>
+        <FeaturesPanel />
       </Group>
     ),
   },

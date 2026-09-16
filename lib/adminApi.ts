@@ -13,6 +13,7 @@ import type {
 import type { Partner, PartnerClickRewardPlacement } from "./partner";
 import type { Supporter } from "./supporter";
 import { translate } from "@/lib/i18n";
+import type { BadgeDefinition } from "./badges";
 
 export type {
   Announcement,
@@ -1081,4 +1082,167 @@ export async function runAutoFlagRules(): Promise<{ accounts: number; grants: nu
   return adminFetch<{ accounts: number; grants: number }>("/admin/auto-flags/run", {
     method: "POST",
   });
+}
+
+// ---------------------------------------------------------------------------
+// Feature rollouts (see the API's featureStore.ts)
+
+export type FeatureTarget = "user" | "room" | "group";
+export type FeaturePlatform = "desktop-browser" | "desktop-app" | "mobile-browser" | "mobile-app";
+
+export interface FeatureOverride {
+  id: string;
+  variant: string;
+  note: string;
+}
+
+export interface AdminFeature {
+  key: string;
+  name: string;
+  description: string;
+  target: FeatureTarget;
+  rolloutBp: number;
+  variants: string[];
+  overrides: FeatureOverride[];
+  salt: string;
+  requiredFlags: string[];
+  platforms: FeaturePlatform[];
+  includeGuests: boolean;
+  serverOnly: boolean;
+  enabled: boolean;
+  archived: boolean;
+  history: { at: number; rolloutBp: number; enabled: boolean; by: string }[];
+  createdBy: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** What the create and edit forms send. `rollout` is a percent (0–100). */
+export interface FeatureWrite {
+  key?: string;
+  name?: string;
+  description?: string;
+  target?: FeatureTarget;
+  rollout?: number;
+  variants?: string[];
+  overrides?: FeatureOverride[];
+  requiredFlags?: string[];
+  platforms?: FeaturePlatform[];
+  includeGuests?: boolean;
+  serverOnly?: boolean;
+  enabled?: boolean;
+  archived?: boolean;
+  reshuffle?: boolean;
+}
+
+export interface FeatureStats {
+  groups: Record<string, { exposures: number; uniqueExposures: number }>;
+  events: Record<string, Record<string, { count: number; unique: number; value: number }>>;
+  daily: { day: string; exposures: Record<string, number>; events: Record<string, Record<string, number>> }[];
+}
+
+export interface FeatureCheck {
+  variant: string | null;
+  group: string | null;
+  reason: string;
+}
+
+export async function fetchFeatures(): Promise<{ features: AdminFeature[]; clientEvents: string[] }> {
+  return adminFetch("/admin/features");
+}
+
+export async function createFeature(input: FeatureWrite): Promise<AdminFeature> {
+  const data = await adminFetch<{ feature: AdminFeature }>("/admin/features", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return data.feature;
+}
+
+export async function updateFeature(key: string, patch: FeatureWrite): Promise<AdminFeature> {
+  const data = await adminFetch<{ feature: AdminFeature }>(`/admin/features/${encodeURIComponent(key)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  return data.feature;
+}
+
+export async function deleteFeature(key: string): Promise<void> {
+  await adminFetch(`/admin/features/${encodeURIComponent(key)}`, { method: "DELETE" });
+}
+
+export async function fetchFeatureStats(key: string, days = 30): Promise<FeatureStats> {
+  const data = await adminFetch<{ stats: FeatureStats }>(
+    `/admin/features/${encodeURIComponent(key)}/stats?days=${days}`
+  );
+  return data.stats;
+}
+
+export async function resetFeatureStats(key: string): Promise<void> {
+  await adminFetch(`/admin/features/${encodeURIComponent(key)}/stats/reset`, { method: "POST" });
+}
+
+export async function checkFeature(key: string, id: string, platform?: string, guest?: boolean): Promise<FeatureCheck> {
+  const params = new URLSearchParams({ id });
+  if (platform) params.set("platform", platform);
+  if (guest) params.set("guest", "1");
+  const data = await adminFetch<{ decision: FeatureCheck }>(
+    `/admin/features/${encodeURIComponent(key)}/check?${params}`
+  );
+  return data.decision;
+}
+
+// Profile badges (see the API's adminBadgeRoutes.ts). The list comes back in
+// the order profiles show it.
+export type AdminBadgeInput = {
+  id: string;
+  name: string;
+  description: string;
+  iconUrl: string;
+  chipClass?: string;
+  bgClass?: string;
+  textClass?: string;
+  borderClass?: string;
+  requiredFlag?: string;
+  requiredPlan?: string;
+};
+
+export async function fetchAdminBadges(): Promise<BadgeDefinition[]> {
+  return (await adminFetch<{ badges: BadgeDefinition[] }>("/admin/badges")).badges;
+}
+
+export async function createAdminBadge(input: AdminBadgeInput): Promise<BadgeDefinition[]> {
+  const data = await adminFetch<{ badges: BadgeDefinition[] }>("/admin/badges", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return data.badges;
+}
+
+export async function deleteAdminBadge(id: string): Promise<BadgeDefinition[]> {
+  const data = await adminFetch<{ badges: BadgeDefinition[] }>(`/admin/badges/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  return data.badges;
+}
+
+export async function reorderAdminBadges(ids: string[]): Promise<BadgeDefinition[]> {
+  const data = await adminFetch<{ badges: BadgeDefinition[] }>("/admin/badges/order", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids }),
+  });
+  return data.badges;
+}
+
+export async function updateAdminBadge(id: string, input: AdminBadgeInput): Promise<BadgeDefinition[]> {
+  const data = await adminFetch<{ badges: BadgeDefinition[] }>(`/admin/badges/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return data.badges;
 }
