@@ -158,6 +158,25 @@ export function useAttachmentUploads(target: UploadTarget) {
     [pump, update]
   );
 
+  /**
+   * Puts finished uploads back in the tray — a draft being restored (see
+   * lib/composerDrafts).
+   *
+   * Only ever *finished* ones, and the caller is what guarantees that: a queued
+   * or uploading row has a File behind it in `files`, and a restored one has
+   * nothing to upload, so the queue would sit on it for ever. `seq` is moved
+   * past the restored ids so a file picked afterwards cannot collide with one.
+   */
+  const restore = useCallback(
+    (saved: PendingAttachment[]) => {
+      const usable = saved.filter((item) => item.status === "done" && item.token && item.attachment);
+      if (usable.length === 0) return;
+      seq.current = usable.reduce((max, item) => Math.max(max, item.id), seq.current);
+      update(() => usable.slice(0, CHAT_ATTACHMENT_MAX_PER_MESSAGE));
+    },
+    [update]
+  );
+
   /** Once the message has gone: the files are the message's now. */
   const clear = useCallback(() => {
     for (const controller of controllers.current.values()) controller.abort();
@@ -183,6 +202,7 @@ export function useAttachmentUploads(target: UploadTarget) {
     items,
     add,
     remove,
+    restore,
     clear,
     error,
     setError,

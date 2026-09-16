@@ -53,6 +53,7 @@ import { registerMentionHandler, type MentionTarget } from "@/lib/groupMentionBr
 import { useAttachmentUploads } from "@/lib/useAttachmentUploads";
 import { useEmojiAutocomplete } from "@/lib/useEmojiAutocomplete";
 import { useT } from "@/lib/useI18n";
+import { clearDraft, readDraft, writeDraft } from "@/lib/composerDrafts";
 
 // The box at the bottom of a group's text room. Drawn like the room chat's own
 // composer (components/ChatPanel) — a text field and small icon buttons along
@@ -276,6 +277,7 @@ export function GroupMessageComposer({
   onEditLast,
   disabledReason,
   allow = { gifs: true, images: true },
+  draftKey = null,
   onTypingChange,
 }: {
   ref?: Ref<ComposerHandle>;
@@ -332,6 +334,13 @@ export function GroupMessageComposer({
    * everybody else's screen. Timing in lib/typing's createTypingAnnouncer.
    */
   onTypingChange?: (typing: boolean) => void;
+  /**
+   * Where to keep what is half-written, so leaving the room and coming back
+   * does not throw it away — see lib/composerDrafts for what is kept and why
+   * it is the session and not longer. Leave it out for a composer whose
+   * contents are not worth remembering.
+   */
+  draftKey?: string | null;
 }) {
   const t = useT();
   const [text, setText] = useState("");
@@ -381,6 +390,57 @@ export function GroupMessageComposer({
     images: { dataUrl: string; bytes: number }[];
     picked: Map<string, MentionCandidate>;
   } | null>(null);
+
+  // ─── Rascunho ───────────────────────────────────────────────────────────
+  //
+  // Restored once, on mount, and written back whenever what is in the box
+  // changes. The composer is remounted per room (TextChannelView is keyed on
+  // it, see GroupPages), so "on mount" is exactly "on arriving in this room"
+  // and there is no key to react to afterwards.
+
+  // Whether the restore has run. Until it has, the effect below must not save
+  // — the first render has an empty box, and writing that would delete the
+  // very draft this is about to read.
+  const restored = useRef(false);
+  useEffect(() => {
+    if (restored.current) return;
+    restored.current = true;
+    if (!draftKey) return;
+    const saved = readDraft(draftKey);
+    if (!saved) return;
+    setText(saved.text);
+    setImages(saved.images);
+    setCursor(saved.text.length);
+    uploads.restore(saved.attachments);
+    // After the paint, so the box is measured against the text that is now in
+    // it rather than against the empty one it was rendered with.
+    requestAnimationFrame(resize);
+    // Deliberately once, on mount: `uploads` and `resize` are rebuilt every
+    // render, and following them would re-read the draft over whatever has
+    // been typed since.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!draftKey || !restored.current) return;
+    // While an edit is open the box holds *that message*, not a draft — what
+    // was being written is parked in `draft` (see startEdit), and that is what
+    // has to be saved. Otherwise editing an old message would overwrite the
+    // draft with its text, and cancelling would leave it there.
+    const held = editing ? draft.current : { text, images };
+    const timer = setTimeout(() => {
+      writeDraft(draftKey, {
+        text: held?.text ?? "",
+        images: held?.images ?? [],
+        // Only the finished uploads — an unfinished one is aborted when this
+        // composer goes away and cannot be resumed (see composerDrafts).
+        attachments: uploads.items.filter((item) => item.status === "done"),
+      });
+      // Debounced: this runs on every keystroke, and JSON-stringifying pasted
+      // pictures on each one is real work on the typing path.
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [draftKey, text, images, editing, uploads.items]);
 
   function startEdit(edit: ComposerEdit) {
     if (disabled) return;
@@ -870,6 +930,9 @@ export function GroupMessageComposer({
       setImages([]);
       uploads.clear();
       setCursor(0);
+      // Now, not on the debounce: the message is gone, and a reload in the
+      // next 400ms must not bring it back into the box as a draft.
+      if (draftKey) clearDraft(draftKey);
       requestAnimationFrame(resize);
     }
     textRef.current?.focus();

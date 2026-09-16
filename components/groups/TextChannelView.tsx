@@ -57,6 +57,7 @@ import { openContextMenu } from "@/lib/contextMenu";
 import { mentionInComposer } from "@/lib/groupMentionBridge";
 import { Twemoji } from "@/components/Twemoji";
 import { rememberChannel } from "@/components/groups/lastChannel";
+import { groupDraftKey } from "@/lib/composerDrafts";
 import { mentionsRegexFor, normalizeSearch, tokenizeMentions } from "@/lib/chatMentions";
 import { findMentionExprs, mentionsTakeIn, typedAtomResolver } from "@/lib/mentionExpr";
 import {
@@ -1789,6 +1790,9 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
           disabledReason={can("sendMessages") ? null : t("groups.textChannelView.youCannotSendMessagesInThis")}
           allow={{ gifs: can("sendGifs"), images: can("sendImages") }}
           onTypingChange={can("sendMessages") ? announceTyping : undefined}
+          // Half-written messages survive leaving the room, for as long as the
+          // tab is open — see lib/composerDrafts.
+          draftKey={groupDraftKey(groupId, channelId)}
         />
       )}
 
