@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useSignaling } from "./useSignaling";
+import { useSignalingSelector, shallow } from "./useSignalingSelector";
+import { selectPartnerPush } from "./signalingSelectors";
 import { signalingClient } from "./signalingClient";
 import {
   fetchPartner,
@@ -24,7 +25,7 @@ const ROTATE_INTERVAL_MS = 3 * 60 * 1000;
  * the same fact arriving a level down, so it goes through the same gates.
  */
 export function usePartnerAd({ visible = true }: { visible?: boolean } = {}) {
-  const signalingState = useSignaling();
+  const signalingState = useSignalingSelector(selectPartnerPush, shallow);
   const [partner, setPartner] = useState<PartnerCardData | null>(null);
   const [loaded, setLoaded] = useState(false);
 

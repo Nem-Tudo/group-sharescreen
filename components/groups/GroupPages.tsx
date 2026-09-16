@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { GroupJoinCard } from "@/components/groups/GroupJoinCard";
 import { GroupLink } from "@/components/groups/GroupLink";
 import { GroupMobileHome } from "@/components/groups/GroupMobile";
@@ -224,6 +224,23 @@ export function GroupRoom({ groupId, roomId }: { groupId: string; roomId: string
   const navigation = useGroupNavigation();
   const { detail, error } = useGroupDetail(groupId);
   const channel = detail?.channels.find((c) => c.id === roomId) ?? null;
+  // The group as the text room sees it: everything but who is in the voice
+  // rooms, which it never reads. A "group-voice" replaces the detail object
+  // (somebody joined, left, unmuted), and handing that on made the text room
+  // redraw every line — and re-derive every permission memoised on the detail
+  // — each time. The patch keeps the other fields' identity (see useGroups'
+  // patchDetail), so this only changes when something the room reads did.
+  const group = detail?.group;
+  const channels = detail?.channels;
+  const categories = detail?.categories;
+  const memberRoles = detail?.memberRoles;
+  const me = detail?.me;
+  const chatAvailable = detail?.chatAvailable;
+  const textDetail = useMemo(
+    () => detail,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately not `voice`/`voiceRooms`
+    [group, channels, categories, memberRoles, me, chatAvailable]
+  );
 
   // A room that is gone (deleted while open, or a stale link) sends you to the group.
   useEffect(() => {
@@ -239,7 +256,7 @@ export function GroupRoom({ groupId, roomId }: { groupId: string; roomId: string
   }
   if (!detail || !channel) return <Loading />;
   if (channel.kind === "text") {
-    return <TextChannelView key={channel.id} detail={detail} channelId={channel.id} />;
+    return <TextChannelView key={channel.id} detail={textDetail ?? detail} channelId={channel.id} />;
   }
   // Locked to this person (no "Conectar"): the shell does not try to join it,
   // so this is what stays on screen — for a link followed, or a room that was

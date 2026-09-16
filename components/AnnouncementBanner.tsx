@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
-import { useSignaling } from "@/lib/useSignaling";
+import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
+import { selectAnnouncement } from "@/lib/signalingSelectors";
 import { signalingClient } from "@/lib/signalingClient";
 import { AnnouncementBar } from "./AnnouncementBar";
 import {
@@ -43,7 +44,7 @@ function getDeviceServerSnapshot(): AnnouncementDevice | null {
 // A non-dismissible, non-persistent, non-reload announcement has none of
 // these and stays up until the admin clears or replaces it.
 export function AnnouncementBanner() {
-  const state = useSignaling();
+  const state = useSignalingSelector(selectAnnouncement, shallow);
   const liveAnnouncement = state.announcement;
 
   // The last `persistent: true` announcement this browser actually received

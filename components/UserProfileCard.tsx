@@ -13,7 +13,8 @@ import { useAuth } from "@/lib/AuthContext";
 import { ProfileLinksRow } from "@/components/ProfileLinksRow";
 import { ProfileLinksEditor } from "@/components/ProfileLinksEditor";
 import { MAX_PROFILE_LINKS, type ProfileLink } from "@/lib/profileLinks";
-import { useSignaling } from "@/lib/useSignaling";
+import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
+import { selectNameSlice } from "@/lib/signalingSelectors";
 import { usePresence } from "@/lib/presence";
 import { PresenceDot } from "@/components/PresenceDot";
 import { signalingClient } from "@/lib/signalingClient";
@@ -527,7 +528,7 @@ function ProfileContent({
 }) {
   const { t, tc } = useI18n();
   const { account: authAccount, updateProfile, refresh: refreshAuth } = useAuth();
-  const state = useSignaling();
+  const state = useSignalingSelector(selectNameSlice, shallow);
   const { openPopup } = useNtPopups();
   const { account, live, groupCount } = profile;
   const isOwner = Boolean(authAccount && authAccount.id === account.id);

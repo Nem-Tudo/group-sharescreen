@@ -26,7 +26,8 @@ import {
   type PeerInfo,
   type RoomLocation,
 } from "@/lib/signalingClient";
-import { useSignaling } from "@/lib/useSignaling";
+import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
+import { selectManageRoom } from "@/lib/signalingSelectors";
 import { DisplayUserName } from "./DisplayUserName";
 import { WorldMap } from "./WorldMap";
 import { usePublicRoomMarkers } from "@/lib/usePublicRoomMarkers";
@@ -112,7 +113,7 @@ export function ManageRoomModal({
   data?: ManageRoomPopupData;
 }) {
   const t = useT();
-  const state = useSignaling();
+  const state = useSignalingSelector(selectManageRoom, shallow);
   const [view, setView] = useState<View>(data?.initialView ?? "menu");
   // Where the pin currently sits in the "Definir local do mundo" view —
   // local until "Salvar local", so a stray click on the map doesn't move the

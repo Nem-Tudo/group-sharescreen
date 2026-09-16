@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { getSignalingHttpBase } from "@/lib/roomsApi";
-import { useSignaling } from "@/lib/useSignaling";
+import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
+import { selectSupportersPush } from "@/lib/signalingSelectors";
 import type { Supporter } from "@/lib/supporter";
 import { VerifiedBadgeIcon } from "./icons";
 import { useT } from "@/lib/useI18n";
@@ -47,7 +48,7 @@ function SupportPerk() {
 // so there's no client-side re-sort here.
 export function SupportersTooltipContent() {
   const t = useT();
-  const signalingState = useSignaling();
+  const signalingState = useSignalingSelector(selectSupportersPush, shallow);
   const [supporters, setSupporters] = useState<Supporter[]>([]);
   const lastHandledSeq = useRef(0);
 

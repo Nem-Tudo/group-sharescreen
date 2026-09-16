@@ -598,13 +598,32 @@ export function useGroupsState(): GroupsState {
   return useSyncExternalStore(subscribe, getSnapshot, () => serverSnapshot);
 }
 
+/**
+ * One piece of the store, re-rendering only when that piece changes.
+ *
+ * useGroupsState hands out the whole store, which moves on every group event
+ * the account receives — a "group-voice" from any of its groups is one — so a
+ * text room subscribed that way was redrawn, every line of it, whenever
+ * somebody anywhere unmuted. `select` must return something already in the
+ * store (a field, a map entry), never a fresh object: that is what keeps it
+ * stable between changes.
+ */
+export function useGroupsSlice<T>(select: (state: GroupsState) => T, serverValue: T): T {
+  return useSyncExternalStore(
+    subscribe,
+    () => select(state),
+    () => serverValue
+  );
+}
+
 /** The list of groups, read once on first use. */
 export function useMyGroups(): { groups: GroupSummary[] | null; error: string | null } {
-  const snapshot = useGroupsState();
+  const groups = useGroupsSlice((s) => s.groups, null);
+  const error = useGroupsSlice((s) => s.groupsError, null);
   useEffect(() => {
-    if (snapshot.groups === null) void refreshGroups();
-  }, [snapshot.groups]);
-  return { groups: snapshot.groups, error: snapshot.groupsError };
+    if (groups === null) void refreshGroups();
+  }, [groups]);
+  return { groups, error };
 }
 
 /** One group's details, read on first use and kept fresh by the socket. */
@@ -612,9 +631,8 @@ export function useGroupDetail(groupId: string | null): {
   detail: GroupDetail | null;
   error: { status: number; error: string } | null;
 } {
-  const snapshot = useGroupsState();
-  const detail = groupId ? snapshot.details[groupId] ?? null : null;
-  const error = groupId ? snapshot.detailErrors[groupId] ?? null : null;
+  const detail = useGroupsSlice((s) => (groupId ? s.details[groupId] ?? null : null), null);
+  const error = useGroupsSlice((s) => (groupId ? s.detailErrors[groupId] ?? null : null), null);
   // Shown from memory at once when it was read before; re-read behind it when
   // that read is old — the socket keeps it current while connected, this covers
   // whatever a sleeping tab or a dropped connection missed.

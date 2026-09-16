@@ -44,7 +44,8 @@ import { useBackHandler } from "@/lib/useBackHandler";
 import { openDirectMessages } from "@/lib/dmWindow";
 import type { OAuthResult } from "@/lib/oauthApi";
 import { signalingClient } from "@/lib/signalingClient";
-import { useSignaling } from "@/lib/useSignaling";
+import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
+import { selectAccountMenu } from "@/lib/signalingSelectors";
 import { useT } from "@/lib/useI18n";
 import { avatarShapeClass } from "@/lib/avatarShape";
 
@@ -69,7 +70,7 @@ const secondaryButton =
 
 export function MeScreen() {
   const t = useT();
-  const state = useSignaling();
+  const state = useSignalingSelector(selectAccountMenu, shallow);
   const { account, points, logout } = useAuth();
   const pro = useProOffer();
   const [mode, setMode] = useState<Mode>("home");

@@ -6,6 +6,7 @@ import { ChatImages } from "@/components/ChatImages";
 import { attachmentsPreview } from "@/lib/chatAttachments";
 import {
   Fragment,
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -237,7 +238,16 @@ const reactionChipIdle =
 const reactionChipMine =
   "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-500/15 dark:text-blue-300";
 
-export function TextChannelView({ detail, channelId }: { detail: GroupDetail; channelId: string }) {
+// Memoised: its parent re-renders on every change to the group, and this is
+// the heaviest thing on a group's page (up to MAX_LIVE_MESSAGES lines of
+// markdown, mentions and embeds). See GroupRoom's `textDetail`.
+export const TextChannelView = memo(function TextChannelView({
+  detail,
+  channelId,
+}: {
+  detail: GroupDetail;
+  channelId: string;
+}) {
   const t = useT();
   const { openPopup } = useNtPopups();
   const groupId = detail.group.id;
@@ -1831,4 +1841,4 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
         })()}
     </div>
   );
-}
+});

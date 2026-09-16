@@ -72,3 +72,54 @@ export const selectCallNudge = (s: SignalingState) => ({
   callEndedSeq: s.callEndedSeq,
   alertTarget: s.alertTarget,
 });
+
+// ─── Whole-screen slices ──────────────────────────────────────────────────
+//
+// For the screens that read a handful of fields straight off the state as
+// `state.x`: the same object shape, holding only those fields. Pair with
+// `shallow`, like every multi-field slice.
+
+function pickFields<K extends keyof SignalingState>(keys: readonly K[]) {
+  return (s: SignalingState): Pick<SignalingState, K> => {
+    const out = {} as Pick<SignalingState, K>;
+    for (const key of keys) out[key] = s[key];
+    return out;
+  };
+}
+
+// The account menu and the Você screen: who is signed in, and the name.
+export const selectAccountMenu = pickFields(["account", "name", "nameError"]);
+
+// The site-wide announcement bar, always mounted.
+export const selectAnnouncement = pickFields(["announcement", "announcementLive", "announcementSeq"]);
+
+// Only the registered name — for the few screens that read nothing else.
+export const selectNameSlice = pickFields(["name"]);
+
+// The room settings dialog.
+export const selectManageRoom = pickFields(["peers", "room", "roomAdmins", "roomBans", "roomLocation", "roomMemberLimit", "roomOwnerId", "roomPermissions", "selfUserId"]);
+
+// A partner ad pushed by the server (PartnerCard, usePartnerAd).
+export const selectPartnerPush = pickFields(["partner", "partnerSeq"]);
+
+// The account card beside a room: who is signed in, and the name.
+export const selectAccountName = pickFields(["account", "name"]);
+
+// The supporters list pushed by the server.
+export const selectSupportersPush = pickFields(["supporters", "supportersSeq"]);
+
+// The home page's name gate.
+export const selectHomePage = pickFields(["bannedReason", "name", "nameError", "status"]);
+
+// A stream room's dashboard.
+export const selectStreamDashboard = pickFields(["account", "deviceConflict", "name", "peers", "roomAdmins", "roomOwnerId", "selfUserId", "videoSources"]);
+
+// A stream's viewer page.
+export const selectStreamViewer = pickFields(["deviceConflict", "joinError", "joinErrorKind", "name", "peers", "room", "selfId", "videoSources"]);
+
+// Everything a room (WatchRoom) reads — and nothing else. It used to take the
+// whole state, so every friend's presence change, private message, group
+// notification and gift anywhere on the account re-rendered the entire room,
+// call included. Add a field here when the room starts reading one; the
+// type (Pick) makes a missing one a compile error.
+export const selectWatchRoom = pickFields(["account", "name", "music", "selfUserId", "peers", "status", "selfId", "roomMemberLimit", "nameError", "room", "videoSources", "roomOwnerId", "roomRemoval", "roomPermissions", "guestBroadcastLimit", "roomLocation", "roomDescription", "roomCategory", "roomAdmins", "permissionDenied", "roomTheme", "roomCreated", "joinError", "deviceConflict", "chatMessages", "bannedReason", "typingPeerIds", "selfDevice", "roomConverted", "permissionDeniedSeq", "myRoomPermissions", "joinErrorKind", "guestBroadcastLimitSeq", "chatBlockedMessage"]);

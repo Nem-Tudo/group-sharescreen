@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { MdExpandMore } from "react-icons/md";
 import { signalingClient } from "@/lib/signalingClient";
-import { useSignaling } from "@/lib/useSignaling";
+import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
+import { selectAccountMenu } from "@/lib/signalingSelectors";
 import { DEFAULT_AVATAR_PATH } from "@/components/UserAvatar";
 import { useAuth } from "@/lib/AuthContext";
 import { trackEvent } from "@/lib/analytics";
@@ -50,7 +51,7 @@ const secondaryButtonClass =
 
 export function AccountMenu() {
   const t = useT();
-  const state = useSignaling();
+  const state = useSignalingSelector(selectAccountMenu, shallow);
   const { account: authAccount, logout } = useAuth();
 
   const [open, setOpen] = useState(false);

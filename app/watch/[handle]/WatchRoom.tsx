@@ -28,7 +28,9 @@ import {
   type ChatReplyTo,
   type RoomConversion,
 } from "@/lib/signalingClient";
-import { useSignaling, useHasStoredName } from "@/lib/useSignaling";
+import { useHasStoredName } from "@/lib/useSignaling";
+import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
+import { selectWatchRoom } from "@/lib/signalingSelectors";
 import { groupPath } from "@/lib/groupLinks";
 import {
   RoomToGroupButton,
@@ -1154,7 +1156,7 @@ export function WatchRoom({
   const router = useRouter();
   // The room stripped down to the call itself. See the `dm` prop.
   const callLayout = Boolean(dm);
-  const state = useSignaling();
+  const state = useSignalingSelector(selectWatchRoom, shallow);
   useRoomSoundEffects(state);
   // Paints the room. The room's own theme when it has one, this account's
   // otherwise — see lib/useRoomTheme, which is where that precedence lives.

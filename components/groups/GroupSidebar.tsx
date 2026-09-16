@@ -62,7 +62,7 @@ import {
   patchGroupDetail,
   refreshGroup,
   setChannelMutedFor,
-  useGroupsState,
+  useGroupsSlice,
 } from "@/lib/useGroups";
 import { openContextMenu } from "@/lib/contextMenu";
 import { copyText } from "@/lib/clipboard";
@@ -1493,10 +1493,13 @@ export function VoiceControls({ className = "" }: { className?: string }) {
   const call = useCallSession();
   const controls = useGroupVoiceControls();
   // The group's flags, for its badge — the session carries only the name.
-  const groupsState = useGroupsState();
+  const callGroupId = call?.group?.groupId ?? null;
+  const sessionFlags = useGroupsSlice(
+    (s) => (callGroupId ? s.details[callGroupId]?.group.flags : undefined),
+    undefined
+  );
   if (!call) return null;
   const callGroup = call.group;
-  const sessionFlags = callGroup ? groupsState.details[callGroup.groupId]?.group.flags : undefined;
   return (
     <div
       className={`flex items-center gap-1 rounded-xl border border-zinc-200 bg-zinc-100 p-1 dark:border-zinc-800 dark:bg-zinc-900 ${className}`}

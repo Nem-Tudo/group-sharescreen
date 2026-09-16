@@ -32,7 +32,9 @@ function realPeerMap(peers: PeerInfo[]): Map<string, PeerInfo> {
   return new Map(peers.filter((p) => p.role !== "moderator").map((p) => [p.id, p]));
 }
 
-export function useRoomSoundEffects(state: SignalingState) {
+export function useRoomSoundEffects(
+  state: Pick<SignalingState, "chatMessages" | "name" | "peers" | "room" | "selfId">
+) {
   const prevPeersRef = useRef<Map<string, PeerInfo>>(new Map());
   const chatBaselineRef = useRef(0);
   // False until the first "room-state" this hook has seen — guards against

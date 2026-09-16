@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
-import { useSignaling } from "@/lib/useSignaling";
+import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
+import { selectStreamDashboard } from "@/lib/signalingSelectors";
 import { useRoomMedia } from "@/lib/useRoomMedia";
 import { signalingClient } from "@/lib/signalingClient";
 import { copyText } from "@/lib/clipboard";
@@ -28,7 +29,7 @@ type StreamEntry = {
 
 export function StreamRoomDashboard({ handle }: { handle: string }) {
   const t = useT();
-  const state = useSignaling();
+  const state = useSignalingSelector(selectStreamDashboard, shallow);
   const {
     remoteStreams,
     remoteCameraStreams,

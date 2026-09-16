@@ -12,7 +12,9 @@ import {
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { signalingClient, getStoredName } from "@/lib/signalingClient";
-import { useSignaling, useHasStoredName } from "@/lib/useSignaling";
+import { useHasStoredName } from "@/lib/useSignaling";
+import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
+import { selectHomePage } from "@/lib/signalingSelectors";
 import { trackEvent } from "@/lib/analytics";
 import {
   roomHandleFromInput,
@@ -105,7 +107,7 @@ type RoomMode = "public" | "private-create" | "private-join";
 
 export default function Home() {
   const { t, tc } = useI18n();
-  const state = useSignaling();
+  const state = useSignalingSelector(selectHomePage, shallow);
   const router = useRouter();
   const { loading: resolvingAccount, account, retryIdentity } = useAuth();
   // A registration the server refused *after* the account was resolved (see

@@ -240,6 +240,30 @@ export function forgetGroupMembers(groupId: string): void {
  * the group's membership does — its member count and admins). `pollMs` keeps
  * the online dots honest on a screen that stays open.
  */
+/**
+ * Runs `poll` every `everyMs` while the page is on screen, and once on coming
+ * back if a tick was skipped meanwhile. A member list in a background tab is
+ * shown to nobody, and at a big group each read is the whole online roster.
+ * Returns the cleanup.
+ */
+function pollWhileVisible(poll: () => void, everyMs: number): () => void {
+  let missed = false;
+  const timer = window.setInterval(() => {
+    if (document.hidden) missed = true;
+    else poll();
+  }, everyMs);
+  const onVisibility = () => {
+    if (document.hidden || !missed) return;
+    missed = false;
+    poll();
+  };
+  document.addEventListener("visibilitychange", onVisibility);
+  return () => {
+    window.clearInterval(timer);
+    document.removeEventListener("visibilitychange", onVisibility);
+  };
+}
+
 export function useGroupMembers(
   groupId: string | null,
   revalidateKey: string,
@@ -263,8 +287,7 @@ export function useGroupMembers(
 
   useEffect(() => {
     if (!groupId || !pollMs) return;
-    const timer = window.setInterval(() => void refreshGroupMembers(groupId), pollMs);
-    return () => window.clearInterval(timer);
+    return pollWhileVisible(() => void refreshGroupMembers(groupId), pollMs);
   }, [groupId, pollMs]);
 
   return list;
@@ -311,15 +334,27 @@ export function refreshOnlineMembers(groupId: string, key?: string): Promise<voi
   const run = fetchOnlineMembers(groupId)
     .then((result) => {
       if (!result.ok) return;
-      onlineMembers.set(groupId, {
-        // Filtered even though the API already did: an older API answers
-        // this request with the whole membership, and without this every
-        // offline member would be listed as online.
-        list: result.members.filter((m) => m.online),
-        counts: countsOf(result) ?? { total: result.members.length, online: result.members.length },
-        fetchedAt: Date.now(),
-        key: key ?? onlineMembers.get(groupId)?.key ?? "",
-      });
+      // Filtered even though the API already did: an older API answers this
+      // request with the whole membership, and without this every offline
+      // member would be listed as online.
+      const list = result.members.filter((m) => m.online);
+      const counts = countsOf(result) ?? { total: result.members.length, online: result.members.length };
+      const nextKey = key ?? onlineMembers.get(groupId)?.key ?? "";
+      const held = onlineMembers.get(groupId);
+      // The poll mostly answers "nothing changed". Keeping the held entry then
+      // keeps every screen reading it (the text room, the member column) from
+      // redrawing for nothing; only the freshness moves, and nothing draws that.
+      if (
+        held &&
+        held.key === nextKey &&
+        held.counts.total === counts.total &&
+        held.counts.online === counts.online &&
+        JSON.stringify(held.list) === JSON.stringify(list)
+      ) {
+        held.fetchedAt = Date.now();
+        return;
+      }
+      onlineMembers.set(groupId, { list, counts, fetchedAt: Date.now(), key: nextKey });
       onlineListeners.forEach((l) => l());
     })
     .catch(() => {})
@@ -359,8 +394,7 @@ export function useOnlineGroupMembers(
 
   useEffect(() => {
     if (!groupId || !pollMs) return;
-    const timer = window.setInterval(() => void refreshOnlineMembers(groupId), pollMs);
-    return () => window.clearInterval(timer);
+    return pollWhileVisible(() => void refreshOnlineMembers(groupId), pollMs);
   }, [groupId, pollMs]);
 
   return entry;

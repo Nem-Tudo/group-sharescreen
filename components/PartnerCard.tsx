@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getSignalingHttpBase } from "@/lib/roomsApi";
 import { usePeopleOnline } from "@/lib/peopleOnline";
 import { trackEvent } from "@/lib/analytics";
-import { useSignaling } from "@/lib/useSignaling";
+import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
+import { selectPartnerPush } from "@/lib/signalingSelectors";
 import { signalingClient } from "@/lib/signalingClient";
 import { ArrowLeftIcon, ChartIcon, ChevronUpIcon } from "@/components/icons";
 import { BsCoin } from "react-icons/bs";
@@ -126,7 +127,7 @@ export function PartnerCard({
 } = {}) {
   const t = useT();
   const isControlled = externalLoaded !== undefined;
-  const signalingState = useSignaling();
+  const signalingState = useSignalingSelector(selectPartnerPush, shallow);
   const [internalPartner, setInternalPartner] = useState<PartnerCardData | null>(null);
   const [internalLoaded, setInternalLoaded] = useState(false);
 

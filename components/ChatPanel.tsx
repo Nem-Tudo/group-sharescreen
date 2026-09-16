@@ -153,6 +153,9 @@ function linkifyText(
 // The pictures a message carries, whichever way it says so: `images` is what
 // a current server sends, and a lone `url` under kind "image" is the older
 // shape still sitting in room histories.
+/** A stand-in for the author menu while none is open — see openAuthorMenu. */
+const NO_AUTHOR_MENU = () => null;
+
 function messageImages(m: ChatMessage): string[] {
   if (m.images && m.images.length > 0) return m.images;
   return m.kind === "image" && m.url ? [m.url] : [];
@@ -929,6 +932,414 @@ export function ChatPanel({
     void attachFiles(files);
   }
 
+  // ── The log ──
+  //
+  // Memoised as a whole. Typing lives in this component (`input`), and so do
+  // the mention menu, the pickers and the scroll pill — every one of which
+  // used to redraw every message in the log, markdown and embeds and all, on
+  // every key. So did every render of the room around it, which re-renders on
+  // anything in the call. Now the log is rebuilt only when something it draws
+  // changed; the rest reach it through the stable `handlers` below.
+  //
+  // The props arrive as fresh functions and arrays on every render of the
+  // room, so what the log depends on is reduced to what it actually reads:
+  // whether each callback is there, and who has a second device here.
+  const latestRef = useRef({ startReply, scrollToMessage, onOpenProfile, onAuthorContextMenu });
+  useLayoutEffect(() => {
+    latestRef.current = { startReply, scrollToMessage, onOpenProfile, onAuthorContextMenu };
+  });
+  const [handlers] = useState(() => ({
+    startReply: (message: ChatMessage) => latestRef.current.startReply(message),
+    scrollToMessage: (id: string) => latestRef.current.scrollToMessage(id),
+    openProfile: (userId: string) => latestRef.current.onOpenProfile?.(userId),
+    authorContextMenu: (from: string, name: string) => latestRef.current.onAuthorContextMenu?.(from, name),
+  }));
+  const hasAuthorMenu = Boolean(renderAuthorMenu);
+  const hasAuthorContextMenu = Boolean(onAuthorContextMenu);
+  const canOpenProfile = Boolean(onOpenProfile);
+  const canReply = Boolean(onSend);
+  // The menu itself is drawn from the prop, so it only counts while one is open.
+  const openAuthorMenu = renderAuthorMenu ? (authorMenuFor ? renderAuthorMenu : NO_AUTHOR_MENU) : null;
+  // Only the identities with more than one device change a name (see
+  // withDeviceSuffix), so only they decide whether the log is redrawn.
+  const multiDeviceKey = [...deviceCounts]
+    .filter(([, count]) => count > 1)
+    .map(([userId, count]) => `${userId}:${count}`)
+    .sort()
+    .join(",");
+  const multiDevice = useMemo(
+    () =>
+      new Map(
+        multiDeviceKey
+          ? multiDeviceKey.split(",").map((entry) => {
+              const at = entry.lastIndexOf(":");
+              return [entry.slice(0, at), Number(entry.slice(at + 1))] as [string, number];
+            })
+          : []
+      ),
+    [multiDeviceKey]
+  );
+  // Which names in a message open a profile — see openMentionedProfile. Keyed
+  // on the people who have one, not on the peer array, which is new every time.
+  const mentionProfileKey = canOpenProfile
+    ? peers
+        .filter((p) => !p.isGuest && p.userId)
+        .map((p) => `${normalizeSearch(p.name)}\u0001${p.userId}`)
+        .join("\u0000")
+    : "";
+  const mentionProfile = useMemo(() => {
+    if (!mentionProfileKey) return undefined;
+    const byName = new Map<string, string>();
+    for (const entry of mentionProfileKey.split("\u0000")) {
+      const [name, userId] = entry.split("\u0001");
+      if (!byName.has(name)) byName.set(name, userId);
+    }
+    return (name: string): (() => void) | null => {
+      const userId = byName.get(normalizeSearch(name));
+      return userId ? () => handlers.openProfile(userId) : null;
+    };
+  }, [mentionProfileKey, handlers]);
+
+  const messageRows = useMemo(() => {
+    return messages.map((m, i) => {
+      const isSelf = m.from === selfId;
+      const isMention =
+        !isSelf &&
+        typeof selfName === "string" &&
+        m.kind !== "image" &&
+        // The regex built once above, rather than the name list: this
+        // runs per rendered message, and handing over names made each
+        // one rebuild the same regex from scratch.
+        isUserMentionedInMessage(m.text, selfName, mentionRegex ?? []);
+      const isReplyToMe =
+        !isSelf &&
+        typeof selfName === "string" &&
+        m.replyTo?.name.trim().toLowerCase() === selfName.trim().toLowerCase();
+      const isMentionToMe = isMention || isReplyToMe;
+      const isHighlighted = highlightedMessageId === m.id;
+
+      // Someone typing three lines in a row is one person saying one
+      // thing — repeating their name and the same clock time above
+      // what the line before already said. A continuation just
+      // indents under the name that's already there; the gap above a
+      // new speaker is what separates them now.
+      // Replies always show their author and spine (matching Discord).
+      //
+      // `from` alone identifies the sender for a person or a bot, but
+      // not for a webhook: every message it posts carries the same
+      // `from` ("webhook:<id>") no matter who or what is actually
+      // speaking through it — a Discord↔GoLive bridge, say, relaying
+      // several different Discord members one after another. Name and
+      // picture are what a webhook's messages actually carry per
+      // message (see ChatMessage.avatarUrl), so both have to match
+      // too before two of its lines are treated as the same speaker.
+      const previous = messages[i - 1];
+      const grouped =
+        !m.replyTo &&
+        Boolean(previous) &&
+        previous.from === m.from &&
+        previous.name === m.name &&
+        (previous.avatarUrl ?? null) === (m.avatarUrl ?? null) &&
+        m.ts - previous.ts < GROUP_WINDOW_MS;
+      const hasMenu = hasAuthorMenu || hasAuthorContextMenu;
+      const row = (
+        <div
+          key={m.id}
+          id={`chat-msg-${m.id}`}
+          // Right click anywhere on somebody's message opens the room's
+          // actions for them — the same menu the participant list
+          // offers, reachable from where you actually noticed them.
+          onContextMenu={
+            hasMenu
+              ? (e) => {
+                  e.preventDefault();
+                  if (hasAuthorMenu) setAuthorMenuFor((open) => (open === m.id ? null : m.id));
+                  else handlers.authorContextMenu(m.from, m.name);
+                }
+              : undefined
+          }
+          title={hasMenu ? t("common.rightClickToSeeTheActions") : undefined}
+          className={`group relative -mx-1.5 rounded-lg px-2 text-sm transition-colors duration-150 ${
+            grouped ? "pb-0.5" : "mt-2.5 pb-0.5 first:mt-0"
+          } ${
+            isHighlighted
+              ? "bg-zinc-200/70 ring-1 ring-zinc-400/60 dark:bg-zinc-800 dark:ring-zinc-600"
+              : isMentionToMe
+                ? "bg-blue-100/70 py-1 dark:bg-blue-500/25"
+                : "hover:bg-zinc-100/80 dark:hover:bg-zinc-900/70"
+          } ${
+            hasMenu
+              ? "cursor-pointer"
+              : ""
+          }`}
+        >
+          {/* Quoted reply header (Discord style) */}
+          {m.replyTo && (
+            <div
+              onClick={(e) => {
+                e.stopPropagation();
+                handlers.scrollToMessage(m.replyTo!.id);
+              }}
+              className="group/reply mb-1 flex max-w-full cursor-pointer items-center gap-1.5 text-xs text-zinc-500 select-none hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
+              title={t("chatPanel.clickToGoToTheOriginal")}
+            >
+              <div className="flex items-center text-zinc-400 dark:text-zinc-600">
+                <svg
+                  className="h-3.5 w-3.5 shrink-0 text-zinc-300 dark:text-zinc-600"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M 4 19 V 9 A 5 5 0 0 1 9 4 H 20" />
+                </svg>
+              </div>
+              <span className="font-medium text-zinc-700 group-hover/reply:underline group-hover/reply:text-zinc-900 dark:text-zinc-300 dark:group-hover/reply:text-white">
+                @{m.replyTo.name}
+              </span>
+              <span className="truncate text-zinc-400 group-hover/reply:text-zinc-600 dark:text-zinc-500 dark:group-hover/reply:text-zinc-300">
+                {m.replyTo.text ? (
+                  stripMarkdown(m.replyTo.text)
+                ) : m.replyTo.kind === "gif" ? (
+                  <span className="italic">[GIF]</span>
+                ) : (m.replyTo.images && m.replyTo.images.length > 0) || m.replyTo.kind === "image" ? (
+                  <span className="italic">[Imagem]</span>
+                ) : (
+                  <span className="italic">{t("chatPanel.message")}</span>
+                )}
+              </span>
+            </div>
+          )}
+          {!grouped && (
+            <div className="flex items-center justify-between gap-1.5">
+              {/* Two levels on purpose. The avatar is a circle with no
+                  baseline, so it centres against the text block
+                  (items-center here); the name and the timestamp are
+                  both text at different sizes and still want their
+                  baselines aligned, which is what the inner span
+                  keeps. Putting all three under one items-baseline was
+                  what left the picture sitting low. */}
+              <div className="flex min-w-0 items-center gap-1.5">
+                {/* Beside the name rather than in a left gutter:
+                    consecutive messages from one person are grouped
+                    and drop this header entirely (see `grouped`), so a
+                    gutter would be empty for most rows and the text
+                    would be indented past nothing. */}
+                <UserAvatar
+                  src={m.avatarUrl}
+                  name={m.name}
+                  size={20}
+                  userId={m.webhook ? null : m.userId}
+                  isGuest={m.isGuest}
+                />
+                <span className="flex min-w-0 items-baseline gap-1.5">
+                {/* Clickable only for a real account: a guest has no
+                    profile to open, and `userId` is absent on messages
+                    from before it was sent at all. Both keep the plain
+                    name rather than a control that would 404. A
+                    webhook opens a card saying what it is instead. */}
+                {m.webhook ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setWebhookCard({ name: m.name, avatarUrl: m.avatarUrl ?? null });
+                    }}
+                    title={t("webhook.tagTitle")}
+                    className="min-w-0 cursor-pointer text-left"
+                  >
+                    <DisplayUserName
+                      name={m.name}
+                      webhook
+                      className={"min-w-0 font-medium text-zinc-700 hover:underline dark:text-zinc-300"}
+                    />
+                  </button>
+                ) : canOpenProfile && m.userId && !m.isGuest ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      // The message row may itself open the moderation
+                      // menu on click — see hasMenu below.
+                      e.stopPropagation();
+                      handlers.openProfile(m.userId as string);
+                    }}
+                    className="min-w-0 cursor-pointer text-left"
+                  >
+                    <DisplayUserName
+                      name={withDeviceSuffix(m.name, m.userId, m.device, multiDevice)}
+                      isGuest={m.isGuest}
+                      verified={verifiedBadge(m?.flags)}
+                      bot={m?.bot}
+                      color={m.nameColor}
+                      className={"min-w-0 font-medium text-zinc-700 hover:underline dark:text-zinc-300"}
+                    />
+                  </button>
+                ) : (
+                  <DisplayUserName
+                    name={withDeviceSuffix(m.name, m.userId, m.device, multiDevice)}
+                    isGuest={m.isGuest}
+                    verified={verifiedBadge(m?.flags)}
+                    bot={m?.bot}
+                    color={m.nameColor}
+                    className={"min-w-0 font-medium text-zinc-700 dark:text-zinc-300"}
+                  />
+                )}
+                  <span className="shrink-0 text-xs text-zinc-400 tabular-nums dark:text-zinc-600">
+                    {formatTime(m.ts)}
+                  </span>
+                </span>
+              </div>
+              {canReply && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handlers.startReply(m);
+                  }}
+                  aria-label={t("chatPanel.replyToName", { name: m.name })}
+                  title={t("common.reply")}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-400 opacity-100 transition hover:bg-zinc-200/70 hover:text-zinc-800 focus:opacity-100 active:scale-95 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 sm:group-focus-within:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                >
+                  <MdReply className="h-3.5 w-3.5" />
+                  <span className="text-[11px] font-medium sm:hidden">{t("common.reply")}</span>
+                </button>
+              )}
+            </div>
+          )}
+          <div className={grouped ? "flex items-start justify-between gap-1.5" : ""}>
+            <div className={grouped ? "min-w-0 flex-1" : ""}>
+              {m.kind === "gif" && m.url ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setImageModalPreview({
+                      src: m.url!,
+                      alt: "GIF",
+                      images: [m.url!],
+                      currentIndex: 0,
+                    });
+                  }}
+                  title={t("chatPanel.clickToEnlargeTheGif")}
+                  aria-label={t("chatPanel.clickToEnlargeTheGif")}
+                  className="mt-1 inline-block cursor-pointer rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 transition hover:opacity-90 text-left"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={m.url} alt="GIF" className="block max-h-40 max-w-full rounded-md object-contain" />
+                </button>
+              ) : (
+                <>
+                  {/* Text and pictures are no longer either/or: a message
+                      can be a caption with its pictures under it. Empty
+                      text draws nothing rather than an empty line. */}
+                  {m.text.trim() && (
+                    <div className="break-words text-zinc-800 dark:text-zinc-200">
+                      <Markdown
+                        text={m.text}
+                        compact
+                        renderText={(plain) => linkifyText(plain, mentionRegex, mentionProfile)}
+                      />
+                    </div>
+                  )}
+                  {/* A group invite in the message, as a card to join from. */}
+                  {m.text.trim() && <InviteEmbeds text={m.text} />}
+                  <MessageEmbeds
+                    embeds={m.embeds}
+                    onOpenImage={(src) =>
+                      setImageModalPreview({
+                        src,
+                        alt: t("chatPanel.imageSentInTheChat"),
+                        images: [src],
+                        currentIndex: 0,
+                      })
+                    }
+                  />
+                  <ChatImages
+                    images={messageImages(m)}
+                    onOpen={(index) => {
+                      const images = messageImages(m);
+                      setImageModalPreview({
+                        src: images[index],
+                        alt: t("chatPanel.imageSentInTheChat"),
+                        images,
+                        currentIndex: index,
+                      });
+                    }}
+                    alt={t("chatPanel.imageSentInTheChat")}
+                    label={t("chatPanel.clickToEnlargeTheImage")}
+                    className="mt-1"
+                    bordered
+                    compact
+                  />
+                  <MessageAttachments attachments={m.attachments} compact />
+                </>
+              )}
+            </div>
+            {grouped && canReply && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handlers.startReply(m);
+                }}
+                aria-label={t("chatPanel.replyToName", { name: m.name })}
+                title={t("common.reply")}
+                className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-400 opacity-100 transition hover:bg-zinc-200/70 hover:text-zinc-800 focus:opacity-100 active:scale-95 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 sm:group-focus-within:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+              >
+                <MdReply className="h-3.5 w-3.5" />
+                <span className="text-[11px] font-medium sm:hidden">{t("common.reply")}</span>
+              </button>
+            )}
+          </div>
+        </div>
+      );
+
+      if (!openAuthorMenu) return row;
+      // Anchored to the message, opening into the room rather than
+      // over the rest of the conversation.
+      return (
+        <Popover
+          key={m.id}
+          open={authorMenuFor === m.id}
+          onClose={() => setAuthorMenuFor(null)}
+          // Opens *into the chat column*, not out of it. "left-start"
+          // sent a 288px panel sideways over the video stage, which is
+          // both the wrong place to look and the one direction where
+          // it can end up over a tile rather than over the
+          // conversation it belongs to. Below the message keeps it
+          // where the eye already is, and Tippy flips it above near
+          // the bottom of the list.
+          placement="bottom-start"
+          content={
+            authorMenuFor === m.id
+              ? openAuthorMenu(m.from, m.name, () => setAuthorMenuFor(null))
+              : null
+          }
+        >
+          {row}
+        </Popover>
+      );
+    });
+  }, [
+    messages,
+    selfId,
+    selfName,
+    mentionRegex,
+    mentionProfile,
+    multiDevice,
+    highlightedMessageId,
+    authorMenuFor,
+    openAuthorMenu,
+    hasAuthorMenu,
+    hasAuthorContextMenu,
+    canOpenProfile,
+    canReply,
+    handlers,
+    t,
+  ]);
+
   return (
     <div
       className={`${marginClassName} flex ${heightClassName} flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950`}
@@ -971,327 +1382,7 @@ export function ChatPanel({
               {t("chatPanel.noMessageYet")}
             </p>
           ) : (
-            messages.map((m, i) => {
-              const isSelf = m.from === selfId;
-              const isMention =
-                !isSelf &&
-                typeof selfName === "string" &&
-                m.kind !== "image" &&
-                // The regex built once above, rather than the name list: this
-                // runs per rendered message, and handing over names made each
-                // one rebuild the same regex from scratch.
-                isUserMentionedInMessage(m.text, selfName, mentionRegex ?? []);
-              const isReplyToMe =
-                !isSelf &&
-                typeof selfName === "string" &&
-                m.replyTo?.name.trim().toLowerCase() === selfName.trim().toLowerCase();
-              const isMentionToMe = isMention || isReplyToMe;
-              const isHighlighted = highlightedMessageId === m.id;
-
-              // Someone typing three lines in a row is one person saying one
-              // thing — repeating their name and the same clock time above
-              // what the line before already said. A continuation just
-              // indents under the name that's already there; the gap above a
-              // new speaker is what separates them now.
-              // Replies always show their author and spine (matching Discord).
-              //
-              // `from` alone identifies the sender for a person or a bot, but
-              // not for a webhook: every message it posts carries the same
-              // `from` ("webhook:<id>") no matter who or what is actually
-              // speaking through it — a Discord↔GoLive bridge, say, relaying
-              // several different Discord members one after another. Name and
-              // picture are what a webhook's messages actually carry per
-              // message (see ChatMessage.avatarUrl), so both have to match
-              // too before two of its lines are treated as the same speaker.
-              const previous = messages[i - 1];
-              const grouped =
-                !m.replyTo &&
-                Boolean(previous) &&
-                previous.from === m.from &&
-                previous.name === m.name &&
-                (previous.avatarUrl ?? null) === (m.avatarUrl ?? null) &&
-                m.ts - previous.ts < GROUP_WINDOW_MS;
-              const hasMenu = Boolean(renderAuthorMenu || onAuthorContextMenu);
-              const row = (
-                <div
-                  key={m.id}
-                  id={`chat-msg-${m.id}`}
-                  // Right click anywhere on somebody's message opens the room's
-                  // actions for them — the same menu the participant list
-                  // offers, reachable from where you actually noticed them.
-                  onContextMenu={
-                    hasMenu
-                      ? (e) => {
-                          e.preventDefault();
-                          if (renderAuthorMenu) setAuthorMenuFor((open) => (open === m.id ? null : m.id));
-                          else onAuthorContextMenu?.(m.from, m.name);
-                        }
-                      : undefined
-                  }
-                  title={hasMenu ? t("common.rightClickToSeeTheActions") : undefined}
-                  className={`group relative -mx-1.5 rounded-lg px-2 text-sm transition-colors duration-150 ${
-                    grouped ? "pb-0.5" : "mt-2.5 pb-0.5 first:mt-0"
-                  } ${
-                    isHighlighted
-                      ? "bg-zinc-200/70 ring-1 ring-zinc-400/60 dark:bg-zinc-800 dark:ring-zinc-600"
-                      : isMentionToMe
-                        ? "bg-blue-100/70 py-1 dark:bg-blue-500/25"
-                        : "hover:bg-zinc-100/80 dark:hover:bg-zinc-900/70"
-                  } ${
-                    hasMenu
-                      ? "cursor-pointer"
-                      : ""
-                  }`}
-                >
-                  {/* Quoted reply header (Discord style) */}
-                  {m.replyTo && (
-                    <div
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        scrollToMessage(m.replyTo!.id);
-                      }}
-                      className="group/reply mb-1 flex max-w-full cursor-pointer items-center gap-1.5 text-xs text-zinc-500 select-none hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
-                      title={t("chatPanel.clickToGoToTheOriginal")}
-                    >
-                      <div className="flex items-center text-zinc-400 dark:text-zinc-600">
-                        <svg
-                          className="h-3.5 w-3.5 shrink-0 text-zinc-300 dark:text-zinc-600"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2.5"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M 4 19 V 9 A 5 5 0 0 1 9 4 H 20" />
-                        </svg>
-                      </div>
-                      <span className="font-medium text-zinc-700 group-hover/reply:underline group-hover/reply:text-zinc-900 dark:text-zinc-300 dark:group-hover/reply:text-white">
-                        @{m.replyTo.name}
-                      </span>
-                      <span className="truncate text-zinc-400 group-hover/reply:text-zinc-600 dark:text-zinc-500 dark:group-hover/reply:text-zinc-300">
-                        {m.replyTo.text ? (
-                          stripMarkdown(m.replyTo.text)
-                        ) : m.replyTo.kind === "gif" ? (
-                          <span className="italic">[GIF]</span>
-                        ) : (m.replyTo.images && m.replyTo.images.length > 0) || m.replyTo.kind === "image" ? (
-                          <span className="italic">[Imagem]</span>
-                        ) : (
-                          <span className="italic">{t("chatPanel.message")}</span>
-                        )}
-                      </span>
-                    </div>
-                  )}
-                  {!grouped && (
-                    <div className="flex items-center justify-between gap-1.5">
-                      {/* Two levels on purpose. The avatar is a circle with no
-                          baseline, so it centres against the text block
-                          (items-center here); the name and the timestamp are
-                          both text at different sizes and still want their
-                          baselines aligned, which is what the inner span
-                          keeps. Putting all three under one items-baseline was
-                          what left the picture sitting low. */}
-                      <div className="flex min-w-0 items-center gap-1.5">
-                        {/* Beside the name rather than in a left gutter:
-                            consecutive messages from one person are grouped
-                            and drop this header entirely (see `grouped`), so a
-                            gutter would be empty for most rows and the text
-                            would be indented past nothing. */}
-                        <UserAvatar
-                          src={m.avatarUrl}
-                          name={m.name}
-                          size={20}
-                          userId={m.webhook ? null : m.userId}
-                          isGuest={m.isGuest}
-                        />
-                        <span className="flex min-w-0 items-baseline gap-1.5">
-                        {/* Clickable only for a real account: a guest has no
-                            profile to open, and `userId` is absent on messages
-                            from before it was sent at all. Both keep the plain
-                            name rather than a control that would 404. A
-                            webhook opens a card saying what it is instead. */}
-                        {m.webhook ? (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setWebhookCard({ name: m.name, avatarUrl: m.avatarUrl ?? null });
-                            }}
-                            title={t("webhook.tagTitle")}
-                            className="min-w-0 cursor-pointer text-left"
-                          >
-                            <DisplayUserName
-                              name={m.name}
-                              webhook
-                              className={"min-w-0 font-medium text-zinc-700 hover:underline dark:text-zinc-300"}
-                            />
-                          </button>
-                        ) : onOpenProfile && m.userId && !m.isGuest ? (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              // The message row may itself open the moderation
-                              // menu on click — see hasMenu below.
-                              e.stopPropagation();
-                              onOpenProfile(m.userId as string);
-                            }}
-                            className="min-w-0 cursor-pointer text-left"
-                          >
-                            <DisplayUserName
-                              name={withDeviceSuffix(m.name, m.userId, m.device, deviceCounts)}
-                              isGuest={m.isGuest}
-                              verified={verifiedBadge(m?.flags)}
-                              bot={m?.bot}
-                              color={m.nameColor}
-                              className={"min-w-0 font-medium text-zinc-700 hover:underline dark:text-zinc-300"}
-                            />
-                          </button>
-                        ) : (
-                          <DisplayUserName
-                            name={withDeviceSuffix(m.name, m.userId, m.device, deviceCounts)}
-                            isGuest={m.isGuest}
-                            verified={verifiedBadge(m?.flags)}
-                            bot={m?.bot}
-                            color={m.nameColor}
-                            className={"min-w-0 font-medium text-zinc-700 dark:text-zinc-300"}
-                          />
-                        )}
-                          <span className="shrink-0 text-xs text-zinc-400 tabular-nums dark:text-zinc-600">
-                            {formatTime(m.ts)}
-                          </span>
-                        </span>
-                      </div>
-                      {onSend && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            startReply(m);
-                          }}
-                          aria-label={t("chatPanel.replyToName", { name: m.name })}
-                          title={t("common.reply")}
-                          className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-400 opacity-100 transition hover:bg-zinc-200/70 hover:text-zinc-800 focus:opacity-100 active:scale-95 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 sm:group-focus-within:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-                        >
-                          <MdReply className="h-3.5 w-3.5" />
-                          <span className="text-[11px] font-medium sm:hidden">{t("common.reply")}</span>
-                        </button>
-                      )}
-                    </div>
-                  )}
-                  <div className={grouped ? "flex items-start justify-between gap-1.5" : ""}>
-                    <div className={grouped ? "min-w-0 flex-1" : ""}>
-                      {m.kind === "gif" && m.url ? (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setImageModalPreview({
-                              src: m.url!,
-                              alt: "GIF",
-                              images: [m.url!],
-                              currentIndex: 0,
-                            });
-                          }}
-                          title={t("chatPanel.clickToEnlargeTheGif")}
-                          aria-label={t("chatPanel.clickToEnlargeTheGif")}
-                          className="mt-1 inline-block cursor-pointer rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 transition hover:opacity-90 text-left"
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={m.url} alt="GIF" className="block max-h-40 max-w-full rounded-md object-contain" />
-                        </button>
-                      ) : (
-                        <>
-                          {/* Text and pictures are no longer either/or: a message
-                              can be a caption with its pictures under it. Empty
-                              text draws nothing rather than an empty line. */}
-                          {m.text.trim() && (
-                            <div className="break-words text-zinc-800 dark:text-zinc-200">
-                              <Markdown
-                                text={m.text}
-                                compact
-                                renderText={(plain) => linkifyText(plain, mentionRegex, openMentionedProfile)}
-                              />
-                            </div>
-                          )}
-                          {/* A group invite in the message, as a card to join from. */}
-                          {m.text.trim() && <InviteEmbeds text={m.text} />}
-                          <MessageEmbeds
-                            embeds={m.embeds}
-                            onOpenImage={(src) =>
-                              setImageModalPreview({
-                                src,
-                                alt: t("chatPanel.imageSentInTheChat"),
-                                images: [src],
-                                currentIndex: 0,
-                              })
-                            }
-                          />
-                          <ChatImages
-                            images={messageImages(m)}
-                            onOpen={(index) => {
-                              const images = messageImages(m);
-                              setImageModalPreview({
-                                src: images[index],
-                                alt: t("chatPanel.imageSentInTheChat"),
-                                images,
-                                currentIndex: index,
-                              });
-                            }}
-                            alt={t("chatPanel.imageSentInTheChat")}
-                            label={t("chatPanel.clickToEnlargeTheImage")}
-                            className="mt-1"
-                            bordered
-                            compact
-                          />
-                          <MessageAttachments attachments={m.attachments} compact />
-                        </>
-                      )}
-                    </div>
-                    {grouped && onSend && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          startReply(m);
-                        }}
-                        aria-label={t("chatPanel.replyToName", { name: m.name })}
-                        title={t("common.reply")}
-                        className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-400 opacity-100 transition hover:bg-zinc-200/70 hover:text-zinc-800 focus:opacity-100 active:scale-95 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 sm:group-focus-within:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-                      >
-                        <MdReply className="h-3.5 w-3.5" />
-                        <span className="text-[11px] font-medium sm:hidden">{t("common.reply")}</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-
-              if (!renderAuthorMenu) return row;
-              // Anchored to the message, opening into the room rather than
-              // over the rest of the conversation.
-              return (
-                <Popover
-                  key={m.id}
-                  open={authorMenuFor === m.id}
-                  onClose={() => setAuthorMenuFor(null)}
-                  // Opens *into the chat column*, not out of it. "left-start"
-                  // sent a 288px panel sideways over the video stage, which is
-                  // both the wrong place to look and the one direction where
-                  // it can end up over a tile rather than over the
-                  // conversation it belongs to. Below the message keeps it
-                  // where the eye already is, and Tippy flips it above near
-                  // the bottom of the list.
-                  placement="bottom-start"
-                  content={
-                    authorMenuFor === m.id
-                      ? renderAuthorMenu(m.from, m.name, () => setAuthorMenuFor(null))
-                      : null
-                  }
-                >
-                  {row}
-                </Popover>
-              );
-            })
+            messageRows
           )}
         </div>
 

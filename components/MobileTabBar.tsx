@@ -19,8 +19,9 @@ import { openDirectMessages, useDirectMessagesWindow } from "@/lib/dmWindow";
 import { haptic } from "@/lib/nativeApp";
 import { isTabBarRoute, useDmUnreadTotal, useSoftKeyboardOpen, useTabBarEnabled } from "@/lib/mobileShell";
 import { LG_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
-import { refreshGroups, useGroupsState } from "@/lib/useGroups";
-import { useSignaling } from "@/lib/useSignaling";
+import { refreshGroups, useGroupsSlice } from "@/lib/useGroups";
+import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
+import { selectNameSlice } from "@/lib/signalingSelectors";
 import { useT } from "@/lib/useI18n";
 import { avatarShapeClass } from "@/lib/avatarShape";
 
@@ -67,11 +68,11 @@ function TabBar({ pathname, counting }: { pathname: string; counting: boolean })
   const t = useT();
   const router = useRouter();
   const { account } = useAuth();
-  const state = useSignaling();
+  const state = useSignalingSelector(selectNameSlice, shallow);
   const dmWindow = useDirectMessagesWindow();
   const dmUnread = useDmUnreadTotal(counting);
   // Read without asking on a wide screen, where the bar is not drawn.
-  const { groups } = useGroupsState();
+  const groups = useGroupsSlice((s) => s.groups, null);
   useEffect(() => {
     if (counting && groups === null) void refreshGroups();
   }, [counting, groups]);

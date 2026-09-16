@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { BsCoin, BsShop } from "react-icons/bs";
 import { useAuth } from "@/lib/AuthContext";
-import { useSignaling } from "@/lib/useSignaling";
+import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
+import { selectNameSlice } from "@/lib/signalingSelectors";
 import { getAccountToken } from "@/lib/accountApi";
 import { signalingClient } from "@/lib/signalingClient";
 import {
@@ -24,7 +25,7 @@ export type CosmeticsStorePopupData = Record<string, never>;
 export function CosmeticsStoreDialog({ closePopup }: { closePopup: (hasAction?: boolean) => void }) {
   const t = useT();
   const { account, points, refresh } = useAuth();
-  const state = useSignaling();
+  const state = useSignalingSelector(selectNameSlice, shallow);
   const [activeTab, setActiveTab] = useState<CosmeticProductType>("name_color");
   const [catalog, setCatalog] = useState<CosmeticProduct[] | null>(null);
   const [owned, setOwned] = useState<string[]>([]);

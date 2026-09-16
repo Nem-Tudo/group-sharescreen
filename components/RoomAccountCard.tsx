@@ -5,7 +5,8 @@ import useNtPopups from "ntpopups";
 import { BsCoin, BsShop } from "react-icons/bs";
 import { MdLogin, MdPalette } from "react-icons/md";
 import { useAuth } from "@/lib/AuthContext";
-import { useSignaling } from "@/lib/useSignaling";
+import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
+import { selectAccountName } from "@/lib/signalingSelectors";
 import { trackEvent } from "@/lib/analytics";
 import { Tooltip } from "@/components/Tooltip";
 import { ObsSourceIcon } from "@/components/icons";
@@ -54,7 +55,7 @@ export function RoomAccountCard({
   onToggleStreamerMode?: () => void;
 }) {
   const t = useT();
-  const state = useSignaling();
+  const state = useSignalingSelector(selectAccountName, shallow);
   const { account, points } = useAuth();
   const { openPopup } = useNtPopups();
 

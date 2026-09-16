@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useMemo, useState, useCallback } from "react";
 import Link from "next/link";
-import { useSignaling } from "@/lib/useSignaling";
+import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
+import { selectStreamViewer } from "@/lib/signalingSelectors";
 import { useRoomMedia } from "@/lib/useRoomMedia";
 import { signalingClient } from "@/lib/signalingClient";
 import { VideoSourceTile } from "@/components/VideoSourceTile";
@@ -84,7 +85,7 @@ export function StreamViewer({
     return () => window.removeEventListener("obsStudioInit", handleObsInit);
   }, []);
 
-  const state = useSignaling();
+  const state = useSignalingSelector(selectStreamViewer, shallow);
   // Only connect room media if we are in actual broadcast software
   const {
     remoteStreams,
