@@ -4,6 +4,7 @@ import Script from "next/script";
 import { StatusBanner } from "@/components/StatusBanner";
 import { AnnouncementBanner } from "@/components/AnnouncementBanner";
 import { CapacitorBridge } from "@/components/CapacitorBridge";
+import { LastScreenRestorer } from "@/components/LastScreenRestorer";
 import { InstallAppButton } from "@/components/InstallAppButton";
 import { MobileTabBar } from "@/components/MobileTabBar";
 import { AuthProvider } from "@/lib/AuthContext";
@@ -303,6 +304,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             <AuthProvider>
               <NtPopups>
                 <CapacitorBridge />
+                <LastScreenRestorer />
                 <PresenceReporter />
                 {/* Renders nothing; it is the thing that fills the bell. At the
                     root because a friend request arrives whenever it arrives —

@@ -41,6 +41,7 @@ import { groupVoiceHandle, parseGroupsPath, type GroupsRoute } from "@/lib/group
 import { prefetchChannel } from "@/lib/groupCache";
 import { GroupShellContext, registerGroupShell, useGroupNavigation } from "@/lib/groupNavigation";
 import { canInChannel } from "@/lib/groupPermissions";
+import { rememberVoiceRoute } from "@/lib/lastScreen";
 import { setDirectMessagesOutlet } from "@/lib/dmWindow";
 import { useDmCallColumnsCollapsed } from "@/lib/dmCallColumns";
 import {
@@ -218,6 +219,12 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   // joins the moment it can. Cleared on arriving anywhere else, so coming back
   // to the room joins it again.
   const routeChannel = detail?.channels.find((c) => c.id === roomId) ?? null;
+  // A voice room's address joins it, so reopening the app on it would too:
+  // it is remembered as the group's page instead (see lib/lastScreen).
+  useEffect(() => {
+    if (!groupId || routeChannel?.kind !== "voice") return;
+    rememberVoiceRoute(`/groups/${groupId}/${routeChannel.id}`, `/groups/${groupId}`);
+  }, [groupId, routeChannel?.kind, routeChannel?.id]);
   useEffect(() => {
     if (!detail || !groupId) return;
     const current = getGroupVoiceSession();
