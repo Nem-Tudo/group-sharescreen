@@ -3470,5 +3470,7 @@
   "admin.features.weightsNormalized": "Adds up to {total}% — it will be scaled to 100%.",
   "admin.features.evenSplit": "Split evenly",
   "admin.features.weightsWarning": "Changing the split moves some people between treatments, and the existing numbers will mix both splits. Continue?",
-  "pro.compare.choosePlan": "Choose a plan"
+  "pro.compare.choosePlan": "Choose a plan",
+  "admin.features.skippedTitle": "Skipped events",
+  "admin.features.skippedHint": "They reached this feature but were not counted in any group (overrides, not eligible, or the feature was killed)."
 }

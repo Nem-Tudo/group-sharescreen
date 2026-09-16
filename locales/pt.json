@@ -3470,5 +3470,7 @@
   "admin.features.weightsNormalized": "Soma {total}% — será ajustado proporcionalmente para 100%.",
   "admin.features.evenSplit": "Dividir igualmente",
   "admin.features.weightsWarning": "Mudar a divisão move parte das pessoas de uma variante para outra, e os números antigos passam a misturar as duas divisões. Continuar?",
-  "pro.compare.choosePlan": "Escolha o plano"
+  "pro.compare.choosePlan": "Escolha o plano",
+  "admin.features.skippedTitle": "Eventos ignorados",
+  "admin.features.skippedHint": "Chegaram a esta feature mas não entraram em nenhum grupo (forçados manualmente, não elegíveis ou feature desligada)."
 }

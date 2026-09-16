@@ -890,6 +890,25 @@ function StatsSection({ feature, clientEvents }: { feature: AdminFeature; client
             <p className="mt-2 text-[11px] text-zinc-500">{t("admin.features.exposuresHint")}</p>
           </div>
 
+          {stats.skipped && Object.keys(stats.skipped).length > 0 && (
+            <div className={`${cardClass} text-xs`}>
+              <h3 className="font-semibold text-zinc-700 dark:text-zinc-300">{t("admin.features.skippedTitle")}</h3>
+              <p className="mt-1 text-zinc-500">{t("admin.features.skippedHint")}</p>
+              <ul className="mt-2 flex flex-col gap-0.5">
+                {Object.entries(stats.skipped).map(([event, reasons]) => (
+                  <li key={event} className="flex flex-wrap gap-x-3">
+                    <span className="font-mono font-semibold text-zinc-900 dark:text-zinc-100">{event}</span>
+                    {Object.entries(reasons).map(([reason, count]) => (
+                      <span key={reason} className="text-zinc-600 dark:text-zinc-400">
+                        {t(`admin.features.reason.${reason}`)}: {number(count)}
+                      </span>
+                    ))}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {events.length === 0 ? (
             <p className={`${cardClass} text-xs text-zinc-500`}>{t("admin.features.noEvents")}</p>
           ) : (

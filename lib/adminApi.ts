@@ -1141,6 +1141,8 @@ export interface FeatureWrite {
 
 export interface FeatureStats {
   groups: Record<string, { exposures: number; uniqueExposures: number }>;
+  /** Events that reached the feature but were not counted, by reason. Absent on an older API. */
+  skipped?: Record<string, Record<string, number>>;
   events: Record<string, Record<string, { count: number; unique: number; value: number }>>;
   daily: { day: string; exposures: Record<string, number>; events: Record<string, Record<string, number>> }[];
 }
