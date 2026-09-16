@@ -72,6 +72,21 @@ function splitList(text: string): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Each treatment's share of the rollout, in percent: from the stored weights
+ * (any scale), or an even split when there are none.
+ */
+function variantShares(variants: string[], weights: number[] | undefined): number[] {
+  const usable = weights && weights.length === variants.length && weights.some((w) => w > 0) ? weights : null;
+  if (!usable) return variants.map(() => 100 / Math.max(1, variants.length));
+  const total = usable.reduce((sum, weight) => sum + weight, 0);
+  return usable.map((weight) => (weight / total) * 100);
+}
+
+function roundShare(value: number): string {
+  return String(Math.round(value * 100) / 100);
+}
+
 function Pill({ children, tone = "zinc" }: { children: React.ReactNode; tone?: "zinc" | "green" | "amber" | "red" | "blue" }) {
   const tones = {
     zinc: "bg-zinc-100 text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400",
@@ -552,6 +567,22 @@ function TargetingSection({ feature, busy, save }: { feature: AdminFeature; busy
 
   const variantList = splitList(variants.toLowerCase());
   const variantsChanged = variantList.join(",") !== feature.variants.join(",");
+  // Typed shares per treatment name, so editing the list keeps what was typed
+  // for the names that stayed.
+  const [shares, setShares] = useState<Record<string, string>>(() => {
+    const initial = variantShares(feature.variants, feature.weights);
+    return Object.fromEntries(feature.variants.map((variant, i) => [variant, roundShare(initial[i])]));
+  });
+  const evenShare = roundShare(100 / Math.max(1, variantList.length));
+  const typedShares = variantList.map((variant) => {
+    const value = Number((shares[variant] ?? evenShare).replace(",", "."));
+    return Number.isFinite(value) && value >= 0 ? value : 0;
+  });
+  const sharesTotal = typedShares.reduce((sum, value) => sum + value, 0);
+  const savedShares = variantShares(feature.variants, feature.weights);
+  const weightsChanged =
+    !variantsChanged &&
+    typedShares.some((value, i) => Math.abs((value / (sharesTotal || 1)) * 100 - savedShares[i]) > 0.01);
 
   function addOverrides() {
     // Several ids at once: pasted from a spreadsheet, a chat, anywhere.
@@ -582,6 +613,48 @@ function TargetingSection({ feature, busy, save }: { feature: AdminFeature; busy
           <span className="font-normal text-zinc-500">{t("admin.features.variantsHint")}</span>
           {variantsChanged && <span className="font-normal text-amber-600">{t("admin.features.variantsWarning")}</span>}
         </label>
+
+        {variantList.length > 1 && (
+          <div>
+            <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{t("admin.features.weights")}</span>
+            <div className="mt-1 flex flex-col gap-1.5">
+              {variantList.map((variant, i) => {
+                const share = sharesTotal ? typedShares[i] / sharesTotal : 0;
+                return (
+                  <div key={variant} className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="w-24 truncate font-mono font-semibold text-zinc-900 dark:text-zinc-100">{variant}</span>
+                    <input
+                      value={shares[variant] ?? evenShare}
+                      onChange={(e) => setShares((current) => ({ ...current, [variant]: e.target.value }))}
+                      inputMode="decimal"
+                      className={`${inputClass} w-20 py-1`}
+                      aria-label={t("admin.features.weightFor", { variant })}
+                    />
+                    <span className="text-zinc-500">%</span>
+                    <span className="h-1.5 w-24 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
+                      <span className="block h-full bg-emerald-500" style={{ width: `${share * 100}%` }} />
+                    </span>
+                    <span className="text-zinc-500 tabular-nums">
+                      {t("admin.features.shareOfTotal", { value: percent(Math.round(share * feature.rolloutBp)) })}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            <p className={`mt-1 text-xs ${Math.abs(sharesTotal - 100) > 0.01 ? "text-amber-600" : "text-zinc-500"}`}>
+              {Math.abs(sharesTotal - 100) > 0.01
+                ? t("admin.features.weightsNormalized", { total: roundShare(sharesTotal) })
+                : t("admin.features.weightsHint")}
+            </p>
+            <button
+              type="button"
+              onClick={() => setShares(Object.fromEntries(variantList.map((variant) => [variant, evenShare])))}
+              className="mt-1 text-xs text-zinc-500 underline underline-offset-2 hover:text-zinc-800 dark:hover:text-zinc-200"
+            >
+              {t("admin.features.evenSplit")}
+            </button>
+          </div>
+        )}
 
         {feature.target === "user" && (
           <>
@@ -676,10 +749,13 @@ function TargetingSection({ feature, busy, save }: { feature: AdminFeature; busy
           disabled={busy}
           onClick={() => {
             if (variantsChanged && !window.confirm(t("admin.features.variantsWarning"))) return;
+            if (weightsChanged && !window.confirm(t("admin.features.weightsWarning"))) return;
+            if (variantList.length > 1 && sharesTotal <= 0) return;
             void save({
               name: name.trim(),
               description: description.trim(),
               variants: variantList,
+              weights: variantList.length > 1 ? typedShares : [],
               requiredFlags: splitList(flags.toUpperCase()),
               platforms,
               includeGuests,

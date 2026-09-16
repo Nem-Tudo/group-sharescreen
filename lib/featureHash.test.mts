@@ -18,4 +18,5 @@ test("pinned vectors shared with the API", () => {
   assert.equal(featureVariantIndex("pro-page-redesign", id, 3), 1);
   assert.equal(featureOverrideTag("pro-page-redesign", id), "1ccnuj6");
   assert.equal(featureBucket("x", "ção"), 2697);
+  assert.equal(featureVariantIndex("pro-page-redesign", id, 3, [70, 20, 10]), 1);
 });

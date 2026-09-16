@@ -3462,5 +3462,12 @@
   "pro.compare.selected": "Selected",
   "pro.compare.choose": "Choose",
   "pro.compare.inEveryPlan": "All of this in every plan ({count})",
-  "pro.compare.getPlan": "Subscribe"
+  "pro.compare.getPlan": "Subscribe",
+  "admin.features.weights": "Split between treatments",
+  "admin.features.weightFor": "Share for {variant}",
+  "admin.features.shareOfTotal": "= {value} of the target",
+  "admin.features.weightsHint": "Share of the people inside the rollout that lands in each treatment. The rest of the target is control.",
+  "admin.features.weightsNormalized": "Adds up to {total}% — it will be scaled to 100%.",
+  "admin.features.evenSplit": "Split evenly",
+  "admin.features.weightsWarning": "Changing the split moves some people between treatments, and the existing numbers will mix both splits. Continue?"
 }

@@ -38,6 +38,8 @@ export interface PublicFeature {
   target: FeatureTarget;
   rolloutBp: number;
   variants: string[];
+  /** One per treatment; empty means an even split (see featureHash). */
+  weights?: number[];
   salt: string;
   requiredFlags: string[];
   platforms: FeaturePlatform[];
@@ -223,7 +225,7 @@ export function decideFeature(
   }
 
   if (featureBucket(feature.salt, id) < feature.rolloutBp && feature.variants.length > 0) {
-    const variant = feature.variants[featureVariantIndex(feature.salt, id, feature.variants.length)];
+    const variant = feature.variants[featureVariantIndex(feature.salt, id, feature.variants.length, feature.weights)];
     return { variant, group: variant, reason: "rollout" };
   }
   return { variant: null, group: "control", reason: "control" };

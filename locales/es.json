@@ -3462,5 +3462,12 @@
   "pro.compare.selected": "Seleccionado",
   "pro.compare.choose": "Elegir",
   "pro.compare.inEveryPlan": "Todo esto en todos los planes ({count})",
-  "pro.compare.getPlan": "Suscribirse"
+  "pro.compare.getPlan": "Suscribirse",
+  "admin.features.weights": "División entre variantes",
+  "admin.features.weightFor": "Porcentaje de {variant}",
+  "admin.features.shareOfTotal": "= {value} del objetivo",
+  "admin.features.weightsHint": "Porcentaje de quienes están en el lanzamiento que cae en cada variante. El resto del objetivo es el control.",
+  "admin.features.weightsNormalized": "Suma {total}% — se ajustará proporcionalmente a 100%.",
+  "admin.features.evenSplit": "Dividir por igual",
+  "admin.features.weightsWarning": "Cambiar la división mueve a parte de las personas entre variantes, y los números existentes mezclarán ambas divisiones. ¿Continuar?"
 }

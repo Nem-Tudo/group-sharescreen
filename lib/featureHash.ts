@@ -76,16 +76,43 @@ export function featureBucket(salt: string, id: string): number {
 }
 
 /**
- * Which of `count` treatments an id inside the rollout gets.
+ * Which of `count` treatments an id inside the rollout gets — evenly, or in
+ * proportion to `weights` (one per treatment, any scale: 70/30 or 7/3).
  *
  * A second, independent hash rather than a slice of the first: slicing the
  * rollout range would move people between treatments every time the rollout
  * grew, and a person flipping between two designs is the one thing an A/B
  * test must never do.
  */
-export function featureVariantIndex(salt: string, id: string, count: number): number {
+export function featureVariantIndex(
+  salt: string,
+  id: string,
+  count: number,
+  weights?: readonly number[] | null
+): number {
   if (count <= 1) return 0;
-  return murmur3(`${salt}:variant:${id}`) % count;
+  const hash = murmur3(`${salt}:variant:${id}`);
+  const usable =
+    weights &&
+    weights.length === count &&
+    weights.every((weight) => Number.isFinite(weight) && weight >= 0) &&
+    weights.some((weight) => weight > 0)
+      ? weights
+      : null;
+  // Equal weights keep the original even split, byte for byte — so features
+  // created before weights existed keep every person where they were.
+  if (!usable || usable.every((weight) => weight === usable[0])) return hash % count;
+  // Otherwise the hash is a point along the weights laid end to end.
+  const total = usable.reduce((sum, weight) => sum + weight, 0);
+  const point = (hash / 4294967296) * total;
+  let reached = 0;
+  for (let i = 0; i < count; i++) {
+    reached += usable[i];
+    if (point < reached) return i;
+  }
+  // Only reachable through floating-point rounding at the very end.
+  for (let i = count - 1; i > 0; i--) if (usable[i] > 0) return i;
+  return 0;
 }
 
 /**

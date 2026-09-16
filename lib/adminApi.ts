@@ -1103,6 +1103,8 @@ export interface AdminFeature {
   target: FeatureTarget;
   rolloutBp: number;
   variants: string[];
+  /** One per treatment; empty means an even split. */
+  weights: number[];
   overrides: FeatureOverride[];
   salt: string;
   requiredFlags: string[];
@@ -1125,6 +1127,8 @@ export interface FeatureWrite {
   target?: FeatureTarget;
   rollout?: number;
   variants?: string[];
+  /** One per treatment, any scale. Empty = even split. */
+  weights?: number[];
   overrides?: FeatureOverride[];
   requiredFlags?: string[];
   platforms?: FeaturePlatform[];

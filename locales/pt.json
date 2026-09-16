@@ -3462,5 +3462,12 @@
   "pro.compare.selected": "Selecionado",
   "pro.compare.choose": "Escolher",
   "pro.compare.inEveryPlan": "Tudo isso em todos os planos ({count})",
-  "pro.compare.getPlan": "Assinar"
+  "pro.compare.getPlan": "Assinar",
+  "admin.features.weights": "Divisão entre as variantes",
+  "admin.features.weightFor": "Porcentagem de {variant}",
+  "admin.features.shareOfTotal": "= {value} do alvo",
+  "admin.features.weightsHint": "Porcentagem de quem está no rollout que cai em cada variante. O resto do alvo é o controle.",
+  "admin.features.weightsNormalized": "Soma {total}% — será ajustado proporcionalmente para 100%.",
+  "admin.features.evenSplit": "Dividir igualmente",
+  "admin.features.weightsWarning": "Mudar a divisão move parte das pessoas de uma variante para outra, e os números antigos passam a misturar as duas divisões. Continuar?"
 }
