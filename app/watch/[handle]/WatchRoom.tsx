@@ -4408,6 +4408,31 @@ export function WatchRoom({
       : null;
   const stripTiles = stageTile ? tiles.filter((tile) => tile !== stageTile) : [];
 
+  // ── Where the filmstrip goes, and how much it takes ──
+  //
+  // The stage is a 16:9 tile drawn to fit, so the *scarcer* of the pane's two
+  // dimensions is the one deciding how big it can be — and a strip underneath
+  // spends height while a strip down the side spends width. So the strip goes
+  // where the pane has room to spare: under a pane taller than 16:9, beside one
+  // wider than that.
+  //
+  // This is what "Focar" used to get wrong on a short pane. The strip was a
+  // fixed 112px tall from lg up, keyed off the *window's* width — so in a wide,
+  // short box (a call drawn inside a conversation, a window dragged short, both
+  // sidebars open) it ate a third of the height the stage was already short of,
+  // while the black bars either side of the stage went on being black.
+  //
+  // Measured rather than a breakpoint, for that same reason: none of the ways
+  // this pane ends up short involve crossing one.
+  const paneMeasured = videoPaneSize.width > 0 && videoPaneSize.height > 0;
+  const stripBeside = paneMeasured && videoPaneSize.width / videoPaneSize.height > 16 / 9;
+  // A share of the pane rather than a number of pixels: floored so a thumbnail
+  // is still a recognisable picture of somebody, capped so it never grows into
+  // a second stage.
+  const stripSize = stripBeside
+    ? Math.round(Math.min(Math.max(videoPaneSize.width * 0.16, 112), 200))
+    : Math.round(Math.min(Math.max(videoPaneSize.height * 0.2, 56), 112));
+
   // What the corner player can show while the room is off screen (see
   // components/DockedPip, which picks among them). One person's tiles in the
   // order a focus request prefers them — screen, file, camera — everybody
@@ -6856,12 +6881,18 @@ export function WatchRoom({
                      reports its real drawn size like any other tile (see
                      onRenderedSizeChange), so the people in the strip are
                      asked for thumbnail-sized streams instead of full ones. */
-                  <div className="flex h-full min-h-0 flex-col gap-2 sm:gap-3">
+                  <div
+                    className={`flex h-full min-h-0 gap-2 sm:gap-3 ${
+                      stripBeside ? "flex-row" : "flex-col"
+                    }`}
+                  >
                     {/* `min-h-0 flex-1` is what gives the tile inside a real
                         height to fill: `h-full` against a box sized by its own
                         content is circular, and the tile is the side that
-                        gives up and collapses. */}
-                    <div className="min-h-0 flex-1">
+                        gives up and collapses. `min-w-0` says the same thing
+                        about width, which is what the strip takes when it is
+                        standing beside the stage rather than under it. */}
+                    <div className="min-h-0 min-w-0 flex-1">
                       {stageTile.render(
                         true,
                         false,
@@ -6870,16 +6901,29 @@ export function WatchRoom({
                       )}
                     </div>
                     {stripTiles.length > 0 && (
-                      /* Scrolls sideways rather than wrapping onto a second
-                         row: the whole point of the strip is to cost the stage
-                         a small, fixed amount of height however many people
-                         are in the room. */
-                      <div className="shrink-0 overflow-x-auto overflow-y-hidden">
-                        <div className="flex h-20 gap-2 sm:h-24 sm:gap-3 lg:h-28">
+                      /* Scrolls rather than wrapping onto a second line: the
+                         whole point of the strip is to cost the stage a small,
+                         fixed amount of one dimension however many people are
+                         in the room. Which dimension is stripBeside's answer. */
+                      <div
+                        style={paneMeasured ? (stripBeside ? { width: stripSize } : { height: stripSize }) : undefined}
+                        className={`shrink-0 ${
+                          stripBeside ? "overflow-y-auto overflow-x-hidden" : "overflow-x-auto overflow-y-hidden"
+                        }`}
+                      >
+                        <div
+                          className={`flex gap-2 sm:gap-3 ${
+                            stripBeside
+                              ? "w-full flex-col"
+                              : paneMeasured
+                                ? "h-full"
+                                : "h-20 sm:h-24 lg:h-28"
+                          }`}
+                        >
                           {stripTiles.map((tile) => (
                             <div
                               key={tile.id}
-                              className="relative aspect-video h-full shrink-0"
+                              className={`relative aspect-video shrink-0 ${stripBeside ? "w-full" : "h-full"}`}
                             >
                               {tile.render(true, true)}
                               {/* One transparent target over the whole
