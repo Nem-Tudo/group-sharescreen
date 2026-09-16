@@ -3247,5 +3247,6 @@
   "directMessagesModal.callInProgress": "Call in progress",
   "directMessagesModal.joinTheCall": "Join",
   "directMessagesModal.hideTheLists": "Hide conversations and groups",
-  "directMessagesModal.showTheLists": "Show conversations and groups"
+  "directMessagesModal.showTheLists": "Show conversations and groups",
+  "common.dragToResizeHeight": "Drag to resize height"
 }

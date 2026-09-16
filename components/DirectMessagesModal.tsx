@@ -67,7 +67,14 @@ import { useAuth } from "@/lib/AuthContext";
 import { verifiedBadge } from "@/lib/entitlements";
 import { openDirectMessages, setDirectMessagesExpanded, useDirectMessagesOutlet } from "@/lib/dmWindow";
 import { CallOutlet } from "@/components/CallOutlet";
-import { ColumnResizeHandle, useColumnWidth, type ColumnWidthSpec } from "@/components/ColumnResize";
+import {
+  ColumnResizeHandle,
+  RowResizeHandle,
+  useColumnWidth,
+  useRowHeight,
+  type ColumnWidthSpec,
+  type RowHeightSpec,
+} from "@/components/ColumnResize";
 import { useCallSession } from "@/lib/callSession";
 import { useCallActions } from "@/lib/callActions";
 import { startCall } from "@/lib/callsApi";
@@ -183,6 +190,15 @@ const LIST_COLUMN: ColumnWidthSpec = {
   max: 480,
   maxShare: 0.3,
   side: "left",
+};
+// The call above the messages, dragged taller or shorter from its bottom edge.
+// No default: until it is dragged it is whatever share of the column the layout
+// gives it, which is right at every window size (see useRowHeight). Never more
+// than three quarters, so the conversation under it never disappears entirely.
+const CALL_PANE: RowHeightSpec = {
+  storageKey: "dms:callPaneHeight",
+  min: 192,
+  maxShare: 0.75,
 };
 const DAY_MS = 86_400_000;
 
@@ -977,6 +993,8 @@ export function DirectMessagesModal({
   const [answering, setAnswering] = useState(false);
   const { setElement: setListColumn, style: listColumnStyle, handle: listColumnHandle } =
     useColumnWidth(LIST_COLUMN);
+  const { setElement: setCallPane, style: callPaneStyle, handle: callPaneHandle } =
+    useRowHeight(CALL_PANE);
 
   // null until the first answer, so "loading" and "no conversations" are two
   // different screens instead of one that lies for a second.
@@ -2402,8 +2420,18 @@ export function DirectMessagesModal({
   // and merely moved in here (components/CallOutlet), so it goes on whether or
   // not this window is the page on screen.
   const callPane = callHere ? (
-    <div className="flex min-h-[12rem] flex-[2] flex-col overflow-hidden border-b border-zinc-200 p-2 dark:border-zinc-800">
+    // Dragged from the line under it. With nothing dragged yet there is no
+    // height of its own and `flex-[2]` shares the column out as it always did;
+    // a height pins it, and then it must not grow with the flex box as well.
+    <div
+      ref={setCallPane}
+      style={callPaneStyle}
+      className={`relative flex min-h-[12rem] flex-col overflow-hidden border-b border-zinc-200 p-2 dark:border-zinc-800 ${
+        callPaneStyle ? "shrink-0" : "flex-[2]"
+      }`}
+    >
       <CallOutlet />
+      <RowResizeHandle {...callPaneHandle} label={t("common.dragToResizeHeight")} />
     </div>
   ) : callInvite && active ? (
     <DmCallInvite

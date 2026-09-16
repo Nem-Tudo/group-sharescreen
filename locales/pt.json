@@ -3247,5 +3247,6 @@
   "directMessagesModal.callInProgress": "Chamada em andamento",
   "directMessagesModal.joinTheCall": "Entrar",
   "directMessagesModal.hideTheLists": "Ocultar conversas e grupos",
-  "directMessagesModal.showTheLists": "Mostrar conversas e grupos"
+  "directMessagesModal.showTheLists": "Mostrar conversas e grupos",
+  "common.dragToResizeHeight": "Arraste para ajustar a altura"
 }
