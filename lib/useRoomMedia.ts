@@ -2747,17 +2747,17 @@ export function useRoomMedia(room: string) {
   // codec ordering all at once, and getting it wrong is the difference
   // between crisp text and a 60fps game that stutters into a slideshow.
   //
-  // "text" is the default: what is shared here is overwhelmingly a screen
-  // with text on it — a slide, an IDE, a spreadsheet — and unreadable text is
-  // a share that failed at its job, while a few dropped frames is one that
-  // merely looks worse. It pins maintain-resolution and a VP9-first encode
-  // (see peerQualityController and videoCodecPreferences), so a shortage of
-  // bits or CPU comes out as discarded frames rather than mush; anyone
-  // sharing motion has "Equilibrado" and "Vídeo / jogo" one click away in the
-  // same picker. The default fps is 30, which is the ceiling this profile
-  // wants anyway — see setShareProfile's clamp.
+  // "balanced" is the default: most shares are neither pure text nor pure
+  // motion, and "text"'s maintain-resolution plus VP9-first encode (see
+  // peerQualityController and videoCodecPreferences) is a software-encode-heavy
+  // combination that, picked by default for people who never open the picker,
+  // was exactly what made a plain screen share compete hard with a running
+  // game for CPU. "Balanced" lets the encoder trade off frame rate and detail
+  // continuously instead of pinning one axis, and it's not clamped to 30fps
+  // the way "text" is. Anyone who actually wants sharp, static text still has
+  // "Texto/código" one click away in the same picker.
   const [shareProfile, setShareProfileState] = useState<DegradationMode>(() =>
-    restoredSetting(getStoredShareProfile(), SHARE_PROFILE_OPTIONS, "text")
+    restoredSetting(getStoredShareProfile(), SHARE_PROFILE_OPTIONS, "balanced")
   );
   const shareResolutionRef = useRef(shareResolution);
   const shareFpsRef = useRef(shareFps);

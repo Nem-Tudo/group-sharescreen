@@ -9,6 +9,8 @@ import {
   ScreenIcon,
   CameraIcon,
   HeadphonesOffIcon,
+  SpeakerIcon,
+  SpeakerMuteIcon,
 } from "./icons";
 import {
   MdOutlineDesktopWindows,
@@ -16,13 +18,11 @@ import {
   MdOutlineSmartphone,
 } from "react-icons/md";
 import { FaCrown } from "react-icons/fa";
-import { VolumeSlider } from "./VolumeSlider";
 import { DisplayUserName } from "./DisplayUserName";
 import type { VerifiedTone } from "@/lib/entitlements";
 import { UserAvatar } from "./UserAvatar";
 import type { PresenceInfo } from "@/lib/signalingClient";
 import { Tooltip, Popover } from "./Tooltip";
-import { MAX_GAIN } from "@/lib/audioGain";
 import { useT } from "@/lib/useI18n";
 
 export function ParticipantRow({
@@ -320,17 +320,27 @@ export function ParticipantRow({
             </span>
           </Tooltip>
         )}
-        {!isSelf && onVolumeChange && (
-          <VolumeSlider
-            value={volume}
-            label={t("common.nameSAudioVolume", { name })}
-            onChange={onVolumeChange}
-            muted={muted}
-            onToggleMute={onToggleMute}
-            collapseOnIdle
-            max={MAX_GAIN}
-            className="text-zinc-400 dark:text-zinc-500"
-          />
+        {/* Just mute/unmute here — the volume slider itself lives in the
+            right-click menu, so hovering this button doesn't pop a control
+            over the rest of the list. */}
+        {!isSelf && onToggleMute && (
+          <Tooltip content={muted ? t("volumeSlider.unmuteAudio") : t("volumeSlider.muteAudio")}>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onToggleMute();
+              }}
+              aria-label={muted ? t("volumeSlider.unmuteAudio") : t("volumeSlider.muteAudio")}
+              className="flex shrink-0 items-center rounded p-1 transition hover:text-zinc-700 dark:hover:text-zinc-200"
+            >
+              {muted || volume === 0 ? (
+                <SpeakerMuteIcon className="h-4 w-4" />
+              ) : (
+                <SpeakerIcon className="h-4 w-4" />
+              )}
+            </button>
+          </Tooltip>
         )}
       </span>
     </li>
