@@ -185,8 +185,14 @@ export function AccountMenu() {
                     pages live, and a friends list is only ever about the
                     person already signed in. */}
                 {authAccount?.id && (
-                  <Link href={`/user/${authAccount.username}`} onClick={close} className={itemClass}>
-                    {t("accountMenu.myProfile")}
+                  // Points at /me and not at /user/:username: the public
+                  // profile is one click further on from there, while
+                  // everything somebody opens this menu to *change* — the
+                  // email, the connections, the authorized apps — only exists
+                  // on /me. Naming it "Gerenciar conta" says which of the two
+                  // this is before it is clicked.
+                  <Link href="/me" onClick={close} className={itemClass}>
+                    {t("accountMenu.manageAccount")}
                   </Link>
                 )}
                 <button
@@ -220,8 +226,10 @@ export function AccountMenu() {
                     panel as one row until someone opens it — and it carries
                     the row's own padding, so no wrapper here. */}
                 {/* Hides itself entirely when there is nothing to confirm —
-                    see the note at the top of EmailVerification. */}
-                <EmailVerification />
+                    see the note at the top of EmailVerification. Here that
+                    includes an address already confirmed: this panel is a
+                    list of places to go, not a place to read a setting back. */}
+                <EmailVerification hideWhenVerified />
                 <AccountConnections />
                 <button type="button" onClick={() => { logout(); close(); }} className={itemClass}>
                   {t("accountMenu.signOut")}

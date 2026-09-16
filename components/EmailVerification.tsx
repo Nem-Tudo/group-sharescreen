@@ -23,7 +23,8 @@ import { useT } from "@/lib/useI18n";
 // nothing to offer, so the page that drops it in doesn't have to know whether
 // this deployment can send email or whether this account even has an address.
 // Three cases collapse to null — no session, no address (a Discord/Google
-// signup that never had one), and a server with no RESEND_API_KEY.
+// signup that never had one), and a server with no RESEND_API_KEY — plus a
+// fourth the caller asks for, see `hideWhenVerified`.
 
 const rowButtonClass =
   "rounded-lg border px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50";
@@ -32,7 +33,20 @@ const inputClass =
 
 const CODE_LENGTH = 6;
 
-export function EmailVerification() {
+export function EmailVerification({
+  hideWhenVerified = false,
+}: {
+  /**
+   * Whether a *confirmed* address is worth a row at all.
+   *
+   * True in the account popover, where the answer is no: that panel is a short
+   * list of places to go, and a line that only ever says "sim, está tudo
+   * certo" is clutter in it forever. False on /me, which is the page you open
+   * precisely to look at settings — there the confirmed state is the useful
+   * half, because it is how you check the address on file is the right one.
+   */
+  hideWhenVerified?: boolean;
+}) {
   const t = useT();
   const { account } = useAuth();
   const [state, setState] = useState<EmailState | null>(null);
@@ -108,6 +122,10 @@ export function EmailVerification() {
 
   // See the note at the top: nothing to offer means nothing on screen.
   if (!account || !state || !state.configured || !state.email) return null;
+  // Confirmed *and* the caller only wanted the prompt — but not while a code
+  // is still on screen, so the row does not vanish out from under somebody the
+  // instant they finish typing it.
+  if (state.verified && hideWhenVerified && !sentTo) return null;
 
   return (
     <div className="px-4 py-3">

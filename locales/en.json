@@ -3266,5 +3266,6 @@
   "email.confirmed": "Email confirmed",
   "email.notConfirmed": "Email not confirmed (optional)",
   "email.confirmAction": "Confirm",
-  "email.codeSentTo": "We sent a code to {email}. It expires in {minutes} minutes."
+  "email.codeSentTo": "We sent a code to {email}. It expires in {minutes} minutes.",
+  "accountMenu.manageAccount": "Manage account"
 }

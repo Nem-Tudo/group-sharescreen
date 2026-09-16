@@ -3266,5 +3266,6 @@
   "email.confirmed": "Email confirmado",
   "email.notConfirmed": "Email não confirmado (opcional)",
   "email.confirmAction": "Confirmar",
-  "email.codeSentTo": "Enviamos um código para {email}. Ele expira em {minutes} minutos."
+  "email.codeSentTo": "Enviamos um código para {email}. Ele expira em {minutes} minutos.",
+  "accountMenu.manageAccount": "Gerenciar conta"
 }

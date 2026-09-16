@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import useNtPopups from "ntpopups";
-import { MdAdd, MdLink } from "react-icons/md";
+import { MdAdd, MdExplore, MdLink } from "react-icons/md";
 import { BetaMark } from "@/components/BetaMark";
 import { Popover, Tooltip } from "@/components/Tooltip";
 import { GroupIcon } from "@/components/groups/GroupIcon";
@@ -18,6 +18,7 @@ import { useSignalingSelector } from "@/lib/useSignalingSelector";
 import { selectName } from "@/lib/signalingSelectors";
 import { useT } from "@/lib/useI18n";
 import { useGroupContextMenu } from "@/components/groups/groupMenus";
+import { requestExploreGroups } from "@/components/groups/groupSearch";
 import { translate, translateCount } from "@/lib/i18n";
 
 // The groups list beside the home page's room form — the counterpart of the
@@ -221,6 +222,26 @@ function GroupsPanelBody({
             tooltip={t("groups.homeGroupsPanel.addGroup")}
             content={
               <div className="flex w-72 max-w-[calc(100vw-1.5rem)] flex-col gap-0.5 rounded-xl border border-zinc-200 bg-white p-1.5 shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
+                {/* Every public group, on /groups — the way in for somebody
+                    with no invite and nothing to make yet, the same answer the
+                    dock's "+" offers (see AddGroupDialog). */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddOpen(false);
+                    requestExploreGroups();
+                    router.push("/groups");
+                  }}
+                  className={MENU_ITEM}
+                >
+                  <MdExplore className="h-4 w-4 shrink-0 text-indigo-600" />
+                  <span className="min-w-0">
+                    <span className="block font-medium">{t("groups.groupDialogs.exploreGroups")}</span>
+                    <span className="block text-[11px] text-zinc-500 dark:text-zinc-400">
+                      {t("groups.groupDialogs.exploreGroupsHint")}
+                    </span>
+                  </span>
+                </button>
                 <button
                   type="button"
                   disabled={!isAccount}
