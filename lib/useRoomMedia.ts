@@ -1803,6 +1803,141 @@ function useBroadcastChannel(
     stop,
   ]);
 
+  // Whether a swap is already in flight. Two flips in quick succession — a
+  // double tap on the button is all it takes — would otherwise open two
+  // cameras and race to decide which one the room ends up watching.
+  const swapping = useRef(false);
+
+  /**
+   * Points this channel at a freshly captured source without the viewers
+   * noticing anything beyond a moment's freeze.
+   *
+   * The thing it replaces is `stop()` followed by `start()`, which is what
+   * switching cameras used to do. That works, and it is brutal: stopping a
+   * channel sends every viewer a "stop", which tears their recvPC down, drops
+   * their tile, takes anyone watching fullscreen back out to the grid, and
+   * loses the per-viewer state that went with it — their chosen tier, their
+   * volume, their PeerQualityController's learned congestion ratio. Starting
+   * again then rebuilt all of it from nothing. For the person flipping from
+   * the front camera to the rear one, that is a whole room interrupted to
+   * answer a question about their own phone.
+   *
+   * replaceTrack asks none of it. The sender, the transceiver, the encoder's
+   * parameters and the DTLS association all stay exactly as they are; only
+   * the media feeding the sender changes, and because the new track is the
+   * same kind as the old one it needs no renegotiation — the viewer's
+   * recvPC never learns anything happened. The one visible cost is the
+   * keyframe the new encoder has to emit, which viewers see as a brief hitch.
+   *
+   * Returns false when the swap could not be done, in which case the caller
+   * should fall back to the restart. Crucially, a *capture* that fails costs
+   * nothing at all: the old one is still running and still being sent, so a
+   * flip to a camera the phone will not open leaves the room watching what it
+   * was already watching rather than watching nothing.
+   */
+  const swapCapture = useCallback(
+    async (requestedSource?: ShareSource): Promise<boolean> => {
+      if (!activeRef.current || swapping.current) return false;
+      const previous = localStreamRef.current;
+      const previousVideo = previous?.getVideoTracks()[0];
+      // Nothing to replace: a channel mid-teardown, or one whose stream has
+      // no video at all. The caller's restart is the right answer there.
+      if (!previous || !previousVideo) return false;
+
+      swapping.current = true;
+      let next: MediaStream;
+      try {
+        next = await capture(requestedSource);
+      } catch {
+        // Deliberately swallowed rather than surfaced through setError: the
+        // share the person is running is untouched and still fine, and
+        // painting a red banner over a working transmission because the
+        // *other* camera would not open says the wrong thing. The caller
+        // sees false and can decide.
+        swapping.current = false;
+        return false;
+      }
+
+      const nextVideo = next.getVideoTracks()[0];
+      // The share may have been stopped while getUserMedia was open, in which
+      // case this capture is already orphaned and must not be left running.
+      if (!activeRef.current || !nextVideo || localStreamRef.current !== previous) {
+        next.getTracks().forEach((t) => t.stop());
+        swapping.current = false;
+        return false;
+      }
+
+      nextVideo.contentHint = contentHintFor(
+        channel,
+        requestedSource,
+        degradationModeRef.current
+      );
+
+      try {
+        // Every sender at once. A relay is an ordinary viewer of ours as far
+        // as this map is concerned, so its subtree follows from the one
+        // replacement here without any message of its own.
+        await Promise.all(
+          [...sendPCs.current.values()].flatMap((pc) =>
+            pc
+              .getSenders()
+              .filter((sender) => sender.track?.kind === "video")
+              .map((sender) => sender.replaceTrack(nextVideo))
+          )
+        );
+      } catch {
+        // replaceTrack refuses when the new track cannot be encoded by the
+        // parameters already negotiated. Rare, and recoverable only by
+        // renegotiating — which is exactly the restart the caller falls back
+        // to, so this capture is discarded and the old one left in place.
+        next.getTracks().forEach((t) => t.stop());
+        swapping.current = false;
+        return false;
+      }
+
+      // The MediaStream object itself is kept and its tracks swapped inside
+      // it, rather than a new one being put into state. Every local consumer
+      // holds this exact object as a <video> srcObject; handing them a new
+      // one would remount the element and make the local preview flash for
+      // the one person who did not need telling that their camera changed.
+      //
+      // Added before the old one is removed, so the stream is never briefly
+      // without a video track at all: an attached <video> whose stream loses
+      // its last video track can go black and stay black even once another
+      // is added, and the order here costs nothing to avoid it.
+      previous.addTrack(nextVideo);
+      previous.removeTrack(previousVideo);
+      // Moved over before the old track is stopped: stop() fires no event,
+      // but `ended` on a track already being watched would reach the listener
+      // start() installed and take the whole share down with it.
+      previousVideo.stop();
+      // The new track needs the same backstop the original got — a camera
+      // that disappears mid-share (unplugged, or taken by another app) should
+      // still end the transmission rather than leave a frozen tile.
+      nextVideo.addEventListener("ended", () => stop());
+
+      // What the sender's scaleResolutionDownBy is computed from. The
+      // periodic sync would pick this up within three seconds anyway; doing
+      // it here means the first frames out of the new camera are already
+      // scaled for the tier each viewer asked for, instead of arriving
+      // visibly wrong and being corrected.
+      const height = nextVideo.getSettings().height;
+      if (height) qualityRegistry.current.setCaptureHeight(height);
+
+      const preset = videoQualityRef.current;
+      appliedConstraints.current = preset
+        ? { width: preset.width, height: preset.height, frameRate: preset.frameRate }
+        : null;
+      sourceRef.current = requestedSource;
+      setSource(requestedSource);
+
+      swapping.current = false;
+      trackEvent(`${eventPrefix}_swap`);
+      return true;
+    },
+    [capture, channel, eventPrefix, stop]
+  );
+
   const openRecvPC = useCallback(
     // peerId is who is sending to us; originId is who actually produced
     // the stream. They differ only for relayed traffic. Keeping the recvPC
@@ -2496,6 +2631,7 @@ function useBroadcastChannel(
     active,
     start,
     stop,
+    swapCapture,
     localStream,
     remoteStreams,
     error,
@@ -3095,12 +3231,42 @@ export function useRoomMedia(room: string) {
     () => ({ file1, file2, file3 }) as Record<LocalMediaSlot, ReturnType<typeof useBroadcastChannel>>,
     [file1, file2, file3]
   );
-  // Switches which camera is captured. A live camera share is restarted
-  // (stop, then start) so the new device actually goes out — the same brief
-  // drop the mic picker accepts below, which beats silently continuing to
-  // broadcast the old one. The screen channel is restarted too, but only
-  // when it is itself running off the camera (the mobile fallback);
-  // switching cameras must not interrupt an actual screen share.
+  // Re-opens whichever live captures are running off the camera, so a change
+  // to which lens that means actually reaches the room.
+  //
+  // A swap first, and a stop/start only if that could not be done. The
+  // difference matters most on exactly the control this exists for: the
+  // phone's flip button. Restarting the channel sends every viewer a "stop",
+  // which drops their tile, throws anyone watching fullscreen back out to the
+  // grid and loses the per-viewer state built up around that stream — a whole
+  // room interrupted because one person turned their phone around. swapCapture
+  // changes the track under the senders instead and none of that happens; see
+  // its own doc comment.
+  //
+  // The fallback is kept rather than assumed away because swapCapture has real
+  // ways to decline (a capture that will not open, a replaceTrack the
+  // negotiated parameters refuse), and a camera control that silently did
+  // nothing would be worse than one that blinks.
+  const reopenCameraCaptures = useCallback(() => {
+    if (camera.active) {
+      void camera.swapCapture().then((swapped) => {
+        if (swapped || !camera.active) return;
+        camera.stop();
+        camera.start();
+      });
+    }
+    // Only when the screen channel is itself running off the camera (the
+    // mobile fallback). Switching cameras must never interrupt a real screen
+    // share.
+    if (screen.active && screen.source === "camera") {
+      void screen.swapCapture("camera").then((swapped) => {
+        if (swapped || !screen.active) return;
+        screen.stop();
+        screen.start("camera");
+      });
+    }
+  }, [camera, screen]);
+
   // Flips between the front and rear camera. The phone's version of the
   // picker below, and deliberately not built on it: on Android the lens ids
   // are opaque and their labels only readable after permission, so a flip
@@ -3119,18 +3285,9 @@ export function useRoomMedia(room: string) {
       cameraDeviceIdRef.current = null;
       setCameraDeviceIdState(null);
       setStoredCameraDeviceId(null);
-      // Same restart-to-apply as setCameraDevice below — a live capture keeps
-      // sending the old lens until it is reopened.
-      if (camera.active) {
-        camera.stop();
-        camera.start();
-      }
-      if (screen.active && screen.source === "camera") {
-        screen.stop();
-        screen.start();
-      }
+      reopenCameraCaptures();
     },
-    [camera, screen]
+    [reopenCameraCaptures]
   );
 
   const setCameraDevice = useCallback(
@@ -3138,16 +3295,9 @@ export function useRoomMedia(room: string) {
       cameraDeviceIdRef.current = deviceId;
       setCameraDeviceIdState(deviceId);
       setStoredCameraDeviceId(deviceId);
-      if (camera.active) {
-        camera.stop();
-        camera.start();
-      }
-      if (screen.active && screen.source === "camera") {
-        screen.stop();
-        screen.start("camera");
-      }
+      reopenCameraCaptures();
     },
-    [camera, screen]
+    [reopenCameraCaptures]
   );
 
   // Every slot's playback state, so the announcement below can describe all of
