@@ -47,6 +47,10 @@ function EmojiButton({ emoji, ...props }: EmojiPickerListEmojiProps) {
   return (
     <button
       {...props}
+      // Without this, clicking an emoji defaults to type="submit" — and
+      // since the picker sits inside the composer's <form>, that would send
+      // the message (attachments included) instead of just inserting it.
+      type="button"
       title={emoji.label}
       className={`flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg ${
         emoji.isActive ? "bg-zinc-100 dark:bg-zinc-800" : ""
