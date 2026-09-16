@@ -1,4 +1,5 @@
 {
+  "imageCrop.applying": "Applying…",
   "common.refresh": "Refresh",
   "admin.desktopUpdatePanel.installsTitle": "Installs of this rollout",
   "admin.desktopUpdatePanel.installsSince": "Since the launch on {date}.",

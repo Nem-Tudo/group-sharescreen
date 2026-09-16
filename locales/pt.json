@@ -1,4 +1,5 @@
 {
+  "imageCrop.applying": "Aplicando…",
   "common.refresh": "Atualizar",
   "admin.desktopUpdatePanel.installsTitle": "Instalações deste lançamento",
   "admin.desktopUpdatePanel.installsSince": "Desde o lançamento em {date}.",

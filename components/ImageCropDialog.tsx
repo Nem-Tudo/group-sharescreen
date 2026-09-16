@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPoi
 import { createPortal } from "react-dom";
 import { MdZoomIn, MdZoomOut } from "react-icons/md";
 import { useI18n } from "@/lib/useI18n";
+import { canCropAnimatedGif, cropAnimatedGif } from "@/lib/gifCrop";
 
 // Reposition and resize a picture before it is sent as an avatar or a banner.
 //
@@ -21,9 +22,18 @@ const MAX_OUTPUT_BYTES = 5 * 1024 * 1024;
 
 export type ImageCropKind = "avatar" | "banner";
 
-const SHAPES: Record<ImageCropKind, { aspect: number; outWidth: number; frameWidth: number }> = {
-  avatar: { aspect: 1, outWidth: 512, frameWidth: 320 },
-  banner: { aspect: 3, outWidth: 1500, frameWidth: 600 },
+// gifOutWidth is smaller than outWidth on purpose. A GIF is a couple of
+// hundred frames of indexed colour, so its size grows with the frame area far
+// faster than a still's does, and it is shown at the same handful of hundred
+// pixels either way — at the still's size a normal avatar GIF would come out
+// several megabytes and be squeezed back down by the encoder's own fallbacks,
+// which costs quality that nobody can see the benefit of.
+const SHAPES: Record<
+  ImageCropKind,
+  { aspect: number; outWidth: number; gifOutWidth: number; frameWidth: number }
+> = {
+  avatar: { aspect: 1, outWidth: 512, gifOutWidth: 256, frameWidth: 320 },
+  banner: { aspect: 3, outWidth: 1500, gifOutWidth: 720, frameWidth: 600 },
 };
 
 type View = { zoom: number; x: number; y: number };
@@ -51,12 +61,15 @@ function encode(canvas: HTMLCanvasElement): string {
 export function ImageCropDialog({
   src,
   kind,
+  mimeType,
   onCancel,
   onConfirm,
 }: {
   /** An object URL (or data URL) of the picked file. */
   src: string;
   kind: ImageCropKind;
+  /** The picked file's type. An animated GIF is cropped frame by frame. */
+  mimeType?: string;
   onCancel: () => void;
   /** The cropped picture, as the data URL the profile save sends. */
   onConfirm: (dataUrl: string) => void;
@@ -65,6 +78,10 @@ export function ImageCropDialog({
   const shape = SHAPES[kind];
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const [failed, setFailed] = useState(false);
+  // An animated crop takes a moment (decode + re-encode of every frame), so
+  // the button says so and stops being pressed twice.
+  const [working, setWorking] = useState(false);
+  const isGif = mimeType === "image/gif" && canCropAnimatedGif();
   const [frameWidth, setFrameWidth] = useState(() => Math.min(shape.frameWidth, window.innerWidth - 64));
   // Null until the picture is first moved: until then it is simply centred.
   const [stored, setView] = useState<View | null>(null);
@@ -170,16 +187,29 @@ export function ImageCropDialog({
     if (drag.current?.id === e.pointerId) drag.current = null;
   }
 
-  function confirm() {
-    if (!image) return;
+  async function confirm() {
+    if (!image || working) return;
     const scale = baseScale * view.zoom;
     const sx = -view.x / scale;
     const sy = -view.y / scale;
     const sw = frameWidth / scale;
     const sh = frameHeight / scale;
     // Never upscaled past the pixels the crop actually has.
-    const outW = Math.max(1, Math.round(Math.min(shape.outWidth, sw)));
+    const outW = Math.max(1, Math.round(Math.min(isGif ? shape.gifOutWidth : shape.outWidth, sw)));
     const outH = Math.max(1, Math.round(outW / shape.aspect));
+    if (isGif) {
+      setWorking(true);
+      try {
+        onConfirm(await cropAnimatedGif(src, { sx, sy, sw, sh, outWidth: outW, outHeight: outH }));
+        return;
+      } catch {
+        // Decoding failed — better a still picture of the crop the person
+        // chose than an error and no avatar at all, so fall through to the
+        // canvas path below, which draws whatever frame the <img> is on.
+      } finally {
+        setWorking(false);
+      }
+    }
     const canvas = document.createElement("canvas");
     canvas.width = outW;
     canvas.height = outH;
@@ -270,11 +300,11 @@ export function ImageCropDialog({
           </button>
           <button
             type="button"
-            onClick={confirm}
-            disabled={!image}
+            onClick={() => void confirm()}
+            disabled={!image || working}
             className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-60"
           >
-            {t("imageCrop.apply")}
+            {working ? t("imageCrop.applying") : t("imageCrop.apply")}
           </button>
         </div>
       </div>

@@ -36,6 +36,7 @@ import {
 import { DEFAULT_AVATAR_PATH } from "@/components/UserAvatar";
 import { fetchCosmeticsCatalog, type CosmeticProduct } from "@/lib/cosmetics";
 import { prepareAvatarImage, AVATAR_IMAGE_ACCEPT, AVATAR_IMAGE_MAX_BYTES } from "@/lib/avatarImage";
+import { canCropAnimatedGif } from "@/lib/gifCrop";
 import { MdCheck, MdEdit, MdGroups, MdPhotoCamera, MdDeleteOutline } from "react-icons/md";
 import { ImageCropDialog, type ImageCropKind } from "@/components/ImageCropDialog";
 import { ProfileGroupCard } from "@/components/groups/ProfileGroupCard";
@@ -550,7 +551,9 @@ function ProfileContent({
   const [bannerPickerOpen, setBannerPickerOpen] = useState(false);
   const [bannerDataUrl, setBannerDataUrl] = useState<string | null | undefined>(undefined);
   // A picked picture waiting to be positioned before it becomes the preview.
-  const [cropping, setCropping] = useState<{ kind: ImageCropKind; src: string } | null>(null);
+  const [cropping, setCropping] = useState<{ kind: ImageCropKind; src: string; mimeType: string } | null>(
+    null
+  );
   const [editProfileGroup, setEditProfileGroup] = useState<string | null>(account.profileGroupId ?? null);
   const [myGroups, setMyGroups] = useState<GroupSummary[] | null>(null);
   const [saving, setSaving] = useState(false);
@@ -677,10 +680,12 @@ function ProfileContent({
       setError(t("userProfileCard.theImageMustBeAtMost", { value: Math.round(AVATAR_IMAGE_MAX_BYTES / (1024 * 1024)) }));
       return;
     }
-    // A GIF skips the cropper: drawing it on a canvas would keep one frame
-    // and throw the animation away, which is the reason to upload a GIF.
-    if (file.type !== "image/gif") {
-      setCropping({ kind: "avatar", src: URL.createObjectURL(file) });
+    // A GIF goes through the cropper too: it is taken apart and re-encoded
+    // frame by frame, so the animation survives the crop (see lib/gifCrop).
+    // Only where that is not possible — a browser without WebCodecs — does it
+    // skip straight to being sent as it is, uncropped but still moving.
+    if (file.type !== "image/gif" || canCropAnimatedGif()) {
+      setCropping({ kind: "avatar", src: URL.createObjectURL(file), mimeType: file.type });
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
@@ -705,9 +710,9 @@ function ProfileContent({
     }
     // Positioned in the cropper, which also caps the size and re-encodes —
     // what keeps a 12MP phone photo from being posted to the CDN whole. A GIF
-    // is sent as it is, for the animation (see handleAvatarPicked).
-    if (file.type !== "image/gif") {
-      setCropping({ kind: "banner", src: URL.createObjectURL(file) });
+    // included, animation and all (see handleAvatarPicked).
+    if (file.type !== "image/gif" || canCropAnimatedGif()) {
+      setCropping({ kind: "banner", src: URL.createObjectURL(file), mimeType: file.type });
       if (bannerInputRef.current) bannerInputRef.current.value = "";
       return;
     }
@@ -1535,7 +1540,13 @@ function ProfileContent({
         )}
 
         {cropping && (
-          <ImageCropDialog src={cropping.src} kind={cropping.kind} onCancel={closeCropper} onConfirm={handleCropped} />
+          <ImageCropDialog
+            src={cropping.src}
+            kind={cropping.kind}
+            mimeType={cropping.mimeType}
+            onCancel={closeCropper}
+            onConfirm={handleCropped}
+          />
         )}
 
         <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
