@@ -204,8 +204,12 @@ export function reactionsFor(
 ): DmReaction[] {
   const update = updates[message.id];
   if (update && update.at >= pageReadAt) return update.reactions;
-  return message.reactions ?? [];
+  // One shared empty list, so a message nobody reacted to reads the same on
+  // every render (the thread's bubbles are memoised on it).
+  return message.reactions ?? NO_REACTIONS;
 }
+
+const NO_REACTIONS: DmReaction[] = [];
 
 /**
  * How far the other person has read, as far as this screen may say: the later
@@ -238,6 +242,30 @@ export function newestOutside(
     const message = live[i];
     const other = message.from === me ? message.to : message.from;
     if (other !== openWith) return message.id;
+  }
+  return null;
+}
+
+/**
+ * The newest delivery a conversation list read earlier cannot account for on
+ * its own, by id — what the header's strip and the unread badge re-read on.
+ *
+ * Something received moves an unread count, which only the server knows. A
+ * message this account sent does not: the live overlay (liveConversationList)
+ * already moves its row, so re-reading on each send was an aggregation on the
+ * server per message typed. The one exception is a send to somebody the list
+ * does not have yet — a new conversation, which only a read can add. With no
+ * list (`listed` null), only what was received counts.
+ */
+export function newestListChange(
+  live: readonly DirectMessage[],
+  me: string,
+  listed: readonly Conversation[] | null
+): string | null {
+  for (let i = live.length - 1; i >= 0; i -= 1) {
+    const message = live[i];
+    if (message.from !== me) return message.id;
+    if (listed && !listed.some((row) => row.user.id === message.to)) return message.id;
   }
   return null;
 }

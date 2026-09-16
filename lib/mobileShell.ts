@@ -5,7 +5,8 @@ import { isAppShell, isDesktopApp, isMobileApp } from "@/lib/desktop";
 import { fetchConversations } from "@/lib/dmApi";
 import { useAuth } from "@/lib/AuthContext";
 import { useDirectMessagesWindow } from "@/lib/dmWindow";
-import { selectDmReadSeq, selectDmSeq } from "@/lib/signalingSelectors";
+import { newestListChange } from "@/lib/dmThread";
+import { selectDmReadSeq, selectRecentDms } from "@/lib/signalingSelectors";
 import { useSignalingSelector } from "@/lib/useSignalingSelector";
 import { LG_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 
@@ -71,17 +72,20 @@ const DM_REFRESH_DEBOUNCE_MS = 800;
 /**
  * Unread private messages, for the Conversas tab's badge. Read the same way
  * the header's conversation strip reads them (see DmRecentStrip): the list is
- * re-fetched when a message arrives or is read anywhere, and when the
+ * re-fetched when a message is received or read anywhere, and when the
  * conversations window closes — which is when something was most likely just
  * read. Asks nothing while `enabled` is false.
  */
 export function useDmUnreadTotal(enabled: boolean): number {
   const { account } = useAuth();
-  const dmSeq = useSignalingSelector(selectDmSeq);
+  const recentDms = useSignalingSelector(selectRecentDms);
   const dmReadSeq = useSignalingSelector(selectDmReadSeq);
   const { open } = useDirectMessagesWindow();
   const [total, setTotal] = useState(0);
   const accountId = account?.id ?? null;
+  // Only what was received moves an unread count — a send of this account's
+  // own re-read the list for nothing (see newestListChange).
+  const incoming = accountId ? newestListChange(recentDms, accountId, null) : null;
 
   useEffect(() => {
     if (!enabled || !accountId) return;
@@ -96,7 +100,7 @@ export function useDmUnreadTotal(enabled: boolean): number {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [enabled, accountId, dmSeq, dmReadSeq, open]);
+  }, [enabled, accountId, incoming, dmReadSeq, open]);
 
   return enabled && accountId ? total : 0;
 }

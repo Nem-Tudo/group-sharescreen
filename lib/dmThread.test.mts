@@ -6,6 +6,7 @@ import {
   liveConversationList,
   mayHaveMore,
   newestFrom,
+  newestListChange,
   newestOutside,
   reactionsFor,
   seenThrough,
@@ -255,4 +256,18 @@ test("the list re-reads on traffic outside the open thread only", () => {
   assert.equal(newestOutside([other, fromOpen, toOpen], ME, ANA), other.id);
   assert.equal(newestOutside([fromOpen, toOpen], ME, ANA), null);
   assert.equal(newestOutside([other, fromOpen], ME, null), fromOpen.id);
+});
+
+test("the conversation lists re-read on what they received, not on what this account sent", () => {
+  const fromAna = msg(ANA, ME, 100);
+  const toAna = msg(ME, ANA, 200);
+  const toBia = msg(ME, BIA, 300);
+  const listed = [{ user: { id: ANA }, lastMessage: fromAna, unread: 0 }] as never;
+  // A send to a conversation already listed changes nothing the server must say.
+  assert.equal(newestListChange([fromAna, toAna], ME, listed), fromAna.id);
+  // A send that starts a conversation does.
+  assert.equal(newestListChange([fromAna, toAna, toBia], ME, listed), toBia.id);
+  // With no list, only what was received counts.
+  assert.equal(newestListChange([fromAna, toAna, toBia], ME, null), fromAna.id);
+  assert.equal(newestListChange([toAna], ME, null), null);
 });

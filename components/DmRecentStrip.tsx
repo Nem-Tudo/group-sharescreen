@@ -8,9 +8,9 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { useAuth } from "@/lib/AuthContext";
 import { fetchConversations, type Conversation } from "@/lib/dmApi";
 import { useDmLive } from "@/lib/dmLive";
-import { liveConversationList, messageSummary } from "@/lib/dmThread";
+import { liveConversationList, messageSummary, newestListChange } from "@/lib/dmThread";
 import { openDirectMessages, useDirectMessagesWindow } from "@/lib/dmWindow";
-import { selectDmReadSeq, selectDmSeq, selectRecentDms } from "@/lib/signalingSelectors";
+import { selectDmReadSeq, selectRecentDms } from "@/lib/signalingSelectors";
 import { useSignalingSelector } from "@/lib/useSignalingSelector";
 import { useT, useTCount } from "@/lib/useI18n";
 import { startCall } from "@/lib/callsApi";
@@ -52,14 +52,16 @@ export function DmRecentStrip({ compact = false, leading = false }: { compact?: 
   const { account } = useAuth();
   const live = useDmLive();
   const recentDms = useSignalingSelector(selectRecentDms);
-  const dmSeq = useSignalingSelector(selectDmSeq);
   const dmReadSeq = useSignalingSelector(selectDmReadSeq);
   const { open: windowOpen } = useDirectMessagesWindow();
   const [conversations, setConversations] = useState<Conversation[] | null>(null);
+  // Not every delivery: this account's own sends move their row through the
+  // live overlay below and need nothing from the server (see newestListChange).
+  const listNudge = account ? newestListChange(recentDms, account.id, conversations) : null;
 
-  // Re-read when a message arrives or leaves anywhere, when a conversation is
-  // read on another device, and when the window closes — which is when this
-  // account most likely just read something here.
+  // Re-read when a message arrives, when a conversation is read on another
+  // device, and when the window closes — which is when this account most
+  // likely just read something here.
   useEffect(() => {
     if (!account) return;
     const controller = new AbortController();
@@ -72,7 +74,7 @@ export function DmRecentStrip({ compact = false, leading = false }: { compact?: 
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [account, dmSeq, dmReadSeq, windowOpen]);
+  }, [account, listNudge, dmReadSeq, windowOpen]);
 
   // What arrived since the read, laid over it, so the order moves the moment
   // a message lands rather than a beat later.

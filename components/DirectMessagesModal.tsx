@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  memo,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -290,6 +291,9 @@ function makeClientId(): string {
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
 }
 
+/** Whether a textarea can size itself to its text in CSS alone. */
+const FIELD_SIZING = typeof CSS !== "undefined" && Boolean(CSS.supports?.("field-sizing", "content"));
+
 /** Phones send with the button; the Enter key there is a new line. */
 function isCoarsePointer(): boolean {
   return typeof window !== "undefined" && Boolean(window.matchMedia?.("(pointer: coarse)").matches);
@@ -346,6 +350,19 @@ type Author = {
   nameColor: string | null;
 };
 
+/** What a bubble calls back into — see bubbleHandlers in the dialog. */
+type BubbleHandlers = {
+  react: (bubble: Bubble, emoji: string) => void;
+  reply: (target: DmReplyTo) => void;
+  edit: (bubble: Bubble) => void;
+  remove: (bubble: Bubble, skipConfirm: boolean) => void;
+  openImage: (images: string[], index: number, alt: string) => void;
+  retry: (clientId: string) => void;
+  discard: (clientId: string) => void;
+  mediaLoad: () => void;
+  menu: (event: ReactMouseEvent, bubble: Bubble) => void;
+};
+
 /** Everything a bubble needs, whether delivered or still on its way. */
 type Bubble = {
   key: string;
@@ -361,10 +378,8 @@ type Bubble = {
   ts: number;
   status?: Pending["status"];
   error?: string;
-  /** What "responder" quotes. Only a delivered message can be answered. */
-  replyTarget?: DmReplyTo;
   clientId?: string;
-  /** The delivered message's id — only a delivered message can be reacted to. */
+  /** The delivered message's id — only a delivered message can be reacted to or answered. */
   messageId?: string;
   /** When its text was last changed, if ever. */
   editedAt?: number;
@@ -373,6 +388,58 @@ type Bubble = {
   seen: boolean;
   author: Author | null;
 };
+
+/** No reactions, as one array — a fresh `[]` per render would read as a change (see sameBubble). */
+const NO_REACTIONS: DmReaction[] = [];
+
+/**
+ * What "responder" quotes, built when it is pressed rather than for every
+ * bubble on every render. Only a delivered message can be answered.
+ */
+function replyTargetOf(bubble: Bubble, authorName: string): DmReplyTo | null {
+  if (!bubble.messageId) return null;
+  return {
+    id: bubble.messageId,
+    name: authorName,
+    // Snapshotted from what is on screen. The API re-validates every field
+    // before storing (see parseDmReplyTo).
+    ...(bubble.text
+      ? { text: bubble.text }
+      : bubble.attachments?.length
+        ? { text: attachmentsPreview(bubble.attachments) }
+        : {}),
+    // A call is not something to quote, and "call" is not one of the kinds a
+    // quoted line can be.
+    ...(bubble.kind && bubble.kind !== "call" ? { kind: bubble.kind } : {}),
+    ...(bubble.images ? { images: bubble.images } : {}),
+  };
+}
+
+/** A message of this account's own, delivered, with words to change — not a GIF. */
+function canEdit(bubble: Bubble): boolean {
+  return bubble.mine && Boolean(bubble.messageId) && bubble.kind !== "gif";
+}
+
+function canDelete(bubble: Bubble): boolean {
+  return bubble.mine && Boolean(bubble.messageId);
+}
+
+/**
+ * Whether two bubbles draw the same. Field by field, because the bubbles are
+ * rebuilt whenever anything in the thread moves — a delivery, an edit, a
+ * reaction — while their parts (the message's images, the reactions, the
+ * author) keep their identity unless they changed. That is what lets the one
+ * message that changed re-render and the other hundred be skipped.
+ */
+function sameBubble(a: Bubble, b: Bubble): boolean {
+  if (a === b) return true;
+  const keys = Object.keys(a) as (keyof Bubble)[];
+  if (keys.length !== Object.keys(b).length) return false;
+  for (const key of keys) {
+    if (!Object.is(a[key], b[key])) return false;
+  }
+  return true;
+}
 
 // ─── Pieces ─────────────────────────────────────────────────────────────
 
@@ -391,7 +458,12 @@ const bubbleAction =
 const rowAction =
   "inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-400 opacity-100 transition hover:bg-zinc-200/70 hover:text-zinc-800 active:scale-95 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200";
 
-function MessageBubble({
+// Memoised, with the bubble compared by its fields (see sameBubble). Without
+// it every keystroke in the composer re-drew every message in the thread —
+// markdown, links, invite cards, reaction popovers and all — which is what
+// made typing and sending lag in a long conversation. The handlers it is
+// given are stable for the life of the dialog (see bubbleHandlers).
+const MessageBubble = memo(function MessageBubble({
   bubble,
   grouped,
   layout,
@@ -472,15 +544,20 @@ function MessageBubble({
     );
   }
 
+  const replyTarget = () => replyTargetOf(bubble, mine ? t("common.you") : otherName);
+
   const actions = (className: string) =>
-    bubble.replyTarget ? (
+    bubble.messageId ? (
       <span className={`flex shrink-0 items-center ${rows ? "" : "self-center"}`}>
         {canReact && reactionPicker("actions", className, <MdOutlineAddReaction className={rows ? "h-3.5 w-3.5" : "h-4 w-4"} />)}
         <button
           type="button"
           aria-label={t("common.reply")}
           title={t("common.reply")}
-          onClick={() => onReply(bubble.replyTarget!)}
+          onClick={() => {
+            const target = replyTarget();
+            if (target) onReply(target);
+          }}
           className={className}
         >
           <MdReply className={rows ? "h-3.5 w-3.5" : "h-4 w-4"} />
@@ -740,7 +817,14 @@ function MessageBubble({
       {!mine && actions(bubbleAction)}
     </li>
   );
-}
+}, (a, b) => {
+  const keys = Object.keys(a) as (keyof typeof a)[];
+  if (keys.length !== Object.keys(b).length) return false;
+  for (const key of keys) {
+    if (key === "bubble" ? !sameBubble(a.bubble, b.bubble) : !Object.is(a[key], b[key])) return false;
+  }
+  return true;
+});
 
 /** "Digitando", as the other side's bubble: three dots taking turns. */
 function TypingBubble({ label }: { label: string }) {
@@ -800,7 +884,7 @@ function ThreadSkeleton() {
  * whoever was rung. That is why the API stores what happened and never a
  * sentence (see its callMessages.ts).
  */
-function CallLine({
+const CallLine = memo(function CallLine({
   call,
   mine,
   otherName,
@@ -849,7 +933,7 @@ function CallLine({
       </span>
     </li>
   );
-}
+});
 
 /** How long a call lasted, as a clock: "4:07", or "1:02:30" past an hour. */
 function callDuration(ms: number): string {
@@ -1328,10 +1412,12 @@ export function DirectMessagesModal({
     if (!isCoarsePointer()) composerRef.current?.focus({ preventScroll: true });
   }, [open, activeId, loaded]);
 
-  // The composer grows with what is typed, up to a few lines.
+  // The composer grows with what is typed, up to a few lines. The CSS does it
+  // on its own where it can (`field-sizing`); measuring here forces a layout of
+  // the whole dialog on every key, so it is only the fallback.
   useLayoutEffect(() => {
     const node = composerRef.current;
-    if (!node) return;
+    if (!node || FIELD_SIZING) return;
     node.style.height = "auto";
     node.style.height = `${Math.min(node.scrollHeight, COMPOSER_MAX_HEIGHT_PX)}px`;
   }, [boxText, activeId, open, split]);
@@ -1384,6 +1470,197 @@ export function DirectMessagesModal({
       height: node.scrollHeight,
     };
   }, [activeId, loaded, firstKey, lastKey, lastIsMine, atBottom, otherTyping, split]);
+
+  // ── The thread, drawn ──
+  //
+  // Memoised, and before anything below can return early, because this is the
+  // expensive part of a render and most renders do not touch it: every key
+  // typed in the composer, every "digitando", the clock. Each bubble is also
+  // memoised on its own (see MessageBubble), so a delivery re-draws the one
+  // line that changed rather than the whole conversation.
+
+  const selfId = account?.id ?? "";
+  const meAuthor = useMemo<Author | null>(
+    () =>
+      account
+        ? {
+            id: account.id,
+            name: account.displayName,
+            avatarUrl: account.avatarUrl ?? null,
+            flags: account.flags,
+            nameColor: account.equippedNameColor ?? null,
+          }
+        : null,
+    [account]
+  );
+  const otherAuthor = useMemo<Author | null>(
+    () =>
+      active
+        ? {
+            id: active.id,
+            name: active.displayName,
+            avatarUrl: active.avatarUrl ?? null,
+            flags: active.flags,
+            bot: active.bot,
+            nameColor: active.nameColor ?? null,
+          }
+        : null,
+    [active]
+  );
+  const readAt = loaded?.readAt ?? 0;
+
+  const bubbles = useMemo<Bubble[]>(
+    () => [
+      ...messages.map((message): Bubble => {
+        const mine = message.from === selfId;
+        return {
+          // The client label when there is one, so the placeholder and the real
+          // message are the same element and nothing flickers on the swap.
+          key: message.clientId ?? message.id,
+          mine,
+          text: message.text,
+          kind: message.kind,
+          // Whatever the call is doing now, over what the page said when it
+          // was read: a call goes on changing while it is on screen.
+          call: message.call ? live.calls[message.id] ?? message.call : undefined,
+          url: message.url,
+          images: message.images,
+          attachments: message.attachments,
+          replyTo: message.replyTo,
+          ts: message.ts,
+          messageId: message.id,
+          editedAt: message.editedAt,
+          reactions: reactionsFor(message, live.reactions, readAt),
+          seen: mine && seenTs !== null && message.ts <= seenTs,
+          author: mine ? meAuthor : otherAuthor,
+        };
+      }),
+      ...outgoing.map(
+        (entry): Bubble => ({
+          key: entry.clientId,
+          clientId: entry.clientId,
+          mine: true,
+          text: entry.payload.text,
+          kind: entry.payload.url ? "gif" : entry.payload.images?.length ? "image" : "text",
+          url: entry.payload.url,
+          images: entry.payload.images,
+          attachments: entry.payload.files,
+          replyTo: entry.payload.replyTo,
+          ts: entry.ts,
+          status: entry.status,
+          error: entry.error,
+          reactions: NO_REACTIONS,
+          seen: false,
+          author: meAuthor,
+        })
+      ),
+    ],
+    [messages, outgoing, selfId, live.calls, live.reactions, readAt, seenTs, meAuthor, otherAuthor]
+  );
+
+  // What the bubbles call back into. The functions behind them are re-created
+  // on every render (they read whatever state is current), so the bubbles get
+  // wrappers made once that look the current ones up — otherwise every render
+  // would hand every bubble "new" props and the memo above would never hold.
+  const handlersRef = useRef<BubbleHandlers | null>(null);
+  useLayoutEffect(() => {
+    handlersRef.current = {
+      react: (bubble, value) => void toggleReaction(bubble, value),
+      reply: replyTo,
+      edit: (bubble) => startEdit(bubble.messageId!, bubble.text),
+      remove: (bubble, skipConfirm) => {
+        if (activeId) confirmDelete(activeId, bubble.messageId!, skipConfirm);
+      },
+      openImage: (images, index, alt) =>
+        setImageModalPreview({ src: images[index], alt, images, currentIndex: index }),
+      retry,
+      discard,
+      mediaLoad: handleMediaLoad,
+      menu: messageMenu,
+    };
+  });
+  const [bubbleHandlers] = useState<BubbleHandlers>(() => ({
+    react: (bubble, value) => handlersRef.current?.react(bubble, value),
+    reply: (target) => handlersRef.current?.reply(target),
+    edit: (bubble) => handlersRef.current?.edit(bubble),
+    remove: (bubble, skipConfirm) => handlersRef.current?.remove(bubble, skipConfirm),
+    openImage: (images, index, alt) => handlersRef.current?.openImage(images, index, alt),
+    retry: (clientId) => handlersRef.current?.retry(clientId),
+    discard: (clientId) => handlersRef.current?.discard(clientId),
+    mediaLoad: () => handlersRef.current?.mediaLoad(),
+    menu: (event, bubble) => handlersRef.current?.menu(event, bubble),
+  }));
+
+  const otherName = active?.displayName ?? t("common.someone");
+  const editingMessageId = editingHere?.messageId ?? null;
+  const threadItems = useMemo(() => {
+    // The rows' single "Visto": under the newest message of mine, once read.
+    let seenLabelKey: string | null = null;
+    for (let i = bubbles.length - 1; i >= 0; i -= 1) {
+      if (!bubbles[i].mine) continue;
+      if (bubbles[i].seen) seenLabelKey = bubbles[i].key;
+      break;
+    }
+
+    const items: ReactNode[] = [];
+    bubbles.forEach((bubble, index) => {
+      const previous = bubbles[index - 1];
+      const newDay = !previous || dayKey(previous.ts) !== dayKey(bubble.ts);
+      if (newDay) {
+        items.push(
+          <li key={`day:${dayKey(bubble.ts)}`} className="mb-1 mt-4 flex justify-center first:mt-0">
+            <span className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-[11px] font-medium text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
+              {dayLabel(bubble.ts, now)}
+            </span>
+          </li>
+        );
+      }
+      if (bubble.call) {
+        items.push(
+          <CallLine key={bubble.key} call={bubble.call} mine={bubble.mine} otherName={otherName} ts={bubble.ts} />
+        );
+        return;
+      }
+      const grouped =
+        !newDay &&
+        previous.mine === bubble.mine &&
+        bubble.ts - previous.ts < GROUP_GAP_MS &&
+        // A reply in the rows restates who wrote it, the way the text room does.
+        !(layout === "rows" && bubble.replyTo);
+      // Only the bubble whose picker it is hears which one is open; the rest
+      // see null either way and are left alone.
+      const ownPicker =
+        pickerFor && bubble.messageId && pickerFor.startsWith(`${bubble.messageId}:`) ? pickerFor : null;
+      items.push(
+        <MessageBubble
+          key={bubble.key}
+          bubble={bubble}
+          grouped={grouped}
+          layout={layout}
+          selfId={selfId}
+          otherName={otherName}
+          pickerFor={ownPicker}
+          showSeenLabel={layout === "rows" && bubble.key === seenLabelKey}
+          editing={Boolean(editingMessageId && bubble.messageId === editingMessageId)}
+          onPicker={setPickerFor}
+          onReact={bubbleHandlers.react}
+          onEdit={canEdit(bubble) ? bubbleHandlers.edit : undefined}
+          onDelete={canDelete(bubble) ? bubbleHandlers.remove : undefined}
+          onReply={bubbleHandlers.reply}
+          onOpenImage={bubbleHandlers.openImage}
+          onRetry={bubbleHandlers.retry}
+          onDiscard={bubbleHandlers.discard}
+          onMediaLoad={bubbleHandlers.mediaLoad}
+          onMenu={bubbleHandlers.menu}
+        />
+      );
+    });
+    // The rows say it in a line above the box instead (see threadPane).
+    if (otherTyping && active && layout === "bubbles") {
+      items.push(<TypingBubble key="typing" label={formatTypingLabel([active.displayName])} />);
+    }
+    return items;
+  }, [bubbles, now, otherName, layout, pickerFor, selfId, editingMessageId, bubbleHandlers, otherTyping, active]);
 
   if (!open) return null;
 
@@ -1620,12 +1897,15 @@ export function DirectMessagesModal({
   // a GIF has no text to change. Both are drawn at once (see lib/dmLive's
   // noteDmChange) and put back, with the reason, if the server refuses.
 
-  function canEdit(bubble: Bubble): boolean {
-    return bubble.mine && Boolean(bubble.messageId) && bubble.kind !== "gif";
-  }
-
-  function canDelete(bubble: Bubble): boolean {
-    return bubble.mine && Boolean(bubble.messageId);
+  /** Opens `target` as the thing being answered — dropping an edit in progress. */
+  function replyTo(target: DmReplyTo) {
+    if (!activeId) return;
+    // One thing at a time in the box: an edit in progress is dropped.
+    setEditing(null);
+    setReply({ userId: activeId, value: target });
+    // Straight into the box, so the next key is the answer. Every pointer,
+    // unlike opening a thread: answering *is* asking to type.
+    requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }));
   }
 
   function startEdit(messageId: string, text: string) {
@@ -1778,15 +2058,12 @@ export function DirectMessagesModal({
           icon: <MdOutlineAddReaction className="h-4 w-4" />,
           onSelect: () => requestAnimationFrame(() => setPickerFor(`${bubble.messageId}:actions`)),
         },
-        bubble.replyTarget && {
+        delivered && {
           label: t("common.reply"),
           icon: <MdReply className="h-4 w-4" />,
           onSelect: () => {
-            if (!activeId) return;
-            // One thing at a time in the box: an edit in progress is dropped.
-            setEditing(null);
-            setReply({ userId: activeId, value: bubble.replyTarget! });
-            requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }));
+            const target = replyTargetOf(bubble, bubble.mine ? t("common.you") : active?.displayName ?? "");
+            if (target) replyTo(target);
           },
         },
         canEdit(bubble) && {
@@ -1976,168 +2253,6 @@ export function DirectMessagesModal({
 
   // ── Rendering ───────────────────────────────────────────────────────
 
-  const selfId = account?.id ?? "";
-  const meAuthor: Author | null = account
-    ? {
-        id: account.id,
-        name: account.displayName,
-        avatarUrl: account.avatarUrl ?? null,
-        flags: account.flags,
-        nameColor: account.equippedNameColor ?? null,
-      }
-    : null;
-  const otherAuthor: Author | null = active
-    ? {
-        id: active.id,
-        name: active.displayName,
-        avatarUrl: active.avatarUrl ?? null,
-        flags: active.flags,
-        bot: active.bot,
-        nameColor: active.nameColor ?? null,
-      }
-    : null;
-
-  const bubbles: Bubble[] = [
-    ...messages.map((message): Bubble => {
-      const mine = message.from === account?.id;
-      return {
-        // The client label when there is one, so the placeholder and the real
-        // message are the same element and nothing flickers on the swap.
-        key: message.clientId ?? message.id,
-        mine,
-        text: message.text,
-        kind: message.kind,
-        // Whatever the call is doing now, over what the page said when it
-        // was read: a call goes on changing while it is on screen.
-        call: message.call ? live.calls[message.id] ?? message.call : undefined,
-        url: message.url,
-        images: message.images,
-        attachments: message.attachments,
-        replyTo: message.replyTo,
-        ts: message.ts,
-        messageId: message.id,
-        editedAt: message.editedAt,
-        reactions: reactionsFor(message, live.reactions, loaded?.readAt ?? 0),
-        seen: mine && seenTs !== null && message.ts <= seenTs,
-        author: mine ? meAuthor : otherAuthor,
-        replyTarget: {
-          id: message.id,
-          name: mine ? t("common.you") : active?.displayName ?? "",
-          // Snapshotted from what is on screen. The API re-validates every
-          // field before storing (see parseDmReplyTo).
-          ...(message.text
-            ? { text: message.text }
-            : message.attachments?.length
-              ? { text: attachmentsPreview(message.attachments) }
-              : {}),
-          // A call is not something to quote, and "call" is not one of the
-          // kinds a quoted line can be.
-          ...(message.kind && message.kind !== "call" ? { kind: message.kind } : {}),
-          ...(message.images ? { images: message.images } : {}),
-        },
-      };
-    }),
-    ...outgoing.map(
-      (entry): Bubble => ({
-        key: entry.clientId,
-        clientId: entry.clientId,
-        mine: true,
-        text: entry.payload.text,
-        kind: entry.payload.url ? "gif" : entry.payload.images?.length ? "image" : "text",
-        url: entry.payload.url,
-        images: entry.payload.images,
-        attachments: entry.payload.files,
-        replyTo: entry.payload.replyTo,
-        ts: entry.ts,
-        status: entry.status,
-        error: entry.error,
-        reactions: [],
-        seen: false,
-        author: meAuthor,
-      })
-    ),
-  ];
-
-  // The rows' single "Visto": under the newest message of mine, once read.
-  let seenLabelKey: string | null = null;
-  for (let i = bubbles.length - 1; i >= 0; i -= 1) {
-    if (!bubbles[i].mine) continue;
-    if (bubbles[i].seen) seenLabelKey = bubbles[i].key;
-    break;
-  }
-
-  const threadItems: ReactNode[] = [];
-  bubbles.forEach((bubble, index) => {
-    const previous = bubbles[index - 1];
-    const newDay = !previous || dayKey(previous.ts) !== dayKey(bubble.ts);
-    if (newDay) {
-      threadItems.push(
-        <li key={`day:${dayKey(bubble.ts)}`} className="mb-1 mt-4 flex justify-center first:mt-0">
-          <span className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-[11px] font-medium text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
-            {dayLabel(bubble.ts, now)}
-          </span>
-        </li>
-      );
-    }
-    if (bubble.call) {
-      threadItems.push(
-        <CallLine
-          key={bubble.key}
-          call={bubble.call}
-          mine={bubble.mine}
-          otherName={active?.displayName ?? t("common.someone")}
-          ts={bubble.ts}
-        />
-      );
-      return;
-    }
-    const grouped =
-      !newDay &&
-      previous.mine === bubble.mine &&
-      bubble.ts - previous.ts < GROUP_GAP_MS &&
-      // A reply in the rows restates who wrote it, the way the text room does.
-      !(layout === "rows" && bubble.replyTo);
-    threadItems.push(
-      <MessageBubble
-        key={bubble.key}
-        bubble={bubble}
-        grouped={grouped}
-        layout={layout}
-        selfId={selfId}
-        otherName={active?.displayName ?? t("common.someone")}
-        pickerFor={pickerFor}
-        showSeenLabel={layout === "rows" && bubble.key === seenLabelKey}
-        editing={Boolean(editingHere && bubble.messageId === editingHere.messageId)}
-        onPicker={setPickerFor}
-        onReact={(target, value) => void toggleReaction(target, value)}
-        onEdit={canEdit(bubble) ? (target) => startEdit(target.messageId!, target.text) : undefined}
-        onDelete={
-          canDelete(bubble)
-            ? (target, skipConfirm) => activeId && confirmDelete(activeId, target.messageId!, skipConfirm)
-            : undefined
-        }
-        onReply={(target) => {
-          if (!activeId) return;
-          setEditing(null);
-          setReply({ userId: activeId, value: target });
-          // Straight into the box, so the next key is the answer. Every
-          // pointer, unlike opening a thread: answering *is* asking to type.
-          requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }));
-        }}
-        onOpenImage={(images, index, alt) =>
-          setImageModalPreview({ src: images[index], alt, images, currentIndex: index })
-        }
-        onRetry={retry}
-        onDiscard={discard}
-        onMediaLoad={handleMediaLoad}
-        onMenu={messageMenu}
-      />
-    );
-  });
-  // The rows say it in a line above the box instead (see threadPane).
-  if (otherTyping && active && layout === "bubbles") {
-    threadItems.push(<TypingBubble key="typing" label={formatTypingLabel([active.displayName])} />);
-  }
 
   // An edit erased to nothing still goes: saving it asks whether to delete.
   const canSend =
@@ -2664,7 +2779,7 @@ export function DirectMessagesModal({
           placeholder={attached.length > 0 ? t("directMessagesModal.captionOptional") : t("directMessagesModal.message")}
           maxLength={MAX_LENGTH}
           aria-label={t("common.message")}
-          className="max-h-36 min-h-[2.5rem] min-w-0 flex-1 resize-none rounded-2xl border border-zinc-300 bg-white px-3.5 py-2 text-sm leading-5 text-zinc-950 outline-none transition focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+          className="max-h-36 min-h-[2.5rem] min-w-0 flex-1 resize-none rounded-2xl [field-sizing:content] border border-zinc-300 bg-white px-3.5 py-2 text-sm leading-5 text-zinc-950 outline-none transition focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
         />
         {!editingHere && (
         <Popover
