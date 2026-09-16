@@ -5,6 +5,10 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import type { ShareFps, ShareResolution } from "@/lib/useRoomMedia";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
+import {
+  isAndroidSystemAudioSupported,
+  prewarmAndroidSystemAudio,
+} from "@/lib/androidScreenCapture";
 
 // The quality question, asked once, at the moment somebody starts
 // transmitting from a phone.
@@ -23,6 +27,16 @@ import { translate } from "@/lib/i18n";
 // put in front of someone about to hit "transmitir" on a phone. Each option
 // here is a resolution/fps pair chosen to be obviously different from the
 // others — see the descriptions, which name the trade rather than the pixels.
+//
+// The one control that is not a quality dial is the system-audio checkbox,
+// and it is here for a different reason: it is the only place it can be
+// asked. Android's screen capture cannot be given sound after the fact — the
+// AudioRecord is built from the same MediaProjection consent as the video
+// (see lib/androidScreenCapture.ts) — so the answer has to exist before the
+// share starts. It is offered unticked every single time, and deliberately
+// not remembered: sharing what your phone is playing is a decision about
+// this moment, and a box that stayed ticked would eventually broadcast a
+// notification, a message tone or a call nobody meant to send to the room.
 
 export type MobileQualityChoice = {
   id: string;
@@ -73,10 +87,33 @@ export function MobileQualitySheet({
   // somebody who picked "Baixa" last time sees that it stuck rather than
   // being asked from scratch every time.
   currentResolution: ShareResolution;
-  onChoose: (choice: MobileQualityChoice) => void;
+  onChoose: (choice: MobileQualityChoice, systemAudio: boolean) => void;
   onCancel: () => void;
 }) {
   const t = useT();
+  // Always false on open, never restored from anywhere — see the note above
+  // the choices for why this one is asked fresh every time.
+  const [systemAudio, setSystemAudio] = useState(false);
+  // Whether to offer it at all: false in a phone browser and on Android 9 and
+  // older, where there is no AudioPlaybackCapture to build on. Starts false
+  // so a sheet that opens before the answer arrives does not flash a control
+  // it is about to take away.
+  const [audioSupported, setAudioSupported] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void isAndroidSystemAudioSupported().then((supported) => {
+      if (cancelled) return;
+      setAudioSupported(supported);
+      // Fetched while the sheet is open and the user is reading it, which is
+      // the one moment this costs nothing — the alternative is paying for it
+      // between the consent dialog and the first chunk of audio.
+      if (supported) prewarmAndroidSystemAudio();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   // Portalled to the body for the same reason the captcha overlay is: this
   // opens from a control that lives inside the room's header, and `fixed`
   // resolves against a transformed ancestor rather than the viewport.
@@ -127,7 +164,7 @@ export function MobileQualitySheet({
                   // start below is async and the sheet stays up until its
                   // caller unmounts it.
                   setPending(choice.id);
-                  onChoose(choice);
+                  onChoose(choice, systemAudio && audioSupported);
                 }}
                 className={`flex flex-col items-start gap-0.5 rounded-xl border px-4 py-3 text-left transition disabled:opacity-60 ${
                   current
@@ -150,6 +187,30 @@ export function MobileQualitySheet({
             );
           })}
         </div>
+
+        {/* Below the quality options rather than above them: those are what
+            the sheet is for and what the thumb is heading towards, and each
+            of them starts the share. A control placed after the buttons that
+            dismiss the sheet would be one nobody ever reaches. */}
+        {audioSupported && (
+          <label className="mt-3 flex items-start gap-3 rounded-xl border border-zinc-300 px-4 py-3 text-left dark:border-zinc-700">
+            <input
+              type="checkbox"
+              checked={systemAudio}
+              disabled={pending !== null}
+              onChange={(e) => setSystemAudio(e.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 rounded border-zinc-300 dark:border-zinc-700"
+            />
+            <span>
+              <span className="block text-sm font-medium text-zinc-950 dark:text-zinc-50">
+                {t("mobileQualitySheet.shareSystemAudio")}
+              </span>
+              <span className="block text-xs text-zinc-500 dark:text-zinc-400">
+                {t("mobileQualitySheet.systemAudioHint")}
+              </span>
+            </span>
+          </label>
+        )}
 
         <button
           type="button"

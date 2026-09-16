@@ -1219,6 +1219,8 @@ export function WatchRoom({
     stopWatchingPeer,
     resumeWatchingPeer,
     shareError,
+    setShareSystemAudio,
+    shareSystemAudioUnavailable,
     shareSource,
     fileChannels,
     localMediaSnapshots,
@@ -6544,6 +6546,16 @@ export function WatchRoom({
           {shareError}
         </p>
       )}
+      {/* Amber and not red, and only while the share it refers to is still
+          running: the transmission is fine, it just has no sound. Saying
+          nothing was the worse option — somebody who ticked the box would
+          otherwise spend the call wondering why nobody could hear the video
+          they were showing. */}
+      {shareSystemAudioUnavailable && localStream && (
+        <p className="bg-amber-50 px-4 py-2 text-sm text-amber-700 dark:bg-amber-950/40 dark:text-amber-500">
+          {translate("watch.watchRoom.systemAudioCouldNotBeCaptured")}
+        </p>
+      )}
       {micError && (
         <p className="bg-red-50 px-4 py-2 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">
           {micError}
@@ -6621,13 +6633,17 @@ export function WatchRoom({
       {qualityPrompt === "screen" && (
         <MobileQualitySheet
           currentResolution={shareResolution}
-          onChoose={(choice: MobileQualityChoice) => {
+          onChoose={(choice: MobileQualityChoice, systemAudio: boolean) => {
             // Applied before starting, not after: the capture reads these
             // through refs when it opens (see useRoomMedia's capture
             // closures), so setting them afterwards would leave this
             // transmission on the previous quality and only move the next one.
             setShareResolution(choice.resolution);
             setShareFps(choice.fps);
+            // Set every time, including when it is false: this is the only
+            // thing that writes the flag, so leaving it alone on an unticked
+            // box would carry the previous share's answer into this one.
+            setShareSystemAudio(systemAudio);
             setQualityPrompt(null);
             void startShare("display");
           }}

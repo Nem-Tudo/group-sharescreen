@@ -36,22 +36,44 @@ const CHANNELS = 2;
 // throwing that audio away.
 const RING_FRAMES = SOURCE_RATE;
 
-// Where the buffer is kept. Enough to ride out IPC jitter, small enough that
-// the delay it adds to the shared audio is not something a viewer would
-// notice against the video.
-const TARGET_FRAMES = Math.round(SOURCE_RATE * 0.06);
+// Where the buffer is kept, by default. Enough to ride out IPC jitter, small
+// enough that the delay it adds to the shared audio is not something a viewer
+// would notice against the video.
+//
+// Overridable per node through processorOptions.targetSeconds, because the
+// two producers feeding this processor jitter by very different amounts. The
+// desktop helper writes into a pipe read on its own thread, so 60ms is
+// plenty. The Android capture (see lib/androidScreenCapture.ts) arrives as
+// base64 over the Capacitor bridge, which is delivered on the WebView's main
+// thread — the same thread that is decoding a JPEG screen frame fifteen
+// times a second. A chunk arriving 100ms late there is ordinary, not a
+// fault, and a buffer sized for the desktop would underrun on every one.
+const DEFAULT_TARGET_SECONDS = 0.06;
 
 // A backlog this size is not drift, it is a stall that has ended — the main
 // thread was blocked and then delivered everything at once. Playing it out
 // at 0.5% would take minutes to recover, so it is dropped instead: in a live
 // stream the newest audio is the only audio worth having.
-const MAX_FRAMES = Math.round(SOURCE_RATE * 0.3);
+//
+// Scaled off the target rather than fixed, so that raising the target raises
+// the headroom with it: the floor is what the desktop has always used, and a
+// larger buffer is allowed to run three times its own depth behind before
+// its backlog counts as a stall rather than as the margin it was asked for.
+const MIN_MAX_SECONDS = 0.3;
 
 const MAX_CORRECTION = 0.005;
 
 class SystemAudioProcessor extends AudioWorkletProcessor {
-  constructor() {
+  constructor(options) {
     super();
+    const requested = options && options.processorOptions && options.processorOptions.targetSeconds;
+    const targetSeconds = typeof requested === "number" && requested > 0 ? requested : DEFAULT_TARGET_SECONDS;
+    // Clamped to the ring, which is the hard ceiling on anything this can
+    // hold — a target the buffer cannot physically reach would leave the
+    // node permanently unprimed, which is silence forever rather than a
+    // deeper buffer.
+    this.targetFrames = Math.min(Math.round(SOURCE_RATE * targetSeconds), Math.round(RING_FRAMES / 2));
+    this.maxFrames = Math.max(Math.round(SOURCE_RATE * MIN_MAX_SECONDS), this.targetFrames * 3);
     this.ring = new Float32Array(RING_FRAMES * CHANNELS);
     // Write position in frames, and a *fractional* read position — the
     // fraction is what carries both the drift correction and the resampling.
@@ -117,7 +139,7 @@ class SystemAudioProcessor extends AudioWorkletProcessor {
     // different rate than the capture; the correction handles drift between
     // the two clocks at whatever rate they are.
     const ratio = SOURCE_RATE / sampleRate;
-    const fill = (this.available - TARGET_FRAMES) / TARGET_FRAMES;
+    const fill = (this.available - this.targetFrames) / this.targetFrames;
     const correction = Math.max(-1, Math.min(1, fill)) * MAX_CORRECTION;
     const step = ratio * (1 + correction);
 
@@ -142,7 +164,7 @@ class SystemAudioProcessor extends AudioWorkletProcessor {
     // a share on the first chunk to arrive means underrunning on the second,
     // and a stream that stutters through its first second reads as broken
     // rather than as one still filling up.
-    if (!this.primed && this.available < TARGET_FRAMES) {
+    if (!this.primed && this.available < this.targetFrames) {
       for (let c = 0; c < output.length; c++) output[c].fill(0);
       // `false` would let the graph collect this node the moment it went
       // quiet, and the whole point is that it stays live through silence.
@@ -163,10 +185,10 @@ class SystemAudioProcessor extends AudioWorkletProcessor {
     this.read = position % RING_FRAMES;
     this.available -= consumed;
 
-    // See MAX_FRAMES: a backlog this far past target is recovered from by
+    // See MIN_MAX_SECONDS: a backlog this far past target is recovered from by
     // skipping, not by playing it out.
-    if (this.available > MAX_FRAMES) {
-      const drop = this.available - TARGET_FRAMES;
+    if (this.available > this.maxFrames) {
+      const drop = this.available - this.targetFrames;
       this.read = (this.read + drop) % RING_FRAMES;
       this.available -= drop;
     }

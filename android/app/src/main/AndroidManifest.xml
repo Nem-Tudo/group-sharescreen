@@ -46,12 +46,17 @@
              Android, in any Chromium embedding). foregroundServiceType is
              load-bearing from Android 14 on: MediaProjectionManager throws a
              SecurityException out of getMediaProjection() if a foreground
-             service of exactly this type is not already running. -->
+             service of exactly this type is not already running.
+
+             "microphone" is declared alongside it but used only by a share
+             that opted into system audio — startForeground() is passed the
+             subset that applies, and passing a type not declared here is what
+             throws instead. See FOREGROUND_SERVICE_MICROPHONE below. -->
         <service
             android:name=".ScreenCaptureService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="mediaProjection"
+            android:foregroundServiceType="mediaProjection|microphone"
         />
 
         <!-- Notifications drawn by the app itself — see GoLiveNotifications.java.
@@ -136,6 +141,17 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Only for a share that opted into system audio. The capture is
+         AudioPlaybackCapture, not the microphone, but it is an AudioRecord
+         all the same, and from Android 11 an AudioRecord owned by a process
+         that is not in the foreground is fed silence unless a foreground
+         service of the microphone type is running. ScreenCaptureService adds
+         that type to its own mediaProjection one only while audio was asked
+         for and RECORD_AUDIO is granted, so an ordinary silent share never
+         runs as a microphone service. RECORD_AUDIO itself is already
+         declared above, for getUserMedia. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
 
     <!-- A ringing call shown full-screen over the lock screen, like a phone
          call (GoLiveNotifications.showIncomingCall). Without it Android still

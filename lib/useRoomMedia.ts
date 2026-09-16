@@ -2761,6 +2761,21 @@ export function useRoomMedia(room: string) {
   );
   const shareResolutionRef = useRef(shareResolution);
   const shareFpsRef = useRef(shareFps);
+  // Whether the *next* share should carry system audio. A ref and not state,
+  // and deliberately not stored: unlike every other dial here this one is
+  // answered fresh each time, always starting unticked (see
+  // MobileQualitySheet). Sharing what the phone is playing is a decision
+  // about this moment — a setting that remembered "yes" would eventually
+  // broadcast something nobody meant to share.
+  //
+  // Only the Android app reads it; every other platform gets its system
+  // audio from getDisplayMedia or from the desktop helper instead.
+  const shareSystemAudioRef = useRef(false);
+  // Set when that was asked for and could not be delivered — an old Android,
+  // a refused microphone permission, a device with no capture path. The
+  // share itself is fine and running, so this is a notice rather than an
+  // error, and it is what stops a ticked box from silently doing nothing.
+  const [systemAudioUnavailable, setSystemAudioUnavailable] = useState(false);
   const shareBitrateRef = useRef(shareBitrate);
   const smartQualityEnabledRef = useRef(smartQualityEnabled);
   const shareProfileRef = useRef(shareProfile);
@@ -2776,6 +2791,10 @@ export function useRoomMedia(room: string) {
     setShareFpsState(value);
     setStoredShareFps(value);
     trackEvent(`screen_share_fps_${value}`);
+  }, []);
+  const setShareSystemAudio = useCallback((value: boolean) => {
+    shareSystemAudioRef.current = value;
+    trackEvent(value ? "screen_share_system_audio_on" : "screen_share_system_audio_off");
   }, []);
   const setShareBitrate = useCallback((value: ShareBitrate) => {
     shareBitrateRef.current = value;
@@ -2897,10 +2916,16 @@ export function useRoomMedia(room: string) {
       // same degraded shape a browser without loopback audio already hands
       // back here.
       if (isAndroidScreenCaptureAvailable()) {
+        // Cleared per attempt rather than on stop: the notice belongs to one
+        // share, and leaving the previous one's up while a new share starts
+        // would be saying something untrue about the share in front of you.
+        setSystemAudioUnavailable(false);
         return captureAndroidScreen({
           width: dims.width,
           height: dims.height,
           fps: shareFpsRef.current,
+          systemAudio: shareSystemAudioRef.current,
+          onSystemAudioUnavailable: () => setSystemAudioUnavailable(true),
         });
       }
       // No fallback to the camera here — on browsers without getDisplayMedia
@@ -3552,6 +3577,10 @@ export function useRoomMedia(room: string) {
     remoteStreams: screen.remoteStreams,
     shareError: screen.error,
     shareSource: screen.source,
+    // Answered once per share, at the moment it starts — see
+    // shareSystemAudioRef for why this one is never remembered.
+    setShareSystemAudio,
+    shareSystemAudioUnavailable: systemAudioUnavailable,
     // The local-file slots (see useLocalFileChannel). A record rather than a
     // flat set of fields, because there are three of them and every consumer
     // wants to walk them.

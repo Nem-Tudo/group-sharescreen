@@ -408,6 +408,12 @@ export function GroupMessageComposer({
     if (!draftKey) return;
     const saved = readDraft(draftKey);
     if (!saved) return;
+    // setState inside an effect, on purpose, and this is the case the rule
+    // itself carves out: sessionStorage is an external system, and reading it
+    // on mount is a subscription to it with exactly one event. It cannot be a
+    // lazy useState initializer either — the server renders an empty box and
+    // would then disagree with the restored one during hydration.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setText(saved.text);
     setImages(saved.images);
     setCursor(saved.text.length);

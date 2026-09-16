@@ -3300,5 +3300,8 @@
   "groups.categorySettings.gone": "Esta categoria não existe mais.",
   "groups.categorySettings.intro": "O que cada um pode fazer nas salas de {name}. Vale para salas novas criadas aqui e para as que estão sincronizadas:",
   "groups.categorySettings.oneSyncedRoom": "1 sala sincronizada",
-  "groups.categorySettings.syncedRooms": "{count} salas sincronizadas"
+  "groups.categorySettings.syncedRooms": "{count} salas sincronizadas",
+  "mobileQualitySheet.shareSystemAudio": "Compartilhar áudio do sistema",
+  "mobileQualitySheet.systemAudioHint": "Envia o som que o celular está tocando. Não inclui o áudio da própria sala, e alguns apps de música e vídeo não permitem ser capturados.",
+  "watch.watchRoom.systemAudioCouldNotBeCaptured": "Não foi possível capturar o áudio do sistema. A transmissão continua, mas sem som."
 }

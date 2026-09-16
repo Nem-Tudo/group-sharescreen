@@ -3300,5 +3300,8 @@
   "groups.categorySettings.gone": "This category no longer exists.",
   "groups.categorySettings.intro": "What each one can do in {name}'s rooms. It applies to new rooms created here and to the ones that are synced:",
   "groups.categorySettings.oneSyncedRoom": "1 synced room",
-  "groups.categorySettings.syncedRooms": "{count} synced rooms"
+  "groups.categorySettings.syncedRooms": "{count} synced rooms",
+  "mobileQualitySheet.shareSystemAudio": "Share system audio",
+  "mobileQualitySheet.systemAudioHint": "Sends what the phone is playing. It does not include the room’s own audio, and some music and video apps do not allow being captured.",
+  "watch.watchRoom.systemAudioCouldNotBeCaptured": "System audio could not be captured. The broadcast carries on, but without sound."
 }
