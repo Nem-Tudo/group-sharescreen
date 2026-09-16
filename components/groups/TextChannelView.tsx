@@ -1692,9 +1692,26 @@ export function TextChannelView({ detail, channelId }: { detail: GroupDetail; ch
         // members and this menu (see GroupMobile).
         className="hidden shrink-0 items-center justify-between gap-2 border-b border-zinc-200 px-3 py-2 lg:flex dark:border-zinc-800"
       >
-        <h2 className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-zinc-700 dark:text-zinc-300">
+        <h2 className="flex min-w-0 flex-1 items-center gap-1.5 text-sm font-semibold text-zinc-700 dark:text-zinc-300">
           <MdChatBubbleOutline className="h-4 w-4 shrink-0 text-zinc-500" />
-          <span className="truncate">{channelName}</span>
+          <span className="shrink-0 truncate">{channelName}</span>
+          {channel?.topic && (
+            // In the space left over beside the name, behind a divider — the
+            // room's own line about what it is for. One line, truncated, with
+            // the whole of it on hover: the header cannot grow, and a
+            // description that pushed the name around would cost more than it
+            // is worth. `min-w-0` on both is what makes the truncation land
+            // here rather than on the name.
+            <>
+              <span aria-hidden className="h-4 w-px shrink-0 bg-zinc-300 dark:bg-zinc-700" />
+              <span
+                title={channel.topic}
+                className="min-w-0 truncate text-xs font-normal text-zinc-500 dark:text-zinc-400"
+              >
+                {channel.topic}
+              </span>
+            </>
+          )}
         </h2>
         <Tooltip content={t("groups.textChannelView.groupMembers")}>
           <button

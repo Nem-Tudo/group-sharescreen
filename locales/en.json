@@ -3285,5 +3285,20 @@
   "profileLinks.add": "Add a network",
   "profileLinks.remove": "Remove",
   "profileLinks.hint": "Up to {max} links. Each one has to be on the chosen network's own site.",
-  "pro.proPanel.linkYourSocialNetworksOnYour": "Link your social networks on your profile"
+  "pro.proPanel.linkYourSocialNetworksOnYour": "Link your social networks on your profile",
+  "groups.channelTopic.label": "Room description",
+  "groups.channelTopic.placeholder": "What is talked about here?",
+  "groups.channelTopic.hint": "Shown beside the room's name, at the top.",
+  "groups.channelPermissions.syncTitle": "Synced with {name}",
+  "groups.channelPermissions.startSyncing": "Sync",
+  "groups.channelPermissions.stopSyncing": "Stop syncing",
+  "groups.channelPermissions.syncedHint": "This room's permissions are {name}'s. Any change to the category changes this room too.",
+  "groups.channelPermissions.unsyncedHint": "This room has its own permissions and does not follow {name}.",
+  "groups.channelPermissions.editUnsyncsWarning": "Touching any switch here takes this room out of the sync with {name}, keeping what it has now.",
+  "groups.categorySettings.menuEntry": "Category permissions",
+  "groups.categorySettings.nameLabel": "Category name",
+  "groups.categorySettings.gone": "This category no longer exists.",
+  "groups.categorySettings.intro": "What each one can do in {name}'s rooms. It applies to new rooms created here and to the ones that are synced:",
+  "groups.categorySettings.oneSyncedRoom": "1 synced room",
+  "groups.categorySettings.syncedRooms": "{count} synced rooms"
 }

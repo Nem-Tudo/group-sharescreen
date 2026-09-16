@@ -3285,5 +3285,20 @@
   "profileLinks.add": "Adicionar rede",
   "profileLinks.remove": "Remover",
   "profileLinks.hint": "Até {max} redes sociais",
-  "pro.proPanel.linkYourSocialNetworksOnYour": "Divulgue suas redes sociais no seu perfil"
+  "pro.proPanel.linkYourSocialNetworksOnYour": "Divulgue suas redes sociais no seu perfil",
+  "groups.channelTopic.label": "Descrição da sala",
+  "groups.channelTopic.placeholder": "Do que se fala aqui?",
+  "groups.channelTopic.hint": "Aparece ao lado do nome da sala, no topo.",
+  "groups.channelPermissions.syncTitle": "Sincronizado com {name}",
+  "groups.channelPermissions.startSyncing": "Sincronizar",
+  "groups.channelPermissions.stopSyncing": "Parar de sincronizar",
+  "groups.channelPermissions.syncedHint": "As permissões desta sala são as de {name}. Qualquer mudança na categoria muda esta sala também.",
+  "groups.channelPermissions.unsyncedHint": "Esta sala tem permissões próprias e não segue {name}.",
+  "groups.channelPermissions.editUnsyncsWarning": "Mexer em qualquer chave aqui tira esta sala da sincronização com {name}, mantendo o que ela tem agora.",
+  "groups.categorySettings.menuEntry": "Permissões da categoria",
+  "groups.categorySettings.nameLabel": "Nome da categoria",
+  "groups.categorySettings.gone": "Esta categoria não existe mais.",
+  "groups.categorySettings.intro": "O que cada um pode fazer nas salas de {name}. Vale para salas novas criadas aqui e para as que estão sincronizadas:",
+  "groups.categorySettings.oneSyncedRoom": "1 sala sincronizada",
+  "groups.categorySettings.syncedRooms": "{count} salas sincronizadas"
 }

@@ -25,6 +25,7 @@ import {
   JoinGroupDialog,
 } from "@/components/groups/GroupDialogs";
 import { ChannelSettingsDialog } from "@/components/groups/ChannelSettingsDialog";
+import { CategorySettingsDialog } from "@/components/groups/CategorySettingsDialog";
 import { RoomToGroupDialog } from "@/components/RoomToGroup";
 import { BotExplorerDialog } from "@/components/bots/BotExplorerDialog";
 import { AddBotDialog, BotAddLinkInterceptor, InviteDialog } from "@/components/bots/AddBotDialog";
@@ -54,6 +55,7 @@ const customPopups: Record<string, ComponentType> = {
   group_settings: GroupSettingsDialog as ComponentType,
   group_location: GroupLocationDialog as ComponentType,
   group_channel: ChannelSettingsDialog as ComponentType,
+  group_category: CategorySettingsDialog as ComponentType,
   // An ordinary room becoming a group — see components/RoomToGroup.tsx.
   room_to_group: RoomToGroupDialog as ComponentType,
   // A group's "Explorar bots" — see components/bots/BotExplorerDialog.tsx.

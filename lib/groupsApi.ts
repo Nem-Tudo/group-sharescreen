@@ -97,6 +97,17 @@ export interface GroupCategory {
   id: string;
   name: string;
   position: number;
+  /**
+   * The heading's own permission settings for @everyone, which every room
+   * under it that is synced reads instead of its own (see
+   * GroupChannel.syncedWithCategory). Absent from an older API.
+   *
+   * Unlike a room's, this may carry keys of both kinds — one heading can hold
+   * text rooms and voice rooms.
+   */
+  permissions?: ChannelPermissionOverrides;
+  /** The same, per role id. Absent from an older API. */
+  roleOverrides?: Record<string, ChannelPermissionOverrides>;
 }
 
 export interface GroupChannel {
@@ -107,7 +118,22 @@ export interface GroupChannel {
   categoryId?: string | null;
   /** Order within its category and kind. */
   position: number;
-  /** This room's own permission settings for @everyone — a switch absent inherits the group's. See lib/groupPermissions. */
+  /**
+   * A line about what the room is for, drawn beside its name in the header.
+   * Empty or absent for none; text rooms only.
+   */
+  topic?: string;
+  /**
+   * Whether the two fields below came from this room's category rather than
+   * from the room itself.
+   *
+   * Only ever changes how the settings dialog *explains* them: what the API
+   * sends is already whichever of the two is in force, so resolving a
+   * permission here never has to know a category exists. Absent from an older
+   * API, read as "these are the room's own", which is what it meant then.
+   */
+  syncedWithCategory?: boolean;
+  /** The permission settings in force for this room, for @everyone — a switch absent inherits the group's. See lib/groupPermissions. */
   permissions: ChannelPermissionOverrides;
   /** The same, per role id. Absent from an older API. */
   roleOverrides?: Record<string, ChannelPermissionOverrides>;
@@ -620,6 +646,25 @@ export const createChannel = (
 export const renameChannel = (groupId: string, channelId: string, name: string) =>
   request<{ channel: GroupChannel }>("PATCH", `/groups/${enc(groupId)}/channels/${enc(channelId)}`, { name });
 
+/** Mirrors the API's MAX_CHANNEL_TOPIC — the cap it enforces. */
+export const MAX_CHANNEL_TOPIC = 300;
+
+/** The line beside a text room's name. "" clears it. */
+export const setChannelTopic = (groupId: string, channelId: string, topic: string) =>
+  request<{ channel: GroupChannel }>("PATCH", `/groups/${enc(groupId)}/channels/${enc(channelId)}`, { topic });
+
+/**
+ * Whether this room's permissions are its category's.
+ *
+ * Turning it on drops the room's own; turning it off copies the category's in,
+ * so nothing about who may do what changes at that moment — only where the
+ * answer comes from (see the API's setChannelSync).
+ */
+export const setChannelSync = (groupId: string, channelId: string, synced: boolean) =>
+  request<{ channel: GroupChannel }>("PUT", `/groups/${enc(groupId)}/channels/${enc(channelId)}/sync`, {
+    synced,
+  });
+
 export const deleteChannel = (groupId: string, channelId: string) =>
   request<object>("DELETE", `/groups/${enc(groupId)}/channels/${enc(channelId)}`);
 
@@ -685,6 +730,25 @@ export const setChannelPermissions = (
     permissions,
     ...(roleId ? { roleId } : {}),
   });
+
+/**
+ * A category's settings for @everyone (roleId null) or one role, replaced
+ * whole — the same shape as a room's.
+ *
+ * One save moves every room under it that is synced, because those rooms read
+ * the category rather than holding a copy of it.
+ */
+export const setCategoryPermissions = (
+  groupId: string,
+  categoryId: string,
+  permissions: ChannelPermissionOverrides,
+  roleId: string | null = null
+) =>
+  request<{ category: GroupCategory }>(
+    "PUT",
+    `/groups/${enc(groupId)}/categories/${enc(categoryId)}/permissions`,
+    { permissions, ...(roleId ? { roleId } : {}) }
+  );
 
 // ─── Roles ───────────────────────────────────────────────────────────────
 

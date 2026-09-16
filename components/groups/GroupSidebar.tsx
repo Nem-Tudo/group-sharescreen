@@ -80,6 +80,7 @@ import { GroupLink } from "@/components/groups/GroupLink";
 import { GroupName } from "@/components/groups/GroupName";
 import { clickPerson, contextPerson } from "@/components/groups/groupProfile";
 import { useOpenChannelSettings } from "@/components/groups/ChannelSettingsDialog";
+import { useOpenCategorySettings } from "@/components/groups/CategorySettingsDialog";
 import {
   requestGroupVoiceFocus,
   setGroupVoiceSession,
@@ -344,6 +345,7 @@ export function GroupRoomsPanel({
   const session = useGroupVoiceSession();
   const live = useGroupVoiceLive();
   const openChannelSettings = useOpenChannelSettings();
+  const openCategorySettings = useOpenCategorySettings();
   const openBotExplorer = useOpenBotExplorer(detail);
   const [addOpen, setAddOpen] = useState(false);
   // What the inline form is making, and where: a room of a kind in a
@@ -613,6 +615,13 @@ export function GroupRoomsPanel({
           label: t("common.rename"),
           icon: <MdEdit className="h-4 w-4" />,
           onSelect: () => setRenaming({ id: category.id, draft: category.name }),
+        },
+        isManager && {
+          // Where the permissions every room under this heading inherits are
+          // set — see CategorySettingsDialog.
+          label: t("groups.categorySettings.menuEntry"),
+          icon: <MdSettings className="h-4 w-4" />,
+          onSelect: () => openCategorySettings(group.id, category.id, "permissions"),
         },
         isManager && {
           label: t("common.deleteCategory"),

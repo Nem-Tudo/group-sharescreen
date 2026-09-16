@@ -206,6 +206,10 @@ export function groupAllows(permissions: GroupPermissions | undefined, key: AnyP
 
 /** Whether this room lets @everyone do `key`: its own setting, or the group's. */
 export function channelAllows(detail: GroupDetail, channel: GroupChannel, key: GroupPermissionKey): boolean {
+  // A room's `permissions` is whichever set is in force for it — its own, or
+  // its category's while the two are synced. The API resolves that before
+  // sending (see its effectiveOverrides), which is precisely so that nothing
+  // here has to know a category exists.
   const own = channel.permissions?.[key];
   if (typeof own === "boolean") return own;
   return groupAllows(detail.group.permissions, key);
