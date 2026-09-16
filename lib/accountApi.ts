@@ -107,6 +107,14 @@ export type PremiumState = {
    * still says "assine" and reads it as the site being broken.
    */
   lastRefusal?: { reason: string; at: number } | null;
+  /**
+   * A card mandate scheduled to take over billing at this account's next
+   * renewal, at a higher plan's full price — see the API's
+   * /premium/upgrade/subscribe. Null once it has taken over, or if none was
+   * ever scheduled.
+   */
+  scheduledUpgradeRef?: string | null;
+  scheduledUpgradePlan?: string | null;
   updatedAt: number;
 };
 
