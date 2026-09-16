@@ -70,13 +70,14 @@ assert.equal(inviteCodeFromInput("https://golive.nemtudo.me/watch/sala"), null);
 assert.equal(inviteCodeFromInput("https://golive.nemtudo.me/invite/"), null);
 assert.equal(inviteCodeFromInput("não é um link"), null);
 
-// Expiry wording.
+// Expiry wording, in the fallback language — which is what anything
+// unactivated answers in (see lib/i18n's DEFAULT_LOCALE).
 const now = 1_000_000_000_000;
-assert.equal(describeInviteExpiry(null, now), "Never expires");
-assert.equal(describeInviteExpiry(now - 1, now), "Expired");
-assert.equal(describeInviteExpiry(now + 30 * 60_000, now), "Expires in 30 min");
-assert.equal(describeInviteExpiry(now + 6 * 3_600_000, now), "Expires in 6 h");
-assert.equal(describeInviteExpiry(now + 7 * 86_400_000, now), "Expires in 7 days");
+assert.equal(describeInviteExpiry(null, now), "Nunca expira");
+assert.equal(describeInviteExpiry(now - 1, now), "Expirado");
+assert.equal(describeInviteExpiry(now + 30 * 60_000, now), "Expira em 30 min");
+assert.equal(describeInviteExpiry(now + 6 * 3_600_000, now), "Expira em 6 h");
+assert.equal(describeInviteExpiry(now + 7 * 86_400_000, now), "Expira em 7 dias");
 
 // Initials for a group with no icon.
 assert.equal(groupInitials("Meu Grupo"), "MG");
