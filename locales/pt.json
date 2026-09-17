@@ -1,4 +1,6 @@
 {
+  "userProfileCard.copyId": "Copiar ID",
+  "userProfileCard.idCopied": "ID copiado",
   "admin.badgesPanel.updated": "Badge atualizada.",
   "admin.badgesPanel.edit": "Editar",
   "admin.badgesPanel.editBadge": "Editando \"{name}\"",

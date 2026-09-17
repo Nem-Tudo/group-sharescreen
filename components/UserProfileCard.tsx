@@ -41,7 +41,8 @@ import { DEFAULT_AVATAR_PATH } from "@/components/UserAvatar";
 import { fetchCosmeticsCatalog, type CosmeticProduct } from "@/lib/cosmetics";
 import { prepareAvatarImage, AVATAR_IMAGE_ACCEPT, AVATAR_IMAGE_MAX_BYTES } from "@/lib/avatarImage";
 import { canCropAnimatedGif } from "@/lib/gifCrop";
-import { MdCheck, MdEdit, MdGroups, MdLink, MdPhotoCamera, MdDeleteOutline, MdCircle, MdSquare } from "react-icons/md";
+import { MdCheck, MdContentCopy, MdEdit, MdGroups, MdLink, MdPhotoCamera, MdDeleteOutline, MdCircle, MdSquare } from "react-icons/md";
+import { copyText } from "@/lib/clipboard";
 import {
   AVATAR_SHAPES,
   avatarShapeOf,
@@ -449,6 +450,31 @@ export function UserProfileCard({
       onProfileUpdated={setProfile}
       autoPlaySong={autoPlaySong}
     />
+  );
+}
+
+// The account's id, for bots, admin panels and bug reports — the one value
+// that never changes when the username does. Inherits the footer's colour, so
+// a themed card needs nothing extra.
+function CopyIdButton({ id }: { id: string }) {
+  const { t } = useI18n();
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        void copyText(id).then((ok) => {
+          if (!ok) return;
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        });
+      }}
+      title={id}
+      className="inline-flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 font-medium transition hover:bg-zinc-500/10 hover:opacity-100"
+    >
+      {copied ? <MdCheck className="h-3.5 w-3.5" /> : <MdContentCopy className="h-3.5 w-3.5" />}
+      {copied ? t("userProfileCard.idCopied") : t("userProfileCard.copyId")}
+    </button>
   );
 }
 
@@ -1713,12 +1739,15 @@ function ProfileContent({
           onLeave={onNavigate}
         />
 
-        <p
-          className="mt-5 text-xs text-zinc-400 dark:text-zinc-600"
+        <div
+          className="mt-5 flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-400 dark:text-zinc-600"
           style={theme ? { color: theme.faint, textShadow: theme.textShadow } : undefined}
         >
-          {t("userProfileCard.onGoliveSince")} {memberSince}.
-        </p>
+          <p>
+            {t("userProfileCard.onGoliveSince")} {memberSince}.
+          </p>
+          <CopyIdButton id={account.id} />
+        </div>
 
         {isEditing && (
           <form onSubmit={handleSave} className="mt-5 flex flex-col gap-4">
