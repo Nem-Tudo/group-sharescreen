@@ -549,7 +549,7 @@ function QualityControls({
                 />
                 <span>
                   <span className="font-medium text-zinc-900 dark:text-zinc-100">
-                    {t("watch.watchRoom.useGpuCapture")}
+                    <BetaMark /> {t("watch.watchRoom.useGpuCapture")}
                   </span>
                   <br />
                   {t("watch.watchRoom.useGpuCaptureHint")}
@@ -557,7 +557,7 @@ function QualityControls({
               </label>
             ) : (
               <p>
-                <span className="font-medium text-zinc-900 dark:text-zinc-100">{t("watch.watchRoom.gpuCapture")}</span>
+                <span className="font-medium text-zinc-900 dark:text-zinc-100"><BetaMark /> {t("watch.watchRoom.gpuCapture")}</span>
                 <br />
                 {t("watch.watchRoom.useGpuCaptureHint")}
               </p>
@@ -570,10 +570,10 @@ function QualityControls({
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {(
                     [
-                      ["duplication", t("watch.watchRoom.gpuCaptureDuplication"), t("watch.watchRoom.gpuCaptureDuplicationHint")],
-                      ["wgc", t("watch.watchRoom.gpuCaptureWgc"), t("watch.watchRoom.gpuCaptureWgcHint")],
+                      ["duplication", t("watch.watchRoom.gpuCaptureDuplication")],
+                      ["wgc", t("watch.watchRoom.gpuCaptureWgc")],
                     ] as const
-                  ).map(([value, label, hint]) => (
+                  ).map(([value, label]) => (
                     <button
                       key={value}
                       type="button"
@@ -585,7 +585,6 @@ function QualityControls({
                         }`}
                     >
                       <span className="block font-medium">{label}</span>
-                      <span className="block opacity-70">{hint}</span>
                     </button>
                   ))}
                 </div>
