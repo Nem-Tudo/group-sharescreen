@@ -78,6 +78,8 @@ import { rememberRecentRoom } from "@/lib/recentRoomsSync";
 import type { CallDockPhase } from "@/lib/callSession";
 import { useRoomSoundEffects } from "@/lib/useRoomSoundEffects";
 import { useBackgroundKeepAlive } from "@/lib/useBackgroundKeepAlive";
+import { useAndroidCallService } from "@/lib/androidCallService";
+import { recentRoomPresentation } from "@/lib/recentRooms";
 import {
   getSoundEffectsEnabled,
   setSoundEffectsEnabled,
@@ -2267,6 +2269,26 @@ export function WatchRoom({
     toggleMicRef.current = toggleMic;
   }, [toggleMic]);
   const stableToggleMic = useCallback(() => toggleMicRef.current(), []);
+
+  // On the Android app, the call's own notification — and the foreground
+  // service behind it, without which leaving the app mutes the mic and soon
+  // freezes the call (see lib/androidCallService). Held for as long as the
+  // room is: from the first time the join is answered until this unmounts, so
+  // a reconnect (which clears state.room for a moment) does not stop a service
+  // Android would refuse to start again while the app is in the background.
+  const [callHeld, setCallHeld] = useState(false);
+  if (!callHeld && state.room === handle) setCallHeld(true);
+  const hangUpFromNotification = useCallback(() => {
+    playHangUpSound();
+    onDisconnect();
+  }, [onDisconnect]);
+  useAndroidCallService({
+    active: callHeld,
+    title: group ? group.channelName : dm ? dm.displayName : recentRoomPresentation(handle).name,
+    micOn: isMicOn,
+    onToggleMic: stableToggleMic,
+    onLeave: hangUpFromNotification,
+  });
 
   // The per-person audio controls, for the rooms list of a group: from lg up
   // a group's voice room has no participant list of its own (who is in it is

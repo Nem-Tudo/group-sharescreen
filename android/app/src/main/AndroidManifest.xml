@@ -59,6 +59,17 @@
             android:foregroundServiceType="mediaProjection|microphone"
         />
 
+        <!-- Keeps a call going with the app out of sight — see CallService.java.
+             mediaPlayback so the process is not frozen and the room stays
+             audible; microphone so the mic is not fed silence (added at
+             runtime only while RECORD_AUDIO is granted). -->
+        <service
+            android:name=".CallService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback|microphone"
+        />
+
         <!-- Notifications drawn by the app itself — see GoLiveNotifications.java.
              GoLiveMessagingService takes over from the PushNotifications
              plugin's own service (removed below), extending it so the token
@@ -152,6 +163,13 @@
          runs as a microphone service. RECORD_AUDIO itself is already
          declared above, for getUserMedia. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+
+    <!-- CallService: a call kept alive in the background. The microphone type
+         above is the other half; the wake lock keeps the CPU (and, through
+         a Wi-Fi lock, the radio) awake for a call on a phone with the screen
+         off. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!-- A ringing call shown full-screen over the lock screen, like a phone
          call (GoLiveNotifications.showIncomingCall). Without it Android still

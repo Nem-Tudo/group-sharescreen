@@ -19,6 +19,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(PictureInPicturePlugin.class);
         registerPlugin(GoLiveNotificationsPlugin.class);
         registerPlugin(AppChromePlugin.class);
+        registerPlugin(CallServicePlugin.class);
         showOverLockScreenForCall(getIntent());
         super.onCreate(savedInstanceState);
     }
