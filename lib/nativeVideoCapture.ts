@@ -148,23 +148,37 @@ export interface NativeVideoOptions {
  * NativeVideoSource.attach). Null whenever it cannot be had, in which case
  * the caller keeps Chromium's capture.
  */
-export async function startNativeVideo(options: NativeVideoOptions): Promise<NativeVideoSource | null> {
+export type NativeVideoStart =
+  | { source: NativeVideoSource; failure?: undefined }
+  | { source: null; failure: string | null };
+
+export async function startNativeVideo(options: NativeVideoOptions): Promise<NativeVideoStart> {
   const bridge = getDesktopBridge()?.nativeVideo;
-  if (!bridge || disabledForSession || !(await probeNativeVideo())) return null;
+  if (!bridge || disabledForSession) return { source: null, failure: null };
+  if (!(await probeNativeVideo())) return { source: null, failure: "unsupported" };
+  // Subscribed before asking, so the first frames — which arrive before the
+  // answer does — are not lost.
+  const source = new NativeVideoSource(options.bitrateKbps, options.fps);
   const result = await bridge.start(options).catch(() => null);
   if (!result || !result.ok) {
-    if (result && result.reason === "unsupported") disabledForSession = true;
-    return null;
+    source.stop();
+    // Anything but a missing surface is this machine's answer, and asking
+    // again in the same session would only put the person through it twice.
+    if (!result || result.reason !== "no-source") disabledForSession = true;
+    const failure = result ? `${result.reason}${result.detail ? `: ${result.detail}` : ""}` : "no answer";
+    console.warn("[golive] GPU capture unavailable, using the browser's:", failure);
+    return { source: null, failure: result?.reason ?? "failed" };
   }
-  const source = new NativeVideoSource(options.bitrateKbps, result.encoder, options.fps);
+  source.started(result.encoder);
   sources.set(source.track, source);
-  return source;
+  console.info(`[golive] GPU capture: ${result.width}x${result.height} via ${result.encoder}`);
+  return { source };
 }
 
 export class NativeVideoSource {
   /** The share's video track: a local preview of what is being sent. */
   readonly track: TrackGenerator;
-  readonly encoder: string;
+  encoder = "";
 
   private readonly bridge = getDesktopBridge()!.nativeVideo!;
   private readonly keeper = new ParameterSetKeeper();
@@ -179,10 +193,9 @@ export class NativeVideoSource {
   lastKey: NativeFrame | null = null;
   readonly fps: number;
 
-  constructor(ceilingKbps: number, encoder: string, fps: number) {
+  constructor(ceilingKbps: number, fps: number) {
     this.ceilingKbps = ceilingKbps;
     this.currentKbps = ceilingKbps;
-    this.encoder = encoder;
     this.fps = fps;
     this.track = new MediaStreamTrackGenerator({ kind: "video" });
     this.preview = new Preview(this.track, this.keeper, () => this.requestKeyFrame());
@@ -191,8 +204,6 @@ export class NativeVideoSource {
       (reason) => this.onEnded(reason)
     );
     this.bitrateTimer = setInterval(() => void this.adjustBitrate(), BITRATE_INTERVAL_MS);
-    // The helper's first IDR may have gone out before this was listening.
-    this.requestKeyFrame();
     // The share's teardown stops every track in its stream without knowing
     // where they came from (see stop() in useRoomMedia's useBroadcastChannel);
     // this is what makes that enough to end the helper too.
@@ -201,6 +212,13 @@ export class NativeVideoSource {
       this.stop();
       stopTrack();
     };
+  }
+
+  /** The helper answered that it is running. */
+  started(encoder: string): void {
+    this.encoder = encoder;
+    // Its first IDR may have gone out before the page was listening.
+    this.requestKeyFrame();
   }
 
   /**
@@ -302,11 +320,16 @@ export function nativeVideoPeerConfig(config: RTCConfiguration): RTCConfiguratio
 function preferH264(transceiver: RTCRtpTransceiver) {
   if (typeof RTCRtpSender.getCapabilities !== "function") return;
   const codecs = RTCRtpSender.getCapabilities("video")?.codecs ?? [];
-  const usable = codecs.filter(
+  const h264 = codecs.filter(
     (c) => c.mimeType.toLowerCase() === "video/h264" && /packetization-mode=1/.test(c.sdpFmtpLine ?? "")
   );
   const rank = (c: RTCRtpCodec) => (/profile-level-id=42e0/.test(c.sdpFmtpLine ?? "") ? 0 : 1);
-  usable.sort((a, b) => rank(a) - rank(b));
+  h264.sort((a, b) => rank(a) - rank(b));
+  // Retransmission and FEC are not codecs of their own but have to stay in
+  // the list: without RTX a lost packet cannot be resent, and one lost packet
+  // costs a whole IDR here.
+  const helpers = codecs.filter((c) => /^video\/(rtx|red|ulpfec|flexfec-03)$/i.test(c.mimeType));
+  const usable = h264.length > 0 ? [...h264, ...helpers] : [];
   try {
     if (usable.length > 0) transceiver.setCodecPreferences(usable);
   } catch {

@@ -21,6 +21,11 @@ import { IPC, type NativeVideoStartOptions, type NativeVideoStartResult } from "
 
 const HELPER = "golive-videocap.exe";
 const READY_TIMEOUT_MS = 6000;
+// How long after READY the first encoded frame may take. READY means the
+// capture and the encoder are set up, not that the encoder produces anything
+// — an encoder that accepts its configuration and then never outputs a frame
+// is a real failure, and without this wait it left a share with nothing in it.
+const FIRST_FRAME_TIMEOUT_MS = 5000;
 const PROBE_TIMEOUT_MS = 10000;
 const EXIT_UNSUPPORTED = 3;
 const EXIT_TARGET_GONE = 4;
@@ -172,6 +177,9 @@ export async function startNativeVideo(
 
   return new Promise<NativeVideoStartResult>((resolve) => {
     let settled = false;
+    // The last things the helper said, handed back with a failure.
+    const diagnostics: string[] = [];
+    const detail = () => diagnostics.join(" | ") || undefined;
     const settle = (result: NativeVideoStartResult) => {
       if (settled) return;
       settled = true;
@@ -179,8 +187,9 @@ export async function startNativeVideo(
       if (!result.ok) stopNativeVideo();
       resolve(result);
     };
-    const timer = setTimeout(() => settle({ ok: false, reason: "timeout" }), READY_TIMEOUT_MS);
+    let timer = setTimeout(() => settle({ ok: false, reason: "timeout", detail: detail() }), READY_TIMEOUT_MS);
     timer.unref?.();
+    let ready: { width: number; height: number; encoder: string } | null = null;
 
     let stderr = "";
     child.stderr.on("data", (data: Buffer) => {
@@ -189,10 +198,18 @@ export async function startNativeVideo(
       while ((newline = stderr.indexOf("\n")) >= 0) {
         const line = stderr.slice(0, newline).trim();
         stderr = stderr.slice(newline + 1);
-        const ready = /^READY (\d+) (\d+) (.*)$/.exec(line);
-        if (ready) {
-          settle({ ok: true, width: Number(ready[1]), height: Number(ready[2]), encoder: ready[3] });
+        const match = /^READY (\d+) (\d+) (.*)$/.exec(line);
+        if (match && !ready) {
+          ready = { width: Number(match[1]), height: Number(match[2]), encoder: match[3] };
+          clearTimeout(timer);
+          timer = setTimeout(
+            () => settle({ ok: false, reason: "no-frames", detail: detail() }),
+            FIRST_FRAME_TIMEOUT_MS
+          );
+          timer.unref?.();
         } else if (line) {
+          diagnostics.push(line.slice(0, 200));
+          if (diagnostics.length > 6) diagnostics.shift();
           process.stderr.write(`[videocap] ${line}\n`);
         }
       }
@@ -205,9 +222,14 @@ export async function startNativeVideo(
         frames = reader.push(data);
       } catch (err) {
         console.error("[golive] native video stream unreadable:", err);
+        settle({ ok: false, reason: "failed", detail: "unreadable stream" });
         end(active, "failed");
         return;
       }
+      // The first frame, not READY, is what makes this a capture the page can
+      // use. Frames before the page has heard back are still sent: it
+      // subscribes before it asks, and asks for a fresh IDR anyway.
+      if (frames.length > 0 && ready && !settled) settle({ ok: true, ...ready });
       for (const frame of frames) {
         const { data: payload, ...meta } = frame;
         target.send(IPC.nativeVideoFrame, meta, payload);
@@ -215,11 +237,15 @@ export async function startNativeVideo(
     });
 
     child.on("error", () => {
-      settle({ ok: false, reason: "failed" });
+      settle({ ok: false, reason: "failed", detail: "the helper could not be started" });
       end(active, "failed");
     });
     child.on("exit", (code) => {
-      settle({ ok: false, reason: code === EXIT_UNSUPPORTED ? "unsupported" : code === EXIT_TARGET_GONE ? "no-source" : "failed" });
+      settle({
+        ok: false,
+        reason: code === EXIT_UNSUPPORTED ? "unsupported" : code === EXIT_TARGET_GONE ? "no-source" : "failed",
+        detail: detail() ?? `exit ${code}`,
+      });
       if (active.stopping || capture !== active) return;
       end(active, code === EXIT_TARGET_GONE ? "target-gone" : "failed");
     });

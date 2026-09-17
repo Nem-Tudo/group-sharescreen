@@ -122,6 +122,15 @@ static const INT D3DKMT_PRIORITY_HIGH = 4;
 // ---------------------------------------------------------------------------
 
 static std::mutex g_stdoutMutex;
+// Where frames got to, for the one diagnostic that matters when a share shows
+// nothing: which stage they stopped at (see WatchProgress).
+static std::atomic<uint32_t> g_framesArrived{0};
+static std::atomic<uint32_t> g_framesConverted{0};
+static std::atomic<uint32_t> g_needInputEvents{0};
+static std::atomic<uint32_t> g_inputsAccepted{0};
+static std::atomic<uint32_t> g_inputsRefused{0};
+static std::atomic<uint32_t> g_framesEncoded{0};
+static std::atomic<long> g_lastInputError{0};
 static HANDLE g_stdout = INVALID_HANDLE_VALUE;
 static HANDLE g_quit = nullptr;
 static std::atomic<int> g_exitCode{EXIT_OK};
@@ -619,6 +628,7 @@ class Encoder {
       return;
     }
     ++needInput_;
+    g_needInputEvents++;
   }
 
   void ProcessInputLocked(int index, LONGLONG time100ns) {
@@ -658,7 +668,10 @@ class Encoder {
     sample->SetSampleTime(time100ns);
     sample->SetSampleDuration(10000000LL / fps_);
     hr = transform_->ProcessInput(inputId_, sample.get(), 0);
+    if (SUCCEEDED(hr)) g_inputsAccepted++;
     if (FAILED(hr)) {
+      g_inputsRefused++;
+      g_lastInputError = hr;
       if (hr != MF_E_NOTACCEPTING) Log("ProcessInput: 0x%08lx", hr);
       if (!trackedOk && !untracked_.empty()) {
         untracked_.pop_back();
@@ -712,6 +725,7 @@ class Encoder {
     LONGLONG time = 0;
     sample->GetSampleTime(&time);
     bool key = parameterSets_.Process(au);
+    g_framesEncoded++;
     WriteFrame(au, key, sequence_++, width_, height_, static_cast<uint32_t>(time / 10000));
   }
 
@@ -787,10 +801,15 @@ class Capture {
       session_.IsCursorCaptureEnabled(cursor);
     } catch (...) {
     }
+    // The yellow frame Windows draws around what is being captured. Off
+    // where Windows allows it (11 and later). The access request is not
+    // needed on every build and can fail on its own, so the property is set
+    // whatever it answered; a refusal of either only means the frame stays.
     try {
-      // The yellow frame Windows draws around a captured window. Off where
-      // Windows allows it (11 and later); a refusal only means it stays.
       wgc::GraphicsCaptureAccess::RequestAccessAsync(wgc::GraphicsCaptureAccessKind::Borderless).get();
+    } catch (...) {
+    }
+    try {
       session_.IsBorderRequired(false);
     } catch (...) {
     }
@@ -839,6 +858,7 @@ class Capture {
     if (stopping_) return;
     auto frame = sender.TryGetNextFrame();
     if (!frame) return;
+    g_framesArrived++;
     auto contentSize = frame.ContentSize();
     if (contentSize.Width != size_.Width || contentSize.Height != size_.Height) {
       size_ = contentSize;
@@ -901,6 +921,7 @@ class Capture {
     lastSubmit_ = now;
     repeatRequested_ = false;
     if (startTime_ == 0) startTime_ = now;
+    g_framesConverted++;
     encoder_->Submit(index, now - startTime_);
   }
 
@@ -1137,6 +1158,24 @@ static void RaisePriority(ID3D11Device* device) {
   }
 }
 
+// Waits for the stop signal, and says once where frames got stuck if none have
+// come out of the encoder a few seconds in. The shell passes this line on to
+// the page, which is the only way to learn why a share showed nothing on a
+// machine nobody here has.
+static void WatchProgress() {
+  const DWORD start = GetTickCount();
+  bool reported = false;
+  while (WaitForSingleObject(g_quit, 500) == WAIT_TIMEOUT) {
+    if (reported || g_framesEncoded.load() > 0 || GetTickCount() - start < 3000) continue;
+    reported = true;
+    fprintf(stderr,
+            "STALL arrived=%u converted=%u needInput=%u accepted=%u refused=%u lastInputError=0x%08lx\n",
+            g_framesArrived.load(), g_framesConverted.load(), g_needInputEvents.load(), g_inputsAccepted.load(),
+            g_inputsRefused.load(), static_cast<unsigned long>(g_lastInputError.load()));
+    fflush(stderr);
+  }
+}
+
 static void WatchStdin(Encoder* encoder, Capture* capture) {
   HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
   std::string line;
@@ -1263,7 +1302,7 @@ int wmain(int argc, wchar_t** argv) {
   std::thread stdinThread(WatchStdin, &encoder, &capture);
   stdinThread.detach();
 
-  WaitForSingleObject(g_quit, INFINITE);
+  WatchProgress();
   capture.Stop();
   encoder.Stop();
   // The encoder's thread is parked in GetEvent, which Shutdown releases; a

@@ -574,6 +574,7 @@ function contentHintFor(
 //   screen_share_quality_change  on stop; value = dials moved mid-share
 //   native_video_start           the helper took over
 //   native_video_fallback        the helper was wanted and could not start
+//   native_video_no_frames       ...because its encoder never produced a frame
 //   native_video_opt_in / _out   the quality panel switch was turned on / off
 //
 // Averages are the value total over the event count, per group.
@@ -590,6 +591,7 @@ export const SCREEN_SHARE_STATS = {
   qualityChange: "screen_share_quality_change",
   nativeStart: "native_video_start",
   nativeFallback: "native_video_fallback",
+  nativeNoFrames: "native_video_no_frames",
   nativeOptIn: "native_video_opt_in",
   nativeOptOut: "native_video_opt_out",
 } as const;
@@ -3268,9 +3270,14 @@ export function useRoomMedia(room: string) {
       fps: shareFpsRef.current,
       bitrateKbps: BITRATE_CEILING_KBPS[shareBitrateRef.current],
     };
-    const native = await startNativeVideo(options);
+    const { source: native, failure } = await startNativeVideo(options);
     if (!native) {
-      trackFeatureEvent(SCREEN_SHARE_STATS.nativeFallback);
+      // Null failure: not tried at all (turned off for this session after an
+      // earlier failure), which is not a new fallback to count.
+      if (failure !== null) {
+        trackFeatureEvent(SCREEN_SHARE_STATS.nativeFallback);
+        if (failure === "no-frames") trackFeatureEvent(SCREEN_SHARE_STATS.nativeNoFrames);
+      }
       return stream;
     }
     for (const track of stream.getVideoTracks()) {

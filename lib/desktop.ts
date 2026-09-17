@@ -260,7 +260,11 @@ export interface DesktopBridge {
       cursor?: boolean;
     }): Promise<
       | { ok: true; width: number; height: number; encoder: string }
-      | { ok: false; reason: "unsupported" | "no-source" | "timeout" | "failed" }
+      | {
+          ok: false;
+          reason: "unsupported" | "no-source" | "timeout" | "no-frames" | "failed";
+          detail?: string;
+        }
     >;
     control(command: { bitrateKbps?: number; keyFrame?: boolean }): void;
     stop(): void;

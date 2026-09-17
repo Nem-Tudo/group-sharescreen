@@ -334,7 +334,12 @@ export interface NativeVideoStartOptions {
 
 export type NativeVideoStartResult =
   | { ok: true; width: number; height: number; encoder: string }
-  | { ok: false; reason: "unsupported" | "no-source" | "timeout" | "failed" };
+  | {
+      ok: false;
+      reason: "unsupported" | "no-source" | "timeout" | "no-frames" | "failed";
+      /** The helper's last diagnostic lines, for the page's console. */
+      detail?: string;
+    };
 
 /** What the picker window renders for each capturable surface. */
 export interface PickerSource {
