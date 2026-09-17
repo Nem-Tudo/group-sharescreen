@@ -581,6 +581,7 @@ function contentHintFor(
 //   native_video_opt_in / _out   the quality panel switch was turned on / off
 //   native_video_method_dupl     the capture method was set to Desktop Duplication
 //   native_video_method_wgc      ...or to Windows Graphics Capture
+//   screen_share_apply_restart   "Reiniciar transmissão" pressed to apply settings
 //
 // Averages are the value total over the event count, per group.
 export const SCREEN_SHARE_STATS = {
@@ -601,11 +602,21 @@ export const SCREEN_SHARE_STATS = {
   nativeOptOut: "native_video_opt_out",
   nativeMethodDuplication: "native_video_method_dupl",
   nativeMethodWgc: "native_video_method_wgc",
+  manualRestart: "screen_share_apply_restart",
 } as const;
 
 const RESTART_WINDOW_MS = 60_000;
 const SHARE_SAMPLE_MS = 5_000;
 let lastScreenShareEndedAt = 0;
+
+interface ScreenStartConfig {
+  native: boolean;
+  method: NativeVideoMethod;
+  /** Whether the helper actually took over. */
+  usedNative: boolean;
+  resolution: ShareResolution;
+  fps: ShareFps;
+}
 
 interface ShareStats {
   startedAt: number;
@@ -3279,7 +3290,19 @@ export function useRoomMedia(room: string) {
   // Swaps Chromium's video track for the helper's when the experiment is on
   // and the helper starts; the share is otherwise returned as it was, so
   // every failure here is a share that works the ordinary way.
+  //
+  // What the running share was started with, as far as settings that only a
+  // restart applies are concerned — compared below to offer one.
+  const [screenStartConfig, setScreenStartConfig] = useState<ScreenStartConfig | null>(null);
   const withNativeVideo = useCallback(async (stream: MediaStream): Promise<MediaStream> => {
+    const config: ScreenStartConfig = {
+      native: nativeVideoWantedRef.current,
+      method: nativeVideoMethodRef.current,
+      usedNative: false,
+      resolution: shareResolutionRef.current,
+      fps: shareFpsRef.current,
+    };
+    if (nativeVideoBridge) setScreenStartConfig(config);
     if (!nativeVideoWantedRef.current) return stream;
     const dims = RESOLUTION_DIMENSIONS[shareResolutionRef.current];
     const options: NativeVideoOptions = {
@@ -3304,10 +3327,11 @@ export function useRoomMedia(room: string) {
       track.stop();
     }
     stream.addTrack(native.track);
+    setScreenStartConfig({ ...config, usedNative: true });
     trackFeatureEvent(SCREEN_SHARE_STATS.nativeStart);
     trackEvent("screen_share_native_video", { encoder: native.encoder.slice(0, 60) });
     return stream;
-  }, []);
+  }, [nativeVideoBridge]);
 
   const screen = useBroadcastChannel(
     "screen",
@@ -3462,6 +3486,33 @@ export function useRoomMedia(room: string) {
     autoJoin,
     screenQualityPreset
   );
+
+  // Settings changed since the screen share started that only take effect on
+  // a new one: the GPU capture switch and its method, and — for a share the
+  // helper is capturing, which reads them once at start — resolution and fps.
+  const screenRestartNeeded =
+    screen.active &&
+    screen.source !== "camera" &&
+    screenStartConfig !== null &&
+    (screenStartConfig.native !== nativeVideoWanted ||
+      (screenStartConfig.native && screenStartConfig.method !== storedNativeVideoMethod) ||
+      (screenStartConfig.usedNative &&
+        (screenStartConfig.resolution !== shareResolution || screenStartConfig.fps !== shareFps)));
+
+  // Stops the screen share and starts it again on the same surface, without
+  // the picker (the shell remembers what was chosen). Has to run from a click:
+  // getDisplayMedia still needs the gesture.
+  const restartScreenShare = useCallback(async () => {
+    if (!screen.active) return;
+    const source = screen.source;
+    screen.stop();
+    // Counted as what it is (manualRestart), not as a share restarted out of
+    // dissatisfaction (screen_share_restart).
+    lastScreenShareEndedAt = 0;
+    await getDesktopBridge()?.useSavedShareSource?.();
+    trackFeatureEvent(SCREEN_SHARE_STATS.manualRestart);
+    screen.start(source);
+  }, [screen]);
 
   const camera = useBroadcastChannel(
     "camera",
@@ -4050,6 +4101,8 @@ export function useRoomMedia(room: string) {
     setNativeVideoOption,
     nativeVideoMethod,
     setNativeVideoMethod,
+    screenRestartNeeded,
+    restartScreenShare,
     shareProfile,
     setShareProfile,
     // Live telemetry, for the share panel: measured uplink, measured content

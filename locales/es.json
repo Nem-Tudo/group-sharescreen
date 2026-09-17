@@ -3177,6 +3177,8 @@
   "watch.watchRoom.gpuCaptureDuplication": "Desktop Duplication",
   "watch.watchRoom.gpuCaptureWgc": "Windows Graphics Capture",
   "watch.watchRoom.gpuCaptureMethodNote": "Se aplica a la pantalla completa. Las ventanas siempre usan Windows Graphics Capture.",
+  "watch.watchRoom.restartToApply": "Algunos cambios solo se aplican al reiniciar la transmisión.",
+  "watch.watchRoom.restartShare": "Reiniciar transmisión",
   "watch.watchRoom.turnOnStreamerMode": "Activar modo streamer",
   "watch.watchRoom.turnTheMicrophoneOnHereTo": "Activa el micrófono aquí para hablar con quien está en la sala. El audio del sitio está hecho para eso — con cancelación de ruido y volumen por persona — y la sala es mucho más fácil de seguir que solo viéndola.",
   "watch.watchRoom.unavailableNoTurnServerConfiguredOn": "No disponible: ningún servidor TURN configurado en este sitio",

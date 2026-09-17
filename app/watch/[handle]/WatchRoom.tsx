@@ -482,6 +482,8 @@ function QualityControls({
   setNativeVideoOption,
   nativeVideoMethod,
   setNativeVideoMethod,
+  screenRestartNeeded,
+  restartScreenShare,
   shareProfile,
   setShareProfile,
   shareFps,
@@ -502,6 +504,8 @@ function QualityControls({
   | "setNativeVideoOption"
   | "nativeVideoMethod"
   | "setNativeVideoMethod"
+  | "screenRestartNeeded"
+  | "restartScreenShare"
   | "shareProfile"
   | "setShareProfile"
   | "shareFps"
@@ -518,6 +522,20 @@ function QualityControls({
   return (
     <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
       <div className="flex flex-col gap-3">
+        {/* Settings that only a new share applies (see useRoomMedia's
+            screenRestartNeeded) were changed while this one is running. */}
+        {screenRestartNeeded && (
+          <div className="flex items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200">
+            <span>{t("watch.watchRoom.restartToApply")}</span>
+            <button
+              type="button"
+              onClick={() => void restartScreenShare()}
+              className="shrink-0 rounded-md bg-amber-600 px-2.5 py-1 font-medium text-white transition hover:bg-amber-700"
+            >
+              {t("watch.watchRoom.restartShare")}
+            </button>
+          </div>
+        )}
         <label className="flex items-start gap-2 rounded-md border border-zinc-200 bg-white p-2 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">
           <input
             type="checkbox"
@@ -777,6 +795,8 @@ function ShareControls({
     | "setNativeVideoOption"
     | "nativeVideoMethod"
     | "setNativeVideoMethod"
+    | "screenRestartNeeded"
+    | "restartScreenShare"
     | "shareProfile"
     | "setShareProfile"
     | "shareFps"
@@ -1331,6 +1351,8 @@ export function WatchRoom({
     setNativeVideoOption,
     nativeVideoMethod,
     setNativeVideoMethod,
+    screenRestartNeeded,
+    restartScreenShare,
     isMicOn,
     toggleMic: toggleMicDevice,
     setMicOn,
@@ -4826,6 +4848,8 @@ export function WatchRoom({
     setNativeVideoOption,
     nativeVideoMethod,
     setNativeVideoMethod,
+    screenRestartNeeded,
+    restartScreenShare,
     shareProfile,
     setShareProfile,
     shareFps,
