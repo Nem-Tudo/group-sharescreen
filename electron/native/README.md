@@ -270,10 +270,18 @@ exactly while the game is in front. It is an **experiment**, behind the
 "user", platform "desktop-app").
 
 ```
-Windows Graphics Capture -> ID3D11VideoProcessor (BGRA -> NV12, scaled)
-                         -> Media Foundation hardware H.264 (NVENC/AMF/QSV)
-                         -> stdout
+Desktop Duplication (a monitor) or Windows Graphics Capture (a window)
+  -> ID3D11VideoProcessor (BGRA -> NV12, scaled)
+  -> Media Foundation hardware H.264 (NVENC/AMF/QSV)
+  -> stdout
 ```
+
+A monitor goes through Desktop Duplication because Graphics Capture draws a
+yellow frame around whatever it captures on Windows 10, with no way to turn
+it off. Duplication draws no frame, but leaves the mouse pointer out, so the
+helper draws it back in with Direct2D on the same device. A window still
+needs Graphics Capture (and keeps the frame on Windows 10); so does a monitor
+on another adapter than the encoder, or a rotated one.
 
 ## Interface
 

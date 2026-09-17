@@ -44,7 +44,8 @@ const COMMON_FLAGS = ["/nologo", "/EHsc", "/O2", "/MT", "/W3", "/DUNICODE", "/D_
 // windowsapp.lib and C++20 — under C++17 it pulls in the experimental
 // coroutine headers, which current MSVC refuses outright. Media Foundation is
 // mfplat/mfuuid; oleaut32.lib is VariantInit, for ICodecAPI; gdi32.lib
-// exports the GPU scheduler's priority call.
+// exports the GPU scheduler's priority call; d2d1.lib draws the pointer over
+// a Desktop Duplication frame.
 const HELPERS = [
   {
     name: "golive-audiocap",
@@ -63,6 +64,7 @@ const HELPERS = [
       "gdi32.lib",
       "avrt.lib",
       "d3d11.lib",
+      "d2d1.lib",
       "dxgi.lib",
       "mfplat.lib",
       "mfuuid.lib",

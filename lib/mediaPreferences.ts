@@ -60,6 +60,7 @@ const SHARE_BITRATE_KEY = "sharescreen:shareBitrate";
 const SHARE_PROFILE_KEY = "sharescreen:shareProfile";
 const SMART_QUALITY_KEY = "sharescreen:smartQuality";
 const NATIVE_VIDEO_KEY = "sharescreen:nativeVideo";
+const NATIVE_VIDEO_METHOD_KEY = "sharescreen:nativeVideoMethod";
 
 const MIC_DEVICE_ID_KEY = "sharescreen:micDeviceId";
 const SPEAKER_DEVICE_ID_KEY = "sharescreen:speakerDeviceId";
@@ -389,6 +390,25 @@ export function getStoredNativeVideo(): boolean | null {
 }
 export function setStoredNativeVideo(value: boolean) {
   setStoredBoolean(NATIVE_VIDEO_KEY, value);
+}
+
+// How the GPU capture takes a whole screen. Desktop Duplication unless
+// somebody picked otherwise: it is the one without the yellow frame.
+export function getStoredNativeVideoMethod(): "duplication" | "wgc" {
+  if (typeof window === "undefined") return "duplication";
+  try {
+    return window.localStorage.getItem(NATIVE_VIDEO_METHOD_KEY) === "wgc" ? "wgc" : "duplication";
+  } catch {
+    return "duplication";
+  }
+}
+export function setStoredNativeVideoMethod(value: "duplication" | "wgc") {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(NATIVE_VIDEO_METHOD_KEY, value);
+  } catch {
+    // Private mode or a full quota: the choice lasts this session only.
+  }
 }
 
 // Which camera the camera share (and, on phones, the camera fallback for

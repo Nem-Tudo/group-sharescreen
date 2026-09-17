@@ -330,7 +330,14 @@ export interface NativeVideoStartOptions {
   fps: number;
   bitrateKbps: number;
   cursor?: boolean;
+  /**
+   * How a monitor is captured: Desktop Duplication (no frame around the
+   * screen) or Windows Graphics Capture. Windows always use the latter.
+   */
+  captureMethod?: NativeVideoCaptureMethod;
 }
+
+export type NativeVideoCaptureMethod = "duplication" | "wgc";
 
 export type NativeVideoStartResult =
   | { ok: true; width: number; height: number; encoder: string }

@@ -258,6 +258,7 @@ export interface DesktopBridge {
       fps: number;
       bitrateKbps: number;
       cursor?: boolean;
+      captureMethod?: "duplication" | "wgc";
     }): Promise<
       | { ok: true; width: number; height: number; encoder: string }
       | {

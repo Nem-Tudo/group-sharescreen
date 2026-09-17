@@ -39,6 +39,8 @@ import {
   getStoredSmartQuality,
   getStoredNativeVideo,
   setStoredNativeVideo,
+  getStoredNativeVideoMethod,
+  setStoredNativeVideoMethod,
   setStoredSmartQuality,
   getStoredMicDeviceId,
   getStoredMicGain,
@@ -97,6 +99,7 @@ import {
   passThroughSender,
   probeNativeVideo,
   startNativeVideo,
+  type NativeVideoMethod,
   type NativeVideoOptions,
 } from "./nativeVideoCapture";
 
@@ -576,6 +579,8 @@ function contentHintFor(
 //   native_video_fallback        the helper was wanted and could not start
 //   native_video_no_frames       ...because its encoder never produced a frame
 //   native_video_opt_in / _out   the quality panel switch was turned on / off
+//   native_video_method_dupl     the capture method was set to Desktop Duplication
+//   native_video_method_wgc      ...or to Windows Graphics Capture
 //
 // Averages are the value total over the event count, per group.
 export const SCREEN_SHARE_STATS = {
@@ -594,6 +599,8 @@ export const SCREEN_SHARE_STATS = {
   nativeNoFrames: "native_video_no_frames",
   nativeOptIn: "native_video_opt_in",
   nativeOptOut: "native_video_opt_out",
+  nativeMethodDuplication: "native_video_method_dupl",
+  nativeMethodWgc: "native_video_method_wgc",
 } as const;
 
 const RESTART_WINDOW_MS = 60_000;
@@ -3252,6 +3259,17 @@ export function useRoomMedia(room: string) {
     setStoredNativeVideo(value);
     trackFeatureEvent(value ? SCREEN_SHARE_STATS.nativeOptIn : SCREEN_SHARE_STATS.nativeOptOut);
   }, []);
+  // How a whole screen is captured, chosen in the same card. Offered to
+  // everyone on a side of the experiment, the switch or not; null elsewhere.
+  const [storedNativeVideoMethod, setStoredNativeVideoMethodState] = useState(getStoredNativeVideoMethod);
+  const nativeVideoMethod: NativeVideoMethod | null = nativeVideoVariant !== null ? storedNativeVideoMethod : null;
+  const nativeVideoMethodRef = useRef(storedNativeVideoMethod);
+  const setNativeVideoMethod = useCallback((value: NativeVideoMethod) => {
+    nativeVideoMethodRef.current = value;
+    setStoredNativeVideoMethodState(value);
+    setStoredNativeVideoMethod(value);
+    trackFeatureEvent(value === "wgc" ? SCREEN_SHARE_STATS.nativeMethodWgc : SCREEN_SHARE_STATS.nativeMethodDuplication);
+  }, []);
   const nativeVideoWantedRef = useRef(false);
   useEffect(() => {
     nativeVideoWantedRef.current = nativeVideoWanted;
@@ -3269,6 +3287,7 @@ export function useRoomMedia(room: string) {
       maxHeight: dims.height,
       fps: shareFpsRef.current,
       bitrateKbps: BITRATE_CEILING_KBPS[shareBitrateRef.current],
+      captureMethod: nativeVideoMethodRef.current,
     };
     const { source: native, failure } = await startNativeVideo(options);
     if (!native) {
@@ -4029,6 +4048,8 @@ export function useRoomMedia(room: string) {
     setSmartQualityEnabled,
     nativeVideoOption,
     setNativeVideoOption,
+    nativeVideoMethod,
+    setNativeVideoMethod,
     shareProfile,
     setShareProfile,
     // Live telemetry, for the share panel: measured uplink, measured content

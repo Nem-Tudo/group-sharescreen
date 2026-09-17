@@ -480,6 +480,8 @@ function QualityControls({
   setSmartQualityEnabled,
   nativeVideoOption,
   setNativeVideoOption,
+  nativeVideoMethod,
+  setNativeVideoMethod,
   shareProfile,
   setShareProfile,
   shareFps,
@@ -498,6 +500,8 @@ function QualityControls({
   | "setSmartQualityEnabled"
   | "nativeVideoOption"
   | "setNativeVideoOption"
+  | "nativeVideoMethod"
+  | "setNativeVideoMethod"
   | "shareProfile"
   | "setShareProfile"
   | "shareFps"
@@ -530,24 +534,65 @@ function QualityControls({
           </span>
         </label>
 
-        {/* The GPU capture experiment's switch — only for the two sides of it
-            that have one (see useRoomMedia's nativeVideoOption). */}
-        {nativeVideoOption !== null && (
-          <label className="flex items-start gap-2 rounded-md border border-zinc-200 bg-white p-2 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">
-            <input
-              type="checkbox"
-              checked={nativeVideoOption}
-              onChange={(e) => setNativeVideoOption(e.target.checked)}
-              className="mt-0.5 h-3.5 w-3.5 rounded border-zinc-300 dark:border-zinc-700"
-            />
-            <span>
-              <span className="font-medium text-zinc-900 dark:text-zinc-100">
-                {t("watch.watchRoom.useGpuCapture")}
-              </span>
-              <br />
-              {t("watch.watchRoom.useGpuCaptureHint")}
-            </span>
-          </label>
+        {/* The GPU capture experiment's card (see useRoomMedia's
+            nativeVideoOption and nativeVideoMethod): the switch, for the two
+            sides that have one, and how a whole screen is captured. */}
+        {nativeVideoMethod !== null && (
+          <div className="rounded-md border border-zinc-200 bg-white p-2 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">
+            {nativeVideoOption !== null ? (
+              <label className="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  checked={nativeVideoOption}
+                  onChange={(e) => setNativeVideoOption(e.target.checked)}
+                  className="mt-0.5 h-3.5 w-3.5 rounded border-zinc-300 dark:border-zinc-700"
+                />
+                <span>
+                  <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                    {t("watch.watchRoom.useGpuCapture")}
+                  </span>
+                  <br />
+                  {t("watch.watchRoom.useGpuCaptureHint")}
+                </span>
+              </label>
+            ) : (
+              <p>
+                <span className="font-medium text-zinc-900 dark:text-zinc-100">{t("watch.watchRoom.gpuCapture")}</span>
+                <br />
+                {t("watch.watchRoom.useGpuCaptureHint")}
+              </p>
+            )}
+            {nativeVideoOption !== false && (
+              <div className="mt-2">
+                <span className="mb-1 block font-medium text-zinc-600 dark:text-zinc-400">
+                  {t("watch.watchRoom.gpuCaptureMethod")}
+                </span>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {(
+                    [
+                      ["duplication", t("watch.watchRoom.gpuCaptureDuplication"), t("watch.watchRoom.gpuCaptureDuplicationHint")],
+                      ["wgc", t("watch.watchRoom.gpuCaptureWgc"), t("watch.watchRoom.gpuCaptureWgcHint")],
+                    ] as const
+                  ).map(([value, label, hint]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setNativeVideoMethod(value)}
+                      aria-pressed={nativeVideoMethod === value}
+                      className={`rounded-md border px-2 py-1.5 text-left transition ${nativeVideoMethod === value
+                        ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
+                        : "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                        }`}
+                    >
+                      <span className="block font-medium">{label}</span>
+                      <span className="block opacity-70">{hint}</span>
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1 text-zinc-500">{t("watch.watchRoom.gpuCaptureMethodNote")}</p>
+              </div>
+            )}
+          </div>
         )}
 
         <div>
@@ -731,6 +776,8 @@ function ShareControls({
     | "setSmartQualityEnabled"
     | "nativeVideoOption"
     | "setNativeVideoOption"
+    | "nativeVideoMethod"
+    | "setNativeVideoMethod"
     | "shareProfile"
     | "setShareProfile"
     | "shareFps"
@@ -1283,6 +1330,8 @@ export function WatchRoom({
     setSmartQualityEnabled,
     nativeVideoOption,
     setNativeVideoOption,
+    nativeVideoMethod,
+    setNativeVideoMethod,
     isMicOn,
     toggleMic: toggleMicDevice,
     setMicOn,
@@ -4776,6 +4825,8 @@ export function WatchRoom({
     setSmartQualityEnabled,
     nativeVideoOption,
     setNativeVideoOption,
+    nativeVideoMethod,
+    setNativeVideoMethod,
     shareProfile,
     setShareProfile,
     shareFps,

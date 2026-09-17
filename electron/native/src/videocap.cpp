@@ -12,7 +12,8 @@
 //
 // This program keeps the frame on the GPU from start to finish:
 //
-//   Windows Graphics Capture  ->  ID3D11Texture2D (BGRA)
+//   Desktop Duplication (a monitor) or
+//   Windows Graphics Capture (a window) ->  ID3D11Texture2D (BGRA)
 //   ID3D11VideoProcessor      ->  ID3D11Texture2D (NV12), scaled
 //   Media Foundation H.264    ->  the hardware encoder (NVENC, AMF, QuickSync)
 //                                 reading that texture directly
@@ -40,6 +41,10 @@
 //   golive-videocap.exe (--window <hwnd> | --monitor <x> <y>)
 //                       --max-width <px> --max-height <px> --fps <n>
 //                       --bitrate <kbps> [--cursor 0|1]
+//                       [--capture-method duplication|wgc]
+//       --capture-method picks how a monitor is captured: Desktop Duplication
+//       (the default; no frame drawn around the screen) or Windows Graphics
+//       Capture. A window is always captured with Graphics Capture.
 //       --monitor takes a point in physical screen pixels; the monitor that
 //       contains it is captured.
 //
@@ -73,6 +78,7 @@
 #include <strmif.h>
 #include <codecapi.h>
 #include <avrt.h>
+#include <d2d1_1.h>
 
 #include <fcntl.h>
 #include <io.h>
@@ -751,6 +757,171 @@ class Encoder {
 };
 
 // ---------------------------------------------------------------------------
+// Cursor
+// ---------------------------------------------------------------------------
+
+// Desktop Duplication hands over the desktop without the mouse pointer, so it
+// is drawn in here — with Direct2D, on the same device, so the frame still
+// never leaves the GPU. The shape comes from the cursor handle itself; a
+// monochrome cursor's "invert" pixels (the text I-beam) are drawn black,
+// which is what they look like on the light backgrounds they are used on.
+class CursorOverlay {
+ public:
+  bool Init(ID3D11Device* device) {
+    if (FAILED(D2D1CreateFactory(D2D1_FACTORY_TYPE_MULTI_THREADED, factory_.put()))) return false;
+    winrt::com_ptr<IDXGIDevice> dxgi;
+    if (FAILED(device->QueryInterface(__uuidof(IDXGIDevice), dxgi.put_void()))) return false;
+    winrt::com_ptr<ID2D1Device> d2d;
+    if (FAILED(factory_->CreateDevice(dxgi.get(), d2d.put()))) return false;
+    return SUCCEEDED(d2d->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, context_.put()));
+  }
+
+  /** The texture drawn into was replaced. */
+  void Invalidate() { target_ = nullptr; }
+
+  void Draw(ID3D11Texture2D* texture, const RECT& monitor) {
+    if (!context_) return;
+    CURSORINFO info = {};
+    info.cbSize = sizeof(info);
+    if (!GetCursorInfo(&info) || !(info.flags & CURSOR_SHOWING) || !info.hCursor) return;
+    if (info.hCursor != shape_) {
+      shape_ = info.hCursor;
+      bitmap_ = nullptr;
+      Build(info.hCursor);
+    }
+    if (!bitmap_) return;
+    if (!target_) {
+      winrt::com_ptr<IDXGISurface> surface;
+      if (FAILED(texture->QueryInterface(__uuidof(IDXGISurface), surface.put_void()))) return;
+      D2D1_BITMAP_PROPERTIES1 props = D2D1::BitmapProperties1(
+          D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+          D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE));
+      if (FAILED(context_->CreateBitmapFromDxgiSurface(surface.get(), &props, target_.put()))) return;
+    }
+    const FLOAT x = static_cast<FLOAT>(info.ptScreenPos.x - monitor.left - hotX_);
+    const FLOAT y = static_cast<FLOAT>(info.ptScreenPos.y - monitor.top - hotY_);
+    D2D1_RECT_F dest = D2D1::RectF(x, y, x + width_, y + height_);
+    context_->SetTarget(target_.get());
+    context_->BeginDraw();
+    context_->DrawBitmap(bitmap_.get(), &dest, 1.0f, D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR, nullptr, nullptr);
+    HRESULT hr = context_->EndDraw();
+    context_->SetTarget(nullptr);
+    if (FAILED(hr)) target_ = nullptr;
+  }
+
+ private:
+  void Build(HCURSOR cursor) {
+    ICONINFO icon = {};
+    if (!GetIconInfo(cursor, &icon)) return;
+    HDC dc = GetDC(nullptr);
+    auto read = [dc](HBITMAP bitmap, int width, int height, std::vector<BYTE>& out) {
+      BITMAPINFO bi = {};
+      bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+      bi.bmiHeader.biWidth = width;
+      bi.bmiHeader.biHeight = -height;  // top-down
+      bi.bmiHeader.biPlanes = 1;
+      bi.bmiHeader.biBitCount = 32;
+      bi.bmiHeader.biCompression = BI_RGB;
+      out.assign(static_cast<size_t>(width) * height * 4, 0);
+      return GetDIBits(dc, bitmap, 0, height, out.data(), &bi, DIB_RGB_COLORS) == height;
+    };
+
+    std::vector<BYTE> pixels;
+    int width = 0, height = 0;
+    BITMAP bm = {};
+    if (icon.hbmColor && GetObject(icon.hbmColor, sizeof(bm), &bm)) {
+      width = bm.bmWidth;
+      height = bm.bmHeight;
+      if (read(icon.hbmColor, width, height, pixels)) {
+        bool hasAlpha = false;
+        for (size_t p = 3; p < pixels.size(); p += 4) {
+          if (pixels[p]) {
+            hasAlpha = true;
+            break;
+          }
+        }
+        // An old-style colour cursor: its transparency is in the mask.
+        std::vector<BYTE> mask;
+        if (!hasAlpha && icon.hbmMask && read(icon.hbmMask, width, height, mask)) {
+          for (size_t p = 0; p + 3 < pixels.size(); p += 4) pixels[p + 3] = mask[p] > 127 ? 0 : 255;
+        }
+      } else {
+        pixels.clear();
+      }
+    } else if (icon.hbmMask && GetObject(icon.hbmMask, sizeof(bm), &bm)) {
+      // Monochrome: the mask is twice as tall, AND bits above XOR bits.
+      width = bm.bmWidth;
+      height = bm.bmHeight / 2;
+      std::vector<BYTE> mask;
+      if (height > 0 && read(icon.hbmMask, width, height * 2, mask)) {
+        pixels.assign(static_cast<size_t>(width) * height * 4, 0);
+        for (int y = 0; y < height; ++y) {
+          for (int x = 0; x < width; ++x) {
+            const bool andBit = mask[(static_cast<size_t>(y) * width + x) * 4] > 127;
+            const bool xorBit = mask[(static_cast<size_t>(y + height) * width + x) * 4] > 127;
+            const size_t p = (static_cast<size_t>(y) * width + x) * 4;
+            if (!andBit) {
+              const BYTE v = xorBit ? 255 : 0;
+              pixels[p] = pixels[p + 1] = pixels[p + 2] = v;
+              pixels[p + 3] = 255;
+            } else if (xorBit) {
+              pixels[p + 3] = 255;  // "invert", drawn black
+            }
+          }
+        }
+      }
+    }
+    ReleaseDC(nullptr, dc);
+    if (icon.hbmColor) DeleteObject(icon.hbmColor);
+    if (icon.hbmMask) DeleteObject(icon.hbmMask);
+    if (pixels.empty() || width <= 0 || height <= 0) return;
+
+    for (size_t p = 0; p + 3 < pixels.size(); p += 4) {
+      const UINT a = pixels[p + 3];
+      pixels[p] = static_cast<BYTE>(pixels[p] * a / 255);
+      pixels[p + 1] = static_cast<BYTE>(pixels[p + 1] * a / 255);
+      pixels[p + 2] = static_cast<BYTE>(pixels[p + 2] * a / 255);
+    }
+    D2D1_BITMAP_PROPERTIES1 props = D2D1::BitmapProperties1(
+        D2D1_BITMAP_OPTIONS_NONE, D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+    if (FAILED(context_->CreateBitmap(D2D1::SizeU(width, height), pixels.data(), width * 4, &props, bitmap_.put()))) {
+      bitmap_ = nullptr;
+      return;
+    }
+    width_ = static_cast<FLOAT>(width);
+    height_ = static_cast<FLOAT>(height);
+    hotX_ = static_cast<LONG>(icon.xHotspot);
+    hotY_ = static_cast<LONG>(icon.yHotspot);
+  }
+
+  winrt::com_ptr<ID2D1Factory1> factory_;
+  winrt::com_ptr<ID2D1DeviceContext> context_;
+  winrt::com_ptr<ID2D1Bitmap1> target_;
+  winrt::com_ptr<ID2D1Bitmap1> bitmap_;
+  HCURSOR shape_ = nullptr;
+  FLOAT width_ = 0, height_ = 0;
+  LONG hotX_ = 0, hotY_ = 0;
+};
+
+// The DXGI output showing `monitor`, if it is on this device's adapter —
+// Desktop Duplication only works from a device on the adapter the monitor
+// is connected to.
+static winrt::com_ptr<IDXGIOutput1> FindOutput(ID3D11Device* device, HMONITOR monitor, RECT* rect) {
+  winrt::com_ptr<IDXGIDevice> dxgi;
+  if (FAILED(device->QueryInterface(__uuidof(IDXGIDevice), dxgi.put_void()))) return nullptr;
+  winrt::com_ptr<IDXGIAdapter> adapter;
+  if (FAILED(dxgi->GetAdapter(adapter.put()))) return nullptr;
+  for (UINT i = 0;; ++i) {
+    winrt::com_ptr<IDXGIOutput> output;
+    if (adapter->EnumOutputs(i, output.put()) == DXGI_ERROR_NOT_FOUND) return nullptr;
+    DXGI_OUTPUT_DESC desc;
+    if (FAILED(output->GetDesc(&desc)) || desc.Monitor != monitor) continue;
+    *rect = desc.DesktopCoordinates;
+    return output.try_as<IDXGIOutput1>();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Capture
 // ---------------------------------------------------------------------------
 
@@ -774,15 +945,10 @@ class Capture {
     videoContext_ = context_.try_as<ID3D11VideoContext>();
   }
 
+  // Windows Graphics Capture: a window, or a monitor Desktop Duplication
+  // could not take. Windows 10 draws a yellow frame around it.
   bool Start(const wgc::GraphicsCaptureItem& item, int width, int height, int fps, bool cursor) {
-    if (!video_ || !videoContext_) {
-      Log("the device has no video processor");
-      return false;
-    }
-    outWidth_ = width;
-    outHeight_ = height;
-    fps_ = fps;
-    interval_ = 10000000LL / fps;
+    if (!SetOutput(width, height, fps)) return false;
     item_ = item;
 
     auto dxgi = device_.as<IDXGIDevice>();
@@ -825,6 +991,35 @@ class Capture {
     return true;
   }
 
+  // Desktop Duplication: a whole monitor, with no frame drawn around it on any
+  // Windows, and the frame still on the GPU. False when this monitor cannot
+  // be duplicated from this device (another adapter, a rotated screen), and
+  // the caller falls back to Start.
+  bool StartDuplication(HMONITOR monitor, int width, int height, int fps, bool cursor) {
+    if (!SetOutput(width, height, fps)) return false;
+    output_ = FindOutput(device_.get(), monitor, &monitorRect_);
+    if (!output_) {
+      Log("duplication: the monitor is not on the encoder's adapter");
+      return false;
+    }
+    if (!CreateDuplication()) {
+      Log("duplication unavailable: 0x%08lx", static_cast<unsigned long>(duplicationError_));
+      return false;
+    }
+    // Duplication hands a rotated monitor over unrotated; Graphics Capture
+    // does not, and a portrait screen is rare enough to leave to it.
+    if (rotation_ != DXGI_MODE_ROTATION_IDENTITY && rotation_ != DXGI_MODE_ROTATION_UNSPECIFIED) {
+      Log("duplication: rotated monitor");
+      duplication_ = nullptr;
+      return false;
+    }
+    cursorEnabled_ = cursor && cursor_.Init(device_.get());
+    duplicating_ = true;
+    duplicator_ = std::thread([this] { DuplicationLoop(); });
+    repeater_ = std::thread([this] { RepeatLoop(); });
+    return true;
+  }
+
   // Encodes the last frame again as soon as possible, for a keyframe request
   // that arrives while nothing on screen is changing (a capture delivers no
   // frames then, and the request would wait for the next one).
@@ -835,14 +1030,126 @@ class Capture {
     frameArrived_.revoke();
     closed_.revoke();
     if (repeater_.joinable()) repeater_.join();
+    if (duplicator_.joinable()) duplicator_.join();
     try {
-      session_.Close();
-      pool_frames_.Close();
+      if (session_) session_.Close();
+      if (pool_frames_) pool_frames_.Close();
     } catch (...) {
     }
   }
 
  private:
+  bool SetOutput(int width, int height, int fps) {
+    if (!video_ || !videoContext_) {
+      Log("the device has no video processor");
+      return false;
+    }
+    outWidth_ = width;
+    outHeight_ = height;
+    fps_ = fps;
+    interval_ = 10000000LL / fps;
+    return true;
+  }
+
+  bool Due(LONGLONG now) const {
+    // A game drawing at 144 Hz still goes out at the rate asked for. The
+    // slack keeps a source that runs at exactly that rate from losing every
+    // other frame to timer jitter.
+    return now - lastSubmit_ >= interval_ * 8 / 10 || repeatRequested_;
+  }
+
+  bool CreateDuplication() {
+    duplication_ = nullptr;
+    HRESULT hr = E_FAIL;
+    // DuplicateOutput1 is the one a per-monitor-DPI-aware process is meant
+    // to use (Windows 10 1703 and later); DuplicateOutput is the fallback.
+    if (auto output5 = output_.try_as<IDXGIOutput5>()) {
+      const DXGI_FORMAT formats[] = {DXGI_FORMAT_B8G8R8A8_UNORM};
+      hr = output5->DuplicateOutput1(device_.get(), 0, 1, formats, duplication_.put());
+    }
+    if (FAILED(hr)) {
+      duplication_ = nullptr;
+      hr = output_->DuplicateOutput(device_.get(), duplication_.put());
+    }
+    if (FAILED(hr)) {
+      duplication_ = nullptr;
+      duplicationError_ = hr;
+      return false;
+    }
+    DXGI_OUTDUPL_DESC desc;
+    duplication_->GetDesc(&desc);
+    rotation_ = desc.Rotation;
+    return true;
+  }
+
+  void DuplicationLoop() {
+    DWORD task = 0;
+    AvSetMmThreadCharacteristicsW(L"Capture", &task);
+    DWORD lostSince = 0;
+    while (!stopping_) {
+      if (!duplication_) {
+        // Lost: a resolution change, the UAC prompt or the lock screen, a game
+        // switching to exclusive fullscreen. It comes back on its own; a
+        // monitor that was unplugged does not.
+        if (!CreateDuplication()) {
+          if (!lostSince) lostSince = GetTickCount();
+          else if (GetTickCount() - lostSince > 10000) {
+            Finish(EXIT_TARGET_GONE);
+            return;
+          }
+          Sleep(200);
+          continue;
+        }
+        lostSince = 0;
+      }
+      DXGI_OUTDUPL_FRAME_INFO info = {};
+      winrt::com_ptr<IDXGIResource> resource;
+      const UINT timeout = static_cast<UINT>(std::max<LONGLONG>(1, interval_ / 10000));
+      HRESULT hr = duplication_->AcquireNextFrame(timeout, &info, resource.put());
+      if (hr == DXGI_ERROR_WAIT_TIMEOUT) continue;
+      if (FAILED(hr)) {
+        duplication_ = nullptr;
+        continue;
+      }
+      const bool image = info.LastPresentTime.QuadPart != 0;
+      const bool pointer = info.LastMouseUpdateTime.QuadPart != 0 && cursorEnabled_;
+      if (image || pointer) {
+        LONGLONG now = Now100ns();
+        std::lock_guard<std::mutex> lock(gpuMutex_);
+        if (image) {
+          g_framesArrived++;
+          auto texture = resource.try_as<ID3D11Texture2D>();
+          if (texture) {
+            D3D11_TEXTURE2D_DESC desc;
+            texture->GetDesc(&desc);
+            if (EnsureInput(desc.Width, desc.Height)) {
+              context_->CopyResource(clean_.get(), texture.get());
+              haveInput_ = true;
+            }
+          }
+        }
+        if (haveInput_) {
+          if (Due(now)) {
+            ComposeLocked();
+            SubmitLocked(now);
+          } else {
+            pending_ = true;
+          }
+        }
+      }
+      duplication_->ReleaseFrame();
+    }
+  }
+
+  // The frame to encode, from the clean desktop plus the pointer. Only
+  // duplication keeps the two apart; Graphics Capture draws the pointer
+  // itself.
+  void ComposeLocked() {
+    if (!duplicating_) return;
+    context_->CopyResource(input_.get(), clean_.get());
+    if (cursorEnabled_) cursor_.Draw(input_.get(), monitorRect_);
+  }
+
   void OnFrame(wgc::Direct3D11CaptureFramePool const& sender) {
     // An exception out of here would take the capture thread, and the
     // process, down with it; one bad frame is only one frame.
@@ -868,11 +1175,6 @@ class Capture {
     }
 
     LONGLONG now = Now100ns();
-    // A game drawing at 144 Hz still goes out at the rate asked for. The
-    // slack keeps a source that runs at exactly that rate from losing every
-    // other frame to timer jitter.
-    if (now - lastSubmit_ < interval_ * 8 / 10 && !repeatRequested_) return;
-
     auto access = frame.Surface().as<::Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess>();
     winrt::com_ptr<ID3D11Texture2D> texture;
     if (FAILED(access->GetInterface(__uuidof(ID3D11Texture2D), texture.put_void()))) return;
@@ -886,7 +1188,10 @@ class Capture {
     D3D11_BOX box = {0, 0, 0, width, height, 1};
     context_->CopySubresourceRegion(input_.get(), 0, 0, 0, 0, texture.get(), 0, &box);
     haveInput_ = true;
-    SubmitLocked(now);
+    // Copied even when it is not sent yet: if the screen then goes still, the
+    // newest picture is the one the repeater sends, not an older one.
+    if (Due(now)) SubmitLocked(now);
+    else pending_ = true;
   }
 
   // Keyframe requests while the screen is still, and a slow heartbeat for a
@@ -896,10 +1201,11 @@ class Capture {
       Sleep(50);
       LONGLONG now = Now100ns();
       LONGLONG idle = now - lastSubmit_;
-      bool want = (repeatRequested_ && idle > 1000000LL) || idle > 10000000LL;
+      bool want = (repeatRequested_ && idle > 1000000LL) || idle > 10000000LL || (pending_ && idle >= interval_);
       if (!want) continue;
       std::lock_guard<std::mutex> lock(gpuMutex_);
       if (!haveInput_ || stopping_) continue;
+      ComposeLocked();
       SubmitLocked(now);
     }
   }
@@ -920,6 +1226,7 @@ class Capture {
     }
     lastSubmit_ = now;
     repeatRequested_ = false;
+    pending_ = false;
     if (startTime_ == 0) startTime_ = now;
     g_framesConverted++;
     encoder_->Submit(index, now - startTime_);
@@ -928,10 +1235,12 @@ class Capture {
   bool EnsureInput(UINT width, UINT height) {
     if (input_ && inputWidth_ == width && inputHeight_ == height) return true;
     input_ = nullptr;
+    clean_ = nullptr;
     inputView_ = nullptr;
     processor_ = nullptr;
     enumerator_ = nullptr;
     haveInput_ = false;
+    cursor_.Invalidate();
 
     D3D11_TEXTURE2D_DESC desc = {};
     desc.Width = width;
@@ -943,6 +1252,7 @@ class Capture {
     desc.Usage = D3D11_USAGE_DEFAULT;
     desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
     if (FAILED(device_->CreateTexture2D(&desc, nullptr, input_.put()))) return false;
+    if (duplicating_ && FAILED(device_->CreateTexture2D(&desc, nullptr, clean_.put()))) return false;
 
     D3D11_VIDEO_PROCESSOR_CONTENT_DESC content = {};
     content.InputFrameFormat = D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE;
@@ -1039,8 +1349,21 @@ class Capture {
   std::atomic<LONGLONG> lastSubmit_{0};
   LONGLONG startTime_ = 0;
   std::atomic<bool> repeatRequested_{false};
+  std::atomic<bool> pending_{false};
   std::atomic<bool> stopping_{false};
   std::thread repeater_;
+
+  // Desktop Duplication
+  bool duplicating_ = false;
+  winrt::com_ptr<IDXGIOutput1> output_;
+  winrt::com_ptr<IDXGIOutputDuplication> duplication_;
+  HRESULT duplicationError_ = S_OK;
+  DXGI_MODE_ROTATION rotation_ = DXGI_MODE_ROTATION_UNSPECIFIED;
+  RECT monitorRect_ = {0, 0, 0, 0};
+  winrt::com_ptr<ID3D11Texture2D> clean_;
+  CursorOverlay cursor_;
+  bool cursorEnabled_ = false;
+  std::thread duplicator_;
 };
 
 // ---------------------------------------------------------------------------
@@ -1057,6 +1380,9 @@ struct Options {
   int fps = 60;
   int bitrate = 6000;
   bool cursor = true;
+  // For a monitor: Desktop Duplication first (the default), or straight to
+  // Graphics Capture when the person picked it.
+  bool duplication = true;
 };
 
 static bool ParseArgs(int argc, wchar_t** argv, Options& o) {
@@ -1093,6 +1419,12 @@ static bool ParseArgs(int argc, wchar_t** argv, Options& o) {
     } else if (arg == L"--cursor") {
       if (!next(value)) return false;
       o.cursor = value != 0;
+    } else if (arg == L"--capture-method") {
+      if (i + 1 >= argc) return false;
+      std::wstring method = argv[++i];
+      if (method == L"duplication") o.duplication = true;
+      else if (method == L"wgc") o.duplication = false;
+      else return false;
     } else {
       return false;
     }
@@ -1115,15 +1447,41 @@ static int Even(double value) {
 // with that encoder. The capture and the encoder must share a device for the
 // frame to stay on the GPU, and on a laptop with two GPUs only one of them
 // may have the encoder.
+// The adapter a monitor is connected to, which is the one Desktop
+// Duplication has to run on.
+static bool AdapterForMonitor(HMONITOR monitor, LUID* luid) {
+  winrt::com_ptr<IDXGIFactory1> factory;
+  if (!monitor || FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1), factory.put_void()))) return false;
+  for (UINT i = 0;; ++i) {
+    winrt::com_ptr<IDXGIAdapter1> adapter;
+    if (factory->EnumAdapters1(i, adapter.put()) == DXGI_ERROR_NOT_FOUND) return false;
+    for (UINT j = 0;; ++j) {
+      winrt::com_ptr<IDXGIOutput> output;
+      if (adapter->EnumOutputs(j, output.put()) == DXGI_ERROR_NOT_FOUND) break;
+      DXGI_OUTPUT_DESC desc;
+      if (FAILED(output->GetDesc(&desc)) || desc.Monitor != monitor) continue;
+      DXGI_ADAPTER_DESC1 adapterDesc;
+      if (FAILED(adapter->GetDesc1(&adapterDesc))) return false;
+      *luid = adapterDesc.AdapterLuid;
+      return true;
+    }
+  }
+}
+
 static bool CreateDeviceWithEncoder(winrt::com_ptr<ID3D11Device>& device, winrt::com_ptr<IMFActivate>& encoder,
-                                    std::string& name) {
+                                    std::string& name, const LUID* preferred = nullptr) {
   winrt::com_ptr<IDXGIFactory1> factory;
   if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1), factory.put_void()))) return false;
+  // Two passes: the preferred adapter first (the monitor's), then any.
+  for (int pass = preferred ? 0 : 1; pass < 2; ++pass)
   for (UINT i = 0;; ++i) {
     winrt::com_ptr<IDXGIAdapter1> adapter;
     if (factory->EnumAdapters1(i, adapter.put()) == DXGI_ERROR_NOT_FOUND) break;
     DXGI_ADAPTER_DESC1 desc;
     if (FAILED(adapter->GetDesc1(&desc)) || (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)) continue;
+    const bool isPreferred = preferred && desc.AdapterLuid.LowPart == preferred->LowPart &&
+                             desc.AdapterLuid.HighPart == preferred->HighPart;
+    if ((pass == 0) != isPreferred) continue;
     auto encoders = FindHardwareEncoders(&desc.AdapterLuid);
     if (encoders.empty()) continue;
 
@@ -1207,7 +1565,7 @@ int wmain(int argc, wchar_t** argv) {
   Options options;
   if (!ParseArgs(argc, argv, options)) {
     Log("usage: golive-videocap (--probe | (--window <hwnd> | --monitor <x> <y>) [--max-width n] "
-        "[--max-height n] [--fps n] [--bitrate kbps] [--cursor 0|1])");
+        "[--max-height n] [--fps n] [--bitrate kbps] [--cursor 0|1] [--capture-method duplication|wgc])");
     return EXIT_BAD_ARGS;
   }
 
@@ -1227,10 +1585,15 @@ int wmain(int argc, wchar_t** argv) {
     captureSupported = wgc::GraphicsCaptureSession::IsSupported();
   } catch (...) {
   }
+  HMONITOR monitor = options.monitor ? MonitorFromPoint(options.monitorPoint, MONITOR_DEFAULTTONULL) : nullptr;
+  LUID monitorAdapter = {};
+  const bool haveMonitorAdapter = AdapterForMonitor(monitor, &monitorAdapter);
+
   winrt::com_ptr<ID3D11Device> device;
   winrt::com_ptr<IMFActivate> activate;
   std::string encoderName;
-  bool haveEncoder = captureSupported && CreateDeviceWithEncoder(device, activate, encoderName);
+  bool haveEncoder = captureSupported && CreateDeviceWithEncoder(device, activate, encoderName,
+                                                                 haveMonitorAdapter ? &monitorAdapter : nullptr);
 
   if (options.probe) {
     if (!haveEncoder) return EXIT_UNSUPPORTED;
@@ -1248,25 +1611,42 @@ int wmain(int argc, wchar_t** argv) {
     return EXIT_UNSUPPORTED;
   }
 
-  wgc::GraphicsCaptureItem item{nullptr};
-  try {
-    auto interop = winrt::get_activation_factory<wgc::GraphicsCaptureItem, IGraphicsCaptureItemInterop>();
-    if (options.window) {
-      if (!IsWindow(options.window)) return EXIT_TARGET_GONE;
-      winrt::check_hresult(interop->CreateForWindow(
-          options.window, winrt::guid_of<wgc::IGraphicsCaptureItem>(), winrt::put_abi(item)));
-    } else {
-      HMONITOR monitor = MonitorFromPoint(options.monitorPoint, MONITOR_DEFAULTTONULL);
-      if (!monitor) return EXIT_TARGET_GONE;
-      winrt::check_hresult(interop->CreateForMonitor(
-          monitor, winrt::guid_of<wgc::IGraphicsCaptureItem>(), winrt::put_abi(item)));
-    }
-  } catch (winrt::hresult_error const& error) {
-    Log("could not capture the target: 0x%08lx", static_cast<unsigned long>(error.code()));
-    return EXIT_TARGET_GONE;
-  }
+  if (options.monitor && !monitor) return EXIT_TARGET_GONE;
+  if (options.window && !IsWindow(options.window)) return EXIT_TARGET_GONE;
 
-  auto size = item.Size();
+  // Graphics Capture's item, made on demand: a monitor normally goes through
+  // Desktop Duplication and never needs one.
+  auto makeItem = [&]() -> wgc::GraphicsCaptureItem {
+    wgc::GraphicsCaptureItem item{nullptr};
+    try {
+      auto interop = winrt::get_activation_factory<wgc::GraphicsCaptureItem, IGraphicsCaptureItemInterop>();
+      if (options.window) {
+        winrt::check_hresult(interop->CreateForWindow(
+            options.window, winrt::guid_of<wgc::IGraphicsCaptureItem>(), winrt::put_abi(item)));
+      } else {
+        winrt::check_hresult(interop->CreateForMonitor(
+            monitor, winrt::guid_of<wgc::IGraphicsCaptureItem>(), winrt::put_abi(item)));
+      }
+    } catch (winrt::hresult_error const& error) {
+      Log("could not capture the target: 0x%08lx", static_cast<unsigned long>(error.code()));
+      item = nullptr;
+    }
+    return item;
+  };
+
+  winrt::Windows::Graphics::SizeInt32 size{0, 0};
+  wgc::GraphicsCaptureItem item{nullptr};
+  if (monitor) {
+    MONITORINFO info = {};
+    info.cbSize = sizeof(info);
+    if (!GetMonitorInfoW(monitor, &info)) return EXIT_TARGET_GONE;
+    size.Width = info.rcMonitor.right - info.rcMonitor.left;
+    size.Height = info.rcMonitor.bottom - info.rcMonitor.top;
+  } else {
+    item = makeItem();
+    if (!item) return EXIT_TARGET_GONE;
+    size = item.Size();
+  }
   double scale = std::min({1.0, static_cast<double>(options.maxWidth) / std::max(1, size.Width),
                            static_cast<double>(options.maxHeight) / std::max(1, size.Height)});
   int width = Even(size.Width * scale);
@@ -1286,7 +1666,13 @@ int wmain(int argc, wchar_t** argv) {
   Capture capture(device.get(), &pool, &encoder);
   bool started = false;
   try {
-    started = capture.Start(item, width, height, options.fps, options.cursor);
+    if (monitor && options.duplication) {
+      started = capture.StartDuplication(monitor, width, height, options.fps, options.cursor);
+    }
+    if (!started) {
+      if (!item) item = makeItem();
+      if (item) started = capture.Start(item, width, height, options.fps, options.cursor);
+    }
   } catch (winrt::hresult_error const& error) {
     Log("capture start failed: 0x%08lx", static_cast<unsigned long>(error.code()));
   }

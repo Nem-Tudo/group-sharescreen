@@ -506,7 +506,14 @@ function parseNativeVideoOptions(raw: unknown): NativeVideoStartOptions | null {
   const fps = number("fps", 1, 240);
   const bitrateKbps = number("bitrateKbps", 100, 100000);
   if (maxWidth === null || maxHeight === null || fps === null || bitrateKbps === null) return null;
-  return { maxWidth, maxHeight, fps, bitrateKbps, cursor: value.cursor !== false };
+  return {
+    maxWidth,
+    maxHeight,
+    fps,
+    bitrateKbps,
+    cursor: value.cursor !== false,
+    captureMethod: value.captureMethod === "wgc" ? "wgc" : "duplication",
+  };
 }
 
 function installShareSourceHandlers() {

@@ -134,11 +134,19 @@ export function nativeVideoSourceFor(track: MediaStreamTrack | undefined | null)
   return track ? sources.get(track) : undefined;
 }
 
+/**
+ * How the helper captures a whole screen: Desktop Duplication, which draws no
+ * frame around it, or Windows Graphics Capture, which on Windows 10 draws a
+ * yellow one. A window is always captured with the latter.
+ */
+export type NativeVideoMethod = "duplication" | "wgc";
+
 export interface NativeVideoOptions {
   maxWidth: number;
   maxHeight: number;
   fps: number;
   bitrateKbps: number;
+  captureMethod: NativeVideoMethod;
 }
 
 /**

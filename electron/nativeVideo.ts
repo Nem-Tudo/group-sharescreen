@@ -162,6 +162,8 @@ export async function startNativeVideo(
     String(Math.round(options.bitrateKbps)),
     "--cursor",
     options.cursor === false ? "0" : "1",
+    "--capture-method",
+    options.captureMethod === "wgc" ? "wgc" : "duplication",
   ];
 
   let child: ChildProcessWithoutNullStreams;
