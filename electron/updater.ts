@@ -262,6 +262,57 @@ function install(version: string) {
   autoUpdater.quitAndInstall(silent, true);
 }
 
+// How long a button press waits for a newer release to finish downloading
+// before settling for the one already on disk. A press means "now"; a slow
+// connection must not turn it into "never".
+const LATEST_DOWNLOAD_TIMEOUT_MS = 3 * 60_000;
+
+let installRequested = false;
+
+/**
+ * The button path: always lands on the newest release, not merely the one
+ * that happened to be downloaded first.
+ *
+ * Without this, a machine that downloaded 1.2 and was left open while 1.3 and
+ * 1.4 shipped would install 1.2, come back, find 1.4, and show the button
+ * again — one version per press. So the press re-checks first, and if the
+ * feed now names something other than what is on disk, waits for that
+ * download (electron-updater reuses a cached file when the version matches,
+ * so the common case costs one small request).
+ */
+async function installLatest(beforeInstall?: () => void) {
+  if (installRequested) return;
+  installRequested = true;
+  try {
+    lastCheckAt = Date.now();
+    const result = await autoUpdater.checkForUpdates();
+    const latest = result?.updateInfo.version;
+    if (result?.isUpdateAvailable && latest && latest !== pendingVersion && result.downloadPromise) {
+      log("info", `install requested with ${pendingVersion} on disk; fetching ${latest} first`);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        result.downloadPromise,
+        new Promise((resolve) => {
+          timer = setTimeout(resolve, LATEST_DOWNLOAD_TIMEOUT_MS);
+        }),
+      ]).finally(() => clearTimeout(timer));
+    }
+  } catch (error) {
+    // Offline at the moment of the press: what is on disk is still an update.
+    log("warn", `pre-install check failed, installing what is on disk: ${String(error)}`);
+  }
+  // update-downloaded has already moved pendingVersion to the newest one if
+  // that download finished.
+  if (!pendingVersion) {
+    installRequested = false;
+    return;
+  }
+  // After the wait, not before it: the page may have moved on meanwhile, and
+  // where to come back to is wherever it is now.
+  beforeInstall?.();
+  install(pendingVersion);
+}
+
 function check() {
   lastCheckAt = Date.now();
   autoUpdater.checkForUpdates().catch((error) => {
@@ -298,18 +349,19 @@ export function initAutoUpdater(
     // an error. Nothing downstream cares — a nudge that finds nothing and a
     // nudge that never ran look identical from the page's side.
     if (!app.isPackaged) return;
-    // Already downloaded: the button is showing (or is about to be), and
-    // checking again would find the same release and re-download it.
-    if (pendingVersion) return;
+    // Checked even with a download already on disk: the nudge means a newer
+    // release was just published, and the button should end up offering that
+    // one. A release that is already downloaded is not fetched again —
+    // electron-updater verifies its cached file and reuses it.
+    if (installRequested) return;
     if (Date.now() - lastCheckAt < MIN_CHECK_GAP_MS) return;
     check();
   });
   ipcMain.on(IPC.updateInstall, () => {
     if (!pendingVersion) return;
-    // Before install(), which quits: anything that needs the live window has
-    // to happen while there still is one.
-    onInstallRequested?.();
-    install(pendingVersion);
+    // Run just before install(), which quits: anything that needs the live
+    // window has to happen while there still is one.
+    void installLatest(onInstallRequested);
   });
 
   // In development there is no packaged app to replace and no `app-update.yml`
