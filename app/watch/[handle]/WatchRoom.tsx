@@ -1253,7 +1253,7 @@ export function WatchRoom({
     meshTopology,
     setSmartQualityEnabled,
     isMicOn,
-    toggleMic,
+    toggleMic: toggleMicDevice,
     setMicOn,
     micError,
     localMicStream,
@@ -1410,6 +1410,28 @@ export function WatchRoom({
     }
     micBeforeDeafenRef.current = false;
   }, [micsMuted, isMicOn, setMicOn]);
+
+  // The mic button, wherever it is pressed — the controls, the tile overlay,
+  // the group's voice dock, a global shortcut. Opening the mic while deafened
+  // undeafens too, as Discord does: talking to a room you cannot hear is not
+  // a state anybody means to be in, and it used to be one click away.
+  //
+  // The undeafen goes through the same state the deafen button sets, so the
+  // effect above plays its chime; the mic is opened here rather than by that
+  // effect's restore, because this is a choice about the mic and is stored as
+  // one (see useRoomMedia's toggleMic). Its own blip is kept quiet, so the
+  // press makes one sound, the way deafening does.
+  const toggleMic = useCallback(() => {
+    if (micsMuted && !isMicOn) {
+      micBeforeDeafenRef.current = false;
+      micFollowingDeafenRef.current = true;
+      setMicsMuted(false);
+      setStoredMicsMuted(false);
+      signalingClient.setMicsMuted(false);
+      trackEvent("mics_unmuted");
+    }
+    toggleMicDevice();
+  }, [micsMuted, isMicOn, toggleMicDevice]);
   // Which shell this is, read once — see lib/desktop's isAppShell.
   const [appShell] = useState(() => isAppShell());
   const [soundEffectsOn, setSoundEffectsOn] = useState(() => getSoundEffectsEnabled());
@@ -2556,14 +2578,16 @@ export function WatchRoom({
   // allow it. The server refuses either way; these are what actually stop the
   // local capture instead of leaving it running with the room told otherwise.
   //
-  // Going through toggleMic (rather than some quieter stop) also clears the
+  // Going through the mic's toggle (rather than some quieter stop) also clears the
   // stored "mic starts on" preference, which is what stops this from
   // repeating the whole start-then-refuse round trip on every join into a
   // room that doesn't allow it. The cost is that the preference is genuinely
   // forgotten, not just suspended for this room — turning the mic back on
   // anywhere sets it again.
   useEffect(() => {
-    if (isMicOn && !canUseRoomPermission("mic")) toggleMic();
+    // The device's own toggle: this only ever closes the mic, so the
+    // undeafen rule in toggleMic has nothing to do here.
+    if (isMicOn && !canUseRoomPermission("mic")) toggleMicDevice();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMicOn, isRoomManager, state.roomPermissions.mic, myPermissions?.mic]);
 
