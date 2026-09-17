@@ -40,10 +40,11 @@ const COMMON_FLAGS = ["/nologo", "/EHsc", "/O2", "/MT", "/W3", "/DUNICODE", "/D_
 // is DwmGetWindowAttribute, which tells a suspended Store app's leftover
 // window apart from one somebody actually has open.
 //
-// videocap: C++/WinRT (Windows Graphics Capture) wants /permissive- and
-// windowsapp.lib; Media Foundation is mfplat/mfuuid; oleaut32.lib is
-// VariantInit, for ICodecAPI; gdi32.lib exports the GPU scheduler's priority
-// call.
+// videocap: C++/WinRT (Windows Graphics Capture) wants /permissive-,
+// windowsapp.lib and C++20 — under C++17 it pulls in the experimental
+// coroutine headers, which current MSVC refuses outright. Media Foundation is
+// mfplat/mfuuid; oleaut32.lib is VariantInit, for ICodecAPI; gdi32.lib
+// exports the GPU scheduler's priority call.
 const HELPERS = [
   {
     name: "golive-audiocap",
@@ -54,7 +55,7 @@ const HELPERS = [
   {
     name: "golive-videocap",
     stem: "videocap",
-    flags: ["/std:c++17", "/permissive-", "/Zc:__cplusplus"],
+    flags: ["/std:c++20", "/permissive-", "/Zc:__cplusplus"],
     libs: [
       "ole32.lib",
       "oleaut32.lib",

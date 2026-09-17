@@ -69,6 +69,8 @@
 #include <mferror.h>
 #include <mfidl.h>
 #include <mftransform.h>
+// ICodecAPI is declared with the DirectShow interfaces, not beside its GUIDs.
+#include <strmif.h>
 #include <codecapi.h>
 #include <avrt.h>
 
@@ -1209,7 +1211,7 @@ int wmain(int argc, wchar_t** argv) {
 
   wgc::GraphicsCaptureItem item{nullptr};
   try {
-    auto interop = winrt::get_factory<wgc::GraphicsCaptureItem, IGraphicsCaptureItemInterop>();
+    auto interop = winrt::get_activation_factory<wgc::GraphicsCaptureItem, IGraphicsCaptureItemInterop>();
     if (options.window) {
       if (!IsWindow(options.window)) return EXIT_TARGET_GONE;
       winrt::check_hresult(interop->CreateForWindow(
