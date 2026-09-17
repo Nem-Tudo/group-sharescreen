@@ -231,8 +231,8 @@
 
     <div id="backdrop" hidden></div>
     <div id="audio-panel" hidden role="dialog" aria-label="Configurações de som">
-      <h2>Não compartilhar som dos seguintes apps</h2>
-      <p>Apps abertos agora. O que os marcados tocarem fica de fora da transmissão — você continua ouvindo normalmente.</p>
+      <h2>Compartilhar som dos seguintes apps</h2>
+      <p>Apps abertos agora. Desmarque um app para o som dele ficar de fora da transmissão — você continua ouvindo normalmente.</p>
       <div class="apps" id="audio-apps"></div>
     </div>
 
@@ -386,13 +386,16 @@
 
             var box = document.createElement("input");
             box.type = "checkbox";
-            box.checked = entry.muted;
+            // Marked means "goes out with the share". What is stored is still
+            // the list of muted apps (see PickerChoice), so the box is its
+            // opposite: every app starts marked, and unmarking one mutes it.
+            box.checked = !entry.muted;
             // GoLive's own row. Not a preference: sharing our own output is
             // what makes the room hear itself, so the switch would only ever
             // be a way to break the call.
             box.disabled = entry.locked;
             box.addEventListener("change", function () {
-              if (box.checked) {
+              if (!box.checked) {
                 if (muted.indexOf(entry.key) === -1) muted.push(entry.key);
               } else {
                 muted = muted.filter(function (key) {
