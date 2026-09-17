@@ -37,6 +37,8 @@ import {
   getStoredShareProfile,
   setStoredShareProfile,
   getStoredSmartQuality,
+  getStoredNativeVideo,
+  setStoredNativeVideo,
   setStoredSmartQuality,
   getStoredMicDeviceId,
   getStoredMicGain,
@@ -85,6 +87,18 @@ import { captureAndroidScreen, isAndroidScreenCaptureAvailable } from "./android
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
 import { getDesktopBridge } from "./desktop";
+import { trackFeatureEvent, useFeature } from "./features";
+import {
+  NATIVE_VIDEO_FEATURE,
+  NATIVE_VIDEO_VARIANTS,
+  hasNativeVideoBridge,
+  nativeVideoPeerConfig,
+  nativeVideoSourceFor,
+  passThroughSender,
+  probeNativeVideo,
+  startNativeVideo,
+  type NativeVideoOptions,
+} from "./nativeVideoCapture";
 
 // "file1".."file3" are local video or audio files played into the room (see
 // lib/localMediaSource.ts). Each is a full sibling of screen and camera — its
@@ -539,6 +553,147 @@ function contentHintFor(
   return contentHintForDegradation(mode);
 }
 
+// ---------------------------------------------------------------------------
+// Screen share statistics, for the GPU capture experiment
+//
+// Reported with trackFeatureEvent, so each one is counted per group of every
+// live feature aimed at this person — native-video-capture among them — and
+// the admin panel can put the ordinary share and the helper's side by side.
+// Every share reports them, native or not: the comparison is the point.
+//
+//   screen_share_start           a share started (value: 1)
+//   screen_share_error           a share failed to start (not a cancel)
+//   screen_share_lost            ended without the person pressing stop
+//   screen_share_restart         started within a minute of the last one ending
+//   screen_share_seconds         on stop; value = how long it ran
+//   screen_share_fps             on stop; value = average frames sent per second
+//   screen_share_low_fps         on stop, below 60% of the frame rate asked for
+//   screen_share_cpu_limited     on stop, when the encoder spent over a fifth
+//                                of the share limited by the CPU
+//   screen_share_peer_failures   on stop; value = viewer connections that failed
+//   screen_share_quality_change  on stop; value = dials moved mid-share
+//   native_video_start           the helper took over
+//   native_video_fallback        the helper was wanted and could not start
+//   native_video_opt_in / _out   the quality panel switch was turned on / off
+//
+// Averages are the value total over the event count, per group.
+export const SCREEN_SHARE_STATS = {
+  start: "screen_share_start",
+  error: "screen_share_error",
+  lost: "screen_share_lost",
+  restart: "screen_share_restart",
+  seconds: "screen_share_seconds",
+  fps: "screen_share_fps",
+  lowFps: "screen_share_low_fps",
+  cpuLimited: "screen_share_cpu_limited",
+  peerFailures: "screen_share_peer_failures",
+  qualityChange: "screen_share_quality_change",
+  nativeStart: "native_video_start",
+  nativeFallback: "native_video_fallback",
+  nativeOptIn: "native_video_opt_in",
+  nativeOptOut: "native_video_opt_out",
+} as const;
+
+const RESTART_WINDOW_MS = 60_000;
+const SHARE_SAMPLE_MS = 5_000;
+let lastScreenShareEndedAt = 0;
+
+interface ShareStats {
+  startedAt: number;
+  targetFps: number;
+  quality: QualityPreset | null;
+  qualityChanges: number;
+  peerFailures: number;
+  lost: boolean;
+  /** Frames sent, summed over samples, and the seconds they covered. */
+  frames: number;
+  seconds: number;
+  samples: number;
+  cpuSamples: number;
+  timer: ReturnType<typeof setInterval>;
+  last: { framesSent: number; at: number } | null;
+}
+
+function startShareStats(quality: QualityPreset | null): ShareStats {
+  const now = Date.now();
+  trackFeatureEvent(SCREEN_SHARE_STATS.start, { value: 1 });
+  if (lastScreenShareEndedAt && now - lastScreenShareEndedAt < RESTART_WINDOW_MS) {
+    trackFeatureEvent(SCREEN_SHARE_STATS.restart);
+  }
+  const stats: ShareStats = {
+    startedAt: now,
+    targetFps: quality?.frameRate ?? 30,
+    quality,
+    qualityChanges: 0,
+    peerFailures: 0,
+    lost: false,
+    frames: 0,
+    seconds: 0,
+    samples: 0,
+    cpuSamples: 0,
+    last: null,
+    timer: setInterval(() => void sampleShare(stats), SHARE_SAMPLE_MS),
+  };
+  return stats;
+}
+
+// One viewer connection is enough: the encoder is shared (and the helper's
+// stream is one stream), so what one sender sends is what the share makes.
+async function sampleShare(stats: ShareStats) {
+  // Our own share only: a relay's forwarding connections are registered as
+  // sends too, carrying somebody else's stream.
+  const video = connectionRegistry.list().find(
+    (entry) => entry.channel === "screen" && entry.direction === "send" && entry.originId === null
+  );
+  if (!video) {
+    stats.last = null;
+    return;
+  }
+  try {
+    const report = await video.pc.getStats();
+    let framesSent: number | null = null;
+    let limitation: string | null = null;
+    report.forEach((entry) => {
+      if (entry.type !== "outbound-rtp" || (entry as RTCOutboundRtpStreamStats).kind !== "video") return;
+      const outbound = entry as RTCOutboundRtpStreamStats & { qualityLimitationReason?: string };
+      framesSent = outbound.framesSent ?? null;
+      limitation = outbound.qualityLimitationReason ?? null;
+    });
+    if (framesSent === null) return;
+    const at = performance.now();
+    const previous = stats.last;
+    stats.last = { framesSent, at };
+    // A different connection than last time, or the first sample: nothing
+    // to take a difference from yet.
+    if (!previous || framesSent < previous.framesSent) return;
+    stats.frames += framesSent - previous.framesSent;
+    stats.seconds += (at - previous.at) / 1000;
+    stats.samples += 1;
+    if (limitation === "cpu") stats.cpuSamples += 1;
+  } catch {
+    stats.last = null;
+  }
+}
+
+function reportShareEnd(stats: ShareStats) {
+  clearInterval(stats.timer);
+  lastScreenShareEndedAt = Date.now();
+  const seconds = Math.round((lastScreenShareEndedAt - stats.startedAt) / 1000);
+  trackFeatureEvent(SCREEN_SHARE_STATS.seconds, { value: seconds });
+  if (stats.lost) trackFeatureEvent(SCREEN_SHARE_STATS.lost);
+  if (stats.peerFailures > 0) trackFeatureEvent(SCREEN_SHARE_STATS.peerFailures, { value: stats.peerFailures });
+  if (stats.qualityChanges > 0) {
+    trackFeatureEvent(SCREEN_SHARE_STATS.qualityChange, { value: stats.qualityChanges });
+  }
+  // Only a share that was watched long enough to say something.
+  if (stats.seconds >= 15) {
+    const fps = stats.frames / stats.seconds;
+    trackFeatureEvent(SCREEN_SHARE_STATS.fps, { value: Math.round(fps) });
+    if (fps < stats.targetFps * 0.6) trackFeatureEvent(SCREEN_SHARE_STATS.lowFps, { value: Math.round(fps) });
+    if (stats.cpuSamples / stats.samples > 0.2) trackFeatureEvent(SCREEN_SHARE_STATS.cpuLimited);
+  }
+}
+
 function useBroadcastChannel(
   channel: Channel,
   room: string,
@@ -571,6 +726,9 @@ function useBroadcastChannel(
   onStopped?: () => void
 ) {
   const eventPrefix = channel === "mic" ? "mic" : `${channel}_share`;
+  // What the screen share did, for the GPU capture experiment (see
+  // SCREEN_SHARE_STATS). Per share; reset by start().
+  const shareStatsRef = useRef<ShareStats | null>(null);
   // Held in a ref so a caller passing an inline arrow does not change stop()'s
   // identity — stop() is a dependency of the unmount effect below, and an
   // unstable one would make that effect's cleanup fire on every render.
@@ -1159,7 +1317,12 @@ function useBroadcastChannel(
     (peerId: string) => {
       if (sendPCs.current.has(peerId) || !localStreamRef.current) return;
       const stream = localStreamRef.current;
-      const pc = new RTCPeerConnection(iceConfigFor(forceRelayIceRef.current));
+      // A share encoded by the desktop app's helper travels in place of a
+      // stand-in track, which needs the connection built for it (see
+      // lib/nativeVideoCapture.ts).
+      const nativeVideo = nativeVideoSourceFor(stream.getVideoTracks()[0]);
+      const iceConfig = iceConfigFor(forceRelayIceRef.current);
+      const pc = new RTCPeerConnection(nativeVideo ? nativeVideoPeerConfig(iceConfig) : iceConfig);
       sendPCs.current.set(peerId, pc);
       if (channel !== "mic") {
         connectionRegistry.register({
@@ -1172,7 +1335,17 @@ function useBroadcastChannel(
         });
       }
       stream.getTracks().forEach((track) => {
+        if (nativeVideo && track === nativeVideo.track) {
+          // One stream for every viewer, paced by the helper rather than by a
+          // per-viewer controller; see NativeVideoSource.
+          nativeVideo.attach(pc, stream);
+          return;
+        }
         const sender = pc.addTrack(track, stream);
+        if (nativeVideo) {
+          passThroughSender(sender);
+          return;
+        }
         if (track.kind === "video") {
           const transceivers = pc.getTransceivers();
           const transceiver = transceivers.find((t) => t.sender === sender);
@@ -1290,6 +1463,7 @@ function useBroadcastChannel(
       });
       const recover = () => {
         if (sendPCs.current.get(peerId) !== pc) return;
+        if (shareStatsRef.current) shareStatsRef.current.peerFailures += 1;
         if (!iceRestartTried) {
           iceRestartTried = true;
           if (restartSendIce()) return;
@@ -1519,6 +1693,13 @@ function useBroadcastChannel(
     if (!videoQuality || !activeRef.current || !localStreamRef.current) return;
     const track = localStreamRef.current.getVideoTracks()[0];
 
+    // A dial moved mid-share — usually because the share looked wrong.
+    const stats = shareStatsRef.current;
+    if (stats && stats.quality !== videoQuality) {
+      stats.quality = videoQuality;
+      stats.qualityChanges += 1;
+    }
+
     // Only when the capture's own dimensions actually moved. This used to run
     // on any change to the preset object at all, and the preset also carries
     // the content profile — so picking "Vídeo / jogo" mid-share reconfigured
@@ -1577,6 +1758,7 @@ function useBroadcastChannel(
     qualityRegistry.current.setCaptureHeight(captureHeight);
     qualityRegistry.current.setDegradation(videoQuality.degradation);
     qualityRegistry.current.setBitrateCeiling(videoQuality.maxBitrateKbps);
+    nativeVideoSourceFor(track)?.setCeiling(videoQuality.maxBitrateKbps);
 
     // Re-cap every peer against the new ceiling. Crucially this only moves
     // the *assigned tier*: each controller keeps the congestion ratio it has
@@ -1664,6 +1846,10 @@ function useBroadcastChannel(
     if (!activeRef.current) return;
     activeRef.current = false;
     setActive(false);
+    if (shareStatsRef.current) {
+      reportShareEnd(shareStatsRef.current);
+      shareStatsRef.current = null;
+    }
     localStreamRef.current?.getTracks().forEach((t) => t.stop());
     localStreamRef.current = null;
     setLocalStream(null);
@@ -1754,7 +1940,17 @@ function useBroadcastChannel(
       if (channel === "mic") signalingClient.setMic(true);
       else signalingClient.setSharing({ [channel]: true });
       trackEvent(`${eventPrefix}_start`);
-      stream.getTracks().forEach((track) => track.addEventListener("ended", () => stop()));
+      if (channel === "screen" && requestedSource !== "camera") {
+        shareStatsRef.current = startShareStats(videoQualityRef.current ?? null);
+      }
+      stream.getTracks().forEach((track) =>
+        track.addEventListener("ended", () => {
+          // The capture went away without the person pressing stop: the
+          // window closed, the helper died, the OS took the surface back.
+          if (shareStatsRef.current) shareStatsRef.current.lost = true;
+          stop();
+        })
+      );
       // Staggered (see STAGGER_MS's doc comment) — starting a share into an
       // already-large room is exactly the burst that used to overwhelm the
       // signaling rate limit and leave some viewers' connections stuck.
@@ -1775,6 +1971,7 @@ function useBroadcastChannel(
       if (err instanceof ShareStartError) {
         setError(err.message);
         trackEvent(`${eventPrefix}_error`, errorInfo);
+        if (channel === "screen") trackFeatureEvent(SCREEN_SHARE_STATS.error);
         return;
       }
       // Clicking "share" and then Cancel on the browser's own picker throws
@@ -1790,6 +1987,7 @@ function useBroadcastChannel(
       } else {
         setError(failureMessage);
         trackEvent(`${eventPrefix}_error`, errorInfo);
+        if (channel === "screen") trackFeatureEvent(SCREEN_SHARE_STATS.error);
       }
     }
   }, [
@@ -3027,6 +3225,64 @@ export function useRoomMedia(room: string) {
     getStoredCameraFacing()
   );
 
+  // The GPU capture experiment (see lib/nativeVideoCapture.ts): the desktop
+  // app's helper takes over from Chromium's capture once the picker has been
+  // answered. Only where the helper shipped, so nobody else is counted in the
+  // experiment; the probe runs early so the share does not wait on it.
+  //
+  // Three sides besides control (see NATIVE_VIDEO_VARIANTS): always on, and a
+  // switch in the quality panel that starts off or on. A variant with any
+  // other name counts as "always on".
+  const nativeVideoBridge = useMemo(() => hasNativeVideoBridge(), []);
+  const nativeVideoFeature = useFeature(NATIVE_VIDEO_FEATURE, { track: nativeVideoBridge });
+  const nativeVideoVariant = nativeVideoBridge ? nativeVideoFeature.variant : null;
+  const nativeVideoHasOption =
+    nativeVideoVariant === NATIVE_VIDEO_VARIANTS.optIn || nativeVideoVariant === NATIVE_VIDEO_VARIANTS.optOut;
+  const [storedNativeVideo, setStoredNativeVideoState] = useState(getStoredNativeVideo);
+  /** The switch's state, or null where this person is not offered one. */
+  const nativeVideoOption = nativeVideoHasOption
+    ? storedNativeVideo ?? nativeVideoVariant === NATIVE_VIDEO_VARIANTS.optOut
+    : null;
+  const nativeVideoWanted =
+    nativeVideoVariant !== null && (nativeVideoHasOption ? nativeVideoOption === true : true);
+  const setNativeVideoOption = useCallback((value: boolean) => {
+    setStoredNativeVideoState(value);
+    setStoredNativeVideo(value);
+    trackFeatureEvent(value ? SCREEN_SHARE_STATS.nativeOptIn : SCREEN_SHARE_STATS.nativeOptOut);
+  }, []);
+  const nativeVideoWantedRef = useRef(false);
+  useEffect(() => {
+    nativeVideoWantedRef.current = nativeVideoWanted;
+    if (nativeVideoWanted) void probeNativeVideo();
+  }, [nativeVideoWanted]);
+
+  // Swaps Chromium's video track for the helper's when the experiment is on
+  // and the helper starts; the share is otherwise returned as it was, so
+  // every failure here is a share that works the ordinary way.
+  const withNativeVideo = useCallback(async (stream: MediaStream): Promise<MediaStream> => {
+    if (!nativeVideoWantedRef.current) return stream;
+    const dims = RESOLUTION_DIMENSIONS[shareResolutionRef.current];
+    const options: NativeVideoOptions = {
+      maxWidth: dims.width,
+      maxHeight: dims.height,
+      fps: shareFpsRef.current,
+      bitrateKbps: BITRATE_CEILING_KBPS[shareBitrateRef.current],
+    };
+    const native = await startNativeVideo(options);
+    if (!native) {
+      trackFeatureEvent(SCREEN_SHARE_STATS.nativeFallback);
+      return stream;
+    }
+    for (const track of stream.getVideoTracks()) {
+      stream.removeTrack(track);
+      track.stop();
+    }
+    stream.addTrack(native.track);
+    trackFeatureEvent(SCREEN_SHARE_STATS.nativeStart);
+    trackEvent("screen_share_native_video", { encoder: native.encoder.slice(0, 60) });
+    return stream;
+  }, []);
+
   const screen = useBroadcastChannel(
     "screen",
     room,
@@ -3153,7 +3409,7 @@ export function useRoomMedia(room: string) {
           throw err;
         });
 
-      if (!excluded) return capture;
+      if (!excluded) return withNativeVideo(await capture);
 
       // The picker is still open at this point, and it is the one place the
       // share can still be called off. A cancelled picker rejects here, and
@@ -3171,7 +3427,7 @@ export function useRoomMedia(room: string) {
       // they came from, and this one's stop() takes the helper with it (see
       // desktopSystemAudio.ts).
       stream.addTrack(excluded.track);
-      return stream;
+      return withNativeVideo(stream);
     },
     () => hasDisplayCapture() || isAndroidScreenCaptureAvailable() || hasCameraCapture(),
     t("useRoomMedia.yourBrowserSupportsNeitherScreenSharing"),
@@ -3764,6 +4020,8 @@ export function useRoomMedia(room: string) {
     setShareBitrate,
     smartQualityEnabled,
     setSmartQualityEnabled,
+    nativeVideoOption,
+    setNativeVideoOption,
     shareProfile,
     setShareProfile,
     // Live telemetry, for the share panel: measured uplink, measured content

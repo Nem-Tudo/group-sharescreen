@@ -40,8 +40,10 @@ import path from "node:path";
 import fs from "node:fs";
 import {
   IPC,
+  NATIVE_VIDEO_ARG,
   SYSTEM_AUDIO_ARG,
   VERSION_ARG,
+  type NativeVideoStartOptions,
   type CallOverlayChoice,
   type CallOverlayData,
   type CallRingingInfo,
@@ -85,6 +87,14 @@ import {
   startSystemAudioCapture,
   stopSystemAudioCapture,
 } from "./systemAudio";
+import {
+  controlNativeVideo,
+  isNativeVideoAvailable,
+  probeNativeVideo,
+  rememberSharedSource,
+  startNativeVideo,
+  stopNativeVideo,
+} from "./nativeVideo";
 
 // Where the UI comes from. Overridable so `npm run electron:dev` can point at
 // a local `next dev` without a rebuild.
@@ -482,6 +492,23 @@ function mergeMutedApps(audio: NonNullable<PickerChoice["audio"]>): string[] {
   return [...new Set([...kept, ...normalizeMutedApps(audio.muted)])];
 }
 
+// What the page may ask the GPU capture for, checked here because it arrives
+// from remote content and ends up on a command line.
+function parseNativeVideoOptions(raw: unknown): NativeVideoStartOptions | null {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as Record<string, unknown>;
+  const number = (key: string, min: number, max: number) => {
+    const n = value[key];
+    return typeof n === "number" && Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : null;
+  };
+  const maxWidth = number("maxWidth", 160, 4096);
+  const maxHeight = number("maxHeight", 90, 2304);
+  const fps = number("fps", 1, 240);
+  const bitrateKbps = number("bitrateKbps", 100, 100000);
+  if (maxWidth === null || maxHeight === null || fps === null || bitrateKbps === null) return null;
+  return { maxWidth, maxHeight, fps, bitrateKbps, cursor: value.cursor !== false };
+}
+
 function installShareSourceHandlers() {
   // invoke/handle rather than send: the renderer waits for the answer before
   // calling getDisplayMedia, both so the arming cannot land *after* the
@@ -598,6 +625,7 @@ function installDisplayMediaHandler() {
           const savedSource = await resolveSavedShareSource();
           if (savedSource) {
             // Nothing about reusing a source changes what the audio may be.
+            rememberSharedSource(savedSource);
             answer(withAudio(savedSource));
             return;
           }
@@ -635,6 +663,9 @@ function installDisplayMediaHandler() {
           answer({});
           return;
         }
+        // The surface a GPU capture would be started on, if the page asks for
+        // one next (see nativeVideo.ts).
+        rememberSharedSource(source);
         answer(withAudio(source));
       })().catch((err) => {
         // Anything that went wrong on the way to an answer — the source list
@@ -865,6 +896,7 @@ function createWindow(initialUrl: string = APP_URL) {
       additionalArguments: [
         `${VERSION_ARG}${app.getVersion()}`,
         ...(isSystemAudioExclusionSupported() ? [SYSTEM_AUDIO_ARG] : []),
+        ...(isNativeVideoAvailable() ? [NATIVE_VIDEO_ARG] : []),
       ],
       // Screen sharing is the entire point of the app and needs no gesture
       // ceremony; media playback (a shared video source) does.
@@ -1689,6 +1721,28 @@ if (!gotLock) {
     });
     ipcMain.on(IPC.systemAudioStop, () => stopSystemAudioCapture());
 
+    // The GPU screen capture (see nativeVideo.ts), origin-checked for the same
+    // reason: it records the screen.
+    ipcMain.handle(IPC.nativeVideoProbe, (event) => {
+      if (!event.sender.getURL().startsWith(APP_ORIGIN)) return { supported: false, encoder: null };
+      return probeNativeVideo();
+    });
+    ipcMain.handle(IPC.nativeVideoStart, (event, raw: unknown) => {
+      if (!event.sender.getURL().startsWith(APP_ORIGIN)) return { ok: false, reason: "unsupported" };
+      const options = parseNativeVideoOptions(raw);
+      if (!options) return { ok: false, reason: "failed" };
+      return startNativeVideo(event.sender, options);
+    });
+    ipcMain.on(IPC.nativeVideoControl, (event, raw: unknown) => {
+      if (!event.sender.getURL().startsWith(APP_ORIGIN)) return;
+      const command = (raw ?? {}) as { bitrateKbps?: unknown; keyFrame?: unknown };
+      controlNativeVideo({
+        bitrateKbps: typeof command.bitrateKbps === "number" ? command.bitrateKbps : undefined,
+        keyFrame: command.keyFrame === true,
+      });
+    });
+    ipcMain.on(IPC.nativeVideoStop, () => stopNativeVideo());
+
     // The background switches, as the website's settings page reads and
     // writes them. Origin-checked like every other capability here: these
     // change how the machine behaves after the app is closed, so they take
@@ -1846,6 +1900,7 @@ if (!gotLock) {
     // always-on-top window on screen with nothing behind it.
     closeCallWindow();
     stopSystemAudioCapture();
+    stopNativeVideo();
     globalShortcut.unregisterAll();
   });
 

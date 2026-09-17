@@ -59,6 +59,7 @@ const SHARE_FPS_KEY = "sharescreen:shareFps";
 const SHARE_BITRATE_KEY = "sharescreen:shareBitrate";
 const SHARE_PROFILE_KEY = "sharescreen:shareProfile";
 const SMART_QUALITY_KEY = "sharescreen:smartQuality";
+const NATIVE_VIDEO_KEY = "sharescreen:nativeVideo";
 
 const MIC_DEVICE_ID_KEY = "sharescreen:micDeviceId";
 const SPEAKER_DEVICE_ID_KEY = "sharescreen:speakerDeviceId";
@@ -372,6 +373,22 @@ export function getStoredSmartQuality(): boolean {
 }
 export function setStoredSmartQuality(value: boolean) {
   setStoredBoolean(SMART_QUALITY_KEY, value);
+}
+
+// The GPU capture switch (see lib/nativeVideoCapture.ts). Null until somebody
+// has touched it: the default depends on which side of the experiment they
+// are on, so "never chosen" has to stay distinguishable from either answer.
+export function getStoredNativeVideo(): boolean | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(NATIVE_VIDEO_KEY);
+    return raw === null ? null : raw === "true";
+  } catch {
+    return null;
+  }
+}
+export function setStoredNativeVideo(value: boolean) {
+  setStoredBoolean(NATIVE_VIDEO_KEY, value);
 }
 
 // Which camera the camera share (and, on phones, the camera fallback for

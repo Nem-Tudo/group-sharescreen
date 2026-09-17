@@ -122,7 +122,7 @@ jobs:
       # would say so until users reported the echo coming back. windows-latest
       # ships Visual Studio 2022 with the C++ workload, so this is a guard
       # rather than something expected to trip.
-      - name: Build the native audio helper from source
+      - name: Build the native helpers from source
         if: runner.os == 'Windows'
         run: node electron/native/build.mjs --force --required
 

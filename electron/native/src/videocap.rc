@@ -1,0 +1,40 @@
+// Version information and manifest for golive-videocap.exe. Same reasons as
+// audiocap.rc, whose comment explains them.
+
+#include <winver.h>
+
+#define GOLIVE_VIDEOCAP_VERSION 1,0,0,0
+#define GOLIVE_VIDEOCAP_VERSION_STR "1.0.0.0"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION GOLIVE_VIDEOCAP_VERSION
+PRODUCTVERSION GOLIVE_VIDEOCAP_VERSION
+FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+FILEFLAGS 0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904b0"
+    BEGIN
+      VALUE "CompanyName", "GoLive"
+      VALUE "FileDescription", "GoLive screen capture helper"
+      VALUE "FileVersion", GOLIVE_VIDEOCAP_VERSION_STR
+      VALUE "InternalName", "golive-videocap"
+      VALUE "LegalCopyright", "GoLive - open source, github.com/Nem-Tudo/group-sharescreen"
+      VALUE "OriginalFilename", "golive-videocap.exe"
+      VALUE "ProductName", "GoLive"
+      VALUE "ProductVersion", GOLIVE_VIDEOCAP_VERSION_STR
+      VALUE "Comments", "Captures and encodes the screen or window chosen for a GoLive screen share, on the GPU. Started and stopped by the GoLive desktop app; does nothing on its own."
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x0409, 1200
+  END
+END
+
+// RT_MANIFEST (24), resource id 1: the manifest for an .exe.
+1 24 "videocap.manifest"

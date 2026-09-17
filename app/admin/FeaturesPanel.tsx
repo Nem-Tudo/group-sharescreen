@@ -103,7 +103,7 @@ function Pill({ children, tone = "zinc" }: { children: React.ReactNode; tone?: "
 export function FeaturesPanel() {
   const t = useT();
   const [features, setFeatures] = useState<AdminFeature[]>([]);
-  const [clientEvents, setClientEvents] = useState<string[]>([]);
+  const [builtInEvents, setBuiltInEvents] = useState<string[]>([]);
   const [showArchived, setShowArchived] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -113,13 +113,23 @@ export function FeaturesPanel() {
     void fetchFeatures()
       .then((data) => {
         setFeatures(data.features);
-        setClientEvents(data.clientEvents);
+        setBuiltInEvents(data.builtInClientEvents ?? data.clientEvents);
         setError(null);
       })
       .catch((err: Error) => setError(err.message));
   }, []);
 
   useEffect(load, [load]);
+
+  // Worked out here rather than kept from the last load, so saving a
+  // feature's site events updates the list straight away.
+  const clientEvents = useMemo(() => {
+    const names = new Set(builtInEvents);
+    for (const feature of features) {
+      if (!feature.archived) for (const name of feature.clientEvents ?? []) names.add(name);
+    }
+    return [...names];
+  }, [builtInEvents, features]);
 
   const replace = (next: AdminFeature) =>
     setFeatures((current) => current.map((feature) => (feature.key === next.key ? next : feature)));
@@ -560,6 +570,7 @@ function TargetingSection({ feature, busy, save }: { feature: AdminFeature; busy
   const [platforms, setPlatforms] = useState<FeaturePlatform[]>(feature.platforms);
   const [includeGuests, setIncludeGuests] = useState(feature.includeGuests);
   const [serverOnly, setServerOnly] = useState(feature.serverOnly);
+  const [siteEvents, setSiteEvents] = useState((feature.clientEvents ?? []).join(", "));
   const [overrides, setOverrides] = useState<FeatureOverride[]>(feature.overrides);
   const [newId, setNewId] = useState("");
   const [newVariant, setNewVariant] = useState(feature.variants[0] ?? "on");
@@ -695,6 +706,20 @@ function TargetingSection({ feature, busy, save }: { feature: AdminFeature; busy
           <input type="checkbox" checked={serverOnly} onChange={(e) => setServerOnly(e.target.checked)} />
           {t("admin.features.serverOnlyLabel")}
         </label>
+
+        {!serverOnly && (
+          <label className={labelClass}>
+            {t("admin.features.siteEvents")}
+            <input
+              value={siteEvents}
+              onChange={(e) => setSiteEvents(e.target.value)}
+              placeholder="theme_toggle, sidebar_open"
+              spellCheck={false}
+              className={`${inputClass} font-mono`}
+            />
+            <span className="font-normal text-zinc-500">{t("admin.features.siteEventsHint")}</span>
+          </label>
+        )}
       </div>
 
       <div className={cardClass}>
@@ -760,6 +785,7 @@ function TargetingSection({ feature, busy, save }: { feature: AdminFeature; busy
               platforms,
               includeGuests,
               serverOnly,
+              clientEvents: splitList(siteEvents.toLowerCase()),
               // Overrides naming a treatment that no longer exists fall back
               // to the first one rather than failing the whole save.
               overrides: overrides.map((entry) =>

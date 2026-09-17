@@ -240,6 +240,42 @@ export interface DesktopBridge {
      */
     onData(onChunk: (chunk: Uint8Array) => void, onEnded: () => void): () => void;
   };
+  /**
+   * Screen capture encoded on the GPU by a native helper — an experiment (see
+   * lib/nativeVideoCapture.ts, the only thing that should touch this, and
+   * electron/nativeVideo.ts). Absent unless the helper shipped with the build.
+   */
+  nativeVideo?: {
+    /** Whether this machine has Graphics Capture and a hardware H.264 encoder. */
+    probe(): Promise<{ supported: boolean; encoder: string | null }>;
+    /**
+     * Starts capturing the surface the last getDisplayMedia was answered
+     * with. Must follow that call.
+     */
+    start(options: {
+      maxWidth: number;
+      maxHeight: number;
+      fps: number;
+      bitrateKbps: number;
+      cursor?: boolean;
+    }): Promise<
+      | { ok: true; width: number; height: number; encoder: string }
+      | { ok: false; reason: "unsupported" | "no-source" | "timeout" | "failed" }
+    >;
+    control(command: { bitrateKbps?: number; keyFrame?: boolean }): void;
+    stop(): void;
+    /**
+     * Subscribes to the encoded frames. `onEnded` fires when the capture stops
+     * on its own. Returns an unsubscribe.
+     */
+    onFrame(
+      onFrame: (
+        meta: { key: boolean; sequence: number; width: number; height: number; timeMs: number },
+        data: Uint8Array
+      ) => void,
+      onEnded: (reason: "target-gone" | "failed") => void
+    ): () => void;
+  };
 }
 
 declare global {

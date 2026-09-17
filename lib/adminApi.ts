@@ -1111,6 +1111,8 @@ export interface AdminFeature {
   platforms: FeaturePlatform[];
   includeGuests: boolean;
   serverOnly: boolean;
+  /** Events the site may report while this feature is live. Absent on an older API. */
+  clientEvents?: string[];
   enabled: boolean;
   archived: boolean;
   history: { at: number; rolloutBp: number; enabled: boolean; by: string }[];
@@ -1134,6 +1136,7 @@ export interface FeatureWrite {
   platforms?: FeaturePlatform[];
   includeGuests?: boolean;
   serverOnly?: boolean;
+  clientEvents?: string[];
   enabled?: boolean;
   archived?: boolean;
   reshuffle?: boolean;
@@ -1153,7 +1156,12 @@ export interface FeatureCheck {
   reason: string;
 }
 
-export async function fetchFeatures(): Promise<{ features: AdminFeature[]; clientEvents: string[] }> {
+export async function fetchFeatures(): Promise<{
+  features: AdminFeature[];
+  clientEvents: string[];
+  /** The API's fixed list, without the ones features declare. Absent on an older API. */
+  builtInClientEvents?: string[];
+}> {
   return adminFetch("/admin/features");
 }
 

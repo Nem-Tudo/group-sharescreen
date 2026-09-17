@@ -73,6 +73,28 @@ export const IPC = {
   systemAudioEnded: "golive:system-audio:ended",
 
   /**
+   * renderer -> main: whether this machine can capture and encode a share on
+   * the GPU (see electron/nativeVideo.ts). Answers a NativeVideoProbe.
+   */
+  nativeVideoProbe: "golive:native-video:probe",
+  /**
+   * renderer -> main: start the GPU capture on the surface the last
+   * getDisplayMedia was answered with. Answers a NativeVideoStartResult.
+   */
+  nativeVideoStart: "golive:native-video:start",
+  /** renderer -> main: a new bitrate, or a keyframe request. */
+  nativeVideoControl: "golive:native-video:control",
+  /** renderer -> main: stop the capture started above. */
+  nativeVideoStop: "golive:native-video:stop",
+  /** main -> renderer: one encoded frame: (NativeFrameMeta, Uint8Array). */
+  nativeVideoFrame: "golive:native-video:frame",
+  /**
+   * main -> renderer: the capture ended on its own. "target-gone" when the
+   * window or monitor went away, "failed" for anything else.
+   */
+  nativeVideoEnded: "golive:native-video:ended",
+
+  /**
    * renderer -> main: this installation's id (see the site's
    * lib/installId.ts), so main can drop it somewhere the *uninstaller* can
    * read it — the renderer keeps it in localStorage, which NSIS has no way
@@ -296,6 +318,23 @@ export const VERSION_ARG = "--golive-version=";
 // so the website's feature check is "does this function exist" rather than a
 // round trip it would have to make before every share.
 export const SYSTEM_AUDIO_ARG = "--golive-system-audio-exclusion";
+
+// Present when the GPU capture helper shipped with this build (see
+// nativeVideo.ts). Whether the machine can actually run it is a separate
+// question, answered by the probe.
+export const NATIVE_VIDEO_ARG = "--golive-native-video";
+
+export interface NativeVideoStartOptions {
+  maxWidth: number;
+  maxHeight: number;
+  fps: number;
+  bitrateKbps: number;
+  cursor?: boolean;
+}
+
+export type NativeVideoStartResult =
+  | { ok: true; width: number; height: number; encoder: string }
+  | { ok: false; reason: "unsupported" | "no-source" | "timeout" | "failed" };
 
 /** What the picker window renders for each capturable surface. */
 export interface PickerSource {

@@ -478,6 +478,8 @@ type RoomMedia = ReturnType<typeof useRoomMedia>;
 function QualityControls({
   smartQualityEnabled,
   setSmartQualityEnabled,
+  nativeVideoOption,
+  setNativeVideoOption,
   shareProfile,
   setShareProfile,
   shareFps,
@@ -494,6 +496,8 @@ function QualityControls({
   RoomMedia,
   | "smartQualityEnabled"
   | "setSmartQualityEnabled"
+  | "nativeVideoOption"
+  | "setNativeVideoOption"
   | "shareProfile"
   | "setShareProfile"
   | "shareFps"
@@ -525,6 +529,26 @@ function QualityControls({
             {t("watch.watchRoom.sendsEachPersonOnlyTheQuality")}
           </span>
         </label>
+
+        {/* The GPU capture experiment's switch — only for the two sides of it
+            that have one (see useRoomMedia's nativeVideoOption). */}
+        {nativeVideoOption !== null && (
+          <label className="flex items-start gap-2 rounded-md border border-zinc-200 bg-white p-2 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">
+            <input
+              type="checkbox"
+              checked={nativeVideoOption}
+              onChange={(e) => setNativeVideoOption(e.target.checked)}
+              className="mt-0.5 h-3.5 w-3.5 rounded border-zinc-300 dark:border-zinc-700"
+            />
+            <span>
+              <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                {t("watch.watchRoom.useGpuCapture")}
+              </span>
+              <br />
+              {t("watch.watchRoom.useGpuCaptureHint")}
+            </span>
+          </label>
+        )}
 
         <div>
           <span className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
@@ -705,6 +729,8 @@ function ShareControls({
     RoomMedia,
     | "smartQualityEnabled"
     | "setSmartQualityEnabled"
+    | "nativeVideoOption"
+    | "setNativeVideoOption"
     | "shareProfile"
     | "setShareProfile"
     | "shareFps"
@@ -1255,6 +1281,8 @@ export function WatchRoom({
     meshCapacity,
     meshTopology,
     setSmartQualityEnabled,
+    nativeVideoOption,
+    setNativeVideoOption,
     isMicOn,
     toggleMic: toggleMicDevice,
     setMicOn,
@@ -4746,6 +4774,8 @@ export function WatchRoom({
   const qualityControlsProps = {
     smartQualityEnabled,
     setSmartQualityEnabled,
+    nativeVideoOption,
+    setNativeVideoOption,
     shareProfile,
     setShareProfile,
     shareFps,

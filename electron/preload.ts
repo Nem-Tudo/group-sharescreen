@@ -10,7 +10,7 @@
 // website's side of this contract is typed.
 
 import { contextBridge, ipcRenderer } from "electron";
-import { IPC, SYSTEM_AUDIO_ARG, SYSTEM_AUDIO_FORMAT, VERSION_ARG } from "./channels";
+import { IPC, NATIVE_VIDEO_ARG, SYSTEM_AUDIO_ARG, SYSTEM_AUDIO_FORMAT, VERSION_ARG } from "./channels";
 
 // A sandboxed preload cannot reach `app.getVersion()` — it has no main-process
 // APIs at all — and `process.env` set in main is not propagated here either.
@@ -283,6 +283,63 @@ contextBridge.exposeInMainWorld("golive", {
           return () => {
             ipcRenderer.off(IPC.systemAudioData, data);
             ipcRenderer.off(IPC.systemAudioEnded, ended);
+          };
+        },
+      }
+    : undefined,
+
+  // The GPU screen capture (see electron/nativeVideo.ts and
+  // lib/nativeVideoCapture.ts). Absent unless the helper shipped with this
+  // build; whether the machine can run it is what probe() answers.
+  nativeVideo: process.argv.includes(NATIVE_VIDEO_ARG)
+    ? {
+        probe(): Promise<{ supported: boolean; encoder: string | null }> {
+          return ipcRenderer.invoke(IPC.nativeVideoProbe);
+        },
+
+        start(options: unknown): Promise<unknown> {
+          return ipcRenderer.invoke(IPC.nativeVideoStart, options);
+        },
+
+        control(command: unknown): void {
+          if (!command || typeof command !== "object") return;
+          const { bitrateKbps, keyFrame } = command as { bitrateKbps?: unknown; keyFrame?: unknown };
+          ipcRenderer.send(IPC.nativeVideoControl, {
+            bitrateKbps: typeof bitrateKbps === "number" ? bitrateKbps : undefined,
+            keyFrame: keyFrame === true,
+          });
+        },
+
+        stop(): void {
+          ipcRenderer.send(IPC.nativeVideoStop);
+        },
+
+        onFrame(onFrame: unknown, onEnded: unknown): () => void {
+          if (typeof onFrame !== "function") return () => {};
+          const frame = (_event: unknown, meta: unknown, data: unknown) => {
+            if (!meta || typeof meta !== "object" || !(data instanceof Uint8Array)) return;
+            const m = meta as Record<string, unknown>;
+            (onFrame as (meta: unknown, data: Uint8Array) => void)(
+              {
+                key: m.key === true,
+                sequence: Number(m.sequence) || 0,
+                width: Number(m.width) || 0,
+                height: Number(m.height) || 0,
+                timeMs: Number(m.timeMs) || 0,
+              },
+              data
+            );
+          };
+          const ended = (_event: unknown, reason: unknown) => {
+            if (typeof onEnded === "function") {
+              (onEnded as (reason: string) => void)(reason === "target-gone" ? "target-gone" : "failed");
+            }
+          };
+          ipcRenderer.on(IPC.nativeVideoFrame, frame);
+          ipcRenderer.on(IPC.nativeVideoEnded, ended);
+          return () => {
+            ipcRenderer.off(IPC.nativeVideoFrame, frame);
+            ipcRenderer.off(IPC.nativeVideoEnded, ended);
           };
         },
       }

@@ -1,3 +1,12 @@
+# Native helpers
+
+Two small Win32 executables, built the same way and for the same reasons (see
+"Why it is an executable" in the header of `src/audiocap.cpp`):
+
+- **golive-audiocap** — system audio without GoLive in it. Most of this file.
+- **golive-videocap** — the screen captured and encoded on the GPU; see
+  [the section at the end](#golive-videocap).
+
 # golive-audiocap
 
 A ~15 KB Win32 executable that captures the system audio mix **with GoLive
@@ -249,3 +258,73 @@ Derived from Microsoft's [ApplicationLoopback sample][sample].
 [issue343]: https://github.com/microsoft/Windows-classic-samples/issues/343
 [params]: https://learn.microsoft.com/en-us/windows/win32/api/audioclientactivationparams/ns-audioclientactivationparams-audioclient_activation_params
 [sample]: https://learn.microsoft.com/en-us/samples/microsoft/windows-classic-samples/applicationloopbackaudio-sample/
+
+# golive-videocap
+
+A screen share captured, scaled and H.264-encoded without the frame ever
+leaving the GPU, at raised CPU and GPU-scheduler priority. It exists because
+Chromium's own share copies every frame to system memory and encodes it at
+normal priority, so a game in the foreground starves it — the share stutters
+exactly while the game is in front. It is an **experiment**, behind the
+`native-video-capture` feature rollout (admin panel → Features; target
+"user", platform "desktop-app").
+
+```
+Windows Graphics Capture -> ID3D11VideoProcessor (BGRA -> NV12, scaled)
+                         -> Media Foundation hardware H.264 (NVENC/AMF/QSV)
+                         -> stdout
+```
+
+## Interface
+
+```
+golive-videocap.exe --probe
+  exit 0, "OK <encoder name>" on stdout   Graphics Capture + a hardware H.264 encoder
+  exit 3                                  not on this machine
+
+golive-videocap.exe (--window <hwnd> | --monitor <x> <y>)
+                    --max-width <px> --max-height <px> --fps <n> --bitrate <kbps>
+                    [--cursor 0|1]
+
+  stdout   one record per frame: 24-byte little-endian header
+           ("GLVF", length, flags bit0 = IDR, sequence, u16 width, u16 height,
+           u32 time ms), then Annex B H.264. Every IDR carries SPS/PPS.
+  stderr   "READY <width> <height> <encoder>" once frames can flow
+  stdin    "bitrate <kbps>", "key"; closing it stops the helper
+  exit     0 stopped, 2 bad args, 3 unsupported, 4 target gone, 1 failure
+```
+
+The header is mirrored in `lib/nativeVideoFrames.ts` (and pinned by its test).
+
+## How the page sends it
+
+WebRTC in the browser only takes raw frames, so each peer connection gets a
+16x16 stand-in track whose encoded frames are swapped, one for one, for the
+helper's (encoded insertable streams). The rules that keep the two in step —
+lockstep writing, holding a stand-in keyframe until a fresh IDR exists,
+SPS/PPS on every IDR — were found by experiment and are written down at the
+top of `lib/nativeVideoCapture.ts`. Every failure to start falls back to
+Chromium's capture.
+
+Known limits of the experiment: one stream for every viewer (the bitrate
+follows the weakest direct link, no per-viewer tiers); a resolution or frame
+rate change mid-share applies from the next share; viewers must be able to
+decode H.264.
+
+## Building
+
+Same as audiocap: `build.mjs` compiles both, CI commits both binaries. It
+cannot be compiled on a machine without MSVC and the Windows SDK (C++/WinRT
+headers included), so every change goes through
+`.github/workflows/build-audiocap.yml`, whose smoke test also runs
+`--probe` on the runner.
+
+| Where                              | What it does                                         |
+| ---------------------------------- | ---------------------------------------------------- |
+| `src/videocap.cpp`                 | This. Capture and encode -> stdout                   |
+| `electron/nativeVideo.ts`          | Probe, spawn on the picked surface, forward frames   |
+| `electron/main.ts`                 | Remembers the picked surface; IPC handlers           |
+| `electron/preload.ts`              | `window.golive.nativeVideo`                          |
+| `lib/nativeVideoFrames.ts`         | Record reader, SPS/PPS keeper, bitrate target        |
+| `lib/nativeVideoCapture.ts`        | Stand-in tracks, the swap, preview, bitrate control  |
+| `lib/useRoomMedia.ts`              | Swaps the track after the picker; per-peer attach    |

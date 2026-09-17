@@ -94,6 +94,7 @@ win:
       to: .
       filter:
         - golive-audiocap.exe
+        - golive-videocap.exe
   # Unsigned builds trip SmartScreen. Set CSC_LINK/CSC_KEY_PASSWORD in CI to
   # sign; electron-builder picks them up without further config here.
   signtoolOptions:

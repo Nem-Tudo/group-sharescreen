@@ -1,4 +1,5 @@
-# Builds the WASAPI capture helper and commits it back to the repo.
+# Builds the native helpers (audio and screen capture) and commits them back
+# to the repo.
 #
 # Why a binary is committed at all
 # --------------------------------
@@ -23,7 +24,7 @@
 # built from the tagged source rather than taken on trust from git — and it
 # would still produce a correct installer if this job had never run.
 
-name: Build audio capture helper
+name: Build native capture helpers
 
 on:
   push:
@@ -63,25 +64,33 @@ jobs:
       # No `npm ci`: build.mjs imports nothing outside Node's standard
       # library, and installing Electron and the whole Next tree to run one
       # script that shells out to cl.exe would be minutes spent on nothing.
-      - name: Compile golive-audiocap
+      - name: Compile the helpers
         run: node electron/native/build.mjs --force --required
 
       # Proof it is a real executable rather than an empty file a silent
       # failure left behind — `cl` returning 0 is not by itself that proof,
       # and a broken binary committed here would reach every clone.
-      - name: Smoke-test the binary
+      - name: Smoke-test the binaries
         shell: bash
         run: |
           set -e
-          exe=electron/native/bin/golive-audiocap.exe
-          test -s "$exe"
-          # No --exclude-pid, so it must reject the arguments and exit 2
-          # (EXIT_BAD_ARGS) rather than crash or hang. `set -e` would kill the
-          # step on a non-zero exit, hence the guard.
+          for exe in electron/native/bin/golive-audiocap.exe electron/native/bin/golive-videocap.exe; do
+            test -s "$exe"
+            # No mode argument, so each must reject the arguments and exit 2
+            # (EXIT_BAD_ARGS) rather than crash or hang. `set -e` would kill
+            # the step on a non-zero exit, hence the guard.
+            code=0
+            "./$exe" </dev/null >/dev/null 2>&1 || code=$?
+            echo "$exe exit code without arguments: $code"
+            test "$code" = "2"
+          done
+          # The probe starts COM, Media Foundation and Graphics Capture for
+          # real. The runner has no GPU encoder, so "unsupported" (3) is the
+          # expected answer; a crash or a hang is what this is here to catch.
           code=0
-          "./$exe" </dev/null >/dev/null 2>&1 || code=$?
-          echo "exit code without arguments: $code"
-          test "$code" = "2"
+          timeout 30 ./electron/native/bin/golive-videocap.exe --probe </dev/null || code=$?
+          echo "videocap --probe exit code: $code"
+          test "$code" = "0" -o "$code" = "3"
 
       - name: Commit the rebuilt helper
         shell: bash
@@ -89,16 +98,16 @@ jobs:
           set -e
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- electron/native/bin/golive-audiocap.exe electron/native/bin/golive-audiocap.exe.sha256
-          # A rebuild that produced an identical binary is the normal outcome
+          git add -- electron/native/bin/golive-audiocap.exe electron/native/bin/golive-audiocap.exe.sha256             electron/native/bin/golive-videocap.exe electron/native/bin/golive-videocap.exe.sha256
+          # A rebuild that produced identical binaries is the normal outcome
           # of touching build.mjs or this workflow, and has nothing to commit.
           if git diff --staged --quiet; then
-            echo "helper unchanged — nothing to commit"
+            echo "helpers unchanged — nothing to commit"
             exit 0
           fi
-          git commit -m "build: recompile golive-audiocap from $(git rev-parse --short HEAD) [skip ci]"
+          git commit -m "build: recompile the native helpers from $(git rev-parse --short HEAD) [skip ci]"
           # Rebase rather than force: an unrelated commit may have landed on
           # main while this was compiling, and this job's own change is
-          # confined to two files that nothing else writes.
+          # confined to files that nothing else writes.
           git pull --rebase origin main
           git push origin HEAD:main

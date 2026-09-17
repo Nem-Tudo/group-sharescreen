@@ -24,7 +24,8 @@ import { useAuth } from "./AuthContext";
 //
 // A check counts as an *exposure* the first time it resolves in a session
 // (pass { track: false } for a check that does not change what is shown).
-// Client events must be on the API's CLIENT_FEATURE_EVENTS list.
+// Client events must be one of the API's built-in names or listed in a live
+// feature's "site events" (admin panel) — the latter needs no API change.
 //
 // Administrators can force any feature on or off for themselves in the admin
 // panel's "Features" tab; that lives in this browser only (see
