@@ -75,6 +75,7 @@ import {
   MAX_PRIVATE_ROOM_NAME_LENGTH,
 } from "@/lib/roomsApi";
 import { rememberRecentRoom } from "@/lib/recentRoomsSync";
+import { openDirectMessages } from "@/lib/dmWindow";
 import type { CallDockPhase } from "@/lib/callSession";
 import { useRoomSoundEffects } from "@/lib/useRoomSoundEffects";
 import { useBackgroundKeepAlive } from "@/lib/useBackgroundKeepAlive";
@@ -3741,6 +3742,7 @@ export function WatchRoom({
     const targetIsOwner = peer.userId === state.roomOwnerId;
     const targetIsAdmin = state.roomAdmins.some((a) => a.id === peer.userId);
     const allowed = isRoomManager && !targetIsOwner && (!targetIsAdmin || isRoomOwner);
+    const volumeKey = peer.userId ?? peer.id;
     return {
       userId: peer.userId,
       name: peer.name,
@@ -3748,6 +3750,8 @@ export function WatchRoom({
       verified: hasVerifiedBadge(peer?.flags),
       bot: peer.bot,
       nameColor: peer.nameColor,
+      avatarUrl: peer.avatarUrl,
+      isOwner: targetIsOwner,
       canKick: allowed,
       canBan: allowed,
       // The owner alone, and never on themselves. Everything else the server
@@ -3756,13 +3760,22 @@ export function WatchRoom({
       // are facts this side would only be guessing at.
       canPromote: isRoomOwner && !targetIsOwner,
       isAdmin: targetIsAdmin,
-      blockedReason: allowed
+      // Explained only to whoever might otherwise expect the buttons — a
+      // regular participant never sees an admin section at all, so there is
+      // nothing for them to be told they can't do.
+      blockedReason: !isRoomManager || allowed
         ? null
         : targetIsOwner
           ? translate("watch.watchRoom.nobodyCanKickOrBanThe")
           : targetIsAdmin
             ? translate("watch.watchRoom.onlyTheRoomSOwnerCan")
             : translate("watch.watchRoom.onlyTheRoomSOwnerAnd2"),
+      onOpenProfile: () => setProfileUserId(peer.userId as string),
+      onSendMessage: account && peer.userId !== state.selfUserId ? () => openDirectMessages(peer.userId) : undefined,
+      volume: peerVolumes[volumeKey] ?? 1,
+      muted: micsMuted || mutedPeerIds.has(peer.id),
+      onVolumeChange: (v) => setPeerVolume(volumeKey, v),
+      onToggleMute: () => toggleParticipantMute(peer.id),
     };
   }
 
@@ -5669,20 +5682,17 @@ export function WatchRoom({
             userId={p.userId}
             avatarUrl={p.avatarUrl}
             micsMuted={p.micsMuted}
-            // Only where there is something to offer: for anyone else the
-            // browser's own context menu is more use than an empty one. Which
-            // of the two shells it gets is the screen's call — see
-            // openMemberActions.
-            onMenuOpenChange={
-              isRoomManager && p.userId && isDesktopLayout ? setParticipantMenuOpen : undefined
-            }
+            // Offered for anyone with an account — "Ver perfil"/"Enviar
+            // mensagem"/volume are everyday actions, not the room's business,
+            // and the admin buttons inside blend in or out per person on
+            // their own (see memberActionsFor's blockedReason). Which of the
+            // two shells it gets is the screen's call — see openMemberActions.
+            onMenuOpenChange={p.userId && isDesktopLayout ? setParticipantMenuOpen : undefined}
             menuOpen={memberMenuFor === p.id}
             // Drawn only for the row whose menu is open, so only that one
             // redraws with the room while it is.
             menuContent={memberMenuFor === p.id ? renderMemberMenu(p, closeParticipantMenu) : null}
-            onContextMenu={
-              isRoomManager && p.userId && !isDesktopLayout ? openParticipantActions : undefined
-            }
+            onContextMenu={p.userId && !isDesktopLayout ? openParticipantActions : undefined}
             isOwner={Boolean(p.userId) && p.userId === state.roomOwnerId}
             isAdmin={p.userId ? adminIds.has(p.userId) : false}
             isApp={p.app}
