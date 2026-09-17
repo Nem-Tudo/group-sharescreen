@@ -38,6 +38,7 @@ import { DEFAULT_AVATAR_PATH } from "@/components/UserAvatar";
 import { useAuth } from "@/lib/AuthContext";
 import { trackEvent } from "@/lib/analytics";
 import { getDesktopBridge } from "@/lib/desktop";
+import { BUILD_VERSION } from "@/lib/buildVersion";
 import { useIsAppShell } from "@/lib/mobileShell";
 import { setReopenLastScreenEnabled, useReopenLastScreen } from "@/lib/lastScreen";
 import { useBackHandler } from "@/lib/useBackHandler";
@@ -390,10 +391,18 @@ function ReopenLastScreenSetting() {
   );
 }
 
-/** Which build this is — the app's own version inside a shell, for a bug report. */
+/**
+ * Which build this is, for a bug report: the site's `<package>-<commit>`
+ * everywhere, plus the desktop shell's own version inside the app — the two
+ * move independently (the site deploys without a new installer).
+ */
 function AppVersion() {
   const shell = useIsAppShell();
-  const version = shell ? getDesktopBridge()?.appVersion ?? null : null;
-  if (!version) return null;
-  return <p className="text-center text-xs text-zinc-400 dark:text-zinc-600">GoLive {version}</p>;
+  const shellVersion = shell ? getDesktopBridge()?.appVersion ?? null : null;
+  return (
+    <p className="select-text text-center font-mono text-xs text-zinc-400 dark:text-zinc-600">
+      GoLive {BUILD_VERSION}
+      {shellVersion && <> · app {shellVersion}</>}
+    </p>
+  );
 }
