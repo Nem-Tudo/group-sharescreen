@@ -17,6 +17,7 @@ import {
   type CallSession,
 } from "@/lib/callSession";
 import { groupPath } from "@/lib/groupLinks";
+import { useGroupNavigation } from "@/lib/groupNavigation";
 import { playConnectSound } from "@/lib/soundEffects";
 import { useSignalingSelector } from "@/lib/useSignalingSelector";
 import { selectRoomRemoval, selectRoom } from "@/lib/signalingSelectors";
@@ -49,6 +50,7 @@ export function RoomCallHost() {
   const outlet = useCallOutlet();
   const chrome = useCallChrome();
   const router = useRouter();
+  const groupNavigation = useGroupNavigation();
   const dockRef = useRef<HTMLDivElement | null>(null);
   // Where the room puts its own call controls while it is docked — the real
   // ones, mic and camera and screen and the rest, not stand-ins (see
@@ -115,10 +117,19 @@ export function RoomCallHost() {
     // Otherwise, only when the page being looked at is the call's own, which is
     // about to have nothing left to show. From anywhere else, hanging up is not
     // a reason to move somebody off the page they are reading.
+    //
+    // A group's call is left for the group, and inside /groups that move is the
+    // shell's own (lib/groupNavigation), never a server navigation: every page
+    // there is reached with pushState, so this was the one real round trip left,
+    // and Next turns any trouble with it into a full page load — a deploy made
+    // since the page was opened (the desktop app stays open for days), a
+    // response that was not a clean 200. That was the "sometimes it reloads
+    // everything" of leaving a voice room.
     if (typeof window !== "undefined" && window.location.pathname === callPath) {
-      router.push(session.group ? groupPath(session.group.groupId) : "/");
+      if (session.group) groupNavigation.push(groupPath(session.group.groupId));
+      else router.push("/");
     }
-  }, [session, callPath, router]);
+  }, [session, callPath, router, groupNavigation]);
 
   return (
     <>
