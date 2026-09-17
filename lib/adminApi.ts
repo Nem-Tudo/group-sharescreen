@@ -1113,6 +1113,8 @@ export interface AdminFeature {
   serverOnly: boolean;
   /** Events the site may report while this feature is live. Absent on an older API. */
   clientEvents?: string[];
+  /** Events shown first in the stats, shared by every admin. Absent on an older API. */
+  pinnedEvents?: string[];
   enabled: boolean;
   archived: boolean;
   history: { at: number; rolloutBp: number; enabled: boolean; by: string }[];
@@ -1137,6 +1139,7 @@ export interface FeatureWrite {
   includeGuests?: boolean;
   serverOnly?: boolean;
   clientEvents?: string[];
+  pinnedEvents?: string[];
   enabled?: boolean;
   archived?: boolean;
   reshuffle?: boolean;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { MdAdd, MdClose, MdDelete, MdExpandLess, MdExpandMore, MdRefresh } from "react-icons/md";
+import { MdAdd, MdClose, MdDelete, MdExpandLess, MdExpandMore, MdRefresh, MdStar, MdStarBorder } from "react-icons/md";
 import {
   checkFeature,
   createFeature,
@@ -419,7 +419,7 @@ function FeatureEditor({
       {/* Keyed on the saved rollout so the input starts over from it after a save. */}
       {section === "rollout" && <RolloutSection key={feature.rolloutBp} feature={feature} busy={busy} save={save} onDeleted={onDeleted} />}
       {section === "targeting" && <TargetingSection feature={feature} busy={busy} save={save} />}
-      {section === "stats" && <StatsSection feature={feature} clientEvents={clientEvents} />}
+      {section === "stats" && <StatsSection feature={feature} clientEvents={clientEvents} onChange={onChange} />}
       {section === "tools" && <ToolsSection feature={feature} />}
 
       {(done || error) && (
@@ -833,8 +833,17 @@ function isMoney(event: string): boolean {
   return event.includes("purchase");
 }
 
-function StatsSection({ feature, clientEvents }: { feature: AdminFeature; clientEvents: string[] }) {
+function StatsSection({
+  feature,
+  clientEvents,
+  onChange,
+}: {
+  feature: AdminFeature;
+  clientEvents: string[];
+  onChange: (feature: AdminFeature) => void;
+}) {
   const t = useT();
+  const [pinning, setPinning] = useState(false);
   const [stats, setStats] = useState<FeatureStats | null>(null);
   const [days, setDays] = useState(14);
   const [dailyEvent, setDailyEvent] = useState<string>("");
@@ -859,7 +868,32 @@ function StatsSection({ feature, clientEvents }: { feature: AdminFeature; client
     return ordered.filter((name, index) => ordered.indexOf(name) === index);
   }, [stats, feature.variants]);
 
-  const events = stats ? Object.keys(stats.events) : [];
+  // Pinned events are what the experiment is about (purchases on the /pro
+  // page), so they come first — even before any traffic, as an empty table.
+  // Everything else still counts; it is just folded away below them.
+  const pinned = useMemo(() => feature.pinnedEvents ?? [], [feature.pinnedEvents]);
+  const others = stats ? Object.keys(stats.events).filter((event) => !pinned.includes(event)) : [];
+  const events = [...pinned, ...others];
+
+  const togglePin = (event: string) => {
+    if (pinning) return;
+    const next = pinned.includes(event) ? pinned.filter((name) => name !== event) : [...pinned, event];
+    setPinning(true);
+    void updateFeature(feature.key, { pinnedEvents: next })
+      .then(onChange)
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setPinning(false));
+  };
+  const eventTable = (event: string, data: FeatureStats) => (
+    <EventTable
+      key={event}
+      event={event}
+      groups={groups}
+      stats={data}
+      pinned={pinned.includes(event)}
+      onTogglePin={pinning ? undefined : () => togglePin(event)}
+    />
+  );
 
   return (
     <div className="flex flex-col gap-3">
@@ -937,10 +971,23 @@ function StatsSection({ feature, clientEvents }: { feature: AdminFeature; client
 
           {events.length === 0 ? (
             <p className={`${cardClass} text-xs text-zinc-500`}>{t("admin.features.noEvents")}</p>
+          ) : pinned.length === 0 ? (
+            <>
+              <p className="text-[11px] text-zinc-500">{t("admin.features.pinHint")}</p>
+              {others.map((event) => eventTable(event, stats))}
+            </>
           ) : (
-            events.map((event) => (
-              <EventTable key={event} event={event} groups={groups} stats={stats} />
-            ))
+            <>
+              {pinned.map((event) => eventTable(event, stats))}
+              {others.length > 0 && (
+                <details>
+                  <summary className="cursor-pointer text-xs font-semibold text-zinc-600 dark:text-zinc-400">
+                    {t("admin.features.otherEvents", { count: others.length })}
+                  </summary>
+                  <div className="mt-3 flex flex-col gap-3">{others.map((event) => eventTable(event, stats))}</div>
+                </details>
+              )}
+            </>
           )}
 
           <div className={`${cardClass} overflow-x-auto`}>
@@ -993,15 +1040,40 @@ function GroupName({ group }: { group: string }) {
   );
 }
 
-function EventTable({ event, groups, stats }: { event: string; groups: string[]; stats: FeatureStats }) {
+function EventTable({
+  event,
+  groups,
+  stats,
+  pinned,
+  onTogglePin,
+}: {
+  event: string;
+  groups: string[];
+  stats: FeatureStats;
+  pinned: boolean;
+  onTogglePin?: () => void;
+}) {
   const t = useT();
   const control = stats.groups.control?.uniqueExposures ?? 0;
   const controlHits = stats.events[event]?.control?.unique ?? 0;
   const controlRate = control ? controlHits / control : null;
 
   return (
-    <div className={`${cardClass} overflow-x-auto`}>
-      <h3 className="font-mono text-xs font-semibold text-zinc-700 dark:text-zinc-300">{event}</h3>
+    <div className={`${cardClass} overflow-x-auto ${pinned ? "ring-1 ring-amber-400/60" : ""}`}>
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={onTogglePin}
+          disabled={!onTogglePin}
+          aria-pressed={pinned}
+          title={t(pinned ? "admin.features.unpinEvent" : "admin.features.pinEvent")}
+          aria-label={t(pinned ? "admin.features.unpinEvent" : "admin.features.pinEvent")}
+          className="rounded p-0.5 text-amber-500 transition hover:bg-zinc-100 disabled:opacity-50 dark:hover:bg-zinc-800"
+        >
+          {pinned ? <MdStar className="h-4 w-4" /> : <MdStarBorder className="h-4 w-4 text-zinc-400" />}
+        </button>
+        <h3 className="font-mono text-xs font-semibold text-zinc-700 dark:text-zinc-300">{event}</h3>
+      </div>
       <table className="mt-2 w-full text-xs tabular-nums">
         <thead>
           <tr className="text-left text-zinc-500">
