@@ -164,6 +164,15 @@ export const ParticipantRow = memo(function ParticipantRow({
   // Navigation is still account-only: /user/[id] is addressed by account and a
   // guest id there is a 404, so a guest's name is a button or nothing at all.
   const canOpenPage = !isGuest && Boolean(userId);
+  // Where there is a menu, the name opens *that* rather than jumping straight
+  // to the profile — "Ver perfil" lives inside it, alongside sending a
+  // message, this listener's volume for them, and (for whoever runs the room)
+  // promoting, kicking or banning. One click, one place, same as a group's.
+  function openNameMenu() {
+    if (!peerId) return;
+    if (onMenuOpenChange) onMenuOpenChange(peerId, !menuOpen);
+    else onContextMenu?.(peerId);
+  }
   const nameElement = (
     <DisplayUserName
       name={name}
@@ -194,17 +203,15 @@ export const ParticipantRow = memo(function ParticipantRow({
         hasMenu
           ? (e) => {
               e.preventDefault();
-              if (!peerId) return;
-              if (onMenuOpenChange) onMenuOpenChange(peerId, !menuOpen);
-              else onContextMenu?.(peerId);
+              openNameMenu();
             }
           : undefined
       }
       // The whole row reacts when there is something behind it, rather than
-      // leaving a right click to be discovered. A pointer cursor and a hover
+      // leaving a click to be discovered. A pointer cursor and a hover
       // on the *container* — not just on the name — because the row is the
       // target: the actions are about the person, not about the word.
-      title={hasMenu ? t("common.rightClickToSeeTheActions") : undefined}
+      title={hasMenu ? t("common.clickToSeeTheActions") : undefined}
       className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm ${
         isSelf ? "bg-zinc-100 dark:bg-zinc-900" : "text-zinc-700 dark:text-zinc-300"
       } ${
@@ -226,7 +233,7 @@ export const ParticipantRow = memo(function ParticipantRow({
           // tinted, and a white outline on it would read as a hole.
           presenceSurface={isSelf ? "raised" : "page"}
         />
-        {canOpenDialog && onOpenProfile ? (
+        {hasMenu ? (
           // A button, not a styled link: this goes nowhere, and marking it up
           // as navigation would promise a middle-click and a "copy link
           // address" that do not exist. The link below is still the right
@@ -234,8 +241,17 @@ export const ParticipantRow = memo(function ParticipantRow({
           <button
             type="button"
             onClick={(e) => {
-              // The row itself may carry the moderation menu (see hasMenu) —
-              // opening a profile must not also open that.
+              e.stopPropagation();
+              openNameMenu();
+            }}
+            className="min-w-0 cursor-pointer text-left hover:underline"
+          >
+            {nameElement}
+          </button>
+        ) : canOpenDialog && onOpenProfile ? (
+          <button
+            type="button"
+            onClick={(e) => {
               e.stopPropagation();
               onOpenProfile(userId as string);
             }}
