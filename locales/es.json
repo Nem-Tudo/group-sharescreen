@@ -1201,6 +1201,8 @@
   "common.streamerMode": "Modo Streamer",
   "common.streamersOnline": "Streamers en línea",
   "common.suspended": "Suspendido",
+  "common.taxIdForThePayment": "CPF o CNPJ del pago",
+  "common.taxIdUsedOnlyForTheCharge": "Lo exige el proveedor para generar el Pix. No se guarda en tu cuenta.",
   "common.termsOfUse": "Términos de uso",
   "common.text": "Texto",
   "common.textRoom": "Sala de texto",

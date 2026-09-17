@@ -303,6 +303,13 @@ export function ProPanel({
   // step added to the common path for nothing.
   const [needsEmail, setNeedsEmail] = useState(false);
   const [email, setEmail] = useState("");
+  // The payer's CPF or CNPJ, on exactly the same terms as the address above
+  // and for the same reason: some Pix charges need one and most do not (it
+  // depends on the provider and on the seller's own account — see the API's
+  // pixFailure), so it appears when a charge has actually been refused for
+  // want of it, and never before.
+  const [needsTaxId, setNeedsTaxId] = useState(false);
+  const [taxId, setTaxId] = useState("");
   // The checkout that is open somewhere else right now, or null. Holding the
   // URL rather than a boolean is what lets the indicator offer to reopen it:
   // the window is easy to lose behind this one, and starting over would mint
@@ -611,11 +618,11 @@ export function ProPanel({
     return () => controller.abort();
   }, []);
 
-  // Re-reads the subscription from Mercado Pago (through the API) and pulls
+  // Re-reads the subscription from its provider (through the API) and pulls
   // the account down again, so `features` and the copy below reflect it.
   //
   // Throttled, because the caller below is a focus handler: /premium/status
-  // is not a cheap read — it makes the API ask Mercado Pago — and somebody
+  // is not a cheap read — it makes the API ask the provider — and somebody
   // alt-tabbing between this page and the checkout would otherwise send a
   // request per switch. Five seconds is far shorter than any payment takes
   // and long enough that a burst of focus events costs one call.
@@ -637,7 +644,7 @@ export function ProPanel({
   // Two moments need this, and the second one is what makes the checkout
   // opening in its own tab work at all.
   //
-  //   - on mount, because the browser may return to /premium before Mercado
+  //   - on mount, because the browser may return to /premium before the
   //     Pago's webhook has landed; the page then corrects itself in a second
   //     instead of insisting the person is not subscribed.
   //   - when this tab is looked at again. The payment now happens somewhere
@@ -688,7 +695,7 @@ export function ProPanel({
     // The tab is opened *now*, empty, while the click is still the reason
     // anything is happening. Opening it after the await instead would put it
     // outside the user gesture, which is exactly what a popup blocker exists
-    // to stop — the request takes a round trip to Mercado Pago, so that window
+    // to stop — the request takes a round trip to the provider, so that window
     // is wide. Decided before the await for the same reason: on the platforms
     // above there must be no placeholder tab at all, and asking afterwards
     // would already have opened one.
@@ -786,10 +793,16 @@ export function ProPanel({
     setBusy(true);
     setGenerating(true);
     setError(null);
-    const result = await startPixPayment(email.trim() || undefined, plan?.id, cycle);
+    const result = await startPixPayment(
+      email.trim() || undefined,
+      plan?.id,
+      cycle,
+      taxId.trim() || undefined
+    );
     if (!result.ok) {
       setError(result.error);
       if (result.needsEmail) setNeedsEmail(true);
+      if (result.needsTaxId) setNeedsTaxId(true);
       setBusy(false);
       setGenerating(false);
       return;
@@ -801,7 +814,7 @@ export function ProPanel({
     setBusy(false);
     setGenerating(false);
     // See handleSubscribe: plan?.id is what this buys.
-  }, [email, plan?.id, cycle, premium?.currentPeriodEnd]);
+  }, [email, taxId, plan?.id, cycle, premium?.currentPeriodEnd]);
 
   // Pix is paid in a banking app, which tells this page nothing. Polling is
   // the only way it learns — the focus listener above does not fire, because
@@ -844,10 +857,15 @@ export function ProPanel({
     setBusy(true);
     setGenerating(true);
     setError(null);
-    const result = await startUpgradePix(plan.id, email.trim() || undefined);
+    const result = await startUpgradePix(
+      plan.id,
+      email.trim() || undefined,
+      taxId.trim() || undefined
+    );
     if (!result.ok) {
       setError(result.error);
       if (result.needsEmail) setNeedsEmail(true);
+      if (result.needsTaxId) setNeedsTaxId(true);
       setBusy(false);
       setGenerating(false);
       return;
@@ -855,11 +873,11 @@ export function ProPanel({
     setUpgradePix(result.charge);
     setBusy(false);
     setGenerating(false);
-  }, [email, plan]);
+  }, [email, taxId, plan]);
 
   // Schedules the mandate that takes over billing, at the new plan's full
   // price, the moment the current cycle runs out — see startUpgradeSchedule.
-  // Opens Mercado Pago's checkout the same way handleSubscribe does: a blank
+  // Opens the provider's checkout the same way handleSubscribe does: a blank
   // tab first, while the click is still a user gesture, so a popup blocker
   // has nothing to object to once the request comes back.
   const handleScheduleUpgrade = useCallback(async () => {
@@ -1336,6 +1354,26 @@ export function ProPanel({
                       </span>
                     </label>
                   )}
+                  {/* Shown on the same terms as the address above: only once a
+                      charge has been refused for want of it. `inputMode` and
+                      not `type="number"`, because a CPF is a string of digits
+                      that people type with dots and dashes, not a quantity. */}
+                  {needsTaxId && (
+                    <label className="flex flex-col gap-1 text-sm text-zinc-700 dark:text-zinc-300">
+                      <span>{t("common.taxIdForThePayment")}</span>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={taxId}
+                        onChange={(e) => setTaxId(e.target.value)}
+                        placeholder="000.000.000-00"
+                        className="w-full max-w-sm rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                      />
+                      <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                        {t("common.taxIdUsedOnlyForTheCharge")}
+                      </span>
+                    </label>
+                  )}
                   {/* Offered only to somebody already paying for a lower
                       plan: it swaps them onto this one for just the top-up
                       the remaining days are worth, instead of a fresh
@@ -1426,7 +1464,7 @@ export function ProPanel({
                                 type="button"
                                 onClick={handleUpgradeSubscription}
                                 disabled={
-                                  busy || scheduling || !upgradeQuote || (needsEmail && !email.trim())
+                                  busy || scheduling || !upgradeQuote || (needsEmail && !email.trim()) || (needsTaxId && !taxId.trim())
                                 }
                                 className="rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
                               >
@@ -1440,7 +1478,7 @@ export function ProPanel({
                             <button
                               type="button"
                               onClick={handleUpgrade}
-                              disabled={busy || !upgradeQuote || (needsEmail && !email.trim())}
+                              disabled={busy || !upgradeQuote || (needsEmail && !email.trim()) || (needsTaxId && !taxId.trim())}
                               className="flex items-center gap-2 rounded-lg bg-[#32BCAD] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#2ba99b] disabled:opacity-60"
                             >
                               <PixIcon className="h-4 w-4 shrink-0" />
@@ -1463,7 +1501,7 @@ export function ProPanel({
 
                       Hidden while a checkout is open rather than disabled:
                       pressing "assinar" again would create a *second*
-                      preapproval at Mercado Pago for a subscription already
+                      second mandate at the provider for a subscription already
                       waiting to be paid, and "reabrir janela" above is what
                       somebody who lost the window actually wants. */}
                   {!checkoutUrl && !pixPending && (
@@ -1478,7 +1516,7 @@ export function ProPanel({
                       <button
                         type="button"
                         onClick={handleSubscribe}
-                        disabled={busy || (needsEmail && !email.trim())}
+                        disabled={busy || (needsEmail && !email.trim()) || (needsTaxId && !taxId.trim())}
                         className="rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
                       >
                         {busy
@@ -1496,7 +1534,7 @@ export function ProPanel({
                       <button
                         type="button"
                         onClick={handlePix}
-                        disabled={busy || (needsEmail && !email.trim())}
+                        disabled={busy || (needsEmail && !email.trim()) || (needsTaxId && !taxId.trim())}
                         className="flex items-center gap-2 rounded-lg bg-[#32BCAD] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#2ba99b] disabled:opacity-60"
                       >
                         <PixIcon className="h-4 w-4 shrink-0" />

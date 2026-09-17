@@ -238,6 +238,13 @@ export function GiftPlanDialog({
   // Discord or Google already has an address on file. Same rule as /pro.
   const [needsEmail, setNeedsEmail] = useState(false);
   const [email, setEmail] = useState("");
+  // The buyer's CPF or CNPJ, asked for on the same terms as the address above:
+  // only once a charge has actually been refused for want of it. See the API's
+  // pixFailure — whether a Pix charge needs a document depends on the provider
+  // and on the seller's account, so it is not a field to put in front of
+  // everybody.
+  const [needsTaxId, setNeedsTaxId] = useState(false);
+  const [taxId, setTaxId] = useState("");
   const [charge, setCharge] = useState<GiftCharge | null>(null);
   // The money landed. Not "delivered": a link is paid long before anybody
   // redeems it, and the buyer's screen is finished at the payment either way.
@@ -260,7 +267,7 @@ export function GiftPlanDialog({
 
   // While a charge is being created the popup cannot be closed — not by
   // Escape, not by the backdrop, not by the ×. The request is creating a
-  // charge at Mercado Pago, and closing now would throw away the only screen
+  // charge at the payment provider, and closing now would throw away the only screen
   // that could show its code. `requireAction` is the library's own lock: with
   // it on, only closePopup(true) gets through, and nothing here calls that
   // while busy. Only touched once it has been set, so an idle popup is never
@@ -336,14 +343,17 @@ export function GiftPlanDialog({
       planId: plan.id,
       cycle,
       email: needsEmail ? email.trim() : undefined,
+      taxId: needsTaxId ? taxId.trim() : undefined,
     });
     if (outcome.ok) {
       setSettled(false);
       setCharge(outcome.charge);
       setNeedsEmail(false);
+      setNeedsTaxId(false);
     } else {
       setError(outcome.error);
       if (outcome.needsEmail) setNeedsEmail(true);
+      if (outcome.needsTaxId) setNeedsTaxId(true);
     }
     setBusy(false);
   }
@@ -646,6 +656,23 @@ export function GiftPlanDialog({
                     </span>
                   </label>
                 )}
+
+                {needsTaxId && (
+                  <label className="flex flex-col gap-1 text-sm text-zinc-700 dark:text-zinc-300">
+                    <span>{t("common.taxIdForThePayment")}</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={taxId}
+                      onChange={(e) => setTaxId(e.target.value)}
+                      placeholder="000.000.000-00"
+                      className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm text-zinc-950 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                    />
+                    <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                      {t("common.taxIdUsedOnlyForTheCharge")}
+                    </span>
+                  </label>
+                )}
               </section>
             )}
 
@@ -669,7 +696,12 @@ export function GiftPlanDialog({
                   <button
                     type="button"
                     onClick={() => void pay()}
-                    disabled={busy || !plan.available || (needsEmail && !email.trim())}
+                    disabled={
+                      busy ||
+                      !plan.available ||
+                      (needsEmail && !email.trim()) ||
+                      (needsTaxId && !taxId.trim())
+                    }
                     className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#32BCAD] px-4 py-3 text-sm font-semibold text-white shadow-sm shadow-[#32BCAD]/30 transition hover:bg-[#2ba99b] disabled:opacity-60"
                   >
                     <PixIcon className="h-4 w-4 shrink-0" />

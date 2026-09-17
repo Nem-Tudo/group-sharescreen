@@ -107,7 +107,7 @@ type PixChargeModalProps = {
   /**
    * A new charge is being created right now. The dialog shakes and refuses
    * to close until the API answers — closing mid-request would leave a charge
-   * created at Mercado Pago with no screen left to show its code on.
+   * created at the payment provider with no screen left to show its code on.
    */
   busy?: boolean;
   /** Asks for a fresh code, after this one expires. */
@@ -365,6 +365,13 @@ function PendingScreen({
     return () => clearInterval(timer);
   }, [hasExpiry]);
 
+  // The QR, from whichever of the two shapes the provider gave (see the
+  // rendering below). The base64 first, because when it is there it is already
+  // on the page and needs no second request.
+  const qrImageSrc = charge.qrCodeBase64
+    ? `data:image/png;base64,${charge.qrCodeBase64}`
+    : charge.qrCodeImageUrl || null;
+
   const handleCopy = useCallback(async () => {
     if (!charge.qrCode) return;
     try {
@@ -428,14 +435,19 @@ function PendingScreen({
             </span>
           </div>
 
-          {charge.qrCodeBase64 && (
+          {/* One image from two providers. Mercado Pago hands over the PNG
+              itself and Stripe hosts it, so exactly one of these is ever set
+              (see PixCharge) and the code renders the same either way — the
+              person paying has no business knowing which till they landed
+              on. */}
+          {qrImageSrc && (
             <div className="flex flex-col items-center gap-2">
               {/* White behind the QR in both themes: a scanner needs the
                   contrast the code was drawn with, and inverting it is how a
                   code stops reading. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={`data:image/png;base64,${charge.qrCodeBase64}`}
+                src={qrImageSrc}
                 alt={t("pixChargeModal.pixQrCode")}
                 className="h-52 w-52 rounded-xl border border-zinc-200 bg-white p-2 dark:border-zinc-800"
               />

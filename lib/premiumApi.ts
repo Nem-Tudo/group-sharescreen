@@ -5,12 +5,18 @@ import type { PremiumState } from "./accountApi";
 import { getSignalingHttpBase } from "./roomsApi";
 import { translate } from "@/lib/i18n";
 
-// The subscription's client half. Four calls, and none of them decides
-// anything: the price comes from the API, the checkout happens at Mercado
-// Pago, and what an account is entitled to is computed server-side and
-// arrives on the account itself (see Account.features). This file moves
-// values around and nothing more — which is the property that makes the
-// paywall worth having.
+// The subscription's client half. None of these calls decides anything: the
+// price comes from the API, the checkout happens at the payment provider, and
+// what an account is entitled to is computed server-side and arrives on the
+// account itself (see Account.features). This file moves values around and
+// nothing more — which is the property that makes the paywall worth having.
+//
+// Note what is deliberately absent: which provider. GoLive takes money through
+// both Mercado Pago and Stripe (a rollout decides which, per account — see the
+// API's paymentGateway.ts), and this file cannot tell them apart, because a
+// client that could name its own till would be a client that could pick the
+// one with the weakest checks. The only trace of it here is `qrCodeImageUrl`,
+// which exists because the two hand over a QR code differently.
 
 export type BillingCycle = "monthly" | "yearly";
 
@@ -139,7 +145,7 @@ export type StartCheckoutResult =
   | { ok: true; checkoutUrl: string }
   /**
    * `needsEmail` means the API wants a billing address before it can build
-   * the checkout — either the account has none on file, or Mercado Pago
+   * the checkout — either the account has none on file, or the provider
    * rejected the one it was given. The page turns it into an input rather
    * than an error somebody can only stare at.
    */
@@ -149,7 +155,7 @@ export type StartCheckoutResult =
  * Starts a subscription and returns where to send the person.
  *
  * `email` is sent only when the API has asked for one, and is purely the
- * address Mercado Pago bills. Note what is *not* sent: the price and the
+ * address the provider bills. Note what is *not* sent: the price and the
  * plan. Both are read from the database by the API and the buyer is read
  * from the token, so there is no parameter here that could change what
  * somebody is charged — which is why a modified client cannot buy premium
@@ -199,6 +205,15 @@ export type PixCharge = {
   qrCode: string | null;
   /** The same code as a PNG, base64, for rendering inline. */
   qrCodeBase64: string | null;
+  /**
+   * The same code as a hosted image, when the provider hands over a link
+   * instead of the bytes.
+   *
+   * Exactly one of this and `qrCodeBase64` is ever filled in, so the modal
+   * renders whichever it was given (see PixChargeModal) rather than caring
+   * which provider produced it.
+   */
+  qrCodeImageUrl?: string | null;
   /** ISO-8601; after this the code no longer works. */
   expiresAt: string | null;
   amountLabel: string;
@@ -206,17 +221,31 @@ export type PixCharge = {
   days: number;
 };
 
+/**
+ * What a refused charge still lets the buyer do about it.
+ *
+ * `needsEmail` — the API wants a billing address before it can build the
+ * charge, either because the account has none on file or because the provider
+ * rejected the one it was given.
+ * `needsTaxId` — the provider wants the payer's CPF or CNPJ. Asked for only
+ * when it happens, never up front: most Pix charges never need one, and a
+ * document field on a payment form is a form people abandon.
+ *
+ * Both turn an error somebody can only stare at into an input.
+ */
+export type PaymentPrompt = { needsEmail?: boolean; needsTaxId?: boolean };
+
 export type StartPixResult =
   | { ok: true; charge: PixCharge }
-  | { ok: false; error: string; needsEmail?: boolean };
+  | ({ ok: false; error: string } & PaymentPrompt);
 
 /**
  * Creates a Pix charge and returns the code to pay it with.
  *
  * Unlike the card path this buys a *fixed stretch of time* rather than
  * starting a recurring charge — Pix has no standing mandate, so there is
- * nothing to renew and nothing to cancel. Nothing is granted until Mercado
- * Pago confirms the money arrived; the QR is an invitation to pay. *
+ * nothing to renew and nothing to cancel. Nothing is granted until the
+ * provider confirms the money arrived; the QR is an invitation to pay. *
  * `planId` names which plan to buy and defaults to the one the site has always
  * sold, so every existing caller is unchanged. It is only a *selector*: the
  * price still comes from the plan document on the server, and an id the server
@@ -226,7 +255,8 @@ export type StartPixResult =
 export async function startPixPayment(
   email?: string,
   planId?: string,
-  cycle?: BillingCycle
+  cycle?: BillingCycle,
+  taxId?: string
 ): Promise<StartPixResult> {
   try {
     const res = await fetch(`${getSignalingHttpBase()}/premium/pix`, {
@@ -236,17 +266,20 @@ export async function startPixPayment(
         ...(email ? { email } : {}),
         ...(planId ? { planId } : {}),
         ...(cycle ? { cycle } : {}),
+        ...(taxId ? { taxId } : {}),
       }),
     });
     const data = (await res.json().catch(() => ({}))) as Partial<PixCharge> & {
       error?: string;
       needsEmail?: boolean;
+      needsTaxId?: boolean;
     };
     if (!res.ok || !data.paymentId) {
       return {
         ok: false,
         error: data.error ?? translate("premiumApi.couldNotGenerateThePix"),
         needsEmail: data.needsEmail,
+        needsTaxId: data.needsTaxId,
       };
     }
     return { ok: true, charge: data as PixCharge };
@@ -278,7 +311,7 @@ export type GiftStatus = "pending" | "paid" | "delivered";
 
 export type StartGiftResult =
   | { ok: true; charge: GiftCharge }
-  | { ok: false; error: string; needsEmail?: boolean };
+  | ({ ok: false; error: string } & PaymentPrompt);
 
 /**
  * Buys a plan for somebody else, and returns the Pix code to pay it with.
@@ -302,6 +335,8 @@ export async function startGiftPix(options: {
   planId: string;
   cycle: BillingCycle;
   email?: string;
+  /** The buyer's CPF or CNPJ, when the provider has asked for one. */
+  taxId?: string;
 }): Promise<StartGiftResult> {
   try {
     const res = await fetch(`${getSignalingHttpBase()}/premium/gift/pix`, {
@@ -312,17 +347,20 @@ export async function startGiftPix(options: {
         planId: options.planId,
         cycle: options.cycle,
         ...(options.email ? { email: options.email } : {}),
+        ...(options.taxId ? { taxId: options.taxId } : {}),
       }),
     });
     const data = (await res.json().catch(() => ({}))) as Partial<GiftCharge> & {
       error?: string;
       needsEmail?: boolean;
+      needsTaxId?: boolean;
     };
     if (!res.ok || !data.paymentId || !data.giftId) {
       return {
         ok: false,
         error: data.error ?? translate("premiumApi.couldNotGenerateTheGiftS"),
         needsEmail: data.needsEmail,
+        needsTaxId: data.needsTaxId,
       };
     }
     return { ok: true, charge: data as GiftCharge };
@@ -523,7 +561,7 @@ export async function fetchUpgradeQuote(planId: string): Promise<UpgradeQuote | 
 
 export type StartUpgradeResult =
   | { ok: true; charge: PixCharge & { remainingDays: number } }
-  | { ok: false; error: string; needsEmail?: boolean };
+  | ({ ok: false; error: string } & PaymentPrompt);
 
 /**
  * Charges the prorated top-up for moving to a higher plan mid-cycle, and
@@ -534,23 +572,29 @@ export type StartUpgradeResult =
  * days: the point of a top-up over a fresh purchase is paying for exactly the
  * upgrade, not for another cycle.
  */
-export async function startUpgradePix(planId: string, email?: string): Promise<StartUpgradeResult> {
+export async function startUpgradePix(
+  planId: string,
+  email?: string,
+  taxId?: string
+): Promise<StartUpgradeResult> {
   try {
     const res = await fetch(`${getSignalingHttpBase()}/premium/upgrade/pix`, {
       method: "POST",
       headers: { ...authHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ planId, ...(email ? { email } : {}) }),
+      body: JSON.stringify({ planId, ...(email ? { email } : {}), ...(taxId ? { taxId } : {}) }),
     });
     const data = (await res.json().catch(() => ({}))) as Partial<PixCharge> & {
       remainingDays?: number;
       error?: string;
       needsEmail?: boolean;
+      needsTaxId?: boolean;
     };
     if (!res.ok || !data.paymentId) {
       return {
         ok: false,
         error: data.error ?? translate("premiumApi.couldNotGenerateThePix"),
         needsEmail: data.needsEmail,
+        needsTaxId: data.needsTaxId,
       };
     }
     return { ok: true, charge: { ...(data as PixCharge), remainingDays: data.remainingDays ?? 0 } };
@@ -566,9 +610,9 @@ export async function startUpgradePix(planId: string, email?: string): Promise<S
  * once the days the top-up bought them are spent.
  *
  * Card subscribers only: a Pix plan has no mandate to hand off to. Approving
- * the checkout this returns changes nothing about the account yet — Mercado
- * Pago charges nothing until the scheduled date, and it only actually takes
- * over once it produces its first real charge then.
+ * the checkout this returns changes nothing about the account yet — the
+ * provider charges nothing until the scheduled date, and it only actually
+ * takes over once it produces its first real charge then.
  */
 export async function startUpgradeSchedule(
   planId: string,
@@ -599,10 +643,10 @@ export async function startUpgradeSchedule(
 }
 
 /**
- * This account's subscription, re-read from Mercado Pago by the API.
+ * This account's subscription, re-read from its provider by the API.
  *
  * Worth calling when the page loads after a checkout: the webhook that
- * confirms a payment and the browser coming back from Mercado Pago are two
+ * confirms a payment and the browser coming back from the checkout are two
  * independent races, and this is the one the person can see.
  */
 export async function fetchPremiumStatus(): Promise<{
