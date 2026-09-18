@@ -62,13 +62,6 @@ export function RecordingModal({
   const trimmed = start > 0.05 || end < total - 0.05;
 
   useEffect(() => () => abortRef.current?.abort(), []);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
 
   // The preview plays only the chosen stretch, looping back to its start.
   const onTimeUpdate = () => {
@@ -160,7 +153,8 @@ export function RecordingModal({
   return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
-      onClick={onClose}
+      // Only the ✕ closes it: a stray click outside or an Esc would throw away
+      // a recording that exists nowhere else.
       // Portalled, but React still bubbles events up the tile that opened it —
       // whose double click means "focar".
       onDoubleClick={(e) => e.stopPropagation()}
