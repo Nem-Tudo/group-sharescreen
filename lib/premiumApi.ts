@@ -668,15 +668,72 @@ export async function fetchPremiumStatus(): Promise<{
  * Cancels the recurring charge. Access continues until the end of the period
  * already paid for — the API keeps `currentPeriodEnd` for exactly that.
  */
-export async function cancelPremium(): Promise<{ ok: boolean; error?: string }> {
+/** The fixed answers to "por que está cancelando?", in the order they show. */
+export const CANCEL_REASONS = [
+  "too_expensive",
+  "not_using",
+  "missing_features",
+  "technical_issues",
+  "temporary",
+  "found_alternative",
+  "other",
+] as const;
+
+export type CancelReason = (typeof CANCEL_REASONS)[number];
+
+/** The fixed answers to "com que frequência você usava?". */
+export const CANCEL_USAGE = ["daily", "weekly", "monthly", "rarely", "never"] as const;
+
+export type CancelUsage = (typeof CANCEL_USAGE)[number];
+
+/**
+ * How long a free-text answer has to be. Kept in step with the API's
+ * MIN_TEXT_ANSWER by hand — it is one number, and the API refuses anything
+ * shorter, so a disagreement shows up as a dialog that lets somebody press a
+ * button the server then rejects.
+ */
+export const MIN_CANCEL_ANSWER = 10;
+
+/**
+ * Why somebody is leaving. Every field is required — see the API's
+ * /premium/cancel, which refuses to cancel anything without them.
+ */
+export type CancelSurvey = {
+  reason: CancelReason;
+  /** Their own words, required only when the reason is "other". */
+  reasonOther?: string;
+  improvement: string;
+  comeback: string;
+  usage: CancelUsage;
+};
+
+/**
+ * Ends the recurring charge, and files the survey that goes with it.
+ *
+ * The survey is not optional and this signature is where that starts: there is
+ * no way to call this without answers, which is what stops a future caller
+ * from quietly adding a second, frictionless cancel button.
+ *
+ * `missing` comes back naming the unanswered fields rather than a sentence, so
+ * the dialog can send somebody back to the right step — matching on a
+ * translated message is how that breaks the first time somebody rewords one.
+ */
+export async function cancelPremium(
+  survey: CancelSurvey
+): Promise<{ ok: boolean; error?: string; missing?: string[] }> {
   try {
     const res = await fetch(`${getSignalingHttpBase()}/premium/cancel`, {
       method: "POST",
-      headers: authHeaders(),
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify(survey),
     });
     if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? translate("common.couldNotCancelRightNow") };
+      const data = (await res.json().catch(() => ({}))) as { error?: string; missing?: string[] };
+      return {
+        ok: false,
+        error: data.error ?? translate("common.couldNotCancelRightNow"),
+        missing: data.missing,
+      };
     }
     return { ok: true };
   } catch {

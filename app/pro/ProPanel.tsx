@@ -22,6 +22,7 @@ import { EARLY_SUPPORTER_CUTOFF_MS } from "@/lib/badges";
 import type { BillingCycle } from "@/lib/premiumApi";
 import { useAuth } from "@/lib/AuthContext";
 import { AccountModal, type AccountModalMode } from "@/components/AccountModal";
+import { CancelSurveyDialog } from "@/components/CancelSurveyDialog";
 import { PixChargeModal } from "@/components/PixChargeModal";
 import useNtPopups from "ntpopups";
 import { isIosDevice, isStandaloneDisplay } from "@/lib/browserEnv";
@@ -30,6 +31,7 @@ import { accountTierOf, planTierOf, tierAbove, tierAtLeast, type Feature } from 
 import { PUBLISHED_THEME_LIMITS } from "@/lib/roomThemes";
 import {
   cancelPremium,
+  type CancelSurvey,
   fetchPremiumPlans,
   fetchPremiumStatus,
   fetchUpgradeQuote,
@@ -941,14 +943,31 @@ export function ProPanel({
     });
   }, [generating, pix, upgradePix, onCheckoutLockChange]);
 
-  const handleCancel = useCallback(async () => {
-    setBusy(true);
-    setError(null);
-    const result = await cancelPremium();
-    if (!result.ok) setError(result.error ?? t("common.couldNotCancelRightNow"));
-    await refresh();
-    setBusy(false);
-  }, [refresh, t]);
+  // Cancelling is a dialog now, not a button: four questions, all required,
+  // and then the confirmation — see CancelSurveyDialog for why the friction is
+  // deliberate and why it is not a retention wall.
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+
+  const handleCancel = useCallback(
+    async (survey: CancelSurvey) => {
+      setBusy(true);
+      setCancelError(null);
+      const result = await cancelPremium(survey);
+      if (!result.ok) {
+        // Kept inside the dialog rather than raised to the page behind it: the
+        // person is looking at the dialog, and an error that appears somewhere
+        // they cannot see reads as a button that did nothing.
+        setCancelError(result.error ?? t("common.couldNotCancelRightNow"));
+        setBusy(false);
+        return;
+      }
+      setCancelOpen(false);
+      await refresh();
+      setBusy(false);
+    },
+    [refresh, t]
+  );
 
 
 
@@ -1262,7 +1281,10 @@ export function ProPanel({
                   </p>
                   <button
                     type="button"
-                    onClick={handleCancel}
+                    onClick={() => {
+                      setCancelError(null);
+                      setCancelOpen(true);
+                    }}
                     disabled={busy}
                     className="self-start rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
                   >
@@ -1604,6 +1626,17 @@ export function ProPanel({
           be created from either branch above — a first purchase and a renewal
           — and a dialog rendered inside one of them would be a dialog the
           other could not open. */}
+      <CancelSurveyDialog
+        open={cancelOpen}
+        accessUntilLabel={periodEndLabel(premium?.currentPeriodEnd ?? 0)}
+        planTitle={plan?.title ?? ""}
+        busy={busy}
+        error={cancelError}
+        onCancelSubscription={handleCancel}
+        onClose={() => {
+          if (!busy) setCancelOpen(false);
+        }}
+      />
       <PixChargeModal
         charge={pix}
         paid={pixPaid}

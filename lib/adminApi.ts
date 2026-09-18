@@ -964,6 +964,39 @@ export async function createAdminGift(planId: string, days: number): Promise<Adm
   });
 }
 
+// ─── Cancelamentos ────────────────────────────────────────────────────────
+
+/** One person's answers on the way out. See the API's premiumCancelModels. */
+export interface AdminCancellation {
+  id: string;
+  accountId: string;
+  username: string;
+  planId: string;
+  planTitle: string;
+  cycle: string | null;
+  provider: string;
+  /** How long they had been paying, in ms. Null when unknowable. */
+  subscribedForMs: number | null;
+  reason: string;
+  reasonOther: string | null;
+  improvement: string;
+  comeback: string;
+  usage: string;
+  createdAt: number;
+}
+
+/**
+ * The cancellation surveys, newest first, with the tally of reasons.
+ *
+ * The tally is counted by the API over the same rows rather than here, so the
+ * summary and the list can never disagree about what was said.
+ */
+export async function fetchCancellations(
+  limit = 100
+): Promise<{ cancellations: AdminCancellation[]; reasons: Record<string, number> }> {
+  return adminFetch(`/admin/premium/cancellations?limit=${limit}`);
+}
+
 // ─── Registro de ações ────────────────────────────────────────────────────
 
 export interface AdminLogEntry {

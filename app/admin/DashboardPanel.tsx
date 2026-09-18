@@ -9,6 +9,7 @@ import { PartnerAdsPanel } from "./PartnerAdsPanel";
 import { AdsterraPanel } from "./AdsterraPanel";
 import { GrantPremiumPanel } from "./GrantPremiumPanel";
 import { GiftPanel } from "./GiftPanel";
+import { CancellationsPanel } from "./CancellationsPanel";
 import { AccountFlagsPanel } from "./AccountFlagsPanel";
 import { BadgesAdminPanel } from "./BadgesAdminPanel";
 import { AccountPointsPanel } from "./AccountPointsPanel";
@@ -92,6 +93,10 @@ export const ADMIN_SECTIONS: AdminSection[] = [
         {/* Directly under it: the same decision — which plan, how long —
             asked when there is nobody to aim it at yet. */}
         <GiftPanel />
+        {/* Still about paying accounts, and the one panel here that is read
+            rather than used: what the people who stopped paying said on their
+            way out. */}
+        <CancellationsPanel />
         <AccountFlagsPanel />
         {/* Next to the flags: most badges are given by one. */}
         <BadgesAdminPanel />
