@@ -43,7 +43,8 @@ export type Feature =
   | "room_theme_set"
   | "room_theme_gradient"
   | "force_relay"
-  | "uncapped_relay";
+  | "uncapped_relay"
+  | "clip_no_watermark";
 
 export type FeatureTier = "free" | "account" | "premium" | "premium_max" | "pro_ultra";
 
@@ -69,6 +70,7 @@ export const FEATURE_TIERS: Record<Feature, FeatureTier> = {
   room_theme_gradient: "premium_max",
   force_relay: "pro_ultra",
   uncapped_relay: "pro_ultra",
+  clip_no_watermark: "premium_max",
 };
 
 /**

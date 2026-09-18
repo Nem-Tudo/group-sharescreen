@@ -101,6 +101,7 @@ const FEATURE_LABELS: Partial<Record<Feature, string>> = {
   get uncapped_relay() { return translate("pro.proPanel.noQualityLimitOnRelayedConnections"); },
   get force_relay() { return translate("pro.proPanel.hideYourIpFromEveryoneInA"); },
   get room_theme_gradient() { return translate("pro.proPanel.useAGradientInYourThemes"); },
+  get clip_no_watermark() { return translate("pro.proPanel.clipWithoutWatermark"); },
 };
 
 // The perks about the broadcast itself — what GoLive is for — which the

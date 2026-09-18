@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { DownloadIcon } from "@/components/icons";
-import { downloadClip, trimRecording } from "@/lib/clipBuffer";
+import { CLIP_WATERMARK, downloadClip, trimRecording } from "@/lib/clipBuffer";
+import { useAuth } from "@/lib/AuthContext";
+import { hasFeature } from "@/lib/entitlements";
 import { TILE_EXPERIMENT_EVENTS, trackTileExperiment } from "@/lib/clipsMode";
 import { useT } from "@/lib/useI18n";
 
@@ -43,6 +45,10 @@ export function RecordingModal({
 }) {
   const t = useT();
   const title = kind === "clip" ? t("recording.clipTitle") : t("recording.title");
+  // Clips from accounts below Pro Max carry the mark; recordings never do.
+  const { account } = useAuth();
+  const watermark =
+    kind === "clip" && !hasFeature("clip_no_watermark", account?.features ?? []) ? CLIP_WATERMARK : null;
   const url = useMemo(() => URL.createObjectURL(blob), [blob]);
   useEffect(() => () => URL.revokeObjectURL(url), [url]);
 
@@ -126,7 +132,7 @@ export function RecordingModal({
 
   const events = TILE_EXPERIMENT_EVENTS[kind === "clip" ? "clips" : "recording"];
   const download = async () => {
-    if (!trimmed) {
+    if (!trimmed && !watermark) {
       downloadClip(blob, name);
       trackTileExperiment(events.download, total);
       return;
@@ -136,14 +142,14 @@ export function RecordingModal({
     abortRef.current = controller;
     setCutFailed(false);
     setCutting(0);
-    const result = await trimRecording(blob, start, end, setCutting, controller.signal);
+    const result = await trimRecording(blob, start, end, setCutting, controller.signal, { watermark });
     abortRef.current = null;
     setCutting(null);
     if (controller.signal.aborted) return;
     if (result) {
       downloadClip(result, name);
       trackTileExperiment(events.download, end - start);
-      trackTileExperiment(events.trim);
+      if (trimmed) trackTileExperiment(events.trim);
     } else setCutFailed(true);
   };
   const cancelCut = () => abortRef.current?.abort();
@@ -179,6 +185,7 @@ export function RecordingModal({
             ✕
           </button>
         </div>
+        <div className="relative">
         <video
           ref={videoRef}
           src={url}
@@ -188,6 +195,17 @@ export function RecordingModal({
           onLoadedMetadata={onLoadedMetadata}
           className="max-h-[55vh] w-full rounded-lg bg-black"
         />
+        {/* What the download will carry, shown where it will be. Lifted above
+            the native controls bar. */}
+        {watermark && (
+          <span className="pointer-events-none absolute bottom-12 right-2 rounded-full bg-black/45 px-2 py-0.5 text-[10px] font-semibold text-white/90">
+            {watermark}
+          </span>
+        )}
+        </div>
+        {watermark && (
+          <p className="-mt-1 text-xs text-zinc-500">{t("recording.watermarkHint")}</p>
+        )}
 
         {/* The cut: drag either handle; the stretch between them is what gets
             previewed and downloaded. */}
@@ -253,7 +271,7 @@ export function RecordingModal({
           <span>
             {t("recording.duration")}:{" "}
             <strong className="text-zinc-900 dark:text-zinc-100">{formatDuration((end - start) * 1000)}</strong>
-            {!trimmed && (
+            {!trimmed && !watermark && (
               <>
                 {" · "}
                 {formatSize(blob.size)}

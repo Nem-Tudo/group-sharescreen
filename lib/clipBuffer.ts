@@ -187,18 +187,43 @@ export class TileRecorder {
   }
 }
 
+// The mark on clips from accounts without Pro Max ("clip_no_watermark"):
+// small, bottom-right, on a dark pill so it reads on any picture.
+export const CLIP_WATERMARK = "Clipped with golive.nemtudo.me";
+
+function drawWatermark(ctx: CanvasRenderingContext2D, width: number, height: number, text: string) {
+  const size = Math.max(11, Math.round(height * 0.026));
+  ctx.font = `600 ${size}px system-ui, -apple-system, "Segoe UI", sans-serif`;
+  const padX = size * 0.6;
+  const padY = size * 0.35;
+  const textWidth = ctx.measureText(text).width;
+  const boxW = textWidth + padX * 2;
+  const boxH = size + padY * 2;
+  const margin = Math.round(size * 0.8);
+  const x = width - boxW - margin;
+  const y = height - boxH - margin;
+  ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
+  ctx.beginPath();
+  ctx.roundRect(x, y, boxW, boxH, boxH / 2);
+  ctx.fill();
+  ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, x + padX, y + boxH / 2);
+}
+
 // Cutting a recording down to [startS, endS]. There is no muxer in the page
 // (and adding ffmpeg.wasm for this would be a heavy dependency), so the chosen
 // stretch is played back into a fresh MediaRecorder: it takes as long as the
 // stretch itself, in exchange for zero dependencies. The picture comes from
 // the element's captureStream, the sound through WebAudio so nothing is heard
-// while it runs.
+// while it runs. With a watermark, the picture goes through a canvas instead.
 export async function trimRecording(
   blob: Blob,
   startS: number,
   endS: number,
   onProgress: (fraction: number) => void,
   signal: AbortSignal,
+  options: { watermark?: string | null } = {},
 ): Promise<Blob | null> {
   const url = URL.createObjectURL(blob);
   const video = document.createElement("video");
@@ -206,6 +231,7 @@ export async function trimRecording(
   video.preload = "auto";
   video.src = url;
   let audioContext: AudioContext | null = null;
+  let drawFrame = 0;
   try {
     await new Promise<void>((resolve, reject) => {
       video.onloadedmetadata = () => resolve();
@@ -220,9 +246,27 @@ export async function trimRecording(
       captureStream?: () => MediaStream;
       mozCaptureStream?: () => MediaStream;
     };
-    const source = capture.captureStream?.() ?? capture.mozCaptureStream?.();
-    if (!source) return null;
-    const tracks: MediaStreamTrack[] = [...source.getVideoTracks()];
+    const tracks: MediaStreamTrack[] = [];
+    if (options.watermark) {
+      // The picture goes through a canvas so the mark is part of the file.
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth || 1280;
+      canvas.height = video.videoHeight || 720;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
+      const text = options.watermark;
+      const draw = () => {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        drawWatermark(ctx, canvas.width, canvas.height, text);
+        drawFrame = requestAnimationFrame(draw);
+      };
+      draw();
+      tracks.push(...canvas.captureStream(30).getVideoTracks());
+    } else {
+      const source = capture.captureStream?.() ?? capture.mozCaptureStream?.();
+      if (!source) return null;
+      tracks.push(...source.getVideoTracks());
+    }
     try {
       audioContext = new AudioContext();
       const node = audioContext.createMediaElementSource(video);
@@ -267,6 +311,7 @@ export async function trimRecording(
   } catch {
     return null;
   } finally {
+    cancelAnimationFrame(drawFrame);
     video.pause();
     video.removeAttribute("src");
     video.load();
