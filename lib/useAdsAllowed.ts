@@ -50,5 +50,6 @@ export function useAdsAllowed(): boolean {
   if (!hydrated || loading) return false;
   if (!switchedOn) return false;
   if (isDesktopApp() || isMobileApp()) return false;
+  if (account?.flags?.includes("ADMIN")) return false;
   return !account?.features?.includes("no_ads");
 }

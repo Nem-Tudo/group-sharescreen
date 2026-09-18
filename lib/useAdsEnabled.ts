@@ -22,10 +22,37 @@ import { getSignalingHttpBase } from "@/lib/roomsApi";
 // the two by construction — see signalingClient.ts's `adsConfigSeq` for how
 // "has spoken" is told apart from "said nothing yet".
 
+const CACHE_KEY = "sharescreen:adsEnabled";
+
+function getStoredAdsEnabled(): boolean | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const item = window.localStorage.getItem(CACHE_KEY);
+    if (item === "true") return true;
+    if (item === "false") return false;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function setStoredAdsEnabled(val: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(CACHE_KEY, String(val));
+  } catch {}
+}
+
 /** Shared across every hook instance: one request per page, not one per slot. */
-let cachedEnabled: boolean | null = null;
+let cachedEnabled: boolean | null = typeof window !== "undefined" ? getStoredAdsEnabled() : null;
 let inflight: Promise<boolean | null> | null = null;
 const listeners = new Set<(value: boolean | null) => void>();
+
+export function updateCachedAdsEnabled(enabled: boolean): void {
+  cachedEnabled = enabled;
+  setStoredAdsEnabled(enabled);
+  for (const listener of listeners) listener(enabled);
+}
 
 async function loadAdsConfig(): Promise<boolean | null> {
   if (cachedEnabled !== null) return cachedEnabled;
@@ -35,19 +62,24 @@ async function loadAdsConfig(): Promise<boolean | null> {
         const res = await fetch(`${getSignalingHttpBase()}/ads/config`);
         if (!res.ok) return null;
         const data = (await res.json()) as { adsterraEnabled?: unknown };
-        return typeof data.adsterraEnabled === "boolean" ? data.adsterraEnabled : null;
+        const result = typeof data.adsterraEnabled === "boolean" ? data.adsterraEnabled : null;
+        if (result !== null) {
+          cachedEnabled = result;
+          setStoredAdsEnabled(result);
+        }
+        return result;
       } catch {
-        // An API that is down leaves this null, which the caller reads as
-        // "on". Failing open on purpose: a site that hides its advertising
-        // whenever a config request fails would lose revenue to every
-        // transient network error, and the switch is not a safety control.
-        return null;
+        // An API that is down: failing open on network error, but only after an actual failure.
+        return true;
       } finally {
         inflight = null;
       }
     })();
     void inflight.then((value) => {
-      if (value !== null) cachedEnabled = value;
+      if (value !== null) {
+        cachedEnabled = value;
+        setStoredAdsEnabled(value);
+      }
       for (const listener of listeners) listener(value);
     });
   }
@@ -57,8 +89,9 @@ async function loadAdsConfig(): Promise<boolean | null> {
 /**
  * Whether ads are switched on.
  *
- * Returns true until told otherwise — see loadAdsConfig on why the failure
- * direction is "show them".
+ * Checks live socket first, then fetched/cached state. While loading for the
+ * first time ever with no cache, returns false so ads are not prematurely
+ * injected before the server's setting is known.
  */
 export function useAdsEnabled(): boolean {
   const live = useSignalingSelector(selectAdsEnabled);
@@ -79,5 +112,7 @@ export function useAdsEnabled(): boolean {
 
   // The socket's answer whenever there is one; the fetched one otherwise.
   if (live !== null) return live;
-  return fetched !== false;
+  if (fetched !== null) return fetched;
+  if (cachedEnabled !== null) return cachedEnabled;
+  return false;
 }

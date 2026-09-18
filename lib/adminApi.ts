@@ -14,6 +14,7 @@ import type { Partner, PartnerClickRewardPlacement } from "./partner";
 import type { Supporter } from "./supporter";
 import { translate } from "@/lib/i18n";
 import type { BadgeDefinition } from "./badges";
+import { updateCachedAdsEnabled } from "./useAdsEnabled";
 
 
 export type {
@@ -409,6 +410,7 @@ export async function setAdsEnabled(enabled: boolean): Promise<boolean> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ adsterraEnabled: enabled }),
   });
+  updateCachedAdsEnabled(data.adsterraEnabled);
   return data.adsterraEnabled;
 }
 
