@@ -15,6 +15,7 @@ import type { Supporter } from "./supporter";
 import { translate } from "@/lib/i18n";
 import type { BadgeDefinition } from "./badges";
 
+
 export type {
   Announcement,
   AnnouncementButtonAction,
