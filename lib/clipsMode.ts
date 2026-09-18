@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useSyncExternalStore } from "react";
-import { useFeature } from "./features";
+import { trackFeatureEvent, useFeature } from "./features";
 
 // The tile experiments switched on from the room's "Mais opções":
 //   - "Modo clipes": the clip-the-last-30s button (see lib/clipBuffer);
@@ -21,6 +21,30 @@ const CONFIG: Record<TileExperiment, { feature: string; modeKey: string; tipKey:
     tipKey: "sharescreen:recordingTipSeen",
   },
 };
+
+// Usage stats, compared between the sides of each experiment. Every name has
+// to be listed in its feature's "site events" in the admin panel to count.
+export const TILE_EXPERIMENT_EVENTS = {
+  clips: {
+    modeOn: "clips_mode_on",
+    modeOff: "clips_mode_off",
+    create: "clip_create", // value: seconds in the clip
+    download: "clip_download", // value: seconds downloaded
+    trim: "clip_trim", // downloaded after cutting
+  },
+  recording: {
+    modeOn: "recording_mode_on",
+    modeOff: "recording_mode_off",
+    start: "recording_start",
+    stop: "recording_stop", // value: seconds recorded
+    download: "recording_download", // value: seconds downloaded
+    trim: "recording_trim", // downloaded after cutting
+  },
+} as const;
+
+export function trackTileExperiment(name: string, value?: number) {
+  trackFeatureEvent(name, value ? { value: Math.max(1, Math.round(value)) } : {});
+}
 
 // Whether this browser had used GoLive before this page load. Read at module
 // evaluation, before anything on the page mints a device id or caches the
@@ -71,6 +95,8 @@ function write(key: string, value: string) {
 
 export function setTileExperimentMode(experiment: TileExperiment, on: boolean) {
   write(CONFIG[experiment].modeKey, on ? "1" : "0");
+  const events = TILE_EXPERIMENT_EVENTS[experiment];
+  trackTileExperiment(on ? events.modeOn : events.modeOff);
 }
 
 /** The experiment and the person's switch together — what tiles check. */

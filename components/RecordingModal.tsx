@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { DownloadIcon } from "@/components/icons";
 import { downloadClip, trimRecording } from "@/lib/clipBuffer";
+import { TILE_EXPERIMENT_EVENTS, trackTileExperiment } from "@/lib/clipsMode";
 import { useT } from "@/lib/useI18n";
 
 export function formatDuration(ms: number): string {
@@ -130,9 +131,11 @@ export function RecordingModal({
     else setEnd((v) => Math.max(start + MIN_CUT_S, Math.min(total, v + delta)));
   };
 
+  const events = TILE_EXPERIMENT_EVENTS[kind === "clip" ? "clips" : "recording"];
   const download = async () => {
     if (!trimmed) {
       downloadClip(blob, name);
+      trackTileExperiment(events.download, total);
       return;
     }
     videoRef.current?.pause();
@@ -144,8 +147,11 @@ export function RecordingModal({
     abortRef.current = null;
     setCutting(null);
     if (controller.signal.aborted) return;
-    if (result) downloadClip(result, name);
-    else setCutFailed(true);
+    if (result) {
+      downloadClip(result, name);
+      trackTileExperiment(events.download, end - start);
+      trackTileExperiment(events.trim);
+    } else setCutFailed(true);
   };
   const cancelCut = () => abortRef.current?.abort();
 

@@ -32,7 +32,7 @@ import {
 } from "@/components/icons";
 import { RecordingModal, formatDuration } from "@/components/RecordingModal";
 import { ClipBuffer, TileRecorder, clipSupported, CLIP_MS } from "@/lib/clipBuffer";
-import { useTileExperiment } from "@/lib/clipsMode";
+import { TILE_EXPERIMENT_EVENTS, trackTileExperiment, useTileExperiment } from "@/lib/clipsMode";
 import { announceRecording } from "@/lib/recordingNotice";
 import { ConnectionStatsOverlay } from "@/components/ConnectionStatsOverlay";
 import type { QualityChannel } from "@/lib/qualityNegotiation";
@@ -277,6 +277,7 @@ const VideoTileView = memo(function VideoTileView({
     setRecordingSince(null);
     if (!recorder) return;
     const result = await recorder.stop();
+    trackTileExperiment(TILE_EXPERIMENT_EVENTS.recording.stop, (Date.now() - recorder.startedAt) / 1000);
     if (result) setRecording({ ...result, kind: "recording" });
   };
   const toggleRecording = () => {
@@ -287,6 +288,7 @@ const VideoTileView = memo(function VideoTileView({
     try {
       const recorder = new TileRecorder(stream);
       recorderRef.current = recorder;
+      trackTileExperiment(TILE_EXPERIMENT_EVENTS.recording.start);
       setRecordingSince(recorder.startedAt);
       setRecordingNow(recorder.startedAt);
     } catch {
@@ -309,7 +311,10 @@ const VideoTileView = memo(function VideoTileView({
     setClipping(true);
     try {
       const result = await buffer.clip();
-      if (result) setRecording({ ...result, kind: "clip" });
+      if (result) {
+        trackTileExperiment(TILE_EXPERIMENT_EVENTS.clips.create, result.durationMs / 1000);
+        setRecording({ ...result, kind: "clip" });
+      }
     } finally {
       setClipping(false);
     }
