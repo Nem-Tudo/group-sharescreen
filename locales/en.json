@@ -3177,6 +3177,7 @@
   "watch.watchRoom.recordingMode": "Recording",
   "watch.watchRoom.recordingModeHint": "Adds a button to every screen and camera to record it and download the video.",
   "watch.watchRoom.recordingModeTip": "New: turn on Recording here to record any screen or camera and download it.",
+  "watch.watchRoom.beingRecordedBy": "Your broadcast is being recorded by {names}",
   "watch.watchRoom.moreOptionsPullUp": "More options (pull up)",
   "watch.watchRoom.musicOnProfiles": "Music on profiles",
   "watch.watchRoom.n1ExternalBroadcastActive": "1 external broadcast active",

@@ -3177,6 +3177,7 @@
   "watch.watchRoom.recordingMode": "Grabación",
   "watch.watchRoom.recordingModeHint": "Agrega un botón a cada pantalla y cámara para grabarla y descargar el video.",
   "watch.watchRoom.recordingModeTip": "Nuevo: activa la Grabación aquí para grabar cualquier pantalla o cámara y descargar el video.",
+  "watch.watchRoom.beingRecordedBy": "Tu transmisión está siendo grabada por {names}",
   "watch.watchRoom.moreOptionsPullUp": "Más opciones (desliza hacia arriba)",
   "watch.watchRoom.musicOnProfiles": "Música en los perfiles",
   "watch.watchRoom.n1ExternalBroadcastActive": "1 transmisión externa activa",

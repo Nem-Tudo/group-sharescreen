@@ -191,6 +191,7 @@ import { Tooltip, Popover } from "@/components/Tooltip";
 import { ThemeSegmented } from "@/components/ThemeToggle";
 import { MenuToggleRow } from "@/components/MenuToggleRow";
 import { setTileExperimentMode, useTileExperiment, useTileExperimentTip } from "@/lib/clipsMode";
+import { useRecordingNotices } from "@/lib/recordingNotice";
 import { getRoomProOffer } from "@/components/RoomProOffer";
 import { isAppShell } from "@/lib/desktop";
 import { getProfileSongAutoplay, setProfileSongAutoplay } from "@/lib/profileSong";
@@ -1603,6 +1604,8 @@ export function WatchRoom({
   // buttons, so closing the panel also collapses whichever of them was left
   // open (see closeMenu below).
   const [menuOpen, setMenuOpen] = useState(false);
+  // Who is recording one of my transmissions right now (see lib/recordingNotice).
+  const recordingNotices = useRecordingNotices();
   // The tile experiments, "Modo clipes" and "Gravação" (see lib/clipsMode).
   // Tracked here, where their switches are shown, rather than in every tile.
   const clipsMode = useTileExperiment("clips", { track: true });
@@ -6731,6 +6734,24 @@ export function WatchRoom({
           {inHeaderSlot("end", moreOptions)}
         </div>
       </header>
+
+      {/* Under the header: the broadcaster is told that somebody is recording
+          their transmission, and who. Stays up for as long as it lasts. */}
+      {recordingNotices.length > 0 && (
+        <div
+          role="status"
+          className="flex shrink-0 items-center gap-2 border-b border-red-500/30 bg-red-50 px-3 py-2 text-sm font-medium text-red-800 dark:bg-red-950/60 dark:text-red-200 sm:px-4"
+        >
+          <span className="h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-red-600" />
+          <span className="min-w-0 truncate">
+            {translate("watch.watchRoom.beingRecordedBy", {
+              names: recordingNotices
+                .map((n) => state.peers.find((p) => p.id === n.from)?.name ?? translate("common.someone2"))
+                .join(", "),
+            })}
+          </span>
+        </div>
+      )}
 
       {/* Directly under the header, above everything the room is actually
           looking at: it is a strip rather than a tile because music is not

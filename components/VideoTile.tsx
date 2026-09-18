@@ -33,6 +33,7 @@ import {
 import { RecordingModal, formatDuration } from "@/components/RecordingModal";
 import { ClipBuffer, TileRecorder, clipSupported, CLIP_MS } from "@/lib/clipBuffer";
 import { useTileExperiment } from "@/lib/clipsMode";
+import { announceRecording } from "@/lib/recordingNotice";
 import { ConnectionStatsOverlay } from "@/components/ConnectionStatsOverlay";
 import type { QualityChannel } from "@/lib/qualityNegotiation";
 import { VolumeSlider } from "@/components/VolumeSlider";
@@ -261,6 +262,15 @@ const VideoTileView = memo(function VideoTileView({
     const id = setInterval(() => setRecordingNow(Date.now()), 500);
     return () => clearInterval(id);
   }, [recordingSince]);
+  // Somebody else's transmission: they get told, for as long as it lasts, that
+  // it is being recorded and by whom (see lib/recordingNotice).
+  const recordedPeer = connectionStats?.originId;
+  const recordedChannel = connectionStats?.channel;
+  const isRecording = recordingSince !== null;
+  useEffect(() => {
+    if (!isRecording || !recordedPeer || !recordedChannel) return;
+    return announceRecording(recordedPeer, String(recordedChannel));
+  }, [isRecording, recordedPeer, recordedChannel]);
   const stopRecording = async () => {
     const recorder = recorderRef.current;
     recorderRef.current = null;
