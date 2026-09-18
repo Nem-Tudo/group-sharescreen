@@ -4,58 +4,44 @@ import { useEffect, useState } from "react";
 import { signalingClient } from "./signalingClient";
 
 // "Fulano está gravando a sua transmissão." The viewer who hits "gravar" on a
-// tile tells that tile's broadcaster directly, over the API's ordinary
-// peer-to-peer `signal` relay (which passes any payload through untouched — no
-// API change). No `channel` on the payload, so useRoomMedia's WebRTC handler
-// ignores it.
+// tile tells that tile's broadcaster through the API's `recording-notice`
+// message, which the server hands to that one member of the room with the
+// recorder's name stamped on it (see the API's signaling.ts).
 //
 // While recording, the notice is repeated every REPEAT_MS; the broadcaster
 // forgets it after EXPIRE_MS without one. That covers everything that can end
 // a recording without a goodbye: a closed tab, a dropped connection, a crash.
+// Shown to every broadcaster, whether or not they are in the recording
+// experiment themselves.
 
-const KIND = "recording-notice";
 const REPEAT_MS = 15_000;
 const EXPIRE_MS = 40_000;
 
-export type RecordingChannel = string;
-
 /** The viewer's side: announces the recording until the returned stop runs. */
-export function announceRecording(broadcasterId: string, channel: RecordingChannel): () => void {
-  const send = (on: boolean) => signalingClient.sendSignal(broadcasterId, { kind: KIND, on, recording: channel });
-  send(true);
-  const timer = setInterval(() => send(true), REPEAT_MS);
+export function announceRecording(broadcasterId: string, channel: string): () => void {
+  signalingClient.sendRecordingNotice(broadcasterId, channel, true);
+  const timer = setInterval(() => signalingClient.sendRecordingNotice(broadcasterId, channel, true), REPEAT_MS);
   return () => {
     clearInterval(timer);
-    send(false);
+    signalingClient.sendRecordingNotice(broadcasterId, channel, false);
   };
 }
 
-type Notice = { from: string; channels: Map<RecordingChannel, number> };
+type Notice = { from: string; name: string | null; channels: Map<string, number> };
 
 /** The broadcaster's side: who is recording which of my transmissions now. */
-export function useRecordingNotices(): { from: string; channels: RecordingChannel[] }[] {
+export function useRecordingNotices(): { from: string; name: string | null; channels: string[] }[] {
   const [notices, setNotices] = useState<Map<string, Notice>>(new Map());
 
   useEffect(() => {
-    const off = signalingClient.onSignal((from, data) => {
-      if (data.kind === "peer-left") {
-        setNotices((prev) => {
-          if (!prev.has(from)) return prev;
-          const next = new Map(prev);
-          next.delete(from);
-          return next;
-        });
-        return;
-      }
-      if (data.kind !== KIND || typeof data.recording !== "string") return;
-      const channel = data.recording;
+    const off = signalingClient.onRecordingNotice(({ from, name, channel, on }) => {
       setNotices((prev) => {
         const next = new Map(prev);
-        const notice = next.get(from) ?? { from, channels: new Map() };
-        const channels = new Map(notice.channels);
-        if (data.on) channels.set(channel, Date.now());
+        const notice = next.get(from);
+        const channels = new Map(notice?.channels);
+        if (on) channels.set(channel, Date.now());
         else channels.delete(channel);
-        if (channels.size) next.set(from, { from, channels });
+        if (channels.size) next.set(from, { from, name: name ?? notice?.name ?? null, channels });
         else next.delete(from);
         return next;
       });
@@ -68,7 +54,7 @@ export function useRecordingNotices(): { from: string; channels: RecordingChanne
         for (const [id, notice] of prev) {
           const channels = new Map([...notice.channels].filter(([, at]) => now - at < EXPIRE_MS));
           if (channels.size !== notice.channels.size) changed = true;
-          if (channels.size) next.set(id, { from: id, channels });
+          if (channels.size) next.set(id, { ...notice, channels });
         }
         return changed ? next : prev;
       });
@@ -79,5 +65,5 @@ export function useRecordingNotices(): { from: string; channels: RecordingChanne
     };
   }, []);
 
-  return [...notices.values()].map((n) => ({ from: n.from, channels: [...n.channels.keys()] }));
+  return [...notices.values()].map((n) => ({ from: n.from, name: n.name, channels: [...n.channels.keys()] }));
 }

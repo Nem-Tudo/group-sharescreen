@@ -809,6 +809,8 @@ export type SignalingState = {
 
 type Listener = () => void;
 type SignalListener = (from: string, data: Record<string, unknown>) => void;
+export type RecordingNotice = { from: string; name: string | null; channel: string; on: boolean };
+type RecordingNoticeListener = (notice: RecordingNotice) => void;
 
 /**
  * A group nudge from the server (see the API's groupRoutes.ts), or the
@@ -1125,6 +1127,7 @@ class SignalingClient {
   private listeners = new Set<Listener>();
   private notifyScheduled = false;
   private signalListeners = new Set<SignalListener>();
+  private recordingNoticeListeners = new Set<RecordingNoticeListener>();
   private roomJoinedListeners = new Set<Listener>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
@@ -1253,6 +1256,16 @@ class SignalingClient {
   };
 
   getSnapshot = () => this.state;
+
+  /** "Fulano está gravando a sua transmissão" — see lib/recordingNotice. */
+  onRecordingNotice(cb: RecordingNoticeListener) {
+    this.recordingNoticeListeners.add(cb);
+    return () => this.recordingNoticeListeners.delete(cb);
+  }
+
+  sendRecordingNotice(to: string, channel: string, on: boolean) {
+    this.rawSend({ type: "recording-notice", to, channel, on });
+  }
 
   onSignal(cb: SignalListener) {
     this.signalListeners.add(cb);
@@ -2117,6 +2130,16 @@ class SignalingClient {
         } else {
           this.setState({ typingPeerIds: this.state.typingPeerIds.filter((pid) => pid !== id) });
         }
+        break;
+      }
+      case "recording-notice": {
+        const notice: RecordingNotice = {
+          from: String(msg.from ?? ""),
+          name: typeof msg.name === "string" ? msg.name : null,
+          channel: String(msg.channel ?? ""),
+          on: Boolean(msg.on),
+        };
+        if (notice.from) this.recordingNoticeListeners.forEach((l) => l(notice));
         break;
       }
       case "signal":

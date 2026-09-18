@@ -6746,7 +6746,7 @@ export function WatchRoom({
           <span className="min-w-0 truncate">
             {translate("watch.watchRoom.beingRecordedBy", {
               names: recordingNotices
-                .map((n) => state.peers.find((p) => p.id === n.from)?.name ?? translate("common.someone2"))
+                .map((n) => n.name ?? state.peers.find((p) => p.id === n.from)?.name ?? translate("common.someone2"))
                 .join(", "),
             })}
           </span>
