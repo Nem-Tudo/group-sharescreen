@@ -36,6 +36,7 @@
   "pro.proPanel.publishThemesWithLimit": "Publish up to {limit} themes on Discover for everyone to use",
   "imageCrop.applying": "Applying…",
   "common.refresh": "Refresh",
+  "common.newBadge": "New",
   "admin.desktopUpdatePanel.installsTitle": "Installs of this rollout",
   "admin.desktopUpdatePanel.installsSince": "Since the launch on {date}.",
   "admin.desktopUpdatePanel.installsNoRollout": "No update has been launched from here yet.",

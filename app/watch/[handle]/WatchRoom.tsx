@@ -190,6 +190,7 @@ import {
 import { Tooltip, Popover } from "@/components/Tooltip";
 import { ThemeSegmented } from "@/components/ThemeToggle";
 import { MenuToggleRow } from "@/components/MenuToggleRow";
+import { NewBadge } from "@/components/NewBadge";
 import { setTileExperimentMode, useTileExperiment, useTileExperimentTip } from "@/lib/clipsMode";
 import { useRecordingNotices } from "@/lib/recordingNotice";
 import { getRoomProOffer } from "@/components/RoomProOffer";
@@ -5104,6 +5105,7 @@ export function WatchRoom({
       {clipsMode.available && (
         <MenuToggleRow
           label={translate("watch.watchRoom.clipsMode")}
+          badge={<NewBadge id="room-clips" />}
           active={clipsMode.on}
           onToggle={() => setTileExperimentMode("clips", !clipsMode.on)}
           hint={translate("watch.watchRoom.clipsModeHint")}
@@ -5114,6 +5116,7 @@ export function WatchRoom({
       {recordingMode.available && (
         <MenuToggleRow
           label={translate("watch.watchRoom.recordingMode")}
+          badge={<NewBadge id="room-recording" />}
           active={recordingMode.on}
           onToggle={() => setTileExperimentMode("recording", !recordingMode.on)}
           hint={translate("watch.watchRoom.recordingModeHint")}

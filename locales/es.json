@@ -36,6 +36,7 @@
   "pro.proPanel.publishThemesWithLimit": "Publica hasta {limit} temas en Descubrir para que todo el mundo los use",
   "imageCrop.applying": "Aplicando…",
   "common.refresh": "Actualizar",
+  "common.newBadge": "Nuevo",
   "admin.desktopUpdatePanel.installsTitle": "Instalaciones de este lanzamiento",
   "admin.desktopUpdatePanel.installsSince": "Desde el lanzamiento del {date}.",
   "admin.desktopUpdatePanel.installsNoRollout": "Todavía no se ha lanzado ninguna actualización desde aquí.",

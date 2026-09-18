@@ -31,6 +31,7 @@ import {
   RecordIcon,
 } from "@/components/icons";
 import { RecordingModal, formatDuration } from "@/components/RecordingModal";
+import { markFeatureUsed } from "@/components/NewBadge";
 import { ClipBuffer, TileRecorder, clipSupported, CLIP_MS } from "@/lib/clipBuffer";
 import { TILE_EXPERIMENT_EVENTS, trackTileExperiment, useTileExperiment } from "@/lib/clipsMode";
 import { announceRecording } from "@/lib/recordingNotice";
@@ -293,6 +294,7 @@ const VideoTileView = memo(function VideoTileView({
       const recorder = new TileRecorder(stream);
       recorderRef.current = recorder;
       trackTileExperiment(TILE_EXPERIMENT_EVENTS.recording.start);
+      markFeatureUsed("room-recording");
       setRecordingSince(recorder.startedAt);
       setRecordingNow(recorder.startedAt);
     } catch {
@@ -317,6 +319,7 @@ const VideoTileView = memo(function VideoTileView({
       const result = await buffer.clip();
       if (result) {
         trackTileExperiment(TILE_EXPERIMENT_EVENTS.clips.create, result.durationMs / 1000);
+        markFeatureUsed("room-clips");
         setRecording({ ...result, kind: "clip" });
       }
     } finally {
@@ -728,7 +731,7 @@ const VideoTileView = memo(function VideoTileView({
         } ${isFullscreen && !fullscreenMouseActive ? "[@media(hover:hover)]:cursor-none" : ""} ${className}`}
     >
       {beingRecorded && (
-        <div className="pointer-events-none absolute inset-0 z-30 rounded-xl border-[3px] border-red-600" />
+        <div className="pointer-events-none absolute inset-0 z-30 rounded-xl border border-red-500/60" />
       )}
       {/* Every one of these means "there is a picture now", and any single one
           of them is enough. `loadeddata` alone used to be the only way out of
