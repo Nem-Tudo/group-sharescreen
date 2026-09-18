@@ -23,10 +23,29 @@ type Segment = {
   startedAt: number;
 };
 
+// MP4 first: it is what people expect to open and post anywhere. Chrome/Edge
+// (126+) and Safari record it natively; Firefox only records WebM, so that is
+// the fallback there. No transcoding happens in the page.
 function pickMimeType(hasAudio: boolean): string | undefined {
   const candidates = hasAudio
-    ? ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm", "video/mp4"]
-    : ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm", "video/mp4"];
+    ? [
+        "video/mp4;codecs=avc1.640028,mp4a.40.2",
+        "video/mp4;codecs=avc1.42E01F,mp4a.40.2",
+        "video/mp4;codecs=avc1,mp4a",
+        "video/mp4",
+        "video/webm;codecs=vp9,opus",
+        "video/webm;codecs=vp8,opus",
+        "video/webm",
+      ]
+    : [
+        "video/mp4;codecs=avc1.640028",
+        "video/mp4;codecs=avc1.42E01F",
+        "video/mp4;codecs=avc1",
+        "video/mp4",
+        "video/webm;codecs=vp9",
+        "video/webm;codecs=vp8",
+        "video/webm",
+      ];
   return candidates.find((type) => MediaRecorder.isTypeSupported(type));
 }
 
@@ -59,19 +78,16 @@ export class ClipBuffer {
   // Stops the oldest recorder and hands back its file. That recorder's
   // coverage is gone afterwards, but the next one is at most STAGGER_MS
   // younger, so a second clip right after still gets ~20s+.
-  async clip(): Promise<Blob | null> {
+  async clip(): Promise<{ blob: Blob; durationMs: number } | null> {
     const segment = this.segments.shift();
     if (!segment) return null;
-    const { recorder, chunks } = segment;
-    if (recorder.state === "inactive") {
-      return chunks.length ? new Blob(chunks, { type: this.blobType(recorder) }) : null;
-    }
+    const { recorder, chunks, startedAt } = segment;
+    const durationMs = Date.now() - startedAt;
+    const finish = () =>
+      chunks.length ? { blob: new Blob(chunks, { type: this.blobType(recorder) }), durationMs } : null;
+    if (recorder.state === "inactive") return finish();
     return new Promise((resolve) => {
-      recorder.addEventListener(
-        "stop",
-        () => resolve(chunks.length ? new Blob(chunks, { type: this.blobType(recorder) }) : null),
-        { once: true },
-      );
+      recorder.addEventListener("stop", () => resolve(finish()), { once: true });
       recorder.stop();
     });
   }
@@ -168,6 +184,94 @@ export class TileRecorder {
       recorder.addEventListener("stop", () => resolve(finish()), { once: true });
       recorder.stop();
     });
+  }
+}
+
+// Cutting a recording down to [startS, endS]. There is no muxer in the page
+// (and adding ffmpeg.wasm for this would be a heavy dependency), so the chosen
+// stretch is played back into a fresh MediaRecorder: it takes as long as the
+// stretch itself, in exchange for zero dependencies. The picture comes from
+// the element's captureStream, the sound through WebAudio so nothing is heard
+// while it runs.
+export async function trimRecording(
+  blob: Blob,
+  startS: number,
+  endS: number,
+  onProgress: (fraction: number) => void,
+  signal: AbortSignal,
+): Promise<Blob | null> {
+  const url = URL.createObjectURL(blob);
+  const video = document.createElement("video");
+  video.playsInline = true;
+  video.preload = "auto";
+  video.src = url;
+  let audioContext: AudioContext | null = null;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      video.onloadedmetadata = () => resolve();
+      video.onerror = () => reject(new Error("load"));
+    });
+    video.currentTime = startS;
+    await new Promise<void>((resolve) => {
+      video.onseeked = () => resolve();
+    });
+
+    const capture = video as HTMLVideoElement & {
+      captureStream?: () => MediaStream;
+      mozCaptureStream?: () => MediaStream;
+    };
+    const source = capture.captureStream?.() ?? capture.mozCaptureStream?.();
+    if (!source) return null;
+    const tracks: MediaStreamTrack[] = [...source.getVideoTracks()];
+    try {
+      audioContext = new AudioContext();
+      const node = audioContext.createMediaElementSource(video);
+      const destination = audioContext.createMediaStreamDestination();
+      node.connect(destination);
+      tracks.push(...destination.stream.getAudioTracks());
+    } catch {
+      // No WebAudio: the cut keeps the picture only, and the element stays
+      // muted so nothing plays out loud.
+      video.muted = true;
+    }
+    const stream = new MediaStream(tracks);
+    const mimeType = pickMimeType(stream.getAudioTracks().length > 0);
+    const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5_000_000 });
+    const chunks: Blob[] = [];
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) chunks.push(event.data);
+    };
+    const stopped = new Promise<void>((resolve) => recorder.addEventListener("stop", () => resolve(), { once: true }));
+    recorder.start(1000);
+    await video.play();
+
+    await new Promise<void>((resolve) => {
+      const finish = () => {
+        video.pause();
+        if (recorder.state !== "inactive") recorder.stop();
+        resolve();
+      };
+      const tick = () => {
+        if (signal.aborted || video.ended || video.currentTime >= endS) return finish();
+        onProgress(Math.min(1, (video.currentTime - startS) / Math.max(0.001, endS - startS)));
+        requestAnimationFrame(tick);
+      };
+      video.onended = finish;
+      signal.addEventListener("abort", finish, { once: true });
+      tick();
+    });
+    await stopped;
+    if (signal.aborted || !chunks.length) return null;
+    onProgress(1);
+    return new Blob(chunks, { type: (recorder.mimeType || mimeType || "video/webm").split(";")[0] });
+  } catch {
+    return null;
+  } finally {
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+    void audioContext?.close();
+    URL.revokeObjectURL(url);
   }
 }
 

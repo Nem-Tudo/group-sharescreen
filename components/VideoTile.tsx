@@ -31,7 +31,7 @@ import {
   RecordIcon,
 } from "@/components/icons";
 import { RecordingModal, formatDuration } from "@/components/RecordingModal";
-import { ClipBuffer, TileRecorder, clipSupported, downloadClip, CLIP_MS } from "@/lib/clipBuffer";
+import { ClipBuffer, TileRecorder, clipSupported, CLIP_MS } from "@/lib/clipBuffer";
 import { useTileExperiment } from "@/lib/clipsMode";
 import { ConnectionStatsOverlay } from "@/components/ConnectionStatsOverlay";
 import type { QualityChannel } from "@/lib/qualityNegotiation";
@@ -253,7 +253,9 @@ const VideoTileView = memo(function VideoTileView({
   const recorderRef = useRef<TileRecorder | null>(null);
   const [recordingSince, setRecordingSince] = useState<number | null>(null);
   const [recordingNow, setRecordingNow] = useState(0);
-  const [recording, setRecording] = useState<{ blob: Blob; durationMs: number } | null>(null);
+  // A finished recording or clip, waiting in the preview modal to be
+  // watched back and downloaded.
+  const [recording, setRecording] = useState<{ blob: Blob; durationMs: number; kind: "clip" | "recording" } | null>(null);
   useEffect(() => {
     if (recordingSince === null) return;
     const id = setInterval(() => setRecordingNow(Date.now()), 500);
@@ -265,7 +267,7 @@ const VideoTileView = memo(function VideoTileView({
     setRecordingSince(null);
     if (!recorder) return;
     const result = await recorder.stop();
-    if (result) setRecording(result);
+    if (result) setRecording({ ...result, kind: "recording" });
   };
   const toggleRecording = () => {
     if (recorderRef.current) {
@@ -296,8 +298,8 @@ const VideoTileView = memo(function VideoTileView({
     if (!buffer || clipping) return;
     setClipping(true);
     try {
-      const blob = await buffer.clip();
-      if (blob) downloadClip(blob, accessibleLabel ?? "GoLive clip");
+      const result = await buffer.clip();
+      if (result) setRecording({ ...result, kind: "clip" });
     } finally {
       setClipping(false);
     }
@@ -928,6 +930,7 @@ const VideoTileView = memo(function VideoTileView({
           <RecordingModal
             blob={recording.blob}
             durationMs={recording.durationMs}
+            kind={recording.kind}
             name={accessibleLabel ?? "GoLive"}
             onClose={() => setRecording(null)}
           />
