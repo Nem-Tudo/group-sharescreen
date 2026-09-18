@@ -1296,6 +1296,10 @@ export function ProPanel({
                       also works from the Pro popup inside a room. */}
                   <Link
                     href="/pro/cancelar"
+                    // In a new tab, so the plan page stays where it was
+                    // behind it.
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="self-start rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
                   >
                     {t("pro.proPanel.cancelSubscription")}

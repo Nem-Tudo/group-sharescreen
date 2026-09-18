@@ -31,6 +31,9 @@ import { useT } from "@/lib/useI18n";
 
 type Step = "login" | "survey" | "done";
 
+/** How long the page waits before showing anything. */
+const LOAD_DELAY_MS = 10000;
+
 function dateLabel(timestamp: number): string {
   try {
     return new Date(timestamp).toLocaleDateString(formatLocale(), {
@@ -57,6 +60,13 @@ export function CancelSubscriptionPanel() {
   // Captured when the cancellation goes through, so the last screen can say
   // when access ends even after the account below has been re-read.
   const [accessUntil, setAccessUntil] = useState<number | null>(null);
+  // A deliberate pause before the page shows anything — one more small step
+  // between wanting to cancel and cancelling.
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setReady(true), LOAD_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -101,6 +111,18 @@ export function CancelSubscriptionPanel() {
     },
     [premium, refresh, t]
   );
+
+  if (!ready) {
+    return (
+      <main className="mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center gap-3 px-4 py-20">
+        <span
+          aria-hidden
+          className="h-6 w-6 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-900 dark:border-zinc-700 dark:border-t-zinc-100"
+        />
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">{t("common.loading")}</p>
+      </main>
+    );
+  }
 
   return (
     <main className="mx-auto w-full max-w-md px-4 py-10">
