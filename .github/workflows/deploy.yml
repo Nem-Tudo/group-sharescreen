@@ -23,6 +23,9 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history: the cleanup steps diff against the commit that is live.
+          fetch-depth: 0
 
       # ============================================================
       # APP 1
@@ -46,6 +49,38 @@ jobs:
             -o /dev/null
 
           echo "Variável atualizada."
+
+      # `squarecloud commit` only uploads on top of what is there and never
+      # deletes, so a file removed or renamed in git would stay on the app and
+      # still be compiled by its build. Diff the commit that is live (read from
+      # the health endpoint) against this one and delete what is gone.
+      - name: Apagar da APP 1 os arquivos removidos no git
+        env:
+          SQUARE_TOKEN: ${{ secrets.SQUARE_TOKEN }}
+          APP_ID: ${{ secrets.SQUARE_APP_1 }}
+          HEALTH_URL: ${{ secrets.APP_1_HEALTH_URL }}
+        run: |
+          set -e
+
+          live=$(curl -s --max-time 10 "$HEALTH_URL" | jq -r '.commit // empty' 2>/dev/null || true)
+          if [ -z "$live" ] || ! git cat-file -e "$live^{commit}" 2>/dev/null; then
+            echo "::warning::Commit no ar da APP 1 desconhecido ('$live'); nada apagado."
+            exit 0
+          fi
+
+          git diff --name-only --no-renames --diff-filter=D "$live" "$GITHUB_SHA" |
+          while IFS= read -r path; do
+            [ -z "$path" ] && continue
+            echo "Apagando /$path"
+            code=$(curl -s -o /tmp/delete_response -w "%{http_code}" \
+              -X DELETE "https://api.squarecloud.app/v2/apps/$APP_ID/files" \
+              -H "Authorization: $SQUARE_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -cn --arg p "/$path" '{path: $p}')")
+            if [ "$code" != "200" ]; then
+              echo "::warning::Falha ao apagar /$path (HTTP $code): $(cat /tmp/delete_response)"
+            fi
+          done
 
       - name: Atualizar APP 1
         uses: squarecloudofc/github-action@v2
@@ -149,6 +184,35 @@ jobs:
             -o /dev/null
 
           echo "Variável atualizada."
+
+      # Same cleanup as APP 1's, see there.
+      - name: Apagar da APP 2 os arquivos removidos no git
+        env:
+          SQUARE_TOKEN: ${{ secrets.SQUARE_TOKEN }}
+          APP_ID: ${{ secrets.SQUARE_APP_2 }}
+          HEALTH_URL: ${{ secrets.APP_2_HEALTH_URL }}
+        run: |
+          set -e
+
+          live=$(curl -s --max-time 10 "$HEALTH_URL" | jq -r '.commit // empty' 2>/dev/null || true)
+          if [ -z "$live" ] || ! git cat-file -e "$live^{commit}" 2>/dev/null; then
+            echo "::warning::Commit no ar da APP 2 desconhecido ('$live'); nada apagado."
+            exit 0
+          fi
+
+          git diff --name-only --no-renames --diff-filter=D "$live" "$GITHUB_SHA" |
+          while IFS= read -r path; do
+            [ -z "$path" ] && continue
+            echo "Apagando /$path"
+            code=$(curl -s -o /tmp/delete_response -w "%{http_code}" \
+              -X DELETE "https://api.squarecloud.app/v2/apps/$APP_ID/files" \
+              -H "Authorization: $SQUARE_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -cn --arg p "/$path" '{path: $p}')")
+            if [ "$code" != "200" ]; then
+              echo "::warning::Falha ao apagar /$path (HTTP $code): $(cat /tmp/delete_response)"
+            fi
+          done
 
       - name: Atualizar APP 2
         uses: squarecloudofc/github-action@v2
