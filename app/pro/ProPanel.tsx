@@ -611,7 +611,8 @@ export function ProPanel({
         rows.push({
           key: feature,
           label,
-          priority: BROADCAST_FEATURES.has(feature) ? 0 : 1,
+          // "Seja verificado" heads the benefits, above even the broadcast ones.
+          priority: feature === "verified_badge" ? -1 : BROADCAST_FEATURES.has(feature) ? 0 : 1,
           cells: plans.map((entry) => {
             const included = entry.features.includes(feature);
             // The one perk that differs by a number between paying rungs.
