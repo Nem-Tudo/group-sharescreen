@@ -17,6 +17,7 @@ import { DmNotifier } from "@/components/DmNotifier";
 import { DesktopUnreadFlash } from "@/components/DesktopUnreadFlash";
 import { GroupNotifier } from "@/components/GroupNotifier";
 import { DirectMessagesHost } from "@/components/DirectMessagesHost";
+import { MonetagInPagePush } from "@/components/MonetagInPagePush";
 import { ContextMenuHost } from "@/components/ContextMenuHost";
 import { CallHost } from "@/components/CallHost";
 import { RoomCallHost } from "@/components/RoomCallHost";
@@ -352,6 +353,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                     unless the status feed reports an outage. */}
                 <StatusBanner />
                 <AnnouncementBanner />
+                {/* Floating ad, experiment-gated — see the component. */}
+                <MonetagInPagePush />
                 {children}
                 {/* The app's bottom tabs below lg, after the page so its spacer
                     closes the page's own flow — see components/MobileTabBar. */}
