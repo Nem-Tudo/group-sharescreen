@@ -226,6 +226,7 @@ import {
   LuPanelRightOpen,
 } from "react-icons/lu";
 import { BetaMark } from "@/components/BetaMark";
+import { StreamerModeModal } from "@/components/StreamerModeModal";
 import { UpdateAppButton } from "@/components/UpdateAppButton";
 import { AccountModal } from "@/components/AccountModal";
 import { GuestBroadcastLimitModal } from "@/components/GuestBroadcastLimitModal";
@@ -2966,15 +2967,17 @@ export function WatchRoom({
     }
   });
 
+  // Switching it on opens the tutorial (see StreamerModeModal): the name
+  // only says "hides the code", and the OBS links are the other half of it.
+  const [streamerModeIntroOpen, setStreamerModeIntroOpen] = useState(false);
   const toggleStreamerMode = useCallback(() => {
-    setStreamerMode((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem("golive_streamer_mode", String(next));
-      } catch {}
-      return next;
-    });
-  }, []);
+    const next = !streamerMode;
+    setStreamerMode(next);
+    try {
+      localStorage.setItem("golive_streamer_mode", String(next));
+    } catch {}
+    if (next) setStreamerModeIntroOpen(true);
+  }, [streamerMode]);
 
   const canUseStreamerMode = Boolean(isRoomManager && state.account);
   const canUseObsSource = Boolean(canUseStreamerMode && streamerMode);
@@ -7532,7 +7535,6 @@ export function WatchRoom({
                           <span className="text-center text-[11px] font-semibold leading-tight">
                             {translate("watch.watchRoom.stream")}
                           </span>
-                          <span className="text-[9px] font-bold leading-none"><BetaMark /></span>
                         </div>
                         <span
                           className={`text-[9px] font-bold leading-none mt-0.5 ${
@@ -7782,6 +7784,8 @@ export function WatchRoom({
         hasAccount={Boolean(state.account)}
         onRequestAccount={() => setAccountModal("create")}
       />
+
+      <StreamerModeModal open={streamerModeIntroOpen} onClose={() => setStreamerModeIntroOpen(false)} />
 
       <ObsBrowserSourceModal
         open={Boolean(obsModalUrl)}
