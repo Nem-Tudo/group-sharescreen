@@ -3079,6 +3079,7 @@
   "videoTile.clipLast30s": "Clipar os últimos {seconds}s",
   "videoTile.startRecording": "Começar a gravar",
   "videoTile.stopRecording": "Parar gravação",
+  "videoTile.recordingIsNotified": "{nameForLabel} vai saber que você está gravando.",
   "recording.title": "Gravação",
   "recording.clipTitle": "Clipe",
   "recording.close": "Fechar",

@@ -951,7 +951,22 @@ const VideoTileView = memo(function VideoTileView({
           />
         )}
         {canRecord && (
-          <Tooltip content={recordingSince !== null ? t("videoTile.stopRecording") : t("videoTile.startRecording")}>
+          <Tooltip
+            content={
+              recordingSince !== null ? (
+                t("videoTile.stopRecording")
+              ) : recordedPeer ? (
+                // Somebody else's transmission: they are told (see
+                // lib/recordingNotice), and the recorder should know that first.
+                <span className="flex max-w-60 flex-col gap-0.5">
+                  <span>{t("videoTile.startRecording")}</span>
+                  <span className="text-xs opacity-80">{t("videoTile.recordingIsNotified", { nameForLabel })}</span>
+                </span>
+              ) : (
+                t("videoTile.startRecording")
+              )
+            }
+          >
             <button
               type="button"
               onClick={toggleRecording}
