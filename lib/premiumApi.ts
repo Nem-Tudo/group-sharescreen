@@ -126,9 +126,26 @@ export async function fetchPremiumPlan(signal?: AbortSignal): Promise<PremiumPla
  * working against a deployment that predates /premium/plans rather than
  * showing nothing at all.
  */
-export async function fetchPremiumPlans(signal?: AbortSignal): Promise<PremiumPlan[]> {
+export async function fetchPremiumPlans(
+  signal?: AbortSignal,
+  options: {
+    /**
+     * Price the plans for the signed-in reader rather than for nobody.
+     *
+     * Whether Pix costs the plan's Pix price or the subscription's is an
+     * experiment (see the API's pixPriceExperiment.ts), and only a buyer's
+     * *own* Pix purchase is part of it. So only the page that sells somebody
+     * their own plan asks for this — a gift is always charged the base price,
+     * which is exactly what the signed-out list shows.
+     */
+    personal?: boolean;
+  } = {}
+): Promise<PremiumPlan[]> {
   try {
-    const res = await fetch(`${getSignalingHttpBase()}/premium/plans`, { signal });
+    const res = await fetch(`${getSignalingHttpBase()}/premium/plans`, {
+      signal,
+      headers: options.personal ? authHeaders() : undefined,
+    });
     if (res.ok) {
       const data = (await res.json()) as { plans?: PremiumPlan[] };
       if (Array.isArray(data.plans) && data.plans.length > 0) return data.plans;

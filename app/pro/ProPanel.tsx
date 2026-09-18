@@ -652,14 +652,18 @@ export function ProPanel({
   /** A Pix code on screen that has not been paid yet. */
   const pixPending = Boolean(pix) && !pixPaid;
 
+  // Priced for this reader (see fetchPremiumPlans' `personal`), and read
+  // again when the account changes: the Pix price is an experiment decided per
+  // account, so the numbers on the buttons belong to whoever is signed in.
+  const accountId = account?.id ?? null;
   useEffect(() => {
     const controller = new AbortController();
-    void fetchPremiumPlans(controller.signal).then((loaded) => {
+    void fetchPremiumPlans(controller.signal, { personal: true }).then((loaded) => {
       setPlans(loaded);
       setLoadingPlan(false);
     });
     return () => controller.abort();
-  }, []);
+  }, [accountId]);
 
   // Re-reads the subscription from its provider (through the API) and pulls
   // the account down again, so `features` and the copy below reflect it.
