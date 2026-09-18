@@ -57,6 +57,7 @@ import { copyText } from "@/lib/clipboard";
 import { openContextMenu } from "@/lib/contextMenu";
 import { useEmojiAutocomplete } from "@/lib/useEmojiAutocomplete";
 import { ChatImageModal, type ChatImagePreviewState } from "@/components/ChatImageModal";
+import { UserProfileDialog } from "@/components/UserProfileDialog";
 import {
   CHAT_IMAGE_MAX_PER_MESSAGE,
   isSupportedChatImage,
@@ -1105,6 +1106,10 @@ export function DirectMessagesModal({
   const [error, setError] = useState<Tagged<string> | null>(null);
   const [gifOpen, setGifOpen] = useState(false);
   const [imageModalPreview, setImageModalPreview] = useState<ChatImagePreviewState | null>(null);
+  // Whose profile is open over the conversation. Opened from the names — the
+  // thread's header and the conversation list — and nowhere else: a whole row
+  // that opened a profile would fire on every attempt to open the thread.
+  const [profileId, setProfileId] = useState<string | null>(null);
   // The reaction picker that is open, as "<message id>:<where>".
   const [pickerFor, setPickerFor] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -2348,13 +2353,20 @@ export function DirectMessagesModal({
       <div className="flex min-w-0 flex-1 items-center gap-2.5" onContextMenu={threadHeaderMenu}>
         <UserAvatar src={active.avatarUrl} name={active.displayName} size={34} userId={active.id} className="shrink-0" />
         <div className="min-w-0">
-          <DisplayUserName
-            name={active.displayName}
-            verified={verifiedBadge(active.flags)}
-            bot={active.bot}
-            color={active.nameColor ?? null}
-            className="block truncate text-sm font-semibold text-zinc-950 dark:text-zinc-50"
-          />
+          <button
+            type="button"
+            onClick={() => setProfileId(active.id)}
+            title={t("common.viewProfile")}
+            className="block max-w-full cursor-pointer text-left hover:underline"
+          >
+            <DisplayUserName
+              name={active.displayName}
+              verified={verifiedBadge(active.flags)}
+              bot={active.bot}
+              color={active.nameColor ?? null}
+              className="block truncate text-sm font-semibold text-zinc-950 dark:text-zinc-50"
+            />
+          </button>
           {otherTyping ? (
             <span className="block truncate text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
               {t("directMessagesModal.typing")}
@@ -2478,15 +2490,37 @@ export function DirectMessagesModal({
                   <UserAvatar src={user.avatarUrl} name={user.displayName} size={40} userId={user.id} className="shrink-0" />
                   <span className="min-w-0 flex-1">
                     <span className="flex items-baseline gap-2">
-                      <DisplayUserName
-                        name={user.displayName}
-                        verified={verifiedBadge(user.flags)}
-                        bot={user.bot}
-                        color={user.nameColor ?? null}
-                        className={`min-w-0 flex-1 truncate text-sm text-zinc-900 dark:text-zinc-100 ${
-                          unread > 0 ? "font-semibold" : "font-medium"
-                        }`}
-                      />
+                      {/* A span rather than a button: this row is already
+                          one, and a button inside a button is not valid
+                          markup (and browsers disagree about the clicks).
+                          The click is kept off the row so the name opens the
+                          profile and everything else opens the thread. */}
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        title={t("common.viewProfile")}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setProfileId(user.id);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key !== "Enter" && e.key !== " ") return;
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setProfileId(user.id);
+                        }}
+                        className="min-w-0 flex-1 cursor-pointer hover:underline"
+                      >
+                        <DisplayUserName
+                          name={user.displayName}
+                          verified={verifiedBadge(user.flags)}
+                          bot={user.bot}
+                          color={user.nameColor ?? null}
+                          className={`block truncate text-sm text-zinc-900 dark:text-zinc-100 ${
+                            unread > 0 ? "font-semibold" : "font-medium"
+                          }`}
+                        />
+                      </span>
                       <span
                         className={`shrink-0 text-[11px] ${
                           unread > 0 ? "font-semibold text-emerald-600 dark:text-emerald-400" : "text-zinc-400"
@@ -2939,6 +2973,9 @@ export function DirectMessagesModal({
           lived in the backdrop every click on the enlarged picture — including
           the one that closes it — also closed the whole conversation. */}
       <ChatImageModal preview={imageModalPreview} onClose={() => setImageModalPreview(null)} />
+      {/* Its own portal, over this one, so it works the same in the popup and
+          in the expanded layout. */}
+      {profileId && <UserProfileDialog key={profileId} userId={profileId} onClose={() => setProfileId(null)} />}
     </>,
     docked && outlet ? outlet : document.body
   );
