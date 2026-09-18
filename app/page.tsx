@@ -44,7 +44,6 @@ import { prewarmCaptcha } from "@/lib/turnstile";
 import { MdLock, MdOutlineMap } from "react-icons/md";
 import { SocialLinks } from "@/components/SocialLinks";
 import { SiteHeader } from "@/components/SiteHeader";
-import { AdsterraBanner } from "@/components/AdsterraBanner";
 import { HomeFriendsPanel } from "@/components/HomeFriendsPanel";
 import { HomeSeoContent } from "@/components/HomeSeoContent";
 import { Tooltip } from "@/components/Tooltip";
@@ -977,10 +976,6 @@ export default function Home() {
               instead of drifting to the right edge on a wide screen. */}
           <HomeFriendsPanel className="h-full lg:max-h-[var(--home-form-h)] xl:justify-self-start" />
         </div>
-        {/* Below the form rather than above it: somebody landing here came to
-          type a room name, and a slot between the headline and that field
-          would be standing in the way of the one thing this page does. */}
-        <AdsterraBanner className="mt-6" />
         {/* No heading on this one: the home page is a form someone came here to
           fill in, and three handles under it explain themselves. */}
         {/* On a phone these live on the Você tab (app/me), with the rest of

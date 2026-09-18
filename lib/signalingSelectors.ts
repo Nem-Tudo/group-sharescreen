@@ -25,7 +25,7 @@ export const selectChatMessages = (s: SignalingState) => s.chatMessages;
 export const selectVideoSources = (s: SignalingState) => s.videoSources;
 export const selectAlertTarget = (s: SignalingState) => s.alertTarget;
 export const selectSocialSeq = (s: SignalingState) => s.socialSeq;
-export const selectAdsterraEnabled = (s: SignalingState) => s.adsterraEnabled;
+export const selectAdsEnabled = (s: SignalingState) => s.adsEnabled;
 export const selectDesktopUpdateSeq = (s: SignalingState) => s.desktopUpdateSeq;
 export const selectRecentDms = (s: SignalingState) => s.recentDms;
 export const selectDmSeq = (s: SignalingState) => s.dmSeq;

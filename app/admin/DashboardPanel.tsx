@@ -6,7 +6,7 @@ import { ConnectionQualityPanel } from "./ConnectionQualityPanel";
 import { CloudflareTurnPanel } from "./CloudflareTurnPanel";
 import { AnnouncementPanel } from "./AnnouncementPanel";
 import { PartnerAdsPanel } from "./PartnerAdsPanel";
-import { AdsterraPanel } from "./AdsterraPanel";
+import { MonetagPanel } from "./MonetagPanel";
 import { GrantPremiumPanel } from "./GrantPremiumPanel";
 import { GiftPanel } from "./GiftPanel";
 import { CancellationsPanel } from "./CancellationsPanel";
@@ -170,7 +170,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     Panel: () => (
       <Group>
         <PartnerAdsPanel />
-        <AdsterraPanel />
+        <MonetagPanel />
       </Group>
     ),
   },

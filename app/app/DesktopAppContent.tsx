@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { AdsterraBanner } from "@/components/AdsterraBanner";
 import { FaApple, FaGithub, FaLinux, FaWindows } from "react-icons/fa";
 import {
   MdCheck,
@@ -472,7 +471,6 @@ export function DesktopAppContent({ version }: { version: string | null }) {
       <footer
         className={`${sectionClass} pb-16 text-center text-xs text-zinc-400 dark:text-zinc-600`}
       >
-        <AdsterraBanner className="mb-10" />
         <SocialLinks className="mb-8" />
         <p>
           <Link

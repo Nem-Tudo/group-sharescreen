@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { UserProfileCard } from "@/components/UserProfileCard";
 import { useProfileSongAutoplay } from "@/lib/profileSong";
-import { AdsterraNative } from "@/components/AdsterraNative";
 import { useT } from "@/lib/useI18n";
 
 // The standalone profile page. Everything that is actually *the profile* now
@@ -32,7 +31,6 @@ export function UserProfileClient({ id }: { id: string }) {
               purpose. The room's popup passes nothing and gets a play button. */}
           <UserProfileCard id={id} autoPlaySong={autoplay} />
         </div>
-        <AdsterraNative className="mt-8" />
       </main>
     </div>
   );

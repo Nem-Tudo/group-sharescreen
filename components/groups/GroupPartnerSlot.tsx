@@ -1,23 +1,14 @@
 "use client";
 
 import { useState, useSyncExternalStore } from "react";
-import { AdsterraBanner } from "@/components/AdsterraBanner";
-import { AdsterraNative } from "@/components/AdsterraNative";
 import { PartnerCard, PartnerCardMinimized } from "@/components/PartnerCard";
-import { ChevronUpIcon } from "@/components/icons";
 import { useAuth } from "@/lib/AuthContext";
 import { accountTierOf, tierAtLeast } from "@/lib/entitlements";
-import { NATIVE_BANNER } from "@/lib/adsterra";
-import { useAdsterraBlocked } from "@/lib/adsterraFill";
-import { useAdsterraAvailable } from "@/lib/useAdsAllowed";
-import { useAdRotation } from "@/lib/useAdRotation";
 import { usePartnerAd } from "@/lib/usePartnerAd";
 import { useT } from "@/lib/useI18n";
 
 // The ad square under a group's rooms — the same slot a room has under its
-// participant list, and the same arrangement in it: the partner and Adsterra
-// taking turns a minute at a time, with the partner keeping the slot to itself
-// whenever Adsterra cannot actually fill it (see WatchRoom, which this mirrors).
+// participant list (see WatchRoom, which this mirrors).
 //
 // Lives in the group shell rather than in the call, so it is on screen for the
 // whole of a group — reading a text room included — and the call inside a
@@ -104,20 +95,9 @@ export function GroupPartnerSlot({
   // on the house ad that pitch is about, whoever's turn it was — until its
   // "Voltar", or until it is folded again.
   const [pitch, setPitch] = useState(false);
-  // The column is the room's 300px sidebar, where only the fluid native unit
-  // is worth anything — the fixed banner is the fallback when there is none.
-  const hasValidNative = Boolean(
-    NATIVE_BANNER &&
-      !NATIVE_BANNER.src.includes("localhost") &&
-      !NATIVE_BANNER.src.includes("127.0.0.1")
-  );
-  const format = hasValidNative ? "native" : "banner";
-  const adsterraBlocked = useAdsterraBlocked();
-  const adsterraReady = useAdsterraAvailable(format) && !adsterraBlocked;
-  const showAdsterra = useAdRotation(adsterraReady && !hidden && !pitch);
   // Not visible while folded, so a folded ad counts no impressions — nor while
   // the house ad is standing in for it.
-  const { rawPartner, loaded } = usePartnerAd({ visible: !showAdsterra && !hidden && !pitch });
+  const { rawPartner, loaded } = usePartnerAd({ visible: !hidden && !pitch });
   const dismiss = canDismiss
     ? () => {
         setPitch(false);
@@ -154,35 +134,6 @@ export function GroupPartnerSlot({
     );
   }
 
-  if (showAdsterra) {
-    // In a box that gives way to the rooms above it and scrolls what no longer
-    // fits (see the shell). `empty:hidden`, so a unit that renders nothing
-    // leaves no gap behind in the column either.
-    return (
-      // The button sits beside the unit rather than in its box, so the box can
-      // still be `empty:hidden` — and the whole slot goes with it (`has-`).
-      <div className="relative flex min-h-0 flex-col has-[>div:empty]:hidden">
-        <div className="min-h-0 overflow-y-auto empty:hidden">
-          {format === "native" ? (
-            <AdsterraNative label={false} maxHeight={280} />
-          ) : (
-            <AdsterraBanner slot="room" />
-          )}
-        </div>
-        {dismiss && (
-          <button
-            type="button"
-            onClick={dismiss}
-            aria-label={t("partnerCard.collapseAd")}
-            title={t("partnerCard.collapseAd")}
-            className="absolute right-1.5 top-1.5 z-10 flex h-6 w-6 cursor-pointer items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80"
-          >
-            <ChevronUpIcon className="h-3.5 w-3.5 rotate-180" />
-          </button>
-        )}
-      </div>
-    );
-  }
   // Not in that box: the card sizes itself to the column it is in — capped at
   // what the rooms leave it, scrolling past that — and a wrapper would be the
   // column it measured.

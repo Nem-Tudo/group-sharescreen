@@ -17,7 +17,6 @@ import { ThemeMenuButton } from "@/components/ThemeToggle";
 import { UpdateAppButton } from "@/components/UpdateAppButton";
 import { CameraIcon, MicIcon, ScreenIcon, VideoSourceIcon } from "@/components/icons";
 import { roomCategory } from "@/lib/roomCategories";
-import { AdsterraNative } from "@/components/AdsterraNative";
 import { useI18n } from "@/lib/useI18n";
 import { translate, translateCount } from "@/lib/i18n";
 import { RoomsViewSwitch } from "@/components/RoomsViewSwitch";
@@ -234,13 +233,6 @@ export function RoomsPageClient() {
             </p>
           )}
 
-          {/* Above the list rather than after it, and outside the <ul> rather
-              than as a row in it: a native unit is built to look like the
-              content around it, so one dropped between two rooms would read
-              as a room. It takes no space at all until it has an ad — see
-              AdsterraNative's placeholder — so an empty one leaves the list
-              exactly where it was. */}
-          <AdsterraNative className="mb-4" />
 
           <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {filtered.map((room) => {

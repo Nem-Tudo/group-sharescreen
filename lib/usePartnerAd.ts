@@ -17,10 +17,9 @@ const ROTATE_INTERVAL_MS = 3 * 60 * 1000;
  * that — the first fetch, the rotation, live admin edits, expiry, and the two
  * counters the admin panel reads.
  *
- * `visible` is what the slot's other tenant made necessary. The card now
- * shares its square with Adsterra and is off screen roughly half the time
- * (see useAdRotation), and two things here are only correct while somebody
- * can actually see the ad: an impression, and spending a serve on a
+ * `visible` says whether the slot is on screen (a folded group ad, a call
+ * layout). Two things here are only correct while somebody can actually see
+ * the ad: an impression, and spending a serve on a
  * rotation. Both are already withheld from a hidden *tab*; a hidden *slot* is
  * the same fact arriving a level down, so it goes through the same gates.
  */
@@ -71,7 +70,7 @@ export function usePartnerAd({ visible = true }: { visible?: boolean } = {}) {
     visibleRef.current = visible;
   }, [visible]);
 
-  // A tick that landed while Adsterra had the slot. Deferred rather than
+  // A tick that landed while the slot was hidden. Deferred rather than
   // dropped, which is the difference between "rotates every three minutes"
   // and "rotates every six": with a one-minute swap, half of all ticks fall on
   // a minute this card is not on screen, and skipping those outright would

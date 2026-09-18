@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useSignalingSelector } from "@/lib/useSignalingSelector";
-import { selectAdsterraEnabled } from "@/lib/signalingSelectors";
+import { selectAdsEnabled } from "@/lib/signalingSelectors";
 import { getSignalingHttpBase } from "@/lib/roomsApi";
 
-// The admin panel's on/off switch for the Adsterra slots, as the site sees it.
+// The admin panel's on/off switch for ads (Monetag), as the site sees it. The
+// API still calls the field `adsterraEnabled`.
 //
 // Two sources, and both are needed for the switch to behave the way somebody
 // pressing it expects:
@@ -54,13 +55,13 @@ async function loadAdsConfig(): Promise<boolean | null> {
 }
 
 /**
- * Whether the Adsterra slots are switched on.
+ * Whether ads are switched on.
  *
  * Returns true until told otherwise — see loadAdsConfig on why the failure
  * direction is "show them".
  */
-export function useAdsterraEnabled(): boolean {
-  const live = useSignalingSelector(selectAdsterraEnabled);
+export function useAdsEnabled(): boolean {
+  const live = useSignalingSelector(selectAdsEnabled);
   const [fetched, setFetched] = useState<boolean | null>(cachedEnabled);
 
   useEffect(() => {

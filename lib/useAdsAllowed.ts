@@ -3,8 +3,7 @@
 import { useSyncExternalStore } from "react";
 import { useAuth } from "@/lib/AuthContext";
 import { isDesktopApp, isMobileApp } from "@/lib/desktop";
-import { DESKTOP_BANNER, MOBILE_BANNER, NATIVE_BANNER, ROOM_BANNER } from "@/lib/adsterra";
-import { useAdsterraEnabled } from "@/lib/useAdsterraEnabled";
+import { useAdsEnabled } from "@/lib/useAdsEnabled";
 
 // "Is this running in the browser yet?", without a setState in an effect.
 // The server snapshot is false and the client one is true, so the first
@@ -26,11 +25,9 @@ function useHydrated(): boolean {
  *
  * Three independent reasons not to, and each is a different kind of no:
  *
- *   - the deployment configured no slots, which is the default and makes the
- *     whole feature inert;
  *   - an admin switched the network off from the admin panel. Live, so a slot
  *     empties on every open tab the moment the button is pressed — see
- *     useAdsterraEnabled;
+ *     useAdsEnabled;
  *   - the account pays (the `no_ads` entitlement, resolved server-side like
  *     every other one — see the API's entitlements.ts). Not decided from the
  *     subscription's fields here: the client's job is to ask what an account
@@ -48,30 +45,10 @@ function useHydrated(): boolean {
 export function useAdsAllowed(): boolean {
   const { account, loading } = useAuth();
   const hydrated = useHydrated();
-  const switchedOn = useAdsterraEnabled();
+  const switchedOn = useAdsEnabled();
 
   if (!hydrated || loading) return false;
   if (!switchedOn) return false;
-  if (!DESKTOP_BANNER && !MOBILE_BANNER && !ROOM_BANNER && !NATIVE_BANNER) return false;
   if (isDesktopApp() || isMobileApp()) return false;
   return !account?.features?.includes("no_ads");
-}
-
-/**
- * Whether an Adsterra slot of `format` would actually paint something.
- *
- * `useAdsAllowed` answers "may this viewer be shown ads"; this adds the other
- * half — "is a unit of this shape configured at all". Both are needed before
- * anything *alternates* with the house ad (see useAdRotation): a slot that
- * rotates onto a network with no key would leave the room's own ad blank for
- * a minute at a time, which is worse than never rotating.
- */
-export function useAdsterraAvailable(format: "banner" | "native"): boolean {
-  const allowed = useAdsAllowed();
-  if (!allowed) return false;
-  // The banner component falls back between the units, so either one is
-  // enough for it to render something.
-  return format === "native"
-    ? NATIVE_BANNER !== null
-    : DESKTOP_BANNER !== null || MOBILE_BANNER !== null || ROOM_BANNER !== null;
 }

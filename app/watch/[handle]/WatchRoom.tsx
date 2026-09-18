@@ -132,12 +132,6 @@ import { CallStage, type CallStagePerson } from "@/components/CallStage";
 import { NotificationInboxBell } from "@/components/NotificationInboxBell";
 import { PartnerCard } from "@/components/PartnerCard";
 import { QualitySelect } from "@/components/QualitySelect";
-import { AdsterraBanner } from "@/components/AdsterraBanner";
-import { AdsterraNative } from "@/components/AdsterraNative";
-import { NATIVE_BANNER } from "@/lib/adsterra";
-import { useAdRotation } from "@/lib/useAdRotation";
-import { useAdsterraBlocked } from "@/lib/adsterraFill";
-import { useAdsterraAvailable } from "@/lib/useAdsAllowed";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { CreateAccountForm } from "@/components/CreateAccountForm";
 import { LoginForm } from "@/components/LoginForm";
@@ -1918,31 +1912,6 @@ export function WatchRoom({
     previousNameRef.current = state.name;
   }, [state.name, renaming]);
 
-  // The room has one ad square and two advertisers for it, so they take
-  // turns — a minute each (see useAdRotation). Which Adsterra unit is in play
-  // depends on the layout: the wide sidebar is 256px, where only the fluid
-  // native format is worth anything, and below lg the slot is a strip beside
-  // the partner card, which is a fixed banner.
-  const hasValidNative = Boolean(
-    NATIVE_BANNER &&
-      !NATIVE_BANNER.src.includes("localhost") &&
-      !NATIVE_BANNER.src.includes("127.0.0.1")
-  );
-  const adsterraFormat = isWideLayout && hasValidNative ? "native" : "banner";
-  // An ad blocker ends the arrangement: the slot goes back to being the
-  // partner's alone, exactly as it was before Adsterra was added here. Worth
-  // being explicit about, because the alternative is the failure mode this
-  // whole check exists to avoid — the room's own paying ad disappearing for a
-  // minute at a time to make room for a blank rectangle.
-  //
-  // Learned rather than guessed: the first Adsterra turn reports whether
-  // anything was actually drawn (see fillProbeScript), and a blocker that
-  // refuses the request outright is caught in milliseconds by the script
-  // tag's own onerror, so in practice the slot never visibly empties.
-  const adsterraBlocked = useAdsterraBlocked();
-  const adsterraReady = useAdsterraAvailable(adsterraFormat) && !adsterraBlocked;
-  const showAdsterra = useAdRotation(adsterraReady);
-
   // The participant list and the ad under it, folded away to give the video
   // their width. In a group the room has no such column of its own, and this is
   // the group's instead — its rail of groups and its rooms column, with the ad
@@ -1970,7 +1939,7 @@ export function WatchRoom({
     // rooms column does (see GroupPartnerSlot) — so this one must not count;
     // not until that column is folded away, when the ad is this room's to draw.
   } = usePartnerAd({
-    visible: visible && !showAdsterra && !callLayout && !(group && isWideLayout && !leftSidebarCollapsed),
+    visible: visible && !callLayout && !(group && isWideLayout && !leftSidebarCollapsed),
   });
   // A Pro Max subscriber may close the group's ad (see GroupPartnerSlot); the
   // one this room draws in its place is the same ad, and stays closed with it.
@@ -6984,23 +6953,7 @@ export function WatchRoom({
                   beside up to five status icons. */}
               <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-2">{participantsList}</div>
             </div>
-            {/* One at a time, not both: two ads stacked in this column
-                read as a page made of advertising. Swapped rather than
-                hidden, so each turn is a fresh creative. */}
-            {showAdsterra ? (
-              adsterraFormat === "native" ? (
-                // Capped to roughly the fixed banner it alternates with: this
-                // column has a participants list above it and a fixed height,
-                // so an ad that decides its own size decides how much of the
-                // room is left — uncapped it stacked its cards 1200px tall and
-                // covered everything under it.
-                <AdsterraNative className="shrink-0" label={false} maxHeight={280} />
-              ) : (
-                <AdsterraBanner slot="room" className="shrink-0" />
-              )
-            ) : (
-              <PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />
-            )}
+            <PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />
           </aside>
         )}
 
@@ -7369,16 +7322,8 @@ export function WatchRoom({
 
                 Below lg the room is a fixed-height shell, which makes this
                 band the one slot on the site that costs somebody video area
-                rather than page — and that is exactly why the two advertisers
-                take turns here instead of stacking. A 320x50 is what the
-                budget affords on the Adsterra minute; see
-                NEXT_PUBLIC_ADSTERRA_BANNER_MOBILE_KEY. */}
-            {!callLayout &&
-              (showAdsterra ? (
-                <AdsterraBanner slot="room" className="shrink-0" />
-              ) : (
-                <PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />
-              ))}
+                rather than page. */}
+            {!callLayout && <PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />}
 
             {mobilePanel && (
               <section

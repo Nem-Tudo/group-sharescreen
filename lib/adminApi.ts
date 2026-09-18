@@ -389,19 +389,20 @@ export async function setCloudflareTurnEnabled(enabled: boolean): Promise<Cloudf
   });
 }
 
-// The Adsterra kill switch (see the API's adsConfig.ts). Reading it needs no
+// The ads (Monetag) kill switch (see the API's adsConfig.ts, which still calls
+// the field `adsterraEnabled`). Reading it needs no
 // admin rights — it is the same value every visitor's page already fetches to
 // decide whether to render a slot — so this goes to the public route rather
 // than minting an admin-only mirror of it. Writing it is admin-only, and the
 // API pushes the new value down every open socket before answering.
-export async function fetchAdsterraEnabled(): Promise<boolean> {
+export async function fetchAdsEnabled(): Promise<boolean> {
   const res = await fetch(`${getSignalingHttpBase()}/ads/config`);
   if (!res.ok) throw new Error(translate("adminApi.couldNotReadTheAdSettings"));
   const data = (await res.json()) as { adsterraEnabled?: unknown };
   return data.adsterraEnabled !== false;
 }
 
-export async function setAdsterraEnabled(enabled: boolean): Promise<boolean> {
+export async function setAdsEnabled(enabled: boolean): Promise<boolean> {
   const data = await adminFetch<{ adsterraEnabled: boolean }>("/admin/ads/config", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },

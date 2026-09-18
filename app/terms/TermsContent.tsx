@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { AdsterraBanner } from "@/components/AdsterraBanner";
 import { translate } from "@/lib/i18n";
 
 const sectionClass = "mt-8 first:mt-0";
@@ -212,8 +211,6 @@ export function TermsContent() {
         <p className="mt-10 text-xs text-zinc-400 dark:text-zinc-600">
           {translate("terms.lastUpdated23August2026")}
         </p>
-
-        <AdsterraBanner className="mt-10" />
       </main>
     </div>
   );

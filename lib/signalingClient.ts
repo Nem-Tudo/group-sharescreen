@@ -564,13 +564,14 @@ export type SignalingState = {
   // said null" — both look identical as a bare `partner: null` otherwise.
   partner: Partner | null;
   partnerSeq: number;
-  // Whether the Adsterra slots are switched on (see the API's /ads/config and
-  // the admin panel's AdsterraPanel). Same fetch-over-HTTP-then-live-update
+  // Whether ads (Monetag) are switched on (see the API's /ads/config and the
+  // admin panel's MonetagPanel). The API still names the field
+  // `adsterraEnabled` on the wire. Same fetch-over-HTTP-then-live-update
   // shape as `partner` above, and the same reason for the counter: null here
   // means "nothing has told us yet, keep whatever HTTP said" rather than
   // "off", which matters because turning ads off has to look different from
   // not having asked yet.
-  adsterraEnabled: boolean | null;
+  adsEnabled: boolean | null;
   adsConfigSeq: number;
   // Bumped whenever anything about this account's friends or blocks changes,
   // from any device (see the API's socialRoutes notifyPair). A counter, not
@@ -858,7 +859,7 @@ const initialState: SignalingState = {
   announcementSeq: 0,
   partner: null,
   partnerSeq: 0,
-  adsterraEnabled: null,
+  adsEnabled: null,
   adsConfigSeq: 0,
   socialSeq: 0,
   lastGift: null,
@@ -2372,7 +2373,7 @@ class SignalingClient {
       }
       case "ads-config":
         this.setState({
-          adsterraEnabled:
+          adsEnabled:
             typeof msg.adsterraEnabled === "boolean" ? msg.adsterraEnabled : null,
           adsConfigSeq: this.state.adsConfigSeq + 1,
         });

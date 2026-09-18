@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { fetchAdsterraEnabled, setAdsterraEnabled } from "@/lib/adminApi";
+import { fetchAdsEnabled, setAdsEnabled } from "@/lib/adminApi";
 import { useT } from "@/lib/useI18n";
 
-// The Adsterra kill switch.
+// The Monetag switch: turns the site's ad network on and off.
 //
 // Live in both directions: the API pushes the new value down every open
 // socket before it answers this request (see broadcastAdsConfig), so slots
@@ -15,7 +15,7 @@ import { useT } from "@/lib/useI18n";
 // two different advertisers sharing one square in the room, and switching off
 // the network that pays per impression should hand the slot back to the ad
 // the room sold itself — not leave the room with no ad at all.
-export function AdsterraPanel() {
+export function MonetagPanel() {
   const t = useT();
   // undefined = still loading the current state from the server.
   const [enabled, setEnabled] = useState<boolean | undefined>(undefined);
@@ -24,13 +24,13 @@ export function AdsterraPanel() {
 
   useEffect(() => {
     let cancelled = false;
-    fetchAdsterraEnabled()
+    fetchAdsEnabled()
       .then((value) => {
         if (!cancelled) setEnabled(value);
       })
       .catch(() => {
         // Matches what the site itself assumes when the config cannot be
-        // read (see lib/useAdsterraEnabled.ts): on. A panel that showed
+        // read (see lib/useAdsEnabled.ts): on. A panel that showed
         // "Desativado" after a failed read would be reporting a state the
         // visitors are not in.
         if (!cancelled) setEnabled(true);
@@ -45,7 +45,7 @@ export function AdsterraPanel() {
     setSaving(true);
     setError(null);
     try {
-      setEnabled(await setAdsterraEnabled(!enabled));
+      setEnabled(await setAdsEnabled(!enabled));
     } catch (err) {
       setError(err instanceof Error ? err.message : t("common.couldNotUpdate"));
     } finally {
@@ -56,13 +56,13 @@ export function AdsterraPanel() {
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
       <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
-        {t("admin.adsterraPanel.adsterraAds")}
+        {t("admin.monetagPanel.title")}
       </h2>
       <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-        {t("admin.adsterraPanel.turnsTheNetworkSAdsOn")}
+        {t("admin.monetagPanel.description")}
       </p>
       <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-        {t("admin.adsterraPanel.itDoesNotTouchThePartner")}
+        {t("admin.monetagPanel.partnerNote")}
       </p>
 
       <div className="mt-3 flex items-center gap-3">
@@ -80,8 +80,8 @@ export function AdsterraPanel() {
             : saving
               ? t("common.saving")
               : enabled
-                ? t("admin.adsterraPanel.enabled")
-                : t("admin.adsterraPanel.disabled")}
+                ? t("admin.monetagPanel.enabled")
+                : t("admin.monetagPanel.disabled")}
         </button>
         {error && <span className="text-sm text-red-500">{error}</span>}
       </div>
