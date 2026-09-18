@@ -2506,6 +2506,7 @@
   "pro.proPanel.subscriptionsAreUnavailableAtTheMoment": "As assinaturas estão indisponíveis no momento.",
   "pro.proPanel.theCardPaymentWasDeclined": "O pagamento no cartão foi recusado.",
   "pro.proPanel.theLastPaymentWasNotCompleted": "O último pagamento não foi concluído.",
+  "pro.proPanel.subscriptionIsCheaperThanPix": "Assinando sai mais barato: {price}, com renovação automática e cancelamento quando quiser. No Pix ({pix}) você paga {percent}% a mais e precisa comprar de novo quando acabar.",
   "pro.proPanel.thePaymentIsProcessedByMercado": "O pagamento é processado por um provedor externo. A cobrança é recorrente e pode ser cancelada a qualquer momento.",
   "pro.proPanel.upgradeFor": "Fazer upgrade por {value}",
   "pro.proPanel.upgradeNow": "Faça upgrade agora e pague só a diferença proporcional aos dias que já restam do seu plano atual — sem perder nada do que já pagou.",

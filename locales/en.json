@@ -2506,6 +2506,7 @@
   "pro.proPanel.subscriptionsAreUnavailableAtTheMoment": "Subscriptions are unavailable at the moment.",
   "pro.proPanel.theCardPaymentWasDeclined": "The card payment was declined.",
   "pro.proPanel.theLastPaymentWasNotCompleted": "The last payment was not completed.",
+  "pro.proPanel.subscriptionIsCheaperThanPix": "Subscribing is cheaper: {price}, renewing on its own and cancellable any time. With Pix ({pix}) you pay {percent}% more and have to buy again when it runs out.",
   "pro.proPanel.thePaymentIsProcessedByMercado": "The payment is processed by an external provider. The charge recurs and can be cancelled at any time.",
   "pro.proPanel.upgradeFor": "Upgrade for {value}",
   "pro.proPanel.upgradeNow": "Upgrade now and pay only the prorated difference for the days left on your current plan — you keep everything you already paid for.",

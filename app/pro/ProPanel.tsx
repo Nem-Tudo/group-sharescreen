@@ -173,6 +173,41 @@ function navigateTab(tab: Window, url: string): boolean {
   }
 }
 
+/**
+ * How much more Pix costs than subscribing, for one cycle — the whole percent,
+ * rounded, or 0 when Pix is not dearer. Per cycle because both sides scale
+ * together (a year is ten months of each), so this is the same number somebody
+ * would get dividing the two labels on the buttons.
+ */
+function pixSurcharge(pricing: { priceCents: number; pixPriceCents: number } | null): number {
+  if (!pricing || pricing.priceCents <= 0 || pricing.pixPriceCents <= pricing.priceCents) return 0;
+  return Math.round(((pricing.pixPriceCents - pricing.priceCents) / pricing.priceCents) * 100);
+}
+
+/** The nudge towards subscribing, shown only when Pix is priced above it. */
+function PixSurchargeNotice({
+  percent,
+  priceLabel,
+  pixPriceLabel,
+  yearly,
+}: {
+  percent: number;
+  priceLabel: string;
+  pixPriceLabel: string;
+  yearly: boolean;
+}) {
+  const t = useT();
+  return (
+    <p className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-200">
+      {t("pro.proPanel.subscriptionIsCheaperThanPix", {
+        percent,
+        price: `${priceLabel}${yearly ? "/ano" : t("pro.proPanel.month2")}`,
+        pix: pixPriceLabel,
+      })}
+    </p>
+  );
+}
+
 export function ProPanel({
   isModal = false,
   initialPlanId,
@@ -262,6 +297,7 @@ export function ProPanel({
           periodDays: 30,
         }
       : null);
+  const pixSurchargePercent = pixSurcharge(pricing);
   const [loadingPlan, setLoadingPlan] = useState(true);
   // The comparison-table experiment (see PlanComparison). Nothing plan-shaped
   // is drawn until it is decided, so nobody sees one layout flip to the other.
@@ -312,6 +348,11 @@ export function ProPanel({
   // want of it, and never before.
   const [needsTaxId, setNeedsTaxId] = useState(false);
   const [taxId, setTaxId] = useState("");
+  // Cancelling is a dialog now, not a button: four questions, all required,
+  // and then the confirmation — see CancelSurveyDialog for why the friction is
+  // deliberate and why it is not a retention wall.
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   // The checkout that is open somewhere else right now, or null. Holding the
   // URL rather than a boolean is what lets the indicator offer to reopen it:
   // the window is easy to lose behind this one, and starting over would mint
@@ -943,12 +984,6 @@ export function ProPanel({
     });
   }, [generating, pix, upgradePix, onCheckoutLockChange]);
 
-  // Cancelling is a dialog now, not a button: four questions, all required,
-  // and then the confirmation — see CancelSurveyDialog for why the friction is
-  // deliberate and why it is not a retention wall.
-  const [cancelOpen, setCancelOpen] = useState(false);
-  const [cancelError, setCancelError] = useState<string | null>(null);
-
   const handleCancel = useCallback(
     async (survey: CancelSurvey) => {
       setBusy(true);
@@ -1526,6 +1561,24 @@ export function ProPanel({
                       second mandate at the provider for a subscription already
                       waiting to be paid, and "reabrir janela" above is what
                       somebody who lost the window actually wants. */}
+                  {/* Only when the plan document actually prices Pix above
+                      the subscription (see the API's pixPriceCents) — with
+                      the two equal there is nothing to recommend, and a nudge
+                      with no reason behind it is just noise. Both prices are
+                      already on the two buttons below; this says what the
+                      difference means, which is also what the law asks of a
+                      price that depends on how somebody pays. */}
+                  {!checkoutUrl &&
+                    !pixPending &&
+                    !liveCardSub &&
+                    pixSurchargePercent > 0 && (
+                      <PixSurchargeNotice
+                        percent={pixSurchargePercent}
+                        priceLabel={pricing?.priceLabel ?? plan.priceLabel}
+                        pixPriceLabel={pricing?.pixPriceLabel ?? plan.pixPriceLabel}
+                        yearly={cycle === "yearly"}
+                      />
+                    )}
                   {!checkoutUrl && !pixPending && (
                     <div className="flex flex-wrap gap-2">
                       {/* Offered on every plan, with no "cancel first". The
