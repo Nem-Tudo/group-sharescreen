@@ -27,7 +27,10 @@ import {
   HeadphonesOffIcon,
   ObsSourceIcon,
   ChartIcon,
+  ClipIcon,
 } from "@/components/icons";
+import { ClipBuffer, clipSupported, downloadClip, CLIP_MS } from "@/lib/clipBuffer";
+import { useClipsMode } from "@/lib/clipsMode";
 import { ConnectionStatsOverlay } from "@/components/ConnectionStatsOverlay";
 import type { QualityChannel } from "@/lib/qualityNegotiation";
 import { VolumeSlider } from "@/components/VolumeSlider";
@@ -97,6 +100,7 @@ const VideoTileView = memo(function VideoTileView({
   onTogglePlay,
   connectionStats,
   badgeClassName = "bg-red-500/90",
+  clippable = true,
   className = "",
 }: {
   stream: MediaStream;
@@ -204,6 +208,10 @@ const VideoTileView = memo(function VideoTileView({
   // The badge's colour. Red by default, which reads as "live" — a video
   // source is not live in that sense and says so in its own colour.
   badgeClassName?: string;
+  // Keep a rolling buffer so "clipar os últimos 30s" can save what just
+  // happened (see lib/clipBuffer). Only while "Modo clipes" is on (see
+  // lib/clipsMode); this opts a single tile out of it.
+  clippable?: boolean;
 }) {
   const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -223,6 +231,30 @@ const VideoTileView = memo(function VideoTileView({
   const [fullscreenMouseActive, setFullscreenMouseActive] = useState(true);
   const [isPiP, setIsPiP] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
+  const clipBufferRef = useRef<ClipBuffer | null>(null);
+  const [clipping, setClipping] = useState(false);
+  const clipsMode = useClipsMode();
+  const canClip = clippable && clipsMode.active && clipSupported();
+  useEffect(() => {
+    if (!canClip || !stream) return;
+    const buffer = new ClipBuffer(stream);
+    clipBufferRef.current = buffer;
+    return () => {
+      buffer.dispose();
+      if (clipBufferRef.current === buffer) clipBufferRef.current = null;
+    };
+  }, [canClip, stream]);
+  const handleClip = async () => {
+    const buffer = clipBufferRef.current;
+    if (!buffer || clipping) return;
+    setClipping(true);
+    try {
+      const blob = await buffer.clip();
+      if (blob) downloadClip(blob, accessibleLabel ?? "GoLive clip");
+    } finally {
+      setClipping(false);
+    }
+  };
   // Video keeps showing the last frame's black backdrop until the stream
   // actually has data flowing — surface that gap as a spinner instead of a
   // blank black tile, and reset it whenever the stream is swapped out.
@@ -842,6 +874,19 @@ const VideoTileView = memo(function VideoTileView({
               ) : (
                 <SpeakerIcon className="h-5 w-5" />
               )}
+            </button>
+          </Tooltip>
+        )}
+        {canClip && (
+          <Tooltip content={t("videoTile.clipLast30s", { seconds: CLIP_MS / 1000 })}>
+            <button
+              type="button"
+              onClick={handleClip}
+              disabled={clipping}
+              aria-label={t("videoTile.clipLast30s", { seconds: CLIP_MS / 1000 })}
+              className="rounded-full bg-black/60 p-2 text-white hover:bg-black/80 active:bg-black/80 disabled:opacity-50"
+            >
+              <ClipIcon className="h-5 w-5" />
             </button>
           </Tooltip>
         )}
