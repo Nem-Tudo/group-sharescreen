@@ -433,6 +433,15 @@ export function DownloadIcon({ className }: IconProps) {
   );
 }
 
+export function RecordIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className={className} aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="4" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 export function ClipIcon({ className }: IconProps) {
   return (
     <svg

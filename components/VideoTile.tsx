@@ -28,9 +28,11 @@ import {
   ObsSourceIcon,
   ChartIcon,
   ClipIcon,
+  RecordIcon,
 } from "@/components/icons";
-import { ClipBuffer, clipSupported, downloadClip, CLIP_MS } from "@/lib/clipBuffer";
-import { useClipsMode } from "@/lib/clipsMode";
+import { RecordingModal, formatDuration } from "@/components/RecordingModal";
+import { ClipBuffer, TileRecorder, clipSupported, downloadClip, CLIP_MS } from "@/lib/clipBuffer";
+import { useTileExperiment } from "@/lib/clipsMode";
 import { ConnectionStatsOverlay } from "@/components/ConnectionStatsOverlay";
 import type { QualityChannel } from "@/lib/qualityNegotiation";
 import { VolumeSlider } from "@/components/VolumeSlider";
@@ -209,8 +211,8 @@ const VideoTileView = memo(function VideoTileView({
   // source is not live in that sense and says so in its own colour.
   badgeClassName?: string;
   // Keep a rolling buffer so "clipar os últimos 30s" can save what just
-  // happened (see lib/clipBuffer). Only while "Modo clipes" is on (see
-  // lib/clipsMode); this opts a single tile out of it.
+  // happened (see lib/clipBuffer), and allow "gravar". Each only while its
+  // experiment is on (see lib/clipsMode); this opts a single tile out of both.
   clippable?: boolean;
 }) {
   const t = useT();
@@ -233,8 +235,10 @@ const VideoTileView = memo(function VideoTileView({
   const [statsOpen, setStatsOpen] = useState(false);
   const clipBufferRef = useRef<ClipBuffer | null>(null);
   const [clipping, setClipping] = useState(false);
-  const clipsMode = useClipsMode();
+  const clipsMode = useTileExperiment("clips");
+  const recordingMode = useTileExperiment("recording");
   const canClip = clippable && clipsMode.active && clipSupported();
+  const canRecord = clippable && recordingMode.active && clipSupported();
   useEffect(() => {
     if (!canClip || !stream) return;
     const buffer = new ClipBuffer(stream);
@@ -244,6 +248,49 @@ const VideoTileView = memo(function VideoTileView({
       if (clipBufferRef.current === buffer) clipBufferRef.current = null;
     };
   }, [canClip, stream]);
+  // "Gravar": a recording from one click to the next, shown afterwards in a
+  // modal to watch back and download (see RecordingModal).
+  const recorderRef = useRef<TileRecorder | null>(null);
+  const [recordingSince, setRecordingSince] = useState<number | null>(null);
+  const [recordingNow, setRecordingNow] = useState(0);
+  const [recording, setRecording] = useState<{ blob: Blob; durationMs: number } | null>(null);
+  useEffect(() => {
+    if (recordingSince === null) return;
+    const id = setInterval(() => setRecordingNow(Date.now()), 500);
+    return () => clearInterval(id);
+  }, [recordingSince]);
+  const stopRecording = async () => {
+    const recorder = recorderRef.current;
+    recorderRef.current = null;
+    setRecordingSince(null);
+    if (!recorder) return;
+    const result = await recorder.stop();
+    if (result) setRecording(result);
+  };
+  const toggleRecording = () => {
+    if (recorderRef.current) {
+      void stopRecording();
+      return;
+    }
+    try {
+      const recorder = new TileRecorder(stream);
+      recorderRef.current = recorder;
+      setRecordingSince(recorder.startedAt);
+      setRecordingNow(recorder.startedAt);
+    } catch {
+      recorderRef.current = null;
+    }
+  };
+  // The stream going away (the share ending, the tile closing, the mode being
+  // switched off) ends the recording and still shows what was captured.
+  const stopRecordingRef = useRef(stopRecording);
+  stopRecordingRef.current = stopRecording;
+  useEffect(() => {
+    if (!canRecord) return;
+    return () => {
+      if (recorderRef.current) void stopRecordingRef.current();
+    };
+  }, [canRecord, stream]);
   const handleClip = async () => {
     const buffer = clipBufferRef.current;
     if (!buffer || clipping) return;
@@ -873,6 +920,35 @@ const VideoTileView = memo(function VideoTileView({
                 <SpeakerMuteIcon className="h-5 w-5" />
               ) : (
                 <SpeakerIcon className="h-5 w-5" />
+              )}
+            </button>
+          </Tooltip>
+        )}
+        {recording && (
+          <RecordingModal
+            blob={recording.blob}
+            durationMs={recording.durationMs}
+            name={accessibleLabel ?? "GoLive"}
+            onClose={() => setRecording(null)}
+          />
+        )}
+        {canRecord && (
+          <Tooltip content={recordingSince !== null ? t("videoTile.stopRecording") : t("videoTile.startRecording")}>
+            <button
+              type="button"
+              onClick={toggleRecording}
+              aria-label={recordingSince !== null ? t("videoTile.stopRecording") : t("videoTile.startRecording")}
+              aria-pressed={recordingSince !== null}
+              className={`flex items-center gap-1.5 rounded-full p-2 text-white active:bg-black/80 ${recordingSince !== null
+                ? "bg-red-600 hover:bg-red-700"
+                : "bg-black/60 hover:bg-black/80"
+                }`}
+            >
+              <RecordIcon className={`h-5 w-5 ${recordingSince !== null ? "animate-pulse" : ""}`} />
+              {recordingSince !== null && (
+                <span className="pr-1 text-xs font-semibold tabular-nums">
+                  {formatDuration(recordingNow - recordingSince)}
+                </span>
               )}
             </button>
           </Tooltip>

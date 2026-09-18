@@ -3,17 +3,24 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { useFeature } from "./features";
 
-// "Modo clipes" — the experiment behind the clip button on every tile (see
-// lib/clipBuffer). Two gates:
-//   - the `room-clips` feature (user target, created in the admin panel's
-//     "Features" tab — no API change), which decides who gets to see the
-//     switch at all;
-//   - the person's own switch in the room's "Mais opções", off by default,
-//     since keeping a buffer costs CPU and memory for every tile.
+// The tile experiments switched on from the room's "Mais opções":
+//   - "Modo clipes": the clip-the-last-30s button (see lib/clipBuffer);
+//   - "Gravação": the start/stop record button (see TileRecorder).
+// Each has two gates:
+//   - its feature (user target, created in the admin panel's "Features" tab —
+//     no API change), which decides who gets to see the switch at all;
+//   - the person's own switch in "Mais opções", off by default.
 
-export const CLIPS_FEATURE = "room-clips";
-const MODE_KEY = "sharescreen:clipsMode";
-const TIP_SEEN_KEY = "sharescreen:clipsTipSeen";
+export type TileExperiment = "clips" | "recording";
+
+const CONFIG: Record<TileExperiment, { feature: string; modeKey: string; tipKey: string }> = {
+  clips: { feature: "room-clips", modeKey: "sharescreen:clipsMode", tipKey: "sharescreen:clipsTipSeen" },
+  recording: {
+    feature: "room-recording",
+    modeKey: "sharescreen:recordingMode",
+    tipKey: "sharescreen:recordingTipSeen",
+  },
+};
 
 // Whether this browser had used GoLive before this page load. Read at module
 // evaluation, before anything on the page mints a device id or caches the
@@ -37,7 +44,7 @@ function emit() {
 function subscribe(listener: () => void) {
   listeners.add(listener);
   const onStorage = (event: StorageEvent) => {
-    if (event.key === MODE_KEY || event.key === TIP_SEEN_KEY) listener();
+    if (event.key?.startsWith("sharescreen:")) listener();
   };
   window.addEventListener("storage", onStorage);
   return () => {
@@ -62,32 +69,31 @@ function write(key: string, value: string) {
   emit();
 }
 
-const getMode = () => read(MODE_KEY) === "1";
-const getTipSeen = () => read(TIP_SEEN_KEY) === "1";
-
-export function setClipsMode(on: boolean) {
-  write(MODE_KEY, on ? "1" : "0");
+export function setTileExperimentMode(experiment: TileExperiment, on: boolean) {
+  write(CONFIG[experiment].modeKey, on ? "1" : "0");
 }
 
 /** The experiment and the person's switch together — what tiles check. */
-export function useClipsMode(options: { track?: boolean } = {}) {
-  const { enabled: available } = useFeature(CLIPS_FEATURE, { track: options.track ?? false });
-  const on = useSyncExternalStore(subscribe, getMode, () => false);
+export function useTileExperiment(experiment: TileExperiment, options: { track?: boolean } = {}) {
+  const { feature, modeKey } = CONFIG[experiment];
+  const { enabled: available } = useFeature(feature, { track: options.track ?? false });
+  const on = useSyncExternalStore(subscribe, () => read(modeKey) === "1", () => false);
   return { available, on, active: available && on };
 }
 
 /**
- * The blue "novo" tip on the "Mais opções" button: once, for people who
- * already used GoLive before getting the experiment. Somebody new has nothing
+ * The blue "novo" tip on the "Mais opções" button: once per experiment, for
+ * people who already used GoLive before getting it. Somebody new has nothing
  * "new" to be told about, so their first sight of it marks it as seen.
  */
-export function useClipsTip(available: boolean) {
-  const seen = useSyncExternalStore(subscribe, getTipSeen, () => true);
+export function useTileExperimentTip(experiment: TileExperiment, available: boolean) {
+  const { tipKey } = CONFIG[experiment];
+  const seen = useSyncExternalStore(subscribe, () => read(tipKey) === "1", () => true);
   useEffect(() => {
-    if (available && !seen && !wasReturning) write(TIP_SEEN_KEY, "1");
-  }, [available, seen]);
+    if (available && !seen && !wasReturning) write(tipKey, "1");
+  }, [available, seen, tipKey]);
   return {
     show: available && !seen && wasReturning,
-    dismiss: () => write(TIP_SEEN_KEY, "1"),
+    dismiss: () => write(tipKey, "1"),
   };
 }

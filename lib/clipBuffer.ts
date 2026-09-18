@@ -137,6 +137,40 @@ export class ClipBuffer {
   }
 }
 
+// A plain start/stop recording of one tile, for the "gravar" button. Unlike
+// the clip buffer this is a single recorder for as long as the person wants.
+export class TileRecorder {
+  private recorder: MediaRecorder | null;
+  private chunks: Blob[] = [];
+  readonly startedAt = Date.now();
+
+  constructor(stream: MediaStream) {
+    const mimeType = pickMimeType(stream.getAudioTracks().length > 0);
+    this.recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5_000_000 });
+    this.recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) this.chunks.push(event.data);
+    };
+    this.recorder.start(1000);
+  }
+
+  stop(): Promise<{ blob: Blob; durationMs: number } | null> {
+    const recorder = this.recorder;
+    this.recorder = null;
+    const durationMs = Date.now() - this.startedAt;
+    if (!recorder) return Promise.resolve(null);
+    const finish = () => {
+      if (!this.chunks.length) return null;
+      const type = (recorder.mimeType || "video/webm").split(";")[0];
+      return { blob: new Blob(this.chunks, { type }), durationMs };
+    };
+    if (recorder.state === "inactive") return Promise.resolve(finish());
+    return new Promise((resolve) => {
+      recorder.addEventListener("stop", () => resolve(finish()), { once: true });
+      recorder.stop();
+    });
+  }
+}
+
 export function downloadClip(blob: Blob, name: string) {
   const ext = blob.type.includes("mp4") ? "mp4" : "webm";
   const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");

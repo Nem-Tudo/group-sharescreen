@@ -178,6 +178,7 @@ import {
   SpeakerMuteIcon,
   MoreIcon,
   ClipIcon,
+  RecordIcon,
   ChevronDownIcon,
   EyeIcon,
   EyeOffIcon,
@@ -189,7 +190,7 @@ import {
 import { Tooltip, Popover } from "@/components/Tooltip";
 import { ThemeSegmented } from "@/components/ThemeToggle";
 import { MenuToggleRow } from "@/components/MenuToggleRow";
-import { setClipsMode, useClipsMode, useClipsTip } from "@/lib/clipsMode";
+import { setTileExperimentMode, useTileExperiment, useTileExperimentTip } from "@/lib/clipsMode";
 import { getRoomProOffer } from "@/components/RoomProOffer";
 import { isAppShell } from "@/lib/desktop";
 import { getProfileSongAutoplay, setProfileSongAutoplay } from "@/lib/profileSong";
@@ -1602,10 +1603,18 @@ export function WatchRoom({
   // buttons, so closing the panel also collapses whichever of them was left
   // open (see closeMenu below).
   const [menuOpen, setMenuOpen] = useState(false);
-  // "Modo clipes" experiment (see lib/clipsMode). Tracked here, where the
-  // switch is shown, rather than in every tile.
-  const clipsMode = useClipsMode({ track: true });
-  const clipsTip = useClipsTip(clipsMode.available);
+  // The tile experiments, "Modo clipes" and "Gravação" (see lib/clipsMode).
+  // Tracked here, where their switches are shown, rather than in every tile.
+  const clipsMode = useTileExperiment("clips", { track: true });
+  const recordingMode = useTileExperiment("recording", { track: true });
+  const clipsTip = useTileExperimentTip("clips", clipsMode.available);
+  const recordingTip = useTileExperimentTip("recording", recordingMode.available);
+  // One blue tip at a time; the other waits for the next visit.
+  const newFeatureTip = clipsTip.show
+    ? { ...clipsTip, text: "watch.watchRoom.clipsModeTip" }
+    : recordingTip.show
+      ? { ...recordingTip, text: "watch.watchRoom.recordingModeTip" }
+      : null;
   // Picks which shell that panel gets: a popover anchored to the button from
   // sm up, the bottom sheet below it (see menuItems further down). Reports
   // false until the first client paint, so the sheet is what a phone gets
@@ -5084,10 +5093,20 @@ export function WatchRoom({
         <MenuToggleRow
           label={translate("watch.watchRoom.clipsMode")}
           active={clipsMode.on}
-          onToggle={() => setClipsMode(!clipsMode.on)}
+          onToggle={() => setTileExperimentMode("clips", !clipsMode.on)}
           hint={translate("watch.watchRoom.clipsModeHint")}
           activeIcon={<ClipIcon className="h-4 w-4" />}
           inactiveIcon={<ClipIcon className="h-4 w-4 opacity-50" />}
+        />
+      )}
+      {recordingMode.available && (
+        <MenuToggleRow
+          label={translate("watch.watchRoom.recordingMode")}
+          active={recordingMode.on}
+          onToggle={() => setTileExperimentMode("recording", !recordingMode.on)}
+          hint={translate("watch.watchRoom.recordingModeHint")}
+          activeIcon={<RecordIcon className="h-4 w-4" />}
+          inactiveIcon={<RecordIcon className="h-4 w-4 opacity-50" />}
         />
       )}
       <MenuToggleRow
@@ -6133,14 +6152,14 @@ export function WatchRoom({
         <button
           type="button"
           onClick={() => {
-            if (clipsTip.show) clipsTip.dismiss();
+            newFeatureTip?.dismiss();
             if (menuOpen) closeMenu();
             else setMenuOpen(true);
           }}
           aria-label={translate("watch.watchRoom.moreOptions")}
           className={`shrink-0 rounded-lg border p-2 transition ${menuOpen
             ? "border-zinc-400 bg-zinc-100 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
-            : clipsTip.show
+            : newFeatureTip
               ? "border-blue-500 text-zinc-700 ring-2 ring-blue-500/40 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900"
               : "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
             }`}
@@ -6148,18 +6167,18 @@ export function WatchRoom({
           <MoreIcon className="h-5 w-5" />
         </button>
         {/* The "novo" tip: once, for people who used GoLive before getting
-            the clips experiment (see useClipsTip). */}
-        {clipsTip.show && !menuOpen && (
+            a tile experiment (see useTileExperimentTip). */}
+        {newFeatureTip && !menuOpen && (
           <span
             role="status"
             className="absolute right-0 top-full z-50 mt-2 w-60 rounded-lg bg-blue-600 px-3 py-2 text-left text-xs font-medium text-white shadow-lg"
           >
             <span className="absolute -top-1 right-3 h-2 w-2 rotate-45 bg-blue-600" />
             <span className="flex items-start gap-2">
-              <span className="flex-1">{translate("watch.watchRoom.clipsModeTip")}</span>
+              <span className="flex-1">{translate(newFeatureTip.text)}</span>
               <button
                 type="button"
-                onClick={clipsTip.dismiss}
+                onClick={newFeatureTip.dismiss}
                 aria-label={translate("watch.watchRoom.clipsModeTipDismiss")}
                 className="-m-1 rounded p-1 leading-none text-white/80 hover:text-white"
               >
