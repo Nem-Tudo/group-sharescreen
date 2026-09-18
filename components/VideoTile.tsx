@@ -104,6 +104,7 @@ const VideoTileView = memo(function VideoTileView({
   connectionStats,
   badgeClassName = "bg-red-500/90",
   clippable = true,
+  beingRecorded = false,
   className = "",
 }: {
   stream: MediaStream;
@@ -215,6 +216,9 @@ const VideoTileView = memo(function VideoTileView({
   // happened (see lib/clipBuffer), and allow "gravar". Each only while its
   // experiment is on (see lib/clipsMode); this opts a single tile out of both.
   clippable?: boolean;
+  // Our own transmission, while somebody in the room is recording it (see
+  // lib/recordingNotice): drawn with a red frame.
+  beingRecorded?: boolean;
 }) {
   const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -723,6 +727,9 @@ const VideoTileView = memo(function VideoTileView({
         fill ? "h-full" : "aspect-video"
         } ${isFullscreen && !fullscreenMouseActive ? "[@media(hover:hover)]:cursor-none" : ""} ${className}`}
     >
+      {beingRecorded && (
+        <div className="pointer-events-none absolute inset-0 z-30 rounded-xl border-[3px] border-red-600" />
+      )}
       {/* Every one of these means "there is a picture now", and any single one
           of them is enough. `loadeddata` alone used to be the only way out of
           the spinner, which made it a permanent state whenever that one event

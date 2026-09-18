@@ -1607,6 +1607,9 @@ export function WatchRoom({
   const [menuOpen, setMenuOpen] = useState(false);
   // Who is recording one of my transmissions right now (see lib/recordingNotice).
   const recordingNotices = useRecordingNotices();
+  // Which of my transmissions are being recorded — "screen", "camera", or a
+  // file slot, as the recorder's tile names it — for the red frame.
+  const recordedChannels = new Set(recordingNotices.flatMap((n) => n.channels));
   // The tile experiments, "Modo clipes" and "Gravação" (see lib/clipsMode).
   // Tracked here, where their switches are shown, rather than in every tile.
   const clipsMode = useTileExperiment("clips", { track: true });
@@ -4093,6 +4096,7 @@ export function WatchRoom({
       render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
         <VideoTile
           stream={localStream}
+          beingRecorded={recordedChannels.has("screen")}
           // Our own capture keeps running whether or not this preview is on
           // screen, so releasing it would cost a black tile on the way back and
           // save nothing on the machine that matters.
@@ -4133,6 +4137,7 @@ export function WatchRoom({
       render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
         <VideoTile
           stream={localCameraStream}
+          beingRecorded={recordedChannels.has("camera")}
           // Our own capture keeps running whether or not this preview is on
           // screen, so releasing it would cost a black tile on the way back and
           // save nothing on the machine that matters.
@@ -4182,6 +4187,7 @@ export function WatchRoom({
       render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
         <VideoTile
           stream={stream}
+          beingRecorded={recordedChannels.has(slot)}
           label={name}
           accessibleLabel={name}
           badge={translate("watch.watchRoom.youAdded")}
