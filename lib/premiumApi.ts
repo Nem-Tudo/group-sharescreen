@@ -737,7 +737,7 @@ export type CancelSurvey = {
  */
 export async function cancelPremium(
   survey: CancelSurvey
-): Promise<{ ok: boolean; error?: string; missing?: string[] }> {
+): Promise<{ ok: boolean; error?: string; missing?: string[]; reauthRequired?: boolean }> {
   try {
     const res = await fetch(`${getSignalingHttpBase()}/premium/cancel`, {
       method: "POST",
@@ -745,11 +745,18 @@ export async function cancelPremium(
       body: JSON.stringify(survey),
     });
     if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string; missing?: string[] };
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        missing?: string[];
+        reauthRequired?: boolean;
+      };
       return {
         ok: false,
         error: data.error ?? translate("common.couldNotCancelRightNow"),
         missing: data.missing,
+        // The sign-in this needs is too old — see the API's requireRecentAuth.
+        // The cancellation page answers it by showing the login step again.
+        reauthRequired: data.reauthRequired,
       };
     }
     return { ok: true };

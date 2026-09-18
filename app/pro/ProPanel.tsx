@@ -22,7 +22,6 @@ import { EARLY_SUPPORTER_CUTOFF_MS } from "@/lib/badges";
 import type { BillingCycle } from "@/lib/premiumApi";
 import { useAuth } from "@/lib/AuthContext";
 import { AccountModal, type AccountModalMode } from "@/components/AccountModal";
-import { CancelSurveyDialog } from "@/components/CancelSurveyDialog";
 import { PixChargeModal } from "@/components/PixChargeModal";
 import useNtPopups from "ntpopups";
 import { isIosDevice, isStandaloneDisplay } from "@/lib/browserEnv";
@@ -30,8 +29,6 @@ import { getDesktopBridge } from "@/lib/desktop";
 import { accountTierOf, planTierOf, tierAbove, tierAtLeast, type Feature } from "@/lib/entitlements";
 import { PUBLISHED_THEME_LIMITS } from "@/lib/roomThemes";
 import {
-  cancelPremium,
-  type CancelSurvey,
   fetchPremiumPlans,
   fetchPremiumStatus,
   fetchUpgradeQuote,
@@ -348,11 +345,6 @@ export function ProPanel({
   // want of it, and never before.
   const [needsTaxId, setNeedsTaxId] = useState(false);
   const [taxId, setTaxId] = useState("");
-  // Cancelling is a dialog now, not a button: four questions, all required,
-  // and then the confirmation — see CancelSurveyDialog for why the friction is
-  // deliberate and why it is not a retention wall.
-  const [cancelOpen, setCancelOpen] = useState(false);
-  const [cancelError, setCancelError] = useState<string | null>(null);
   // The checkout that is open somewhere else right now, or null. Holding the
   // URL rather than a boolean is what lets the indicator offer to reopen it:
   // the window is easy to lose behind this one, and starting over would mint
@@ -988,25 +980,6 @@ export function ProPanel({
     });
   }, [generating, pix, upgradePix, onCheckoutLockChange]);
 
-  const handleCancel = useCallback(
-    async (survey: CancelSurvey) => {
-      setBusy(true);
-      setCancelError(null);
-      const result = await cancelPremium(survey);
-      if (!result.ok) {
-        // Kept inside the dialog rather than raised to the page behind it: the
-        // person is looking at the dialog, and an error that appears somewhere
-        // they cannot see reads as a button that did nothing.
-        setCancelError(result.error ?? t("common.couldNotCancelRightNow"));
-        setBusy(false);
-        return;
-      }
-      setCancelOpen(false);
-      await refresh();
-      setBusy(false);
-    },
-    [refresh, t]
-  );
 
 
 
@@ -1318,17 +1291,15 @@ export function ProPanel({
                   <p className="text-sm text-zinc-700 dark:text-zinc-300">
                     {t("pro.proPanel.activeSubscriptionRenewsOnValue", { value: periodEndLabel(premium!.currentPeriodEnd) })}
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCancelError(null);
-                      setCancelOpen(true);
-                    }}
-                    disabled={busy}
-                    className="self-start rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                  {/* A page of its own, which asks for a fresh sign-in before
+                      anything else — see app/pro/cancelar. A plain link, so it
+                      also works from the Pro popup inside a room. */}
+                  <Link
+                    href="/pro/cancelar"
+                    className="self-start rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
                   >
-                    {busy ? t("pro.proPanel.cancelling") : t("pro.proPanel.cancelSubscription")}
-                  </button>
+                    {t("pro.proPanel.cancelSubscription")}
+                  </Link>
                 </div>
               ) : !plan.available ? (
                 <p className="text-sm text-zinc-500 dark:text-zinc-400">
@@ -1683,17 +1654,6 @@ export function ProPanel({
           be created from either branch above — a first purchase and a renewal
           — and a dialog rendered inside one of them would be a dialog the
           other could not open. */}
-      <CancelSurveyDialog
-        open={cancelOpen}
-        accessUntilLabel={periodEndLabel(premium?.currentPeriodEnd ?? 0)}
-        planTitle={plan?.title ?? ""}
-        busy={busy}
-        error={cancelError}
-        onCancelSubscription={handleCancel}
-        onClose={() => {
-          if (!busy) setCancelOpen(false);
-        }}
-      />
       <PixChargeModal
         charge={pix}
         paid={pixPaid}
