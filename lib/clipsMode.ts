@@ -42,6 +42,12 @@ export const TILE_EXPERIMENT_EVENTS = {
   },
 } as const;
 
+// One event for every "recurso novo" tip, whatever the feature: the person
+// clicked what the tip points at while it was on screen. Being a site event,
+// it counts for each experiment they are in — register it in each one's
+// "site events" in the admin panel.
+export const TIP_CLICK_EVENT = "new_feature_tip_click";
+
 export function trackTileExperiment(name: string, value?: number) {
   trackFeatureEvent(name, value ? { value: Math.max(1, Math.round(value)) } : {});
 }
@@ -121,5 +127,10 @@ export function useTileExperimentTip(experiment: TileExperiment, available: bool
   return {
     show: available && !seen && wasReturning,
     dismiss: () => write(tipKey, "1"),
+    /** The tip's target was clicked while it showed: counted, then gone. */
+    clicked: () => {
+      trackFeatureEvent(TIP_CLICK_EVENT);
+      write(tipKey, "1");
+    },
   };
 }

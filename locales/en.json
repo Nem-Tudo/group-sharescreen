@@ -468,6 +468,8 @@
   "admin.features.pinEvent": "Pin (shown first for every admin)",
   "admin.features.unpinEvent": "Unpin",
   "admin.features.otherEvents": "Other events ({count})",
+  "admin.features.tipClickBadge": "Tooltip",
+  "admin.features.tipClickHint": "Clicks on what the blue \"new feature\" tooltip pointed at (e.g. the \"⋯\" button), counted only while it was showing. Shows whether the tip led people to the feature.",
   "admin.features.pinHint": "Pin (★) the events this experiment is about — they stay on top and the rest is folded away.",
   "admin.features.checkTitle": "Who has it? Check an id",
   "admin.features.anyPlatform": "Unknown platform",

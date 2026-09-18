@@ -468,6 +468,8 @@
   "admin.features.pinEvent": "Favoritar (aparece primeiro para todos os admins)",
   "admin.features.unpinEvent": "Desfavoritar",
   "admin.features.otherEvents": "Outros eventos ({count})",
+  "admin.features.tipClickBadge": "Tooltip",
+  "admin.features.tipClickHint": "Cliques no que o tooltip azul de \"recurso novo\" pedia (ex.: o botão \"⋯\"), contados só enquanto ele aparecia. Mostra se o aviso levou as pessoas até o recurso.",
   "admin.features.pinHint": "Favorite (★) os eventos que importam para este experimento — eles ficam no topo e o resto é recolhido.",
   "admin.features.checkTitle": "Quem tem? Checar um id",
   "admin.features.anyPlatform": "Plataforma desconhecida",

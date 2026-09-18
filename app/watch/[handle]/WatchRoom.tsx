@@ -6167,7 +6167,7 @@ export function WatchRoom({
         <button
           type="button"
           onClick={() => {
-            newFeatureTip?.dismiss();
+            newFeatureTip?.clicked();
             if (menuOpen) closeMenu();
             else setMenuOpen(true);
           }}
