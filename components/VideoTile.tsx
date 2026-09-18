@@ -106,6 +106,7 @@ const VideoTileView = memo(function VideoTileView({
   badgeClassName = "bg-red-500/90",
   clippable = true,
   beingRecorded = false,
+  mirrored = false,
   className = "",
 }: {
   stream: MediaStream;
@@ -220,6 +221,9 @@ const VideoTileView = memo(function VideoTileView({
   // Our own transmission, while somebody in the room is recording it (see
   // lib/recordingNotice): drawn with a red frame.
   beingRecorded?: boolean;
+  // Show the picture flipped left-to-right — only the local preview of our own
+  // front camera. What the room receives is never flipped.
+  mirrored?: boolean;
 }) {
   const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -360,7 +364,7 @@ const VideoTileView = memo(function VideoTileView({
   // at somebody's shared 1440p desktop is reading text at a tenth of its
   // size, and the browser's own pinch does nothing inside a fullscreen
   // element — see lib/usePinchZoom.ts.
-  const pinchZoom = usePinchZoom({ containerRef, videoRef, enabled: isFullscreen });
+  const pinchZoom = usePinchZoom({ containerRef, videoRef, enabled: isFullscreen, mirrored });
 
   // Resetting the spinner is derived state, not a side effect: it is a pure
   // function of "the stream changed". React's documented pattern for that is

@@ -4102,11 +4102,23 @@ export function WatchRoom({
 
   if (localCameraVisible && localCameraStream) {
     const id = tileId("camera", SELF_TILE_OWNER);
+    // Our own front camera is previewed mirrored, the way every camera app and
+    // call shows it — unmirrored, raising your right hand moves the left side
+    // of the picture, which reads as "the camera is flipped". Only this
+    // preview: the room still receives the true picture, so text held up to
+    // the camera reads the right way round for them. The track's own report
+    // is what decides it; the chosen facing is the fallback for a browser that
+    // does not fill it in.
+    const cameraTrackFacing = localCameraStream.getVideoTracks()[0]?.getSettings().facingMode;
+    const mirrorOwnCamera = cameraTrackFacing
+      ? cameraTrackFacing === "user"
+      : onPhone && cameraFacing === "user";
     tiles.push({
       id,
       render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
         <VideoTile
           stream={localCameraStream}
+          mirrored={mirrorOwnCamera}
           beingRecorded={recordedChannels.has("camera")}
           // Our own capture keeps running whether or not this preview is on
           // screen, so releasing it would cost a black tile on the way back and

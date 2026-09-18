@@ -58,6 +58,7 @@ export function usePinchZoom({
   containerRef,
   videoRef,
   enabled,
+  mirrored = false,
 }: {
   // Where the gesture is listened for — the fullscreen box.
   containerRef: React.RefObject<HTMLElement | null>;
@@ -67,7 +68,13 @@ export function usePinchZoom({
   // Off outside fullscreen, where the tile is one cell of a grid and hijacking
   // the page's own scroll gesture would be actively wrong.
   enabled: boolean;
+  // Flip the picture left-to-right — our own front camera, shown the way a
+  // mirror (and every camera app) shows it. Lives here because this hook owns
+  // the video's transform: a separate flip would be overwritten by a pinch,
+  // or would flip the pan along with the picture.
+  mirrored?: boolean;
 }) {
+  const mirroredRef = useRef(mirrored);
   const transformRef = useRef<Transform>({ scale: 1, x: 0, y: 0 });
   const [scale, setScale] = useState(1);
   // Set by any gesture that moved something, and read by the tile's tap
@@ -79,8 +86,17 @@ export function usePinchZoom({
     const video = videoRef.current;
     if (!video) return;
     const { scale: s, x, y } = transformRef.current;
-    video.style.transform = s === 1 && x === 0 && y === 0 ? "" : `translate3d(${x}px, ${y}px, 0) scale(${s})`;
+    // The flip goes innermost, so it turns the picture without turning the
+    // pinch/pan maths, which all happen in screen space around it.
+    const flip = mirroredRef.current ? "scaleX(-1)" : "";
+    video.style.transform =
+      s === 1 && x === 0 && y === 0 ? flip : `translate3d(${x}px, ${y}px, 0) scale(${s}) ${flip}`.trim();
   }, [videoRef]);
+
+  useEffect(() => {
+    mirroredRef.current = mirrored;
+    applyTransform();
+  }, [mirrored, applyTransform]);
 
   const reset = useCallback(() => {
     transformRef.current = { scale: 1, x: 0, y: 0 };
