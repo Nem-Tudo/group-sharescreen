@@ -172,6 +172,10 @@ export const metadata: Metadata = {
   // GoLive full-screen/chrome-less (Android's PWA install, iOS's "Add to
   // Home Screen") instead of as a regular bookmark.
   manifest: "/manifest.webmanifest",
+  // Monetag site ownership verification.
+  other: {
+    monetag: "06e75928dc8614ed767ab5b24e850d52",
+  },
   appleWebApp: {
     capable: true,
     title: SITE_NAME,
