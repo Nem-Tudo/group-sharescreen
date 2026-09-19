@@ -137,6 +137,7 @@ import { CreateAccountForm } from "@/components/CreateAccountForm";
 import { LoginForm } from "@/components/LoginForm";
 import { RoomSkeleton } from "@/components/RoomSkeleton";
 import { MobileQualitySheet, type MobileQualityChoice } from "@/components/MobileQualitySheet";
+import { openAndroidAppSettings } from "@/lib/androidScreenCapture";
 import { UserProfileDialog } from "@/components/UserProfileDialog";
 import { InviteToRoomModal } from "@/components/InviteToRoomModal";
 import { prewarmCaptcha } from "@/lib/turnstile";
@@ -6860,7 +6861,23 @@ export function WatchRoom({
           they were showing. */}
       {shareSystemAudioUnavailable && localStream && (
         <p className="bg-amber-50 px-4 py-2 text-sm text-amber-700 dark:bg-amber-950/40 dark:text-amber-500">
-          {translate("watch.watchRoom.systemAudioCouldNotBeCaptured")}
+          {shareSystemAudioUnavailable === "blocked"
+            ? translate("watch.watchRoom.systemAudioPermissionBlocked")
+            : shareSystemAudioUnavailable === "denied"
+              ? translate("watch.watchRoom.systemAudioPermissionDenied")
+              : translate("watch.watchRoom.systemAudioCouldNotBeCaptured")}
+          {/* Android stops showing the prompt after repeated refusals, so
+              asking again from here would do nothing — the settings screen
+              is the only place left to grant it. */}
+          {shareSystemAudioUnavailable === "blocked" && (
+            <button
+              type="button"
+              onClick={() => void openAndroidAppSettings()}
+              className="ml-2 font-semibold underline underline-offset-2"
+            >
+              {translate("watch.watchRoom.openAppSettings")}
+            </button>
+          )}
         </p>
       )}
       {micError && (

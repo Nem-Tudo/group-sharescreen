@@ -85,7 +85,11 @@ import {
 } from "./videoCodecPreferences";
 import { setPreferredAudioSink } from "./audioContext";
 import { startExcludedSystemAudio, prewarmExcludedSystemAudio } from "./desktopSystemAudio";
-import { captureAndroidScreen, isAndroidScreenCaptureAvailable } from "./androidScreenCapture";
+import {
+  captureAndroidScreen,
+  isAndroidScreenCaptureAvailable,
+  type SystemAudioUnavailableReason,
+} from "./androidScreenCapture";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
 import { getDesktopBridge } from "./desktop";
@@ -3129,7 +3133,9 @@ export function useRoomMedia(room: string) {
   // a refused microphone permission, a device with no capture path. The
   // share itself is fine and running, so this is a notice rather than an
   // error, and it is what stops a ticked box from silently doing nothing.
-  const [systemAudioUnavailable, setSystemAudioUnavailable] = useState(false);
+  // Null while there is nothing to say; otherwise why, so the notice can
+  // point somebody whose permission is blocked at the settings screen.
+  const [systemAudioUnavailable, setSystemAudioUnavailable] = useState<SystemAudioUnavailableReason | null>(null);
   const shareBitrateRef = useRef(shareBitrate);
   const smartQualityEnabledRef = useRef(smartQualityEnabled);
   const shareProfileRef = useRef(shareProfile);
@@ -3361,13 +3367,13 @@ export function useRoomMedia(room: string) {
         // Cleared per attempt rather than on stop: the notice belongs to one
         // share, and leaving the previous one's up while a new share starts
         // would be saying something untrue about the share in front of you.
-        setSystemAudioUnavailable(false);
+        setSystemAudioUnavailable(null);
         return captureAndroidScreen({
           width: dims.width,
           height: dims.height,
           fps: shareFpsRef.current,
           systemAudio: shareSystemAudioRef.current,
-          onSystemAudioUnavailable: () => setSystemAudioUnavailable(true),
+          onSystemAudioUnavailable: setSystemAudioUnavailable,
         });
       }
       // No fallback to the camera here — on browsers without getDisplayMedia

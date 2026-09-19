@@ -4,8 +4,11 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
 import android.media.projection.MediaProjectionManager;
+import android.net.Uri;
 import android.os.Build;
+import android.provider.Settings;
 import androidx.activity.result.ActivityResult;
+import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
@@ -104,7 +107,38 @@ public class ScreenCapturePlugin extends Plugin {
 
     @PermissionCallback
     private void onSystemAudioPermissionResult(PluginCall call) {
+        // Refused, and Android would not even have asked: after a second "não
+        // permitir" the system stops showing the prompt and answers no on the
+        // user's behalf, which from here looks exactly like a fresh refusal.
+        // The rationale flag is what tells them apart — true right after a
+        // first refusal (asking again is allowed), false once the system has
+        // stopped asking. Only the app's settings screen can undo that, so JS
+        // is told, to offer a way there (see openAppSettings).
+        if (getPermissionState("systemAudio") != PermissionState.GRANTED && getActivity() != null) {
+            boolean blocked = !ActivityCompat.shouldShowRequestPermissionRationale(
+                getActivity(),
+                Manifest.permission.RECORD_AUDIO
+            );
+            call.getData().put("audioBlocked", blocked);
+        }
         beginCapture(call);
+    }
+
+    /**
+     * Opens this app's page in the system settings, where a permission the
+     * system has stopped asking for can still be granted by hand.
+     */
+    @PluginMethod
+    public void openAppSettings(PluginCall call) {
+        Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+        intent.setData(Uri.fromParts("package", getContext().getPackageName(), null));
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            getContext().startActivity(intent);
+            call.resolve();
+        } catch (Exception ex) {
+            call.reject("Não foi possível abrir as configurações.", "unavailable");
+        }
     }
 
     private void beginCapture(PluginCall call) {
@@ -180,6 +214,12 @@ public class ScreenCapturePlugin extends Plugin {
 
         JSObject resolved = new JSObject();
         resolved.put("audio", withAudio);
+        // Why there is no audio, when it was asked for and the permission is
+        // what stood in the way: "blocked" means only the settings screen can
+        // fix it, "denied" that the next share will ask again.
+        if (Boolean.TRUE.equals(call.getBoolean("audio", false)) && !withAudio && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            resolved.put("audioDenied", Boolean.TRUE.equals(call.getBoolean("audioBlocked", false)) ? "blocked" : "denied");
+        }
         call.resolve(resolved);
     }
 

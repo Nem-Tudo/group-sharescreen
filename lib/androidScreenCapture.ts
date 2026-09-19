@@ -82,8 +82,13 @@ interface ScreenCapturePluginInterface {
      *  was asked for and could not be had — the permission was refused, or
      *  the platform is too old — which is the only way this side finds out. */
     audio: boolean;
+    /** Why `audio` is false, when the microphone permission was the reason.
+     *  "blocked" means Android no longer shows the prompt at all and only the
+     *  app's settings screen can grant it. Absent on builds that predate it. */
+    audioDenied?: "blocked" | "denied";
   }>;
   stop(): Promise<void>;
+  openAppSettings(): Promise<void>;
   isSystemAudioSupported(): Promise<{ supported: boolean }>;
   addListener(
     eventName: "frame",
@@ -172,6 +177,31 @@ export function prewarmAndroidSystemAudio(): void {
   prewarmPcmAudioWorklet();
 }
 
+/**
+ * Why a share that asked for system audio went out silent:
+ * - "blocked": the microphone permission was refused so many times that
+ *   Android stopped asking — only the app's settings screen can grant it now.
+ * - "denied": refused at the prompt just now; the next share asks again.
+ * - "unknown": anything else — the page's audio graph would not start, or an
+ *   app build too old to say why.
+ */
+export type SystemAudioUnavailableReason = "blocked" | "denied" | "unknown";
+
+/**
+ * Opens GoLive's page in Android's settings, where a permission the system
+ * has stopped asking for can be granted by hand. False on a build that
+ * predates the method, or anywhere that is not the Android app.
+ */
+export async function openAndroidAppSettings(): Promise<boolean> {
+  if (!isAndroidScreenCaptureAvailable()) return false;
+  try {
+    await ScreenCapture.openAppSettings();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export interface AndroidScreenCaptureOptions {
   width: number;
   height: number;
@@ -184,7 +214,7 @@ export interface AndroidScreenCaptureOptions {
    * caller can say so. The share still starts, and still returns a stream —
    * this is a notice, not an error.
    */
-  onSystemAudioUnavailable?: () => void;
+  onSystemAudioUnavailable?: (reason: SystemAudioUnavailableReason) => void;
 }
 
 /**
@@ -229,7 +259,7 @@ export async function captureAndroidScreen(options: AndroidScreenCaptureOptions)
   let pcm: PcmAudioTrack | null = null;
   if (options.systemAudio) {
     pcm = await startPcmAudioTrack({ targetSeconds: AUDIO_BUFFER_SECONDS });
-    if (!pcm) options.onSystemAudioUnavailable?.();
+    if (!pcm) options.onSystemAudioUnavailable?.("unknown");
   }
 
   // Typed as possibly absent, and read that way below. The APK and the web
@@ -238,7 +268,7 @@ export async function captureAndroidScreen(options: AndroidScreenCaptureOptions)
   // installed build whose start() resolved with nothing at all. Reading
   // `.audio` off that would throw and take the whole share with it, which is
   // a far worse outcome than the silent share such a build can offer.
-  let started: { audio?: boolean } | undefined;
+  let started: { audio?: boolean; audioDenied?: "blocked" | "denied" } | undefined;
   try {
     started = await ScreenCapture.start({ width, height, density, fps, audio: Boolean(pcm) });
   } catch (err) {
@@ -257,7 +287,7 @@ export async function captureAndroidScreen(options: AndroidScreenCaptureOptions)
   if (pcm && !started?.audio) {
     pcm.stop();
     pcm = null;
-    options.onSystemAudioUnavailable?.();
+    options.onSystemAudioUnavailable?.(started?.audioDenied ?? "unknown");
   }
 
   const stream = canvas.captureStream(fps);
