@@ -5,8 +5,12 @@ import {
   fetchBans,
   createBan,
   removeBan,
+  fetchShareBans,
+  createShareBan,
+  removeShareBan,
   BAN_SUBJECT_LABELS,
   type Ban,
+  type BanKind,
   type BanSubject,
 } from "@/lib/adminApi";
 import { Tooltip } from "@/components/Tooltip";
@@ -45,10 +49,24 @@ const SUBJECT_BADGE_CLASS: Record<BanSubject, string> = {
 };
 
 // Identifies a row without relying on the value alone: the same string could
-// in principle be banned under two subjects, and React needs them distinct.
+// in principle be banned under two subjects — or under both kinds at once —
+// and React needs them distinct.
 function banKey(ban: Ban): string {
-  return `${ban.subject}:${ban.value}`;
+  return `${ban.kind ?? "full"}:${ban.subject}:${ban.value}`;
 }
+
+const KINDS: { value: BanKind; label: () => string; hint: () => string }[] = [
+  {
+    value: "full",
+    label: () => translate("admin.bansPanel.kindFull"),
+    hint: () => translate("admin.bansPanel.kindFullHint"),
+  },
+  {
+    value: "screen",
+    label: () => translate("admin.bansPanel.kindScreen"),
+    hint: () => translate("admin.bansPanel.kindScreenHint"),
+  },
+];
 
 export function BansPanel() {
   const t = useT();
@@ -56,6 +74,7 @@ export function BansPanel() {
   const [error, setError] = useState<string | null>(null);
   const [removingKey, setRemovingKey] = useState<string | null>(null);
 
+  const [kind, setKind] = useState<BanKind>("full");
   const [subject, setSubject] = useState<BanSubject>("ip");
   const [value, setValue] = useState("");
   const [reason, setReason] = useState("");
@@ -68,7 +87,10 @@ export function BansPanel() {
 
     async function load() {
       try {
-        const data = await fetchBans();
+        // One list for both kinds, newest first — they're managed from the
+        // same form, and splitting them would hide one behind the other.
+        const [full, screen] = await Promise.all([fetchBans(), fetchShareBans()]);
+        const data = [...full, ...screen].sort((a, b) => b.createdAt - a.createdAt);
         if (!cancelled) {
           setBans(data);
           setError(null);
@@ -94,7 +116,7 @@ export function BansPanel() {
     setBanning(true);
     try {
       const minutes = durationMinutes.trim() ? Number(durationMinutes) : undefined;
-      const ban = await createBan({
+      const ban = await (kind === "screen" ? createShareBan : createBan)({
         subject,
         value: value.trim(),
         reason: reason.trim(),
@@ -114,7 +136,7 @@ export function BansPanel() {
   async function handleRemove(ban: Ban) {
     setRemovingKey(banKey(ban));
     try {
-      await removeBan(ban.subject, ban.value);
+      await (ban.kind === "screen" ? removeShareBan : removeBan)(ban.subject, ban.value);
       setBans((prev) => (prev ?? []).filter((b) => banKey(b) !== banKey(ban)));
     } catch {
       setError(t("admin.bansPanel.couldNotRemoveTheBan"));
@@ -130,6 +152,27 @@ export function BansPanel() {
       <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">{t("common.bans")}</h2>
       <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
         {t("admin.bansPanel.aBanAppliesImmediatelyAnyoneAlready")}
+      </p>
+
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {KINDS.map((k) => (
+          <button
+            key={k.value}
+            type="button"
+            onClick={() => setKind(k.value)}
+            aria-pressed={kind === k.value}
+            className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+              kind === k.value
+                ? "border-red-600 bg-red-600 text-white"
+                : "border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900"
+            }`}
+          >
+            {k.label()}
+          </button>
+        ))}
+      </div>
+      <p className="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+        {KINDS.find((k) => k.value === kind)!.hint()}
       </p>
 
       <div className="mt-3 flex flex-wrap gap-1.5">
@@ -211,6 +254,11 @@ export function BansPanel() {
                   >
                     {BAN_SUBJECT_LABELS[ban.subject]}
                   </span>
+                  {ban.kind === "screen" && (
+                    <span className="shrink-0 rounded-full bg-sky-600 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                      {t("admin.bansPanel.kindScreenBadge")}
+                    </span>
+                  )}
                   <span className="truncate font-mono font-medium text-zinc-900 dark:text-zinc-100">
                     {ban.value}
                   </span>

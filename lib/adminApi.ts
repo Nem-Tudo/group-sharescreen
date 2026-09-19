@@ -264,12 +264,19 @@ export const BAN_SUBJECT_LABELS: Record<BanSubject, string> = {
   get fingerprint() { return translate("common.browser"); },
 };
 
+// "full" keeps the person out of GoLive entirely; "screen" only stops them
+// sharing a screen (the server's shareBanStore.ts) — two separate lists on
+// the server, one per endpoint.
+export type BanKind = "full" | "screen";
+
 export type Ban = {
   subject: BanSubject;
   value: string;
   reason: string;
   createdAt: number;
   expiresAt: number | null;
+  // Absent means "full" — the only kind fetchBans/createBan deal in.
+  kind?: BanKind;
 };
 
 // A server that predates ban subjects answers with the bare `{ ip, ... }`
@@ -320,6 +327,32 @@ export async function createBan(input: BanInput): Promise<Ban> {
 export async function removeBan(subject: BanSubject, value: string): Promise<void> {
   await adminFetch<void>(
     `/admin/bans/${encodeURIComponent(subject)}/${encodeURIComponent(value)}`,
+    { method: "DELETE" }
+  );
+}
+
+// Screen-share bans — same shapes as the three above, against their own
+// endpoints. Always tagged `kind: "screen"` so a list mixing both can tell
+// them apart.
+export async function fetchShareBans(): Promise<Ban[]> {
+  const data = await adminFetch<{ bans: Ban[] }>("/admin/share-bans");
+  return data.bans
+    .map((ban) => ({ ...normalizeBan(ban), kind: "screen" as const }))
+    .filter((ban) => ban.value.length > 0);
+}
+
+export async function createShareBan(input: BanInput): Promise<Ban> {
+  const data = await adminFetch<{ ban: Ban }>("/admin/share-bans", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return { ...normalizeBan(data.ban), kind: "screen" };
+}
+
+export async function removeShareBan(subject: BanSubject, value: string): Promise<void> {
+  await adminFetch<void>(
+    `/admin/share-bans/${encodeURIComponent(subject)}/${encodeURIComponent(value)}`,
     { method: "DELETE" }
   );
 }
