@@ -189,11 +189,13 @@ export interface GroupInfo {
   /** The group's own invite link, /invite/<this>, or null. Absent from an older API. */
   customInvite?: string | null;
   /**
-   * Whether the group may have one right now — it was granted, or its owner is
-   * on Pro Max. A link set while it was, and no longer is, is kept but does
-   * not open. Absent from an older API.
+   * Whether the group may have one right now — it reached aura level 2, or the
+   * site granted it. A link set while it was, and no longer is, is kept but
+   * does not open. Absent from an older API.
    */
   customInviteAllowed?: boolean;
+  /** The group's auras that count right now, and the level they make (see lib/groupAura). Absent from an older API. */
+  aura?: { count: number; level: number };
   ownerId: string;
   /** What everybody may do, group-wide (@everyone). See lib/groupPermissions. */
   permissions: GroupPermissions;
@@ -629,6 +631,49 @@ export const banMember = (groupId: string, userId: string) =>
 
 export const unbanMember = (groupId: string, userId: string) =>
   request<{ bans: GroupBan[] }>("DELETE", `/groups/${enc(groupId)}/bans/${enc(userId)}`);
+
+// ─── Auras ───────────────────────────────────────────────────────────────
+
+/** One of the caller's auras, and where it is. `counting` is false while their plan does not cover it. */
+export interface MyAuraPlacement {
+  id: string;
+  groupId: string;
+  groupName: string | null;
+  groupIconUrl: string | null;
+  createdAt: number;
+  counting: boolean;
+}
+
+export interface GroupAuraState {
+  /** False on an installation without a database — nobody can give one. */
+  available: boolean;
+  count: number;
+  level: number;
+  perks: string[];
+  levels: { level: number; auras: number; perks: string[] }[];
+  /** Who is lifting the group, with how many of their auras count here. */
+  givers: { id: string; name: string; username: string | null; avatarUrl: string | null; flags: string[]; count: number }[];
+  mine: {
+    /** Auras the caller's plan gives — 0 without Pro Max or Pro Ultra. */
+    total: number;
+    /** How many of them may go to one group. */
+    perGroup: number;
+    /** In use (on a group they are still in). */
+    used: number;
+    placements: MyAuraPlacement[];
+  };
+}
+
+export const fetchGroupAura = (groupId: string) =>
+  request<GroupAuraState>("GET", `/groups/${enc(groupId)}/aura`);
+
+/** Gives the group one of the caller's auras. */
+export const giveGroupAura = (groupId: string) =>
+  request<GroupAuraState & { code?: string }>("POST", `/groups/${enc(groupId)}/aura`);
+
+/** Takes one of the caller's auras off a group — answers the group's state when they are still in it. */
+export const removeGroupAura = (groupId: string) =>
+  request<Partial<GroupAuraState>>("DELETE", `/groups/${enc(groupId)}/aura`);
 
 export const fetchBans = (groupId: string) =>
   request<{ bans: GroupBan[] }>("GET", `/groups/${enc(groupId)}/bans`);

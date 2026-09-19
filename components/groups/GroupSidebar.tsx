@@ -4,6 +4,7 @@ import { memo, useEffect, useMemo, useRef, useState, type DragEvent, type FormEv
 import useNtPopups from "ntpopups";
 import {
   MdAdd,
+  MdAutoAwesome,
   MdCallEnd,
   MdChatBubbleOutline,
   MdCheck,
@@ -97,6 +98,9 @@ import { playHangUpSound } from "@/lib/soundEffects";
 import { useAuth } from "@/lib/AuthContext";
 import { hasFeature } from "@/lib/entitlements";
 import { openProModal } from "@/lib/proModal";
+import { useFeature } from "@/lib/features";
+import { GROUP_AURA_BADGE, GROUP_AURA_FEATURE } from "@/lib/groupAura";
+import { NewBadge } from "@/components/NewBadge";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
 import { avatarShapeClass } from "@/lib/avatarShape";
@@ -1342,6 +1346,10 @@ export function GroupMenu({
   const isManager = managesAnything(detail);
   const canTheme = canManage(detail, "manageGroup");
   const openBotExplorer = useOpenBotExplorer(detail);
+  // Aura (Discord's server boost) — the way into it is here, so this is where
+  // the exposure counts. The settings tab itself asks with track: false.
+  const aura = useFeature(GROUP_AURA_FEATURE, { group: group.id, track: true });
+  const auraLevel = group.aura?.level ?? 0;
 
   async function changeNotify(level: GroupNotifyLevel) {
     setMenuOpen(false);
@@ -1430,6 +1438,25 @@ export function GroupMenu({
             <MdSmartToy className="h-4 w-4 opacity-70" />
             {t("botDirectory.title")}
           </button>
+          {aura.enabled && (
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                openSettings("aura");
+              }}
+              className={menuItemClass}
+            >
+              <MdAutoAwesome className="h-4 w-4 text-violet-500" />
+              <span className="flex-1">{t("groups.aura.menuItem")}</span>
+              {auraLevel > 0 && (
+                <span className="text-[10px] font-semibold text-violet-600 dark:text-violet-400">
+                  {t("groups.aura.levelShort", { level: auraLevel })}
+                </span>
+              )}
+              <NewBadge id={GROUP_AURA_BADGE} />
+            </button>
+          )}
           <div className="my-1 border-t border-zinc-200 dark:border-zinc-800" />
           <p className="px-2 pb-0.5 pt-1 text-xs font-semibold text-zinc-500 dark:text-zinc-400">{t("common.notifications")}</p>
           {(Object.keys(NOTIFY_LABELS) as GroupNotifyLevel[]).map((level) => (

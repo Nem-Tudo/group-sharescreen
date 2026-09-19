@@ -90,6 +90,10 @@ import { RolesTab } from "@/components/groups/RolesTab";
 import { RoleChip } from "@/components/groups/RoleChip";
 import { requestExploreGroups } from "@/components/groups/groupSearch";
 import { BotBrowser } from "@/components/bots/BotBrowser";
+import { AuraTab } from "@/components/groups/AuraTab";
+import { NewBadge } from "@/components/NewBadge";
+import { useFeature } from "@/lib/features";
+import { GROUP_AURA_BADGE, GROUP_AURA_FEATURE } from "@/lib/groupAura";
 import {
   canManage,
   membersRevalidateKey,
@@ -99,7 +103,6 @@ import {
   rolesInOrder,
   rolesWithIds,
 } from "@/lib/groupPermissions";
-import { GoldVerifiedBadgeIcon } from "../icons";
 import { useI18n, useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
 import { formatLocale } from "@/lib/i18n";
@@ -150,7 +153,7 @@ function CopyLinkButton({ url, disabled = false }: { url: string; disabled?: boo
 /**
  * The group's own invite link — /invite/<name>, chosen here, permanent and
  * with no use limit (see the API's GroupDoc.customInvite). Only for a group
- * that may have one: granted by the site, or owned by somebody on Pro Max. A
+ * that may have one: at aura level 2 (see lib/groupAura), or granted by the site. A
  * link set while it could, and no longer can, is shown as switched off — it
  * stays the group's, and can still be taken off.
  */
@@ -176,7 +179,7 @@ function CustomInviteEditor({ detail }: { detail: GroupDetail }) {
   if (!allowed && !current) {
     return (
       <p className="rounded-lg border border-dashed border-zinc-300 px-3 py-2.5 text-xs text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
-        <span className="font-medium text-zinc-700 dark:text-zinc-300">{t("groups.groupDialogs.customLink")}</span> {t("groups.groupDialogs.availableWhenTheGroupSOwner")} <GoldVerifiedBadgeIcon className="h-3.5 w-3.5 inline"/> {t("groups.groupDialogs.proMax")}
+        <span className="font-medium text-zinc-700 dark:text-zinc-300">{t("groups.groupDialogs.customLink")}</span> {t("groups.aura.customInviteLocked")}
       </p>
     );
   }
@@ -211,7 +214,7 @@ function CustomInviteEditor({ detail }: { detail: GroupDetail }) {
       </div>
       {current && !allowed && (
         <p className="text-xs text-amber-600 dark:text-amber-400">
-          <span className="font-mono">{prefix + current}</span> {t("groups.groupDialogs.isDisabledItWorksAgainWhen")}
+          <span className="font-mono">{prefix + current}</span> {t("groups.aura.customInviteDisabled")}
         </p>
       )}
       <form onSubmit={submit} className="flex gap-2">
@@ -699,22 +702,26 @@ export function GroupInviteDialog({ closePopup, data }: PopupProps<{ groupId: st
 
 // ─── Settings ────────────────────────────────────────────────────────────
 
-type SettingsTab = "overview" | "channels" | "roles" | "map" | "invites" | "members" | "bots" | "bans" | "danger";
+type SettingsTab = "overview" | "channels" | "roles" | "map" | "invites" | "members" | "aura" | "bots" | "bans" | "danger";
 
 export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: string; tab?: string }>) {
   const groupId = data?.groupId ?? "";
   const { detail } = useGroupDetail(groupId);
   const can = (key: Parameters<typeof canManage>[1]) => (detail ? canManage(detail, key) : false);
   const isOwner = detail?.me.role === "owner";
+  // The exposure is counted where the way in is (the group menu's "Aura").
+  const aura = useFeature(GROUP_AURA_FEATURE, { group: groupId, track: false });
 
   // Each tab for whoever has the switch it takes (see lib/groupPermissions).
-  const tabs: { id: SettingsTab; label: string; show: boolean }[] = [
+  const tabs: { id: SettingsTab; label: string; show: boolean; badge?: ReactNode }[] = [
     { id: "overview", label: translate("common.overview"), show: can("manageGroup") },
     { id: "channels", label: translate("common.rooms"), show: can("manageChannels") },
     { id: "roles", label: translate("groups.groupDialogs.roles"), show: can("manageRoles") },
     { id: "map", label: translate("groups.groupDialogs.map"), show: can("manageGroup") },
     { id: "invites", label: translate("groups.groupDialogs.invites"), show: can("manageGroup") || can("createInvites") },
     { id: "members", label: translate("common.members"), show: true },
+    // For everybody in the experiment: anybody with a plan may lift the group.
+    { id: "aura", label: translate("groups.aura.title"), show: aura.enabled, badge: <NewBadge id={GROUP_AURA_BADGE} /> },
     // For everybody, like the name menu's "Explorar bots": finding one is not
     // running the group; adding one is, and the list offers that only to whoever may.
     { id: "bots", label: translate("botDirectory.title"), show: true },
@@ -754,7 +761,7 @@ export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: 
       wide
       tabs={
         <DialogTabs
-          tabs={visible.map((t) => ({ id: t.id, label: t.label, danger: t.id === "danger" }))}
+          tabs={visible.map((t) => ({ id: t.id, label: t.label, danger: t.id === "danger", badge: t.badge }))}
           current={current}
           onChange={setTab}
         />
@@ -768,6 +775,7 @@ export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: 
       {current === "map" && <LocationTab groupId={groupId} onGoToOverview={() => setTab("overview")} />}
       {current === "invites" && <InvitesTab groupId={groupId} groupName={detail.group.name} />}
       {current === "members" && <MembersTab groupId={groupId} />}
+      {current === "aura" && <AuraTab groupId={groupId} />}
       {current === "bots" && (
         // The same directory as the name menu's dialog (see BotExplorerDialog),
         // in a box of its own height: it scrolls inside itself, under its search.

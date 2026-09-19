@@ -69,7 +69,7 @@ export function DialogTabs<T extends string>({
   current,
   onChange,
 }: {
-  tabs: { id: T; label: string; danger?: boolean }[];
+  tabs: { id: T; label: string; danger?: boolean; badge?: ReactNode }[];
   current: T;
   onChange: (id: T) => void;
 }) {
@@ -86,7 +86,14 @@ export function DialogTabs<T extends string>({
               : `border-transparent text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 ${t.danger ? "hover:!text-red-600" : ""}`
           }`}
         >
-          {t.label}
+          {t.badge ? (
+            <span className="flex items-center gap-1.5">
+              {t.label}
+              {t.badge}
+            </span>
+          ) : (
+            t.label
+          )}
         </button>
       ))}
     </div>
