@@ -541,8 +541,25 @@ export function ProPanel({
           <BsCoin className="-mr-0.5 h-4 w-4 shrink-0 text-amber-500" />
           {t("pro.proPanel.more")} {entry.dailyPoints} pontos por dia de assinatura
         </li>
+      ) : dailyPointsElsewhere > 0 ? (
+        // A plan without the daily payout still lists it, crossed out — the
+        // same missing row featureRow draws, quoting the other plan's number.
+        missingRow("daily-points", `${t("pro.proPanel.more")} ${dailyPointsElsewhere} pontos por dia de assinatura`)
       ) : null,
     ].filter(Boolean);
+
+  /** The daily payout some other plan has, for the crossed-out row. */
+  const dailyPointsElsewhere = Math.max(0, ...plans.map((entry) => entry.dailyPoints));
+
+  /** A benefit this plan lacks: grey, ✕ bullet and the "other plan" tooltip, like featureRow's. */
+  const missingRow = (key: string, label: ReactNode) => (
+    <Tooltip key={key} content={t("pro.proPanel.availableOnAnotherPlan")} placement="top-start">
+      <li className="flex items-center gap-2 text-sm text-zinc-400 dark:text-zinc-600">
+        <MdClose className="h-4 w-4 shrink-0" />
+        {label}
+      </li>
+    </Tooltip>
+  );
 
   // The upload limit, which is not a feature for the same reason the points
   // are not: `features` says what an account may *do*, and this is a number
@@ -560,7 +577,17 @@ export function ProPanel({
   // "Várias telas" (see lib/multiScreen): how many screens/windows at once.
   // A number per rung rather than a feature, like the upload limit.
   const screensOf = (entry: PremiumPlan) => MULTI_SCREEN_LIMITS[planTierOf(entry.id)];
-  const screensRow = (entry: PremiumPlan) => (
+  const screensRow = (entry: PremiumPlan) =>
+    // No more than free: the perk is missing, so show what the next rung gives.
+    screensOf(entry) <= MULTI_SCREEN_LIMITS.account ? (
+      missingRow(
+        "multi-screen",
+        t("pro.proPanel.shareUpToScreens", {
+          count: MULTI_SCREEN_LIMITS.premium_max,
+          free: MULTI_SCREEN_LIMITS.account,
+        }),
+      )
+    ) : (
     <li key="multi-screen" className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
       <MdCheck className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-500" />
       {t("pro.proPanel.shareUpToScreens", { count: screensOf(entry), free: MULTI_SCREEN_LIMITS.account })}
