@@ -184,9 +184,10 @@ import {
 import { Tooltip, Popover } from "@/components/Tooltip";
 import { ThemeSegmented } from "@/components/ThemeToggle";
 import { MenuToggleRow } from "@/components/MenuToggleRow";
-import { NewBadge } from "@/components/NewBadge";
+import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
 import { setTileExperimentMode, useTileExperiment, useTileExperimentTip } from "@/lib/clipsMode";
 import { useRecordingNotices } from "@/lib/recordingNotice";
+import { sendTileCommand } from "@/lib/tileCommands";
 import { getRoomProOffer } from "@/components/RoomProOffer";
 import { isAppShell } from "@/lib/desktop";
 import { getProfileSongAutoplay, setProfileSongAutoplay } from "@/lib/profileSong";
@@ -2987,6 +2988,9 @@ export function WatchRoom({
     [handle, state.account, canUseObsSource, state.selfUserId, state.selfId]
   );
   const [quickShortcutAction, setQuickShortcutAction] = useState<ShortcutAction | null>(null);
+  // The tile the clip/record shortcuts act on — hyperfocus, else "Focar",
+  // else the only tile there is. Worked out further down, once the tiles are.
+  const shortcutTileIdRef = useRef<string | null>(null);
 
   useGlobalShortcutListener({
     enabled: Boolean(state.account),
@@ -3047,6 +3051,14 @@ export function WatchRoom({
             nextIdx
           );
         }
+      },
+      clipTile: () => {
+        if (!clipsMode.active || !shortcutTileIdRef.current) return;
+        if (sendTileCommand(shortcutTileIdRef.current, "clip")) markFeatureUsed("shortcut-clipTile");
+      },
+      toggleRecordTile: () => {
+        if (!recordingMode.active || !shortcutTileIdRef.current) return;
+        if (sendTileCommand(shortcutTileIdRef.current, "toggleRecord")) markFeatureUsed("shortcut-toggleRecordTile");
       },
       previousMusic: () => {
         const activeSlot = LOCAL_MEDIA_SLOTS.find((s) => fileChannels[s]?.localStream);
@@ -4065,6 +4077,7 @@ export function WatchRoom({
       id,
       render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
         <VideoTile
+          tileId={id}
           stream={localStream}
           beingRecorded={recordedChannels.has("screen")}
           // Our own capture keeps running whether or not this preview is on
@@ -4117,6 +4130,7 @@ export function WatchRoom({
       id,
       render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
         <VideoTile
+          tileId={id}
           stream={localCameraStream}
           mirrored={mirrorOwnCamera}
           beingRecorded={recordedChannels.has("camera")}
@@ -4168,6 +4182,7 @@ export function WatchRoom({
       id,
       render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
         <VideoTile
+          tileId={id}
           stream={stream}
           beingRecorded={recordedChannels.has(slot)}
           label={name}
@@ -4219,6 +4234,7 @@ export function WatchRoom({
       id,
       render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
         <VideoTile
+          tileId={id}
           stream={stream}
           label={shared?.name ?? `arquivo de ${peer?.name ?? translate("common.someone2")}`}
           accessibleLabel={shared?.name ?? translate("common.file")}
@@ -4369,6 +4385,7 @@ export function WatchRoom({
       id,
       render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
         <VideoTile
+          tileId={id}
           stream={stream}
           label={
             <DisplayUserName
@@ -4418,6 +4435,7 @@ export function WatchRoom({
       id,
       render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
         <VideoTile
+          tileId={id}
           stream={stream}
           label={
             <DisplayUserName
@@ -4573,6 +4591,8 @@ export function WatchRoom({
 
   const realMediaTileCount = tiles.length;
   const isFocusMode = spotlightId !== null && tiles.some((t) => t.id === spotlightId);
+  shortcutTileIdRef.current =
+    activeHyperfocusId ?? (isFocusMode ? spotlightId : null) ?? (tiles.length === 1 ? tiles[0].id : null);
 
   // When the left sidebar (participants and ad card) is collapsed and not in hyperfocus:
   // - In focus mode (spotlight): ad is shown in the thumbnail strip

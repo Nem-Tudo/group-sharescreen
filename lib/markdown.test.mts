@@ -83,6 +83,26 @@ assert.deepEqual(parseMarkdown("- one\n- *two*\n1. a\n2. b"), [
 // Plain text is one paragraph, newlines kept.
 assert.deepEqual(parseMarkdown("line 1\nline 2"), [{ type: "paragraph", children: [t("line 1\nline 2")] }]);
 
+// ─── Images (opt-in) ──────────────────────────────────────────────────────
+
+// Off by default, as in chat: the "!" stays text and the rest is a link.
+assert.deepEqual(parseInline("![logo](https://x.io/a.png)"), [
+  t("!"),
+  { type: "link", url: "https://x.io/a.png", children: [t("logo")] },
+]);
+assert.deepEqual(parseInline("see ![logo](https://x.io/a_b.png) **now**", { images: true }), [
+  t("see "),
+  { type: "image", url: "https://x.io/a_b.png", alt: "logo" },
+  t(" "),
+  { type: "bold", children: [t("now")] },
+]);
+assert.deepEqual(parseMarkdown("# Hi\n![](https://x.io/a.png)", { images: true }), [
+  { type: "heading", level: 1, children: [t("Hi")] },
+  { type: "paragraph", children: [{ type: "image", url: "https://x.io/a.png", alt: "" }] },
+]);
+// Only http(s).
+assert.deepEqual(parseInline("![x](javascript:alert(1))", { images: true }), [t("![x](javascript:alert(1))")]);
+
 // ─── Plain text ───────────────────────────────────────────────────────────
 
 assert.equal(stripMarkdown("**bold** and `code` ||x||"), "bold and code ▒▒▒");

@@ -11,14 +11,21 @@ export type ShortcutAction =
   | "toggleCamera"
   | "toggleMusicPlay"
   | "nextMusic"
-  | "previousMusic";
+  | "previousMusic"
+  | "clipTile"
+  | "toggleRecordTile";
 
 export interface ShortcutDefinition {
   id: ShortcutAction;
   label: string;
   description: string;
-  category: "audio" | "video" | "music";
+  category: "audio" | "video" | "music" | "clips";
   appOnly?: boolean;
+  /**
+   * Only offered to people in this tile experiment (see lib/clipsMode) —
+   * the shortcut does nothing without the feature behind it.
+   */
+  experiment?: "clips" | "recording";
 }
 
 export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
@@ -71,6 +78,24 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
     category: "music",
     appOnly: true,
   },
+  // Act on the tile in hyperfocus, else the one in "Focar", else the only
+  // tile in the room (see WatchRoom's shortcutTileId).
+  {
+    id: "clipTile",
+    get label() { return translate("keyboardShortcuts.clipTile"); },
+    get description() { return translate("keyboardShortcuts.clipTileDescription"); },
+    category: "clips",
+    appOnly: false,
+    experiment: "clips",
+  },
+  {
+    id: "toggleRecordTile",
+    get label() { return translate("keyboardShortcuts.toggleRecordTile"); },
+    get description() { return translate("keyboardShortcuts.toggleRecordTileDescription"); },
+    category: "clips",
+    appOnly: false,
+    experiment: "recording",
+  },
 ];
 
 export const DEFAULT_SHORTCUTS: Record<ShortcutAction, string> = {
@@ -81,6 +106,8 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutAction, string> = {
   toggleMusicPlay: "",
   nextMusic: "",
   previousMusic: "",
+  clipTile: "",
+  toggleRecordTile: "",
 };
 
 const STORAGE_KEY = "golive:keyboard-shortcuts";
@@ -354,8 +381,8 @@ export function useGlobalShortcutListener({
         if (!combo) continue;
         const action = actionKey as ShortcutAction;
 
-        // Video & music shortcuts are desktop app only
-        if (!isDesktop && action !== "toggleDeafen" && action !== "toggleMute") {
+        // The app-only ones (broadcast, camera, music) need the desktop app.
+        if (!isDesktop && SHORTCUT_DEFINITIONS.find((d) => d.id === action)?.appOnly) {
           continue;
         }
 

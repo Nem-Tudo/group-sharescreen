@@ -10,6 +10,7 @@ import { signalingClient } from "@/lib/signalingClient";
 import { ArrowLeftIcon, ChartIcon, ChevronUpIcon } from "@/components/icons";
 import { BsCoin } from "react-icons/bs";
 import { PartnerAdCustomizer, type AdForm } from "@/components/PartnerAdCustomizer";
+import { partnerRewardPopupSize } from "@/components/PartnerRewardModal";
 import useNtPopups from "ntpopups";
 import {
   claimPartnerClickReward,
@@ -767,9 +768,8 @@ export function PartnerCard({
                 // this was a full-screen takeover, without becoming one: the
                 // backdrop stays translucent and the call keeps running
                 // behind it.
-                width: "min(1100px, calc(100vw - 30px))",
-                maxWidth: "1100px",
-                maxHeight: "94dvh",
+                // Wider when the ad has a long description beside the video.
+                ...partnerRewardPopupSize(data.hasExtendedDescription),
                 // The popup's own × is deliberately the only way out —
                 // losing an almost-finished video to a stray backdrop click
                 // or Escape means watching the whole thing again.
@@ -783,6 +783,7 @@ export function PartnerCard({
                   points: data.rewardPoints,
                   title: data.title,
                   description: data.description,
+                  hasExtendedDescription: data.hasExtendedDescription,
                   imageUrl: data.imageUrl,
                   buttonLabel: data.buttonLabel,
                   buttonUrl: data.buttonUrl,

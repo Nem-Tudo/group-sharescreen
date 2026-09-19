@@ -43,10 +43,12 @@ interface MarkdownProps {
   trailing?: ReactNode;
   /** Headings a notch smaller, for narrow places like the room chat. */
   compact?: boolean;
+  /** Draws ![alt](url) images — see MarkdownOptions. Never for chat. */
+  images?: boolean;
 }
 
-export function Markdown({ text, renderText = linkifyPlain, trailing, compact = false }: MarkdownProps) {
-  const blocks = useMemo(() => parseMarkdown(text), [text]);
+export function Markdown({ text, renderText = linkifyPlain, trailing, compact = false, images = false }: MarkdownProps) {
+  const blocks = useMemo(() => parseMarkdown(text, { images }), [text, images]);
   // The trailing mark goes inside the last block when that block is a line of
   // text, so "(edited)" sits after the words rather than on a line of its own.
   const last = blocks[blocks.length - 1];
@@ -189,6 +191,21 @@ function Inline({ nodes, path, renderText }: InlineProps): ReactNode {
           >
             {node.value}
           </code>
+        );
+      case "image":
+        // Only ever reached with `images` on (admin-written copy); the parser
+        // already limits the address to http(s).
+        return (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            key={key}
+            src={node.url}
+            alt={node.alt}
+            title={node.alt || undefined}
+            loading="lazy"
+            referrerPolicy="no-referrer"
+            className="my-1 inline-block h-auto max-w-full rounded-md align-middle"
+          />
         );
       case "link":
         // The label is drawn as plain text — a mention or a link inside a

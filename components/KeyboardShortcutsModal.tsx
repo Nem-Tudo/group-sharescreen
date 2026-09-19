@@ -17,6 +17,8 @@ import {
 } from "@/lib/keyboardShortcuts";
 import { isDesktopApp } from "@/lib/desktop";
 import { useT } from "@/lib/useI18n";
+import { useTileExperiment } from "@/lib/clipsMode";
+import { NewBadge } from "@/components/NewBadge";
 
 export function KeyboardShortcutsModal({
   open,
@@ -31,6 +33,8 @@ export function KeyboardShortcutsModal({
 }) {
   const t = useT();
   const { shortcuts, updateShortcut, resetShortcuts } = useShortcuts();
+  const clipsAvailable = useTileExperiment("clips").available;
+  const recordingAvailable = useTileExperiment("recording").available;
 
   if (!open) return null;
 
@@ -39,6 +43,12 @@ export function KeyboardShortcutsModal({
   const audioShortcuts = SHORTCUT_DEFINITIONS.filter((d) => d.category === "audio");
   const videoShortcuts = SHORTCUT_DEFINITIONS.filter((d) => d.category === "video");
   const musicShortcuts = SHORTCUT_DEFINITIONS.filter((d) => d.category === "music");
+  // Only the ones whose experiment this person has (see lib/clipsMode).
+  const clipShortcuts = SHORTCUT_DEFINITIONS.filter(
+    (d) =>
+      d.category === "clips" &&
+      ((d.experiment === "clips" && clipsAvailable) || (d.experiment === "recording" && recordingAvailable))
+  );
 
   function renderGroup(title: string, list: ShortcutDefinition[], isAppOnlyCategory = false) {
     return (
@@ -94,6 +104,7 @@ export function KeyboardShortcutsModal({
                     <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
                       {def.label}
                     </p>
+                    {def.category === "clips" && <NewBadge id={`shortcut-${def.id}`} />}
                   </div>
                   <p className="text-xs text-zinc-500 dark:text-zinc-400">
                     {def.description}
@@ -186,6 +197,7 @@ export function KeyboardShortcutsModal({
             )}
             {renderGroup(t("keyboardShortcutsModal.broadcastCamera"), videoShortcuts, true)}
             {renderGroup(t("common.music"), musicShortcuts, true)}
+            {clipShortcuts.length > 0 && renderGroup(t("keyboardShortcutsModal.clipsAndRecording"), clipShortcuts)}
           </div>
 
           <div className="mt-5 rounded-xl border border-zinc-200/80 bg-zinc-50 p-3.5 text-xs leading-relaxed text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/50 dark:text-zinc-400">
