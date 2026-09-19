@@ -25,6 +25,8 @@ export type CallStagePerson = {
   userId?: string | null;
   isGuest?: boolean;
   micOn: boolean;
+  /** A room manager turned their mic off — the badge goes red. */
+  silenced?: boolean;
   /** Their microphone, for the ring that says they are talking. */
   micStream: MediaStream | null;
 };
@@ -66,8 +68,8 @@ function CallStageFace({ person, size }: { person: CallStagePerson; size: number
           userId={person.userId}
           isGuest={person.isGuest}
         />
-        {!person.micOn && (
-          <span className="absolute -bottom-0.5 -right-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-zinc-800 text-white ring-2 ring-zinc-100 dark:bg-zinc-950 dark:ring-zinc-900">
+        {(!person.micOn || person.silenced) && (
+          <span className={`absolute -bottom-0.5 -right-0.5 flex h-6 w-6 items-center justify-center rounded-full ${person.silenced ? "bg-red-600" : "bg-zinc-800 dark:bg-zinc-950"} text-white ring-2 ring-zinc-100 dark:ring-zinc-900`}>
             <MdMicOff className="h-3.5 w-3.5" />
           </span>
         )}

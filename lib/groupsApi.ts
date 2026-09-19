@@ -43,6 +43,13 @@ export interface GroupRoleInfo {
    * off the bot, or deleted by hand. Null (or absent, from an older API) otherwise.
    */
   managedBy?: string | null;
+  /**
+   * A role the site runs itself — "aura": held by exactly whoever gives the
+   * group an aura (see lib/groupAura). Its name, who holds it and whether it
+   * exists are never changed by hand; its colour, switches and place are.
+   * Null (or absent, from an older API) otherwise.
+   */
+  system?: "aura" | null;
 }
 export type GroupChannelKind = "text" | "voice";
 export type GroupNotifyLevel = "all" | "mentions" | "none";
@@ -161,6 +168,8 @@ export interface GroupVoiceParticipant {
   camera?: boolean;
   /** Something other than the camera going out — a screen, a file. Absent from an older API. */
   screen?: boolean;
+  /** A room manager turned their mic off. Absent: no. */
+  silenced?: boolean;
 }
 
 export type GroupVoiceMap = Record<string, GroupVoiceParticipant[]>;

@@ -1641,6 +1641,15 @@
   "groupPermissions.anNameNotifiesThePerson": "An @name notifies the person.",
   "groupPermissions.attachedOrPastedWithCtrlV": "Images, videos and files, attached or pasted with Ctrl+V.",
   "groupPermissions.banMembers": "Ban members",
+  "groupPermissions.muteMembers": "Mute members",
+  "groupPermissions.muteMembersHint": "Turn someone else's microphone off in a voice room — and let them turn it back on.",
+  "groupPermissions.moveMembers": "Move members",
+  "groupPermissions.moveMembersHint": "Take someone from one voice room to another — even one they couldn't connect to.",
+  "groups.memberMenu.moveTo": "Move to",
+  "memberActionsModal.muteMicrophone": "Mute microphone",
+  "memberActionsModal.unmuteMicrophone": "Allow microphone",
+  "watch.watchRoom.adminMutedYou": "An administrator muted your microphone.",
+  "participantRow.mutedByAdmin": "{name} was muted by an administrator",
   "groupPermissions.canDoEverythingInEveryRoom": "Can do everything, in every room, ignoring their permissions. Give it out carefully.",
   "groupPermissions.connect": "Connect",
   "groupPermissions.createAndEditRolesBelowYours": "Create and edit roles below yours, give and remove those roles from people and change @everyone.",
@@ -3724,5 +3733,7 @@
   "groupPermissions.useCustomEmojis": "Use custom emojis",
   "groupPermissions.useCustomEmojisHint": "Custom emojis in messages, reactions and the call chat — the group's own and external ones.",
   "groupPermissions.useExternalEmojis": "Use external emojis",
-  "groupPermissions.useExternalEmojisHint": "Emojis from other groups or one's own account. Off, the group's own emojis still work."
+  "groupPermissions.useExternalEmojisHint": "Emojis from other groups or one's own account. Off, the group's own emojis still work.",
+  "groups.rolesTab.auraRole": "Aura role",
+  "groups.rolesTab.auraRoleManaged": "Managed automatically: whoever gives the group an Aura gets it, whoever takes it back loses it. You can change its colour, permissions and position, but not its name or who holds it."
 }

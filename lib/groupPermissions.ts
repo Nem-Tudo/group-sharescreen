@@ -21,6 +21,8 @@ export const MANAGE_PERMISSION_KEYS = [
   "manageRoles",
   "kickMembers",
   "banMembers",
+  "muteMembers",
+  "moveMembers",
   "manageMessages",
   "manageReactions",
   "createInvites",
@@ -96,6 +98,8 @@ const MANAGE_OFF: Record<ManagePermissionKey, boolean> = {
   manageRoles: false,
   kickMembers: false,
   banMembers: false,
+  muteMembers: false,
+  moveMembers: false,
   manageMessages: false,
   manageReactions: false,
   createInvites: false,
@@ -137,6 +141,14 @@ export const PERMISSION_LABELS: Record<AnyPermissionKey, { label: string; hint: 
   },
   kickMembers: { get label() { return translate("groupPermissions.kickMembers"); }, get hint() { return translate("groupPermissions.removeFromTheGroupAnyoneWith"); } },
   banMembers: { get label() { return translate("groupPermissions.banMembers"); }, get hint() { return translate("groupPermissions.removeFromTheGroupWithNo"); } },
+  muteMembers: {
+    get label() { return translate("groupPermissions.muteMembers"); },
+    get hint() { return translate("groupPermissions.muteMembersHint"); },
+  },
+  moveMembers: {
+    get label() { return translate("groupPermissions.moveMembers"); },
+    get hint() { return translate("groupPermissions.moveMembersHint"); },
+  },
   manageMessages: { get label() { return translate("groupPermissions.manageMessages"); }, get hint() { return translate("groupPermissions.deleteOtherPeopleSMessages"); } },
   manageReactions: {
     get label() { return translate("groupPermissions.manageReactions"); },
@@ -384,4 +396,12 @@ const revalidateKeys = new WeakMap<GroupDetail, string>();
 /** The section of the member list somebody is listed in: their highest hoisted role. */
 export function hoistedRoleOf(detail: GroupDetail, subject: PermissionSubject): GroupRoleInfo | null {
   return subjectRoles(detail, subject).find((r) => r.hoist) ?? null;
+}
+
+/**
+ * Whether a role is handed out and taken back by people — not a bot's own
+ * (GroupRoleInfo.managedBy) nor one the site runs (GroupRoleInfo.system).
+ */
+export function isHandAssignable(role: GroupRoleInfo): boolean {
+  return !role.managedBy && !role.system;
 }

@@ -16,7 +16,10 @@ import {
   MdPersonOutline,
   MdPersonRemove,
   MdShield,
+  MdLock,
   MdSwapHoriz,
+  MdSwapVert,
+  MdVolumeUp,
 } from "react-icons/md";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { Popover } from "@/components/Tooltip";
@@ -39,17 +42,35 @@ import { copyText } from "@/lib/clipboard";
 import { openDirectMessages } from "@/lib/dmWindow";
 import { mentionInComposer, useCanMention } from "@/lib/groupMentionBridge";
 import {
+  canInChannel,
   canManage,
+  isAdministrator,
+  memberCanInChannel,
   myRank,
   rankOf,
   roleColorOf,
   roleIdsOf,
   rolesInOrder,
   rolesWithIds,
+  isHandAssignable
 } from "@/lib/groupPermissions";
 import { useGroupVoiceControls, useGroupVoiceLive } from "@/lib/groupVoiceSession";
 import { banMember, kickMember, setMemberRoles, transferGroup, type GroupDetail } from "@/lib/groupsApi";
 import { refreshGroup } from "@/lib/useGroups";
+import { signalingClient } from "@/lib/signalingClient";
+import { trackFeatureEvent, useFeature } from "@/lib/features";
+import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
+
+/** The experiment behind "Mover para" — and the NewBadge's id. */
+export const GROUP_MOVE_FEATURE = "group-move-members";
+
+/** The voice room somebody is in, by the group's own record of its calls — null when in none. */
+function voiceChannelOf(detail: GroupDetail, userId: string): string | null {
+  for (const [channelId, people] of Object.entries(detail.voice ?? {})) {
+    if (people.some((p) => p.userId === userId)) return channelId;
+  }
+  return null;
+}
 import { useT } from "@/lib/useI18n";
 
 // What can be done about one person in a group, in the two places it is
@@ -77,8 +98,8 @@ function permissionsOver(detail: GroupDetail, targetId: string, targetGuest: boo
     roles: rolesWithIds(detail, roleIds),
     canRoles,
     rank,
-    // A bot's own role is never handed to anybody (see GroupRoleInfo.managedBy).
-    assignable: canRoles ? rolesInOrder(detail).filter((r) => r.position < rank && !r.managedBy) : [],
+    // A bot's own role and the Aura role are never handed out by hand.
+    assignable: canRoles ? rolesInOrder(detail).filter((r) => r.position < rank && isHandAssignable(r)) : [],
     canKick: !self && above && canManage(detail, "kickMembers"),
     canBan: !self && above && canManage(detail, "banMembers"),
     canTransfer: !self && !targetGuest && detail.me.role === "owner",
@@ -164,7 +185,7 @@ function GroupMemberPanel({ detail, target }: { detail: GroupDetail; target: Gro
             name={role.name}
             color={role.color}
             onRemove={
-              rules.canRoles && role.position < rules.rank && !role.managedBy
+              rules.canRoles && role.position < rules.rank && isHandAssignable(role)
                 ? () => void change(heldIds.filter((id) => id !== role.id))
                 : undefined
             }
@@ -295,6 +316,7 @@ function MemberMenu({ detail, target }: { detail: GroupDetail; target: GroupProf
   const groupId = detail.group.id;
   const rules = permissionsOver(detail, target.id, target.guest);
   const [rolesOpen, setRolesOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
   const [pendingRoles, setPendingRoles] = useState<string[] | null>(null);
   const [confirm, setConfirm] = useState<"kick" | "ban" | "transfer" | null>(null);
   const [busy, setBusy] = useState(false);
@@ -308,6 +330,29 @@ function MemberMenu({ detail, target }: { detail: GroupDetail; target: GroupProf
   const selfInCall = rules.self && controls && inCall;
   const color = roleColorOf(detail, { id: target.id, roleIds: rules.roleIds });
   const heldIds = pendingRoles ?? rules.roleIds;
+
+  // "Mover para": somebody in one of the group's calls, to another of its
+  // voice rooms — "Conectar" or not, that's the point (see the API's
+  // "group-move-member"). The same limits the API keeps: nobody moves the
+  // owner, and only the owner moves an administrator. Only rooms both of you
+  // can see, since the one they can't would be answered as not existing.
+  const targetSubject = { id: target.id, roleIds: rules.roleIds };
+  const fromChannelId = voiceChannelOf(detail, target.id);
+  const mayMove =
+    fromChannelId !== null &&
+    canManage(detail, "moveMembers") &&
+    (rules.self || detail.me.role === "owner" || !isAdministrator(detail, targetSubject));
+  const moveFeature = useFeature(GROUP_MOVE_FEATURE, { group: groupId, track: mayMove });
+  const destinations = mayMove
+    ? detail.channels.filter(
+        (c) =>
+          c.kind === "voice" &&
+          c.id !== fromChannelId &&
+          canInChannel(detail, c, "viewChannel") &&
+          memberCanInChannel(detail, c, targetSubject, "viewChannel")
+      )
+    : [];
+  const canMove = mayMove && moveFeature.enabled && destinations.length > 0;
 
   function act(fn: () => void) {
     fn();
@@ -435,6 +480,48 @@ function MemberMenu({ detail, target }: { detail: GroupDetail; target: GroupProf
               {controls.isMicOn ? <MdMicOff className={menuIcon} /> : <MdMic className={menuIcon} />}
               {controls.isMicOn ? t("groups.memberMenu.turnMicOff") : t("groups.memberMenu.turnMicOn")}
             </button>
+          </>
+        )}
+
+        {canMove && (
+          <>
+            <MenuDivider />
+            <button
+              type="button"
+              aria-expanded={moveOpen}
+              onClick={() => setMoveOpen((open) => !open)}
+              className={menuItem}
+            >
+              <MdSwapVert className={menuIcon} />
+              <span className="flex-1">{t("groups.memberMenu.moveTo")}</span>
+              <NewBadge id={GROUP_MOVE_FEATURE} />
+              <MdChevronRight className={`h-4 w-4 shrink-0 opacity-60 transition ${moveOpen ? "rotate-90" : ""}`} />
+            </button>
+            {moveOpen && (
+              <div className="flex max-h-56 flex-col gap-0.5 overflow-y-auto pl-2">
+                {destinations.map((channel) => (
+                  <button
+                    key={channel.id}
+                    type="button"
+                    onClick={() =>
+                      act(() => {
+                        signalingClient.moveGroupMember(groupId, target.id, channel.id);
+                        markFeatureUsed(GROUP_MOVE_FEATURE);
+                        trackFeatureEvent("group_move_member", { group: groupId, feature: GROUP_MOVE_FEATURE });
+                      })
+                    }
+                    className={menuItem}
+                  >
+                    <MdVolumeUp className={menuIcon} />
+                    <span className="flex-1 truncate">{channel.name}</span>
+                    {/* They couldn't join it themselves — the move takes them in anyway. */}
+                    {!memberCanInChannel(detail, channel, targetSubject, "connect") && (
+                      <MdLock className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
           </>
         )}
 

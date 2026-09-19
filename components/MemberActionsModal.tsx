@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { MdBlock, MdCheck, MdChatBubbleOutline, MdPersonOutline, MdPersonRemove } from "react-icons/md";
+import { MdBlock, MdCheck, MdChatBubbleOutline, MdMic, MdMicOff, MdPersonOutline, MdPersonRemove } from "react-icons/md";
 import { FaCrown } from "react-icons/fa";
 import { signalingClient } from "@/lib/signalingClient";
 import { useSignalingSelector } from "@/lib/useSignalingSelector";
 import { selectRoom } from "@/lib/signalingSelectors";
-import { isActiveGroupVoiceRoom } from "@/lib/groupVoiceSession";
+import { isActiveGroupVoiceRoom, useGroupVoiceSession } from "@/lib/groupVoiceSession";
+import { trackFeatureEvent, useFeature } from "@/lib/features";
+import { NewBadge, markFeatureUsed } from "./NewBadge";
 import { DisplayUserName } from "./DisplayUserName";
 import { UserAvatar } from "./UserAvatar";
 import { VolumeSlider } from "./VolumeSlider";
@@ -53,6 +55,14 @@ export type MemberActions = {
   canPromote: boolean;
   /** Whether they already are one, which is what the one button says. */
   isAdmin: boolean;
+  /**
+   * Whether this viewer may turn their mic off (and let them turn it back
+   * on) — the room's managers, and in a group whoever has "muteMembers". See
+   * the server's "room-silence".
+   */
+  canSilence?: boolean;
+  /** Whether a manager already turned their mic off — what the button says. */
+  silenced?: boolean;
   // Why they cannot, when they cannot. Shown instead of the buttons, because
   // "the menu opened and did nothing" is the worst of the three outcomes.
   blockedReason?: string | null;
@@ -72,6 +82,9 @@ export type MemberActions = {
 };
 
 export type MemberActionsPopupData = MemberActions;
+
+/** The experiment behind "Silenciar microfone" — and the NewBadge's id. */
+export const ROOM_ADMIN_MUTE_FEATURE = "room-admin-mute";
 
 // The room's actions for one person. Two shells, one body:
 //
@@ -106,6 +119,8 @@ export function MemberActionsMenu({
     canBan: canBanRoom,
     canPromote: canPromoteRoom,
     isAdmin,
+    canSilence: canSilenceRoom = false,
+    silenced = false,
     blockedReason,
     onOpenProfile,
     onSendMessage,
@@ -132,6 +147,12 @@ export function MemberActionsMenu({
   const inGroupRoom = isActiveGroupVoiceRoom(room);
   const canBan = canBanRoom && !inGroupRoom;
   const canPromote = canPromoteRoom && !inGroupRoom;
+  // Behind the experiment — see ROOM_ADMIN_MUTE_FEATURE. Counted as an
+  // exposure only where the button would actually show.
+  const groupSession = useGroupVoiceSession();
+  const groupId = inGroupRoom ? groupSession?.groupId ?? null : null;
+  const silenceFeature = useFeature(ROOM_ADMIN_MUTE_FEATURE, { room, group: groupId, track: canSilenceRoom });
+  const canSilence = canSilenceRoom && silenceFeature.enabled;
 
   let body: ReactNode;
   if (confirmingBan) {
@@ -223,7 +244,7 @@ export function MemberActionsMenu({
           </>
         )}
 
-        {(canPromote || canKick || canBan) && (
+        {(canPromote || canSilence || canKick || canBan) && (
           <>
             <MenuDivider />
             {canPromote && (
@@ -238,6 +259,30 @@ export function MemberActionsMenu({
               >
                 <FaCrown className={`${menuIcon} text-amber-500 opacity-100`} />
                 {isAdmin ? t("memberActionsModal.removeAdministrator") : t("memberActionsModal.makeAdministrator")}
+              </button>
+            )}
+            {canSilence && (
+              <button
+                type="button"
+                onClick={() => {
+                  signalingClient.setMemberSilenced(userId, !silenced);
+                  markFeatureUsed(ROOM_ADMIN_MUTE_FEATURE);
+                  trackFeatureEvent(silenced ? "admin_unmute_member" : "admin_mute_member", {
+                    room,
+                    group: groupId,
+                    feature: ROOM_ADMIN_MUTE_FEATURE,
+                  });
+                  onDone();
+                }}
+                className={menuItem}
+              >
+                {silenced ? (
+                  <MdMic className={menuIcon} />
+                ) : (
+                  <MdMicOff className={`${menuIcon} text-red-500 opacity-100`} />
+                )}
+                {silenced ? t("memberActionsModal.unmuteMicrophone") : t("memberActionsModal.muteMicrophone")}
+                <NewBadge id={ROOM_ADMIN_MUTE_FEATURE} className="ml-auto" />
               </button>
             )}
             {canKick && (

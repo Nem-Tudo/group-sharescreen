@@ -33,6 +33,8 @@ import { useHasStoredName } from "@/lib/useSignaling";
 import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
 import { selectWatchRoom } from "@/lib/signalingSelectors";
 import { groupPath } from "@/lib/groupLinks";
+import { useGroupDetail } from "@/lib/useGroups";
+import { canManage } from "@/lib/groupPermissions";
 import {
   RoomToGroupButton,
   ROOM_TO_GROUP_MIN_PEOPLE,
@@ -1710,6 +1712,18 @@ export function WatchRoom({
   );
   const [doubleClickFocus, setDoubleClickFocus] = useState(() => getStoredDoubleClickFocus());
   const [mutedPeerIds, setMutedPeerIds] = useState<Set<string>>(new Set());
+  // Whom a manager turned the mic off for (see the server's "room-silence"),
+  // by stable user id: shown in red everywhere a mic is, never played here,
+  // and — for ourselves — the mic kept off.
+  const silencedIds = useMemo(() => new Set(state.roomSilenced), [state.roomSilenced]);
+  const selfSilenced = Boolean(state.selfUserId && silencedIds.has(state.selfUserId));
+  const isPeerSilenced = (peer: { userId?: string | null } | undefined) =>
+    Boolean(peer?.userId && silencedIds.has(peer.userId));
+  // In a group, "Silenciar membros" lets somebody who is not an
+  // administrator silence people too — the group's detail says whether we
+  // have it (the group's shell has it loaded already).
+  const { detail: groupDetail } = useGroupDetail(group?.groupId ?? null);
+  const groupCanMuteMembers = Boolean(group && groupDetail && canManage(groupDetail, "muteMembers"));
   const [peerVolumes, setPeerVolumes] = useState<Record<string, number>>(() => getStoredPeerVolumes());
   // Screen/camera tiles' sound on/off, per person and per kind, keyed like
   // transmissionVolumes. A tile nobody has touched starts muted.
@@ -2666,6 +2680,7 @@ export function WatchRoom({
         name: withDeviceSuffix(state.name, state.selfUserId, state.selfDevice ?? undefined, counts),
         avatarUrl: account?.avatarUrl ?? null,
         mic: isMicOn,
+        silenced: selfSilenced,
         deafened: micsMuted,
         camera,
         screen: isSharing && (!camera || Boolean(localStream)),
@@ -2680,7 +2695,8 @@ export function WatchRoom({
         peerId: p.id,
         name: withDeviceSuffix(p.name, p.userId, p.device, counts),
         avatarUrl: p.avatarUrl ?? null,
-        mic: p.mic,
+        mic: p.mic && !isPeerSilenced(p),
+        silenced: isPeerSilenced(p),
         deafened: p.micsMuted === true,
         camera,
         screen: p.sharing && (!camera || p.screen === true || (p.files?.length ?? 0) > 0),
@@ -2688,7 +2704,7 @@ export function WatchRoom({
         // Read exactly as the participant row reads them: deafening yourself
         // shows everybody as muted, and a volume is keyed by the person.
         audio: {
-          muted: micsMuted || mutedPeerIds.has(p.id),
+          muted: micsMuted || mutedPeerIds.has(p.id) || isPeerSilenced(p),
           volume: peerVolumes[p.userId ?? p.id] ?? 1,
         },
       });
@@ -2715,6 +2731,7 @@ export function WatchRoom({
     remoteMicStreams,
     mutedPeerIds,
     peerVolumes,
+    silencedIds,
   ]);
   useEffect(() => {
     setGroupVoiceLive(groupVoiceLive);
@@ -2859,7 +2876,9 @@ export function WatchRoom({
     : isRoomManager
       ? translate("watch.watchRoom.chooseWhereThisRoomSitsOn")
       : translate("watch.watchRoom.seeWhereThisRoomSitsOn");
-  const micBlockedReason = roomBlockReason("mic", "o microfone");
+  const micBlockedReason = selfSilenced
+    ? translate("watch.watchRoom.adminMutedYou")
+    : roomBlockReason("mic", "o microfone");
   const screenBlockedReason = roomBlockReason("screen", "o compartilhamento de tela");
   const cameraBlockedReason = roomBlockReason("camera", translate("watch.watchRoom.theCamera"));
   const videoSourceBlockedReason = roomBlockReason("videoSource", translate("watch.watchRoom.addVideoSources"));
@@ -2911,9 +2930,10 @@ export function WatchRoom({
   useEffect(() => {
     // The device's own toggle: this only ever closes the mic, so the
     // undeafen rule in toggleMic has nothing to do here.
-    if (isMicOn && !canUseRoomPermission("mic")) toggleMicDevice();
+    // A manager silencing us closes it the same way — see selfSilenced.
+    if (isMicOn && (selfSilenced || !canUseRoomPermission("mic"))) toggleMicDevice();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMicOn, isRoomManager, state.roomPermissions.mic, myPermissions?.mic]);
+  }, [isMicOn, isRoomManager, state.roomPermissions.mic, myPermissions?.mic, selfSilenced]);
 
   // "Você criou uma sala pública!" — opened by itself, once, for whoever's
   // join brought the room into existence (see the server's "room-state"
@@ -4109,6 +4129,15 @@ export function WatchRoom({
       // are facts this side would only be guessing at.
       canPromote: isRoomOwner && !targetIsOwner,
       isAdmin: targetIsAdmin,
+      // Same two limits as kicking, but in a group "Silenciar membros" is
+      // enough — it doesn't take being an administrator (see the server's
+      // canSilenceInRoom).
+      canSilence:
+        (isRoomManager || groupCanMuteMembers) &&
+        peer.userId !== state.selfUserId &&
+        !targetIsOwner &&
+        (!targetIsAdmin || isRoomOwner),
+      silenced: isPeerSilenced(peer),
       // Explained only to whoever might otherwise expect the buttons — a
       // regular participant never sees an admin section at all, so there is
       // nothing for them to be told they can't do.
@@ -4122,7 +4151,7 @@ export function WatchRoom({
       onOpenProfile: () => setProfileUserId(peer.userId as string),
       onSendMessage: account && peer.userId !== state.selfUserId ? () => openDirectMessages(peer.userId) : undefined,
       volume: peerVolumes[volumeKey] ?? 1,
-      muted: micsMuted || mutedPeerIds.has(peer.id),
+      muted: micsMuted || mutedPeerIds.has(peer.id) || isPeerSilenced(peer),
       onVolumeChange: (v) => setPeerVolume(volumeKey, v),
       onToggleMute: () => toggleParticipantMute(peer.id),
     };
@@ -6418,6 +6447,7 @@ export function WatchRoom({
         bot={state.account?.bot}
         nameColor={account?.equippedNameColor}
         micOn={isMicOn}
+        silenced={selfSilenced}
         sharing={isSharing}
         screen={Boolean(localStream)}
         camera={Boolean(localCameraStream)}
@@ -6455,13 +6485,14 @@ export function WatchRoom({
             verified={verifiedBadge(p?.flags)}
             bot={p.bot}
             nameColor={p.nameColor}
-            micOn={p.mic}
+            micOn={p.mic && !isPeerSilenced(p)}
+            silenced={isPeerSilenced(p)}
             sharing={p.sharing}
             screen={p.screen}
             camera={p.camera}
             sharingVideo={peerSharesVideo(p.userId)}
             micStream={remoteMicStreams[p.id]}
-            muted={micsMuted || mutedPeerIds.has(p.id)}
+            muted={micsMuted || mutedPeerIds.has(p.id) || isPeerSilenced(p)}
             onToggleMute={toggleParticipantMute}
             volume={peerVolumes[volumeKey] ?? 1}
             connectionLost={micConnectionStates[p.id] === "disconnected"}
@@ -6484,6 +6515,7 @@ export function WatchRoom({
           userId: state.selfUserId,
           isGuest: !state.account,
           micOn: isMicOn,
+          silenced: selfSilenced,
           micStream: localMicStream,
         },
         ...visiblePeers.map((p) => ({
@@ -6492,7 +6524,8 @@ export function WatchRoom({
           avatarUrl: p.avatarUrl ?? null,
           userId: p.userId,
           isGuest: p.isGuest,
-          micOn: p.mic,
+          micOn: p.mic && !isPeerSilenced(p),
+          silenced: isPeerSilenced(p),
           micStream: remoteMicStreams[p.id] ?? null,
         })),
       ]
@@ -7504,7 +7537,9 @@ export function WatchRoom({
           <RemoteAudio
             key={peerId}
             stream={stream}
-            muted={micsMuted || mutedPeerIds.has(peerId)}
+            // A silenced person is not played even if their client ignores
+            // the room and keeps sending — see the server's "room-silence".
+            muted={micsMuted || mutedPeerIds.has(peerId) || isPeerSilenced(peersById.get(peerId))}
             volume={peerVolumes[volumeKey] ?? 1}
             sinkId={speakerDeviceId}
           />

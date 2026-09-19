@@ -1641,6 +1641,15 @@
   "groupPermissions.anNameNotifiesThePerson": "Um @nome avisa a pessoa.",
   "groupPermissions.attachedOrPastedWithCtrlV": "Imagens, vídeos e arquivos anexados ou colados com Ctrl+V.",
   "groupPermissions.banMembers": "Banir membros",
+  "groupPermissions.muteMembers": "Silenciar membros",
+  "groupPermissions.muteMembersHint": "Desligar o microfone de outra pessoa numa sala de voz — e deixar ligar de novo.",
+  "groupPermissions.moveMembers": "Mover membros",
+  "groupPermissions.moveMembersHint": "Levar alguém de uma sala de voz para outra — mesmo uma em que a pessoa não poderia conectar.",
+  "groups.memberMenu.moveTo": "Mover para",
+  "memberActionsModal.muteMicrophone": "Silenciar microfone",
+  "memberActionsModal.unmuteMicrophone": "Permitir microfone",
+  "watch.watchRoom.adminMutedYou": "Um administrador silenciou seu microfone.",
+  "participantRow.mutedByAdmin": "{name} foi silenciado por um administrador",
   "groupPermissions.canDoEverythingInEveryRoom": "Pode tudo, em todas as salas, ignorando as permissões delas. Dê com cuidado.",
   "groupPermissions.connect": "Conectar",
   "groupPermissions.createAndEditRolesBelowYours": "Criar e editar cargos abaixo do seu, dar e tirar esses cargos das pessoas e mudar o @everyone.",
@@ -3724,5 +3733,7 @@
   "groupPermissions.useCustomEmojis": "Usar emojis personalizados",
   "groupPermissions.useCustomEmojisHint": "Emojis personalizados em mensagens, reações e no chat da chamada — os do grupo e os externos.",
   "groupPermissions.useExternalEmojis": "Usar emojis externos",
-  "groupPermissions.useExternalEmojisHint": "Emojis de outros grupos ou da própria conta. Desligado, os emojis do grupo continuam funcionando."
+  "groupPermissions.useExternalEmojisHint": "Emojis de outros grupos ou da própria conta. Desligado, os emojis do grupo continuam funcionando.",
+  "groups.rolesTab.auraRole": "Cargo de Aura",
+  "groups.rolesTab.auraRoleManaged": "Cargo gerenciado automaticamente: quem dá Aura ao grupo recebe, quem tira perde. Dá para mudar a cor, as permissões e a posição, mas não o nome nem quem tem."
 }

@@ -37,6 +37,7 @@ export const ParticipantRow = memo(function ParticipantRow({
   userId,
   onOpenProfile,
   micOn,
+  silenced = false,
   micsMuted = false,
   sharing,
   screen,
@@ -81,6 +82,9 @@ export const ParticipantRow = memo(function ParticipantRow({
   // put a dialog — the name stays the ordinary link to /user/[id] it was.
   onOpenProfile?: (userId: string) => void;
   micOn: boolean;
+  // A room manager turned their mic off (see the server's "room-silence") —
+  // the mic-off icon goes red, so everybody can tell it wasn't their choice.
+  silenced?: boolean;
   // They silenced everyone else's mic for themselves ("silenciar microfones").
   // Nothing about what they transmit — see PeerInfo.micsMuted.
   micsMuted?: boolean;
@@ -302,7 +306,13 @@ export const ParticipantRow = memo(function ParticipantRow({
         {isSelf && <span className="shrink-0 text-xs font-normal text-zinc-500">{t("participantRow.you")}</span>}
       </span>
       <span className="flex shrink-0 items-center gap-2 text-zinc-400 dark:text-zinc-500">
-        {micOn ? (
+        {silenced ? (
+          <Tooltip content={t("participantRow.mutedByAdmin", { name })}>
+            <span className="flex shrink-0 items-center">
+              <MicOffIcon className="h-4 w-4 text-red-500" />
+            </span>
+          </Tooltip>
+        ) : micOn ? (
           <MicIcon className="h-4 w-4 text-sky-500" />
         ) : (
           <MicOffIcon className="h-4 w-4 text-zinc-400 dark:text-zinc-600" />

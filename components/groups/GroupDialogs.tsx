@@ -106,6 +106,7 @@ import {
   roleColorOf,
   rolesInOrder,
   rolesWithIds,
+  isHandAssignable
 } from "@/lib/groupPermissions";
 import { useI18n, useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
@@ -1578,7 +1579,7 @@ function MembersTab({ groupId }: { groupId: string }) {
   const canKick = canManage(detail, "kickMembers");
   const canBan = canManage(detail, "banMembers");
   // The roles the person looking may hand out or take away: below their own.
-  const assignable = rolesInOrder(detail).filter((r) => canRoles && r.position < rank);
+  const assignable = rolesInOrder(detail).filter((r) => canRoles && r.position < rank && isHandAssignable(r));
 
   return (
     <div className="flex flex-col gap-2">
@@ -1690,7 +1691,7 @@ function MembersTab({ groupId }: { groupId: string }) {
                       name={role.name}
                       color={role.color}
                       onRemove={
-                        canRoles && role.position < rank
+                        canRoles && role.position < rank && isHandAssignable(role)
                           ? () => setRoles(roleIds.filter((id) => id !== role.id))
                           : undefined
                       }

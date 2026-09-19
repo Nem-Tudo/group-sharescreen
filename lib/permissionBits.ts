@@ -35,6 +35,8 @@ export const PERMISSION_BITS: readonly AnyPermissionKey[] = [
   "image",
   "useCustomEmojis",
   "useExternalEmojis", // 1 << 27
+  "muteMembers",
+  "moveMembers",
 ];
 
 export const ALL_PERMISSION_BITS = (1 << PERMISSION_BITS.length) - 1;

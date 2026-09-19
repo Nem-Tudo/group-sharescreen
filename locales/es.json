@@ -1641,6 +1641,15 @@
   "groupPermissions.anNameNotifiesThePerson": "Un @nombre avisa a la persona.",
   "groupPermissions.attachedOrPastedWithCtrlV": "Imágenes, videos y archivos, adjuntados o pegados con Ctrl+V.",
   "groupPermissions.banMembers": "Banear miembros",
+  "groupPermissions.muteMembers": "Silenciar miembros",
+  "groupPermissions.muteMembersHint": "Apagar el micrófono de otra persona en una sala de voz — y dejar que lo encienda de nuevo.",
+  "groupPermissions.moveMembers": "Mover miembros",
+  "groupPermissions.moveMembersHint": "Llevar a alguien de una sala de voz a otra — incluso una a la que no podría conectarse.",
+  "groups.memberMenu.moveTo": "Mover a",
+  "memberActionsModal.muteMicrophone": "Silenciar micrófono",
+  "memberActionsModal.unmuteMicrophone": "Permitir micrófono",
+  "watch.watchRoom.adminMutedYou": "Un administrador silenció tu micrófono.",
+  "participantRow.mutedByAdmin": "{name} fue silenciado por un administrador",
   "groupPermissions.canDoEverythingInEveryRoom": "Puede todo, en todas las salas, ignorando sus permisos. Dalo con cuidado.",
   "groupPermissions.connect": "Conectar",
   "groupPermissions.createAndEditRolesBelowYours": "Crear y editar roles por debajo del tuyo, dar y quitar esos roles a las personas y cambiar @everyone.",
@@ -3724,5 +3733,7 @@
   "groupPermissions.useCustomEmojis": "Usar emojis personalizados",
   "groupPermissions.useCustomEmojisHint": "Emojis personalizados en mensajes, reacciones y el chat de la llamada — los del grupo y los externos.",
   "groupPermissions.useExternalEmojis": "Usar emojis externos",
-  "groupPermissions.useExternalEmojisHint": "Emojis de otros grupos o de la propia cuenta. Desactivado, los emojis del grupo siguen funcionando."
+  "groupPermissions.useExternalEmojisHint": "Emojis de otros grupos o de la propia cuenta. Desactivado, los emojis del grupo siguen funcionando.",
+  "groups.rolesTab.auraRole": "Cargo de Aura",
+  "groups.rolesTab.auraRoleManaged": "Gestionado automáticamente: quien le da Aura al grupo lo recibe, quien la quita lo pierde. Se puede cambiar el color, los permisos y la posición, pero no el nombre ni quién lo tiene."
 }

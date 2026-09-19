@@ -170,7 +170,8 @@ function fromServerPresence(person: GroupVoiceParticipant): GroupVoiceLivePerson
     userId: person.userId,
     name: person.name,
     avatarUrl: person.avatarUrl,
-    mic: person.mic,
+    mic: person.mic && !person.silenced,
+    silenced: person.silenced === true,
     deafened: person.deafened ?? false,
     camera: person.camera ?? false,
     screen: person.screen ?? person.sharing,
@@ -255,12 +256,20 @@ const VoicePersonRow = memo(function VoicePersonRow({
         {person.camera && (
           <MdVideocam className="h-3.5 w-3.5 shrink-0 opacity-70" title={t("groups.groupSidebar.cameraOn")} aria-label={t("groups.groupSidebar.cameraOn")} />
         )}
-        {!person.mic && (
+        {person.silenced ? (
           <MdMicOff
-            className="h-3.5 w-3.5 shrink-0 opacity-60"
-            title={t("groups.groupSidebar.microphoneOff")}
-            aria-label={t("groups.groupSidebar.microphoneOff")}
+            className="h-3.5 w-3.5 shrink-0 text-red-500"
+            title={t("participantRow.mutedByAdmin", { name: person.name })}
+            aria-label={t("participantRow.mutedByAdmin", { name: person.name })}
           />
+        ) : (
+          !person.mic && (
+            <MdMicOff
+              className="h-3.5 w-3.5 shrink-0 opacity-60"
+              title={t("groups.groupSidebar.microphoneOff")}
+              aria-label={t("groups.groupSidebar.microphoneOff")}
+            />
+          )
         )}
         {person.deafened && (
           <MdHeadsetOff className="h-3.5 w-3.5 shrink-0 opacity-60" title={t("groups.groupSidebar.deafened")} aria-label={t("groups.groupSidebar.deafened")} />

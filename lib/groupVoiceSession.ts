@@ -58,6 +58,8 @@ export interface GroupVoiceLivePerson {
   name: string;
   avatarUrl: string | null;
   mic: boolean;
+  /** A room manager turned their mic off — the mic-off icon goes red. */
+  silenced?: boolean;
   deafened: boolean;
   camera: boolean;
   screen: boolean;

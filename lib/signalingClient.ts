@@ -23,6 +23,8 @@ import { isUserMentionedInMessage, containsBroadcastMention } from "./chatMentio
 import { showNotification } from "./notifications";
 import { isObsClient } from "./browserEnv";
 import { getSignalingWsUrl } from "./roomsApi";
+import { getGroupVoiceSession, setGroupVoiceSession } from "./groupVoiceSession";
+import { groupVoiceHandle } from "./groupLinks";
 import { refreshIceServers } from "./iceServers";
 import { translate } from "@/lib/i18n";
 import { attachmentsPreview, parseAttachments, type ChatAttachment } from "./chatAttachments";
@@ -316,6 +318,11 @@ export function parseRoomLocation(raw: unknown): RoomLocation | null {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
   return { lat, lng };
+}
+
+function parseRoomSilenced(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((id): id is string => typeof id === "string" && id.length > 0);
 }
 
 function parseRoomAdmins(raw: unknown): RoomAdmin[] {
@@ -743,6 +750,10 @@ export type SignalingState = {
   // (see the server's join gate). Public, unlike roomBans — a room being full
   // is not a secret, and it is what lets the UI say so.
   roomMemberLimit: number | null;
+  // Who a manager turned the mic off for (see the server's "room-silence"),
+  // by stable user id. Public, like a muted mic: everybody's client shows it
+  // in red and stops playing them, and ours keeps our mic off while we're in it.
+  roomSilenced: string[];
   // Set when this room removed *us*: `banned` tells "you may not come back"
   // apart from "you were kicked out of this one". Null the rest of the time,
   // and cleared on the next join, so it only ever describes what just
@@ -790,6 +801,12 @@ export type SignalingState = {
   // "room-converted"): where its voice room is, and whether we were made a
   // member — WatchRoom walks there, or says why it could not take us along.
   roomConverted: RoomConversion | null;
+  // Somebody with "moveMembers" moved us to another of the group's voice
+  // rooms (see the server's "group-move-member"). The call is switched here;
+  // this is for the page, which follows along when it was showing the room we
+  // were taken out of. Counter for the same reason permissionDeniedSeq has one.
+  groupMoved: { groupId: string; fromChannelId: string | null; channelId: string; channelName: string } | null;
+  groupMovedSeq: number;
   // The two-hour broadcast cap for people without an account, reported by the
   // server (see its guestBroadcastStore.ts). `ended` says which of the two
   // moments this is: true when a broadcast that was running was stopped,
@@ -891,6 +908,7 @@ const initialState: SignalingState = {
   roomAdmins: [],
   roomBans: [],
   roomMemberLimit: null,
+  roomSilenced: [],
   roomRemoval: null,
   roomPermissions: { ...DEFAULT_ROOM_PERMISSIONS },
   myRoomPermissions: null,
@@ -901,6 +919,8 @@ const initialState: SignalingState = {
   permissionDenied: null,
   permissionDeniedSeq: 0,
   roomConverted: null,
+  groupMoved: null,
+  groupMovedSeq: 0,
   guestBroadcastLimit: null,
   guestBroadcastLimitSeq: 0,
   typingPeerIds: [],
@@ -1193,6 +1213,10 @@ class SignalingClient {
   // See readConfirmedDeviceRooms — which rooms this tab has already said
   // "yes, let me in anyway" for.
   private confirmedDeviceRooms: Set<string> = readConfirmedDeviceRooms();
+  // Passes into group voice rooms somebody moved us to, by handle (see
+  // "group-moved"). Sent with every join of that room, so a reconnect in the
+  // middle of the call still gets back in; dropped when we leave it.
+  private movePasses = new Map<string, string>();
   private streamerMode: boolean = false;
   // Peers carried over a reconnect that the server has not re-announced yet
   // (see PEER_RESETTLE_MS). Emptied as each one is confirmed by a
@@ -1713,6 +1737,7 @@ class SignalingClient {
           roomOwnerId: typeof msg.ownerId === "string" ? msg.ownerId : null,
           roomAdmins: parseRoomAdmins(msg.admins),
           roomMemberLimit: typeof msg.memberLimit === "number" ? msg.memberLimit : null,
+          roomSilenced: parseRoomSilenced(msg.silenced),
           // A fresh join is a fresh answer to "was I thrown out", and the
           // answer is no — we are in.
           roomRemoval: null,
@@ -1910,11 +1935,22 @@ class SignalingClient {
             msg.permissions && typeof msg.permissions === "object" ? parseRoomPermissions(msg.permissions) : null,
         });
         break;
-      case "room-settings":
+      case "room-settings": {
+        // A manager just silenced us: said in the refusal banner, the same
+        // place a refused mic is explained — WatchRoom closes the mic itself.
+        const silenced = parseRoomSilenced(msg.silenced);
+        const self = this.state.selfUserId;
+        if (self && silenced.includes(self) && !this.state.roomSilenced.includes(self)) {
+          this.setState({
+            permissionDenied: { permission: "mic", message: translate("watch.watchRoom.adminMutedYou") },
+            permissionDeniedSeq: this.state.permissionDeniedSeq + 1,
+          });
+        }
         this.setState({
           roomOwnerId: typeof msg.ownerId === "string" ? msg.ownerId : this.state.roomOwnerId,
           roomAdmins: parseRoomAdmins(msg.admins),
           roomMemberLimit: typeof msg.memberLimit === "number" ? msg.memberLimit : null,
+          roomSilenced: parseRoomSilenced(msg.silenced),
           roomPermissions: parseRoomPermissions(msg.permissions),
           roomLocation: parseRoomLocation(msg.location),
           roomDescription: typeof msg.description === "string" ? msg.description : "",
@@ -1922,6 +1958,7 @@ class SignalingClient {
           roomTheme: typeof msg.theme === "string" && msg.theme ? msg.theme : null,
         });
         break;
+      }
       case "room-to-group-result": {
         const reqId = typeof msg.requestId === "string" ? msg.requestId : "";
         const pending = this.pendingRoomToGroupRequests.get(reqId);
@@ -1930,6 +1967,36 @@ class SignalingClient {
         this.pendingRoomToGroupRequests.delete(reqId);
         if (typeof msg.groupId === "string" && msg.groupId) pending.resolve(msg.groupId);
         else pending.reject(new Error(typeof msg.error === "string" ? msg.error : translate("roomToGroup.failed")));
+        break;
+      }
+      // Moved to another of the group's voice rooms by somebody with
+      // "moveMembers". The call follows at once — the group voice session is
+      // what the call host runs, wherever on the site this tab is — and the
+      // pass goes with the join that follows, which is what gets us past a
+      // room we could not connect to ourselves.
+      case "group-moved": {
+        if (typeof msg.groupId !== "string" || typeof msg.channelId !== "string") break;
+        const current = getGroupVoiceSession();
+        if (!current || current.groupId !== msg.groupId) break;
+        const handle = groupVoiceHandle(msg.channelId);
+        if (typeof msg.movePass === "string") this.movePasses.set(handle, msg.movePass);
+        const channelName = typeof msg.channelName === "string" ? msg.channelName : "";
+        setGroupVoiceSession({
+          groupId: msg.groupId,
+          channelId: msg.channelId,
+          handle,
+          channelName,
+          groupName: typeof msg.groupName === "string" ? msg.groupName : current.groupName,
+        });
+        this.setState({
+          groupMoved: {
+            groupId: msg.groupId,
+            fromChannelId: typeof msg.fromChannelId === "string" ? msg.fromChannelId : null,
+            channelId: msg.channelId,
+            channelName,
+          },
+          groupMovedSeq: this.state.groupMovedSeq + 1,
+        });
         break;
       }
       // Sent to everybody in the room, the owner included — see RoomConversion.
@@ -1972,7 +2039,9 @@ class SignalingClient {
           permissionDenied: {
             permission,
             message:
-              typeof msg.message === "string"
+              msg.silenced === true
+                ? translate("watch.watchRoom.adminMutedYou")
+                : typeof msg.message === "string"
                 ? msg.message
                 : translate("signalingClient.theAdministrationHasTurnedThisOff"),
           },
@@ -2980,6 +3049,7 @@ class SignalingClient {
       turnstileToken,
       confirmDevice: confirmed,
       streamerMode: this.streamerMode,
+      ...(this.movePasses.has(room) ? { movePass: this.movePasses.get(room) } : {}),
       ...(this.isObsSourceJoin
         ? {
             isObsSource: true,
@@ -3057,6 +3127,9 @@ class SignalingClient {
   }
 
   leaveRoom() {
+    // A move's pass is for staying in that call through reconnects, not for
+    // walking back in after hanging up (see movePasses).
+    if (this.desiredRoom) this.movePasses.delete(this.desiredRoom);
     this.desiredRoom = null;
     this.isObsSourceJoin = false;
     this.obsSourceToken = null;
@@ -3087,6 +3160,7 @@ class SignalingClient {
       roomAdmins: [],
       roomBans: [],
       roomMemberLimit: null,
+      roomSilenced: [],
       roomPermissions: { ...DEFAULT_ROOM_PERMISSIONS },
       myRoomPermissions: null,
       roomLocation: null,
@@ -3184,6 +3258,19 @@ class SignalingClient {
 
   banMember(userId: string) {
     this.rawSend({ type: "room-ban", userId });
+  }
+
+  // Turns somebody's mic off until a manager lets them turn it back on — the
+  // room's managers, and in a group whoever has "muteMembers". Enforced
+  // server-side; answered with "room-settings" like the rest.
+  setMemberSilenced(userId: string, silenced: boolean) {
+    this.rawSend({ type: "room-silence", userId, silenced });
+  }
+
+  // Moves somebody in one of the group's calls to another of its voice rooms,
+  // past its "Conectar" if need be. "moveMembers" only, enforced server-side.
+  moveGroupMember(groupId: string, userId: string, channelId: string) {
+    this.rawSend({ type: "group-move-member", groupId, userId, channelId });
   }
 
   unbanMember(userId: string) {

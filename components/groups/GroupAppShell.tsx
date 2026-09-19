@@ -37,7 +37,7 @@ import {
 import { useAccountToken } from "@/lib/accountApi";
 import { setCallChrome, useCallSession } from "@/lib/callSession";
 import { useGuestToken } from "@/lib/guestToken";
-import { groupVoiceHandle, parseGroupsPath, type GroupsRoute } from "@/lib/groupLinks";
+import { groupPath, groupVoiceHandle, parseGroupsPath, type GroupsRoute } from "@/lib/groupLinks";
 import { prefetchChannel } from "@/lib/groupCache";
 import { GroupShellContext, registerGroupShell, useGroupNavigation } from "@/lib/groupNavigation";
 import { canInChannel } from "@/lib/groupPermissions";
@@ -51,6 +51,7 @@ import {
   useGroupVoiceSession,
 } from "@/lib/groupVoiceSession";
 import { signalingClient } from "@/lib/signalingClient";
+import { useSignalingSelector } from "@/lib/useSignalingSelector";
 import { onGroupRemoved, refreshGroups, resetGroups, useGroupDetail } from "@/lib/useGroups";
 import { LG_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 import { useHeaderFit } from "@/lib/headerFit";
@@ -250,6 +251,21 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
       else setGroupVoiceSession({ ...current, channelName: channel.name, groupName: detail.group.name });
     }
   }, [detail, groupId, routeChannel]);
+
+  // Moved to another voice room by somebody with "moveMembers": the call has
+  // already switched (see the signaling client's "group-moved"); the page
+  // follows only when it was showing the room we were taken out of, so
+  // somebody reading a text room stays where they are.
+  const groupMovedSeq = useSignalingSelector((s) => s.groupMovedSeq);
+  const handledMoveSeqRef = useRef(groupMovedSeq);
+  useEffect(() => {
+    if (handledMoveSeqRef.current === groupMovedSeq) return;
+    handledMoveSeqRef.current = groupMovedSeq;
+    const moved = signalingClient.getSnapshot().groupMoved;
+    if (!moved || moved.groupId !== groupId || !moved.fromChannelId || moved.fromChannelId !== roomId) return;
+    joinedRouteRef.current = `${moved.groupId}/${moved.channelId}`;
+    navigation.replace(groupPath(moved.groupId, moved.channelId));
+  }, [groupMovedSeq, groupId, roomId, navigation]);
 
   // Taken out of a group: hang up if the call was in it, and leave its pages.
   useEffect(
