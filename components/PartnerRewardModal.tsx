@@ -18,6 +18,8 @@ import {
 import { Markdown } from "@/components/Markdown";
 import { trackEvent } from "@/lib/analytics";
 import { signalingClient } from "@/lib/signalingClient";
+import { trackPartnerClick, trackPartnerClickReward, usePartnerExperiment } from "@/lib/partnerExperiment";
+import { PartnerClickRewardPill } from "@/components/PartnerClickReward";
 import { CheckIcon } from "@/components/icons";
 import { BsCoin } from "react-icons/bs";
 import { useI18n } from "@/lib/useI18n";
@@ -455,6 +457,9 @@ export function PartnerRewardModal({
   // The CTA advertises (and pays) points only while there are some left to
   // give: a real amount for this spot, not already collected by this browser.
   const clickRewardActive = Boolean(clickRewardPoints) && !clickRewardClaimed;
+  // The partner-ctr treatment's "earn" look (see PartnerClickReward).
+  const inExperiment = usePartnerExperiment();
+  const earnLook = inExperiment && clickRewardActive && !preview;
 
   function claimClickReward() {
     claimPartnerClickReward(partnerId)
@@ -464,6 +469,7 @@ export function PartnerRewardModal({
         setClickRewardError(null);
         setClickRewardJustClaimed(true);
         trackEvent("partner_click_reward_claimed", { partnerId });
+        trackPartnerClickReward(clickRewardPoints);
         // Same reason as the video claim: keeps the header's points total
         // honest without a reload.
         void refresh();
@@ -679,6 +685,7 @@ export function PartnerRewardModal({
             onClick={() => {
               if (preview) return;
               signalingClient.reportPartnerClick(partnerId, "video");
+              trackPartnerClick("video");
               // Fire-and-forget next to the navigation — the link opens in a
               // new tab, so nothing is racing an unload here.
               if (clickRewardActive) claimClickReward();
@@ -712,13 +719,14 @@ export function PartnerRewardModal({
                 clickRewardJustClaimed ? "invisible" : ""
               }`}
             >
-              {clickRewardActive && (
+              {clickRewardActive && !earnLook && (
                 <>
                   <BsCoin className="h-4 w-4 shrink-0" />
                   <span className="shrink-0 tabular-nums">{clickRewardPoints}</span>
                 </>
               )}
               <span className="truncate">{buttonLabel}</span>
+              {earnLook && <PartnerClickRewardPill points={clickRewardPoints!} />}
             </span>
             {clickRewardJustClaimed && (
               <span className="absolute inset-0 flex items-center justify-center">{t("common.redeemed")}</span>

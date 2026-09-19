@@ -16,6 +16,13 @@ import { partnerRewardPopupSize } from "@/components/PartnerRewardModal";
 import { signalingClient } from "@/lib/signalingClient";
 import { trackEvent } from "@/lib/analytics";
 import { useT } from "@/lib/useI18n";
+import {
+  trackPartnerClick,
+  trackPartnerClickReward,
+  trackPartnerVideoOpen,
+  usePartnerExperiment,
+} from "@/lib/partnerExperiment";
+import { PartnerClickRewardPill } from "@/components/PartnerClickReward";
 
 export function PartnerMediaTile({
   partner,
@@ -53,11 +60,16 @@ export function PartnerMediaTile({
 
         if (partner.id) {
           signalingClient.reportPartnerClick(partner.id, "card");
+          trackPartnerClick("tile");
           // Not asked again once collected — the server would only refuse it.
           if (clickRewardAppliesTo(partner, "card") && !hasClaimedPartnerReward(partner.id, "click")) {
             const id = partner.id;
             void claimPartnerClickReward(id)
-              .then(() => markPartnerRewardClaimed(id, "click"))
+              .then(() => {
+                markPartnerRewardClaimed(id, "click");
+                trackPartnerClickReward(partner.clickRewardPoints);
+                bumpRewardState((n) => n + 1);
+              })
               .catch(() => {
                 // ignore duplicate or non-authenticated claims
               });
@@ -83,6 +95,7 @@ export function PartnerMediaTile({
         partnerId: partner.id,
         source: "media_tile",
       });
+      trackPartnerVideoOpen();
 
       openPopup("partner_reward", {
         ...partnerRewardPopupSize(partner.hasExtendedDescription),
@@ -114,6 +127,15 @@ export function PartnerMediaTile({
 
   const cardClickRewardActive = Boolean(
     partner.clickRewardPoints && clickRewardAppliesTo(partner, "card")
+  );
+  // The partner-ctr treatment's "earn" look (see PartnerClickReward) — only
+  // while the points are still there to collect.
+  const inExperiment = usePartnerExperiment();
+  const earnLook = Boolean(
+    inExperiment &&
+      cardClickRewardActive &&
+      partner.id &&
+      !hasClaimedPartnerReward(partner.id, "click")
   );
 
   const bgColor = partner.backgroundColor ?? "#111827";
@@ -171,7 +193,7 @@ export function PartnerMediaTile({
                 className="mt-2.5 flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold shadow-sm transition hover:opacity-90 sm:text-sm"
                 style={{ backgroundColor: btnBg, color: btnText }}
               >
-                {cardClickRewardActive && (
+                {cardClickRewardActive && !earnLook && (
                   <>
                     <BsCoin className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" />
                     <span className="shrink-0 tabular-nums">
@@ -180,6 +202,7 @@ export function PartnerMediaTile({
                   </>
                 )}
                 <span className="truncate">{partner.buttonLabel}</span>
+                {earnLook && <PartnerClickRewardPill points={partner.clickRewardPoints!} />}
               </div>
             </>
           )}
@@ -270,11 +293,18 @@ export function PartnerMediaTile({
         >
           {partner.title}
         </span>
-        {!compact && (
-          <span className="shrink-0 rounded-full bg-emerald-600/90 px-2 py-0.5 text-[11px] font-semibold text-white shadow-xs drop-shadow-sm sm:text-xs">
-            {t("common.sponsored")}
-          </span>
-        )}
+        <span className="flex shrink-0 items-center gap-1.5">
+          {/* With a banner the tile has no button of its own to carry the
+              points, so they ride here — the whole tile is the click. */}
+          {earnLook && hasImage && (
+            <PartnerClickRewardPill points={partner.clickRewardPoints!} size={compact ? "sm" : "md"} />
+          )}
+          {!compact && (
+            <span className="shrink-0 rounded-full bg-emerald-600/90 px-2 py-0.5 text-[11px] font-semibold text-white shadow-xs drop-shadow-sm sm:text-xs">
+              {t("common.sponsored")}
+            </span>
+          )}
+        </span>
       </div>
     </div>
   );

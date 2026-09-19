@@ -21,6 +21,7 @@ import {
 import { getLocalFeatureOverrides, setLocalFeatureOverride } from "@/lib/features";
 import { useT } from "@/lib/useI18n";
 import { TIP_CLICK_EVENT } from "@/lib/clipsMode";
+import { PARTNER_EVENTS } from "@/lib/partnerExperiment";
 import { formatLocale } from "@/lib/i18n";
 
 // Feature rollouts, Discord-experiment style.
@@ -990,6 +991,8 @@ function StatsSection({
             <p className="mt-2 text-[11px] text-zinc-500">{t("admin.features.exposuresHint")}</p>
           </div>
 
+          {stats.events[PARTNER_EVENTS.impression] && <PartnerCtrTable groups={groups} stats={stats} />}
+
           {stats.skipped && Object.keys(stats.skipped).length > 0 && (
             <div className={`${cardClass} text-xs`}>
               <h3 className="font-semibold text-zinc-700 dark:text-zinc-300">{t("admin.features.skippedTitle")}</h3>
@@ -1168,6 +1171,77 @@ function EventTable({
         </tbody>
       </table>
       <p className="mt-2 text-[11px] text-zinc-500">{t("admin.features.rateHint")}</p>
+    </div>
+  );
+}
+
+// Click-through for the partner ads (see lib/partnerExperiment), per group.
+// The event tables above divide by *people* exposed; an ad's CTR divides by
+// times shown, which needs two events' counts put side by side — and the
+// confidence is the same two-proportion test, run on impressions instead.
+function PartnerCtrTable({ groups, stats }: { groups: string[]; stats: FeatureStats }) {
+  const t = useT();
+  const count = (event: string, group: string) => stats.events[event]?.[group]?.count ?? 0;
+  const controlClicks = count(PARTNER_EVENTS.click, "control");
+  const controlImpressions = count(PARTNER_EVENTS.impression, "control");
+  const controlCtr = controlImpressions ? controlClicks / controlImpressions : null;
+  const pct = (value: number | null, digits = 2) => (value === null ? "—" : `${(value * 100).toFixed(digits)}%`);
+
+  return (
+    <div className={`${cardClass} overflow-x-auto ring-1 ring-emerald-500/40`}>
+      <h3 className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">{t("admin.features.partnerCtrTitle")}</h3>
+      <table className="mt-2 w-full text-xs tabular-nums">
+        <thead>
+          <tr className="text-left text-zinc-500">
+            <th className="py-1 pr-3 font-medium">{t("admin.features.group")}</th>
+            <th className="py-1 pr-3 text-right font-medium">{t("admin.features.partnerImpressions")}</th>
+            <th className="py-1 pr-3 text-right font-medium">{t("admin.features.partnerSessionViews")}</th>
+            <th className="py-1 pr-3 text-right font-medium">{t("admin.features.partnerClicks")}</th>
+            <th className="py-1 pr-3 text-right font-medium">{t("admin.features.partnerCtr")}</th>
+            <th className="py-1 pr-3 text-right font-medium">{t("admin.features.partnerCtrPerView")}</th>
+            <th className="py-1 pr-3 text-right font-medium">{t("admin.features.vsControl")}</th>
+            <th className="py-1 text-right font-medium">{t("admin.features.confidence")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {groups.map((group) => {
+            const impressions = count(PARTNER_EVENTS.impression, group);
+            const views = count(PARTNER_EVENTS.sessionView, group);
+            const clicks = count(PARTNER_EVENTS.click, group);
+            const ctr = impressions ? clicks / impressions : null;
+            const perView = views ? clicks / views : null;
+            const lift = group !== "control" && ctr !== null && controlCtr ? ctr / controlCtr - 1 : null;
+            const conf = group !== "control" ? confidence(clicks, impressions, controlClicks, controlImpressions) : null;
+            return (
+              <tr key={group} className="border-t border-zinc-100 dark:border-zinc-900">
+                <td className="py-1 pr-3">
+                  <GroupName group={group} />
+                </td>
+                <td className="py-1 pr-3 text-right">{number(impressions)}</td>
+                <td className="py-1 pr-3 text-right">{number(views)}</td>
+                <td className="py-1 pr-3 text-right">{number(clicks)}</td>
+                <td className="py-1 pr-3 text-right font-semibold">{pct(ctr)}</td>
+                <td className="py-1 pr-3 text-right">{pct(perView)}</td>
+                <td
+                  className={`py-1 pr-3 text-right font-semibold ${
+                    lift === null ? "" : lift > 0 ? "text-emerald-600 dark:text-emerald-400" : lift < 0 ? "text-red-600 dark:text-red-400" : ""
+                  }`}
+                >
+                  {lift === null ? "—" : `${lift > 0 ? "+" : ""}${(lift * 100).toFixed(1)}%`}
+                </td>
+                <td className="py-1 text-right" title={t("admin.features.confidenceHint")}>
+                  {conf === null ? "—" : (
+                    <span className={conf >= 0.95 ? "font-semibold text-emerald-600 dark:text-emerald-400" : "text-zinc-500"}>
+                      {(conf * 100).toFixed(0)}%
+                    </span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <p className="mt-2 text-[11px] text-zinc-500">{t("admin.features.partnerCtrHint")}</p>
     </div>
   );
 }

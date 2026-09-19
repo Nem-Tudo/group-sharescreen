@@ -29,6 +29,14 @@ import { useVideoDurationLabel } from "@/lib/useVideoDuration";
 import { Popover } from "@/components/Tooltip";
 import { useT } from "@/lib/useI18n";
 import { formatLocale, translate } from "@/lib/i18n";
+import {
+  trackPartnerClick,
+  trackPartnerClickReward,
+  trackPartnerVideoOpen,
+  usePartnerExperiment,
+  type PartnerClickSpot,
+} from "@/lib/partnerExperiment";
+import { PartnerClickRewardHint, PartnerClickRewardPill } from "@/components/PartnerClickReward";
 
 const STATS_DASHBOARD_URL = process.env.NEXT_PUBLIC_STATS_DASHBOARD_URL;
 
@@ -98,7 +106,15 @@ export function PartnerCard({
   onDismiss,
   startWithHouseAd = false,
   onLeaveHouseAd,
+  layout = "sidebar",
 }: {
+  /**
+   * "stage": the card in a room's empty pane, under the "start" buttons (the
+   * partner-ctr experiment, see WatchRoom). Nothing there to share a column
+   * with, so none of the sidebar's sizing applies — no height cap, no clamped
+   * description, no folding down to a bar below lg.
+   */
+  layout?: "sidebar" | "stage";
   partner?: PartnerCardData | null;
   loaded?: boolean;
   /**
@@ -204,7 +220,13 @@ export function PartnerCard({
   // pattern beats just shrinking things responsively: a phone screen is
   // short enough that even a "compact" card still costs real space by
   // default, so it should cost none until asked for.
-  const [collapsed, setCollapsed] = useState(true);
+  const [collapsedState, setCollapsed] = useState(true);
+  const isStage = layout === "stage";
+  const collapsed = !isStage && collapsedState;
+  // The partner-ctr treatment: the bar's own CTA and the "earn" look for click
+  // points. Exposure is counted by usePartnerAd, where the slot is known to be
+  // on screen, so this only reads the answer.
+  const inExperiment = usePartnerExperiment();
 
   // Every path that puts a *served* ad on screen goes through here, so each
   // one is one impression. See the impression effect below, which keys off
@@ -363,7 +385,7 @@ export function PartnerCard({
   // as it observes, so the first measurement needs no separate pass) rather
   // than from the effect body — a setState there would be a cascading render.
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || isStage) return;
     const root = rootRef.current;
     if (!root) return;
 
@@ -406,7 +428,7 @@ export function PartnerCard({
       observer.disconnect();
       window.removeEventListener("resize", measure);
     };
-  }, [loaded, reservedAbove]);
+  }, [loaded, reservedAbove, isStage]);
 
   // Whether this identity already collected this ad's points — the server's
   // word, asked once per ad (see lib/partner's usePartnerRewardStatus).
@@ -473,6 +495,7 @@ export function PartnerCard({
         setClickRewardError(null);
         setClickRewardJustClaimed(true);
         trackEvent("partner_click_reward_claimed", { partnerId: id });
+        trackPartnerClickReward(data.clickRewardPoints);
         // Re-resolves the current identity so the header's total updates
         // without a reload, same as the video reward does.
         void refreshIdentity();
@@ -481,6 +504,30 @@ export function PartnerCard({
         setClickRewardError(err instanceof Error ? err.message : t("common.couldNotRedeemThePoints"));
       });
   }
+  // The ad's link opened — from the card's own button, or from the slim bar's
+  // copy of it below lg (the experiment's). Same counting either way.
+  function handleCtaClick(spot: PartnerClickSpot) {
+    // Only counts as a click on the real ad while it's actually the thing
+    // being shown — not while a real advertiser's slot is temporarily
+    // swapped out for the house ad via showingHouseAd.
+    if (showingRealAd && data.id) {
+      signalingClient.reportPartnerClick(data.id);
+      trackPartnerClick(spot);
+    }
+    // Fire-and-forget alongside the navigation: the link opens in a new tab,
+    // so this request isn't racing a page unload.
+    if (cardClickRewardActive) claimCardClickReward();
+    trackEvent("partner_card_clicked", {
+      fallback: isFallback,
+      example: showingExample,
+      houseAd: !isFallback && showingHouseAd,
+      spot,
+    });
+  }
+  const cardSpot: PartnerClickSpot = isStage ? "stage" : "sidebar";
+  // Click points in the experiment's "earn" look (see PartnerClickReward).
+  const earnLook = inExperiment && cardClickRewardActive && Boolean(data.clickRewardPoints);
+
   // One panel, two possible triggers (the counter inside the house ad, and
   // the one next to "Anuncie aqui também!" over a real ad) — only ever one of
   // them is on screen at a time, so they share both this markup and the
@@ -502,8 +549,12 @@ export function PartnerCard({
       // The measured cap (see the effect above) wins once it exists; the
       // classes are what hold the line on the very first paint, before
       // anything has been measured.
-      style={maxCardHeight === null ? undefined : { maxHeight: maxCardHeight }}
-      className="relative mt-auto max-h-[33dvh] w-full shrink-0 overflow-y-auto lg:max-h-[45dvh]"
+      style={isStage || maxCardHeight === null ? undefined : { maxHeight: maxCardHeight }}
+      className={
+        isStage
+          ? "relative w-full max-w-md shrink-0 text-left"
+          : "relative mt-auto max-h-[33dvh] w-full shrink-0 overflow-y-auto lg:max-h-[45dvh]"
+      }
       // Pointer events rather than mouse ones so a pen or a hovering trackpad
       // counts too; a touch device never hovers, so there the rotation simply
       // always proceeds.
@@ -522,22 +573,46 @@ export function PartnerCard({
         hoveredRef.current = false;
       }}
     >
-      <button
-        type="button"
-        onClick={() => setCollapsed((c) => !c)}
-        aria-expanded={!collapsed}
-        className="mb-1.5 flex w-full items-center justify-between gap-2 rounded-lg bg-zinc-100 px-3 py-1.5 text-left text-xs font-medium text-zinc-600 transition hover:bg-zinc-200 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 lg:hidden"
-      >
-        <span className="flex min-w-0 items-center gap-1.5">
-          <span className="shrink-0 rounded-full bg-black/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide dark:bg-white/10">
-            {t("common.sponsored")}
-          </span>
-          <span className="truncate">{displayData.title}</span>
-        </span>
-        <ChevronUpIcon
-          className={`h-3.5 w-3.5 shrink-0 transition-transform ${collapsed ? "rotate-180" : ""}`}
-        />
-      </button>
+      {!isStage && (
+        <div className="mb-1.5 flex items-stretch gap-1.5 lg:hidden">
+          <button
+            type="button"
+            onClick={() => setCollapsed((c) => !c)}
+            aria-expanded={!collapsed}
+            className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-lg bg-zinc-100 px-3 py-1.5 text-left text-xs font-medium text-zinc-600 transition hover:bg-zinc-200 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
+          >
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span className="shrink-0 rounded-full bg-black/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide dark:bg-white/10">
+                {t("common.sponsored")}
+              </span>
+              <span className="truncate">{displayData.title}</span>
+            </span>
+            <ChevronUpIcon
+              className={`h-3.5 w-3.5 shrink-0 transition-transform ${collapsed ? "rotate-180" : ""}`}
+            />
+          </button>
+          {/* The experiment's: the ad's own button on the folded bar, so the
+              one line a phone shows by default can be acted on without
+              opening the card first. Only while folded — open, the card's
+              own button is right there. */}
+          {inExperiment && collapsed && (
+            <a
+              href={displayData.buttonUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => handleCtaClick("bar")}
+              className="flex max-w-[45%] shrink-0 items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold transition hover:opacity-90"
+              style={{
+                backgroundColor: displayData.buttonBackgroundColor ?? "#18181b",
+                color: displayData.buttonTextColor ?? "#ffffff",
+              }}
+            >
+              <span className="truncate">{displayData.buttonLabel}</span>
+              {earnLook && <PartnerClickRewardPill points={data.clickRewardPoints!} size="sm" />}
+            </a>
+          )}
+        </div>
+      )}
 
       <div ref={contentRef} className={`${collapsed ? "hidden" : "block"} lg:block`}>
       {showingExample && (
@@ -706,25 +781,15 @@ export function PartnerCard({
           </button>
         )}
 
+        {earnLook && (
+          <PartnerClickRewardHint points={data.clickRewardPoints!} className="mt-3 opacity-90" />
+        )}
         <a
           href={displayData.buttonUrl}
           target="_blank"
           rel="noopener noreferrer"
-          onClick={() => {
-            // Only counts as a click on the real ad while it's actually the
-            // thing being shown — not while a real advertiser's slot is
-            // temporarily swapped out for the house ad via showingHouseAd.
-            if (showingRealAd && data.id) signalingClient.reportPartnerClick(data.id);
-            // Fire-and-forget alongside the navigation: the link opens in a
-            // new tab, so this request isn't racing a page unload.
-            if (cardClickRewardActive) claimCardClickReward();
-            trackEvent("partner_card_clicked", {
-              fallback: isFallback,
-              example: showingExample,
-              houseAd: !isFallback && showingHouseAd,
-            });
-          }}
-          className="relative mt-3 flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-center text-sm font-semibold transition hover:opacity-90"
+          onClick={() => handleCtaClick(cardSpot)}
+          className={`relative ${earnLook ? "mt-1.5" : "mt-3"} flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-center text-sm font-semibold transition hover:opacity-90`}
           style={{
             backgroundColor: displayData.buttonBackgroundColor ?? "#18181b",
             color: displayData.buttonTextColor ?? "#ffffff",
@@ -739,13 +804,14 @@ export function PartnerCard({
               clickRewardJustClaimed ? "invisible" : ""
             }`}
           >
-            {cardClickRewardActive && (
+            {cardClickRewardActive && !earnLook && (
               <>
                 <BsCoin className="h-4 w-4 shrink-0" />
                 <span className="shrink-0 tabular-nums">{data.clickRewardPoints}</span>
               </>
             )}
             <span className="truncate">{displayData.buttonLabel}</span>
+            {earnLook && <PartnerClickRewardPill points={data.clickRewardPoints!} />}
           </span>
           {clickRewardJustClaimed && (
             <span className="absolute inset-0 flex items-center justify-center">{t("common.redeemed")}</span>
@@ -763,6 +829,7 @@ export function PartnerCard({
             type="button"
             onClick={() => {
               trackEvent("partner_reward_video_opened", { partnerId: data.id });
+              trackPartnerVideoOpen();
               openPopup("partner_reward", {
                 // Sized to give the video roughly the room it had back when
                 // this was a full-screen takeover, without becoming one: the

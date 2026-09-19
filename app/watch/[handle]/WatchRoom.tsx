@@ -233,6 +233,7 @@ import { MobileScreenShareModal } from "@/components/MobileScreenShareModal";
 import { GUEST_FEATURES, hasFeature, isThemeBanned } from "@/lib/entitlements";
 import { PartnerMediaTile } from "@/components/PartnerMediaTile";
 import { usePartnerAd } from "@/lib/usePartnerAd";
+import { usePartnerExperiment } from "@/lib/partnerExperiment";
 import {
   useGlobalShortcutListener,
   type ShortcutAction,
@@ -1953,6 +1954,9 @@ export function WatchRoom({
   // A Pro Max subscriber may close the group's ad (see GroupPartnerSlot); the
   // one this room draws in its place is the same ad, and stays closed with it.
   const groupAdHidden = useGroupAdHidden();
+  // The partner-ctr experiment (see lib/partnerExperiment): its exposure is
+  // counted by usePartnerAd above, this only reads which side we are on.
+  const partnerExperimentOn = usePartnerExperiment();
 
   const hasLocalScreen = Boolean(isSharing && localStream);
   const hasLocalCamera = Boolean(localCameraStream);
@@ -4798,6 +4802,14 @@ export function WatchRoom({
     if (hyperfocusId && ownPreviewIds.includes(hyperfocusId)) setHyperfocusId(null);
   }
   const hasOwnPreview = Boolean((isSharing && localStream) || localCameraStream);
+  // The partner-ctr treatment: with nobody transmitting, the ad moves out of
+  // the sidebar and into the empty pane, under its "start" buttons — the
+  // middle of the screen, at the one moment nothing else is playing there.
+  // Not in a group (its ad is the shell's rooms column, see GroupPartnerSlot),
+  // not in a call, and not when the pane is empty only because our own
+  // previews are hidden (that pane has no buttons to sit under).
+  const partnerOnStage =
+    partnerExperimentOn && nothingToShow && !callLayout && !group && !(ownPreviewHidden && hasOwnPreview);
 
   // Right-click on the video pane: bring our own previews back, or hide them
   // again. Not over a control (its own click is what that is for), and only
@@ -7020,7 +7032,7 @@ export function WatchRoom({
                   beside up to five status icons. */}
               <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-2">{participantsList}</div>
             </div>
-            <PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />
+            {!partnerOnStage && <PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />}
           </aside>
         )}
 
@@ -7088,7 +7100,10 @@ export function WatchRoom({
             // so the one thing in it that has a minimum height of its own
             // needs a box that can.
             <div onContextMenu={ownPreviewMenu} className="min-h-0 flex-1 overflow-y-auto">
-              <div className="flex h-full min-h-75 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-300 bg-white/50 px-4 text-center dark:border-zinc-800 dark:bg-zinc-950/40">
+              {/* min-h rather than h while the ad is in here: centred content
+                  taller than a fixed-height box spills off its top, where no
+                  scrolling reaches it. */}
+              <div className={`flex ${partnerOnStage ? "min-h-full py-6" : "h-full"} min-h-75 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-300 bg-white/50 px-4 text-center dark:border-zinc-800 dark:bg-zinc-950/40`}>
                 {/* Empty only because our own previews are hidden: saying nobody
                     is broadcasting, and offering to start, would be wrong about
                     the share that is going out right now. */}
@@ -7176,6 +7191,11 @@ export function WatchRoom({
                     </div>
                   )}
                 </div>
+                {partnerOnStage && (
+                  <div className="mt-4 flex w-full justify-center">
+                    <PartnerCard layout="stage" partner={rawActivePartner} loaded={partnerLoaded} />
+                  </div>
+                )}
                 </>
                 )}
               </div>
@@ -7390,7 +7410,7 @@ export function WatchRoom({
                 Below lg the room is a fixed-height shell, which makes this
                 band the one slot on the site that costs somebody video area
                 rather than page. */}
-            {!callLayout && <PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />}
+            {!callLayout && !partnerOnStage && <PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />}
 
             {mobilePanel && (
               <section

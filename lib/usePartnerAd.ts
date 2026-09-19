@@ -9,6 +9,7 @@ import {
   FALLBACK_PARTNER,
   type PartnerCardData,
 } from "./partner";
+import { trackPartnerImpression, trackPartnerSessionView, usePartnerExperiment } from "./partnerExperiment";
 
 const ROTATE_INTERVAL_MS = 3 * 60 * 1000;
 
@@ -25,6 +26,9 @@ const ROTATE_INTERVAL_MS = 3 * 60 * 1000;
  */
 export function usePartnerAd({ visible = true }: { visible?: boolean } = {}) {
   const signalingState = useSignalingSelector(selectPartnerPush, shallow);
+  // The click-through experiment's exposure: counted here, where a slot is on
+  // screen, for both sides — its events below are what it compares.
+  usePartnerExperiment({ track: visible });
   const [partner, setPartner] = useState<PartnerCardData | null>(null);
   const [loaded, setLoaded] = useState(false);
 
@@ -142,10 +146,12 @@ export function usePartnerAd({ visible = true }: { visible?: boolean } = {}) {
       if (!reportedSessionIds.current.has(id!)) {
         reportedSessionIds.current.add(id!);
         signalingClient.reportPartnerSessionView(id!);
+        trackPartnerSessionView();
       }
       if (reportedServeRef.current === serve) return;
       reportedServeRef.current = serve;
       signalingClient.reportPartnerView(id!);
+      trackPartnerImpression();
     }
     maybeReport();
     document.addEventListener("visibilitychange", maybeReport);
