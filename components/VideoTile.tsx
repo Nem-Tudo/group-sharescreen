@@ -35,6 +35,7 @@ import { markFeatureUsed } from "@/components/NewBadge";
 import { ClipBuffer, TileRecorder, clipSupported, CLIP_MS } from "@/lib/clipBuffer";
 import { TILE_EXPERIMENT_EVENTS, trackTileExperiment, useTileExperiment } from "@/lib/clipsMode";
 import { announceRecording } from "@/lib/recordingNotice";
+import { registerTileCommands } from "@/lib/tileCommands";
 import { ConnectionStatsOverlay } from "@/components/ConnectionStatsOverlay";
 import type { QualityChannel } from "@/lib/qualityNegotiation";
 import { VolumeSlider } from "@/components/VolumeSlider";
@@ -107,6 +108,7 @@ const VideoTileView = memo(function VideoTileView({
   clippable = true,
   beingRecorded = false,
   mirrored = false,
+  tileId,
   className = "",
 }: {
   stream: MediaStream;
@@ -224,6 +226,9 @@ const VideoTileView = memo(function VideoTileView({
   // Show the picture flipped left-to-right — only the local preview of our own
   // front camera. What the room receives is never flipped.
   mirrored?: boolean;
+  // The room's id for this tile (see WatchRoom's RoomTile), under which the
+  // clip/record keyboard shortcuts reach it (see lib/tileCommands).
+  tileId?: string;
 }) {
   const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -315,6 +320,16 @@ const VideoTileView = memo(function VideoTileView({
       if (recorderRef.current) void stopRecordingRef.current();
     };
   }, [canRecord, stream]);
+  // The keyboard shortcuts' way in. Refs, so the registration does not churn
+  // on every render.
+  const commandsRef = useRef({ clip: () => {}, toggleRecord: () => {} });
+  useEffect(() => {
+    if (!tileId) return;
+    return registerTileCommands(tileId, (command) => {
+      if (command === "clip") commandsRef.current.clip();
+      else commandsRef.current.toggleRecord();
+    });
+  }, [tileId]);
   const handleClip = async () => {
     const buffer = clipBufferRef.current;
     if (!buffer || clipping) return;
@@ -697,6 +712,14 @@ const VideoTileView = memo(function VideoTileView({
     }
   }
 
+  commandsRef.current = {
+    clip: () => {
+      if (canClip) void handleClip();
+    },
+    toggleRecord: () => {
+      if (canRecord) toggleRecording();
+    },
+  };
   const nameForLabel = accessibleLabel ?? t("videoTile.thisBroadcast");
   // A mouse's hover already reveals/hides controls perfectly well, in or out
   // of fullscreen, so that behavior (the `[@media(hover:hover)]` fragment
