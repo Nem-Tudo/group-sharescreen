@@ -91,6 +91,13 @@ export function useCallActions() {
       // this tab ahead of the response, and has to find it already marked as
       // the one that walks in.
       markOwnCall(call.id);
+      // And who it is with, for the same reason: the server sends that
+      // "call-accepted" before it answers this request, and CallHost walks in
+      // on it with only the room's handle. Not knowing the person there sent
+      // the call to its bare /watch page instead of the conversation — whose
+      // session then overwrote this one, leaving an "entrar na chamada" button
+      // where the call should have been.
+      if (isCallRoomHandle(call.roomHandle)) rememberCallPeer(call.roomHandle, peerOf(call.from));
       const result = await acceptCall(call.id);
       signalingClient.clearCall(call.id);
       if (!result.ok) return result;
