@@ -13,7 +13,11 @@ import { trackFeatureEvent, useFeature } from "./features";
 
 export type TileExperiment = "clips" | "recording" | "multiScreen";
 
-const CONFIG: Record<TileExperiment, { feature: string; modeKey: string; tipKey: string }> = {
+// `defaultOn`: the switch starts on for whoever never touched it.
+const CONFIG: Record<
+  TileExperiment,
+  { feature: string; modeKey: string; tipKey: string; defaultOn?: boolean }
+> = {
   clips: { feature: "room-clips", modeKey: "sharescreen:clipsMode", tipKey: "sharescreen:clipsTipSeen" },
   recording: {
     feature: "room-recording",
@@ -25,6 +29,7 @@ const CONFIG: Record<TileExperiment, { feature: string; modeKey: string; tipKey:
     feature: "multi-screen-share",
     modeKey: "sharescreen:multiScreenMode",
     tipKey: "sharescreen:multiScreenTipSeen",
+    defaultOn: true,
   },
 };
 
@@ -118,9 +123,16 @@ export function setTileExperimentMode(experiment: TileExperiment, on: boolean) {
 
 /** The experiment and the person's switch together — what tiles check. */
 export function useTileExperiment(experiment: TileExperiment, options: { track?: boolean } = {}) {
-  const { feature, modeKey } = CONFIG[experiment];
+  const { feature, modeKey, defaultOn = false } = CONFIG[experiment];
   const { enabled: available } = useFeature(feature, { track: options.track ?? false });
-  const on = useSyncExternalStore(subscribe, () => read(modeKey) === "1", () => false);
+  const on = useSyncExternalStore(
+    subscribe,
+    () => {
+      const stored = read(modeKey);
+      return stored === null ? defaultOn : stored === "1";
+    },
+    () => false
+  );
   return { available, on, active: available && on };
 }
 
@@ -129,14 +141,23 @@ export function useTileExperiment(experiment: TileExperiment, options: { track?:
  * people who already used GoLive before getting it. Somebody new has nothing
  * "new" to be told about, so their first sight of it marks it as seen.
  */
-export function useTileExperimentTip(experiment: TileExperiment, available: boolean) {
+//
+// `everyone`: for a tip that points at something only reachable by using the
+// feature (the "+" of "Várias telas" only exists mid-share), so it is news to
+// a first-time visitor as much as to anyone.
+export function useTileExperimentTip(
+  experiment: TileExperiment,
+  available: boolean,
+  options: { everyone?: boolean } = {}
+) {
   const { tipKey } = CONFIG[experiment];
+  const everyone = options.everyone ?? false;
   const seen = useSyncExternalStore(subscribe, () => read(tipKey) === "1", () => true);
   useEffect(() => {
-    if (available && !seen && !wasReturning) write(tipKey, "1");
-  }, [available, seen, tipKey]);
+    if (available && !seen && !wasReturning && !everyone) write(tipKey, "1");
+  }, [available, seen, tipKey, everyone]);
   return {
-    show: available && !seen && wasReturning,
+    show: available && !seen && (wasReturning || everyone),
     dismiss: () => write(tipKey, "1"),
     /** The tip's target was clicked while it showed: counted, then gone. */
     clicked: () => {

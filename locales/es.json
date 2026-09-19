@@ -3243,7 +3243,7 @@
   "watch.watchRoom.recordingModeTip": "Nuevo: activa la Grabación aquí para grabar cualquier pantalla o cámara y descargar el video.",
   "watch.watchRoom.multiScreenMode": "Varias pantallas",
   "watch.watchRoom.multiScreenModeHint": "Muestra un botón \"+\" junto a compartir pantalla para transmitir más de un monitor o ventana a la vez (hasta {count} en tu plan).",
-  "watch.watchRoom.multiScreenTip": "Nuevo: ahora puedes transmitir más de una pantalla o ventana a la vez. Activa \"Varias pantallas\" aquí.",
+  "watch.watchRoom.multiScreenTip": "Nuevo: transmite más de una pantalla o ventana a la vez. Haz clic en \"+\" para añadir otra.",
   "watch.watchRoom.stopThisScreen": "Detener esta pantalla",
   "watch.watchRoom.screen": "Pantalla",
   "watch.watchRoom.closeScreen": "Cerrar",

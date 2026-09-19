@@ -189,6 +189,7 @@ import { ThemeSegmented } from "@/components/ThemeToggle";
 import { MenuToggleRow } from "@/components/MenuToggleRow";
 import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
 import { trackFeatureEvent } from "@/lib/features";
+import Tippy from "@tippyjs/react";
 import { setTileExperimentMode, useTileExperiment, useTileExperimentTip } from "@/lib/clipsMode";
 import {
   EXTRA_SCREEN_SLOTS,
@@ -775,6 +776,8 @@ function ShareControls({
     limit: number;
     onClick: () => void;
     items: { id: string; label: string; onStop: () => void }[];
+    // The blue "novo" tip, pinned under the "+" while it shows.
+    tip: { show: boolean; dismiss: () => void; clicked: () => void };
   } | null;
   screenSharing: boolean;
   cameraSharing: boolean;
@@ -935,6 +938,33 @@ function ShareControls({
         </Tooltip>
       </ShortcutQuickPopover>
       {addScreen && (screenSharing || addScreen.count > 0) && (
+        <Tippy
+          visible={addScreen.tip.show}
+          placement="bottom"
+          interactive
+          theme="golive-panel"
+          appendTo={() => document.body}
+          content={
+            <span
+              role="status"
+              className="relative block w-60 rounded-lg bg-blue-600 px-3 py-2 text-left text-xs font-medium text-white shadow-lg"
+            >
+              <span className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
+              <span className="flex items-start gap-2">
+                <span className="flex-1">{t("watch.watchRoom.multiScreenTip")}</span>
+                <button
+                  type="button"
+                  onClick={addScreen.tip.dismiss}
+                  aria-label={t("watch.watchRoom.clipsModeTipDismiss")}
+                  className="-m-1 rounded p-1 leading-none text-white/80 hover:text-white"
+                >
+                  ✕
+                </button>
+              </span>
+            </span>
+          }
+        >
+        <span className="flex">
         <Tooltip
           placement="bottom"
           interactive
@@ -970,7 +1000,10 @@ function ShareControls({
         >
           <button
             type="button"
-            onClick={addScreen.onClick}
+            onClick={() => {
+              if (addScreen.tip.show) addScreen.tip.clicked();
+              addScreen.onClick();
+            }}
             aria-label={t("watch.watchRoom.addAnotherScreen", { count: addScreen.count, limit: addScreen.limit })}
             className={`${segment} border-l border-black/15 px-2 ${live} ${
               addScreen.count >= addScreen.limit ? "opacity-50" : ""
@@ -982,6 +1015,8 @@ function ShareControls({
             </span>
           </button>
         </Tooltip>
+        </span>
+        </Tippy>
       )}
       {/* Same panel as the mic's: which camera (where there is a choice) and
           the shortcut, from the arrow and from a right-click alike. */}
@@ -1698,7 +1733,10 @@ export function WatchRoom({
   // the experiment, and the switch (off by default) is what shows the "+" next
   // to the screen button.
   const multiScreenMode = useTileExperiment("multiScreen", { track: true });
-  const multiScreenTip = useTileExperimentTip("multiScreen", multiScreenMode.available);
+  // Not on "⋯" like the others: anchored on the "+" itself, which only exists
+  // while a screen is going out — so it appears the first time somebody with
+  // the feature starts a share, whether or not they used GoLive before.
+  const multiScreenTip = useTileExperimentTip("multiScreen", multiScreenMode.active, { everyone: true });
   // How many screens/windows (the first included) this account may share.
   const screenLimit = multiScreenLimit(account?.flags);
   // One blue tip at a time; the other waits for the next visit.
@@ -1706,9 +1744,7 @@ export function WatchRoom({
     ? { ...clipsTip, text: "watch.watchRoom.clipsModeTip" }
     : recordingTip.show
       ? { ...recordingTip, text: "watch.watchRoom.recordingModeTip" }
-      : multiScreenTip.show
-        ? { ...multiScreenTip, text: "watch.watchRoom.multiScreenTip" }
-        : null;
+      : null;
   // Picks which shell that panel gets: a popover anchored to the button from
   // sm up, the bottom sheet below it (see menuItems further down). Reports
   // false until the first client paint, so the sheet is what a phone gets
@@ -5179,6 +5215,7 @@ export function WatchRoom({
             if (!localStream) void startShare("display");
             else void addExtraScreen();
           },
+          tip: multiScreenTip,
           items: [
             ...(localStream
               ? [{ id: "screen", label: `${translate("watch.watchRoom.screen")} 1`, onStop: stopShare }]
