@@ -1489,6 +1489,8 @@ export function WatchRoom({
     addExtraScreen,
     dualCamera,
     dualCameraSupported,
+    startDualCamera,
+    dualCameraError,
     startCameraShare,
     stopCameraShare,
     localCameraStream,
@@ -5448,7 +5450,7 @@ export function WatchRoom({
   }
   // The first extra screen that failed to start, shown like shareError.
   const extraScreenError =
-    EXTRA_SCREEN_SLOTS.map((slot) => extraScreens[slot].error).find(Boolean) ?? dualCamera.error ?? null;
+    EXTRA_SCREEN_SLOTS.map((slot) => extraScreens[slot].error).find(Boolean) ?? dualCameraError ?? null;
 
   // Shared prop bundle for every QualityControls instance on this page (the
   // desktop quick-access popover and the two share-button pickers below) —
@@ -8257,7 +8259,7 @@ export function WatchRoom({
                               }
                               markFeatureUsed("dual-camera");
                               trackFeatureEvent(MULTI_SCREEN_EVENTS.dualCamera);
-                              void dualCamera.start();
+                              void startDualCamera();
                             }}
                             aria-pressed={dualCamera.active}
                             aria-label={

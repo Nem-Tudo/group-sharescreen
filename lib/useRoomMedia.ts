@@ -67,7 +67,14 @@ import {
   type LocalMediaAction,
 } from "./localMediaSource";
 import {
+  androidDualCameraSupport,
+  AndroidDualCameraError,
+  startAndroidDualCamera,
+  type AndroidDualCamera,
+} from "./androidDualCamera";
+import {
   EXTRA_SCREEN_SLOTS,
+  clearDualCameraUnsupported,
   isDualCameraUnsupported,
   markDualCameraUnsupported,
   type ExtraScreenSlot,
@@ -3573,10 +3580,21 @@ export function useRoomMedia(room: string) {
     screen.start(source);
   }, [screen]);
 
+  // Front and rear at once in the Android app (see lib/androidDualCamera.ts):
+  // while set, *both* camera channels are fed by the native plugin, because
+  // the WebView cannot hold one lens while the plugin opens the other. Null
+  // the rest of the time — one camera is always the WebView's.
+  const nativeDualRef = useRef<AndroidDualCamera | null>(null);
+
   const camera = useBroadcastChannel(
     "camera",
     room,
-    () => {
+    async () => {
+      const native = nativeDualRef.current;
+      if (native) {
+        const main = cameraFacingRef.current === "environment" ? native.back : native.front;
+        return new MediaStream(main.getVideoTracks());
+      }
       // Capture at the full picked resolution regardless of room size. The
       // per-viewer tiers downscale each *sender* independently (see
       // peerQualityController), so capturing small would only put a hard
@@ -3611,14 +3629,64 @@ export function useRoomMedia(room: string) {
   const [dualCameraSupported, setDualCameraSupported] = useState(() => !isDualCameraUnsupported());
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const cameraStartRef = useRef<() => void>(() => {});
+  const cameraRef = useRef(camera);
   useEffect(() => {
     cameraStreamRef.current = camera.localStream;
     cameraStartRef.current = () => void camera.start();
+    cameraRef.current = camera;
+  });
+  // Where the app can do it natively, and whether it can: null off the
+  // Android app (the browser path applies), otherwise the plugin's answer. A
+  // phone that says no never sees the button.
+  const [nativeDualSupported, setNativeDualSupported] = useState<boolean | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void androidDualCameraSupport().then((support) => {
+      if (cancelled || !support) return;
+      setNativeDualSupported(support.supported);
+      // A "no" remembered from the browser path (NotReadableError) is about
+      // the WebView, not the phone — the plugin's yes overrides it.
+      if (support.supported) {
+        clearDualCameraUnsupported();
+        setDualCameraSupported(true);
+      }
+      if (!support.supported) {
+        trackEvent("dual_camera_error", { reason: `native: ${support.reason ?? "unsupported"}` });
+        markDualCameraUnsupported();
+        setDualCameraSupported(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const [nativeDualError, setNativeDualError] = useState<string | null>(null);
+  // Runs whenever the second camera stops (its onStopped). With the plugin
+  // feeding both, the plugin is closed and the main camera, if still on,
+  // starts again on the WebView — a moment's blip for the room, the price of
+  // the WebView not being able to share a lens with the plugin.
+  const revertNativeDualRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    revertNativeDualRef.current = () => {
+      const native = nativeDualRef.current;
+      if (!native) return;
+      nativeDualRef.current = null;
+      const main = cameraRef.current;
+      const wasOn = main.active;
+      if (wasOn) main.stop();
+      native.stop();
+      if (wasOn) void main.start();
+    };
   });
   const camera2 = useBroadcastChannel(
     "camera2",
     room,
     async () => {
+      const native = nativeDualRef.current;
+      if (native) {
+        const other = cameraFacingRef.current === "environment" ? native.front : native.back;
+        return new MediaStream(other.getVideoTracks());
+      }
       const mainTrack = cameraStreamRef.current?.getVideoTracks()[0];
       if (!mainTrack) throw new ShareStartError(t("useRoomMedia.dualCameraNeedsCamera"));
       const mainFacing = mainTrack.getSettings().facingMode ?? cameraFacingRef.current;
@@ -3693,8 +3761,58 @@ export function useRoomMedia(room: string) {
     t("useRoomMedia.couldNotStartTheCameraCheck"),
     forceRelayIce,
     autoJoin,
-    cameraQualityPreset
+    cameraQualityPreset,
+    // Back to one camera: if both were on the plugin, the main one returns to
+    // the WebView (see revertNativeDual).
+    () => revertNativeDualRef.current()
   );
+  const camera2Ref = useRef(camera2);
+  useEffect(() => {
+    camera2Ref.current = camera2;
+  }, [camera2]);
+  // The dual-camera button. In the Android app on a phone that can, both
+  // lenses move to the plugin: the WebView's camera is released first (the
+  // plugin cannot open a lens the WebView holds), then both channels start on
+  // the plugin's streams. Everywhere else, the browser path above.
+  const startDualCamera = useCallback(async () => {
+    if (camera2.active || !camera.active) return;
+    setNativeDualError(null);
+    if (!nativeDualSupported) {
+      await camera2.start();
+      return;
+    }
+    const dims = RESOLUTION_DIMENSIONS[shareResolutionRef.current];
+    camera.stop();
+    let native: AndroidDualCamera;
+    try {
+      native = await startAndroidDualCamera({
+        width: dims.width,
+        height: dims.height,
+        fps: shareFpsRef.current,
+        // Android took the cameras away (app in the background, another app):
+        // down to one camera, on the WebView.
+        onStopped: (reason) => {
+          trackEvent("dual_camera_error", { reason: `native stopped: ${reason}`.slice(0, 120) });
+          camera2Ref.current.stop();
+        },
+      });
+    } catch (err) {
+      const reason = err instanceof AndroidDualCameraError ? `${err.code}: ${err.message}` : String(err);
+      trackEvent("dual_camera_error", { reason: `native: ${reason}`.slice(0, 120) });
+      if (err instanceof AndroidDualCameraError && err.code === "unsupported") {
+        markDualCameraUnsupported();
+        setDualCameraSupported(false);
+      }
+      setNativeDualError(`${t("useRoomMedia.dualCameraUnsupported")} (${reason})`);
+      // The camera that was on before goes back on.
+      await camera.start();
+      return;
+    }
+    nativeDualRef.current = native;
+    await camera.start();
+    await camera2.start();
+  }, [camera, camera2, nativeDualSupported, t]);
+
   // The second lens only makes sense next to the first.
   const cameraIsActive = camera.active;
   const camera2Stop = camera2.stop;
@@ -3779,8 +3897,14 @@ export function useRoomMedia(room: string) {
   // negotiated parameters refuse), and a camera control that silently did
   // nothing would be worse than one that blinks.
   const reopenCameraCaptures = useCallback(() => {
-    // Turning the first camera round would point both at the same side.
-    if (camera2.active) camera2.stop();
+    // Turning the first camera round would point both at the same side. With
+    // the plugin feeding both, stopping the second already restarts the first
+    // on the WebView with the new lens, so there is nothing left to reopen.
+    if (camera2.active) {
+      const wasNative = Boolean(nativeDualRef.current);
+      camera2.stop();
+      if (wasNative) return;
+    }
     if (camera.active) {
       void camera.swapCapture().then((swapped) => {
         if (swapped || !camera.active) return;
@@ -3988,10 +4112,6 @@ export function useRoomMedia(room: string) {
   // keeps one identity: the channel objects are fresh every render, and an
   // unstable getter would rebuild the interval below before it ever fired
   // (see the comment above getScreenTiers).
-  const camera2Ref = useRef(camera2);
-  useEffect(() => {
-    camera2Ref.current = camera2;
-  }, [camera2]);
   const extraScreensRef = useRef(extraScreens);
   useEffect(() => {
     extraScreensRef.current = extraScreens;
@@ -4304,6 +4424,8 @@ export function useRoomMedia(room: string) {
     // The other lens, at the same time (see camera2 above).
     dualCamera: camera2,
     dualCameraSupported,
+    startDualCamera,
+    dualCameraError: nativeDualError ?? camera2.error,
     isCameraSharing: camera.active,
     startCameraShare: camera.start,
     stopCameraShare: camera.stop,

@@ -20,6 +20,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(GoLiveNotificationsPlugin.class);
         registerPlugin(AppChromePlugin.class);
         registerPlugin(CallServicePlugin.class);
+        registerPlugin(DualCameraPlugin.class);
         showOverLockScreenForCall(getIntent());
         super.onCreate(savedInstanceState);
     }

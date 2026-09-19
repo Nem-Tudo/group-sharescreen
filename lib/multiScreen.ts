@@ -86,3 +86,12 @@ export function markDualCameraUnsupported() {
     // Storage refused: the button just comes back on the next visit.
   }
 }
+
+/** The app's plugin can do what the browser could not: forget the old verdict. */
+export function clearDualCameraUnsupported() {
+  try {
+    window.localStorage.removeItem(DUAL_CAMERA_UNSUPPORTED_KEY);
+  } catch {
+    // Nothing to clear, or nowhere to clear it from.
+  }
+}
