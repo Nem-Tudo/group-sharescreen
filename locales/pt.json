@@ -3646,5 +3646,7 @@
   "admin.features.weightsWarning": "Mudar a divisão move parte das pessoas de uma variante para outra, e os números antigos passam a misturar as duas divisões. Continuar?",
   "pro.compare.choosePlan": "Escolha o plano",
   "admin.features.skippedTitle": "Eventos ignorados",
-  "admin.features.skippedHint": "Chegaram a esta feature mas não entraram em nenhum grupo (forçados manualmente, não elegíveis ou feature desligada)."
+  "admin.features.skippedHint": "Chegaram a esta feature mas não entraram em nenhum grupo (forçados manualmente, não elegíveis ou feature desligada).",
+  "pro.proPanel.shareUpToScreens": "Transmita até {count} telas ou janelas ao mesmo tempo (grátis: {free})",
+  "pro.compare.screensAtOnce": "Telas ao mesmo tempo"
 }

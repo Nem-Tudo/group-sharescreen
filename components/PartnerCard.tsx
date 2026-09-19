@@ -552,7 +552,7 @@ export function PartnerCard({
       style={isStage || maxCardHeight === null ? undefined : { maxHeight: maxCardHeight }}
       className={
         isStage
-          ? "relative w-full max-w-md shrink-0 text-left"
+          ? "relative w-full max-w-64 shrink-0 text-left"
           : "relative mt-auto max-h-[33dvh] w-full shrink-0 overflow-y-auto lg:max-h-[45dvh]"
       }
       // Pointer events rather than mouse ones so a pen or a hovering trackpad

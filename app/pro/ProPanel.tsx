@@ -26,6 +26,7 @@ import { PixChargeModal } from "@/components/PixChargeModal";
 import useNtPopups from "ntpopups";
 import { isIosDevice, isStandaloneDisplay } from "@/lib/browserEnv";
 import { getDesktopBridge } from "@/lib/desktop";
+import { MULTI_SCREEN_LIMITS } from "@/lib/multiScreen";
 import { accountTierOf, planTierOf, tierAbove, tierAtLeast, type Feature } from "@/lib/entitlements";
 import { PUBLISHED_THEME_LIMITS } from "@/lib/roomThemes";
 import {
@@ -556,6 +557,16 @@ export function ProPanel({
       </li>
     ) : null;
 
+  // "Várias telas" (see lib/multiScreen): how many screens/windows at once.
+  // A number per rung rather than a feature, like the upload limit.
+  const screensOf = (entry: PremiumPlan) => MULTI_SCREEN_LIMITS[planTierOf(entry.id)];
+  const screensRow = (entry: PremiumPlan) => (
+    <li key="multi-screen" className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+      <MdCheck className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-500" />
+      {t("pro.proPanel.shareUpToScreens", { count: screensOf(entry), free: MULTI_SCREEN_LIMITS.account })}
+    </li>
+  );
+
   /** The whole list, in order, with the points and the upload limit slotted in at their anchor. */
   /**
    * The same benefits as featureRows, one row per benefit with a cell per
@@ -600,6 +611,12 @@ export function ProPanel({
         ),
       },
     ];
+    rows.push({
+      key: "multi-screen",
+      label: t("pro.compare.screensAtOnce"),
+      priority: 0,
+      cells: plans.map((entry) => amount(screensOf(entry))),
+    });
     for (const feature of sellableFeatures) {
       const label = FEATURE_LABELS[feature];
       // "Up to 4K" already says 2K; the 2K row only earns its place on a plan
@@ -639,6 +656,8 @@ export function ProPanel({
     }
     // No plan sells the anchor benefit — these still have to appear.
     if (!sellableFeatures.includes(POINTS_AFTER)) rows.push(...pointsRows(entry), uploadRow(entry));
+    // With the broadcast perks, right under the first one (verified heads the list).
+    rows.splice(Math.min(1, rows.length), 0, screensRow(entry));
     return rows;
   };
   /** The money for the code on screen has landed and bought time. */

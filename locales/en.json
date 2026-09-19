@@ -3646,5 +3646,7 @@
   "admin.features.weightsWarning": "Changing the split moves some people between treatments, and the existing numbers will mix both splits. Continue?",
   "pro.compare.choosePlan": "Choose a plan",
   "admin.features.skippedTitle": "Skipped events",
-  "admin.features.skippedHint": "They reached this feature but were not counted in any group (overrides, not eligible, or the feature was killed)."
+  "admin.features.skippedHint": "They reached this feature but were not counted in any group (overrides, not eligible, or the feature was killed).",
+  "pro.proPanel.shareUpToScreens": "Share up to {count} screens or windows at the same time (free: {free})",
+  "pro.compare.screensAtOnce": "Screens at once"
 }

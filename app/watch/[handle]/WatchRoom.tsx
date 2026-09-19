@@ -239,7 +239,7 @@ import { UpdateAppButton } from "@/components/UpdateAppButton";
 import { AccountModal } from "@/components/AccountModal";
 import { GuestBroadcastLimitModal } from "@/components/GuestBroadcastLimitModal";
 import { MobileScreenShareModal } from "@/components/MobileScreenShareModal";
-import { GUEST_FEATURES, hasFeature, isThemeBanned } from "@/lib/entitlements";
+import { GUEST_FEATURES, accountTierOf, hasFeature, isThemeBanned, tierAtLeast } from "@/lib/entitlements";
 import { PartnerMediaTile } from "@/components/PartnerMediaTile";
 import { usePartnerAd } from "@/lib/usePartnerAd";
 import { usePartnerExperiment } from "@/lib/partnerExperiment";
@@ -5098,9 +5098,10 @@ export function WatchRoom({
   // middle of the screen, at the one moment nothing else is playing there.
   // Not in a group (its ad is the shell's rooms column, see GroupPartnerSlot),
   // not in a call, and not when the pane is empty only because our own
-  // previews are hidden (that pane has no buttons to sit under).
+  // previews are hidden (that pane has no buttons to sit under). Never for
+  // Pro or above: a subscriber keeps the ad in the sidebar, out of the way.
   const partnerOnStage =
-    partnerExperimentOn && nothingToShow && !callLayout && !group && !(ownPreviewHidden && hasOwnPreview);
+    partnerExperimentOn && !tierAtLeast(accountTierOf(account?.flags), "premium") && nothingToShow && !callLayout && !group && !(ownPreviewHidden && hasOwnPreview);
 
   // Right-click on the video pane: bring our own previews back, or hide them
   // again. Not over a control (its own click is what that is for), and only
