@@ -26,7 +26,9 @@ import {
 // reasonable thing to offer someone at a desk and an unreasonable thing to
 // put in front of someone about to hit "transmitir" on a phone. Each option
 // here is a resolution/fps pair chosen to be obviously different from the
-// others — see the descriptions, which name the trade rather than the pixels.
+// others. Shown by name only, with no numbers: in the Android app the capture
+// is clamped far below these anyway (see androidScreenCapture.ts's
+// MAX_CAPTURE_*), so a "1080p · 30fps" label promised what it never sent.
 //
 // Laid out top to bottom as quality, system audio, "Transmitir tela", cancel:
 // nothing starts until that button, so both answers are in before it does.
@@ -44,7 +46,6 @@ import {
 export type MobileQualityChoice = {
   id: string;
   label: string;
-  detail: string;
   resolution: ShareResolution;
   fps: ShareFps;
 };
@@ -57,21 +58,18 @@ export const MOBILE_QUALITY_CHOICES: MobileQualityChoice[] = [
   {
     id: "alta",
     get label() { return translate("mobileQualitySheet.high"); },
-    get detail() { return translate("mobileQualitySheet.n1080p30fpsBestPictureNeedsA"); },
     resolution: "1080p",
     fps: 30,
   },
   {
     id: "media",
     get label() { return translate("mobileQualitySheet.medium"); },
-    get detail() { return translate("mobileQualitySheet.n720p30fpsABalanceBetweenSharpness"); },
     resolution: "720p",
     fps: 30,
   },
   {
     id: "baixa",
     get label() { return translate("mobileQualitySheet.low"); },
-    get detail() { return translate("mobileQualitySheet.n576p24fpsForAWeakConnection"); },
     resolution: "576p",
     fps: 24,
   },
@@ -179,7 +177,6 @@ export function MobileQualitySheet({
               </option>
             ))}
           </select>
-          <span className="mt-1 block text-xs text-zinc-500 dark:text-zinc-400">{choice.detail}</span>
         </label>
 
         {audioSupported && (
