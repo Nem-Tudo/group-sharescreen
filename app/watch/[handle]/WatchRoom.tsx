@@ -768,7 +768,14 @@ function ShareControls({
 }: {
   // "Várias telas" (see lib/multiScreen): the "+" beside the screen button
   // while a screen is going out. Null where the person does not have it.
-  addScreen?: { count: number; limit: number; onClick: () => void } | null;
+  // `items` is every screen going out, each closable on its own — listed in
+  // the "+"'s hover panel.
+  addScreen?: {
+    count: number;
+    limit: number;
+    onClick: () => void;
+    items: { id: string; label: string; onStop: () => void }[];
+  } | null;
   screenSharing: boolean;
   cameraSharing: boolean;
   // getDisplayMedia exists (desktop). A phone has no screen capture at all,
@@ -927,15 +934,37 @@ function ShareControls({
           </button>
         </Tooltip>
       </ShortcutQuickPopover>
-      {screenSharing && addScreen && (
+      {addScreen && (screenSharing || addScreen.count > 0) && (
         <Tooltip
+          placement="bottom"
+          interactive
           content={
-            <span className="inline-flex items-center gap-1.5">
-              {addScreen.count >= addScreen.limit
-                ? t("watch.watchRoom.screenLimitReached", { limit: addScreen.limit })
-                : t("watch.watchRoom.addAnotherScreen", { count: addScreen.count, limit: addScreen.limit })}
-              <NewBadge id="multi-screen-share" />
-            </span>
+            <div className="flex w-64 max-w-[calc(100vw-2rem)] flex-col gap-1.5">
+              <span className="inline-flex items-center gap-1.5">
+                {addScreen.count >= addScreen.limit
+                  ? t("watch.watchRoom.screenLimitReached", { limit: addScreen.limit })
+                  : t("watch.watchRoom.addAnotherScreen", { count: addScreen.count, limit: addScreen.limit })}
+                <NewBadge id="multi-screen-share" />
+              </span>
+              {addScreen.items.length > 0 && (
+                <ul className="flex flex-col gap-1 border-t border-white/15 pt-1.5">
+                  {addScreen.items.map((item) => (
+                    <li key={item.id} className="flex items-center gap-2">
+                      <ScreenIcon className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                      <button
+                        type="button"
+                        onClick={item.onStop}
+                        aria-label={`${t("watch.watchRoom.stopThisScreen")}: ${item.label}`}
+                        className="rounded bg-red-600 px-1.5 py-0.5 text-xs font-semibold text-white transition hover:bg-red-700"
+                      >
+                        {t("watch.watchRoom.closeScreen")}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           }
           wrapperClassName="flex"
         >
@@ -4221,8 +4250,8 @@ export function WatchRoom({
           allowUnmute={false}
           fill={fill}
           compact={compact}
-          onStopWatching={hideOwnPreview}
-          stopWatchingLabel={translate("watch.watchRoom.hideMyBroadcast")}
+          onStopWatching={extraScreensActive > 0 ? stopShare : hideOwnPreview}
+          stopWatchingLabel={translate(extraScreensActive > 0 ? "watch.watchRoom.stopThisScreen" : "watch.watchRoom.hideMyBroadcast")}
           onDoubleClick={doubleClickFocus ? () => toggleSpotlight(id) : undefined}
           onFocus={() => toggleSpotlight(id)}
           isSpotlighted={spotlightId === id}
@@ -5135,20 +5164,40 @@ export function WatchRoom({
   const addScreenControl =
     multiScreenMode.active && screenShareMode === "display" && !isMobileBrowser && !onPhone
       ? {
-          count: 1 + extraScreensActive,
+          count: (localStream ? 1 : 0) + extraScreensActive,
           limit: screenLimit,
           onClick: () => {
-            const count = 1 + extraScreensActive;
+            const count = (localStream ? 1 : 0) + extraScreensActive;
             if (count >= screenLimit) {
               trackFeatureEvent(MULTI_SCREEN_EVENTS.limit, { value: screenLimit });
               return;
             }
             trackFeatureEvent(MULTI_SCREEN_EVENTS.add, { value: count + 1 });
             markFeatureUsed("multi-screen-share");
-            void addExtraScreen();
+            // The first screen was closed on its own: the "+" brings it back
+            // rather than taking another extra slot.
+            if (!localStream) void startShare("display");
+            else void addExtraScreen();
           },
+          items: [
+            ...(localStream
+              ? [{ id: "screen", label: `${translate("watch.watchRoom.screen")} 1`, onStop: stopShare }]
+              : []),
+            ...EXTRA_SCREEN_SLOTS.filter((slot) => extraScreens[slot].active).map((slot) => ({
+              id: slot,
+              label: `${translate("watch.watchRoom.screen")} ${EXTRA_SCREEN_SLOTS.indexOf(slot) + 2}`,
+              onStop: () => extraScreens[slot].stop(),
+            })),
+          ],
         }
       : null;
+  // The main screen button's "stop": every screen at once. Closing just one
+  // is the "+" panel's job (and each tile's).
+  const anyScreenSharing = Boolean(localStream) || extraScreensActive > 0;
+  function stopAllScreens() {
+    stopShare();
+    for (const slot of EXTRA_SCREEN_SLOTS) extraScreens[slot].stop();
+  }
   // The first extra screen that failed to start, shown like shareError.
   const extraScreenError =
     EXTRA_SCREEN_SLOTS.map((slot) => extraScreens[slot].error).find(Boolean) ?? null;
@@ -5810,15 +5859,15 @@ export function WatchRoom({
 
       <div className="flex items-center">
         <ShareControls
-          screenSharing={Boolean(localStream)}
+          screenSharing={anyScreenSharing}
           cameraSharing={Boolean(localCameraStream)}
           screenSupported={screenShareMode === "display" || isMobileBrowser}
           cameraSupported={screenShareMode !== "unsupported"}
           screenBlockedReason={screenBlockedReason}
           cameraBlockedReason={cameraBlockedReason}
           onToggleScreen={() => {
-            if (localStream) {
-              stopShare();
+            if (anyScreenSharing) {
+              stopAllScreens();
               return;
             }
             // On a phone browser, screen sharing requires the mobile app (in beta)
@@ -7973,7 +8022,7 @@ export function WatchRoom({
                           return;
                         }
                         if (screenShareMode !== "display") return;
-                        if (localStream) stopShare();
+                        if (anyScreenSharing) stopAllScreens();
                         else if (onPhone) setQualityPrompt("screen");
                         else startShare("display");
                       }}

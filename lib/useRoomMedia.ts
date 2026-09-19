@@ -3654,13 +3654,6 @@ export function useRoomMedia(room: string) {
     return true;
   }, [extraScreens]);
 
-  // The extra screens hang off the first one: stopping "compartilhar tela"
-  // stops all of them, so the one button that says the share is over means it.
-  const screenIsActive = screen.active;
-  useEffect(() => {
-    if (screenIsActive) return;
-    for (const slot of EXTRA_SCREEN_SLOTS) extraScreens[slot].stop();
-  }, [screenIsActive, extraScreens]);
   // Re-opens whichever live captures are running off the camera, so a change
   // to which lens that means actually reaches the room.
   //

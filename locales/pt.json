@@ -3245,6 +3245,8 @@
   "watch.watchRoom.multiScreenModeHint": "Mostra um botão \"+\" ao lado do compartilhar tela para transmitir mais de um monitor ou janela ao mesmo tempo (até {count} no seu plano).",
   "watch.watchRoom.multiScreenTip": "Novo: agora dá para transmitir mais de uma tela ou janela ao mesmo tempo. Ative \"Várias telas\" aqui.",
   "watch.watchRoom.stopThisScreen": "Parar esta tela",
+  "watch.watchRoom.screen": "Tela",
+  "watch.watchRoom.closeScreen": "Fechar",
   "watch.watchRoom.addAnotherScreen": "Transmitir outra tela ou janela ({count}/{limit})",
   "watch.watchRoom.screenLimitReached": "Você já transmite {limit} telas, o limite do seu plano. Normal: 2 · Pro: 3 · Pro Max: 5 · Pro Ultra: 10.",
   "watch.watchRoom.beingRecordedBy": "Sua transmissão está sendo gravada por {names}",

@@ -3245,6 +3245,8 @@
   "watch.watchRoom.multiScreenModeHint": "Shows a \"+\" button next to share screen, to broadcast more than one monitor or window at the same time (up to {count} on your plan).",
   "watch.watchRoom.multiScreenTip": "New: you can now share more than one screen or window at the same time. Turn on \"Multiple screens\" here.",
   "watch.watchRoom.stopThisScreen": "Stop this screen",
+  "watch.watchRoom.screen": "Screen",
+  "watch.watchRoom.closeScreen": "Close",
   "watch.watchRoom.addAnotherScreen": "Share another screen or window ({count}/{limit})",
   "watch.watchRoom.screenLimitReached": "You are already sharing {limit} screens, your plan's limit. Free: 2 · Pro: 3 · Pro Max: 5 · Pro Ultra: 10.",
   "watch.watchRoom.beingRecordedBy": "Your broadcast is being recorded by {names}",
