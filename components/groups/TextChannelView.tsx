@@ -1007,6 +1007,25 @@ export const TextChannelView = memo(function TextChannelView({
     );
   }
 
+  /**
+   * The text of a bot's or webhook's embed. Its <@id> and <#id> are drawn
+   * like a message's — Discord lights up a mention in an embed without it
+   * alerting anybody — except in a title that is itself a link, where they
+   * are only the names.
+   */
+  function embedText(text: string, key: string, inLink: boolean): ReactNode {
+    return splitTokens(text).map((segment, s) => {
+      const k = `${key}-${s}`;
+      if (segment.type === "user") {
+        return inLink ? `@${personById.get(segment.id)?.name ?? UNKNOWN_USER}` : userToken(segment.id, true, k);
+      }
+      if (segment.type === "room") {
+        return inLink ? `#${roomById.get(segment.id)?.name ?? UNKNOWN_ROOM}` : roomToken(segment.id, k);
+      }
+      return inLink ? segment.value : <Fragment key={k}>{linkify(segment.value, k)}</Fragment>;
+    });
+  }
+
   // ── Actions ──────────────────────────────────────────────────────────
 
   // On screen at once, delivered behind it — see lib/groupOutbox. Sending
@@ -1569,6 +1588,7 @@ export const TextChannelView = memo(function TextChannelView({
             {message.text && <InviteEmbeds text={message.text} />}
             <MessageEmbeds
               embeds={message.embeds}
+              renderText={embedText}
               onOpenImage={(src) => setPreview({ src, alt: t("common.image") })}
               onLoad={onMediaLoad}
             />

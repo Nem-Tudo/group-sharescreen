@@ -7,7 +7,7 @@
 
 import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { MdCheck, MdContentCopy } from "react-icons/md";
-import { parseMarkdown, type BlockNode, type InlineNode } from "@/lib/markdown";
+import { parseInline, parseMarkdown, type BlockNode, type InlineNode } from "@/lib/markdown";
 import { highlightCode, type CodeTokenType } from "@/lib/codeHighlight";
 import { useT } from "@/lib/useI18n";
 
@@ -34,6 +34,37 @@ export function linkifyPlain(text: string, key: string): ReactNode {
       <Fragment key={`${key}-${index}`}>{part}</Fragment>
     )
   );
+}
+
+/** A [label](url) turned into its label, all the way down. */
+function withoutLinks(nodes: InlineNode[]): InlineNode[] {
+  return nodes.flatMap((node): InlineNode[] => {
+    if (node.type === "link") return withoutLinks(node.children);
+    if ("children" in node) return [{ ...node, children: withoutLinks(node.children) }];
+    return [node];
+  });
+}
+
+/**
+ * One line of inline formatting — bold, italics, code, spoilers — and no
+ * blocks: a heading or a list marker in it stays as typed. For titles. With
+ * `insideLink`, a [label](url) in it is drawn as its label, since the whole
+ * line is already a link and one link cannot hold another.
+ */
+export function InlineMarkdown({
+  text,
+  renderText = linkifyPlain,
+  insideLink = false,
+}: {
+  text: string;
+  renderText?: RenderText;
+  insideLink?: boolean;
+}) {
+  const nodes = useMemo(() => {
+    const parsed = parseInline(text);
+    return insideLink ? withoutLinks(parsed) : parsed;
+  }, [text, insideLink]);
+  return <Inline nodes={nodes} path="t" renderText={renderText} />;
 }
 
 interface MarkdownProps {

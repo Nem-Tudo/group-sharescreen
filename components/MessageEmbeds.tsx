@@ -10,12 +10,23 @@
 // opened a chat.
 
 import type { ReactNode } from "react";
-import { Markdown, linkifyPlain } from "@/components/Markdown";
+import { InlineMarkdown, Markdown, linkifyPlain } from "@/components/Markdown";
 import { formatLocale } from "@/lib/i18n";
 import { safeHref, safeImage, type MessageEmbed } from "@/lib/messageEmbeds";
 
+/**
+ * Draws the plain text between the markdown — where a chat turns its
+ * mentions (<@id>, <#id>) into names. `inLink` is set for the title when it is
+ * a link: what comes back must then be text only, nothing clickable.
+ */
+export type EmbedRenderText = (text: string, key: string, inLink: boolean) => ReactNode;
+
+const defaultRenderText: EmbedRenderText = (text, key, inLink) => (inLink ? text : linkifyPlain(text, key));
+
 interface MessageEmbedsProps {
   embeds: MessageEmbed[] | undefined;
+  /** The chat's own reading of mentions and links; without it, links only. */
+  renderText?: EmbedRenderText;
   /** Opens a picture in the chat's viewer; without it, a picture is not clickable. */
   onOpenImage?: (src: string) => void;
   /** A picture finished loading — the chat keeps its scroll pinned to the bottom. */
@@ -23,12 +34,18 @@ interface MessageEmbedsProps {
   className?: string;
 }
 
-export function MessageEmbeds({ embeds, onOpenImage, onLoad, className = "" }: MessageEmbedsProps) {
+export function MessageEmbeds({
+  embeds,
+  renderText = defaultRenderText,
+  onOpenImage,
+  onLoad,
+  className = "",
+}: MessageEmbedsProps) {
   if (!embeds || embeds.length === 0) return null;
   return (
     <div className={`mt-1 flex flex-col gap-1.5 ${className}`}>
       {embeds.map((embed, index) => (
-        <EmbedCard key={index} embed={embed} onOpenImage={onOpenImage} onLoad={onLoad} />
+        <EmbedCard key={index} embed={embed} renderText={renderText} onOpenImage={onOpenImage} onLoad={onLoad} />
       ))}
     </div>
   );
@@ -79,10 +96,12 @@ function EmbedImage({
 
 function EmbedCard({
   embed,
+  renderText,
   onOpenImage,
   onLoad,
 }: {
   embed: MessageEmbed;
+  renderText: EmbedRenderText;
   onOpenImage?: (src: string) => void;
   onLoad?: () => void;
 }) {
@@ -93,10 +112,12 @@ function EmbedCard({
   const footerIcon = safeImage(embed.footer?.iconUrl);
   const when = timestampLabel(embed.timestamp);
   const fields = embed.fields ?? [];
+  const titleHref = safeHref(embed.url);
+  const rich = (text: string, key: string) => renderText(text, key, false);
 
   return (
     <div
-      className="grid w-fit min-w-0 max-w-full grid-cols-[minmax(0,1fr)_auto] gap-x-3 rounded-md border-l-4 border-zinc-300 bg-zinc-100 px-3 py-2.5 text-sm text-zinc-800 sm:max-w-[32rem] dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200"
+      className="grid w-fit min-w-0 select-text max-w-full grid-cols-[minmax(0,1fr)_auto] gap-x-3 rounded-md border-l-4 border-zinc-300 bg-zinc-100 px-3 py-2.5 text-sm text-zinc-800 sm:max-w-[32rem] dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200"
       style={color ? { borderLeftColor: color } : undefined}
     >
       <div className="flex min-w-0 flex-col gap-1">
@@ -113,24 +134,30 @@ function EmbedCard({
         )}
         {embed.title && (
           <LinkOr
-            href={safeHref(embed.url)}
-            className={`break-words font-semibold ${embed.url ? "text-blue-600 dark:text-blue-400" : "text-zinc-900 dark:text-zinc-100"}`}
+            href={titleHref}
+            className={`whitespace-pre-wrap break-words font-semibold ${titleHref ? "text-blue-600 dark:text-blue-400" : "text-zinc-900 dark:text-zinc-100"}`}
           >
-            {embed.title}
+            <InlineMarkdown
+              text={embed.title}
+              insideLink={Boolean(titleHref)}
+              renderText={(text, key) => renderText(text, key, Boolean(titleHref))}
+            />
           </LinkOr>
         )}
         {embed.description && (
           <div className="min-w-0 text-[13px] leading-relaxed">
-            <Markdown text={embed.description} renderText={linkifyPlain} compact />
+            <Markdown text={embed.description} renderText={rich} compact />
           </div>
         )}
         {fields.length > 0 && (
           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-2">
             {fields.map((field, index) => (
               <div key={index} className={field.inline ? "min-w-[7rem] flex-[1_1_28%]" : "basis-full"}>
-                <div className="break-words text-xs font-semibold text-zinc-900 dark:text-zinc-100">{field.name}</div>
+                <div className="whitespace-pre-wrap break-words text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+                  <InlineMarkdown text={field.name} renderText={rich} />
+                </div>
                 <div className="min-w-0 text-[13px] leading-relaxed">
-                  <Markdown text={field.value} renderText={linkifyPlain} compact />
+                  <Markdown text={field.value} renderText={rich} compact />
                 </div>
               </div>
             ))}
@@ -151,7 +178,7 @@ function EmbedCard({
               <img src={footerIcon} alt="" referrerPolicy="no-referrer" className="h-5 w-5 shrink-0 rounded-full object-cover" />
             )}
             <span className="min-w-0 break-words">
-              {embed.footer?.text}
+              {embed.footer?.text && renderText(embed.footer.text, "footer", true)}
               {embed.footer?.text && when && " • "}
               {when}
             </span>
