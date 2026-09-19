@@ -43,9 +43,10 @@ export const TILE_EXPERIMENT_EVENTS = {
 } as const;
 
 // One event for every "recurso novo" tip, whatever the feature: the person
-// clicked what the tip points at while it was on screen. Being a site event,
-// it counts for each experiment they are in — register it in each one's
-// "site events" in the admin panel.
+// clicked what the tip points at while it was on screen. Built in on the API
+// (BUILTIN_CLIENT_FEATURE_EVENTS), so it counts for every experiment they are
+// in without being listed in any feature's "site events"; the admin panel
+// shows it as the blue count beside "Exposições".
 export const TIP_CLICK_EVENT = "new_feature_tip_click";
 
 export function trackTileExperiment(name: string, value?: number) {

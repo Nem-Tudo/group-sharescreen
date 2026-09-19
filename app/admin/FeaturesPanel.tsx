@@ -876,9 +876,14 @@ function StatsSection({
     () => (feature.pinnedEvents ?? []).filter((event) => event !== TIP_CLICK_EVENT),
     [feature.pinnedEvents]
   );
-  // The "recurso novo" tooltip's click (see lib/clipsMode) gets its own spot at
-  // the top: whether the tip worked is a question every feature has.
+  // The "recurso novo" tooltip's click (see lib/clipsMode) is shown as a count
+  // beside "Exposições" rather than as a table: whether the tip worked is a
+  // question every feature has. Still offered in the daily chart below.
   const tipClicks = Boolean(stats?.events[TIP_CLICK_EVENT]);
+  const tipClickCount = Object.values(stats?.events[TIP_CLICK_EVENT] ?? {}).reduce(
+    (sum, entry) => sum + (entry?.count ?? 0),
+    0
+  );
   const others = stats
     ? Object.keys(stats.events).filter((event) => !pinned.includes(event) && event !== TIP_CLICK_EVENT)
     : [];
@@ -927,7 +932,19 @@ function StatsSection({
       {stats && (
         <>
           <div className={`${cardClass} overflow-x-auto`}>
-            <h3 className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">{t("admin.features.exposures")}</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">{t("admin.features.exposures")}</h3>
+              {/* The "recurso novo" tooltip's clicks (see lib/clipsMode), all
+                  groups together. Every feature gets it: the event is built in
+                  on the API, so none has to list it in its site events. */}
+              <span
+                title={t("admin.features.tipClickHint")}
+                aria-label={`${t("admin.features.tipClickBadge")}: ${number(tipClickCount)}`}
+                className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[11px] font-semibold tabular-nums text-white"
+              >
+                {number(tipClickCount)}
+              </span>
+            </div>
             <table className="mt-2 w-full text-xs tabular-nums">
               <thead>
                 <tr className="text-left text-zinc-500">
@@ -976,16 +993,6 @@ function StatsSection({
                 ))}
               </ul>
             </div>
-          )}
-
-          {tipClicks && (
-            <EventTable
-              event={TIP_CLICK_EVENT}
-              groups={groups}
-              stats={stats}
-              pinned={false}
-              highlight={t("admin.features.tipClickHint")}
-            />
           )}
 
           {events.length === 0 ? (
@@ -1065,15 +1072,12 @@ function EventTable({
   stats,
   pinned,
   onTogglePin,
-  highlight,
 }: {
   event: string;
   groups: string[];
   stats: FeatureStats;
   pinned: boolean;
   onTogglePin?: () => void;
-  /** A special event, framed in blue with this explanation above its table. */
-  highlight?: string;
 }) {
   const t = useT();
   const control = stats.groups.control?.uniqueExposures ?? 0;
@@ -1082,20 +1086,9 @@ function EventTable({
 
   return (
     <div
-      className={`${cardClass} overflow-x-auto ${
-        highlight ? "border-blue-500/60 bg-blue-50/60 ring-2 ring-blue-500/50 dark:bg-blue-950/30" : pinned ? "ring-1 ring-amber-400/60" : ""
-      }`}
+      className={`${cardClass} overflow-x-auto ${pinned ? "ring-1 ring-amber-400/60" : ""}`}
     >
-      {highlight && (
-        <div className="mb-2 flex items-start gap-2">
-          <span className="shrink-0 rounded-md bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold uppercase text-white">
-            {t("admin.features.tipClickBadge")}
-          </span>
-          <p className="text-[11px] text-blue-900 dark:text-blue-200">{highlight}</p>
-        </div>
-      )}
       <div className="flex items-center gap-1.5">
-        {!highlight && (
         <button
           type="button"
           onClick={onTogglePin}
@@ -1107,7 +1100,6 @@ function EventTable({
         >
           {pinned ? <MdStar className="h-4 w-4" /> : <MdStarBorder className="h-4 w-4 text-zinc-400" />}
         </button>
-        )}
         <h3 className="font-mono text-xs font-semibold text-zinc-700 dark:text-zinc-300">{event}</h3>
       </div>
       <table className="mt-2 w-full text-xs tabular-nums">
