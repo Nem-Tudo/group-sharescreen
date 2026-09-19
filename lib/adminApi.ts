@@ -462,6 +462,9 @@ export async function setSupporters(supporters: Supporter[]): Promise<Supporter[
 // admin-only bookkeeping (weight/createdAt) on top of the public `Partner`
 // shape everyone else gets.
 export type AdminPartner = Partner & {
+  // The full long-form copy (the public payload only says whether there is
+  // one — see Partner.hasExtendedDescription). Absent on ads saved before it.
+  extendedDescription?: string | null;
   weight: number;
   createdAt: number;
   // Key to this ad's public report page (/ad/[token]) — the link the
@@ -522,6 +525,8 @@ export type PartnerAdminList = {
 export type PartnerInput = {
   title: string;
   description: string;
+  // Markdown shown beside the reward video; empty string clears it.
+  extendedDescription?: string;
   imageUrl?: string;
   buttonLabel: string;
   buttonUrl: string;

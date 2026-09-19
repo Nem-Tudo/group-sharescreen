@@ -6,6 +6,8 @@
 //          headings, "-# subtext", "- item" / "1. item" lists.
 // Inline:  **bold**, *italic* and _italic_, __underline__, ~~strike~~,
 //          ||spoiler||, `code`, [label](https://link), and backslash escapes.
+//          With `{ images: true }` (never in chat — see MarkdownOptions), also
+//          ![alt](https://image).
 //
 // The text between the formatting is left exactly as written and handed back
 // to the caller to draw (see Markdown.tsx's renderText) — which is where each
@@ -22,7 +24,15 @@ export type InlineNode =
   | { type: "text"; value: string }
   | { type: "bold" | "italic" | "underline" | "strike" | "spoiler"; children: InlineNode[] }
   | { type: "code"; value: string }
-  | { type: "link"; url: string; children: InlineNode[] };
+  | { type: "link"; url: string; children: InlineNode[] }
+  | { type: "image"; url: string; alt: string };
+
+export type MarkdownOptions = {
+  /** Reads ![alt](https://url) as an image. Off by default: chat has its own
+   *  image uploads, and a message must not be able to embed arbitrary remote
+   *  images. On for admin-written copy, like a partner ad's long description. */
+  images?: boolean;
+};
 
 export type BlockNode =
   /** A run of ordinary lines; the newlines between them are kept in the text. */
@@ -40,7 +50,7 @@ export type BlockNode =
 // the next ```.
 const FENCE = /```(?:([A-Za-z0-9_+#.-]{1,20})\n)?([\s\S]*?)```/g;
 
-export function parseMarkdown(text: string): BlockNode[] {
+export function parseMarkdown(text: string, options: MarkdownOptions = {}): BlockNode[] {
   const blocks: BlockNode[] = [];
   let last = 0;
   for (const match of text.matchAll(FENCE)) {
@@ -48,11 +58,11 @@ export function parseMarkdown(text: string): BlockNode[] {
     const body = match[2];
     // An empty fence ("``````") is not a code block — it is six backticks.
     if (!body.trim()) continue;
-    blocks.push(...parseLines(text.slice(last, start).replace(/\n$/, ""), true));
+    blocks.push(...parseLines(text.slice(last, start).replace(/\n$/, ""), true, options));
     blocks.push({ type: "codeBlock", lang: match[1]?.toLowerCase() ?? null, value: body.replace(/^\n/, "").replace(/\n$/, "") });
     last = start + match[0].length;
   }
-  blocks.push(...parseLines(text.slice(last).replace(/^\n/, ""), true));
+  blocks.push(...parseLines(text.slice(last).replace(/^\n/, ""), true, options));
   return blocks;
 }
 
@@ -62,7 +72,7 @@ const QUOTE = /^> ?(.*)$/;
 const LIST_ITEM = /^\s*(?:([-*])|(\d{1,9})\.) (.+)$/;
 
 /** The lines of text between code fences. `quotesAllowed` is false inside a quote — quotes do not nest. */
-function parseLines(text: string, quotesAllowed: boolean): BlockNode[] {
+function parseLines(text: string, quotesAllowed: boolean, options: MarkdownOptions): BlockNode[] {
   if (!text) return [];
   const lines = text.split("\n");
   const blocks: BlockNode[] = [];
@@ -70,7 +80,7 @@ function parseLines(text: string, quotesAllowed: boolean): BlockNode[] {
 
   const flush = () => {
     if (paragraph.length === 0) return;
-    blocks.push({ type: "paragraph", children: parseInline(paragraph.join("\n")) });
+    blocks.push({ type: "paragraph", children: parseInline(paragraph.join("\n"), options) });
     paragraph = [];
   };
 
@@ -81,7 +91,7 @@ function parseLines(text: string, quotesAllowed: boolean): BlockNode[] {
     if (quotesAllowed && (line === ">>>" || line.startsWith(">>> "))) {
       flush();
       const rest = [line.slice(4), ...lines.slice(i + 1)].join("\n");
-      blocks.push({ type: "quote", children: parseLines(rest, false) });
+      blocks.push({ type: "quote", children: parseLines(rest, false, options) });
       return blocks;
     }
 
@@ -93,21 +103,21 @@ function parseLines(text: string, quotesAllowed: boolean): BlockNode[] {
         i += 1;
       }
       i -= 1;
-      blocks.push({ type: "quote", children: parseLines(quoted.join("\n"), false) });
+      blocks.push({ type: "quote", children: parseLines(quoted.join("\n"), false, options) });
       continue;
     }
 
     const heading = HEADING.exec(line);
     if (heading) {
       flush();
-      blocks.push({ type: "heading", level: heading[1].length as 1 | 2 | 3, children: parseInline(heading[2]) });
+      blocks.push({ type: "heading", level: heading[1].length as 1 | 2 | 3, children: parseInline(heading[2], options) });
       continue;
     }
 
     const subtext = SUBTEXT.exec(line);
     if (subtext) {
       flush();
-      blocks.push({ type: "subtext", children: parseInline(subtext[1]) });
+      blocks.push({ type: "subtext", children: parseInline(subtext[1], options) });
       continue;
     }
 
@@ -120,7 +130,7 @@ function parseLines(text: string, quotesAllowed: boolean): BlockNode[] {
       while (i < lines.length) {
         const next = LIST_ITEM.exec(lines[i]);
         if (!next || Boolean(next[2]) !== ordered) break;
-        items.push(parseInline(next[3]));
+        items.push(parseInline(next[3], options));
         i += 1;
       }
       i -= 1;
@@ -143,6 +153,7 @@ const ESCAPABLE = new Set(["\\", "*", "_", "~", "`", "|", ">", "#", "-", "[", "]
 const PROTECTED = /https?:\/\/[^\s<]+[^\s<.,:;"')\]!?*_~|]|<[@#][^>\s]+>/g;
 
 const MASKED_LINK = /^\[([^\]\n]{1,256})\]\((https?:\/\/[^\s)]+)\)/;
+const IMAGE = /^!\[([^\]\n]{0,256})\]\((https?:\/\/[^\s)]+)\)/;
 
 type Delimiter = { mark: string; type: "bold" | "italic" | "underline" | "strike" | "spoiler" };
 
@@ -216,7 +227,7 @@ function opens(text: string, i: number, d: Delimiter, close: number): boolean {
   return true;
 }
 
-export function parseInline(text: string): InlineNode[] {
+export function parseInline(text: string, options: MarkdownOptions = {}): InlineNode[] {
   const out: InlineNode[] = [];
   const spans = protectedSpans(text);
   let buffer = "";
@@ -265,11 +276,21 @@ export function parseInline(text: string): InlineNode[] {
       continue;
     }
 
+    if (ch === "!" && options.images && text[i + 1] === "[") {
+      const image = IMAGE.exec(text.slice(i));
+      if (image) {
+        flush();
+        out.push({ type: "image", url: image[2], alt: image[1] });
+        i += image[0].length;
+        continue;
+      }
+    }
+
     if (ch === "[") {
       const link = MASKED_LINK.exec(text.slice(i));
       if (link) {
         flush();
-        out.push({ type: "link", url: link[2], children: parseInline(link[1]) });
+        out.push({ type: "link", url: link[2], children: parseInline(link[1], options) });
         i += link[0].length;
         continue;
       }
@@ -281,7 +302,7 @@ export function parseInline(text: string): InlineNode[] {
       const close = findCloser(text, i + d.mark.length, d.mark, spans);
       if (close === -1 || !opens(text, i, d, close)) continue;
       flush();
-      out.push({ type: d.type, children: parseInline(text.slice(i + d.mark.length, close)) });
+      out.push({ type: d.type, children: parseInline(text.slice(i + d.mark.length, close), options) });
       i = close + d.mark.length;
       matched = true;
       break;
@@ -305,7 +326,9 @@ export function stripMarkdown(text: string): string {
       .map((node) =>
         node.type === "text" || node.type === "code"
           ? node.value
-          : node.type === "spoiler"
+          : node.type === "image"
+            ? node.alt
+            : node.type === "spoiler"
             ? "▒▒▒"
             : inline(node.children)
       )

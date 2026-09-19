@@ -7,6 +7,11 @@ export type Partner = {
   id: string;
   title: string;
   description: string;
+  // Whether the ad has long-form markdown copy for the reward popup. The text
+  // itself isn't in this payload (it's pushed to every visitor, and the copy
+  // can be large) — fetchPartnerExtendedDescription gets it when the popup
+  // opens. Absent from an API that predates it.
+  hasExtendedDescription?: boolean;
   imageUrl: string | null;
   buttonLabel: string;
   buttonUrl: string;
@@ -39,6 +44,7 @@ export type PartnerCardData = {
   id?: string;
   title: string;
   description: string;
+  hasExtendedDescription?: boolean;
   imageUrl?: string | null;
   buttonLabel: string;
   buttonUrl: string;
@@ -86,6 +92,21 @@ export async function fetchPartner(
   if (!res.ok) throw new Error(translate("partner.couldNotLoadPartnerStatusStatus", { status: res.status }));
   const data = (await res.json()) as { partner: PartnerCardData | null };
   return data.partner;
+}
+
+/** An ad's long-form markdown copy (see Partner.hasExtendedDescription), or
+ *  null when it has none. */
+export async function fetchPartnerExtendedDescription(
+  partnerId: string,
+  signal?: AbortSignal
+): Promise<string | null> {
+  const res = await fetch(
+    `${getSignalingHttpBase()}/partner/${encodeURIComponent(partnerId)}/extended-description`,
+    { signal }
+  );
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = (await res.json()) as { extendedDescription?: string | null };
+  return data.extendedDescription || null;
 }
 
 /** Whether an ad's click reward is offered in this particular spot. Takes the

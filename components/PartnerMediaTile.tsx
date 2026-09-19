@@ -12,6 +12,7 @@ import {
   usePartnerRewardStatus,
   type PartnerCardData,
 } from "@/lib/partner";
+import { partnerRewardPopupSize } from "@/components/PartnerRewardModal";
 import { signalingClient } from "@/lib/signalingClient";
 import { trackEvent } from "@/lib/analytics";
 import { useT } from "@/lib/useI18n";
@@ -84,9 +85,7 @@ export function PartnerMediaTile({
       });
 
       openPopup("partner_reward", {
-        width: "min(1100px, calc(100vw - 30px))",
-        maxWidth: "1100px",
-        maxHeight: "94dvh",
+        ...partnerRewardPopupSize(partner.hasExtendedDescription),
         closeOnEscape: false,
         closeOnClickOutside: false,
         requireAction: true,
@@ -97,6 +96,7 @@ export function PartnerMediaTile({
           points: partner.rewardPoints,
           title: partner.title,
           description: partner.description ?? "",
+          hasExtendedDescription: partner.hasExtendedDescription,
           imageUrl: partner.imageUrl,
           buttonLabel: partner.buttonLabel,
           buttonUrl: partner.buttonUrl,
@@ -163,7 +163,7 @@ export function PartnerMediaTile({
                 {partner.title}
               </p>
               {partner.description && (
-                <p className="mt-1 max-w-md line-clamp-2 text-xs opacity-85 sm:text-xs">
+                <p className="mt-1 max-w-md line-clamp-2 whitespace-pre-line text-xs opacity-85 sm:text-xs">
                   {partner.description}
                 </p>
               )}

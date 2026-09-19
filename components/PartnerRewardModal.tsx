@@ -13,7 +13,9 @@ import {
   usePartnerRewardStatus,
   hasCompletedPartnerVideoLocally,
   markPartnerVideoCompletedLocally,
+  fetchPartnerExtendedDescription,
 } from "@/lib/partner";
+import { Markdown } from "@/components/Markdown";
 import { trackEvent } from "@/lib/analytics";
 import { signalingClient } from "@/lib/signalingClient";
 import { SpeakerIcon, SpeakerMuteIcon, CheckIcon } from "@/components/icons";
@@ -46,6 +48,18 @@ function formatTime(seconds: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+/**
+ * The popup's size, for whoever opens it (PartnerCard, PartnerMediaTile, the
+ * admin preview): wider when the ad has a long description, which takes a
+ * column to the left of the video instead of eating into the video's own
+ * width.
+ */
+export function partnerRewardPopupSize(hasExtendedDescription: boolean | undefined) {
+  return hasExtendedDescription
+    ? { width: "min(1480px, calc(100vw - 30px))", maxWidth: "1480px", maxHeight: "94dvh" }
+    : { width: "min(1100px, calc(100vw - 30px))", maxWidth: "1100px", maxHeight: "94dvh" };
+}
+
 export type PartnerRewardPopupData = {
   partnerId: string;
   videoUrl: string;
@@ -55,6 +69,11 @@ export type PartnerRewardPopupData = {
   // say whose ad it is.
   title: string;
   description: string;
+  // Long markdown copy shown to the left of the video. The live popup only
+  // knows whether there is one (hasExtendedDescription) and fetches the text
+  // on open; the admin preview hands the text straight in.
+  hasExtendedDescription?: boolean;
+  extendedDescription?: string | null;
   imageUrl?: string | null;
   buttonLabel: string;
   buttonUrl: string;
@@ -71,6 +90,10 @@ export type PartnerRewardPopupData = {
   // Lets the opener (PartnerCard) know a claim went through, so it can flip
   // its reward button to "Assistir de novo" without waiting for a remount.
   onClaimed?: () => void;
+  // The admin panel's preview: the same popup, but nothing it does counts —
+  // no stats reported, no points claimed, nothing saved in this browser — and
+  // the player starts unlocked so the admin can scrub through the video.
+  preview?: boolean;
 };
 
 // The watch-to-earn popup behind a partner ad's "Receber X" button (see
@@ -110,6 +133,9 @@ export function PartnerRewardModal({
     buttonTextColor,
     clickRewardPoints,
     onClaimed,
+    hasExtendedDescription,
+    extendedDescription: givenExtendedDescription,
+    preview = false,
   },
 }: {
   // Injected by ntpopups. The popup is opened with requireAction, so only
@@ -141,8 +167,8 @@ export function PartnerRewardModal({
   // the video through to the end (even without claiming — see handleEnded)
   // should land already unlocked, with the full player showing, instead of
   // forcing a full rewatch just to reach the claim button again.
-  const [previouslyCompleted] = useState(() => hasCompletedPartnerVideoLocally(partnerId));
-  const [unlocked, setUnlocked] = useState(previouslyCompleted);
+  const [previouslyCompleted] = useState(() => !preview && hasCompletedPartnerVideoLocally(partnerId));
+  const [unlocked, setUnlocked] = useState(previouslyCompleted || preview);
   const [claiming, setClaiming] = useState(false);
   // True only for a claim that just succeeded *in this popup session* — kept
   // apart from alreadyClaimed below so the two can read differently ("✓ just
@@ -156,8 +182,8 @@ export function PartnerRewardModal({
   // identity (see usePartnerRewardStatus), so another device's claim counts
   // too; never true for a claim made in this very popup, which is `claimed`
   // and reads as "received" rather than "you already had these".
-  usePartnerRewardStatus(partnerId);
-  const alreadyClaimed = !claimed && hasClaimedPartnerReward(partnerId, "video");
+  usePartnerRewardStatus(preview ? null : partnerId);
+  const alreadyClaimed = !preview && !claimed && hasClaimedPartnerReward(partnerId, "video");
   const [claimError, setClaimError] = useState<string | null>(null);
   // Whether a claim has already been attempted with no identity at all (see
   // handleClaim) — the notice below is this *and* still having none, so
@@ -173,7 +199,8 @@ export function PartnerRewardModal({
   // own one-per-identity claim on the server, and no dependency on the video
   // having been watched. The server's answer too, for the same reason.
   const [clickClaimedHere, setClickClaimedHere] = useState(false);
-  const clickRewardClaimed = clickClaimedHere || hasClaimedPartnerReward(partnerId, "click");
+  const clickRewardClaimed =
+    clickClaimedHere || (!preview && hasClaimedPartnerReward(partnerId, "click"));
   const [clickRewardError, setClickRewardError] = useState<string | null>(null);
   // Success shows inside the button instead of as another line under it —
   // see the CTA below.
@@ -193,6 +220,22 @@ export function PartnerRewardModal({
   // A video that will never load (dead URL, unsupported codec) would
   // otherwise spin forever.
   const [loadFailed, setLoadFailed] = useState(false);
+  // The long description: given outright (admin preview) or fetched once on
+  // open. undefined = still loading, null = none / couldn't load.
+  const showExtended = Boolean(givenExtendedDescription) || Boolean(hasExtendedDescription);
+  const [fetchedExtended, setFetchedExtended] = useState<string | null | undefined>(undefined);
+  const extendedText = givenExtendedDescription || fetchedExtended;
+
+  useEffect(() => {
+    if (givenExtendedDescription || !hasExtendedDescription) return;
+    const controller = new AbortController();
+    fetchPartnerExtendedDescription(partnerId, controller.signal)
+      .then((text) => setFetchedExtended(text))
+      .catch(() => {
+        if (!controller.signal.aborted) setFetchedExtended(null);
+      });
+    return () => controller.abort();
+  }, [partnerId, hasExtendedDescription, givenExtendedDescription]);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -230,8 +273,8 @@ export function PartnerRewardModal({
   // One report per popup open, regardless of whether the video ever plays
   // through — this is the admin panel's "quantos Apertos pra ver o vídeo".
   useEffect(() => {
-    signalingClient.reportPartnerRewardVideoOpen(partnerId);
-  }, [partnerId]);
+    if (!preview) signalingClient.reportPartnerRewardVideoOpen(partnerId);
+  }, [partnerId, preview]);
 
   // Progress is saved on the way out however the popup goes away — the ×
   // below, or anything else that unmounts it (closeAllPopups, a navigation).
@@ -241,16 +284,16 @@ export function PartnerRewardModal({
   // currentTime, which is far finer than a resume point needs).
   useEffect(() => {
     return () => {
-      if (maxTimeRef.current > 0) setStoredPartnerVideoProgress(partnerId, maxTimeRef.current);
+      if (!preview && maxTimeRef.current > 0) setStoredPartnerVideoProgress(partnerId, maxTimeRef.current);
     };
-  }, [partnerId]);
+  }, [partnerId, preview]);
 
   function handleLoadedMetadata() {
     const video = videoRef.current;
     if (!video) return;
     setVideoReady(true);
     setDuration(video.duration);
-    if (resumedRef.current || previouslyCompleted) return;
+    if (resumedRef.current || previouslyCompleted || preview) return;
     resumedRef.current = true;
     const stored = getStoredPartnerVideoProgress(partnerId);
     // Never resumes onto/past the very end — that would let a stale stored
@@ -293,6 +336,7 @@ export function PartnerRewardModal({
     setHasEnded(true);
     const video = videoRef.current;
     const videoDuration = video?.duration ?? 0;
+    if (preview) return;
     if (videoDuration > 0 && maxTimeRef.current >= videoDuration * REQUIRED_WATCH_FRACTION) {
       setUnlocked(true);
       setStoredPartnerVideoProgress(partnerId, videoDuration);
@@ -340,7 +384,7 @@ export function PartnerRewardModal({
   }
 
   async function handleClaim() {
-    if (!unlocked || claiming || claimed || alreadyClaimed) return;
+    if (preview || !unlocked || claiming || claimed || alreadyClaimed) return;
     // Checked here rather than by disabling the button: the button has to
     // stay clickable, because the click is what surfaces the notice below.
     if (!canClaim) {
@@ -421,6 +465,11 @@ export function PartnerRewardModal({
             <span className="shrink-0 rounded-full bg-black/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide opacity-70 dark:bg-white/10">
               {t("common.sponsored")}
             </span>
+            {preview && (
+              <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
+                {t("common.preview")}
+              </span>
+            )}
           </div>
           <p className="mt-0.5 line-clamp-2 whitespace-pre-line text-xs opacity-60">
             {description}
@@ -438,6 +487,30 @@ export function PartnerRewardModal({
         </button>
       </div>
 
+      {/* With a long description, it takes a column to the left of the
+          video on wide screens (its height follows the video column's, and
+          it scrolls inside that), and goes under the buttons on narrow ones. */}
+      <div className={showExtended ? "flex flex-col lg:flex-row" : "flex flex-col"}>
+      {showExtended && (
+        <aside className="relative order-last shrink-0 border-t border-zinc-200 dark:border-zinc-800 lg:order-first lg:w-[380px] lg:border-r lg:border-t-0">
+          <div className="max-h-[45dvh] overflow-y-auto p-4 text-sm leading-relaxed lg:absolute lg:inset-0 lg:max-h-none">
+            {extendedText ? (
+              <Markdown text={extendedText} images />
+            ) : extendedText === undefined ? (
+              <div className="flex justify-center py-6">
+                <span
+                  role="status"
+                  aria-label={t("partnerRewardModal.loadingDescription")}
+                  className="h-6 w-6 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600 dark:border-zinc-700 dark:border-t-zinc-300"
+                />
+              </div>
+            ) : (
+              <p className="text-xs opacity-60">{t("partnerRewardModal.couldNotLoadTheDescription")}</p>
+            )}
+          </div>
+        </aside>
+      )}
+      <div className="flex min-w-0 flex-1 flex-col">
       {/* A fixed 16:9 box, sized before the video has loaded a single byte:
           left to its own intrinsic size, the element starts at roughly
           300x150 and the whole popup — already centered and animated in —
@@ -580,6 +653,7 @@ export function PartnerRewardModal({
             // someone who sat through a video is worth knowing apart from one
             // off a sidebar.
             onClick={() => {
+              if (preview) return;
               signalingClient.reportPartnerClick(partnerId, "video");
               // Fire-and-forget next to the navigation — the link opens in a
               // new tab, so nothing is racing an unload here.
@@ -684,6 +758,8 @@ export function PartnerRewardModal({
         {claimError && !claimed && !alreadyClaimed && (
           <p className="text-center text-xs text-red-600 dark:text-red-400">{claimError}</p>
         )}
+      </div>
+      </div>
       </div>
     </div>
   );

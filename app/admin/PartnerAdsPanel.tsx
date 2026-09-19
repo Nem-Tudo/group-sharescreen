@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import useNtPopups from "ntpopups";
 import {
   createPartner,
   deletePartner,
@@ -18,8 +19,11 @@ import { MdContentCopy, MdOpenInNew } from "react-icons/md";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
 import { formatLocale } from "@/lib/i18n";
+import { partnerRewardPopupSize, type PartnerRewardPopupData } from "@/components/PartnerRewardModal";
 
 const STATS_POLL_INTERVAL_MS = 3000;
+// Mirrors the API's PARTNER_EXTENDED_DESCRIPTION_MAX_LEN.
+const EXTENDED_DESCRIPTION_MAX_LEN = 20000;
 
 // One wording for the click-reward placement, shared by the form's select and
 // the badge on each ad in the list.
@@ -40,6 +44,7 @@ type Mode = "closed" | "create" | "edit";
 const emptyFormDefaults = {
   title: "",
   description: "",
+  extendedDescription: "",
   imageUrl: "",
   buttonLabel: "",
   buttonUrl: "",
@@ -57,6 +62,7 @@ function toDatetimeLocalValue(ms: number): string {
 
 export function PartnerAdsPanel() {
   const t = useT();
+  const { openPopup } = useNtPopups();
   // undefined = still loading.
   const [partners, setPartners] = useState<AdminPartner[] | undefined>(undefined);
   const [stats, setStats] = useState<Record<string, PartnerStats>>({});
@@ -171,6 +177,7 @@ export function PartnerAdsPanel() {
     setForm({
       title: p.title,
       description: p.description,
+      extendedDescription: p.extendedDescription ?? "",
       imageUrl: p.imageUrl ?? "",
       buttonLabel: p.buttonLabel,
       buttonUrl: p.buttonUrl,
@@ -224,6 +231,8 @@ export function PartnerAdsPanel() {
       const input: PartnerInput = {
         title: form.title.trim(),
         description: form.description.trim(),
+        // Sent even when empty: an empty string is how an edit clears it.
+        extendedDescription: form.extendedDescription.trim(),
         imageUrl: form.imageUrl.trim() || undefined,
         buttonLabel: form.buttonLabel.trim(),
         buttonUrl: form.buttonUrl.trim(),
@@ -285,6 +294,37 @@ export function PartnerAdsPanel() {
   }
 
   const needsSave = String(emptyPercent) !== emptyPercentInput.trim();
+
+  // The real reward popup, filled from the form as it stands, in preview mode
+  // (see PartnerRewardModal's `preview`): nothing it does is counted or paid.
+  function openRewardPreview() {
+    const videoUrl = rewardVideoUrl.trim();
+    if (!videoUrl) return;
+    const extendedDescription = form.extendedDescription.trim() || null;
+    const clickPoints = Number(clickRewardPointsInput.trim()) || null;
+    const data: PartnerRewardPopupData = {
+      partnerId: editingId ?? "admin-preview",
+      videoUrl,
+      points: Number(rewardPointsInput.trim()) || 0,
+      title: form.title.trim() || t("common.adTitle"),
+      description: form.description.trim() || t("common.adDescription"),
+      extendedDescription,
+      imageUrl: form.imageUrl.trim() || null,
+      buttonLabel: form.buttonLabel.trim() || t("common.button"),
+      buttonUrl: form.buttonUrl.trim() || "#",
+      buttonBackgroundColor: form.buttonBackgroundColor,
+      buttonTextColor: form.buttonTextColor,
+      clickRewardPoints: clickPoints && clickRewardPlacement !== "card" ? clickPoints : null,
+      preview: true,
+    };
+    openPopup("partner_reward", {
+      ...partnerRewardPopupSize(Boolean(extendedDescription)),
+      closeOnEscape: false,
+      closeOnClickOutside: false,
+      requireAction: true,
+      data,
+    });
+  }
 
   return (
     <div className="mb-8 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
@@ -502,9 +542,12 @@ export function PartnerAdsPanel() {
               value={form.description}
               onChange={(e) => update("description", e.target.value)}
               maxLength={400}
-              rows={2}
+              rows={3}
               className={inputClass}
             />
+            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+              {t("admin.partnerAdsPanel.lineBreaksAreKept")}
+            </p>
           </div>
 
           <div>
@@ -581,6 +624,36 @@ export function PartnerAdsPanel() {
                 />
               </div>
             </div>
+
+            <div className="mt-3">
+              <label htmlFor="partner-extended-description" className={labelClass}>
+                {t("admin.partnerAdsPanel.extendedDescriptionOptional")}
+              </label>
+              <textarea
+                id="partner-extended-description"
+                value={form.extendedDescription}
+                onChange={(e) => update("extendedDescription", e.target.value)}
+                maxLength={EXTENDED_DESCRIPTION_MAX_LEN}
+                rows={8}
+                placeholder={"## Título\n**negrito**, *itálico*, [link](https://...)\n![imagem](https://.../imagem.png)"}
+                className={`${inputClass} font-mono text-xs`}
+              />
+              <div className="mt-1 flex flex-wrap justify-between gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+                <span>{t("admin.partnerAdsPanel.extendedDescriptionHint")}</span>
+                <span className="tabular-nums">
+                  {form.extendedDescription.length}/{EXTENDED_DESCRIPTION_MAX_LEN}
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={openRewardPreview}
+              disabled={!rewardVideoUrl.trim()}
+              className="mt-3 rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              {t("admin.partnerAdsPanel.previewRewardVideo")}
+            </button>
           </div>
 
           <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/40">
