@@ -51,6 +51,10 @@ export interface GroupVoiceControls {
  */
 export interface GroupVoiceLivePerson {
   userId: string;
+  /** Unique per row — one account on two devices is two rows. Absent: userId. */
+  key?: string;
+  /** The connection this row is, when it is somebody else in your room — what its mute toggles. */
+  peerId?: string;
   name: string;
   avatarUrl: string | null;
   mic: boolean;

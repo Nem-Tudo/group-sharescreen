@@ -290,7 +290,7 @@ const VoicePersonRow = memo(function VoicePersonRow({
           label={t("common.nameSAudioVolume", { name: person.name })}
           onChange={(volume) => controls.setPersonVolume(person.userId, volume)}
           muted={audio.muted}
-          onToggleMute={() => controls.togglePersonMute(person.userId)}
+          onToggleMute={() => controls.togglePersonMute(person.peerId ?? person.userId)}
           collapseOnIdle
           max={MAX_GAIN}
           className="shrink-0 text-zinc-400 dark:text-zinc-500"
@@ -919,7 +919,7 @@ export function GroupRoomsPanel({
           <ul className="flex flex-col gap-0.5 pb-1 pl-5">
             {people.map((person) => (
               <VoicePersonRow
-                key={person.userId}
+                key={person.key ?? person.userId}
                 person={person}
                 color={roleColorOf(detail, { id: person.userId })}
                 groupId={group.id}

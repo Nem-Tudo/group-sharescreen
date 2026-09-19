@@ -2539,7 +2539,9 @@ export function WatchRoom({
   useEffect(() => {
     personAudioRef.current = {
       toggle: (userId: string) => {
-        const ids = state.peers.filter((p) => (p.userId ?? p.id) === userId).map((p) => p.id);
+        const ids = state.peers.some((p) => p.id === userId)
+          ? [userId]
+          : state.peers.filter((p) => (p.userId ?? p.id) === userId).map((p) => p.id);
         if (ids.length === 0) return;
         setMutedPeerIds((prev) => {
           const next = new Set(prev);
@@ -2588,30 +2590,19 @@ export function WatchRoom({
   const joinedGroupRoom = inGroup && state.room === handle;
   const groupVoiceLive = useMemo((): GroupVoiceLive | null => {
     if (!joinedGroupRoom) return null;
-    const people = new Map<string, GroupVoiceLivePerson>();
-    const add = (person: GroupVoiceLivePerson) => {
-      const existing = people.get(person.userId);
-      if (!existing) {
-        people.set(person.userId, person);
-        return;
-      }
-      // Several devices are one person, folded as the server folds them.
-      existing.mic ||= person.mic;
-      existing.camera ||= person.camera;
-      existing.screen ||= person.screen;
-      existing.deafened &&= person.deafened;
-      existing.micStream ??= person.micStream;
-      // Muted on the card only while every one of their devices is — the same
-      // rule the toggle follows.
-      if (existing.audio && person.audio) {
-        existing.audio = { ...existing.audio, muted: existing.audio.muted && person.audio.muted };
-      }
-    };
+    // One row per device, numbered "(1)" "(2)" exactly as the room's own
+    // participant list numbers them (see lib/displayName) — folding them into
+    // one person hid which device was which and tangled their controls.
+    const members = state.peers.filter((p) => p.role !== "moderator" && !isObsPeer(p));
+    const counts = countDevicesByOwner([...members, { userId: state.selfUserId ?? undefined }]);
+    const people: GroupVoiceLivePerson[] = [];
+    const add = (person: GroupVoiceLivePerson) => people.push(person);
     if (state.selfUserId && state.name) {
       const camera = Boolean(localCameraStream);
       add({
         userId: state.selfUserId,
-        name: state.name,
+        key: "self",
+        name: withDeviceSuffix(state.name, state.selfUserId, state.selfDevice ?? undefined, counts),
         avatarUrl: account?.avatarUrl ?? null,
         mic: isMicOn,
         deafened: micsMuted,
@@ -2620,12 +2611,13 @@ export function WatchRoom({
         micStream: isMicOn ? localMicStream ?? null : null,
       });
     }
-    for (const p of state.peers) {
-      if (p.role === "moderator" || isObsPeer(p)) continue;
+    for (const p of members) {
       const camera = p.camera === true;
       add({
         userId: p.userId ?? p.id,
-        name: p.name,
+        key: p.id,
+        peerId: p.id,
+        name: withDeviceSuffix(p.name, p.userId, p.device, counts),
         avatarUrl: p.avatarUrl ?? null,
         mic: p.mic,
         deafened: p.micsMuted === true,
@@ -2642,7 +2634,7 @@ export function WatchRoom({
     }
     return {
       handle,
-      people: [...people.values()],
+      people,
       music: state.music ? { playing: state.music.playing } : null,
     };
   }, [
