@@ -3658,5 +3658,6 @@
   "watch.watchRoom.upgradeScreensHint": "Share more monitors and windows at the same time with {plan}.",
   "watch.watchRoom.seePlans": "See plans",
   "pro.compare.noPlan": "No plan",
-  "pro.compare.freePrice": "Free"
+  "pro.compare.freePrice": "Free",
+  "watch.watchRoom.dualCameraTip": "New: share your front and rear cameras at the same time. Tap here."
 }

@@ -3658,5 +3658,6 @@
   "watch.watchRoom.upgradeScreensHint": "Transmite más monitores y ventanas a la vez con {plan}.",
   "watch.watchRoom.seePlans": "Ver planes",
   "pro.compare.noPlan": "Sin plan",
-  "pro.compare.freePrice": "Gratis"
+  "pro.compare.freePrice": "Gratis",
+  "watch.watchRoom.dualCameraTip": "Nuevo: transmite la cámara frontal y la trasera a la vez. Toca aquí."
 }

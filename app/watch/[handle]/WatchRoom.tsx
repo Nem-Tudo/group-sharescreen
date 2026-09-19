@@ -8238,6 +8238,35 @@ export function WatchRoom({
                       </Tooltip>
                       {/* Front and rear at once — part of "Várias telas". */}
                       {showDualCameraButton && (
+                        // The "novo" tip on a phone, where the desktop's "+" for
+                        // screens does not exist: pinned over this button, once.
+                        <Tippy
+                          visible={multiScreenTip.show}
+                          placement="top"
+                          interactive
+                          theme="golive-panel"
+                          appendTo={() => document.body}
+                          content={
+                            <span
+                              role="status"
+                              className="relative block w-60 rounded-lg bg-blue-600 px-3 py-2 text-left text-xs font-medium text-white shadow-lg"
+                            >
+                              <span className="absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
+                              <span className="flex items-start gap-2">
+                                <span className="flex-1">{translate("watch.watchRoom.dualCameraTip")}</span>
+                                <button
+                                  type="button"
+                                  onClick={multiScreenTip.dismiss}
+                                  aria-label={translate("watch.watchRoom.clipsModeTipDismiss")}
+                                  className="-m-1 rounded p-1 leading-none text-white/80 hover:text-white"
+                                >
+                                  ✕
+                                </button>
+                              </span>
+                            </span>
+                          }
+                        >
+                        <span className="flex shrink-0">
                         <Tooltip
                           content={
                             <span className="inline-flex items-center gap-1.5">
@@ -8253,6 +8282,7 @@ export function WatchRoom({
                             type="button"
                             onClick={() => {
                               haptic("tap");
+                              if (multiScreenTip.show) multiScreenTip.clicked();
                               if (dualCamera.active) {
                                 dualCamera.stop();
                                 return;
@@ -8283,6 +8313,8 @@ export function WatchRoom({
                             </span>
                           </button>
                         </Tooltip>
+                        </span>
+                        </Tippy>
                       )}
                       {canSwitchCamera && (
                         <Tooltip content={switchCameraLabel} wrapperClassName="flex shrink-0">
