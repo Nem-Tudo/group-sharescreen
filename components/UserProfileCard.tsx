@@ -88,9 +88,9 @@ const cardClass =
  * something they can already use, and four decorated boxes is what the form
  * looked like before. Nothing to show is the right answer once it is theirs.
  */
-type PlanTier = "pro" | "proMax" | "proUltra";
+export type PlanTier = "pro" | "proMax" | "proUltra";
 
-function PlanRing({ tier, locked }: { tier: PlanTier; locked: boolean }) {
+export function PlanRing({ tier, locked }: { tier: PlanTier; locked: boolean }) {
   if (!locked) return null;
   const ring =
     tier === "proUltra"
@@ -115,7 +115,7 @@ function PlanRing({ tier, locked }: { tier: PlanTier; locked: boolean }) {
 }
 
 /** The wrapper classes for a row that only becomes a box while locked. */
-function planRowClass(locked: boolean, extra: string): string {
+export function planRowClass(locked: boolean, extra: string): string {
   // Without the ring there is nothing for the padding to sit inside, and a
   // padded row with no border reads as a stray indent.
   return `${extra} ${locked ? "relative rounded-xl p-2.5" : ""}`;
@@ -296,7 +296,7 @@ function StatCard({
  * The one place the "Pro Max" upsell is written, so both the avatar row and
  * the banner row say the same thing and lead to the same page.
  */
-function PlanLink({
+export function PlanLink({
   tier,
   label,
   className = "",

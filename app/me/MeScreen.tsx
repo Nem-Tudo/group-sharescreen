@@ -6,6 +6,7 @@ import { BsCoin } from "react-icons/bs";
 import { FaDiscord } from "react-icons/fa";
 import {
   MdAdminPanelSettings,
+  MdAutoAwesome,
   MdArrowBack,
   MdChatBubbleOutline,
   MdChevronRight,
@@ -49,6 +50,13 @@ import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
 import { selectAccountMenu } from "@/lib/signalingSelectors";
 import { useT } from "@/lib/useI18n";
 import { avatarShapeClass } from "@/lib/avatarShape";
+import useNtPopups from "ntpopups";
+import { NewBadge } from "@/components/NewBadge";
+import { PlanLink, PlanRing, planRowClass } from "@/components/UserProfileCard";
+import { WIDE_POPUP_SIZE } from "@/components/groups/dialogKit";
+import { accountTierOf } from "@/lib/entitlements";
+import { ACCOUNT_EMOJI_LIMITS, CUSTOM_EMOJI_BADGE, CUSTOM_EMOJI_FEATURE } from "@/lib/customEmoji";
+import { useFeature } from "@/lib/features";
 
 // "Você" — the last of the bottom tabs (see components/MobileTabBar), and the
 // one screen that holds everything about the person and the app that the
@@ -243,6 +251,8 @@ export function MeScreen() {
         <Row href={pro.href} onClick={pro.onClick} icon={pro.Icon} iconClassName={pro.iconClassName} label={pro.label} />
       </Section>
 
+      {account && !account.bot && <MyEmojisSetting flags={account.flags} />}
+
       {account && (
         // Its own collapsible block, padding included — see AccountConnections.
         // AuthorizedApps sits in the same card and hides itself when this
@@ -352,6 +362,50 @@ function Row({
     <button type="button" onClick={onClick} className={`${rowClass} ${color} cursor-pointer`}>
       {inner}
     </button>
+  );
+}
+
+/**
+ * The account's own custom emoji (see lib/customEmoji) — opens the "Seus
+ * emojis" popup. Without Pro Max it is shown locked, the way the profile
+ * editor shows a perk that belongs to a plan (see UserProfileCard's
+ * PlanRing): the gold ring, the button off, and "Disponível no Pro Max" as
+ * the way to it. Only inside the experiment.
+ */
+function MyEmojisSetting({ flags }: { flags: readonly string[] }) {
+  const t = useT();
+  const { openPopup } = useNtPopups();
+  const { enabled } = useFeature(CUSTOM_EMOJI_FEATURE, { track: true });
+  if (!enabled) return null;
+  const limit = ACCOUNT_EMOJI_LIMITS[accountTierOf(flags)];
+  const locked = limit === 0;
+  return (
+    <section className={`${card} p-4`}>
+      <div className={planRowClass(locked, "flex flex-col gap-2")}>
+        <PlanRing tier="proMax" locked={locked} />
+        <div className="flex items-center gap-3">
+          <MdAutoAwesome className="h-5 w-5 shrink-0 text-violet-500" />
+          <div className="min-w-0 flex-1">
+            <p className="flex items-center gap-1.5 text-[15px] font-medium text-zinc-800 dark:text-zinc-200">
+              {t("customEmoji.yourEmojis")}
+              <NewBadge id={CUSTOM_EMOJI_BADGE} />
+            </p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              {locked ? t("customEmoji.yoursLimitHint") : t("customEmoji.meHint", { limit })}
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={locked}
+            onClick={() => void openPopup("my_emojis", { ...WIDE_POPUP_SIZE, data: {} })}
+            className="shrink-0 cursor-pointer rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-800 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-900"
+          >
+            {t("customEmoji.configure")}
+          </button>
+        </div>
+        {locked && <PlanLink tier="proMax" className="self-start text-xs text-zinc-500 dark:text-zinc-400" />}
+      </div>
+    </section>
   );
 }
 

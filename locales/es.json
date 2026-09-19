@@ -3740,5 +3740,7 @@
   "pro.proPanel.aurasToGiveUltra": "{count} Auras para impulsar grupos (hasta 2 en el mismo)",
   "pro.proPanel.customEmojis": "Hasta {count} emojis personalizados tuyos, para usar en cualquier lugar",
   "pro.compare.auras": "Auras para impulsar grupos",
-  "pro.compare.customEmojis": "Emojis personalizados de la cuenta"
+  "pro.compare.customEmojis": "Emojis personalizados de la cuenta",
+  "customEmoji.meHint": "Hasta {limit} emojis tuyos, para usar en cualquier lugar",
+  "customEmoji.configure": "Configurar"
 }
