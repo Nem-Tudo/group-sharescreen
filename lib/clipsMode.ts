@@ -11,7 +11,7 @@ import { trackFeatureEvent, useFeature } from "./features";
 //     no API change), which decides who gets to see the switch at all;
 //   - the person's own switch in "Mais opções", off by default.
 
-export type TileExperiment = "clips" | "recording";
+export type TileExperiment = "clips" | "recording" | "multiScreen";
 
 const CONFIG: Record<TileExperiment, { feature: string; modeKey: string; tipKey: string }> = {
   clips: { feature: "room-clips", modeKey: "sharescreen:clipsMode", tipKey: "sharescreen:clipsTipSeen" },
@@ -19,6 +19,12 @@ const CONFIG: Record<TileExperiment, { feature: string; modeKey: string; tipKey:
     feature: "room-recording",
     modeKey: "sharescreen:recordingMode",
     tipKey: "sharescreen:recordingTipSeen",
+  },
+  // "Várias telas" (see lib/multiScreen).
+  multiScreen: {
+    feature: "multi-screen-share",
+    modeKey: "sharescreen:multiScreenMode",
+    tipKey: "sharescreen:multiScreenTipSeen",
   },
 };
 
@@ -39,6 +45,10 @@ export const TILE_EXPERIMENT_EVENTS = {
     stop: "recording_stop", // value: seconds recorded
     download: "recording_download", // value: seconds downloaded
     trim: "recording_trim", // downloaded after cutting
+  },
+  multiScreen: {
+    modeOn: "multi_screen_mode_on",
+    modeOff: "multi_screen_mode_off",
   },
 } as const;
 

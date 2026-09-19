@@ -188,7 +188,14 @@ import { Tooltip, Popover } from "@/components/Tooltip";
 import { ThemeSegmented } from "@/components/ThemeToggle";
 import { MenuToggleRow } from "@/components/MenuToggleRow";
 import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
+import { trackFeatureEvent } from "@/lib/features";
 import { setTileExperimentMode, useTileExperiment, useTileExperimentTip } from "@/lib/clipsMode";
+import {
+  EXTRA_SCREEN_SLOTS,
+  isExtraScreenSlot,
+  MULTI_SCREEN_EVENTS,
+  multiScreenLimit,
+} from "@/lib/multiScreen";
 import { useRecordingNotices } from "@/lib/recordingNotice";
 import { sendTileCommand } from "@/lib/tileCommands";
 import { getRoomProOffer } from "@/components/RoomProOffer";
@@ -216,6 +223,7 @@ import {
   MdKeyboardArrowUp,
   MdPersonAddAlt1,
   MdChevronRight,
+  MdAdd,
 } from "react-icons/md";
 import { BsGearFill, BsCoin } from "react-icons/bs";
 import {
@@ -756,7 +764,11 @@ function ShareControls({
   onOpenAllShortcuts,
   compact = false,
   extraMotion = "",
+  addScreen = null,
 }: {
+  // "Várias telas" (see lib/multiScreen): the "+" beside the screen button
+  // while a screen is going out. Null where the person does not have it.
+  addScreen?: { count: number; limit: number; onClick: () => void } | null;
   screenSharing: boolean;
   cameraSharing: boolean;
   // getDisplayMedia exists (desktop). A phone has no screen capture at all,
@@ -915,6 +927,33 @@ function ShareControls({
           </button>
         </Tooltip>
       </ShortcutQuickPopover>
+      {screenSharing && addScreen && (
+        <Tooltip
+          content={
+            <span className="inline-flex items-center gap-1.5">
+              {addScreen.count >= addScreen.limit
+                ? t("watch.watchRoom.screenLimitReached", { limit: addScreen.limit })
+                : t("watch.watchRoom.addAnotherScreen", { count: addScreen.count, limit: addScreen.limit })}
+              <NewBadge id="multi-screen-share" />
+            </span>
+          }
+          wrapperClassName="flex"
+        >
+          <button
+            type="button"
+            onClick={addScreen.onClick}
+            aria-label={t("watch.watchRoom.addAnotherScreen", { count: addScreen.count, limit: addScreen.limit })}
+            className={`${segment} border-l border-black/15 px-2 ${live} ${
+              addScreen.count >= addScreen.limit ? "opacity-50" : ""
+            }`}
+          >
+            <MdAdd className="h-4 w-4" />
+            <span className="ml-0.5 text-xs font-semibold tabular-nums">
+              {addScreen.count}/{addScreen.limit}
+            </span>
+          </button>
+        </Tooltip>
+      )}
       {/* Same panel as the mic's: which camera (where there is a choice) and
           the shortcut, from the arrow and from a right-click alike. */}
       <ShortcutQuickPopover
@@ -1104,7 +1143,9 @@ function SwitchRoomFields({
 // half keeps apart.
 // "file" tiles are addressed by `${slot}:${ownerId}` in their id — a person
 // can be playing three at once, so the owner alone no longer identifies one.
-type TileKind = "screen" | "camera" | "file" | "video-source";
+// "screen-extra" tiles are the extra screens of "Várias telas" (see
+// lib/multiScreen.ts), addressed by `${slot}:${ownerId}` like the files.
+type TileKind = "screen" | "camera" | "file" | "video-source" | "screen-extra";
 const SELF_TILE_OWNER = "self";
 
 function tileId(kind: TileKind, ownerId: string): string {
@@ -1130,7 +1171,7 @@ function parseTileId(id: string): { kind: TileKind; ownerId: string } | null {
   const kind = id.slice(0, separator);
   const ownerId = id.slice(separator + 1);
   if (!ownerId) return null;
-  if (kind !== "screen" && kind !== "camera" && kind !== "video-source") return null;
+  if (kind !== "screen" && kind !== "camera" && kind !== "video-source" && kind !== "screen-extra") return null;
   return { kind, ownerId };
 }
 
@@ -1327,6 +1368,9 @@ export function WatchRoom({
     shareSource,
     fileChannels,
     localMediaSnapshots,
+    extraScreens,
+    extraScreensActive,
+    addExtraScreen,
     startCameraShare,
     stopCameraShare,
     localCameraStream,
@@ -1621,12 +1665,21 @@ export function WatchRoom({
   const recordingMode = useTileExperiment("recording", { track: true });
   const clipsTip = useTileExperimentTip("clips", clipsMode.available);
   const recordingTip = useTileExperimentTip("recording", recordingMode.available);
+  // "Várias telas" (see lib/multiScreen): same shape — who gets the switch is
+  // the experiment, and the switch (off by default) is what shows the "+" next
+  // to the screen button.
+  const multiScreenMode = useTileExperiment("multiScreen", { track: true });
+  const multiScreenTip = useTileExperimentTip("multiScreen", multiScreenMode.available);
+  // How many screens/windows (the first included) this account may share.
+  const screenLimit = multiScreenLimit(account?.flags);
   // One blue tip at a time; the other waits for the next visit.
   const newFeatureTip = clipsTip.show
     ? { ...clipsTip, text: "watch.watchRoom.clipsModeTip" }
     : recordingTip.show
       ? { ...recordingTip, text: "watch.watchRoom.recordingModeTip" }
-      : null;
+      : multiScreenTip.show
+        ? { ...multiScreenTip, text: "watch.watchRoom.multiScreenTip" }
+        : null;
   // Picks which shell that panel gets: a popover anchored to the button from
   // sm up, the bottom sheet below it (see menuItems further down). Reports
   // false until the first client paint, so the sheet is what a phone gets
@@ -1958,13 +2011,19 @@ export function WatchRoom({
   // counted by usePartnerAd above, this only reads which side we are on.
   const partnerExperimentOn = usePartnerExperiment();
 
-  const hasLocalScreen = Boolean(isSharing && localStream);
+  const hasLocalScreen = Boolean(isSharing && localStream) || extraScreensActive > 0;
   const hasLocalCamera = Boolean(localCameraStream);
   const hasLocalFiles = LOCAL_MEDIA_SLOTS.some((slot) => fileChannels[slot]?.localStream);
   const hasRemoteScreens =
     Object.keys(remoteStreams).length > 0 ||
     stoppedPeers.size > 0 ||
-    resumingPeers.size > 0;
+    resumingPeers.size > 0 ||
+    EXTRA_SCREEN_SLOTS.some(
+      (slot) =>
+        Object.keys(extraScreens[slot].remoteStreams).length > 0 ||
+        extraScreens[slot].stoppedPeers.size > 0 ||
+        extraScreens[slot].resumingPeers.size > 0
+    );
   const hasRemoteCameras =
     Object.keys(remoteCameraStreams).length > 0 ||
     stoppedCameraPeers.size > 0 ||
@@ -2582,6 +2641,15 @@ export function WatchRoom({
     if (target.kind === "video-source") {
       return !state.videoSources.some((v) => v.id === target.ownerId);
     }
+    if (target.kind === "screen-extra") {
+      const separator = target.ownerId.indexOf(":");
+      const slot = target.ownerId.slice(0, separator);
+      const owner = target.ownerId.slice(separator + 1);
+      if (!isExtraScreenSlot(slot)) return true;
+      return owner === SELF_TILE_OWNER
+        ? !extraScreens[slot].localStream
+        : !(owner in extraScreens[slot].remoteStreams);
+    }
     if (target.ownerId === SELF_TILE_OWNER) {
       return target.kind === "screen" ? !(isSharing && localStream) : !localCameraStream;
     }
@@ -2612,6 +2680,7 @@ export function WatchRoom({
     remoteStreams,
     remoteCameraStreams,
     state.videoSources,
+    extraScreens,
   ]);
 
   // Who runs this room, and therefore which of its controls this viewer gets.
@@ -3686,6 +3755,10 @@ export function WatchRoom({
   // Everything else is a tile like any other transmission.
   const remoteMusicEntries = allRemoteFileEntries.filter((e) => e.shared?.mode === "music");
   const remoteFileEntries = allRemoteFileEntries.filter((e) => e.shared?.mode !== "music");
+  // "Várias telas": everybody's extra screens, one tile each.
+  const remoteExtraScreenEntries = EXTRA_SCREEN_SLOTS.flatMap((slot) =>
+    Object.entries(extraScreens[slot].remoteStreams).map(([peerId, stream]) => ({ slot, peerId, stream }))
+  );
   // Hyperfocus survives only as long as what it's focused on does. When that
   // transmission ends — the peer stops sharing, or leaves — its tile goes
   // with it, and that tile is the only way out of hyperfocus (see
@@ -3736,6 +3809,21 @@ export function WatchRoom({
         )
       : []
     : remoteFileEntries;
+  const visibleExtraScreenEntries = hyperfocusTarget
+    ? hyperfocusTarget.kind === "screen-extra"
+      ? remoteExtraScreenEntries.filter(
+          ({ slot, peerId }) => `${slot}:${peerId}` === hyperfocusTarget.ownerId
+        )
+      : []
+    : remoteExtraScreenEntries;
+  const localExtraScreenSlots = EXTRA_SCREEN_SLOTS.filter(
+    (slot) =>
+      extraScreens[slot].localStream &&
+      !ownPreviewHidden &&
+      (!hyperfocusTarget ||
+        (hyperfocusTarget.kind === "screen-extra" &&
+          hyperfocusTarget.ownerId === `${slot}:${SELF_TILE_OWNER}`))
+  );
   // Ours, one per slot that is actually going out, split the same way.
   const liveLocalSlots = LOCAL_MEDIA_SLOTS.filter((slot) => fileChannels[slot].localStream);
   const localMusicSlots = liveLocalSlots.filter(
@@ -4059,6 +4147,31 @@ export function WatchRoom({
   const visibleResumingEntries = activeHyperfocusId ? [] : resumingEntries;
   const visibleStoppedCameraEntries = activeHyperfocusId ? [] : stoppedCameraEntries;
   const visibleResumingCameraEntries = activeHyperfocusId ? [] : resumingCameraEntries;
+  // The extra screens are not announced one by one (see useRoomMedia), so the
+  // person announcing a screen at all is the best the peer list can say.
+  const stoppedExtraScreenEntries = EXTRA_SCREEN_SLOTS.flatMap((slot) =>
+    visiblePeers
+      .filter(
+        (p) =>
+          extraScreens[slot].stoppedPeers.has(p.id) &&
+          announcesScreen(p) &&
+          !(p.id in extraScreens[slot].remoteStreams)
+      )
+      .map((p) => [slot, p] as const)
+  );
+  const resumingExtraScreenEntries = EXTRA_SCREEN_SLOTS.flatMap((slot) =>
+    visiblePeers
+      .filter(
+        (p) =>
+          extraScreens[slot].resumingPeers.has(p.id) &&
+          !extraScreens[slot].stoppedPeers.has(p.id) &&
+          announcesScreen(p) &&
+          !(p.id in extraScreens[slot].remoteStreams)
+      )
+      .map((p) => [slot, p] as const)
+  );
+  const visibleStoppedExtraScreenEntries = activeHyperfocusId ? [] : stoppedExtraScreenEntries;
+  const visibleResumingExtraScreenEntries = activeHyperfocusId ? [] : resumingExtraScreenEntries;
   const visibleStoppedFileEntries = activeHyperfocusId ? [] : stoppedFileEntries;
   const visibleResumingFileEntries = activeHyperfocusId ? [] : resumingFileEntries;
   // Every tile the room has on screen, in the order they appear, as
@@ -4129,6 +4242,47 @@ export function WatchRoom({
       ),
     });
   }
+
+  // Our extra screens ("Várias telas"). Their tile's "stop" button ends that
+  // one screen — the only per-screen stop there is.
+  localExtraScreenSlots.forEach((slot) => {
+    const stream = extraScreens[slot].localStream;
+    if (!stream) return;
+    const id = tileId("screen-extra", `${slot}:${SELF_TILE_OWNER}`);
+    const label = `${translate("common.you")} (${EXTRA_SCREEN_SLOTS.indexOf(slot) + 2})`;
+    tiles.push({
+      id,
+      render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
+        <VideoTile
+          tileId={id}
+          stream={stream}
+          detachWhenHidden={false}
+          label={label}
+          accessibleLabel={label}
+          badge="transmitindo"
+          muted
+          allowUnmute={false}
+          fill={fill}
+          compact={compact}
+          onStopWatching={() => extraScreens[slot].stop()}
+          stopWatchingLabel={translate("watch.watchRoom.stopThisScreen")}
+          onDoubleClick={doubleClickFocus ? () => toggleSpotlight(id) : undefined}
+          onFocus={() => toggleSpotlight(id)}
+          isSpotlighted={spotlightId === id}
+          onHyperfocus={() => toggleHyperfocus(id)}
+          onNativePip={(ratio) => void enterNativePip(id, ratio)}
+          isHyperfocused={activeHyperfocusId === id}
+          hasAccount={Boolean(state.account)}
+          overlayRightOffset={overlayRightOffset}
+          overlayLeftOffset={overlayLeftOffset}
+          isMicOn={isMicOn}
+          onToggleMic={toggleMic}
+          micsMuted={micsMuted}
+          onToggleMicsMuted={toggleMicsMuted}
+        />
+      ),
+    });
+  });
 
   if (localCameraVisible && localCameraStream) {
     const id = tileId("camera", SELF_TILE_OWNER);
@@ -4449,6 +4603,58 @@ export function WatchRoom({
     });
   }
 
+  // Everybody else's extra screens. Silent: the first screen carries the
+  // system audio (see useExtraScreenChannel).
+  for (const { slot, peerId, stream } of visibleExtraScreenEntries) {
+    const peer = state.peers.find((p) => p.id === peerId);
+    const id = tileId("screen-extra", `${slot}:${peerId}`);
+    const number = EXTRA_SCREEN_SLOTS.indexOf(slot) + 2;
+    tiles.push({
+      id,
+      render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
+        <VideoTile
+          tileId={id}
+          stream={stream}
+          label={
+            <span className="inline-flex items-center gap-1">
+              <DisplayUserName
+                name={peer?.name ?? translate("common.someone")}
+                isGuest={peer?.isGuest}
+                verified={verifiedBadge(peer?.flags)}
+                bot={peer?.bot}
+                color={peer?.nameColor}
+              />
+              <span>({number})</span>
+            </span>
+          }
+          accessibleLabel={`${peer?.name ?? translate("common.someone")} (${number})`}
+          badge={translate("watch.watchRoom.liveScreen")}
+          muted
+          allowUnmute={false}
+          fill={fill}
+          compact={compact}
+          onRenderedSizeChange={(w, h) => qualityNegotiator.report(slot, peerId, w, h)}
+          onVisibilityChange={(visible) => qualityNegotiator.setHidden(slot, peerId, !visible)}
+          onStopWatching={() => extraScreens[slot].stopWatchingPeer(peerId)}
+          connectionStats={{ channel: slot, originId: peerId }}
+          onDoubleClick={doubleClickFocus ? () => toggleSpotlight(id) : undefined}
+          onFocus={() => toggleSpotlight(id)}
+          isSpotlighted={spotlightId === id}
+          onHyperfocus={() => toggleHyperfocus(id)}
+          onNativePip={(ratio) => void enterNativePip(id, ratio)}
+          isHyperfocused={activeHyperfocusId === id}
+          hasAccount={Boolean(state.account)}
+          overlayRightOffset={overlayRightOffset}
+          overlayLeftOffset={overlayLeftOffset}
+          isMicOn={isMicOn}
+          onToggleMic={toggleMic}
+          micsMuted={micsMuted}
+          onToggleMicsMuted={toggleMicsMuted}
+        />
+      ),
+    });
+  }
+
   for (const [peerId, stream] of visibleCameraEntries) {
     const peer = state.peers.find((p) => p.id === peerId);
     const volumeKey = `camera:${peer?.userId ?? peerId}`;
@@ -4516,6 +4722,26 @@ export function WatchRoom({
   for (const peer of visibleResumingEntries) {
     tiles.push({
       id: tileId("screen", peer.id),
+      render: (fill) => <ResumingPeerTile fill={fill} />,
+    });
+  }
+
+  for (const [slot, peer] of visibleStoppedExtraScreenEntries) {
+    tiles.push({
+      id: tileId("screen-extra", `${slot}:${peer.id}`),
+      render: (fill) => (
+        <StoppedPeerTile
+          label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} bot={peer.bot} />}
+          fill={fill}
+          onResume={() => extraScreens[slot].resumeWatchingPeer(peer.id)}
+        />
+      ),
+    });
+  }
+
+  for (const [slot, peer] of visibleResumingExtraScreenEntries) {
+    tiles.push({
+      id: tileId("screen-extra", `${slot}:${peer.id}`),
       render: (fill) => <ResumingPeerTile fill={fill} />,
     });
   }
@@ -4876,6 +5102,11 @@ export function WatchRoom({
     for (const [peerId] of remoteCameraEntries) {
       if (target?.kind !== "camera" || target.ownerId !== peerId) stopWatchingCameraPeer(peerId);
     }
+    for (const { slot, peerId } of remoteExtraScreenEntries) {
+      if (target?.kind !== "screen-extra" || target.ownerId !== `${slot}:${peerId}`) {
+        extraScreens[slot].stopWatchingPeer(peerId);
+      }
+    }
     trackEvent("hyperfocus_enter");
   }
 
@@ -4897,6 +5128,30 @@ export function WatchRoom({
     if (activeHyperfocusId === id) exitHyperfocus();
     else enterHyperfocus(id);
   }
+
+  // "Várias telas": the "+" beside the screen button (see ShareControls). Only
+  // on a real display capture — a phone has no getDisplayMedia to pick a
+  // second surface with. Counts the first screen as one of the items.
+  const addScreenControl =
+    multiScreenMode.active && screenShareMode === "display" && !isMobileBrowser && !onPhone
+      ? {
+          count: 1 + extraScreensActive,
+          limit: screenLimit,
+          onClick: () => {
+            const count = 1 + extraScreensActive;
+            if (count >= screenLimit) {
+              trackFeatureEvent(MULTI_SCREEN_EVENTS.limit, { value: screenLimit });
+              return;
+            }
+            trackFeatureEvent(MULTI_SCREEN_EVENTS.add, { value: count + 1 });
+            markFeatureUsed("multi-screen-share");
+            void addExtraScreen();
+          },
+        }
+      : null;
+  // The first extra screen that failed to start, shown like shareError.
+  const extraScreenError =
+    EXTRA_SCREEN_SLOTS.map((slot) => extraScreens[slot].error).find(Boolean) ?? null;
 
   // Shared prop bundle for every QualityControls instance on this page (the
   // desktop quick-access popover and the two share-button pickers below) —
@@ -5154,6 +5409,17 @@ export function WatchRoom({
           hint={translate("watch.watchRoom.recordingModeHint")}
           activeIcon={<RecordIcon className="h-4 w-4" />}
           inactiveIcon={<RecordIcon className="h-4 w-4 opacity-50" />}
+        />
+      )}
+      {multiScreenMode.available && (
+        <MenuToggleRow
+          label={translate("watch.watchRoom.multiScreenMode")}
+          badge={<NewBadge id="multi-screen-share" />}
+          active={multiScreenMode.on}
+          onToggle={() => setTileExperimentMode("multiScreen", !multiScreenMode.on)}
+          hint={translate("watch.watchRoom.multiScreenModeHint", { count: screenLimit })}
+          activeIcon={<ScreenIcon className="h-4 w-4" />}
+          inactiveIcon={<ScreenIcon className="h-4 w-4 opacity-50" />}
         />
       )}
       <MenuToggleRow
@@ -5587,6 +5853,7 @@ export function WatchRoom({
           onOpenAllShortcuts={() => setShortcutsModalOpen(true)}
           compact={dockCompact}
           extraMotion={dockMotion}
+          addScreen={addScreenControl}
         />
       </div>
     </>
@@ -6879,9 +7146,9 @@ export function WatchRoom({
         </div>
       )}
 
-      {shareError && (
+      {(shareError ?? extraScreenError) && (
         <p className="bg-red-50 px-4 py-2 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">
-          {shareError}
+          {shareError ?? extraScreenError}
         </p>
       )}
       {/* Amber and not red, and only while the share it refers to is still

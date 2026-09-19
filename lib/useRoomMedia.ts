@@ -66,6 +66,7 @@ import {
   type LocalMediaSlot,
   type LocalMediaAction,
 } from "./localMediaSource";
+import { EXTRA_SCREEN_SLOTS, type ExtraScreenSlot } from "./multiScreen";
 import {
   PeerQualityRegistry,
   contentHintForDegradation,
@@ -112,7 +113,9 @@ import {
 // own peer connections, its own tiles, its own start/stop — rather than a mode
 // of the screen channel, which is what lets several of them run at once and
 // alongside a screen share.
-type Channel = "screen" | "camera" | "mic" | LocalMediaSlot;
+// "screen2".."screen10" are the extra screens/windows of "Várias telas" (see
+// lib/multiScreen.ts) — siblings of "screen" for the same reason.
+type Channel = "screen" | "camera" | "mic" | LocalMediaSlot | ExtraScreenSlot;
 // Where the screen channel's picture comes from. "display" is a real screen
 // capture; "camera" is the phone fallback (no getDisplayMedia there, so
 // "compartilhar tela" opens the camera). A local file is *not* one of these:
@@ -522,6 +525,49 @@ function useLocalFileChannel(
   );
 }
 
+// One extra screen or window of "Várias telas" (see lib/multiScreen.ts). A
+// plain browser capture and nothing else: no system audio (the first screen
+// already carries it, and two loopbacks would play the room everything
+// twice), no GPU helper, no phone fallback. Same resolution and fps dials as
+// the first screen, read at start like the first screen does.
+function useExtraScreenChannel(
+  slot: ExtraScreenSlot,
+  room: string,
+  forceRelayIce: boolean,
+  autoJoin: boolean,
+  quality: QualityPreset,
+  resolutionRef: { current: ShareResolution },
+  fpsRef: { current: number }
+) {
+  const t = useT();
+  return useBroadcastChannel(
+    slot,
+    room,
+    async () => {
+      const dims = RESOLUTION_DIMENSIONS[resolutionRef.current];
+      try {
+        return await navigator.mediaDevices.getDisplayMedia({
+          video: {
+            width: { ideal: dims.width },
+            height: { ideal: dims.height },
+            frameRate: { ideal: fpsRef.current },
+          },
+          audio: false,
+        });
+      } catch (err) {
+        if (isVideoSourceFailure(err)) throw windowCaptureBlocked();
+        throw err;
+      }
+    },
+    () => hasDisplayCapture(),
+    t("useRoomMedia.yourBrowserSupportsNeitherScreenSharing"),
+    t("useRoomMedia.couldNotStartSharingCheckThe"),
+    forceRelayIce,
+    autoJoin,
+    quality
+  );
+}
+
 // The capture's own hint to the encoder about what it is looking at. Unlike
 // the codec ordering it is a plain property of the track, so it can be
 // corrected on a live share — which is the whole reason it lives here instead
@@ -550,7 +596,7 @@ function contentHintFor(
   // A file is moving pictures too, whatever the "compartilhar tela" dial is
   // set to — same reasoning — and so is everything else that is not a real
   // screen share.
-  if (channel !== "screen" || source === "camera") return "motion";
+  if (!channel.startsWith("screen") || source === "camera") return "motion";
   // On a real screen share the profile chooses the hint. The table lives in
   // peerQualityController next to DEGRADATION_PREFERENCE, because a relay
   // needs exactly the same answer for the track it re-encodes and two copies
@@ -3570,6 +3616,51 @@ export function useRoomMedia(room: string) {
     () => ({ file1, file2, file3 }) as Record<LocalMediaSlot, ReturnType<typeof useBroadcastChannel>>,
     [file1, file2, file3]
   );
+
+  // "Várias telas" (see lib/multiScreen.ts): the second to tenth screen or
+  // window. Spelled out for the same reason as the file slots above. Every
+  // client has all nine, sharing or not, because watching them needs the
+  // channel as much as sending them does; an idle one costs a signal listener
+  // that returns on the channel name.
+  const xs = [
+    useExtraScreenChannel("screen2", room, forceRelayIce, autoJoin, screenQualityPreset, shareResolutionRef, shareFpsRef),
+    useExtraScreenChannel("screen3", room, forceRelayIce, autoJoin, screenQualityPreset, shareResolutionRef, shareFpsRef),
+    useExtraScreenChannel("screen4", room, forceRelayIce, autoJoin, screenQualityPreset, shareResolutionRef, shareFpsRef),
+    useExtraScreenChannel("screen5", room, forceRelayIce, autoJoin, screenQualityPreset, shareResolutionRef, shareFpsRef),
+    useExtraScreenChannel("screen6", room, forceRelayIce, autoJoin, screenQualityPreset, shareResolutionRef, shareFpsRef),
+    useExtraScreenChannel("screen7", room, forceRelayIce, autoJoin, screenQualityPreset, shareResolutionRef, shareFpsRef),
+    useExtraScreenChannel("screen8", room, forceRelayIce, autoJoin, screenQualityPreset, shareResolutionRef, shareFpsRef),
+    useExtraScreenChannel("screen9", room, forceRelayIce, autoJoin, screenQualityPreset, shareResolutionRef, shareFpsRef),
+    useExtraScreenChannel("screen10", room, forceRelayIce, autoJoin, screenQualityPreset, shareResolutionRef, shareFpsRef),
+  ] as const;
+  const extraScreens = useMemo(
+    () =>
+      Object.fromEntries(EXTRA_SCREEN_SLOTS.map((slot, i) => [slot, xs[i]])) as Record<
+        ExtraScreenSlot,
+        ReturnType<typeof useBroadcastChannel>
+      >,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [xs[0], xs[1], xs[2], xs[3], xs[4], xs[5], xs[6], xs[7], xs[8]]
+  );
+  const extraScreensActive = EXTRA_SCREEN_SLOTS.filter((slot) => extraScreens[slot].active).length;
+
+  // Starts the next free extra screen. The limit is the caller's to check
+  // (it depends on the plan, see multiScreenLimit); this only refuses when all
+  // nine are taken. Must run from a click: getDisplayMedia needs the gesture.
+  const addExtraScreen = useCallback(async (): Promise<boolean> => {
+    const slot = EXTRA_SCREEN_SLOTS.find((candidate) => !extraScreens[candidate].active);
+    if (!slot) return false;
+    await extraScreens[slot].start();
+    return true;
+  }, [extraScreens]);
+
+  // The extra screens hang off the first one: stopping "compartilhar tela"
+  // stops all of them, so the one button that says the share is over means it.
+  const screenIsActive = screen.active;
+  useEffect(() => {
+    if (screenIsActive) return;
+    for (const slot of EXTRA_SCREEN_SLOTS) extraScreens[slot].stop();
+  }, [screenIsActive, extraScreens]);
   // Re-opens whichever live captures are running off the camera, so a change
   // to which lens that means actually reaches the room.
   //
@@ -3700,11 +3791,13 @@ export function useRoomMedia(room: string) {
 
   useEffect(() => {
     signalingClient.setSharing({
-      screen: screen.active,
+      // The extra screens are not announced one by one (the server knows
+      // nothing about them); they count as the person sharing a screen.
+      screen: screen.active || extraScreensActive > 0,
       camera: camera.active,
       files: JSON.parse(announcedFilesKey) as typeof announcedFiles,
     });
-  }, [screen.active, camera.active, announcedFilesKey]);
+  }, [screen.active, extraScreensActive, camera.active, announcedFilesKey]);
 
   // Capacity measurement and the cascade decision. Both are driven by the
   // screen channel only: it is the expensive one, and the mic's ~32 kbps is
@@ -3747,7 +3840,7 @@ export function useRoomMedia(room: string) {
       unsubscribe();
     };
   }, []);
-  const sharingAnything = screen.active || camera.active || anyFileActive;
+  const sharingAnything = screen.active || camera.active || anyFileActive || extraScreensActive > 0;
 
   const { capacity, self, reportLoad } = useMeshCapacity();
   const selfRef = useRef(self);
@@ -3787,6 +3880,22 @@ export function useRoomMedia(room: string) {
   const screenActive = screen.active;
   const cameraActive = camera.active;
   const fileActive = anyFileActive;
+  // The extra screens are real encodes too. Read through a ref so the getter
+  // keeps one identity: the channel objects are fresh every render, and an
+  // unstable getter would rebuild the interval below before it ever fired
+  // (see the comment above getScreenTiers).
+  const extraScreensRef = useRef(extraScreens);
+  useEffect(() => {
+    extraScreensRef.current = extraScreens;
+  }, [extraScreens]);
+  const getExtraScreenTiers = useCallback(
+    () =>
+      EXTRA_SCREEN_SLOTS.flatMap((slot) => {
+        const channel = extraScreensRef.current[slot];
+        return channel.active ? [...channel.getRequestedTiers().values()] : [];
+      }),
+    []
+  );
   useEffect(() => {
     if (!sharingAnything) return;
     const timer = setInterval(() => {
@@ -3799,6 +3908,7 @@ export function useRoomMedia(room: string) {
         ...(screenActive ? getScreenTiers().values() : []),
         ...(cameraActive ? getCameraTiers().values() : []),
         ...(fileActive ? getFileTiers() : []),
+        ...getExtraScreenTiers(),
       ];
       reportLoad(tiers);
     }, 4000);
@@ -3809,6 +3919,7 @@ export function useRoomMedia(room: string) {
     getScreenTiers,
     getCameraTiers,
     getFileTiers,
+    getExtraScreenTiers,
     screenActive,
     cameraActive,
     fileActive,
@@ -4077,6 +4188,10 @@ export function useRoomMedia(room: string) {
     // Each slot's playback state, for the tile that renders its transport.
     localMediaSnapshots: mediaSnapshots,
     anyFileActive,
+    // "Várias telas" — see lib/multiScreen.ts.
+    extraScreens,
+    extraScreensActive,
+    addExtraScreen,
     isCameraSharing: camera.active,
     startCameraShare: camera.start,
     stopCameraShare: camera.stop,

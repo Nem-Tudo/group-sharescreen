@@ -15,6 +15,7 @@
 // case, which only ever reads `data.kind` to label a metric), so a new kind
 // travels end to end without a single backend change.
 
+import type { ExtraScreenSlot } from "./multiScreen";
 import { signalingClient } from "./signalingClient";
 import { tierForRenderedSize, MAX_TIER_FPS, WORST_TIER, type QualityTier } from "./videoQuality";
 
@@ -22,7 +23,9 @@ import { tierForRenderedSize, MAX_TIER_FPS, WORST_TIER, type QualityTier } from 
 // local files being played into the room (see lib/localMediaSource.ts) — a
 // channel each, precisely so several can run at once and alongside a screen
 // share, and each wants the same per-viewer downscaling as the other two.
-export type QualityChannel = "screen" | "camera" | "file1" | "file2" | "file3";
+// "screen2".."screen10" are the extra screens of "Várias telas" (see
+// lib/multiScreen.ts), for the same reason.
+export type QualityChannel = "screen" | "camera" | "file1" | "file2" | "file3" | ExtraScreenSlot;
 
 interface Entry {
   width: number;
