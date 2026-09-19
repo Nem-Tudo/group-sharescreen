@@ -6,6 +6,7 @@ import { getStoredGuestToken } from "./guestToken";
 import { getSignalingHttpBase } from "./roomsApi";
 import { translate } from "@/lib/i18n";
 import { useFeature } from "./features";
+import type { FeatureTier } from "./entitlements";
 
 // Custom emoji — Discord's, down to the token a message carries: `<:name:id>`,
 // or `<a:name:id>` for an animated one. The twin of the API's customEmoji.ts,
@@ -24,6 +25,15 @@ import { useFeature } from "./features";
 export const CUSTOM_EMOJI_FEATURE = "custom-emojis";
 /** The "NOVO" badge's id — see components/NewBadge. */
 export const CUSTOM_EMOJI_BADGE = CUSTOM_EMOJI_FEATURE;
+
+/** How many emoji of their own each plan lets an account keep — the API's accountEmojiLimit. For the /pro page. */
+export const ACCOUNT_EMOJI_LIMITS: Record<FeatureTier, number> = {
+  free: 0,
+  account: 0,
+  premium: 0,
+  premium_max: 5,
+  pro_ultra: 200,
+};
 
 /** What the feature counts — each must be in its "site events" in the admin panel. */
 export const CUSTOM_EMOJI_EVENTS = {

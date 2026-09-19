@@ -3735,5 +3735,10 @@
   "groupPermissions.useExternalEmojis": "Use external emojis",
   "groupPermissions.useExternalEmojisHint": "Emojis from other groups or one's own account. Off, the group's own emojis still work.",
   "groups.rolesTab.auraRole": "Aura role",
-  "groups.rolesTab.auraRoleManaged": "Managed automatically: whoever gives the group an Aura gets it, whoever takes it back loses it. You can change its colour, permissions and position, but not its name or who holds it."
+  "groups.rolesTab.auraRoleManaged": "Managed automatically: whoever gives the group an Aura gets it, whoever takes it back loses it. You can change its colour, permissions and position, but not its name or who holds it.",
+  "pro.proPanel.aurasToGive": "{count} Aura to boost a group",
+  "pro.proPanel.aurasToGiveUltra": "{count} Auras to boost groups (up to 2 on the same one)",
+  "pro.proPanel.customEmojis": "Up to {count} custom emojis of your own, to use anywhere",
+  "pro.compare.auras": "Auras to boost groups",
+  "pro.compare.customEmojis": "Account custom emojis"
 }

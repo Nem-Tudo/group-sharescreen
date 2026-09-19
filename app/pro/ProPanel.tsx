@@ -27,6 +27,8 @@ import useNtPopups from "ntpopups";
 import { isIosDevice, isStandaloneDisplay } from "@/lib/browserEnv";
 import { getDesktopBridge } from "@/lib/desktop";
 import { MULTI_SCREEN_LIMITS } from "@/lib/multiScreen";
+import { AURAS_PER_PLAN, GROUP_AURA_FEATURE } from "@/lib/groupAura";
+import { ACCOUNT_EMOJI_LIMITS, CUSTOM_EMOJI_FEATURE } from "@/lib/customEmoji";
 import { accountTierOf, planTierOf, tierAbove, tierAtLeast, type Feature } from "@/lib/entitlements";
 import { PUBLISHED_THEME_LIMITS } from "@/lib/roomThemes";
 import {
@@ -301,6 +303,10 @@ export function ProPanel({
   // The comparison-table experiment (see PlanComparison). Nothing plan-shaped
   // is drawn until it is decided, so nobody sees one layout flip to the other.
   const compare = useFeature(PRO_COMPARE_FEATURE);
+  // Perks that sit behind their own experiments: sold only to whoever can
+  // see them (see lib/groupAura and lib/customEmoji).
+  const auraPerk = useFeature(GROUP_AURA_FEATURE, { track: false }).enabled;
+  const emojiPerk = useFeature(CUSTOM_EMOJI_FEATURE, { track: false }).enabled;
   const compareLayout = compare.enabled && plans.length > 1;
   // The "buy-top" treatment: the price and checkout card above the table.
   const buyOnTop = compare.variant === PRO_COMPARE_BUY_TOP;
@@ -594,6 +600,36 @@ export function ProPanel({
     </li>
   );
 
+  // Aura and custom emoji: a number per rung, like the screens. On a card
+  // whose plan has none, the row is the missing one quoting the next rung's.
+  const tierRow = (
+    key: string,
+    enabled: boolean,
+    limits: Record<string, number>,
+    entry: PremiumPlan,
+    label: (count: number) => string
+  ) => {
+    if (!enabled) return null;
+    const count = limits[planTierOf(entry.id)] ?? 0;
+    if (count <= 0) return missingRow(key, label(limits.premium_max));
+    return (
+      <li key={key} className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+        <MdCheck className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-500" />
+        {label(count)}
+      </li>
+    );
+  };
+  const auraRow = (entry: PremiumPlan) =>
+    tierRow("auras", auraPerk, AURAS_PER_PLAN, entry, (count) =>
+      planTierOf(entry.id) === "pro_ultra"
+        ? t("pro.proPanel.aurasToGiveUltra", { count })
+        : t("pro.proPanel.aurasToGive", { count })
+    );
+  const emojiRow = (entry: PremiumPlan) =>
+    tierRow("custom-emojis", emojiPerk, ACCOUNT_EMOJI_LIMITS, entry, (count) =>
+      t("pro.proPanel.customEmojis", { count })
+    );
+
   /** The whole list, in order, with the points and the upload limit slotted in at their anchor. */
   /**
    * The same benefits as featureRows, one row per benefit with a cell per
@@ -639,6 +675,26 @@ export function ProPanel({
         ),
       },
     ];
+    if (auraPerk) {
+      rows.push({
+        key: "auras",
+        label: t("pro.compare.auras"),
+        cells: plans.map((entry) => {
+          const count = AURAS_PER_PLAN[planTierOf(entry.id)];
+          return count > 0 ? amount(count) : false;
+        }),
+      });
+    }
+    if (emojiPerk) {
+      rows.push({
+        key: "custom-emojis",
+        label: t("pro.compare.customEmojis"),
+        cells: plans.map((entry) => {
+          const count = ACCOUNT_EMOJI_LIMITS[planTierOf(entry.id)];
+          return count > 0 ? amount(count) : false;
+        }),
+      });
+    }
     rows.push({
       key: "multi-screen",
       label: t("pro.compare.screensAtOnce"),
@@ -687,6 +743,8 @@ export function ProPanel({
     if (!sellableFeatures.includes(POINTS_AFTER)) rows.push(...pointsRows(entry), uploadRow(entry));
     // With the broadcast perks, right under the first one (verified heads the list).
     rows.splice(Math.min(1, rows.length), 0, screensRow(entry));
+    // The group perks close the list.
+    rows.push(auraRow(entry), emojiRow(entry));
     return rows;
   };
   /** The money for the code on screen has landed and bought time. */

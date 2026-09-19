@@ -3735,5 +3735,10 @@
   "groupPermissions.useExternalEmojis": "Usar emojis externos",
   "groupPermissions.useExternalEmojisHint": "Emojis de otros grupos o de la propia cuenta. Desactivado, los emojis del grupo siguen funcionando.",
   "groups.rolesTab.auraRole": "Cargo de Aura",
-  "groups.rolesTab.auraRoleManaged": "Gestionado automáticamente: quien le da Aura al grupo lo recibe, quien la quita lo pierde. Se puede cambiar el color, los permisos y la posición, pero no el nombre ni quién lo tiene."
+  "groups.rolesTab.auraRoleManaged": "Gestionado automáticamente: quien le da Aura al grupo lo recibe, quien la quita lo pierde. Se puede cambiar el color, los permisos y la posición, pero no el nombre ni quién lo tiene.",
+  "pro.proPanel.aurasToGive": "{count} Aura para impulsar un grupo",
+  "pro.proPanel.aurasToGiveUltra": "{count} Auras para impulsar grupos (hasta 2 en el mismo)",
+  "pro.proPanel.customEmojis": "Hasta {count} emojis personalizados tuyos, para usar en cualquier lugar",
+  "pro.compare.auras": "Auras para impulsar grupos",
+  "pro.compare.customEmojis": "Emojis personalizados de la cuenta"
 }

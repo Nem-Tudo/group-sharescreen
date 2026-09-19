@@ -1,4 +1,5 @@
 import { translate } from "@/lib/i18n";
+import type { FeatureTier } from "@/lib/entitlements";
 
 // Group auras — Discord's server boost. Subscribers give them to a group
 // (Pro Max: 1, Pro Ultra: 3, two of which may go to the same group), and a
@@ -32,6 +33,15 @@ export const DEFAULT_AURA_LEVELS: { level: number; auras: number; perks: string[
   { level: 2, auras: 7, perks: ["customInvite"], emojiSlots: 30 },
   { level: 3, auras: 14, perks: [], emojiSlots: 200 },
 ];
+
+/** Auras each plan gives to hand out — the API's aurasAllowedFor. For the /pro page. */
+export const AURAS_PER_PLAN: Record<FeatureTier, number> = {
+  free: 0,
+  account: 0,
+  premium: 0,
+  premium_max: 1,
+  pro_ultra: 3,
+};
 
 /** Custom emoji slots of a group with no level — the API's BASE_GROUP_EMOJI_SLOTS. */
 export const BASE_GROUP_EMOJI_SLOTS = 10;
