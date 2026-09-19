@@ -78,7 +78,11 @@ function setSnapshot(features: PublicFeature[], loaded: boolean, version: number
 
 async function refresh(): Promise<void> {
   try {
-    const res = await fetch(`${getSignalingHttpBase()}/features`);
+    // Past the browser's HTTP cache: the API sends max-age=30, and a copy
+    // from there is what made a newly granted feature show up only on the
+    // second reload. Our own copy (localStorage) already covers the first
+    // paint; this fetch exists only to get the current answer.
+    const res = await fetch(`${getSignalingHttpBase()}/features`, { cache: "no-store" });
     if (!res.ok) throw new Error(String(res.status));
     const data = (await res.json()) as { features: PublicFeature[]; version: number };
     if (!Array.isArray(data.features)) throw new Error("bad payload");
