@@ -3759,7 +3759,7 @@
   "groups.aura.customInviteDisabled": "está desativado: ele volta a funcionar quando o grupo alcançar o nível 2 de Aura. Enquanto isso, o nome continua reservado para o grupo.",
   "groups.aura.farmingMark.one": "Farmando aura neste grupo ({count} aura)",
   "groups.aura.farmingMark.other": "Farmando aura neste grupo ({count} auras)",
-  "customEmoji.yourEmojis": "Seus emojis",
+  "customEmoji.yourEmojis": "Seus emojis customizados",
   "customEmoji.disabledHere": "Emojis personalizados estão desativados aqui.",
   "customEmoji.externalDisabledHere": "Emojis de fora deste grupo estão desativados aqui.",
   "customEmoji.overLimit": "Sem espaço: está além do limite de emojis do dono.",
