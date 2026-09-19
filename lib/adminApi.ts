@@ -545,6 +545,45 @@ export type PartnerInput = {
   clickRewardPlacement?: PartnerClickRewardPlacement;
 };
 
+/**
+ * Sends a partner ad's image or reward video to the CDN through the API (see
+ * its POST /admin/partners/upload) and answers the file's URL. The file goes
+ * as the raw body, so a large video streams instead of being base64'd; XHR
+ * rather than fetch only for the upload progress.
+ */
+export function uploadPartnerMedia(
+  file: File,
+  onProgress?: (fraction: number) => void,
+  signal?: AbortSignal
+): Promise<string> {
+  const token = getAccountToken();
+  if (!token) return Promise.reject(new Error("unauthorized"));
+  const query = new URLSearchParams({ type: file.type, name: file.name });
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${getSignalingHttpBase()}/admin/partners/upload?${query.toString()}`);
+    xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress?.(event.loaded / event.total);
+    };
+    xhr.onload = () => {
+      let data: { url?: string; error?: string } | null = null;
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch {
+        data = null;
+      }
+      if (xhr.status >= 200 && xhr.status < 300 && data?.url) resolve(data.url);
+      else reject(new Error(data?.error ?? translate("adminApi.errorStatus", { status: xhr.status })));
+    };
+    xhr.onerror = () => reject(new Error(translate("admin.partnerAdsPanel.uploadFailed")));
+    xhr.onabort = () => reject(new DOMException("Aborted", "AbortError"));
+    signal?.addEventListener("abort", () => xhr.abort(), { once: true });
+    xhr.send(file);
+  });
+}
+
 export async function fetchAdminPartners(): Promise<PartnerAdminList> {
   return adminFetch<PartnerAdminList>("/admin/partners");
 }

@@ -48,6 +48,8 @@ export type PartnerReportStats = {
 export type PartnerReportAd = {
   title: string;
   description: string;
+  // Long markdown copy for the reward popup. Absent from an older API.
+  extendedDescription?: string | null;
   imageUrl: string | null;
   buttonLabel: string;
   buttonUrl: string;

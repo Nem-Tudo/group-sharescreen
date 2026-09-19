@@ -504,9 +504,13 @@ export function PartnerRewardModal({
               </span>
             )}
           </div>
-          <p className="mt-0.5 line-clamp-2 whitespace-pre-line text-xs opacity-60">
-            {description}
-          </p>
+          {/* The long description beside the video says it all; the short
+              one would only repeat it. */}
+          {!showExtended && (
+            <p className="mt-0.5 line-clamp-2 whitespace-pre-line text-xs opacity-60">
+              {description}
+            </p>
+          )}
         </div>
         <button
           type="button"

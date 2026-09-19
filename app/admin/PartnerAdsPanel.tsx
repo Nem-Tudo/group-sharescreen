@@ -20,6 +20,7 @@ import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
 import { formatLocale } from "@/lib/i18n";
 import { partnerRewardPopupSize, type PartnerRewardPopupData } from "@/components/PartnerRewardModal";
+import { PartnerMediaDrop } from "./PartnerMediaDrop";
 
 const STATS_POLL_INTERVAL_MS = 3000;
 // Mirrors the API's PARTNER_EXTENDED_DESCRIPTION_MAX_LEN.
@@ -112,6 +113,24 @@ export function PartnerAdsPanel() {
   const previewCardClickReward =
     Boolean(clickRewardPointsInput.trim()) && clickRewardPlacement !== "video";
 
+  // Where the cursor last was in the long description — kept because clicking
+  // "Procurar" takes the focus away from it. null = never touched: append.
+  const extendedCaretRef = useRef<number | null>(null);
+
+  // A picture uploaded for the long description goes in as markdown where the
+  // cursor was (or at the end), on a line of its own.
+  function insertExtendedImage(url: string) {
+    const caret = extendedCaretRef.current;
+    setForm((prev) => {
+      const text = prev.extendedDescription;
+      const at = caret === null ? text.length : Math.min(caret, text.length);
+      const before = text.slice(0, at);
+      const after = text.slice(at);
+      const snippet = `${before && !before.endsWith("\n") ? "\n" : ""}![](${url})${after.startsWith("\n") ? "" : "\n"}`;
+      return { ...prev, extendedDescription: before + snippet + after };
+    });
+  }
+
   const mountedRef = useRef(true);
   const initialLoadDone = useRef(false);
 
@@ -168,6 +187,7 @@ export function PartnerAdsPanel() {
     setRewardPointsInput("");
     setClickRewardPointsInput("");
     setClickRewardPlacement("both");
+    extendedCaretRef.current = null;
     setError(null);
   }
 
@@ -193,6 +213,7 @@ export function PartnerAdsPanel() {
     setRewardPointsInput(p.rewardPoints != null ? String(p.rewardPoints) : "");
     setClickRewardPointsInput(p.clickRewardPoints != null ? String(p.clickRewardPoints) : "");
     setClickRewardPlacement(p.clickRewardPlacement ?? "both");
+    extendedCaretRef.current = null;
     setError(null);
   }
 
@@ -561,6 +582,7 @@ export function PartnerAdsPanel() {
               placeholder="https://..."
               className={inputClass}
             />
+            <PartnerMediaDrop kind="image" onUploaded={(url) => update("imageUrl", url)} />
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -607,6 +629,7 @@ export function PartnerAdsPanel() {
                   placeholder="https://cdn.../video.mp4"
                   className={inputClass}
                 />
+                <PartnerMediaDrop kind="video" onUploaded={setRewardVideoUrl} />
               </div>
               <div>
                 <label htmlFor="partner-reward-points" className={labelClass}>
@@ -630,6 +653,9 @@ export function PartnerAdsPanel() {
                 {t("admin.partnerAdsPanel.extendedDescriptionOptional")}
               </label>
               <textarea
+                onSelect={(e) => {
+                  extendedCaretRef.current = e.currentTarget.selectionStart;
+                }}
                 id="partner-extended-description"
                 value={form.extendedDescription}
                 onChange={(e) => update("extendedDescription", e.target.value)}
@@ -644,6 +670,7 @@ export function PartnerAdsPanel() {
                   {form.extendedDescription.length}/{EXTENDED_DESCRIPTION_MAX_LEN}
                 </span>
               </div>
+              <PartnerMediaDrop kind="image" compact onUploaded={insertExtendedImage} />
             </div>
 
             <button

@@ -28,6 +28,8 @@ import {
   formatCount,
 } from "./charts";
 import { useT } from "@/lib/useI18n";
+import useNtPopups from "ntpopups";
+import { partnerRewardPopupSize, type PartnerRewardPopupData } from "@/components/PartnerRewardModal";
 import { translate } from "@/lib/i18n";
 import { formatLocale } from "@/lib/i18n";
 
@@ -62,6 +64,7 @@ function relativeSeconds(ms: number): string {
 
 export function PartnerReportClient({ token }: { token: string }) {
   const t = useT();
+  const { openPopup } = useNtPopups();
   const [range, setRange] = useState<PartnerReportRange>("24h");
   // undefined = the first load hasn't landed yet. A failed *poll* deliberately
   // keeps the last report on screen (see the effect below): a blank page is a
@@ -139,6 +142,33 @@ export function PartnerReportClient({ token }: { token: string }) {
   }
 
   const { ad, stats, history } = report;
+
+  function openRewardPreview(videoUrl: string, points: number) {
+    const clickPoints =
+      ad.clickRewardPoints && ad.clickRewardPlacement !== "card" ? ad.clickRewardPoints : null;
+    const data: PartnerRewardPopupData = {
+      partnerId: `report-preview-${token}`,
+      videoUrl,
+      points,
+      title: ad.title,
+      description: ad.description,
+      extendedDescription: ad.extendedDescription ?? null,
+      imageUrl: ad.imageUrl,
+      buttonLabel: ad.buttonLabel,
+      buttonUrl: ad.buttonUrl,
+      buttonBackgroundColor: ad.buttonBackgroundColor,
+      buttonTextColor: ad.buttonTextColor,
+      clickRewardPoints: clickPoints,
+      preview: true,
+    };
+    openPopup("partner_reward", {
+      ...partnerRewardPopupSize(Boolean(ad.extendedDescription)),
+      closeOnEscape: false,
+      closeOnClickOutside: false,
+      requireAction: true,
+      data,
+    });
+  }
   const clicks = totalPartnerClicks(stats);
   const ctr = partnerCtr(stats);
   const hasVideoReward = Boolean(ad.rewardVideoUrl && ad.rewardPoints);
@@ -443,7 +473,26 @@ export function PartnerReportClient({ token }: { token: string }) {
               >
                 {ad.buttonLabel}
               </div>
+              {/* The card's own "Resgatar X" button, and it works: it opens
+                  the real reward popup in preview mode (nothing counted, no
+                  points), so the advertiser sees what viewers see. */}
+              {ad.rewardVideoUrl && ad.rewardPoints && (
+                <button
+                  type="button"
+                  onClick={() => openRewardPreview(ad.rewardVideoUrl!, ad.rewardPoints!)}
+                  className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-current px-3 py-1.5 text-xs font-semibold opacity-90 transition hover:opacity-100"
+                >
+                  {t("common.redeem")}
+                  <BsCoin className="h-3.5 w-3.5 shrink-0" />
+                  {ad.rewardPoints}
+                </button>
+              )}
             </div>
+            {ad.rewardVideoUrl && ad.rewardPoints && (
+              <p className="mt-2 text-[11px] text-[var(--ink-3)]">
+                {t("ad.partnerReportClient.clickTheRewardButtonToPreview")}
+              </p>
+            )}
             <a
               href={ad.buttonUrl}
               target="_blank"
