@@ -18,7 +18,7 @@ import {
 import { Markdown } from "@/components/Markdown";
 import { trackEvent } from "@/lib/analytics";
 import { signalingClient } from "@/lib/signalingClient";
-import { SpeakerIcon, SpeakerMuteIcon, CheckIcon } from "@/components/icons";
+import { CheckIcon } from "@/components/icons";
 import { BsCoin } from "react-icons/bs";
 import { useI18n } from "@/lib/useI18n";
 
@@ -32,6 +32,9 @@ const REQUIRED_WATCH_FRACTION = 0.98;
 // console script setting the rate doesn't have to fire an event it doesn't
 // want observed, but it can't stop this from running.
 const PLAYBACK_RATE_GUARD_MS = 400;
+// Below this, the locked player's volume counts as silenced and goes back to
+// full (see the guard interval).
+const MIN_LOCKED_VOLUME = 0.2;
 // How far past the furthest point actually reached (maxTimeRef) a seek is
 // allowed to land — covers ordinary float/timeupdate granularity, nowhere
 // near enough to skip anything that matters.
@@ -206,7 +209,6 @@ export function PartnerRewardModal({
   // see the CTA below.
   const [clickRewardJustClaimed, setClickRewardJustClaimed] = useState(false);
   const [needsManualPlay, setNeedsManualPlay] = useState(false);
-  const [muted, setMuted] = useState(false);
   // Visual only — read from the native play/pause/ended events, purely to
   // show an overlay; nothing security-relevant hangs off these two.
   const [isPaused, setIsPaused] = useState(false);
@@ -240,10 +242,41 @@ export function PartnerRewardModal({
   useEffect(() => {
     const id = setInterval(() => {
       const video = videoRef.current;
-      if (video && video.playbackRate !== 1) video.playbackRate = 1;
+      if (!video) return;
+      if (video.playbackRate !== 1) video.playbackRate = 1;
+      // The sound is part of watching it: until the reward is earned there is
+      // no mute button, and a mute or a silenced volume set from anywhere else
+      // (a console, an extension) is put back. Once unlocked, the native
+      // controls take over and the viewer may mute as they like.
+      if (!unlocked) {
+        if (video.muted) video.muted = false;
+        if (video.volume < MIN_LOCKED_VOLUME) video.volume = 1;
+      }
     }, PLAYBACK_RATE_GUARD_MS);
     return () => clearInterval(id);
-  }, []);
+  }, [unlocked]);
+
+  // Watching means watching: while the reward is still being earned, the
+  // video pauses the moment the page goes to the background — another tab,
+  // a minimized window, or another app brought in front (the window losing
+  // focus). It stays paused on return, behind the usual ▶ overlay, so the
+  // viewer resumes it deliberately. Nothing to guard once it's unlocked.
+  useEffect(() => {
+    if (unlocked) return;
+    const pause = () => {
+      const video = videoRef.current;
+      if (video && !video.paused) video.pause();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") pause();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("blur", pause);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("blur", pause);
+    };
+  }, [unlocked]);
 
   function attemptPlay() {
     const video = videoRef.current;
@@ -521,7 +554,7 @@ export function PartnerRewardModal({
         <video
           ref={videoRef}
           src={videoUrl}
-          muted={muted}
+          muted={false}
           playsInline
           // Everything here flips the moment the video has been watched
           // through: native controls (seek bar, volume, speed, fullscreen)
@@ -604,24 +637,11 @@ export function PartnerRewardModal({
             )
           ))}
 
-        {/* Stand-in chrome for the locked player: mute, a timecode, and a
+        {/* Stand-in chrome for the locked player: a timecode and a
             bar that shows progress without offering to change it. All of
             it becomes native once unlocked. */}
         {videoReady && !playerUnlocked && (
           <>
-            <button
-              type="button"
-              onClick={() => setMuted((m) => !m)}
-              aria-label={muted ? t("common.turnOnSound") : t("common.mute")}
-              className="absolute bottom-3 left-3 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80"
-            >
-              {muted ? (
-                <SpeakerMuteIcon className="h-4 w-4" />
-              ) : (
-                <SpeakerIcon className="h-4 w-4" />
-              )}
-            </button>
-
             <span className="absolute bottom-3 right-3 rounded bg-black/60 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-white">
               {formatTime(currentTime)} / {formatTime(duration)}
             </span>
