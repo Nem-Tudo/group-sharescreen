@@ -38,14 +38,18 @@ jobs:
         run: |
           set -e
 
-          echo "Definindo NEXT_PUBLIC_BUILD_COMMIT da APP 1..."
+          # Commits up to this one — the build number in the site's version
+          # (see next.config.ts). Needs the full history checked out above.
+          BUILD_NUMBER=$(git rev-list --count HEAD)
+
+          echo "Definindo NEXT_PUBLIC_BUILD_COMMIT e NEXT_PUBLIC_BUILD_NUMBER ($BUILD_NUMBER) da APP 1..."
 
           curl -fsS \
             -X POST \
             "https://api.squarecloud.app/v2/apps/$APP_ID/envs" \
             -H "Authorization: $SQUARE_TOKEN" \
             -H "Content-Type: application/json" \
-            -d "{\"envs\":{\"NEXT_PUBLIC_BUILD_COMMIT\":\"$COMMIT_HASH\"}}" \
+            -d "{\"envs\":{\"NEXT_PUBLIC_BUILD_COMMIT\":\"$COMMIT_HASH\",\"NEXT_PUBLIC_BUILD_NUMBER\":\"$BUILD_NUMBER\"}}" \
             -o /dev/null
 
           echo "Variável atualizada."
@@ -173,14 +177,18 @@ jobs:
         run: |
           set -e
 
-          echo "Definindo NEXT_PUBLIC_BUILD_COMMIT da APP 2..."
+          # Commits up to this one — the build number in the site's version
+          # (see next.config.ts). Needs the full history checked out above.
+          BUILD_NUMBER=$(git rev-list --count HEAD)
+
+          echo "Definindo NEXT_PUBLIC_BUILD_COMMIT e NEXT_PUBLIC_BUILD_NUMBER ($BUILD_NUMBER) da APP 2..."
 
           curl -fsS \
             -X POST \
             "https://api.squarecloud.app/v2/apps/$APP_ID/envs" \
             -H "Authorization: $SQUARE_TOKEN" \
             -H "Content-Type: application/json" \
-            -d "{\"envs\":{\"NEXT_PUBLIC_BUILD_COMMIT\":\"$COMMIT_HASH\"}}" \
+            -d "{\"envs\":{\"NEXT_PUBLIC_BUILD_COMMIT\":\"$COMMIT_HASH\",\"NEXT_PUBLIC_BUILD_NUMBER\":\"$BUILD_NUMBER\"}}" \
             -o /dev/null
 
           echo "Variável atualizada."

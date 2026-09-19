@@ -7,8 +7,11 @@ import type { NextConfig } from "next";
 // server on register and counted there as sharescreen_clients_by_version
 // (see lib/buildVersion.ts and the API's metrics.ts).
 //
-// `<versão do package>-<commit>`, e.g. "0.1.17-e6681e8". Each half answers a
-// different question and neither is enough on its own: package.json's version
+// `<versão do package>.<número do build>.<commit>`, e.g. "0.1.17.842.e6681e8".
+// The build number is how many commits the history has up to this one (`git
+// rev-list --count HEAD`), so it goes up by one with every commit on its own
+// and, unlike the hash, says at a glance which of two builds is newer. The
+// other two parts answer different questions and neither is enough alone: package.json's version
 // says which release someone is on but only moves when a desktop release is
 // cut, so every ordinary deploy between two releases would look identical —
 // and the whole point of the metric is to see people still running the bundle
@@ -38,6 +41,21 @@ function resolveBuildCommit(): string {
   }
 }
 
+// Same sourcing as the commit: CI passes it in (the deploy uploads files, not
+// a checkout, so the build machine has no history to count), and a local build
+// counts its own checkout.
+function resolveBuildNumber(): string {
+  const provided = process.env.NEXT_PUBLIC_BUILD_NUMBER?.trim();
+  if (provided && /^\d+$/.test(provided)) return provided;
+  try {
+    return execSync("git rev-list --count HEAD", { stdio: ["ignore", "pipe", "ignore"] })
+      .toString()
+      .trim();
+  } catch {
+    return "0";
+  }
+}
+
 function resolvePackageVersion(): string {
   try {
     // process.cwd() rather than a path relative to this file: Next always
@@ -59,7 +77,9 @@ function resolvePackageVersion(): string {
 // something the metric can actually hold.
 const BUILD_COMMIT = resolveBuildCommit();
 
-const BUILD_VERSION = `${resolvePackageVersion()}-${BUILD_COMMIT}`
+// The commit shortened to git's usual 7: CI hands over the full 40-character
+// sha, which would crowd the rest out of the 32-character cap below.
+const BUILD_VERSION = `${resolvePackageVersion()}.${resolveBuildNumber()}.${BUILD_COMMIT.slice(0, 7)}`
   .replace(/[^A-Za-z0-9._-]/g, "-")
   .slice(0, 32);
 
