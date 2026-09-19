@@ -586,6 +586,7 @@ export function ProPanel({
         key: "price",
         label: t("pro.compare.price"),
         pinned: true,
+        free: amount(0, t("pro.compare.freePrice")),
         cells: plans.map((entry) => amount(entry.priceCents, cyclePrice(entry))),
       },
     ];
@@ -615,6 +616,7 @@ export function ProPanel({
       key: "multi-screen",
       label: t("pro.compare.screensAtOnce"),
       priority: 0,
+      free: amount(MULTI_SCREEN_LIMITS.account),
       cells: plans.map((entry) => amount(screensOf(entry))),
     });
     for (const feature of sellableFeatures) {

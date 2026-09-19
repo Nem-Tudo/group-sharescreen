@@ -3656,5 +3656,7 @@
   "watch.watchRoom.secondCamera": "camera 2",
   "watch.watchRoom.upgradeScreensTitle": "{plan}: up to {limit} screens",
   "watch.watchRoom.upgradeScreensHint": "Share more monitors and windows at the same time with {plan}.",
-  "watch.watchRoom.seePlans": "See plans"
+  "watch.watchRoom.seePlans": "See plans",
+  "pro.compare.noPlan": "No plan",
+  "pro.compare.freePrice": "Free"
 }
