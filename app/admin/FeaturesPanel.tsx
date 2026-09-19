@@ -9,6 +9,7 @@ import {
   fetchFeatureStats,
   fetchFeatures,
   resetFeatureStats,
+  searchAdminAccounts,
   updateFeature,
   type AdminFeature,
   type FeatureCheck,
@@ -65,6 +66,40 @@ function dateTime(ms: number): string {
   } catch {
     return "—";
   }
+}
+
+// Account ids are UUIDs, and a username can never contain a hyphen
+// (USERNAME_RE on the API), so the two never get mixed up.
+const ACCOUNT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Turns what was typed into a user override into account ids: ids pass
+ * through, usernames (with or without @) are looked up and must match
+ * exactly. Whatever could not be found comes back in `missing`.
+ */
+async function resolveAccountIds(
+  tokens: string[]
+): Promise<{ resolved: { id: string; username?: string }[]; missing: string[] }> {
+  const resolved: { id: string; username?: string }[] = [];
+  const missing: string[] = [];
+  await Promise.all(
+    tokens.map(async (token) => {
+      if (ACCOUNT_ID_RE.test(token)) {
+        resolved.push({ id: token.toLowerCase() });
+        return;
+      }
+      const username = token.replace(/^@/, "");
+      try {
+        const { accounts } = await searchAdminAccounts(username);
+        const hit = accounts.find((account) => account.username.toLowerCase() === username.toLowerCase());
+        if (hit) resolved.push({ id: hit.id, username: hit.username });
+        else missing.push(token);
+      } catch {
+        missing.push(token);
+      }
+    })
+  );
+  return { resolved, missing };
 }
 
 function splitList(text: string): string[] {
@@ -577,6 +612,8 @@ function TargetingSection({ feature, busy, save }: { feature: AdminFeature; busy
   const [newId, setNewId] = useState("");
   const [newVariant, setNewVariant] = useState(feature.variants[0] ?? "on");
   const [newNote, setNewNote] = useState("");
+  const [resolving, setResolving] = useState(false);
+  const [missingIds, setMissingIds] = useState<string[]>([]);
 
   const variantList = splitList(variants.toLowerCase());
   const variantsChanged = variantList.join(",") !== feature.variants.join(",");
@@ -597,16 +634,35 @@ function TargetingSection({ feature, busy, save }: { feature: AdminFeature; busy
     !variantsChanged &&
     typedShares.some((value, i) => Math.abs((value / (sharesTotal || 1)) * 100 - savedShares[i]) > 0.01);
 
-  function addOverrides() {
+  async function addOverrides() {
     // Several ids at once: pasted from a spreadsheet, a chat, anywhere.
-    const ids = splitList(newId);
-    if (ids.length === 0) return;
-    setOverrides((current) => [
-      ...current.filter((entry) => !ids.includes(entry.id)),
-      ...ids.map((id) => ({ id, variant: newVariant, note: newNote.trim() })),
-    ]);
-    setNewId("");
-    setNewNote("");
+    const tokens = splitList(newId);
+    if (tokens.length === 0 || resolving) return;
+    const note = newNote.trim();
+    let entries: FeatureOverride[] = tokens.map((id) => ({ id, variant: newVariant, note }));
+    let missing: string[] = [];
+    if (feature.target === "user") {
+      // Usernames are welcome here, but what gets stored is the account id:
+      // a username can change, the id cannot.
+      setResolving(true);
+      try {
+        const result = await resolveAccountIds(tokens);
+        missing = result.missing;
+        entries = result.resolved.map(({ id, username }) => ({
+          id,
+          variant: newVariant,
+          note: note || (username ? `@${username}` : ""),
+        }));
+      } finally {
+        setResolving(false);
+      }
+    }
+    const ids = entries.map((entry) => entry.id);
+    setOverrides((current) => [...current.filter((entry) => !ids.includes(entry.id)), ...entries]);
+    setMissingIds(missing);
+    // What could not be found stays in the box to be fixed.
+    setNewId(missing.join(" "));
+    if (missing.length === 0) setNewNote("");
   }
 
   return (
@@ -731,8 +787,8 @@ function TargetingSection({ feature, busy, save }: { feature: AdminFeature; busy
           <input
             value={newId}
             onChange={(e) => setNewId(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && addOverrides()}
-            placeholder={t("admin.features.overrideIds")}
+            onKeyDown={(e) => e.key === "Enter" && void addOverrides()}
+            placeholder={t(feature.target === "user" ? "admin.features.overrideUsers" : "admin.features.overrideIds")}
             spellCheck={false}
             className={`${inputClass} font-mono`}
           />
@@ -745,10 +801,13 @@ function TargetingSection({ feature, busy, save }: { feature: AdminFeature; busy
             <option value="off">{t("admin.features.forceOff")}</option>
           </select>
           <input value={newNote} onChange={(e) => setNewNote(e.target.value)} placeholder={t("admin.features.overrideNote")} className={inputClass} />
-          <button type="button" onClick={addOverrides} disabled={!newId.trim()} className={buttonClass}>
-            {t("admin.features.add")}
+          <button type="button" onClick={() => void addOverrides()} disabled={!newId.trim() || resolving} className={buttonClass}>
+            {resolving ? t("admin.features.resolving") : t("admin.features.add")}
           </button>
         </div>
+        {missingIds.length > 0 && (
+          <p className="mt-1 text-xs text-red-600">{t("admin.features.overrideNotFound", { names: missingIds.join(", ") })}</p>
+        )}
         {overrides.length > 0 && (
           <ul className="mt-2 flex max-h-64 flex-col gap-1 overflow-y-auto">
             {overrides.map((entry) => (
