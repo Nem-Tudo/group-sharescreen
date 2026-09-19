@@ -228,6 +228,7 @@ import {
   MdPersonAddAlt1,
   MdChevronRight,
   MdAdd,
+  MdClose,
 } from "react-icons/md";
 import { BsGearFill, BsCoin } from "react-icons/bs";
 import {
@@ -1487,6 +1488,7 @@ export function WatchRoom({
     extraScreensActive,
     addExtraScreen,
     dualCamera,
+    dualCameraSupported,
     startCameraShare,
     stopCameraShare,
     localCameraStream,
@@ -4011,6 +4013,10 @@ export function WatchRoom({
   // recognises ("usar a câmera traseira") instead of "camera2 0, facing back".
   const flipsByFacing = onPhone;
   const canSwitchCamera = flipsByFacing || cameraDevices.length > 1;
+  // Front and rear at once (see useRoomMedia's camera2) — part of "Várias telas".
+  // Gone for good on a device that already showed it cannot (dualCameraSupported).
+  const showDualCameraButton =
+    canSwitchCamera && multiScreenMode.active && Boolean(localCameraStream) && dualCameraSupported;
   const switchCameraLabel = flipsByFacing
     ? cameraFacing === "environment"
       ? translate("watch.watchRoom.useTheFrontCamera")
@@ -8199,10 +8205,13 @@ export function WatchRoom({
                   </Tooltip>
 
                   {/* 3. [camera] do mesmo tamanho dos demais, e ao lado o pequeno junto para virar */}
+                  {/* (and, with "Várias telas", the second-lens button between them) */}
                   {screenShareMode !== "unsupported" && (
                     <div
                       className="flex min-w-0 items-stretch"
-                      style={{ flex: canSwitchCamera ? "1 1 1.5rem" : "1 1 0%" }}
+                      style={{
+                        flex: showDualCameraButton ? "1 1 4rem" : canSwitchCamera ? "1 1 1.5rem" : "1 1 0%",
+                      }}
                     >
                       <Tooltip
                         content={
@@ -8226,7 +8235,7 @@ export function WatchRoom({
                         </button>
                       </Tooltip>
                       {/* Front and rear at once — part of "Várias telas". */}
-                      {canSwitchCamera && multiScreenMode.active && localCameraStream && (
+                      {showDualCameraButton && (
                         <Tooltip
                           content={
                             <span className="inline-flex items-center gap-1.5">
@@ -8256,12 +8265,20 @@ export function WatchRoom({
                                 ? translate("watch.watchRoom.dualCameraOff")
                                 : translate("watch.watchRoom.dualCameraOn")
                             }
-                            className={`relative flex h-11 w-7 shrink-0 items-center justify-center border-l border-white/20 text-white transition active:scale-95 ${
+                            className={`relative flex h-11 w-10 shrink-0 items-center justify-center border-l border-white/20 text-white transition active:scale-95 ${
                               dualCamera.active ? DOCK_LIVE : DOCK_ON
                             }`}
                           >
-                            <MdAdd className="h-3.5 w-3.5" />
-                            <CameraIcon className="-ml-0.5 h-3.5 w-3.5" />
+                            <CameraIcon className="h-5 w-5" />
+                            {/* The "+" as a small badge on the camera, not a
+                                second glyph beside it — two glyphs did not fit. */}
+                            <span className="absolute top-1.5 right-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-white text-zinc-900 shadow">
+                              {dualCamera.active ? (
+                                <MdClose className="h-2.5 w-2.5" />
+                              ) : (
+                                <MdAdd className="h-2.5 w-2.5" />
+                              )}
+                            </span>
                           </button>
                         </Tooltip>
                       )}

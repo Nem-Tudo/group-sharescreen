@@ -65,3 +65,24 @@ export function nextScreenUpgrade(
   }
   return { tier: "premium_max", planId: "premium_max", limit: MULTI_SCREEN_LIMITS.premium_max };
 }
+
+// Front and rear cameras at once is up to the phone (see useRoomMedia's
+// camera2). Once a device has shown it cannot, the button is not offered on it
+// again — remembered in this browser only.
+const DUAL_CAMERA_UNSUPPORTED_KEY = "sharescreen:dualCameraUnsupported";
+
+export function isDualCameraUnsupported(): boolean {
+  try {
+    return window.localStorage.getItem(DUAL_CAMERA_UNSUPPORTED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function markDualCameraUnsupported() {
+  try {
+    window.localStorage.setItem(DUAL_CAMERA_UNSUPPORTED_KEY, "1");
+  } catch {
+    // Storage refused: the button just comes back on the next visit.
+  }
+}

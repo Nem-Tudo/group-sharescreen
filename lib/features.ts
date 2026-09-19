@@ -249,7 +249,7 @@ function currentPlatform(): FeaturePlatform | null {
 // Reporting
 
 type Exposure = { key: string; id?: string };
-type ClientEvent = { name: string; room?: string; group?: string; value?: number };
+type ClientEvent = { name: string; room?: string; group?: string; value?: number; feature?: string };
 
 const pendingExposures: Exposure[] = [];
 const pendingEvents: ClientEvent[] = [];
@@ -302,9 +302,14 @@ function reportExposure(key: string, target: FeatureTarget, id: string) {
  * The user is always included (the API reads it from the session); pass a
  * room and/or group to count it for those features too.
  */
-export function trackFeatureEvent(name: string, targets: { room?: string | null; group?: string | null; value?: number } = {}) {
+export function trackFeatureEvent(
+  name: string,
+  targets: { room?: string | null; group?: string | null; value?: number; feature?: string | null } = {}
+) {
   pendingEvents.push({
     name,
+    // Counted for this feature only, not every feature the person is in.
+    ...(targets.feature ? { feature: targets.feature } : {}),
     ...(targets.room ? { room: targets.room } : {}),
     ...(targets.group ? { group: targets.group } : {}),
     ...(targets.value ? { value: targets.value } : {}),

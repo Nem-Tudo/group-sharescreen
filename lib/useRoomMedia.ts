@@ -66,7 +66,12 @@ import {
   type LocalMediaSlot,
   type LocalMediaAction,
 } from "./localMediaSource";
-import { EXTRA_SCREEN_SLOTS, type ExtraScreenSlot } from "./multiScreen";
+import {
+  EXTRA_SCREEN_SLOTS,
+  isDualCameraUnsupported,
+  markDualCameraUnsupported,
+  type ExtraScreenSlot,
+} from "./multiScreen";
 import {
   PeerQualityRegistry,
   contentHintForDegradation,
@@ -3602,6 +3607,8 @@ export function useRoomMedia(room: string) {
   // pause or end the first one the moment the second opens, without an error.
   // So after opening it we watch the first camera for a moment, and if it went
   // quiet we close the second and say so, instead of leaving a frozen tile.
+  // False once this device has shown it cannot do it (see the capture below).
+  const [dualCameraSupported, setDualCameraSupported] = useState(() => !isDualCameraUnsupported());
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const cameraStartRef = useRef<() => void>(() => {});
   useEffect(() => {
@@ -3617,28 +3624,69 @@ export function useRoomMedia(room: string) {
       const mainFacing = mainTrack.getSettings().facingMode ?? cameraFacingRef.current;
       const other: CameraFacing = mainFacing === "environment" ? "user" : "environment";
       const dims = RESOLUTION_DIMENSIONS[shareResolutionRef.current];
-      let stream: MediaStream;
+      const video: MediaTrackConstraints = {
+        width: { ideal: dims.width },
+        height: { ideal: dims.height },
+        frameRate: { ideal: shareFpsRef.current },
+      };
+      // What went wrong, as the browser said it, so the message tells a real
+      // limit apart from something fixable — and so the numbers do too.
+      // Every path into this is the device itself saying no (a permission
+      // refusal or a cancelled prompt is rethrown before it), so it is not
+      // offered on this device again.
+      const fail = (reason: string): never => {
+        trackEvent("dual_camera_error", { reason: reason.slice(0, 120) });
+        markDualCameraUnsupported();
+        setDualCameraSupported(false);
+        throw new ShareStartError(`${t("useRoomMedia.dualCameraUnsupported")} (${reason})`);
+      };
+      const describe = (err: unknown) =>
+        err instanceof DOMException || err instanceof Error
+          ? `${err.name}${err.message ? `: ${err.message}` : ""}`
+          : String(err);
+      let stream: MediaStream | null = null;
+      let firstError: unknown = null;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            width: { ideal: dims.width },
-            height: { ideal: dims.height },
-            frameRate: { ideal: shareFpsRef.current },
-            facingMode: { exact: other },
-          },
+          video: { ...video, facingMode: { exact: other } },
         });
       } catch (err) {
-        if (isCancelLikeError(err)) throw err;
-        throw new ShareStartError(t("useRoomMedia.dualCameraUnsupported"));
+        firstError = err;
       }
+      // A phone that does not say which way its lenses face refuses the
+      // `exact` facing outright (OverconstrainedError). Any other lens, picked
+      // by id, is the same thing asked differently.
+      if (!stream) {
+        const mainDeviceId = mainTrack.getSettings().deviceId;
+        const devices = await navigator.mediaDevices.enumerateDevices().catch(() => []);
+        const others = devices.filter((d) => d.kind === "videoinput" && d.deviceId && d.deviceId !== mainDeviceId);
+        for (const device of others) {
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: { ...video, deviceId: { exact: device.deviceId } },
+            });
+            break;
+          } catch (err) {
+            firstError ??= err;
+          }
+        }
+        if (!stream) {
+          // Permission refused or prompt dismissed: the person's answer, not
+          // the device's, so it is not remembered as "unsupported".
+          if (firstError && isCancelLikeError(firstError)) throw firstError;
+          fail(others.length === 0 && !firstError ? "no second camera found" : describe(firstError));
+        }
+      }
+      const opened = stream as MediaStream;
       await new Promise((resolve) => setTimeout(resolve, 1200));
       if (mainTrack.readyState === "ended" || mainTrack.muted) {
-        stream.getTracks().forEach((track) => track.stop());
+        const ended = mainTrack.readyState === "ended";
+        opened.getTracks().forEach((track) => track.stop());
         // The phone took the first camera away to open this one: give it back.
-        if (mainTrack.readyState === "ended") cameraStartRef.current();
-        throw new ShareStartError(t("useRoomMedia.dualCameraUnsupported"));
+        if (ended) cameraStartRef.current();
+        fail(ended ? "the first camera was closed by the system" : "the first camera was paused by the system");
       }
-      return stream;
+      return opened;
     },
     () => hasCameraCapture(),
     t("useRoomMedia.yourBrowserDoesNotSupportA"),
@@ -4255,6 +4303,7 @@ export function useRoomMedia(room: string) {
     addExtraScreen,
     // The other lens, at the same time (see camera2 above).
     dualCamera: camera2,
+    dualCameraSupported,
     isCameraSharing: camera.active,
     startCameraShare: camera.start,
     stopCameraShare: camera.stop,

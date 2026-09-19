@@ -150,7 +150,7 @@ export function useTileExperimentTip(
   available: boolean,
   options: { everyone?: boolean } = {}
 ) {
-  const { tipKey } = CONFIG[experiment];
+  const { tipKey, feature } = CONFIG[experiment];
   const everyone = options.everyone ?? false;
   const seen = useSyncExternalStore(subscribe, () => read(tipKey) === "1", () => true);
   useEffect(() => {
@@ -161,7 +161,9 @@ export function useTileExperimentTip(
     dismiss: () => write(tipKey, "1"),
     /** The tip's target was clicked while it showed: counted, then gone. */
     clicked: () => {
-      trackFeatureEvent(TIP_CLICK_EVENT);
+      // Only this tip's feature: a click on another experiment's tip must not
+      // show up in this one's count just because the person is in both.
+      trackFeatureEvent(TIP_CLICK_EVENT, { feature });
       write(tipKey, "1");
     },
   };
