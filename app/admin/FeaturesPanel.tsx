@@ -777,6 +777,10 @@ function TargetingSection({ feature, busy, save }: { feature: AdminFeature; busy
             if (variantsChanged && !window.confirm(t("admin.features.variantsWarning"))) return;
             if (weightsChanged && !window.confirm(t("admin.features.weightsWarning"))) return;
             if (variantList.length > 1 && sharesTotal <= 0) return;
+            const nextSiteEvents = splitList(siteEvents.toLowerCase());
+            const addedSiteEvents = nextSiteEvents.filter(
+              (event) => !(feature.clientEvents ?? []).includes(event) && !(feature.pinnedEvents ?? []).includes(event)
+            );
             void save({
               name: name.trim(),
               description: description.trim(),
@@ -786,7 +790,13 @@ function TargetingSection({ feature, busy, save }: { feature: AdminFeature; busy
               platforms,
               includeGuests,
               serverOnly,
-              clientEvents: splitList(siteEvents.toLowerCase()),
+              clientEvents: nextSiteEvents,
+              // A site event added here is one this feature exists to measure,
+              // so it starts pinned in its stats. Only the newly added ones:
+              // an event somebody already unpinned stays unpinned.
+              ...(addedSiteEvents.length > 0 && (feature.pinnedEvents ?? []).length > 0
+                ? { pinnedEvents: [...(feature.pinnedEvents ?? []), ...addedSiteEvents] }
+                : {}),
               // Overrides naming a treatment that no longer exists fall back
               // to the first one rather than failing the whole save.
               overrides: overrides.map((entry) =>
@@ -872,10 +882,14 @@ function StatsSection({
   // Pinned events are what the experiment is about (purchases on the /pro
   // page), so they come first — even before any traffic, as an empty table.
   // Everything else still counts; it is just folded away below them.
-  const pinned = useMemo(
-    () => (feature.pinnedEvents ?? []).filter((event) => event !== TIP_CLICK_EVENT),
-    [feature.pinnedEvents]
-  );
+  //
+  // A feature with nothing pinned yet shows its own site events as pinned:
+  // they are what it was set up to measure. The first star clicked then saves
+  // that list for real (see togglePin), and from there it is what is stored.
+  const pinned = useMemo(() => {
+    const stored = feature.pinnedEvents ?? [];
+    return (stored.length > 0 ? stored : feature.clientEvents ?? []).filter((event) => event !== TIP_CLICK_EVENT);
+  }, [feature.pinnedEvents, feature.clientEvents]);
   // The "recurso novo" tooltip's click (see lib/clipsMode) is shown as a count
   // beside "Exposições" rather than as a table: whether the tip worked is a
   // question every feature has. Still offered in the daily chart below.
