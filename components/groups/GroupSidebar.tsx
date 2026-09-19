@@ -101,6 +101,7 @@ import { openProModal } from "@/lib/proModal";
 import { useFeature } from "@/lib/features";
 import { GROUP_AURA_BADGE, GROUP_AURA_FEATURE } from "@/lib/groupAura";
 import { NewBadge } from "@/components/NewBadge";
+import { GROUP_MOVE_FEATURE, canMoveTo, mayMoveMember, moveGroupMember } from "@/lib/groupMove";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
 import { avatarShapeClass } from "@/lib/avatarShape";
@@ -193,8 +194,21 @@ const VoicePersonRow = memo(function VoicePersonRow({
   groupId,
   channelId = null,
   onNavigate,
+  dragProps,
+  dimmed = false,
 }: {
   person: GroupVoiceLivePerson;
+  /**
+   * Makes them something to pick up and drop on another voice room — for
+   * whoever may move them (see lib/groupMove). Absent for everybody else.
+   */
+  dragProps?: {
+    draggable: true;
+    onDragStart: (e: DragEvent<HTMLLIElement>) => void;
+    onDragEnd: () => void;
+  };
+  /** They are the one being dragged. */
+  dimmed?: boolean;
   color?: string | null;
   groupId: string;
   /**
@@ -223,7 +237,7 @@ const VoicePersonRow = memo(function VoicePersonRow({
     // The profile link and the volume sit side by side rather than one inside
     // the other: the slider has buttons of its own, and a button inside a
     // button is not something a browser will build.
-    <li className="flex items-center gap-0.5">
+    <li className={`flex items-center gap-0.5 ${dimmed ? "opacity-40" : ""}`} {...dragProps}>
       <button
         type="button"
         onClick={(e) => clickPerson(e, target)}
@@ -314,7 +328,11 @@ const VoicePersonRow = memo(function VoicePersonRow({
 });
 
 /** What is being dragged in the rooms list, and where it would land. */
-type RoomDrag = { type: "channel"; id: string } | { type: "category"; id: string };
+type RoomDrag =
+  | { type: "channel"; id: string }
+  | { type: "category"; id: string }
+  // Somebody in a call, on their way to another voice room — see lib/groupMove.
+  | { type: "person"; userId: string; fromChannelId: string };
 type DropHint =
   | { type: "before" | "after"; channelId: string }
   | { type: "into"; categoryId: string | null }
@@ -376,6 +394,8 @@ export function GroupRoomsPanel({
   const [renaming, setRenaming] = useState<{ id: string; draft: string } | null>(null);
   const [drag, setDrag] = useState<RoomDrag | null>(null);
   const [hint, setHint] = useState<DropHint | null>(null);
+  // The voice room a person being dragged would be moved to.
+  const [moveOver, setMoveOver] = useState<string | null>(null);
   const [layoutError, setLayoutError] = useState<string | null>(null);
 
   const { group, channels, voice, voiceRooms: voiceRoomStates } = detail;
@@ -384,6 +404,11 @@ export function GroupRoomsPanel({
   // A room's settings also hold its webhooks, so whoever manages webhooks
   // (without managing rooms) gets the gear too — and sees only that tab.
   const canOpenRoomSettings = isManager || canManage(detail, "manageWebhooks");
+  // Dragging somebody in a call onto another voice room moves them, the same
+  // as the member menu's "Mover para" (see lib/groupMove). Exposure is counted
+  // by that menu, not here.
+  const moveFeature = useFeature(GROUP_MOVE_FEATURE, { group: group.id, track: false });
+  const canDragMembers = moveFeature.enabled && canManage(detail, "moveMembers");
   const { collapsed, toggle: toggleCollapsed } = useCollapsedCategories(group.id);
   const sections = useMemo(() => buildSections(channels, detail.categories ?? []), [channels, detail.categories]);
   const hasCategories = sections.length > 1;
@@ -703,6 +728,7 @@ export function GroupRoomsPanel({
   function endDrag() {
     setDrag(null);
     setHint(null);
+    setMoveOver(null);
   }
 
   function commitLayout(next: LayoutSection[]) {
@@ -777,7 +803,7 @@ export function GroupRoomsPanel({
     };
     return {
       onDragOver: (e: DragEvent<HTMLElement>) => {
-        if (!drag) return;
+        if (!drag || drag.type === "person") return;
         if (drag.type === "category" && category?.id === drag.id) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = "move";
@@ -786,7 +812,7 @@ export function GroupRoomsPanel({
         else showHint({ type: categoryPlace(e) === "after" ? "category-after" : "category-before", categoryId: category.id });
       },
       onDrop: (e: DragEvent<HTMLElement>) => {
-        if (!drag) return;
+        if (!drag || drag.type === "person") return;
         e.preventDefault();
         if (drag.type === "channel") {
           dropChannel(categoryId, null);
@@ -803,6 +829,60 @@ export function GroupRoomsPanel({
           categoryPlace(e) === "after" ? sections[index + 1]?.category?.id ?? null : category.id;
         dropCategory(beforeId);
       },
+    };
+  }
+
+  /**
+   * A voice room's drag handlers: a room being reordered (channelDragProps),
+   * and a person being moved into it — dropped anywhere on the room, its
+   * people included.
+   */
+  function voiceRoomDragProps(channel: GroupChannel) {
+    const base = channelDragProps(channel) as Partial<ReturnType<typeof channelDragProps> & {
+      onDragOver: (e: DragEvent<HTMLLIElement>) => void;
+      onDrop: (e: DragEvent<HTMLLIElement>) => void;
+    }>;
+    if (!canDragMembers) return base;
+    const accepts = () =>
+      drag?.type === "person" && canMoveTo(detail, drag.userId, channel, drag.fromChannelId);
+    return {
+      ...base,
+      onDragOver: (e: DragEvent<HTMLLIElement>) => {
+        if (drag?.type !== "person") return base.onDragOver?.(e);
+        if (!accepts()) return;
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = "move";
+        if (moveOver !== channel.id) setMoveOver(channel.id);
+      },
+      onDragLeave: (e: DragEvent<HTMLLIElement>) => {
+        // Leaving for one of its own children is not leaving the room.
+        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+        setMoveOver((current) => (current === channel.id ? null : current));
+      },
+      onDrop: (e: DragEvent<HTMLLIElement>) => {
+        if (drag?.type !== "person") return base.onDrop?.(e);
+        e.preventDefault();
+        e.stopPropagation();
+        if (accepts()) moveGroupMember(group.id, drag.userId, channel.id, "drag");
+        endDrag();
+      },
+    };
+  }
+
+  /** What makes somebody in a call something to drag onto another voice room. */
+  function personDragProps(person: GroupVoiceLivePerson, fromChannelId: string) {
+    if (!canDragMembers || !mayMoveMember(detail, person.userId)) return undefined;
+    return {
+      draggable: true as const,
+      onDragStart: (e: DragEvent<HTMLLIElement>) => {
+        // Not the room it sits in, which is draggable too for a manager.
+        e.stopPropagation();
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", person.userId);
+        setDrag({ type: "person", userId: person.userId, fromChannelId });
+      },
+      onDragEnd: endDrag,
     };
   }
 
@@ -894,8 +974,10 @@ export function GroupRoomsPanel({
     return (
       <li
         key={channel.id}
-        className={`relative ${drag?.type === "channel" && drag.id === channel.id ? "opacity-40" : ""}`}
-        {...channelDragProps(channel)}
+        className={`relative rounded-lg ${drag?.type === "channel" && drag.id === channel.id ? "opacity-40" : ""} ${
+          moveOver === channel.id ? "bg-blue-500/10 ring-2 ring-blue-500" : ""
+        }`}
+        {...voiceRoomDragProps(channel)}
       >
         {edgeLine(channel.id)}
         {/* Only the room's own row joins it. The people under it are their
@@ -938,6 +1020,8 @@ export function GroupRoomsPanel({
                 groupId={group.id}
                 channelId={locked ? null : channel.id}
                 onNavigate={onNavigate}
+                dragProps={personDragProps(person, channel.id)}
+                dimmed={drag?.type === "person" && drag.userId === person.userId}
               />
             ))}
           </ul>

@@ -42,10 +42,7 @@ import { copyText } from "@/lib/clipboard";
 import { openDirectMessages } from "@/lib/dmWindow";
 import { mentionInComposer, useCanMention } from "@/lib/groupMentionBridge";
 import {
-  canInChannel,
   canManage,
-  isAdministrator,
-  memberCanInChannel,
   myRank,
   rankOf,
   roleColorOf,
@@ -57,20 +54,16 @@ import {
 import { useGroupVoiceControls, useGroupVoiceLive } from "@/lib/groupVoiceSession";
 import { banMember, kickMember, setMemberRoles, transferGroup, type GroupDetail } from "@/lib/groupsApi";
 import { refreshGroup } from "@/lib/useGroups";
-import { signalingClient } from "@/lib/signalingClient";
-import { trackFeatureEvent, useFeature } from "@/lib/features";
-import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
-
-/** The experiment behind "Mover para" — and the NewBadge's id. */
-export const GROUP_MOVE_FEATURE = "group-move-members";
-
-/** The voice room somebody is in, by the group's own record of its calls — null when in none. */
-function voiceChannelOf(detail: GroupDetail, userId: string): string | null {
-  for (const [channelId, people] of Object.entries(detail.voice ?? {})) {
-    if (people.some((p) => p.userId === userId)) return channelId;
-  }
-  return null;
-}
+import { useFeature } from "@/lib/features";
+import { NewBadge } from "@/components/NewBadge";
+import {
+  GROUP_MOVE_FEATURE,
+  canMoveTo,
+  couldConnect,
+  mayMoveMember,
+  moveGroupMember,
+  voiceChannelOf,
+} from "@/lib/groupMove";
 import { useT } from "@/lib/useI18n";
 
 // What can be done about one person in a group, in the two places it is
@@ -331,26 +324,13 @@ function MemberMenu({ detail, target }: { detail: GroupDetail; target: GroupProf
   const color = roleColorOf(detail, { id: target.id, roleIds: rules.roleIds });
   const heldIds = pendingRoles ?? rules.roleIds;
 
-  // "Mover para": somebody in one of the group's calls, to another of its
-  // voice rooms — "Conectar" or not, that's the point (see the API's
-  // "group-move-member"). The same limits the API keeps: nobody moves the
-  // owner, and only the owner moves an administrator. Only rooms both of you
-  // can see, since the one they can't would be answered as not existing.
-  const targetSubject = { id: target.id, roleIds: rules.roleIds };
+  // "Mover para" — see lib/groupMove, whose rules dragging them in the rooms
+  // list follows too.
   const fromChannelId = voiceChannelOf(detail, target.id);
-  const mayMove =
-    fromChannelId !== null &&
-    canManage(detail, "moveMembers") &&
-    (rules.self || detail.me.role === "owner" || !isAdministrator(detail, targetSubject));
+  const mayMove = fromChannelId !== null && mayMoveMember(detail, target.id);
   const moveFeature = useFeature(GROUP_MOVE_FEATURE, { group: groupId, track: mayMove });
   const destinations = mayMove
-    ? detail.channels.filter(
-        (c) =>
-          c.kind === "voice" &&
-          c.id !== fromChannelId &&
-          canInChannel(detail, c, "viewChannel") &&
-          memberCanInChannel(detail, c, targetSubject, "viewChannel")
-      )
+    ? detail.channels.filter((c) => canMoveTo(detail, target.id, c, fromChannelId))
     : [];
   const canMove = mayMove && moveFeature.enabled && destinations.length > 0;
 
@@ -503,19 +483,13 @@ function MemberMenu({ detail, target }: { detail: GroupDetail; target: GroupProf
                   <button
                     key={channel.id}
                     type="button"
-                    onClick={() =>
-                      act(() => {
-                        signalingClient.moveGroupMember(groupId, target.id, channel.id);
-                        markFeatureUsed(GROUP_MOVE_FEATURE);
-                        trackFeatureEvent("group_move_member", { group: groupId, feature: GROUP_MOVE_FEATURE });
-                      })
-                    }
+                    onClick={() => act(() => moveGroupMember(groupId, target.id, channel.id, "menu"))}
                     className={menuItem}
                   >
                     <MdVolumeUp className={menuIcon} />
                     <span className="flex-1 truncate">{channel.name}</span>
                     {/* They couldn't join it themselves — the move takes them in anyway. */}
-                    {!memberCanInChannel(detail, channel, targetSubject, "connect") && (
+                    {!couldConnect(detail, target.id, channel) && (
                       <MdLock className="h-3.5 w-3.5 shrink-0 opacity-50" />
                     )}
                   </button>
