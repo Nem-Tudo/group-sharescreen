@@ -32,7 +32,8 @@ export function isExtraScreenSlot(value: string): value is ExtraScreenSlot {
 export const MULTI_SCREEN_LIMITS: Record<FeatureTier, number> = {
   free: 2,
   account: 2,
-  premium: 3,
+  // Same as free on purpose: more screens is a Pro Max perk.
+  premium: 2,
   premium_max: 5,
   pro_ultra: 10,
 };
@@ -47,5 +48,20 @@ export function multiScreenLimit(flags: readonly string[] | undefined | null): n
 export const MULTI_SCREEN_EVENTS = {
   add: "multi_screen_add", // value: how many screens are going out after it
   limit: "multi_screen_limit_hit", // value: the limit that was hit
+  upgradeClick: "multi_screen_upgrade_click", // opened the plans from the "+"
   dualCamera: "dual_camera_start", // front and rear cameras at once
 } as const;
+
+// The next rung that raises the limit, for the upsell beside the counter —
+// null on the top one. Pro gives nothing more than free, so it points at Pro
+// Max like free does.
+export function nextScreenUpgrade(
+  flags: readonly string[] | undefined | null
+): { tier: "premium_max" | "pro_ultra"; planId: string; limit: number } | null {
+  const tier = accountTierOf(flags);
+  if (tier === "pro_ultra") return null;
+  if (tier === "premium_max") {
+    return { tier: "pro_ultra", planId: "pro_ultra", limit: MULTI_SCREEN_LIMITS.pro_ultra };
+  }
+  return { tier: "premium_max", planId: "premium_max", limit: MULTI_SCREEN_LIMITS.premium_max };
+}

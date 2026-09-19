@@ -3248,7 +3248,7 @@
   "watch.watchRoom.screen": "Screen",
   "watch.watchRoom.closeScreen": "Close",
   "watch.watchRoom.addAnotherScreen": "Share another screen or window ({count}/{limit})",
-  "watch.watchRoom.screenLimitReached": "You are already sharing {limit} screens, your plan's limit. Free: 2 · Pro: 3 · Pro Max: 5 · Pro Ultra: 10.",
+  "watch.watchRoom.screenLimitReached": "You reached your plan's limit: {limit} screens at the same time.",
   "watch.watchRoom.beingRecordedBy": "Your broadcast is being recorded by {names}",
   "watch.watchRoom.moreOptionsPullUp": "More options (pull up)",
   "watch.watchRoom.musicOnProfiles": "Music on profiles",
@@ -3653,5 +3653,8 @@
   "useRoomMedia.dualCameraUnsupported": "Your phone does not allow using the front and rear cameras at the same time.",
   "watch.watchRoom.dualCameraOn": "Share both cameras (front and rear)",
   "watch.watchRoom.dualCameraOff": "Stop the second camera",
-  "watch.watchRoom.secondCamera": "camera 2"
+  "watch.watchRoom.secondCamera": "camera 2",
+  "watch.watchRoom.upgradeScreensTitle": "{plan}: up to {limit} screens",
+  "watch.watchRoom.upgradeScreensHint": "Share more monitors and windows at the same time with {plan}.",
+  "watch.watchRoom.seePlans": "See plans"
 }

@@ -196,7 +196,10 @@ import {
   isExtraScreenSlot,
   MULTI_SCREEN_EVENTS,
   multiScreenLimit,
+  nextScreenUpgrade,
 } from "@/lib/multiScreen";
+import { planIcon } from "@/components/planIcons";
+import { TIER_NAMES, tierIconId } from "@/lib/entitlements";
 import { useRecordingNotices } from "@/lib/recordingNotice";
 import { sendTileCommand } from "@/lib/tileCommands";
 import { getRoomProOffer } from "@/components/RoomProOffer";
@@ -776,6 +779,8 @@ function ShareControls({
     limit: number;
     onClick: () => void;
     items: { id: string; label: string; onStop: () => void }[];
+    // The next plan with a higher limit, null on the top one.
+    upgrade: { tier: "premium_max" | "pro_ultra"; limit: number; onClick: () => void } | null;
     // The blue "novo" tip, pinned under the "+" while it shows.
     tip: { show: boolean; dismiss: () => void; clicked: () => void };
   } | null;
@@ -858,6 +863,8 @@ function ShareControls({
   // gets the flip button instead (see below), never both.
   const canPickCamera = cameraSupported && !onPhone && cameraDevices.length > 1;
   const screenBlocked = !screenSharing && Boolean(screenBlockedReason);
+  const atScreenLimit = Boolean(addScreen && addScreen.count >= addScreen.limit);
+  const upgradeMark = addScreen?.upgrade ? planIcon(tierIconId(addScreen.upgrade.tier)) : null;
   const cameraBlocked = !cameraSharing && Boolean(cameraBlockedReason);
   const screenLabel = screenSharing
     ? t("watch.watchRoom.stopSharingTheScreen")
@@ -969,13 +976,42 @@ function ShareControls({
           placement="bottom"
           interactive
           content={
-            <div className="flex w-64 max-w-[calc(100vw-2rem)] flex-col gap-1.5">
-              <span className="inline-flex items-center gap-1.5">
-                {addScreen.count >= addScreen.limit
+            <div className="flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-2">
+              <span className="inline-flex items-center gap-1.5 font-semibold">
+                {atScreenLimit
                   ? t("watch.watchRoom.screenLimitReached", { limit: addScreen.limit })
                   : t("watch.watchRoom.addAnotherScreen", { count: addScreen.count, limit: addScreen.limit })}
                 <NewBadge id="multi-screen-share" />
               </span>
+              {addScreen.upgrade && upgradeMark && (
+                <button
+                  type="button"
+                  onClick={addScreen.upgrade.onClick}
+                  className={`group flex items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition ${
+                    atScreenLimit
+                      ? "border-amber-400/60 bg-amber-400/15 hover:bg-amber-400/25"
+                      : "border-white/15 bg-white/5 hover:bg-white/10"
+                  }`}
+                >
+                  <upgradeMark.Icon className={`h-6 w-6 shrink-0 ${upgradeMark.className}`} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold">
+                      {t("watch.watchRoom.upgradeScreensTitle", {
+                        plan: TIER_NAMES[addScreen.upgrade.tier],
+                        limit: addScreen.upgrade.limit,
+                      })}
+                    </span>
+                    <span className="block text-xs opacity-80">
+                      {t("watch.watchRoom.upgradeScreensHint", {
+                        plan: TIER_NAMES[addScreen.upgrade.tier],
+                      })}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-xs font-semibold opacity-80 transition group-hover:translate-x-0.5 group-hover:opacity-100">
+                    {t("watch.watchRoom.seePlans")} →
+                  </span>
+                </button>
+              )}
               {addScreen.items.length > 0 && (
                 <ul className="flex flex-col gap-1 border-t border-white/15 pt-1.5">
                   {addScreen.items.map((item) => (
@@ -1005,14 +1041,23 @@ function ShareControls({
               addScreen.onClick();
             }}
             aria-label={t("watch.watchRoom.addAnotherScreen", { count: addScreen.count, limit: addScreen.limit })}
-            className={`${segment} border-l border-black/15 px-2 ${live} ${
-              addScreen.count >= addScreen.limit ? "opacity-50" : ""
-            }`}
+            className={`${segment} gap-1.5 border-l border-black/15 px-2.5 ${live}`}
           >
-            <MdAdd className="h-4 w-4" />
-            <span className="ml-0.5 text-xs font-semibold tabular-nums">
-              {addScreen.count}/{addScreen.limit}
+            <span className={`flex items-center ${atScreenLimit ? "opacity-60" : ""}`}>
+              <MdAdd className="h-4 w-4" />
+              <span className="ml-0.5 text-xs font-semibold tabular-nums">
+                {addScreen.count}/{addScreen.limit}
+              </span>
             </span>
+            {/* The next plan's limit, right after the counter. */}
+            {addScreen.upgrade && upgradeMark && (
+              <span className="flex items-center gap-1 rounded-md bg-black/25 px-1.5 py-0.5 text-[11px] font-semibold leading-none">
+                <upgradeMark.Icon className={`h-3.5 w-3.5 shrink-0 ${upgradeMark.className}`} />
+                <span className="whitespace-nowrap">
+                  {TIER_NAMES[addScreen.upgrade.tier]}: {addScreen.upgrade.limit}
+                </span>
+              </span>
+            )}
           </button>
         </Tooltip>
         </span>
@@ -1749,6 +1794,7 @@ export function WatchRoom({
   const multiScreenTip = useTileExperimentTip("multiScreen", multiScreenMode.active, { everyone: true });
   // How many screens/windows (the first included) this account may share.
   const screenLimit = multiScreenLimit(account?.flags);
+  const screenUpgrade = nextScreenUpgrade(account?.flags);
   // One blue tip at a time; the other waits for the next visit.
   const newFeatureTip = clipsTip.show
     ? { ...clipsTip, text: "watch.watchRoom.clipsModeTip" }
@@ -5353,6 +5399,11 @@ export function WatchRoom({
             const count = (localStream ? 1 : 0) + extraScreensActive;
             if (count >= screenLimit) {
               trackFeatureEvent(MULTI_SCREEN_EVENTS.limit, { value: screenLimit });
+              // The modal rather than the page: leaving would end the call.
+              if (screenUpgrade) {
+                trackFeatureEvent(MULTI_SCREEN_EVENTS.upgradeClick);
+                openProModal(screenUpgrade.planId);
+              }
               return;
             }
             trackFeatureEvent(MULTI_SCREEN_EVENTS.add, { value: count + 1 });
@@ -5363,6 +5414,16 @@ export function WatchRoom({
             else void addExtraScreen();
           },
           tip: multiScreenTip,
+          upgrade: screenUpgrade
+            ? {
+                tier: screenUpgrade.tier,
+                limit: screenUpgrade.limit,
+                onClick: () => {
+                  trackFeatureEvent(MULTI_SCREEN_EVENTS.upgradeClick);
+                  openProModal(screenUpgrade.planId);
+                },
+              }
+            : null,
           items: [
             ...(localStream
               ? [{ id: "screen", label: `${translate("watch.watchRoom.screen")} 1`, onStop: stopShare }]

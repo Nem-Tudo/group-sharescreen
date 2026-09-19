@@ -3248,7 +3248,7 @@
   "watch.watchRoom.screen": "Pantalla",
   "watch.watchRoom.closeScreen": "Cerrar",
   "watch.watchRoom.addAnotherScreen": "Transmitir otra pantalla o ventana ({count}/{limit})",
-  "watch.watchRoom.screenLimitReached": "Ya transmites {limit} pantallas, el límite de tu plan. Normal: 2 · Pro: 3 · Pro Max: 5 · Pro Ultra: 10.",
+  "watch.watchRoom.screenLimitReached": "Llegaste al límite de tu plan: {limit} pantallas a la vez.",
   "watch.watchRoom.beingRecordedBy": "Tu transmisión está siendo grabada por {names}",
   "watch.watchRoom.moreOptionsPullUp": "Más opciones (desliza hacia arriba)",
   "watch.watchRoom.musicOnProfiles": "Música en los perfiles",
@@ -3653,5 +3653,8 @@
   "useRoomMedia.dualCameraUnsupported": "Tu celular no permite usar la cámara frontal y la trasera al mismo tiempo.",
   "watch.watchRoom.dualCameraOn": "Transmitir las dos cámaras (frontal y trasera)",
   "watch.watchRoom.dualCameraOff": "Detener la segunda cámara",
-  "watch.watchRoom.secondCamera": "cámara 2"
+  "watch.watchRoom.secondCamera": "cámara 2",
+  "watch.watchRoom.upgradeScreensTitle": "{plan}: hasta {limit} pantallas",
+  "watch.watchRoom.upgradeScreensHint": "Transmite más monitores y ventanas a la vez con {plan}.",
+  "watch.watchRoom.seePlans": "Ver planes"
 }
