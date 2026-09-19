@@ -25,7 +25,7 @@ import { tierForRenderedSize, MAX_TIER_FPS, WORST_TIER, type QualityTier } from 
 // share, and each wants the same per-viewer downscaling as the other two.
 // "screen2".."screen10" are the extra screens of "Várias telas" (see
 // lib/multiScreen.ts), for the same reason.
-export type QualityChannel = "screen" | "camera" | "file1" | "file2" | "file3" | ExtraScreenSlot;
+export type QualityChannel = "screen" | "camera" | "camera2" | "file1" | "file2" | "file3" | ExtraScreenSlot;
 
 interface Entry {
   width: number;

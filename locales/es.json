@@ -3648,5 +3648,10 @@
   "admin.features.skippedTitle": "Eventos ignorados",
   "admin.features.skippedHint": "Llegaron a esta feature pero no entraron en ningún grupo (forzados, no elegibles o feature apagada).",
   "pro.proPanel.shareUpToScreens": "Transmite hasta {count} pantallas o ventanas a la vez (gratis: {free})",
-  "pro.compare.screensAtOnce": "Pantallas a la vez"
+  "pro.compare.screensAtOnce": "Pantallas a la vez",
+  "useRoomMedia.dualCameraNeedsCamera": "Enciende la cámara primero para usar las dos a la vez.",
+  "useRoomMedia.dualCameraUnsupported": "Tu celular no permite usar la cámara frontal y la trasera al mismo tiempo.",
+  "watch.watchRoom.dualCameraOn": "Transmitir las dos cámaras (frontal y trasera)",
+  "watch.watchRoom.dualCameraOff": "Detener la segunda cámara",
+  "watch.watchRoom.secondCamera": "cámara 2"
 }

@@ -115,7 +115,9 @@ import {
 // alongside a screen share.
 // "screen2".."screen10" are the extra screens/windows of "Várias telas" (see
 // lib/multiScreen.ts) — siblings of "screen" for the same reason.
-type Channel = "screen" | "camera" | "mic" | LocalMediaSlot | ExtraScreenSlot;
+// "camera2" is the phone's other lens, sent alongside "camera" (front and
+// rear at once) — see the dual camera below.
+type Channel = "screen" | "camera" | "camera2" | "mic" | LocalMediaSlot | ExtraScreenSlot;
 // Where the screen channel's picture comes from. "display" is a real screen
 // capture; "camera" is the phone fallback (no getDisplayMedia there, so
 // "compartilhar tela" opens the camera). A local file is *not* one of these:
@@ -3594,6 +3596,64 @@ export function useRoomMedia(room: string) {
     cameraQualityPreset
   );
 
+  // Front and rear at once: "camera2" opens the lens facing the other way from
+  // the one "camera" is on. Whether a phone allows two cameras open at the
+  // same time is up to the phone — many (every iPhone, plenty of Androids)
+  // pause or end the first one the moment the second opens, without an error.
+  // So after opening it we watch the first camera for a moment, and if it went
+  // quiet we close the second and say so, instead of leaving a frozen tile.
+  const cameraStreamRef = useRef<MediaStream | null>(null);
+  const cameraStartRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    cameraStreamRef.current = camera.localStream;
+    cameraStartRef.current = () => void camera.start();
+  });
+  const camera2 = useBroadcastChannel(
+    "camera2",
+    room,
+    async () => {
+      const mainTrack = cameraStreamRef.current?.getVideoTracks()[0];
+      if (!mainTrack) throw new ShareStartError(t("useRoomMedia.dualCameraNeedsCamera"));
+      const mainFacing = mainTrack.getSettings().facingMode ?? cameraFacingRef.current;
+      const other: CameraFacing = mainFacing === "environment" ? "user" : "environment";
+      const dims = RESOLUTION_DIMENSIONS[shareResolutionRef.current];
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: dims.width },
+            height: { ideal: dims.height },
+            frameRate: { ideal: shareFpsRef.current },
+            facingMode: { exact: other },
+          },
+        });
+      } catch (err) {
+        if (isCancelLikeError(err)) throw err;
+        throw new ShareStartError(t("useRoomMedia.dualCameraUnsupported"));
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      if (mainTrack.readyState === "ended" || mainTrack.muted) {
+        stream.getTracks().forEach((track) => track.stop());
+        // The phone took the first camera away to open this one: give it back.
+        if (mainTrack.readyState === "ended") cameraStartRef.current();
+        throw new ShareStartError(t("useRoomMedia.dualCameraUnsupported"));
+      }
+      return stream;
+    },
+    () => hasCameraCapture(),
+    t("useRoomMedia.yourBrowserDoesNotSupportA"),
+    t("useRoomMedia.couldNotStartTheCameraCheck"),
+    forceRelayIce,
+    autoJoin,
+    cameraQualityPreset
+  );
+  // The second lens only makes sense next to the first.
+  const cameraIsActive = camera.active;
+  const camera2Stop = camera2.stop;
+  useEffect(() => {
+    if (!cameraIsActive) camera2Stop();
+  }, [cameraIsActive, camera2Stop]);
+
   // A local video or audio file played into the room (see
   // lib/localMediaSource.ts). Its own channel, and that is the whole point:
   // the file used to ride the screen channel, which meant putting a film on
@@ -3671,6 +3731,8 @@ export function useRoomMedia(room: string) {
   // negotiated parameters refuse), and a camera control that silently did
   // nothing would be worse than one that blinks.
   const reopenCameraCaptures = useCallback(() => {
+    // Turning the first camera round would point both at the same side.
+    if (camera2.active) camera2.stop();
     if (camera.active) {
       void camera.swapCapture().then((swapped) => {
         if (swapped || !camera.active) return;
@@ -3688,7 +3750,7 @@ export function useRoomMedia(room: string) {
         screen.start("camera");
       });
     }
-  }, [camera, screen]);
+  }, [camera, camera2, screen]);
 
   // Flips between the front and rear camera. The phone's version of the
   // picker below, and deliberately not built on it: on Android the lens ids
@@ -3787,10 +3849,10 @@ export function useRoomMedia(room: string) {
       // The extra screens are not announced one by one (the server knows
       // nothing about them); they count as the person sharing a screen.
       screen: screen.active || extraScreensActive > 0,
-      camera: camera.active,
+      camera: camera.active || camera2.active,
       files: JSON.parse(announcedFilesKey) as typeof announcedFiles,
     });
-  }, [screen.active, extraScreensActive, camera.active, announcedFilesKey]);
+  }, [screen.active, extraScreensActive, camera.active, camera2.active, announcedFilesKey]);
 
   // Capacity measurement and the cascade decision. Both are driven by the
   // screen channel only: it is the expensive one, and the mic's ~32 kbps is
@@ -3833,7 +3895,8 @@ export function useRoomMedia(room: string) {
       unsubscribe();
     };
   }, []);
-  const sharingAnything = screen.active || camera.active || anyFileActive || extraScreensActive > 0;
+  const sharingAnything =
+    screen.active || camera.active || camera2.active || anyFileActive || extraScreensActive > 0;
 
   const { capacity, self, reportLoad } = useMeshCapacity();
   const selfRef = useRef(self);
@@ -3877,6 +3940,10 @@ export function useRoomMedia(room: string) {
   // keeps one identity: the channel objects are fresh every render, and an
   // unstable getter would rebuild the interval below before it ever fired
   // (see the comment above getScreenTiers).
+  const camera2Ref = useRef(camera2);
+  useEffect(() => {
+    camera2Ref.current = camera2;
+  }, [camera2]);
   const extraScreensRef = useRef(extraScreens);
   useEffect(() => {
     extraScreensRef.current = extraScreens;
@@ -3902,6 +3969,7 @@ export function useRoomMedia(room: string) {
         ...(cameraActive ? getCameraTiers().values() : []),
         ...(fileActive ? getFileTiers() : []),
         ...getExtraScreenTiers(),
+        ...(camera2Ref.current.active ? camera2Ref.current.getRequestedTiers().values() : []),
       ];
       reportLoad(tiers);
     }, 4000);
@@ -4185,6 +4253,8 @@ export function useRoomMedia(room: string) {
     extraScreens,
     extraScreensActive,
     addExtraScreen,
+    // The other lens, at the same time (see camera2 above).
+    dualCamera: camera2,
     isCameraSharing: camera.active,
     startCameraShare: camera.start,
     stopCameraShare: camera.stop,

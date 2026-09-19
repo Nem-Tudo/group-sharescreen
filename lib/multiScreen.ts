@@ -47,4 +47,5 @@ export function multiScreenLimit(flags: readonly string[] | undefined | null): n
 export const MULTI_SCREEN_EVENTS = {
   add: "multi_screen_add", // value: how many screens are going out after it
   limit: "multi_screen_limit_hit", // value: the limit that was hit
+  dualCamera: "dual_camera_start", // front and rear cameras at once
 } as const;

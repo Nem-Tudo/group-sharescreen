@@ -1209,7 +1209,8 @@ function SwitchRoomFields({
 // can be playing three at once, so the owner alone no longer identifies one.
 // "screen-extra" tiles are the extra screens of "Várias telas" (see
 // lib/multiScreen.ts), addressed by `${slot}:${ownerId}` like the files.
-type TileKind = "screen" | "camera" | "file" | "video-source" | "screen-extra";
+// "camera2" is the phone's second lens (front and rear at once).
+type TileKind = "screen" | "camera" | "camera2" | "file" | "video-source" | "screen-extra";
 const SELF_TILE_OWNER = "self";
 
 function tileId(kind: TileKind, ownerId: string): string {
@@ -1235,7 +1236,15 @@ function parseTileId(id: string): { kind: TileKind; ownerId: string } | null {
   const kind = id.slice(0, separator);
   const ownerId = id.slice(separator + 1);
   if (!ownerId) return null;
-  if (kind !== "screen" && kind !== "camera" && kind !== "video-source" && kind !== "screen-extra") return null;
+  if (
+    kind !== "screen" &&
+    kind !== "camera" &&
+    kind !== "camera2" &&
+    kind !== "video-source" &&
+    kind !== "screen-extra"
+  ) {
+    return null;
+  }
   return { kind, ownerId };
 }
 
@@ -1435,6 +1444,7 @@ export function WatchRoom({
     extraScreens,
     extraScreensActive,
     addExtraScreen,
+    dualCamera,
     startCameraShare,
     stopCameraShare,
     localCameraStream,
@@ -2090,6 +2100,8 @@ export function WatchRoom({
         extraScreens[slot].resumingPeers.size > 0
     );
   const hasRemoteCameras =
+    Object.keys(dualCamera.remoteStreams).length > 0 ||
+    dualCamera.stoppedPeers.size > 0 ||
     Object.keys(remoteCameraStreams).length > 0 ||
     stoppedCameraPeers.size > 0 ||
     resumingCameraPeers.size > 0;
@@ -2698,6 +2710,11 @@ export function WatchRoom({
     if (target.kind === "video-source") {
       return !state.videoSources.some((v) => v.id === target.ownerId);
     }
+    if (target.kind === "camera2") {
+      return target.ownerId === SELF_TILE_OWNER
+        ? !dualCamera.localStream
+        : !(target.ownerId in dualCamera.remoteStreams);
+    }
     if (target.kind === "screen-extra") {
       const separator = target.ownerId.indexOf(":");
       const slot = target.ownerId.slice(0, separator);
@@ -2738,6 +2755,7 @@ export function WatchRoom({
     remoteCameraStreams,
     state.videoSources,
     extraScreens,
+    dualCamera,
   ]);
 
   // Who runs this room, and therefore which of its controls this viewer gets.
@@ -3866,6 +3884,18 @@ export function WatchRoom({
         )
       : []
     : remoteFileEntries;
+  // The second lens of everybody doing front and rear at once.
+  const remoteCamera2Entries = Object.entries(dualCamera.remoteStreams);
+  const visibleCamera2Entries = hyperfocusTarget
+    ? hyperfocusTarget.kind === "camera2"
+      ? remoteCamera2Entries.filter(([peerId]) => peerId === hyperfocusTarget.ownerId)
+      : []
+    : remoteCamera2Entries;
+  const localCamera2Visible =
+    Boolean(dualCamera.localStream) &&
+    !ownPreviewHidden &&
+    (!hyperfocusTarget ||
+      (hyperfocusTarget.kind === "camera2" && hyperfocusTarget.ownerId === SELF_TILE_OWNER));
   const visibleExtraScreenEntries = hyperfocusTarget
     ? hyperfocusTarget.kind === "screen-extra"
       ? remoteExtraScreenEntries.filter(
@@ -4227,6 +4257,18 @@ export function WatchRoom({
       )
       .map((p) => [slot, p] as const)
   );
+  const stoppedCamera2Entries = visiblePeers.filter(
+    (p) => dualCamera.stoppedPeers.has(p.id) && announcesCamera(p) && !(p.id in dualCamera.remoteStreams)
+  );
+  const resumingCamera2Entries = visiblePeers.filter(
+    (p) =>
+      dualCamera.resumingPeers.has(p.id) &&
+      !dualCamera.stoppedPeers.has(p.id) &&
+      announcesCamera(p) &&
+      !(p.id in dualCamera.remoteStreams)
+  );
+  const visibleStoppedCamera2Entries = activeHyperfocusId ? [] : stoppedCamera2Entries;
+  const visibleResumingCamera2Entries = activeHyperfocusId ? [] : resumingCamera2Entries;
   const visibleStoppedExtraScreenEntries = activeHyperfocusId ? [] : stoppedExtraScreenEntries;
   const visibleResumingExtraScreenEntries = activeHyperfocusId ? [] : resumingExtraScreenEntries;
   const visibleStoppedFileEntries = activeHyperfocusId ? [] : stoppedFileEntries;
@@ -4289,6 +4331,45 @@ export function WatchRoom({
           hasAccount={Boolean(state.account)}
           onObsSource={canUseObsSource ? () => void handleObsSource(id) : undefined}
           isObsActive={isTargetObsActive(id)}
+          overlayRightOffset={overlayRightOffset}
+          overlayLeftOffset={overlayLeftOffset}
+          isMicOn={isMicOn}
+          onToggleMic={toggleMic}
+          micsMuted={micsMuted}
+          onToggleMicsMuted={toggleMicsMuted}
+        />
+      ),
+    });
+  }
+
+  // Our second lens (front and rear at once). Its "stop" ends just that one.
+  if (localCamera2Visible && dualCamera.localStream) {
+    const id = tileId("camera2", SELF_TILE_OWNER);
+    const stream = dualCamera.localStream;
+    const label = `${translate("common.you")} (${translate("watch.watchRoom.secondCamera")})`;
+    tiles.push({
+      id,
+      render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
+        <VideoTile
+          tileId={id}
+          stream={stream}
+          detachWhenHidden={false}
+          label={label}
+          accessibleLabel={label}
+          badge={translate("watch.watchRoom.camera")}
+          muted
+          allowUnmute={false}
+          fill={fill}
+          compact={compact}
+          onStopWatching={() => dualCamera.stop()}
+          stopWatchingLabel={translate("watch.watchRoom.dualCameraOff")}
+          onDoubleClick={doubleClickFocus ? () => toggleSpotlight(id) : undefined}
+          onFocus={() => toggleSpotlight(id)}
+          isSpotlighted={spotlightId === id}
+          onHyperfocus={() => toggleHyperfocus(id)}
+          onNativePip={(ratio) => void enterNativePip(id, ratio)}
+          isHyperfocused={activeHyperfocusId === id}
+          hasAccount={Boolean(state.account)}
           overlayRightOffset={overlayRightOffset}
           overlayLeftOffset={overlayLeftOffset}
           isMicOn={isMicOn}
@@ -4660,6 +4741,56 @@ export function WatchRoom({
     });
   }
 
+  // Everybody else's second lens. Silent: the mic is its own channel.
+  for (const [peerId, stream] of visibleCamera2Entries) {
+    const peer = state.peers.find((p) => p.id === peerId);
+    const id = tileId("camera2", peerId);
+    tiles.push({
+      id,
+      render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
+        <VideoTile
+          tileId={id}
+          stream={stream}
+          label={
+            <span className="inline-flex items-center gap-1">
+              <DisplayUserName
+                name={peer?.name ?? translate("common.someone")}
+                isGuest={peer?.isGuest}
+                verified={verifiedBadge(peer?.flags)}
+                bot={peer?.bot}
+                color={peer?.nameColor}
+              />
+              <span>({translate("watch.watchRoom.secondCamera")})</span>
+            </span>
+          }
+          accessibleLabel={`${peer?.name ?? translate("common.someone")} (${translate("watch.watchRoom.secondCamera")})`}
+          badge={translate("watch.watchRoom.liveCamera")}
+          muted
+          allowUnmute={false}
+          fill={fill}
+          compact={compact}
+          onRenderedSizeChange={(w, h) => qualityNegotiator.report("camera2", peerId, w, h)}
+          onVisibilityChange={(visible) => qualityNegotiator.setHidden("camera2", peerId, !visible)}
+          onStopWatching={() => dualCamera.stopWatchingPeer(peerId)}
+          connectionStats={{ channel: "camera2", originId: peerId }}
+          onDoubleClick={doubleClickFocus ? () => toggleSpotlight(id) : undefined}
+          onFocus={() => toggleSpotlight(id)}
+          isSpotlighted={spotlightId === id}
+          onHyperfocus={() => toggleHyperfocus(id)}
+          onNativePip={(ratio) => void enterNativePip(id, ratio)}
+          isHyperfocused={activeHyperfocusId === id}
+          hasAccount={Boolean(state.account)}
+          overlayRightOffset={overlayRightOffset}
+          overlayLeftOffset={overlayLeftOffset}
+          isMicOn={isMicOn}
+          onToggleMic={toggleMic}
+          micsMuted={micsMuted}
+          onToggleMicsMuted={toggleMicsMuted}
+        />
+      ),
+    });
+  }
+
   // Everybody else's extra screens. Silent: the first screen carries the
   // system audio (see useExtraScreenChannel).
   for (const { slot, peerId, stream } of visibleExtraScreenEntries) {
@@ -4779,6 +4910,26 @@ export function WatchRoom({
   for (const peer of visibleResumingEntries) {
     tiles.push({
       id: tileId("screen", peer.id),
+      render: (fill) => <ResumingPeerTile fill={fill} />,
+    });
+  }
+
+  for (const peer of visibleStoppedCamera2Entries) {
+    tiles.push({
+      id: tileId("camera2", peer.id),
+      render: (fill) => (
+        <StoppedPeerTile
+          label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} bot={peer.bot} />}
+          fill={fill}
+          onResume={() => dualCamera.resumeWatchingPeer(peer.id)}
+        />
+      ),
+    });
+  }
+
+  for (const peer of visibleResumingCamera2Entries) {
+    tiles.push({
+      id: tileId("camera2", peer.id),
       render: (fill) => <ResumingPeerTile fill={fill} />,
     });
   }
@@ -5160,6 +5311,9 @@ export function WatchRoom({
     for (const [peerId] of remoteCameraEntries) {
       if (target?.kind !== "camera" || target.ownerId !== peerId) stopWatchingCameraPeer(peerId);
     }
+    for (const [peerId] of remoteCamera2Entries) {
+      if (target?.kind !== "camera2" || target.ownerId !== peerId) dualCamera.stopWatchingPeer(peerId);
+    }
     for (const { slot, peerId } of remoteExtraScreenEntries) {
       if (target?.kind !== "screen-extra" || target.ownerId !== `${slot}:${peerId}`) {
         extraScreens[slot].stopWatchingPeer(peerId);
@@ -5230,7 +5384,7 @@ export function WatchRoom({
   }
   // The first extra screen that failed to start, shown like shareError.
   const extraScreenError =
-    EXTRA_SCREEN_SLOTS.map((slot) => extraScreens[slot].error).find(Boolean) ?? null;
+    EXTRA_SCREEN_SLOTS.map((slot) => extraScreens[slot].error).find(Boolean) ?? dualCamera.error ?? null;
 
   // Shared prop bundle for every QualityControls instance on this page (the
   // desktop quick-access popover and the two share-button pickers below) —
@@ -8013,6 +8167,46 @@ export function WatchRoom({
                           <CameraIcon className="h-5 w-5" />
                         </button>
                       </Tooltip>
+                      {/* Front and rear at once — part of "Várias telas". */}
+                      {canSwitchCamera && multiScreenMode.active && localCameraStream && (
+                        <Tooltip
+                          content={
+                            <span className="inline-flex items-center gap-1.5">
+                              {dualCamera.active
+                                ? translate("watch.watchRoom.dualCameraOff")
+                                : translate("watch.watchRoom.dualCameraOn")}
+                              <NewBadge id="dual-camera" />
+                            </span>
+                          }
+                          wrapperClassName="flex shrink-0"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => {
+                              haptic("tap");
+                              if (dualCamera.active) {
+                                dualCamera.stop();
+                                return;
+                              }
+                              markFeatureUsed("dual-camera");
+                              trackFeatureEvent(MULTI_SCREEN_EVENTS.dualCamera);
+                              void dualCamera.start();
+                            }}
+                            aria-pressed={dualCamera.active}
+                            aria-label={
+                              dualCamera.active
+                                ? translate("watch.watchRoom.dualCameraOff")
+                                : translate("watch.watchRoom.dualCameraOn")
+                            }
+                            className={`relative flex h-11 w-7 shrink-0 items-center justify-center border-l border-white/20 text-white transition active:scale-95 ${
+                              dualCamera.active ? DOCK_LIVE : DOCK_ON
+                            }`}
+                          >
+                            <MdAdd className="h-3.5 w-3.5" />
+                            <CameraIcon className="-ml-0.5 h-3.5 w-3.5" />
+                          </button>
+                        </Tooltip>
+                      )}
                       {canSwitchCamera && (
                         <Tooltip content={switchCameraLabel} wrapperClassName="flex shrink-0">
                           <button

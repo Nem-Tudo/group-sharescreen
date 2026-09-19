@@ -3648,5 +3648,10 @@
   "admin.features.skippedTitle": "Skipped events",
   "admin.features.skippedHint": "They reached this feature but were not counted in any group (overrides, not eligible, or the feature was killed).",
   "pro.proPanel.shareUpToScreens": "Share up to {count} screens or windows at the same time (free: {free})",
-  "pro.compare.screensAtOnce": "Screens at once"
+  "pro.compare.screensAtOnce": "Screens at once",
+  "useRoomMedia.dualCameraNeedsCamera": "Turn the camera on first to use both at once.",
+  "useRoomMedia.dualCameraUnsupported": "Your phone does not allow using the front and rear cameras at the same time.",
+  "watch.watchRoom.dualCameraOn": "Share both cameras (front and rear)",
+  "watch.watchRoom.dualCameraOff": "Stop the second camera",
+  "watch.watchRoom.secondCamera": "camera 2"
 }

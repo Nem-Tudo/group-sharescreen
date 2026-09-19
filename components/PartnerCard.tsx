@@ -552,7 +552,7 @@ export function PartnerCard({
       style={isStage || maxCardHeight === null ? undefined : { maxHeight: maxCardHeight }}
       className={
         isStage
-          ? "relative w-full max-w-64 shrink-0 text-left"
+          ? "relative w-full max-w-xl shrink-0 text-left"
           : "relative mt-auto max-h-[33dvh] w-full shrink-0 overflow-y-auto lg:max-h-[45dvh]"
       }
       // Pointer events rather than mouse ones so a pen or a hovering trackpad
@@ -698,7 +698,14 @@ export function PartnerCard({
       )}
 
       <div
-        className="w-full overflow-hidden rounded-lg border border-zinc-200 p-3 dark:border-zinc-800 sm:p-4"
+        // On the stage, from sm up: its own horizontal layout — the image in a
+        // column of its own on the left, everything else stacked beside it —
+        // instead of the sidebar's tall card stretched across the pane.
+        className={`w-full overflow-hidden rounded-lg border border-zinc-200 p-3 dark:border-zinc-800 sm:p-4 ${
+          isStage && displayData.imageUrl
+            ? "sm:grid sm:grid-cols-[minmax(0,13rem)_minmax(0,1fr)] sm:gap-x-4 sm:[&>*:not(img)]:col-start-2"
+            : ""
+        }`}
         style={{
           backgroundColor: displayData.backgroundColor ?? "#ffffff",
           color: displayData.textColor ?? "#18181b",
@@ -753,7 +760,11 @@ export function PartnerCard({
             // Grows only from lg, not from sm: between the two the card is
             // still inside the shared drawer, where every pixel it takes is
             // one the participant list loses.
-            className="mb-2 max-h-20 w-full rounded-lg object-cover lg:max-h-32"
+            className={
+              isStage
+                ? "mb-2 aspect-video w-full rounded-lg object-cover sm:col-start-1 sm:row-span-6 sm:row-start-1 sm:mb-0 sm:aspect-square sm:self-center"
+                : "mb-2 max-h-20 w-full rounded-lg object-cover lg:max-h-32"
+            }
           />
         )}
 
