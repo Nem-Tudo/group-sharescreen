@@ -7,7 +7,7 @@ import type { NextConfig } from "next";
 // server on register and counted there as sharescreen_clients_by_version
 // (see lib/buildVersion.ts and the API's metrics.ts).
 //
-// `<versão do package>.<número do build>.<commit>`, e.g. "0.1.17.842.e6681e8".
+// `<versão do package>-<número do build>.<commit>`, e.g. "0.1.17-842.e6681e8".
 // The build number is how many commits the history has up to this one (`git
 // rev-list --count HEAD`), so it goes up by one with every commit on its own
 // and, unlike the hash, says at a glance which of two builds is newer. The
@@ -79,7 +79,7 @@ const BUILD_COMMIT = resolveBuildCommit();
 
 // The commit shortened to git's usual 7: CI hands over the full 40-character
 // sha, which would crowd the rest out of the 32-character cap below.
-const BUILD_VERSION = `${resolvePackageVersion()}.${resolveBuildNumber()}.${BUILD_COMMIT.slice(0, 7)}`
+const BUILD_VERSION = `${resolvePackageVersion()}-${resolveBuildNumber()}.${BUILD_COMMIT.slice(0, 7)}`
   .replace(/[^A-Za-z0-9._-]/g, "-")
   .slice(0, 32);
 

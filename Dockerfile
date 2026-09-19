@@ -48,7 +48,7 @@ ENV NEXT_PUBLIC_STATS_DASHBOARD_URL=${NEXT_PUBLIC_STATS_DASHBOARD_URL}
 # keeps .git out of the build context — so it has to be passed in:
 #   docker build --build-arg NEXT_PUBLIC_BUILD_COMMIT=$(git rev-parse --short HEAD) \
 #     --build-arg NEXT_PUBLIC_BUILD_NUMBER=$(git rev-list --count HEAD) ...
-# Left unset the build still works and still reports, as "<versão>.0.unknown".
+# Left unset the build still works and still reports, as "<versão>-0.unknown".
 ARG NEXT_PUBLIC_BUILD_COMMIT
 ENV NEXT_PUBLIC_BUILD_COMMIT=${NEXT_PUBLIC_BUILD_COMMIT}
 ARG NEXT_PUBLIC_BUILD_NUMBER
