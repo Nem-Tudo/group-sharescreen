@@ -3608,6 +3608,8 @@
   "groups.categorySettings.syncedRooms": "{count} salas sincronizadas",
   "mobileQualitySheet.shareSystemAudio": "Compartir audio del sistema",
   "mobileQualitySheet.systemAudioHint": "Envía el sonido que está reproduciendo el teléfono. No incluye el audio de la propia sala, y algunas apps de música y vídeo no permiten ser capturadas.",
+  "mobileQualitySheet.quality": "Calidad",
+  "mobileQualitySheet.startSharing": "Transmitir pantalla",
   "watch.watchRoom.systemAudioCouldNotBeCaptured": "No se pudo capturar el audio del sistema. La transmisión continúa, pero sin sonido.",
   "pro.compare.title": "Lo que obtienes",
   "pro.compare.pricingAndFeatures": "Precios y funciones",

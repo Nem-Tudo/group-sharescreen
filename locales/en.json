@@ -3608,6 +3608,8 @@
   "groups.categorySettings.syncedRooms": "{count} synced rooms",
   "mobileQualitySheet.shareSystemAudio": "Share system audio",
   "mobileQualitySheet.systemAudioHint": "Sends what the phone is playing. It does not include the room’s own audio, and some music and video apps do not allow being captured.",
+  "mobileQualitySheet.quality": "Quality",
+  "mobileQualitySheet.startSharing": "Share screen",
   "watch.watchRoom.systemAudioCouldNotBeCaptured": "System audio could not be captured. The broadcast carries on, but without sound.",
   "pro.compare.title": "What you get",
   "pro.compare.pricingAndFeatures": "Pricing and features",

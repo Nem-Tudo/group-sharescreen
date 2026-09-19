@@ -28,6 +28,9 @@ import {
 // here is a resolution/fps pair chosen to be obviously different from the
 // others — see the descriptions, which name the trade rather than the pixels.
 //
+// Laid out top to bottom as quality, system audio, "Transmitir tela", cancel:
+// nothing starts until that button, so both answers are in before it does.
+//
 // The one control that is not a quality dial is the system-audio checkbox,
 // and it is here for a different reason: it is the only place it can be
 // asked. Android's screen capture cannot be given sound after the fact — the
@@ -83,9 +86,7 @@ export function MobileQualitySheet({
   onCancel,
 }: {
   title?: string;
-  // Pre-selects whichever option matches what is already configured, so
-  // somebody who picked "Baixa" last time sees that it stuck rather than
-  // being asked from scratch every time.
+  // Pre-selects whichever option matches what is already configured.
   currentResolution: ShareResolution;
   onChoose: (choice: MobileQualityChoice, systemAudio: boolean) => void;
   onCancel: () => void;
@@ -128,7 +129,14 @@ export function MobileQualitySheet({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [onCancel]);
 
-  const [pending, setPending] = useState<string | null>(null);
+  // Starts on whatever is already configured, so somebody who picked "Baixa"
+  // last time sees that it stuck; "Média" when nothing here matches it.
+  const [choiceId, setChoiceId] = useState(
+    () =>
+      (MOBILE_QUALITY_CHOICES.find((c) => c.resolution === currentResolution) ?? MOBILE_QUALITY_CHOICES[1]).id
+  );
+  const choice = MOBILE_QUALITY_CHOICES.find((c) => c.id === choiceId) ?? MOBILE_QUALITY_CHOICES[1];
+  const [pending, setPending] = useState(false);
   if (!onClient) return null;
 
   return createPortal(
@@ -151,53 +159,35 @@ export function MobileQualitySheet({
           {t("mobileQualitySheet.youCanChangeItLaterIn")}
         </p>
 
-        <div className="mt-4 flex flex-col gap-2">
-          {MOBILE_QUALITY_CHOICES.map((choice) => {
-            const current = choice.resolution === currentResolution;
-            return (
-              <button
-                key={choice.id}
-                type="button"
-                disabled={pending !== null}
-                onClick={() => {
-                  // Latched so a double tap cannot start two captures — the
-                  // start below is async and the sheet stays up until its
-                  // caller unmounts it.
-                  setPending(choice.id);
-                  onChoose(choice, systemAudio && audioSupported);
-                }}
-                className={`flex flex-col items-start gap-0.5 rounded-xl border px-4 py-3 text-left transition disabled:opacity-60 ${
-                  current
-                    ? "border-zinc-950 bg-zinc-50 dark:border-zinc-50 dark:bg-zinc-900"
-                    : "border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
-                }`}
-              >
-                <span className="flex w-full items-center justify-between gap-2">
-                  <span className="font-medium text-zinc-950 dark:text-zinc-50">
-                    {choice.label}
-                  </span>
-                  {current && (
-                    <span className="shrink-0 text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
-                      atual
-                    </span>
-                  )}
-                </span>
-                <span className="text-xs text-zinc-500 dark:text-zinc-400">{choice.detail}</span>
-              </button>
-            );
-          })}
-        </div>
+        {/* One selector rather than a button per option: the sheet asks a
+            single question, and a column of three big cards pushed the audio
+            box and the start button below the fold on a short phone. The
+            choice now only picks; starting is the button at the bottom. */}
+        <label className="mt-4 block">
+          <span className="block text-sm font-medium text-zinc-950 dark:text-zinc-50">
+            {t("mobileQualitySheet.quality")}
+          </span>
+          <select
+            value={choiceId}
+            disabled={pending}
+            onChange={(e) => setChoiceId(e.target.value)}
+            className="mt-1.5 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-950 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+          >
+            {MOBILE_QUALITY_CHOICES.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+          <span className="mt-1 block text-xs text-zinc-500 dark:text-zinc-400">{choice.detail}</span>
+        </label>
 
-        {/* Below the quality options rather than above them: those are what
-            the sheet is for and what the thumb is heading towards, and each
-            of them starts the share. A control placed after the buttons that
-            dismiss the sheet would be one nobody ever reaches. */}
         {audioSupported && (
           <label className="mt-3 flex items-start gap-3 rounded-xl border border-zinc-300 px-4 py-3 text-left dark:border-zinc-700">
             <input
               type="checkbox"
               checked={systemAudio}
-              disabled={pending !== null}
+              disabled={pending}
               onChange={(e) => setSystemAudio(e.target.checked)}
               className="mt-0.5 h-4 w-4 shrink-0 rounded border-zinc-300 dark:border-zinc-700"
             />
@@ -211,6 +201,20 @@ export function MobileQualitySheet({
             </span>
           </label>
         )}
+
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => {
+            // Latched so a double tap cannot start two captures — the start
+            // is async and the sheet stays up until its caller unmounts it.
+            setPending(true);
+            onChoose(choice, systemAudio && audioSupported);
+          }}
+          className="mt-4 w-full rounded-xl bg-zinc-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+        >
+          {t("mobileQualitySheet.startSharing")}
+        </button>
 
         <button
           type="button"
