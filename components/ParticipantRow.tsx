@@ -361,7 +361,7 @@ export const ParticipantRow = memo(function ParticipantRow({
               className="flex shrink-0 items-center rounded p-1 transition hover:text-zinc-700 dark:hover:text-zinc-200"
             >
               {muted || volume === 0 ? (
-                <SpeakerMuteIcon className="h-4 w-4" />
+                <SpeakerMuteIcon className="h-4 w-4 text-red-500" />
               ) : (
                 <SpeakerIcon className="h-4 w-4" />
               )}

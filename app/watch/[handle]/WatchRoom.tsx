@@ -102,6 +102,8 @@ import {
   setStoredPeerVolume,
   getStoredTransmissionVolumes,
   setStoredTransmissionVolume,
+  getStoredTransmissionMuted,
+  setStoredTransmissionMuted,
   getStoredGuestAccountBannerDismissed,
   setStoredGuestAccountBannerDismissed,
   getStoredMicHintSeen,
@@ -1544,6 +1546,11 @@ export function WatchRoom({
   const [doubleClickFocus, setDoubleClickFocus] = useState(() => getStoredDoubleClickFocus());
   const [mutedPeerIds, setMutedPeerIds] = useState<Set<string>>(new Set());
   const [peerVolumes, setPeerVolumes] = useState<Record<string, number>>(() => getStoredPeerVolumes());
+  // Screen/camera tiles' sound on/off, per person and per kind, keyed like
+  // transmissionVolumes. A tile nobody has touched starts muted.
+  const [transmissionMuted, setTransmissionMutedState] = useState<Record<string, boolean>>(() =>
+    getStoredTransmissionMuted()
+  );
   const [transmissionVolumes, setTransmissionVolumes] = useState<Record<string, number>>(() =>
     getStoredTransmissionVolumes()
   );
@@ -2242,6 +2249,11 @@ export function WatchRoom({
   function setPeerVolume(volumeKey: string, volume: number) {
     setPeerVolumes((prev) => ({ ...prev, [volumeKey]: volume }));
     setStoredPeerVolume(volumeKey, volume);
+  }
+
+  function setTransmissionMuted(volumeKey: string, muted: boolean) {
+    setTransmissionMutedState((prev) => ({ ...prev, [volumeKey]: muted }));
+    setStoredTransmissionMuted(volumeKey, muted);
   }
 
   function setTransmissionVolume(volumeKey: string, volume: number) {
@@ -4378,9 +4390,13 @@ export function WatchRoom({
     });
   }
 
+  // Screen and camera each keep their own dial and their own mute per person
+  // (`screen:<id>`, `camera:<id>`), remembered until changed. Both used to share the bare id,
+  // so turning somebody's camera down also turned their screen down; that
+  // old value is still read as the starting point for either until it is set.
   for (const [peerId, stream] of visibleScreenEntries) {
     const peer = state.peers.find((p) => p.id === peerId);
-    const volumeKey = peer?.userId ?? peerId;
+    const volumeKey = `screen:${peer?.userId ?? peerId}`;
     const id = tileId("screen", peerId);
     tiles.push({
       id,
@@ -4399,8 +4415,9 @@ export function WatchRoom({
           }
           accessibleLabel={peer?.name ?? translate("common.someone")}
           badge={translate("watch.watchRoom.liveScreen")}
-          muted
-          volume={transmissionVolumes[volumeKey] ?? 1}
+          muted={transmissionMuted[volumeKey] ?? true}
+          onMutedChange={(muted) => setTransmissionMuted(volumeKey, muted)}
+          volume={transmissionVolumes[volumeKey] ?? transmissionVolumes[peer?.userId ?? peerId] ?? 1}
           onVolumeChange={(volume) => setTransmissionVolume(volumeKey, volume)}
           fill={fill}
           compact={compact}
@@ -4430,7 +4447,7 @@ export function WatchRoom({
 
   for (const [peerId, stream] of visibleCameraEntries) {
     const peer = state.peers.find((p) => p.id === peerId);
-    const volumeKey = peer?.userId ?? peerId;
+    const volumeKey = `camera:${peer?.userId ?? peerId}`;
     const id = tileId("camera", peerId);
     tiles.push({
       id,
@@ -4449,8 +4466,9 @@ export function WatchRoom({
           }
           accessibleLabel={peer?.name ?? translate("common.someone")}
           badge={translate("watch.watchRoom.liveCamera")}
-          muted
-          volume={transmissionVolumes[volumeKey] ?? 1}
+          muted={transmissionMuted[volumeKey] ?? true}
+          onMutedChange={(muted) => setTransmissionMuted(volumeKey, muted)}
+          volume={transmissionVolumes[volumeKey] ?? transmissionVolumes[peer?.userId ?? peerId] ?? 1}
           onVolumeChange={(volume) => setTransmissionVolume(volumeKey, volume)}
           fill={fill}
           compact={compact}

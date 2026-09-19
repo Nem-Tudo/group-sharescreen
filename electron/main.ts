@@ -905,9 +905,12 @@ function createWindow(initialUrl: string = APP_URL) {
         ...(isSystemAudioExclusionSupported() ? [SYSTEM_AUDIO_ARG] : []),
         ...(isNativeVideoAvailable() ? [NATIVE_VIDEO_ARG] : []),
       ],
-      // Screen sharing is the entire point of the app and needs no gesture
-      // ceremony; media playback (a shared video source) does.
-      autoplayPolicy: "document-user-activation-required",
+      // No gesture needed for sound, like the Android app (Capacitor turns off
+      // mediaPlaybackRequiresUserGesture). A room opened straight from a link
+      // or a reload has had no click yet, and the screen/camera tiles someone
+      // left unmuted (see WatchRoom's transmissionMuted) should be heard
+      // without one. Shared video sources play on their own too, as a result.
+      autoplayPolicy: "no-user-gesture-required",
     },
   });
 

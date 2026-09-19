@@ -79,6 +79,7 @@ const VideoTileView = memo(function VideoTileView({
   allowUnmute = true,
   volume,
   onVolumeChange,
+  onMutedChange,
   fill = false,
   compact = false,
   onStopWatching,
@@ -125,6 +126,10 @@ const VideoTileView = memo(function VideoTileView({
   // Up to audioGain.ts's MAX_GAIN (300%) — see useGainedAudio below.
   volume?: number;
   onVolumeChange?: (volume: number) => void;
+  // Told whenever the viewer turns this tile's sound on or off (the button,
+  // or the slider reaching or leaving zero), so the caller can remember it.
+  // `muted` is only the starting value.
+  onMutedChange?: (muted: boolean) => void;
   // Reports how large this tile is actually drawn, in CSS pixels. The viewer
   // uses it to ask the broadcaster for a matching quality tier (see
   // qualityNegotiation) — in a 30-person grid each tile is ~320px wide, so
@@ -656,6 +661,7 @@ const VideoTileView = memo(function VideoTileView({
     if (volume === undefined) setInternalVolume(nextVolume);
     onVolumeChange?.(nextVolume);
     setIsMuted(nextVolume === 0);
+    if ((nextVolume === 0) !== isMuted) onMutedChange?.(nextVolume === 0);
   }
 
   // A single click on the picture is play/pause, and a *double* click is
@@ -966,12 +972,15 @@ const VideoTileView = memo(function VideoTileView({
           <Tooltip content={isMuted ? t("common.turnOnSound") : t("common.mute")}>
             <button
               type="button"
-              onClick={() => setIsMuted((m) => !m)}
+              onClick={() => {
+                setIsMuted(!isMuted);
+                onMutedChange?.(!isMuted);
+              }}
               aria-label={isMuted ? t("common.turnOnSound") : t("common.mute")}
               className="rounded-full bg-black/60 p-2 text-white hover:bg-black/80 active:bg-black/80"
             >
               {isMuted ? (
-                <SpeakerMuteIcon className="h-5 w-5" />
+                <SpeakerMuteIcon className="h-5 w-5 text-red-500" />
               ) : (
                 <SpeakerIcon className="h-5 w-5" />
               )}
@@ -1137,6 +1146,7 @@ type VideoTileProps = ComponentProps<typeof VideoTileView>;
 /** Every callback a tile takes — each handed on as a stable stand-in (see VideoTile). */
 const TILE_CALLBACKS = [
   "onVolumeChange",
+  "onMutedChange",
   "onStopWatching",
   "onDoubleClick",
   "onRenderedSizeChange",

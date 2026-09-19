@@ -36,7 +36,7 @@ export function VolumeSlider({
   const normalizedValue = clampVolume(value, max);
   const icon =
     muted || normalizedValue === 0 ? (
-      <SpeakerMuteIcon className="h-4 w-4 shrink-0" />
+      <SpeakerMuteIcon className="h-4 w-4 shrink-0 text-red-500" />
     ) : (
       <SpeakerIcon className="h-4 w-4 shrink-0" />
     );

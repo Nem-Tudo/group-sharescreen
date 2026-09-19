@@ -177,6 +177,9 @@ export function setStoredForceRelayIce(value: boolean) {
 // forever.
 const PEER_VOLUMES_KEY = "sharescreen:peerVolumes";
 const TRANSMISSION_VOLUMES_KEY = "sharescreen:transmissionVolumes";
+// Whether a screen/camera tile's sound was left off (1) or on (0), keyed like
+// the volumes above. Absent means never touched, and the tile starts muted.
+const TRANSMISSION_MUTED_KEY = "sharescreen:transmissionMuted";
 const MAX_STORED_VOLUMES = 50;
 
 function getStoredVolumes(key: string): Record<string, number> {
@@ -221,6 +224,15 @@ export function getStoredTransmissionVolumes(): Record<string, number> {
 }
 export function setStoredTransmissionVolume(peerId: string, volume: number) {
   setStoredVolume(TRANSMISSION_VOLUMES_KEY, peerId, volume);
+}
+
+export function getStoredTransmissionMuted(): Record<string, boolean> {
+  return Object.fromEntries(
+    Object.entries(getStoredVolumes(TRANSMISSION_MUTED_KEY)).map(([key, value]) => [key, value !== 0])
+  );
+}
+export function setStoredTransmissionMuted(key: string, muted: boolean) {
+  setStoredVolume(TRANSMISSION_MUTED_KEY, key, muted ? 1 : 0);
 }
 
 // Whether a guest already dismissed the "crie uma conta" nudge banner —
