@@ -11,7 +11,7 @@ import { trackFeatureEvent, useFeature } from "./features";
 //     no API change), which decides who gets to see the switch at all;
 //   - the person's own switch in "Mais opções", off by default.
 
-export type TileExperiment = "clips" | "recording" | "multiScreen";
+export type TileExperiment = "clips" | "recording" | "multiScreen" | "dualCamera";
 
 // `defaultOn`: the switch starts on for whoever never touched it.
 const CONFIG: Record<
@@ -29,6 +29,15 @@ const CONFIG: Record<
     feature: "multi-screen-share",
     modeKey: "sharescreen:multiScreenMode",
     tipKey: "sharescreen:multiScreenTipSeen",
+    defaultOn: true,
+  },
+  // The phone's side of "Várias telas" (front and rear cameras at once): the
+  // same feature and switch, but a tip of its own, so seeing the computer's
+  // tip does not use up the phone's.
+  dualCamera: {
+    feature: "multi-screen-share",
+    modeKey: "sharescreen:multiScreenMode",
+    tipKey: "sharescreen:dualCameraTipSeen",
     defaultOn: true,
   },
 };
@@ -52,6 +61,10 @@ export const TILE_EXPERIMENT_EVENTS = {
     trim: "recording_trim", // downloaded after cutting
   },
   multiScreen: {
+    modeOn: "multi_screen_mode_on",
+    modeOff: "multi_screen_mode_off",
+  },
+  dualCamera: {
     modeOn: "multi_screen_mode_on",
     modeOff: "multi_screen_mode_off",
   },

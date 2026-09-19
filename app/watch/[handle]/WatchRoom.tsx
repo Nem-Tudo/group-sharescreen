@@ -1793,6 +1793,8 @@ export function WatchRoom({
   // while a screen is going out — so it appears the first time somebody with
   // the feature starts a share, whether or not they used GoLive before.
   const multiScreenTip = useTileExperimentTip("multiScreen", multiScreenMode.active, { everyone: true });
+  // The phone's own tip, on the dual-camera button (see clipsMode's dualCamera).
+  const dualCameraTip = useTileExperimentTip("dualCamera", multiScreenMode.active, { everyone: true });
   // How many screens/windows (the first included) this account may share.
   const screenLimit = multiScreenLimit(account?.flags);
   const screenUpgrade = nextScreenUpgrade(account?.flags);
@@ -8241,7 +8243,7 @@ export function WatchRoom({
                         // The "novo" tip on a phone, where the desktop's "+" for
                         // screens does not exist: pinned over this button, once.
                         <Tippy
-                          visible={multiScreenTip.show}
+                          visible={dualCameraTip.show}
                           placement="top"
                           interactive
                           theme="golive-panel"
@@ -8256,7 +8258,7 @@ export function WatchRoom({
                                 <span className="flex-1">{translate("watch.watchRoom.dualCameraTip")}</span>
                                 <button
                                   type="button"
-                                  onClick={multiScreenTip.dismiss}
+                                  onClick={dualCameraTip.dismiss}
                                   aria-label={translate("watch.watchRoom.clipsModeTipDismiss")}
                                   className="-m-1 rounded p-1 leading-none text-white/80 hover:text-white"
                                 >
@@ -8282,7 +8284,7 @@ export function WatchRoom({
                             type="button"
                             onClick={() => {
                               haptic("tap");
-                              if (multiScreenTip.show) multiScreenTip.clicked();
+                              if (dualCameraTip.show) dualCameraTip.clicked();
                               if (dualCamera.active) {
                                 dualCamera.stop();
                                 return;
