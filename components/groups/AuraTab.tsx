@@ -182,7 +182,10 @@ export function AuraTab({ groupId }: { groupId: string }) {
                     </span>
                   </p>
                   <p className="text-xs text-zinc-600 dark:text-zinc-400">
-                    {l.perks.length > 0 ? l.perks.map(auraPerkLabel).join(", ") : t("groups.aura.morePerksSoon")}
+                    {[
+                      ...(l.emojiSlots ? [t("groups.aura.perkEmojiSlots", { n: l.emojiSlots })] : []),
+                      ...l.perks.map(auraPerkLabel),
+                    ].join(", ") || t("groups.aura.morePerksSoon")}
                   </p>
                 </div>
               </li>

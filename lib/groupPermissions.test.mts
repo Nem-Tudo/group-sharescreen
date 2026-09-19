@@ -90,6 +90,8 @@ function detailWith(
 // Each kind of room has the general switches, then its own, and only those.
 assert.deepEqual([...permissionKeysFor("text")], [
   "viewChannel",
+  "useCustomEmojis",
+  "useExternalEmojis",
   "sendMessages",
   "sendGifs",
   "sendImages",
@@ -103,6 +105,8 @@ assert.equal(groupAllows(undefined, "addReactions"), true);
 assert.equal(groupAllows(undefined, "react"), true);
 assert.deepEqual([...permissionKeysFor("voice")], [
   "viewChannel",
+  "useCustomEmojis",
+  "useExternalEmojis",
   "connect",
   "mic",
   "screen",

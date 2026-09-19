@@ -295,6 +295,8 @@ export const TextChannelView = memo(function TextChannelView({
   const selfId = detail.me.id;
   // Deleting somebody else's message is "Gerenciar mensagens" (see lib/groupPermissions).
   const canManageMessages = canManage(detail, "manageMessages");
+  // Which custom emoji the composer and the reaction picker offer here.
+  const emojiPlace = useMemo(() => ({ group: groupId, channel: channelId }), [groupId, channelId]);
   // "Farmando aura": the mark after an author's name (see AuraMark).
   const auraOf = useAuraOf(detail);
 
@@ -1210,7 +1212,7 @@ export const TextChannelView = memo(function TextChannelView({
         onClose={() => setPickerFor(null)}
         placement="bottom-end"
         tooltip={t("groups.textChannelView.addReaction")}
-        content={<ReactionPicker onSelect={(emoji) => void toggleReaction(message, emoji)} />}
+        content={<ReactionPicker place={emojiPlace} onSelect={(emoji) => void toggleReaction(message, emoji)} />}
       >
         <button
           type="button"
@@ -1883,6 +1885,7 @@ export const TextChannelView = memo(function TextChannelView({
       {detail.chatAvailable && (
         <GroupMessageComposer
           ref={composerRef}
+          emojiPlace={emojiPlace}
           channelName={channelName}
           candidates={candidates}
           rooms={roomCandidates}

@@ -180,6 +180,11 @@ export type EmojiMatch = {
   entry: EmojiEntry;
   /** The name to show beside it — the shortcode that matched, when one did. */
   shortcode: string | null;
+  /**
+   * A custom emoji (see lib/customEmoji) rather than a standard one — then
+   * `entry` only carries its name, and this is what is drawn and inserted.
+   */
+  custom?: { id: string; name: string; animated: boolean; url: string; usable: boolean };
 };
 
 /** What ":" alone offers, before a single letter narrows it down. */

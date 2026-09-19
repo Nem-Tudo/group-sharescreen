@@ -28,7 +28,9 @@ export const MANAGE_PERMISSION_KEYS = [
 ] as const;
 export type ManagePermissionKey = (typeof MANAGE_PERMISSION_KEYS)[number];
 
-export const GENERAL_PERMISSION_KEYS = ["viewChannel"] as const;
+// The emoji switches are general because a text room's messages and a voice
+// room's call chat both hold emoji — see lib/customEmoji.
+export const GENERAL_PERMISSION_KEYS = ["viewChannel", "useCustomEmojis", "useExternalEmojis"] as const;
 export type GeneralPermissionKey = (typeof GENERAL_PERMISSION_KEYS)[number];
 
 export const TEXT_PERMISSION_KEYS = [
@@ -102,7 +104,7 @@ const MANAGE_OFF: Record<ManagePermissionKey, boolean> = {
 
 export const DEFAULT_GROUP_PERMISSIONS: GroupPermissions = {
   manage: MANAGE_OFF,
-  general: { viewChannel: true },
+  general: { viewChannel: true, useCustomEmojis: true, useExternalEmojis: true },
   text: {
     sendMessages: true,
     sendGifs: true,
@@ -146,6 +148,14 @@ export const PERMISSION_LABELS: Record<AnyPermissionKey, { label: string; hint: 
     get hint() { return translate("groupPermissions.manageWebhooksHint"); },
   },
   viewChannel: { get label() { return translate("groupPermissions.seeTheRoom"); }, get hint() { return translate("groupPermissions.withoutItTheRoomDoesNot"); } },
+  useCustomEmojis: {
+    get label() { return translate("groupPermissions.useCustomEmojis"); },
+    get hint() { return translate("groupPermissions.useCustomEmojisHint"); },
+  },
+  useExternalEmojis: {
+    get label() { return translate("groupPermissions.useExternalEmojis"); },
+    get hint() { return translate("groupPermissions.useExternalEmojisHint"); },
+  },
   sendMessages: { get label() { return translate("groupPermissions.sendMessages"); }, get hint() { return translate("groupPermissions.theBasisOfAllTheOthers"); } },
   sendGifs: { get label() { return translate("groupPermissions.sendGifs"); }, get hint() { return translate("groupPermissions.throughTheGifPicker"); } },
   sendImages: { get label() { return translate("groupPermissions.sendImages"); }, get hint() { return translate("groupPermissions.attachedOrPastedWithCtrlV"); } },

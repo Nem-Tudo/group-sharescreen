@@ -50,6 +50,7 @@ import { ChatImages } from "@/components/ChatImages";
 import { attachmentsPreview, type ChatAttachment } from "@/lib/chatAttachments";
 import { useAttachmentUploads } from "@/lib/useAttachmentUploads";
 import { EmojiPickerButton } from "@/components/EmojiPicker";
+import { useCustomEmojiEnabled } from "@/lib/customEmoji";
 import { EmojiSuggestions } from "@/components/EmojiSuggestions";
 import { Twemoji } from "@/components/Twemoji";
 import { QUICK_REACTIONS, ReactionPicker } from "@/components/groups/ReactionPicker";
@@ -1177,8 +1178,10 @@ export function DirectMessagesModal({
 
   // ":" for emoji, ":sob:" → 😭, and the picker beside "send" — see
   // useEmojiAutocomplete. It writes into this conversation's draft.
+  const customEmojiEnabled = useCustomEmojiEnabled(null, true);
   const emoji = useEmojiAutocomplete({
     textareaRef: composerRef,
+    customEnabled: customEmojiEnabled,
     onReplace: (value) => {
       if (!activeId) return;
       setBoxText(activeId, value.slice(0, MAX_LENGTH));
@@ -2846,7 +2849,13 @@ export function DirectMessagesModal({
           </button>
         </Popover>
         )}
-        <EmojiPickerButton onPick={emoji.insert} className={iconButton} />
+        <EmojiPickerButton
+          onPick={emoji.insert}
+          customEnabled={emoji.customEnabled}
+          custom={emoji.custom}
+          onPickCustom={emoji.insertCustom}
+          className={iconButton}
+        />
         <button
           type="submit"
           disabled={!canSend}

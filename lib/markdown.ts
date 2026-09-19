@@ -14,7 +14,7 @@
 // chat's own mentions, room links and URLs are made clickable. Two rules keep
 // the two from stepping on each other:
 //
-//   - URLs and the <@id> / <#id> tokens are "protected": nothing inside them
+//   - URLs, the <@id> / <#id> tokens and custom emoji are "protected": nothing inside them
 //     is ever read as formatting, so a link with underscores in it stays one
 //     link and a token stays whole for the caller to find.
 //   - An underscore only opens or closes italics at a word boundary, as on
@@ -148,9 +148,10 @@ function parseLines(text: string, quotesAllowed: boolean, options: MarkdownOptio
 
 const ESCAPABLE = new Set(["\\", "*", "_", "~", "`", "|", ">", "#", "-", "[", "]", "(", ")"]);
 
-// What is never formatting: links (as the chats linkify them) and the mention
-// and room tokens (see messageTokens).
-const PROTECTED = /https?:\/\/[^\s<]+[^\s<.,:;"')\]!?*_~|]|<[@#][^>\s]+>/g;
+// What is never formatting: links (as the chats linkify them), the mention
+// and room tokens (see messageTokens) and custom emoji (see customEmoji) —
+// whose names are full of underscores that must not turn into italics.
+const PROTECTED = /https?:\/\/[^\s<]+[^\s<.,:;"')\]!?*_~|]|<[@#][^>\s]+>|<a?:[A-Za-z0-9_]{2,32}:[A-Za-z0-9]{8,32}>/g;
 
 const MASKED_LINK = /^\[([^\]\n]{1,256})\]\((https?:\/\/[^\s)]+)\)/;
 const IMAGE = /^!\[([^\]\n]{0,256})\]\((https?:\/\/[^\s)]+)\)/;

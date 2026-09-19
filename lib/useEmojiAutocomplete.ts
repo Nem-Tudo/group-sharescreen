@@ -14,6 +14,7 @@ import {
   ensureEmojiIndex,
   getEmojiIndex,
   getEmojiTrigger,
+  normalizeEmojiQuery,
   replaceShortcodes,
   searchEmoji,
   subscribeEmojiIndex,
@@ -21,6 +22,20 @@ import {
   type EmojiMatch,
   type EmojiTrigger,
 } from "@/lib/emoji";
+import {
+  CUSTOM_EMOJI_EVENTS,
+  CUSTOM_EMOJI_FEATURE,
+  composerTextFor,
+  encodeCustomEmojis,
+  hasCustomEmoji,
+  useCustomEmojiSet,
+  usableCustomEmojis,
+  type CustomEmoji,
+  type CustomEmojiSet,
+  type EmojiPlace,
+} from "@/lib/customEmoji";
+import { markFeatureUsed } from "@/components/NewBadge";
+import { trackFeatureEvent } from "@/lib/features";
 
 // The emoji half of a chat composer: ":" opens a list of emoji by name,
 // ":sob:" typed out in full becomes 😭, and the picker's choice lands where the
@@ -32,6 +47,22 @@ import {
 
 const NO_MATCHES: EmojiMatch[] = [];
 const SUGGESTIONS = 8;
+/** How many of the list custom emoji may take, ahead of the standard ones. */
+const CUSTOM_SUGGESTIONS = 5;
+
+/** The custom emoji whose name fits `query` — names starting with it first. */
+function searchCustom(set: CustomEmojiSet | null, rawQuery: string): EmojiMatch[] {
+  const query = normalizeEmojiQuery(rawQuery);
+  if (!query) return [];
+  const usable = usableCustomEmojis(set);
+  const starts = usable.filter((e) => e.name.toLowerCase().startsWith(query));
+  const contains = usable.filter((e) => !e.name.toLowerCase().startsWith(query) && e.name.toLowerCase().includes(query));
+  return [...starts, ...contains].slice(0, CUSTOM_SUGGESTIONS).map((custom) => ({
+    entry: { unicode: "", label: custom.name, shortcodes: [custom.name], words: [], order: 0 },
+    shortcode: custom.name,
+    custom,
+  }));
+}
 
 /** The emoji index for the site's language, or null until it has loaded. */
 export function useEmojiIndex(): EmojiIndex | null {
@@ -41,12 +72,19 @@ export function useEmojiIndex(): EmojiIndex | null {
 export function useEmojiAutocomplete({
   textareaRef,
   onReplace,
+  place = null,
+  customEnabled = false,
 }: {
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   /** Puts `text` in the box with the cursor at `caret`. */
   onReplace: (text: string, caret: number) => void;
+  /** Where this composer writes — which custom emoji may go in (see lib/customEmoji). */
+  place?: EmojiPlace;
+  /** Custom emoji in the list and the picker — only inside the experiment. */
+  customEnabled?: boolean;
 }) {
   const index = useEmojiIndex();
+  const custom = useCustomEmojiSet(place, customEnabled);
   const [trigger, setTrigger] = useState<EmojiTrigger | null>(null);
   const [highlight, setHighlight] = useState(0);
   // Whether the arrows have been used on this list. Enter only picks from a
@@ -62,10 +100,12 @@ export function useEmojiAutocomplete({
     onReplaceRef.current = onReplace;
   }, [onReplace]);
 
-  const matches = useMemo(
-    () => (trigger && index ? searchEmoji(index, trigger.query, SUGGESTIONS) : NO_MATCHES),
-    [trigger, index]
-  );
+  const matches = useMemo(() => {
+    if (!trigger) return NO_MATCHES;
+    const customs = searchCustom(custom, trigger.query);
+    const standard = index ? searchEmoji(index, trigger.query, SUGGESTIONS - customs.length) : NO_MATCHES;
+    return customs.length === 0 ? standard : [...customs, ...standard];
+  }, [trigger, index, custom]);
   const open = trigger !== null && matches.length > 0 && dismissedAt !== trigger.start;
   const selected = Math.min(highlight, Math.max(matches.length - 1, 0));
 
@@ -128,11 +168,24 @@ export function useEmojiAutocomplete({
     // A space after it, as Discord does, so the next word does not start
     // glued to the emoji — unless there already is one.
     const spacer = /^\s/.test(after) ? "" : " ";
-    const text = value.slice(0, trigger.start) + match.entry.unicode + spacer + after;
-    const at = trigger.start + match.entry.unicode.length + spacer.length;
+    const inserted = match.custom ? customText(match.custom) : match.entry.unicode;
+    if (match.custom) markFeatureUsed(CUSTOM_EMOJI_FEATURE);
+    const text = value.slice(0, trigger.start) + inserted + spacer + after;
+    const at = trigger.start + inserted.length + spacer.length;
     onReplaceRef.current(text, at);
     setTrigger(null);
     placeCaret(at);
+  }
+
+  /** What goes in the box for a custom emoji — its ":name:", or its token when that name would read as another. */
+  function customText(emoji: CustomEmoji): string {
+    return composerTextFor(emoji, custom, (name) => Boolean(index?.byShortcode.has(name)));
+  }
+
+  /** Drops a custom emoji at the cursor — the picker's choice. */
+  function insertCustom(emoji: CustomEmoji) {
+    markFeatureUsed(CUSTOM_EMOJI_FEATURE);
+    insert(customText(emoji));
   }
 
   /** Drops an emoji at the cursor — over the selection, if there is one. */
@@ -188,7 +241,13 @@ export function useEmojiAutocomplete({
    * pasted in, or typed before the names had finished loading.
    */
   function convert(text: string): string {
-    return index ? replaceShortcodes(text, text.length, index).text : text;
+    const standard = index ? replaceShortcodes(text, text.length, index).text : text;
+    // Then every ":name:" of a custom emoji this person may use here.
+    const out = encodeCustomEmojis(standard, custom);
+    if (out !== standard || hasCustomEmoji(out)) {
+      trackFeatureEvent(CUSTOM_EMOJI_EVENTS.send, { feature: CUSTOM_EMOJI_FEATURE });
+    }
+    return out;
   }
 
   // The names can arrive after somebody has already typed ":sob:" — the very
@@ -210,6 +269,10 @@ export function useEmojiAutocomplete({
     setHighlight,
     pick,
     insert,
+    insertCustom,
+    /** For the picker's "Personalizados" tab — null outside the experiment or while loading. */
+    custom,
+    customEnabled,
     handleChange,
     handleKeyDown,
     sync,

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { Twemoji } from "@/components/Twemoji";
+import { CustomEmoji } from "@/components/CustomEmoji";
 import type { EmojiMatch } from "@/lib/emoji";
 import { useT } from "@/lib/useI18n";
 
@@ -44,7 +45,7 @@ export function EmojiSuggestions({
         const active = index === highlight;
         return (
           <button
-            key={match.entry.unicode}
+            key={match.custom ? `c:${match.custom.id}` : match.entry.unicode}
             ref={active ? activeRef : undefined}
             type="button"
             role="option"
@@ -60,11 +61,15 @@ export function EmojiSuggestions({
                 : "text-zinc-700 dark:text-zinc-300"
             }`}
           >
-            <Twemoji emoji={match.entry.unicode} size={22} />
+            {match.custom ? (
+              <CustomEmoji id={match.custom.id} name={match.custom.name} src={match.custom.url} size={22} />
+            ) : (
+              <Twemoji emoji={match.entry.unicode} size={22} />
+            )}
             <span className="min-w-0 flex-1 truncate">
               {match.shortcode ? `:${match.shortcode}:` : match.entry.label}
             </span>
-            {match.shortcode && (
+            {match.shortcode && !match.custom && (
               <span className="hidden max-w-[45%] truncate text-xs text-zinc-400 sm:block dark:text-zinc-500">
                 {match.entry.label}
               </span>

@@ -1,5 +1,6 @@
 import type { GroupReaction } from "./groupsApi";
 import { translate, translateCount } from "@/lib/i18n";
+import { emojiLabel } from "./customEmojiTokens";
 
 // A message's reactions, changed on this screen ahead of the server — the
 // chip lights up on the click, the way Discord's does — and then replaced by
@@ -47,6 +48,6 @@ export function describeReaction(reaction: GroupReaction, nameOf: (userId: strin
         : shown[0] ?? "";
   return translateCount("groupReactions.reacted", names.length, {
     list,
-    emoji: reaction.emoji,
+    emoji: emojiLabel(reaction.emoji),
   });
 }

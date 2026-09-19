@@ -56,6 +56,7 @@ import { hasVerifiedBadge, verifiedBadge } from "@/lib/entitlements";
 import { formatTypingLabel } from "@/lib/typing";
 import { useEmojiAutocomplete } from "@/lib/useEmojiAutocomplete";
 import { EmojiPickerButton } from "@/components/EmojiPicker";
+import { useCustomEmojiEnabled } from "@/lib/customEmoji";
 import { EmojiSuggestions } from "@/components/EmojiSuggestions";
 import { HighlightedTextarea, highlightMentions } from "@/components/HighlightedTextarea";
 import { useT } from "@/lib/useI18n";
@@ -196,7 +197,10 @@ export function ChatPanel({
   onAuthorContextMenu,
   onCollapse,
   onRequestAccount,
+  roomHandle = null,
 }: {
+  /** The room's handle — which custom emoji may go in (a group voice room's by the group's rules). */
+  roomHandle?: string | null;
   messages: ChatMessage[];
   selfId: string | null;
   // Used to detect "@YourName" mentions for the yellow/blue highlight —
@@ -373,8 +377,12 @@ export function ChatPanel({
   // ":" for emoji, ":sob:" → 😭, and the picker beside "send" — see
   // useEmojiAutocomplete. A change it makes is not an input event, so the box
   // is grown here the way handleInput grows it for typing.
+  const emojiPlace = roomHandle ? { room: roomHandle } : null;
+  const customEmojiEnabled = useCustomEmojiEnabled(emojiPlace, true);
   const emoji = useEmojiAutocomplete({
     textareaRef,
+    place: emojiPlace,
+    customEnabled: customEmojiEnabled,
     onReplace: (value) => {
       setInput(value.slice(0, 500));
       requestAnimationFrame(() => {
@@ -1655,6 +1663,9 @@ export function ChatPanel({
             </Popover>
             <EmojiPickerButton
               onPick={emoji.insert}
+              customEnabled={emoji.customEnabled}
+              custom={emoji.custom}
+              onPickCustom={emoji.insertCustom}
               disabled={Boolean(sendDisabledReason) || sendingImages}
               iconSize={18}
               className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-zinc-300 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"

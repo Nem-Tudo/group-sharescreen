@@ -28,6 +28,7 @@ import { ChannelSettingsDialog } from "@/components/groups/ChannelSettingsDialog
 import { CategorySettingsDialog } from "@/components/groups/CategorySettingsDialog";
 import { RoomToGroupDialog } from "@/components/RoomToGroup";
 import { BotExplorerDialog } from "@/components/bots/BotExplorerDialog";
+import { MyEmojisDialog } from "@/components/EmojiManager";
 import { AddBotDialog, BotAddLinkInterceptor, InviteDialog } from "@/components/bots/AddBotDialog";
 
 // Popup types this app registers with the library, opened by name through
@@ -60,6 +61,8 @@ const customPopups: Record<string, ComponentType> = {
   room_to_group: RoomToGroupDialog as ComponentType,
   // A group's "Explorar bots" — see components/bots/BotExplorerDialog.tsx.
   bot_explorer: BotExplorerDialog as ComponentType,
+  // An account's own custom emoji — see EmojiManager.
+  my_emojis: MyEmojisDialog as ComponentType,
   // Adding a bot to a group, from any /bots/:id/add link — see AddBotDialog.
   add_bot: AddBotDialog as ComponentType,
   // A group's invite, from any invite link — see InviteDialog.

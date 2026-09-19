@@ -92,6 +92,9 @@ import { requestExploreGroups } from "@/components/groups/groupSearch";
 import { BotBrowser } from "@/components/bots/BotBrowser";
 import { AuraTab } from "@/components/groups/AuraTab";
 import { useAuraOf } from "@/components/groups/AuraMark";
+import { EmojiManager } from "@/components/EmojiManager";
+import { CUSTOM_EMOJI_BADGE, CUSTOM_EMOJI_FEATURE } from "@/lib/customEmoji";
+import { BASE_GROUP_EMOJI_SLOTS, DEFAULT_AURA_LEVELS } from "@/lib/groupAura";
 import { NewBadge } from "@/components/NewBadge";
 import { useFeature } from "@/lib/features";
 import { GROUP_AURA_BADGE, GROUP_AURA_FEATURE } from "@/lib/groupAura";
@@ -701,9 +704,24 @@ export function GroupInviteDialog({ closePopup, data }: PopupProps<{ groupId: st
   );
 }
 
+/** The group's custom emoji — how many fit comes from its aura level (see lib/groupAura). */
+function GroupEmojisTab({ groupId, level }: { groupId: string; level: number }) {
+  const { t } = useI18n();
+  let slots = BASE_GROUP_EMOJI_SLOTS;
+  for (const row of DEFAULT_AURA_LEVELS) if (row.level <= level) slots = Math.max(slots, row.emojiSlots);
+  return (
+    <EmojiManager
+      owner={{ group: groupId }}
+      limitHint={
+        level > 0 ? t("customEmoji.groupLimitHintLevel", { level, slots }) : t("customEmoji.groupLimitHint", { slots })
+      }
+    />
+  );
+}
+
 // ─── Settings ────────────────────────────────────────────────────────────
 
-type SettingsTab = "overview" | "channels" | "roles" | "map" | "invites" | "members" | "aura" | "bots" | "bans" | "danger";
+type SettingsTab = "overview" | "channels" | "roles" | "map" | "invites" | "members" | "aura" | "emojis" | "bots" | "bans" | "danger";
 
 export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: string; tab?: string }>) {
   const groupId = data?.groupId ?? "";
@@ -712,6 +730,7 @@ export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: 
   const isOwner = detail?.me.role === "owner";
   // The exposure is counted where the way in is (the group menu's "Aura").
   const aura = useFeature(GROUP_AURA_FEATURE, { group: groupId, track: false });
+  const customEmojis = useFeature(CUSTOM_EMOJI_FEATURE, { group: groupId, track: false });
 
   // Each tab for whoever has the switch it takes (see lib/groupPermissions).
   const tabs: { id: SettingsTab; label: string; show: boolean; badge?: ReactNode }[] = [
@@ -723,6 +742,8 @@ export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: 
     { id: "members", label: translate("common.members"), show: true },
     // For everybody in the experiment: anybody with a plan may lift the group.
     { id: "aura", label: translate("groups.aura.title"), show: aura.enabled, badge: <NewBadge id={GROUP_AURA_BADGE} /> },
+    // For everybody in the experiment to see; adding one is "Gerenciar grupo".
+    { id: "emojis", label: translate("customEmoji.emojisTab"), show: customEmojis.enabled, badge: <NewBadge id={CUSTOM_EMOJI_BADGE} /> },
     // For everybody, like the name menu's "Explorar bots": finding one is not
     // running the group; adding one is, and the list offers that only to whoever may.
     { id: "bots", label: translate("botDirectory.title"), show: true },
@@ -777,6 +798,7 @@ export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: 
       {current === "invites" && <InvitesTab groupId={groupId} groupName={detail.group.name} />}
       {current === "members" && <MembersTab groupId={groupId} />}
       {current === "aura" && <AuraTab groupId={groupId} />}
+      {current === "emojis" && <GroupEmojisTab groupId={groupId} level={detail.group.aura?.level ?? 0} />}
       {current === "bots" && (
         // The same directory as the name menu's dialog (see BotExplorerDialog),
         // in a box of its own height: it scrolls inside itself, under its search.

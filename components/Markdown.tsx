@@ -10,6 +10,8 @@ import { MdCheck, MdContentCopy } from "react-icons/md";
 import { parseInline, parseMarkdown, type BlockNode, type InlineNode } from "@/lib/markdown";
 import { highlightCode, type CodeTokenType } from "@/lib/codeHighlight";
 import { useT } from "@/lib/useI18n";
+import { CustomEmoji } from "@/components/CustomEmoji";
+import { isJumboEmojiText, splitEmojiTokens } from "@/lib/customEmoji";
 
 export type RenderText = (text: string, key: string) => ReactNode;
 
@@ -34,6 +36,31 @@ export function linkifyPlain(text: string, key: string): ReactNode {
       <Fragment key={`${key}-${index}`}>{part}</Fragment>
     )
   );
+}
+
+/**
+ * `renderText` with custom emoji (see lib/customEmoji) drawn first: the plain
+ * runs between them go on to the caller as before, so no chat has to know
+ * they exist. `jumbo` for a message that is nothing but emoji.
+ */
+function withCustomEmoji(renderText: RenderText, jumbo: boolean): RenderText {
+  return (text, key) => {
+    const segments = splitEmojiTokens(text);
+    if (segments.length === 1 && segments[0].type === "text") return renderText(text, key);
+    return segments.map((segment, index) =>
+      segment.type === "emoji" ? (
+        <CustomEmoji
+          key={`${key}-e${index}`}
+          id={segment.emoji.id}
+          name={segment.emoji.name}
+          size={jumbo ? 48 : 22}
+          className="mx-px"
+        />
+      ) : (
+        <Fragment key={`${key}-e${index}`}>{renderText(segment.value, `${key}-e${index}`)}</Fragment>
+      )
+    );
+  };
 }
 
 /** A [label](url) turned into its label, all the way down. */
@@ -64,7 +91,8 @@ export function InlineMarkdown({
     const parsed = parseInline(text);
     return insideLink ? withoutLinks(parsed) : parsed;
   }, [text, insideLink]);
-  return <Inline nodes={nodes} path="t" renderText={renderText} />;
+  const render = useMemo(() => withCustomEmoji(renderText, false), [renderText]);
+  return <Inline nodes={nodes} path="t" renderText={render} />;
 }
 
 interface MarkdownProps {
@@ -78,8 +106,10 @@ interface MarkdownProps {
   images?: boolean;
 }
 
-export function Markdown({ text, renderText = linkifyPlain, trailing, compact = false, images = false }: MarkdownProps) {
+export function Markdown({ text, renderText: callerRenderText = linkifyPlain, trailing, compact = false, images = false }: MarkdownProps) {
   const blocks = useMemo(() => parseMarkdown(text, { images }), [text, images]);
+  const jumbo = useMemo(() => isJumboEmojiText(text), [text]);
+  const renderText = useMemo(() => withCustomEmoji(callerRenderText, jumbo), [callerRenderText, jumbo]);
   // The trailing mark goes inside the last block when that block is a line of
   // text, so "(edited)" sits after the words rather than on a line of its own.
   const last = blocks[blocks.length - 1];

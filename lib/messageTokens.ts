@@ -14,6 +14,7 @@
 // renderText). No React, no DOM: tested in messageTokens.test.mts.
 
 import { normalizeSearch } from "./chatMentions";
+import { plainEmoji } from "./customEmojiTokens";
 
 const USER_TOKEN = /<@([A-Za-z0-9:_-]{1,80})>/g;
 // Either kind, for splitting a text in one pass.
@@ -62,7 +63,7 @@ export function plainTokens(
   userName: (id: string) => string | null | undefined,
   roomName: (id: string) => string | null | undefined
 ): string {
-  return splitTokens(text)
+  return splitTokens(plainEmoji(text))
     .map((segment) =>
       segment.type === "text"
         ? segment.value

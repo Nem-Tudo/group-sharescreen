@@ -16,6 +16,7 @@ import { MdCheck, MdClose, MdEdit, MdGif, MdGroups, MdSend, MdTune, MdVolumeUp }
 import { AttachMenu, splitPicked } from "@/components/AttachMenu";
 import { AttachmentTray } from "@/components/AttachmentTray";
 import { EmojiPickerButton } from "@/components/EmojiPicker";
+import { useCustomEmojiEnabled, type EmojiPlace } from "@/lib/customEmoji";
 import { EmojiSuggestions } from "@/components/EmojiSuggestions";
 import { GifPicker } from "@/components/GifPicker";
 import { HighlightedTextarea, highlightMentions } from "@/components/HighlightedTextarea";
@@ -279,7 +280,10 @@ export function GroupMessageComposer({
   allow = { gifs: true, images: true },
   draftKey = null,
   onTypingChange,
+  emojiPlace = null,
 }: {
+  /** Where this composer writes — which custom emoji may go in (see lib/customEmoji). */
+  emojiPlace?: EmojiPlace;
   ref?: Ref<ComposerHandle>;
   channelName: string;
   /**
@@ -725,8 +729,11 @@ export function GroupMessageComposer({
 
   // ":" for emoji, ":sob:" → 😭, and the picker beside "send" — see
   // useEmojiAutocomplete. Everything it changes comes back through here.
+  const customEmojiEnabled = useCustomEmojiEnabled(emojiPlace, true);
   const emoji = useEmojiAutocomplete({
     textareaRef: textRef,
+    place: emojiPlace,
+    customEnabled: customEmojiEnabled,
     onReplace: (value, caret) => {
       const next = value.slice(0, MAX_LENGTH);
       setText(next);
@@ -1271,7 +1278,14 @@ export function GroupMessageComposer({
           </button>
         </Popover>
         )}
-        <EmojiPickerButton onPick={emoji.insert} disabled={disabled} className={iconButton} />
+        <EmojiPickerButton
+          onPick={emoji.insert}
+          customEnabled={emoji.customEnabled}
+          custom={emoji.custom}
+          onPickCustom={emoji.insertCustom}
+          disabled={disabled}
+          className={iconButton}
+        />
         <button
           type="button"
           onClick={() => send()}

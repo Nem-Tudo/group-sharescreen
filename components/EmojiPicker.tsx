@@ -12,6 +12,9 @@ import { Twemoji } from "@/components/Twemoji";
 import { EMOJI_VERSION, EMOJIBASE_URL } from "@/lib/emoji";
 import { getLocale } from "@/lib/i18n";
 import { useT } from "@/lib/useI18n";
+import { CustomEmojiPanel } from "@/components/CustomEmojiPanel";
+import { NewBadge } from "@/components/NewBadge";
+import { CUSTOM_EMOJI_BADGE, type CustomEmoji, type CustomEmojiSet } from "@/lib/customEmoji";
 
 // Every standard emoji, by category and searchable in the site's language,
 // drawn as Twemoji. Built on frimousse (headless), which fetches emojibase's
@@ -69,15 +72,47 @@ export function EmojiPickerPanel({
   onSelect,
   header,
   autoFocus = true,
+  customEnabled = false,
+  custom = null,
+  onSelectCustom,
 }: {
   onSelect: (emoji: string) => void;
   header?: ReactNode;
   autoFocus?: boolean;
+  /** Shows the "Personalizados" tab (see CustomEmojiPanel) — only inside the experiment. */
+  customEnabled?: boolean;
+  /** What that tab offers — null while it loads. */
+  custom?: CustomEmojiSet | null;
+  onSelectCustom?: (emoji: CustomEmoji) => void;
 }) {
   const t = useT();
+  const [tab, setTab] = useState<"standard" | "custom">("standard");
+  const showCustom = customEnabled && Boolean(onSelectCustom);
+  const tabClass = (active: boolean) =>
+    `flex flex-1 cursor-pointer items-center justify-center gap-1.5 border-b-2 px-2 py-1.5 text-xs font-medium transition ${
+      active
+        ? "border-zinc-950 text-zinc-950 dark:border-zinc-50 dark:text-zinc-50"
+        : "border-transparent text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+    }`;
   return (
     <div className="flex w-[18.5rem] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
       {header}
+      {showCustom && (
+        <div className="flex border-b border-zinc-200 dark:border-zinc-800">
+          <button type="button" onClick={() => setTab("standard")} className={tabClass(tab === "standard")}>
+            <Twemoji emoji="😀" size={14} />
+            {t("customEmoji.standardTab")}
+          </button>
+          <button type="button" onClick={() => setTab("custom")} className={tabClass(tab === "custom")}>
+            <span className="text-violet-500">✦</span>
+            {t("customEmoji.customTab")}
+            <NewBadge id={CUSTOM_EMOJI_BADGE} />
+          </button>
+        </div>
+      )}
+      {showCustom && tab === "custom" && onSelectCustom ? (
+        <CustomEmojiPanel set={custom} onSelect={onSelectCustom} autoFocus={autoFocus} />
+      ) : (
       <Frimousse.Root
         locale={getLocale()}
         emojiVersion={EMOJI_VERSION}
@@ -104,6 +139,7 @@ export function EmojiPickerPanel({
           />
         </Frimousse.Viewport>
       </Frimousse.Root>
+      )}
     </div>
   );
 }
@@ -124,9 +160,16 @@ export function EmojiPickerButton({
   disabled,
   className = "",
   iconSize = 20,
+  customEnabled = false,
+  custom = null,
+  onPickCustom,
 }: {
   onPick: (emoji: string) => void;
   disabled?: boolean;
+  /** See EmojiPickerPanel. */
+  customEnabled?: boolean;
+  custom?: CustomEmojiSet | null;
+  onPickCustom?: (emoji: CustomEmoji) => void;
   /** The composer's own icon-button classes, so it matches its neighbours. */
   className?: string;
   iconSize?: number;
@@ -149,6 +192,16 @@ export function EmojiPickerButton({
             setOpen(false);
             onPick(emoji);
           }}
+          customEnabled={customEnabled}
+          custom={custom}
+          onSelectCustom={
+            onPickCustom
+              ? (emoji) => {
+                  setOpen(false);
+                  onPickCustom(emoji);
+                }
+              : undefined
+          }
         />
       }
     >

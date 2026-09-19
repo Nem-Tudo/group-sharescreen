@@ -33,6 +33,8 @@ export const PERMISSION_BITS: readonly AnyPermissionKey[] = [
   "chat",
   "gif",
   "image",
+  "useCustomEmojis",
+  "useExternalEmojis", // 1 << 27
 ];
 
 export const ALL_PERMISSION_BITS = (1 << PERMISSION_BITS.length) - 1;

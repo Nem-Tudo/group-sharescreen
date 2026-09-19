@@ -652,7 +652,7 @@ export interface GroupAuraState {
   count: number;
   level: number;
   perks: string[];
-  levels: { level: number; auras: number; perks: string[] }[];
+  levels: { level: number; auras: number; perks: string[]; emojiSlots?: number }[];
   /** Who is lifting the group, with how many of their auras count here. */
   givers: { id: string; name: string; username: string | null; avatarUrl: string | null; flags: string[]; count: number }[];
   mine: {

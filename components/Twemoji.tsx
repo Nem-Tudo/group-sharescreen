@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { twemojiUrl } from "@/lib/emoji";
+import { parseEmojiToken } from "@/lib/customEmoji";
+import { CustomEmoji } from "@/components/CustomEmoji";
 
 /**
  * One emoji, drawn as Twemoji.
@@ -26,6 +28,10 @@ export function Twemoji({
   // Keyed by the emoji rather than a plain flag, so one that failed does not
   // leave the next one drawn as text when the same element is reused for it.
   const [failedFor, setFailedFor] = useState<string | null>(null);
+  // A custom emoji's token (a reaction's key, see lib/customEmoji) is drawn
+  // as that emoji — so every place that draws a reaction draws those too.
+  const custom = parseEmojiToken(emoji);
+  if (custom) return <CustomEmoji id={custom.id} name={custom.name} size={size} className={className} />;
   if (failedFor === emoji) {
     return (
       <span

@@ -6688,6 +6688,7 @@ export function WatchRoom({
         imageDisabledReason={imageBlockedReason}
         onCollapse={isWideLayout && hasAnyMedia ? toggleRightSidebar : undefined}
         onRequestAccount={() => setAccountModal("create")}
+        roomHandle={handle}
         // Fills whatever box it is given, in both layouts: its own column
         // from lg up, the sheet the bottom bar raises below that. No margins
         // of its own in either: on desktop it now starts flush with the top

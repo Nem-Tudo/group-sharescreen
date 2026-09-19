@@ -27,11 +27,14 @@ export const GROUP_AURA_EVENTS = {
 } as const;
 
 /** The ladder when the API has not answered yet — the same numbers as its AURA_LEVELS. */
-export const DEFAULT_AURA_LEVELS: { level: number; auras: number; perks: string[] }[] = [
-  { level: 1, auras: 2, perks: [] },
-  { level: 2, auras: 7, perks: ["customInvite"] },
-  { level: 3, auras: 14, perks: [] },
+export const DEFAULT_AURA_LEVELS: { level: number; auras: number; perks: string[]; emojiSlots: number }[] = [
+  { level: 1, auras: 2, perks: [], emojiSlots: 20 },
+  { level: 2, auras: 7, perks: ["customInvite"], emojiSlots: 30 },
+  { level: 3, auras: 14, perks: [], emojiSlots: 200 },
 ];
+
+/** Custom emoji slots of a group with no level — the API's BASE_GROUP_EMOJI_SLOTS. */
+export const BASE_GROUP_EMOJI_SLOTS = 10;
 
 const PERK_LABELS: Record<string, () => string> = {
   customInvite: () => translate("groups.aura.perkCustomInvite"),
