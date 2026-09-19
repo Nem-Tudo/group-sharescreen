@@ -91,6 +91,7 @@ import { RoleChip } from "@/components/groups/RoleChip";
 import { requestExploreGroups } from "@/components/groups/groupSearch";
 import { BotBrowser } from "@/components/bots/BotBrowser";
 import { AuraTab } from "@/components/groups/AuraTab";
+import { useAuraOf } from "@/components/groups/AuraMark";
 import { NewBadge } from "@/components/NewBadge";
 import { useFeature } from "@/lib/features";
 import { GROUP_AURA_BADGE, GROUP_AURA_FEATURE } from "@/lib/groupAura";
@@ -1524,6 +1525,7 @@ function MembersTab({ groupId }: { groupId: string }) {
   const [seq, setSeq] = useState(0);
   const { detail } = useGroupDetail(groupId);
   const revalidate = detail ? membersRevalidateKey(detail) : "";
+  const auraOf = useAuraOf(detail);
 
   useEffect(() => {
     let cancelled = false;
@@ -1588,6 +1590,7 @@ function MembersTab({ groupId }: { groupId: string }) {
                     verified={verifiedBadge(member.flags)}
                     bot={member.bot}
                     color={roleColorOf(detail, { id: member.id, roleIds }) ?? member.nameColor}
+                    aura={auraOf(member.id)}
                     className="truncate text-sm font-medium"
                   />
                   {member.role === "owner" && (

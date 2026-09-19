@@ -215,6 +215,8 @@ export interface GroupDetail {
   voiceRooms?: GroupVoiceRoomMap;
   /** Member id -> the ids of the roles they hold; only members with one. Absent from an older API. */
   memberRoles?: Record<string, string[]>;
+  /** Member id -> how many of their auras count for the group; only who gave one. Absent from an older API. */
+  auraGivers?: Record<string, number>;
   me: {
     id: string;
     role: GroupRole;

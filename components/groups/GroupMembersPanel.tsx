@@ -8,6 +8,7 @@ import { copyText } from "@/lib/clipboard";
 import { openContextMenu } from "@/lib/contextMenu";
 import { groupPath } from "@/lib/groupLinks";
 import { DisplayUserName } from "@/components/DisplayUserName";
+import { useAuraOf } from "@/components/groups/AuraMark";
 import { Tooltip } from "@/components/Tooltip";
 import { UserAvatar } from "@/components/UserAvatar";
 import { clickPerson, contextPerson } from "@/components/groups/groupProfile";
@@ -88,11 +89,14 @@ const MemberRow = memo(function MemberRow({
   away,
   room,
   color,
+  aura,
 }: {
   member: GroupMember;
   away: boolean;
   room?: string;
   color: string | null;
+  /** How many of their auras count for the group (see AuraMark). */
+  aura: number;
 }) {
   const t = useT();
   const target = { id: member.id, name: member.name, avatarUrl: member.avatarUrl, guest: member.guest };
@@ -125,6 +129,7 @@ const MemberRow = memo(function MemberRow({
               verified={verifiedBadge(member.flags)}
               bot={member.bot}
               color={color ?? member.nameColor}
+              aura={aura}
               className="min-w-0 truncate text-sm font-medium text-zinc-800 dark:text-zinc-200"
             />
             {member.role === "owner" && (
@@ -310,6 +315,8 @@ export function GroupMembersPanel({
     return out;
   }, [rows, detail]);
 
+  const auraOf = useAuraOf(detail);
+
   const { scrollRef, start, end, topPad, bottomPad } = useWindowedList({
     count: rows.length,
     rowHeight: offsets,
@@ -411,6 +418,7 @@ export function GroupMembersPanel({
                   away={row.away}
                   room={row.room}
                   color={colors.get(row.member.id) ?? null}
+                  aura={auraOf(row.member.id)}
                 />
               )
             )}

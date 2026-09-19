@@ -3,6 +3,7 @@ import type { VerifiedTone } from "@/lib/entitlements";
 import { Tooltip } from "./Tooltip";
 import { BotTag } from "./BotTag";
 import { WebhookTag } from "./WebhookTag";
+import { AuraMark } from "./groups/AuraMark";
 import { translate } from "@/lib/i18n";
 
 // Single place that renders a person's display name — every "name" shown
@@ -18,6 +19,7 @@ export function DisplayUserName({
   webhook,
   color,
   connectionLost,
+  aura,
   className,
 }: {
   name: string;
@@ -45,6 +47,9 @@ export function DisplayUserName({
   // isn't there right now (failed/disconnected, mid-reconnect). See
   // useRoomMedia's recvConnectionStates.
   connectionLost?: boolean;
+  // In a group: how many of their auras count for it — "farmando aura", the
+  // mark after the name (see components/groups/AuraMark). 0/undefined for none.
+  aura?: number;
   className?: string;
 }) {
   return (
@@ -62,6 +67,7 @@ export function DisplayUserName({
       )}
       {bot && <BotTag className="ml-1" />}
       {webhook && <WebhookTag className="ml-1" />}
+      {aura ? <AuraMark count={aura} className="ml-1 self-center" /> : null}
       {isGuest && <span className="font-normal text-zinc-500" style={{ marginLeft: "4px" }}>(guest)</span>}
       {connectionLost && (
         <Tooltip content={translate("displayUserName.connectionLostWithThisPersonTrying")}>

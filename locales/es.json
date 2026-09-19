@@ -3692,5 +3692,7 @@
   "groups.aura.givers": "Quién está dando aura",
   "groups.aura.noGivers": "Nadie le ha dado aura a este grupo todavía.",
   "groups.aura.customInviteLocked": "— Disponible cuando el grupo alcanza el nivel 2 de Aura.",
-  "groups.aura.customInviteDisabled": "está desactivado: vuelve a funcionar cuando el grupo alcance el nivel 2 de Aura. Mientras tanto, el nombre sigue reservado para el grupo."
+  "groups.aura.customInviteDisabled": "está desactivado: vuelve a funcionar cuando el grupo alcance el nivel 2 de Aura. Mientras tanto, el nombre sigue reservado para el grupo.",
+  "groups.aura.farmingMark.one": "Farmeando aura en este grupo ({count} aura)",
+  "groups.aura.farmingMark.other": "Farmeando aura en este grupo ({count} auras)"
 }

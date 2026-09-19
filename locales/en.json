@@ -3692,5 +3692,7 @@
   "groups.aura.givers": "Who's giving aura",
   "groups.aura.noGivers": "Nobody has given this group an aura yet.",
   "groups.aura.customInviteLocked": "— Available when the group reaches Aura level 2.",
-  "groups.aura.customInviteDisabled": "is disabled: it works again when the group reaches Aura level 2. In the meantime, the name stays reserved for the group."
+  "groups.aura.customInviteDisabled": "is disabled: it works again when the group reaches Aura level 2. In the meantime, the name stays reserved for the group.",
+  "groups.aura.farmingMark.one": "Farming aura in this group ({count} aura)",
+  "groups.aura.farmingMark.other": "Farming aura in this group ({count} auras)"
 }

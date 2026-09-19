@@ -1,5 +1,6 @@
 "use client";
 
+import { useAuraOf } from "@/components/groups/AuraMark";
 import { MessageAttachments } from "@/components/MessageAttachments";
 import { InviteEmbeds } from "@/components/groups/InviteEmbed";
 import { ChatImages } from "@/components/ChatImages";
@@ -294,6 +295,8 @@ export const TextChannelView = memo(function TextChannelView({
   const selfId = detail.me.id;
   // Deleting somebody else's message is "Gerenciar mensagens" (see lib/groupPermissions).
   const canManageMessages = canManage(detail, "manageMessages");
+  // "Farmando aura": the mark after an author's name (see AuraMark).
+  const auraOf = useAuraOf(detail);
 
   // Whatever was held for this room from last time. Read once: this component
   // is keyed by the room, so a new room is a new instance and a fresh read.
@@ -1558,6 +1561,7 @@ export const TextChannelView = memo(function TextChannelView({
                   bot={author.bot}
                   webhook={author.webhook}
                   color={roleColorOf(detail, { id: author.id }) ?? author.nameColor}
+                  aura={author.webhook ? 0 : auraOf(author.id)}
                   className="min-w-0 font-medium text-zinc-700 hover:underline dark:text-zinc-300"
                 />
                 <span className="shrink-0 text-xs tabular-nums text-zinc-400 dark:text-zinc-600">{timeLabel(message.ts)}</span>
