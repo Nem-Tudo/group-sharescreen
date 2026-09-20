@@ -1,7 +1,7 @@
 "use client";
 
 import { MdLockOutline, MdPublic } from "react-icons/md";
-import { AuraLevelBadge } from "@/components/groups/AuraMark";
+import { auraLitMark, useAuraLevel } from "@/components/groups/AuraMark";
 import { Tooltip } from "@/components/Tooltip";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import type { GroupVisibility } from "@/lib/groupsApi";
@@ -18,6 +18,10 @@ import { useT } from "@/lib/useI18n";
 // takes an invite — the same lock the settings use to say a group is private.
 // Only where the visibility is actually known (a group's own detail): the
 // lists of groups do not carry it, and a guess would be worse than no mark.
+//
+// That same mark is what says the group has aura: handed the group's level, it
+// lights up in the level's colour with the aura's glow around it (see
+// AuraMark's auraLitMark) instead of sitting in plain grey.
 
 export function isVerifiedGroup(flags: readonly string[] | null | undefined): boolean {
   return Boolean(flags?.includes("VERIFIED"));
@@ -36,7 +40,7 @@ export function GroupName({
   flags?: readonly string[] | null;
   /** Draws the globe or the lock ahead of the name. Left off, neither. */
   visibility?: GroupVisibility | null;
-  /** With `auraLevel`, draws the group's aura level right after that mark — see AuraLevelBadge. */
+  /** With `auraLevel`, lights the globe or the lock by the group's aura level. */
   groupId?: string;
   auraLevel?: number | null;
   /** On the whole — font, colour, flex sizing. The name inside truncates. */
@@ -45,21 +49,32 @@ export function GroupName({
   badgeClassName?: string;
 }) {
   const t = useT();
+  const level = useAuraLevel(groupId, auraLevel);
+  const lit = auraLitMark(level);
   const VisibilityIcon = visibility === "public" ? MdPublic : visibility === "private" ? MdLockOutline : null;
   // What the mark means, spelled out on hover (a long press on a phone): the
   // icon alone does not say what being public or private changes.
-  const visibilityHint =
+  const plainHint =
     visibility === "public" ? t("groups.groupName.publicHint") : t("groups.groupName.privateHint");
+  // The hover says both things: what the mark always meant, and why it is lit.
+  const visibilityHint = lit ? `${plainHint} — ${lit.label}` : plainHint;
   return (
     <span className={`inline-flex min-w-0 items-center gap-1 ${className}`}>
       {VisibilityIcon && (
         // Wrapped: Tippy needs an element it can hold a ref to, which an
         // icon component is not.
         <Tooltip content={visibilityHint} wrapperClassName="inline-flex shrink-0">
-          <VisibilityIcon role="img" aria-label={visibilityHint} className={`opacity-60 ${badgeClassName}`} />
+          <span className="inline-flex shrink-0 items-center">
+            {lit?.def}
+            <VisibilityIcon
+              role="img"
+              aria-label={visibilityHint}
+              {...lit?.props}
+              className={`${lit ? lit.props.className : "opacity-60"} ${badgeClassName}`}
+            />
+          </span>
         </Tooltip>
       )}
-      {groupId && <AuraLevelBadge groupId={groupId} level={auraLevel} />}
       <span className="truncate">{name}</span>
       {isVerifiedGroup(flags) && (
         <VerifiedBadge flags={["VERIFIED"]} className={`shrink-0 ${badgeClassName}`} />

@@ -565,6 +565,7 @@
   "admin.grantPremiumPanel.granting": "Concedendo...",
   "admin.grantPremiumPanel.grantPlan": "Conceder plano",
   "admin.groupsPanel.commaSeparatedLikeAnAccountS": "Separadas por vírgula, como as de uma conta. Conhecidas:",
+  "admin.groupsPanel.knownGroupFlags": "VERIFIED é o selo de verificado. BOOSTING_LEVEL_1, _2 e _3 seguram o grupo naquele nível de Aura, mesmo sem auras suficientes (as auras que ele tiver ainda contam acima disso).",
   "admin.groupsPanel.created": "Criado",
   "admin.groupsPanel.deleteForever": "Excluir para sempre",
   "admin.groupsPanel.deleteGroup": "Excluir grupo",

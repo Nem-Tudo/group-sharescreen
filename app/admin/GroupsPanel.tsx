@@ -21,7 +21,8 @@ import { formatLocale } from "@/lib/i18n";
 // Every one of these goes through /admin, so the log records who did it (see
 // the "Registros" tab).
 
-const KNOWN_FLAGS = ["VERIFIED"];
+// BOOSTING_LEVEL_* hold the group at that aura level — see the API's AURA_LEVEL_FLAGS.
+const KNOWN_FLAGS = ["VERIFIED", "BOOSTING_LEVEL_1", "BOOSTING_LEVEL_2", "BOOSTING_LEVEL_3"];
 
 const card = "rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950";
 const inputClass =
@@ -230,8 +231,9 @@ function FlagsCard({ group, onChange }: { group: AdminGroupHit; onChange: (group
     <div className={card}>
       <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">{t("admin.groupsPanel.groupFlags")}</h3>
       <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-        {t("admin.groupsPanel.commaSeparatedLikeAnAccountS")} {KNOWN_FLAGS.join(", ")} (o selo de verificado).
+        {t("admin.groupsPanel.commaSeparatedLikeAnAccountS")} {KNOWN_FLAGS.join(", ")}.
       </p>
+      <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t("admin.groupsPanel.knownGroupFlags")}</p>
       <input
         value={draft}
         onChange={(e) => setDraft(e.target.value)}

@@ -565,6 +565,7 @@
   "admin.grantPremiumPanel.granting": "Granting...",
   "admin.grantPremiumPanel.grantPlan": "Grant plan",
   "admin.groupsPanel.commaSeparatedLikeAnAccountS": "Comma separated, like an account's. Known:",
+  "admin.groupsPanel.knownGroupFlags": "VERIFIED is the verified badge. BOOSTING_LEVEL_1, _2 and _3 hold the group at that Aura level even without enough auras (whatever auras it has still count above that).",
   "admin.groupsPanel.created": "Created",
   "admin.groupsPanel.deleteForever": "Delete forever",
   "admin.groupsPanel.deleteGroup": "Delete group",

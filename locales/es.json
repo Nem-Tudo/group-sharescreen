@@ -565,6 +565,7 @@
   "admin.grantPremiumPanel.granting": "Concediendo...",
   "admin.grantPremiumPanel.grantPlan": "Conceder plan",
   "admin.groupsPanel.commaSeparatedLikeAnAccountS": "Separadas por comas, como las de una cuenta. Conocidas:",
+  "admin.groupsPanel.knownGroupFlags": "VERIFIED es la insignia de verificado. BOOSTING_LEVEL_1, _2 y _3 mantienen al grupo en ese nivel de Aura aunque no tenga suficientes auras (las auras que tenga siguen contando por encima).",
   "admin.groupsPanel.created": "Creado",
   "admin.groupsPanel.deleteForever": "Eliminar para siempre",
   "admin.groupsPanel.deleteGroup": "Eliminar grupo",
