@@ -29,6 +29,7 @@ export function GroupSwitcher({
   fallbackIconUrl,
   fallbackFlags,
   visibility,
+  auraLevel,
 }: {
   activeGroupId: string | null;
   /** The open group's name from its detail, for the moment before the list has loaded. */
@@ -37,6 +38,8 @@ export function GroupSwitcher({
   fallbackFlags?: string[] | null;
   /** The open group's visibility, from its detail — the list of groups does not carry it. */
   visibility?: GroupVisibility | null;
+  /** Its aura level, from the same detail — see GroupName. */
+  auraLevel?: number | null;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -150,6 +153,8 @@ export function GroupSwitcher({
           name={name ?? t("common.groups")}
           flags={name ? flags : null}
           visibility={name ? visibility : null}
+          groupId={activeGroupId ?? undefined}
+          auraLevel={auraLevel}
           className="text-base font-semibold text-zinc-950 sm:text-lg dark:text-zinc-50"
           badgeClassName="h-5 w-5"
         />

@@ -30,8 +30,8 @@ export const GROUP_AURA_EVENTS = {
 /** The ladder when the API has not answered yet — the same numbers as its AURA_LEVELS. */
 export const DEFAULT_AURA_LEVELS: { level: number; auras: number; perks: string[]; emojiSlots: number }[] = [
   { level: 1, auras: 2, perks: [], emojiSlots: 20 },
-  { level: 2, auras: 7, perks: ["customInvite"], emojiSlots: 30 },
-  { level: 3, auras: 14, perks: [], emojiSlots: 200 },
+  { level: 2, auras: 5, perks: ["customInvite"], emojiSlots: 30 },
+  { level: 3, auras: 10, perks: [], emojiSlots: 200 },
 ];
 
 /** Auras each plan gives to hand out — the API's aurasAllowedFor. For the /pro page. */

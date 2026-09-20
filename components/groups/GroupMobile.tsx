@@ -102,6 +102,7 @@ export function GroupMobileBar({
             fallbackIconUrl={detail?.group.iconUrl}
             fallbackFlags={detail?.group.flags}
             visibility={detail?.group.visibility}
+            auraLevel={detail?.group.aura?.level}
           />
         ) : (
           <div className="flex min-w-0 items-center gap-2">

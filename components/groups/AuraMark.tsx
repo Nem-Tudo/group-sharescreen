@@ -6,7 +6,7 @@ import { Tooltip } from "@/components/Tooltip";
 import { useFeature } from "@/lib/features";
 import { GROUP_AURA_FEATURE } from "@/lib/groupAura";
 import type { GroupDetail } from "@/lib/groupsApi";
-import { translateCount } from "@/lib/i18n";
+import { translate, translateCount } from "@/lib/i18n";
 
 // The mark after the name of somebody "farmando aura" in a group — giving it
 // auras that count (Discord's boost icon). Drawn by DisplayUserName when it
@@ -22,6 +22,36 @@ export function AuraMark({ count, className = "" }: { count: number; className?:
         className={`inline-flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-fuchsia-500 via-violet-500 to-sky-500 p-[3px] text-white shadow-sm ${className}`}
       >
         <MdAutoAwesome className="h-2.5 w-2.5" />
+      </span>
+    </Tooltip>
+  );
+}
+
+/**
+ * The group's aura level, beside its name (see GroupName, which puts it right
+ * after the globe or the lock). Nothing at all for a group with no level, or
+ * for a viewer outside the experiment.
+ */
+export function AuraLevelBadge({
+  groupId,
+  level,
+  className = "",
+}: {
+  groupId: string;
+  level: number | null | undefined;
+  className?: string;
+}) {
+  const { enabled } = useFeature(GROUP_AURA_FEATURE, { group: groupId, track: false });
+  const label = translate("groups.aura.levelBadge", { level: level ?? 0 });
+  if (!enabled || !level || level <= 0) return null;
+  return (
+    <Tooltip content={label} wrapperClassName="inline-flex shrink-0">
+      <span
+        aria-label={label}
+        className={`inline-flex shrink-0 items-center gap-0.5 rounded-full bg-gradient-to-br from-fuchsia-500 via-violet-500 to-sky-500 px-1 py-[1px] text-[10px] font-bold leading-none text-white shadow-sm ${className}`}
+      >
+        <MdAutoAwesome className="h-2.5 w-2.5" />
+        {level}
       </span>
     </Tooltip>
   );

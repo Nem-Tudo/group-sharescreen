@@ -1,6 +1,7 @@
 "use client";
 
 import { MdLockOutline, MdPublic } from "react-icons/md";
+import { AuraLevelBadge } from "@/components/groups/AuraMark";
 import { Tooltip } from "@/components/Tooltip";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import type { GroupVisibility } from "@/lib/groupsApi";
@@ -26,6 +27,8 @@ export function GroupName({
   name,
   flags,
   visibility,
+  groupId,
+  auraLevel,
   className = "",
   badgeClassName = "h-4 w-4",
 }: {
@@ -33,6 +36,9 @@ export function GroupName({
   flags?: readonly string[] | null;
   /** Draws the globe or the lock ahead of the name. Left off, neither. */
   visibility?: GroupVisibility | null;
+  /** With `auraLevel`, draws the group's aura level right after that mark — see AuraLevelBadge. */
+  groupId?: string;
+  auraLevel?: number | null;
   /** On the whole — font, colour, flex sizing. The name inside truncates. */
   className?: string;
   /** The badge's size, which follows the text it sits beside. The visibility mark matches it. */
@@ -53,6 +59,7 @@ export function GroupName({
           <VisibilityIcon role="img" aria-label={visibilityHint} className={`opacity-60 ${badgeClassName}`} />
         </Tooltip>
       )}
+      {groupId && <AuraLevelBadge groupId={groupId} level={auraLevel} />}
       <span className="truncate">{name}</span>
       {isVerifiedGroup(flags) && (
         <VerifiedBadge flags={["VERIFIED"]} className={`shrink-0 ${badgeClassName}`} />

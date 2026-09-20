@@ -6,6 +6,7 @@ import useNtPopups from "ntpopups";
 import {
   MdAddPhotoAlternate,
   MdArrowDownward,
+  MdAutoAwesome,
   MdArrowUpward,
   MdCheck,
   MdContentCopy,
@@ -162,15 +163,29 @@ function CopyLinkButton({ url, disabled = false }: { url: string; disabled?: boo
  * link set while it could, and no longer can, is shown as switched off — it
  * stays the group's, and can still be taken off.
  */
-function CustomInviteSection({ groupId }: { groupId: string }) {
+function CustomInviteSection({ groupId, onGoToAura }: { groupId: string; onGoToAura?: () => void }) {
   const { detail } = useGroupDetail(groupId);
   if (!detail) return null;
   // Keyed by the saved link, so the box starts from it again whenever it
   // changes — here or from another admin's screen.
-  return <CustomInviteEditor key={detail.group.customInvite ?? ""} detail={detail} />;
+  return <CustomInviteEditor key={detail.group.customInvite ?? ""} detail={detail} onGoToAura={onGoToAura} />;
 }
 
-function CustomInviteEditor({ detail }: { detail: GroupDetail }) {
+/** The way to the Aura tab from here, for a group that has not got the link yet. */
+function AuraWayIn({ onGoToAura }: { onGoToAura?: () => void }) {
+  const { t } = useI18n();
+  if (!onGoToAura) return null;
+  return (
+    <button type="button" onClick={onGoToAura} className={`${primaryButton} self-start`}>
+      <span className="flex items-center gap-1.5">
+        <MdAutoAwesome className="h-4 w-4" />
+        {t("groups.aura.goToAura")}
+      </span>
+    </button>
+  );
+}
+
+function CustomInviteEditor({ detail, onGoToAura }: { detail: GroupDetail; onGoToAura?: () => void }) {
   const { t, tc } = useI18n();
   const groupId = detail.group.id;
   const current = detail.group.customInvite ?? null;
@@ -182,10 +197,22 @@ function CustomInviteEditor({ detail }: { detail: GroupDetail }) {
   const prefix = inviteUrl("").replace(/^https?:\/\//, "");
 
   if (!allowed && !current) {
+    // Held back by the auras, and said so plainly: the link is the level's
+    // headline perk, so this is also where somebody finds out auras exist.
     return (
-      <p className="rounded-lg border border-dashed border-zinc-300 px-3 py-2.5 text-xs text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
-        <span className="font-medium text-zinc-700 dark:text-zinc-300">{t("groups.groupDialogs.customLink")}</span> {t("groups.aura.customInviteLocked")}
-      </p>
+      <div className="flex flex-col gap-2 rounded-xl border border-violet-300 bg-violet-50 p-3 dark:border-violet-500/40 dark:bg-violet-500/10">
+        <div className="flex flex-wrap items-center gap-2">
+          <MdAutoAwesome className="h-5 w-5 shrink-0 text-violet-500" />
+          <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+            {t("groups.groupDialogs.customLink")}
+          </span>
+          <span className="rounded-full bg-violet-500/15 px-2 py-0.5 text-[11px] font-semibold text-violet-700 dark:text-violet-300">
+            {t("groups.aura.customInviteNeeds")}
+          </span>
+        </div>
+        <p className="text-xs text-zinc-600 dark:text-zinc-300">{t("groups.aura.customInviteNeedsHint")}</p>
+        <AuraWayIn onGoToAura={onGoToAura} />
+      </div>
     );
   }
 
@@ -218,9 +245,13 @@ function CustomInviteEditor({ detail }: { detail: GroupDetail }) {
         {current && allowed && <CopyLinkButton url={inviteUrl(current)} />}
       </div>
       {current && !allowed && (
-        <p className="text-xs text-amber-600 dark:text-amber-400">
-          <span className="font-mono">{prefix + current}</span> {t("groups.aura.customInviteDisabled")}
-        </p>
+        <div className="flex flex-col gap-2 rounded-lg border border-violet-300 bg-violet-50 p-2.5 dark:border-violet-500/40 dark:bg-violet-500/10">
+          <p className="text-xs text-zinc-700 dark:text-zinc-200">
+            <MdAutoAwesome className="mr-1 inline-block h-4 w-4 align-[-0.25em] text-violet-500" />
+            <span className="font-mono">{prefix + current}</span> {t("groups.aura.customInviteDisabled")}
+          </p>
+          <AuraWayIn onGoToAura={onGoToAura} />
+        </div>
       )}
       <form onSubmit={submit} className="flex gap-2">
         <label className="flex min-w-0 flex-1 items-center rounded-lg border border-zinc-300 bg-white focus-within:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900">
@@ -777,6 +808,8 @@ export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: 
           name={detail.group.name}
           flags={detail.group.flags}
           visibility={detail.group.visibility}
+          groupId={groupId}
+          auraLevel={detail.group.aura?.level}
           badgeClassName="h-5 w-5"
         />
       }
@@ -796,7 +829,14 @@ export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: 
       )}
       {current === "roles" && <RolesTab groupId={groupId} />}
       {current === "map" && <LocationTab groupId={groupId} onGoToOverview={() => setTab("overview")} />}
-      {current === "invites" && <InvitesTab groupId={groupId} groupName={detail.group.name} />}
+      {current === "invites" && (
+        <InvitesTab
+          groupId={groupId}
+          groupName={detail.group.name}
+          // Only where there is an Aura tab to go to (inside the experiment).
+          onGoToAura={aura.enabled ? () => setTab("aura") : undefined}
+        />
+      )}
       {current === "members" && <MembersTab groupId={groupId} />}
       {current === "aura" && <AuraTab groupId={groupId} />}
       {current === "emojis" && <GroupEmojisTab groupId={groupId} level={detail.group.aura?.level ?? 0} />}
@@ -1455,7 +1495,15 @@ function IconButton({
   );
 }
 
-function InvitesTab({ groupId, groupName }: { groupId: string; groupName: string }) {
+function InvitesTab({
+  groupId,
+  groupName,
+  onGoToAura,
+}: {
+  groupId: string;
+  groupName: string;
+  onGoToAura?: () => void;
+}) {
   const { t, tc } = useI18n();
   const { openPopup } = useNtPopups();
   const { detail } = useGroupDetail(groupId);
@@ -1479,7 +1527,7 @@ function InvitesTab({ groupId, groupName }: { groupId: string; groupName: string
 
   return (
     <div className="flex flex-col gap-3">
-      {managesGroup && <CustomInviteSection groupId={groupId} />}
+      {managesGroup && <CustomInviteSection groupId={groupId} onGoToAura={onGoToAura} />}
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
           {managesGroup ? t("groups.groupDialogs.activeLinksThatLetSomeoneJoin") : t("groups.groupDialogs.theInviteLinksYouCreated")}
