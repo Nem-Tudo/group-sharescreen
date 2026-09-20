@@ -2497,7 +2497,10 @@ export function DirectMessagesModal({
                           one, and a button inside a button is not valid
                           markup (and browsers disagree about the clicks).
                           The click is kept off the row so the name opens the
-                          profile and everything else opens the thread. */}
+                          profile and everything else opens the thread. The
+                          outer span takes the free space; the clickable one
+                          inside is only as wide as the name itself. */}
+                      <span className="min-w-0 flex-1">
                       <span
                         role="button"
                         tabIndex={0}
@@ -2512,7 +2515,7 @@ export function DirectMessagesModal({
                           e.stopPropagation();
                           setProfileId(user.id);
                         }}
-                        className="min-w-0 flex-1 cursor-pointer hover:underline"
+                        className="inline-block max-w-full cursor-pointer align-bottom hover:underline"
                       >
                         <DisplayUserName
                           name={user.displayName}
@@ -2523,6 +2526,7 @@ export function DirectMessagesModal({
                             unread > 0 ? "font-semibold" : "font-medium"
                           }`}
                         />
+                      </span>
                       </span>
                       <span
                         className={`shrink-0 text-[11px] ${
