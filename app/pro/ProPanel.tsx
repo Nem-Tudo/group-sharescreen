@@ -372,6 +372,14 @@ export function ProPanel({
   // another app entirely — the page's job is to show a code and notice when
   // the money lands.
   const [pix, setPix] = useState<PixCharge | null>(null);
+  /**
+   * A Pix code was put on screen at some point in this visit, and whether the
+   * switch it can lead to has already been counted. Refs rather than state:
+   * neither is anything the page draws, and a re-render for them would be a
+   * re-render of the checkout for the sake of a counter.
+   */
+  const sawPixQr = useRef(false);
+  const switchReported = useRef(false);
   // Where the paid period ended at the moment the code above was created.
   // This is what tells a *paid* charge from an account that simply already
   // had access: renewing is bought by somebody for whom `active` is true
@@ -821,6 +829,16 @@ export function ProPanel({
   }, [resolvingAccount, account?.id, syncStatus]);
 
   const handleSubscribe = useCallback(async () => {
+    // Started on Pix, saw the price, and came back to subscribe instead. This
+    // is the Pix price experiment's hypothesis happening in one session, and
+    // it is not readable from the two pro_checkout events alone: those are
+    // counted per person per day, so somebody who simply tried both looks the
+    // same as somebody who switched. Reported once — a second thought is the
+    // signal, a third is noise.
+    if (sawPixQr.current && !switchReported.current) {
+      switchReported.current = true;
+      trackFeatureEvent("pro_checkout_switch_pix_to_sub", { feature: "pix-price" });
+    }
     setBusy(true);
     setGenerating(true);
     setError(null);
@@ -958,6 +976,8 @@ export function ProPanel({
     // arrive, so the confirmation below has something to compare against.
     setPixBaselineEnd(premium?.currentPeriodEnd ?? 0);
     setPix(result.charge);
+    // The price is on screen now — see handleSubscribe for what this arms.
+    sawPixQr.current = true;
     setBusy(false);
     setGenerating(false);
     // See handleSubscribe: plan?.id is what this buys.
