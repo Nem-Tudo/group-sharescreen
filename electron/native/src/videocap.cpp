@@ -504,6 +504,7 @@ class Encoder {
       // its own default, and none of them is worth failing the share over.
       SetCodecValue(codec_.get(), CODECAPI_AVEncCommonRateControlMode, eAVEncCommonRateControlMode_CBR);
       SetCodecValue(codec_.get(), CODECAPI_AVEncCommonMeanBitRate, static_cast<UINT32>(kbps) * 1000);
+      appliedKbps_ = kbps;
       SetCodecBool(codec_.get(), CODECAPI_AVLowLatencyMode, true);
       SetCodecValue(codec_.get(), CODECAPI_AVEncMPVDefaultBPictureCount, 0);
       // An IDR every few seconds on its own, so a viewer whose keyframe
@@ -533,6 +534,7 @@ class Encoder {
   void Run() {
     AvSetMmThreadCharacteristicsW(L"Capture", &mmcssTask_);
     for (;;) {
+      ApplyPendingBitrate();
       winrt::com_ptr<IMFMediaEvent> event;
       HRESULT hr = events_->GetEvent(0, event.put());
       if (FAILED(hr)) {
@@ -573,13 +575,27 @@ class Encoder {
     pendingTime_ = time100ns;
   }
 
-  void SetBitrate(int kbps) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (codec_) SetCodecValue(codec_.get(), CODECAPI_AVEncCommonMeanBitRate, static_cast<UINT32>(kbps) * 1000);
-  }
+  // The page sends one of these every couple of seconds. Neither may touch
+  // the encoder from here.
+  //
+  // `mutex_` is the frame path: Capture::SubmitLocked takes it, and it does
+  // so holding gpuMutex_ — the lock the duplication thread needs to take the
+  // next frame off the screen. Anything slow under `mutex_` therefore stops
+  // the capture itself, not just the encoder. And ICodecAPI::SetValue on a
+  // live hardware encoder is slow: a bitrate change is a rate-control
+  // reconfigure that sits inside the driver while it happens. A routine
+  // bitrate nudge was freezing the picture, on the beat of the page's timer.
+  //
+  // So the bitrate is left here for the encoder's own thread to apply between
+  // frames (see ApplyPendingBitrate), where a stall costs a dropped frame or
+  // two and nothing upstream. The key-frame flag is not a reconfigure —
+  // the encoder reads it when it starts the next frame — but it is asked for
+  // several times a second by a room full of viewers, so it stays off
+  // `mutex_` too, under a lock of its own that only codec calls contend for.
+  void SetBitrate(int kbps) { pendingKbps_.store(kbps); }
 
   void ForceKey() {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(codecMutex_);
     if (codec_) SetCodecValue(codec_.get(), CODECAPI_AVEncVideoForceKeyFrame, 1);
   }
 
@@ -592,6 +608,18 @@ class Encoder {
   bool Fail(const char* what, HRESULT hr) {
     Log("encoder init: %s failed (0x%08lx)", what, hr);
     return false;
+  }
+
+  // On the encoder thread, outside `mutex_`, and only for a rate that really
+  // changed: repeating the one the encoder already has costs a reconfigure —
+  // on most drivers a restarted rate controller and an unasked-for IDR — and
+  // buys nothing.
+  void ApplyPendingBitrate() {
+    const int kbps = pendingKbps_.exchange(0);
+    if (kbps <= 0 || kbps == appliedKbps_) return;
+    appliedKbps_ = kbps;
+    std::lock_guard<std::mutex> lock(codecMutex_);
+    if (codec_) SetCodecValue(codec_.get(), CODECAPI_AVEncCommonMeanBitRate, static_cast<UINT32>(kbps) * 1000);
   }
 
   bool SetInputType() {
@@ -688,7 +716,7 @@ class Encoder {
   }
 
   void OnHaveOutput() {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::unique_lock<std::mutex> lock(mutex_);
     MFT_OUTPUT_DATA_BUFFER output = {};
     output.dwStreamID = outputId_;
     winrt::com_ptr<IMFSample> own;
@@ -730,6 +758,20 @@ class Encoder {
 
     LONGLONG time = 0;
     sample->GetSampleTime(&time);
+
+    // Out from under `mutex_` for the rest. WriteFrame blocks in WriteFile
+    // until the shell has drained the pipe, and a pipe holds 64 KB while an
+    // IDR at 1080p is several times that — so every key frame waits on
+    // Electron's main thread getting round to reading it. Held, that wait
+    // stopped the encoder being fed *and*, through Submit, the capture thread
+    // that was holding gpuMutex_: a reader a few milliseconds late became a
+    // frozen picture. Unlocked, the frames behind it simply pile into the
+    // texture pool and the oldest are skipped, which is the backpressure this
+    // pipeline was built with.
+    //
+    // Safe to leave the lock: parameterSets_ and sequence_ are touched on
+    // this thread alone, and g_stdoutMutex keeps the records whole.
+    lock.unlock();
     bool key = parameterSets_.Process(au);
     g_framesEncoded++;
     WriteFrame(au, key, sequence_++, width_, height_, static_cast<uint32_t>(time / 10000));
@@ -746,6 +788,11 @@ class Encoder {
   DWORD outputBufferSize_ = 0;
   int width_ = 0, height_ = 0, fps_ = 30;
   std::mutex mutex_;
+  // Codec configuration only, so a driver that takes its time over a
+  // reconfigure cannot reach the frame path through `mutex_`.
+  std::mutex codecMutex_;
+  std::atomic<int> pendingKbps_{0};
+  int appliedKbps_ = 0;  // Init, and after that the encoder thread alone.
   int needInput_ = 0;
   int pendingIndex_ = -1;
   LONGLONG pendingTime_ = 0;

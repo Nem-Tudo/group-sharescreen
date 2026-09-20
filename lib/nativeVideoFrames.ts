@@ -172,3 +172,36 @@ export function nativeTargetKbps(ceilingKbps: number, available: Array<number | 
   }
   return Math.max(MIN_KBPS, Math.round(target));
 }
+
+/**
+ * Whether a new target is worth sending to the helper, and what to remember
+ * as the current rate.
+ *
+ * It is worth sending far less often than it is worth measuring. Changing the
+ * bitrate of a live hardware encoder is not a number being written down: the
+ * driver reconfigures its rate controller, most of them restart it with a
+ * fresh IDR, and the call sits inside the driver while it happens. Doing that
+ * on every sample — which is what an 8% threshold against a raw
+ * `availableOutgoingBitrate` amounted to, since the bandwidth estimator swings
+ * by more than that on most ticks as it probes — put a stall on the stream
+ * every two seconds, which is exactly what it looked like.
+ *
+ * So: down straight away, because a link that got worse is a fact and waiting
+ * costs frames; up slowly and only once in a while, because a link that looks
+ * better is a guess, and a wrong guess is paid for twice (once in congestion,
+ * once in the reconfigure that corrects it).
+ */
+export function nativeBitrateCommand(
+  currentKbps: number,
+  targetKbps: number,
+  msSinceRaise: number
+): number | null {
+  const DROP_MARGIN = 0.1;
+  const RISE_MARGIN = 0.2;
+  const RISE_GAP_MS = 8000;
+  if (currentKbps <= 0) return targetKbps;
+  const change = (targetKbps - currentKbps) / currentKbps;
+  if (change <= -DROP_MARGIN) return targetKbps;
+  if (change >= RISE_MARGIN && msSinceRaise >= RISE_GAP_MS) return targetKbps;
+  return null;
+}

@@ -46,6 +46,7 @@ import { getDesktopBridge } from "./desktop";
 import {
   ParameterSetKeeper,
   codecStringFromSps,
+  nativeBitrateCommand,
   nativeTargetKbps,
   type NativeFrameMeta,
 } from "./nativeVideoFrames";
@@ -94,7 +95,21 @@ interface NativeFrame {
 const KEY_REQUEST_GAP_MS = 250;
 const HOLD_KEY_TIMEOUT_MS = 1000;
 const STALL_TIMEOUT_MS = 300;
-const BITRATE_INTERVAL_MS = 2000;
+// How often the links are sampled. Deliberately not the 2000 ms of the shared
+// mediaStats pump: two timers on the same period land on the same tick for
+// minutes on end, and their getStats() passes then add up into one stall
+// instead of two smaller ones.
+const BITRATE_INTERVAL_MS = 2500;
+// getStats() calls per pass. All of this runs on the renderer's main thread —
+// the same thread that writes a stand-in frame per encoded frame and decodes
+// the preview — so a pass has to cost the same in a room of thirty as in a
+// room of three. The peers this pass skips are read by the next ones, and
+// their previous reading stands in the meantime (see adjustBitrate).
+const STATS_PER_PASS = 3;
+// How much of each new reading goes into the running estimate. The bandwidth
+// estimator probes upward and backs off continuously; fed in raw, its swing
+// is the thing that decides the encoder's bitrate.
+const BITRATE_SMOOTHING = 0.3;
 
 function hasPlatformSupport(): boolean {
   return (
@@ -196,6 +211,9 @@ export class NativeVideoSource {
   private readonly bitrateTimer: ReturnType<typeof setInterval>;
   private ceilingKbps: number;
   private currentKbps: number;
+  private smoothedKbps = 0;
+  private lastRaise = 0;
+  private statsCursor = 0;
   private lastKeyRequest = 0;
   private stopped = false;
   lastKey: NativeFrame | null = null;
@@ -256,6 +274,11 @@ export class NativeVideoSource {
   setCeiling(kbps: number): void {
     if (kbps === this.ceilingKbps) return;
     this.ceilingKbps = kbps;
+    // A dial somebody moved, not a reading: it applies now rather than being
+    // smoothed towards over the next half minute. Only downwards — a raised
+    // ceiling is still only permission to use the link, not evidence that it
+    // is there.
+    if (this.smoothedKbps > kbps) this.smoothedKbps = kbps;
     void this.adjustBitrate();
   }
 
@@ -299,11 +322,37 @@ export class NativeVideoSource {
 
   private async adjustBitrate() {
     if (this.stopped) return;
-    const estimates = await Promise.all([...this.sinks].map((sink) => sink.availableKbps()));
-    const target = nativeTargetKbps(this.ceilingKbps, estimates);
-    if (Math.abs(target - this.currentKbps) / this.currentKbps < 0.08) return;
-    this.currentKbps = target;
-    this.bridge.control({ bitrateKbps: target });
+    const sinks = [...this.sinks];
+    // A few links per pass, one at a time, going round. The previous version
+    // fired a pc.getStats() at every peer at once, every two seconds — the
+    // very pattern the shared mediaStats pump exists to get rid of (see its
+    // header). On a machine that is also writing one stand-in frame per
+    // encoded frame and decoding the preview, that burst is a main-thread
+    // stall, and the picture froze on the beat of the timer.
+    const visits = Math.min(STATS_PER_PASS, sinks.length);
+    for (let i = 0; i < visits; i += 1) {
+      await sinks[(this.statsCursor + i) % sinks.length].sample();
+      if (this.stopped) return;
+    }
+    if (sinks.length > 0) this.statsCursor = (this.statsCursor + visits) % sinks.length;
+
+    // Every link's most recent reading, not only the ones this pass reached:
+    // a steady stream's estimate is just as true a few seconds old, and it is
+    // the weakest link that sets the rate whether or not its turn came up.
+    const target = nativeTargetKbps(
+      this.ceilingKbps,
+      sinks.map((sink) => sink.lastAvailableKbps)
+    );
+    this.smoothedKbps =
+      this.smoothedKbps === 0
+        ? target
+        : this.smoothedKbps * (1 - BITRATE_SMOOTHING) + target * BITRATE_SMOOTHING;
+    const smoothed = Math.round(this.smoothedKbps);
+    const command = nativeBitrateCommand(this.currentKbps, smoothed, performance.now() - this.lastRaise);
+    if (command === null) return;
+    if (command > this.currentKbps) this.lastRaise = performance.now();
+    this.currentKbps = command;
+    this.bridge.control({ bitrateKbps: command });
   }
 }
 
@@ -405,9 +454,20 @@ class SenderSink {
     void streams.readable.pipeThrough(transform).pipeTo(streams.writable).catch(() => {});
   }
 
-  /** The link's current bandwidth estimate, in kbps, or null. */
-  async availableKbps(): Promise<number | null> {
-    if (this.closed || this.pc.connectionState !== "connected") return null;
+  /**
+   * This link's bandwidth estimate in kbps, as of the last time sample() was
+   * called on it, or null while it is unknown or the link is not up. Held
+   * here rather than fetched on demand so that the bitrate pass can read
+   * every link while only asking a few of them (see adjustBitrate).
+   */
+  lastAvailableKbps: number | null = null;
+
+  /** Reads this link's bandwidth estimate into lastAvailableKbps. */
+  async sample(): Promise<void> {
+    if (this.closed || this.pc.connectionState !== "connected") {
+      this.lastAvailableKbps = null;
+      return;
+    }
     try {
       const stats = await this.pc.getStats();
       let best: number | null = null;
@@ -417,9 +477,9 @@ class SenderSink {
         if (!pair.nominated || pair.state !== "succeeded") return;
         if (typeof pair.availableOutgoingBitrate === "number") best = pair.availableOutgoingBitrate / 1000;
       });
-      return best;
+      if (!this.closed) this.lastAvailableKbps = best;
     } catch {
-      return null;
+      // Left at the last reading: one failed pass says nothing about the link.
     }
   }
 
@@ -441,6 +501,9 @@ class SenderSink {
   close() {
     if (this.closed) return;
     this.closed = true;
+    // A link that is gone must stop being the weakest one the rate is held
+    // down to, whether or not it is still in the set.
+    this.lastAvailableKbps = null;
     this.pc.removeEventListener("connectionstatechange", this.onState);
     if (this.stallTimer) clearTimeout(this.stallTimer);
     if (this.held) {

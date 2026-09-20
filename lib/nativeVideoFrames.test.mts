@@ -11,6 +11,7 @@ import {
   NativeFrameReader,
   ParameterSetKeeper,
   codecStringFromSps,
+  nativeBitrateCommand,
   nativeTargetKbps,
   splitNalUnits,
 } from "./nativeVideoFrames";
@@ -119,4 +120,21 @@ test("the target follows the weakest known link, within bounds", () => {
   assert.equal(nativeTargetKbps(8000, [4000, 20000]), 3400);
   assert.equal(nativeTargetKbps(8000, [100]), 300);
   assert.equal(nativeTargetKbps(8000, [Number.NaN, 0]), 8000);
+});
+
+test("a bitrate command goes out on a drop, and on a rise only now and then", () => {
+  // The estimator's ordinary swing costs nothing: this is the case that used
+  // to reconfigure the encoder every two seconds.
+  assert.equal(nativeBitrateCommand(4000, 4300, 60_000), null);
+  assert.equal(nativeBitrateCommand(4000, 3700, 60_000), null);
+
+  // A link that got worse is acted on at once.
+  assert.equal(nativeBitrateCommand(4000, 3600, 0), 3600);
+
+  // A link that looks better waits its turn.
+  assert.equal(nativeBitrateCommand(4000, 5000, 1000), null);
+  assert.equal(nativeBitrateCommand(4000, 5000, 9000), 5000);
+
+  // Nothing sent yet: the first target is the one to use.
+  assert.equal(nativeBitrateCommand(0, 2500, 0), 2500);
 });
