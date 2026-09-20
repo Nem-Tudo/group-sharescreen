@@ -104,7 +104,7 @@ export function LocalMediaPicker({
           (full
             ? t("localMediaPicker.youAreAlreadyPlayingTheMaximum")
             : music
-          ? t("localMediaPicker.aFolderOrAZipBecomes")
+              ? t("localMediaPicker.aFolderOrAZipBecomes")
               : t("localMediaPicker.aFolderOrAZipBecomes"))}
       </p>
 
@@ -117,9 +117,8 @@ export function LocalMediaPicker({
       <div className={`flex-col gap-1.5 ${blocked ? "hidden" : "flex"}`}>
         <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{t("common.whoCanControl")}</p>
         <label
-          className={`flex items-center gap-2 text-sm ${
-            hasAccount ? "" : "cursor-not-allowed opacity-50"
-          }`}
+          className={`flex items-center gap-2 text-sm ${hasAccount ? "" : "cursor-not-allowed opacity-50"
+            }`}
         >
           <input
             type="radio"
@@ -181,7 +180,10 @@ export function LocalMediaPicker({
         ref={fileInputRef}
         type="file"
         multiple
-        accept={music ? "audio/*" : "video/*,audio/*"}
+        accept={music
+          ? "audio/*"
+          : "video/*,audio/*,.mkv,.mp4,.webm,.mov,.avi,.m4v"
+        }
         hidden
         onChange={(e) => {
           void handleFiles(e.target.files);
