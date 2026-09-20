@@ -169,7 +169,12 @@ export function liveConversationList(
     const row = byUser.get(other);
     if (row && message.ts > row.lastMessage.ts) row.lastMessage = message;
   }
-  return [...byUser.values()].sort((a, b) => b.lastMessage.ts - a.lastMessage.ts);
+  // Pinned first, newest first inside each half — the order the server sends
+  // (see the API's listConversations), kept here because this rebuilds it
+  // from what arrived live.
+  return [...byUser.values()].sort(
+    (a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.lastMessage.ts - a.lastMessage.ts
+  );
 }
 
 /**

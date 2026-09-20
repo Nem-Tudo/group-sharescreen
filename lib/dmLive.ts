@@ -2,7 +2,14 @@
 
 import { useSyncExternalStore } from "react";
 import { signalingClient, type DmSocketEvent } from "./signalingClient";
-import { fetchDmSettings, saveDmSettings, type DirectMessage, type DmCallInfo, type DmReaction } from "./dmApi";
+import {
+  fetchDmSettings,
+  saveDmSettings,
+  type DirectMessage,
+  type DmAllowFrom,
+  type DmCallInfo,
+  type DmReaction,
+} from "./dmApi";
 import type { DmChange } from "./dmThread";
 import { TYPING_REFRESH_MS } from "./typing";
 
@@ -62,6 +69,8 @@ export type DmLiveState = {
   deletions: number;
   /** This account's "visto" switch; null until read. Tagged with whose it is. */
   readReceipts: { accountId: string; value: boolean } | null;
+  /** Who may start a conversation with this account; null until read. */
+  allowFrom: { accountId: string; value: DmAllowFrom } | null;
 };
 
 let state: DmLiveState = {
@@ -72,6 +81,7 @@ let state: DmLiveState = {
   calls: {},
   deletions: 0,
   readReceipts: null,
+  allowFrom: null,
 };
 const listeners = new Set<() => void>();
 const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -190,8 +200,13 @@ function handle(event: DmSocketEvent) {
       return;
     }
     case "dm-settings": {
-      if (typeof event.readReceipts !== "boolean" || !state.readReceipts) return;
-      set({ readReceipts: { ...state.readReceipts, value: event.readReceipts } });
+      // Either switch may be the one that moved, and the event carries both.
+      if (typeof event.readReceipts === "boolean" && state.readReceipts) {
+        set({ readReceipts: { ...state.readReceipts, value: event.readReceipts } });
+      }
+      if ((event.allowFrom === "everyone" || event.allowFrom === "friends") && state.allowFrom) {
+        set({ allowFrom: { ...state.allowFrom, value: event.allowFrom } });
+      }
       return;
     }
   }
@@ -219,6 +234,7 @@ const SERVER_STATE: DmLiveState = {
   calls: {},
   deletions: 0,
   readReceipts: null,
+  allowFrom: null,
 };
 
 export function useDmLive(): DmLiveState {
@@ -241,7 +257,12 @@ export function loadDmSettings(accountId: string): void {
   void fetchDmSettings().then((settings) => {
     if (settingsInFlight === accountId) settingsInFlight = null;
     // Unknown stays unknown on a failure, so the next open asks again.
-    if (settings) set({ readReceipts: { accountId, value: settings.readReceipts } });
+    if (settings) {
+      set({
+        readReceipts: { accountId, value: settings.readReceipts },
+        allowFrom: { accountId, value: settings.allowFrom },
+      });
+    }
   });
 }
 
@@ -255,5 +276,28 @@ export async function setDmReadReceipts(accountId: string, value: boolean): Prom
     return true;
   }
   set({ readReceipts: before });
+  return false;
+}
+
+/**
+ * Sets who may start a conversation with this account, the same way: at once
+ * on screen, and back if the server refuses.
+ *
+ * The switch is saved alongside "visto" because the API has one route for the
+ * pair — so whatever "visto" is right now goes with it, and a request that
+ * crossed with another device's change loses nothing it was not told about.
+ */
+export async function setDmAllowFrom(accountId: string, value: DmAllowFrom): Promise<boolean> {
+  const before = state.allowFrom;
+  set({ allowFrom: { accountId, value } });
+  const saved = await saveDmSettings({
+    readReceipts: state.readReceipts?.value ?? true,
+    allowFrom: value,
+  });
+  if (saved) {
+    set({ allowFrom: { accountId, value: saved.allowFrom } });
+    return true;
+  }
+  set({ allowFrom: before });
   return false;
 }

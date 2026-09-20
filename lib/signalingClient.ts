@@ -2249,6 +2249,11 @@ class SignalingClient {
         this.emitDmEvent(msg as DmSocketEvent);
         break;
       case "dm-read":
+      // A conversation put back to unread, or pinned, on another device: the
+      // same nudge as a read, because the answer to all three is that this
+      // account's conversation list is no longer what it says it is.
+      case "dm-unread":
+      case "dm-pinned":
         this.setState({ dmReadSeq: this.state.dmReadSeq + 1 });
         break;
       case "dm-typing":

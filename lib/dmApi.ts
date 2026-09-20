@@ -81,6 +81,8 @@ export interface Conversation {
   user: SocialUser;
   lastMessage: DirectMessage;
   unread: number;
+  /** Kept at the top of this account's own list. */
+  pinned?: boolean;
 }
 
 function authHeaders(): Record<string, string> {
@@ -108,7 +110,13 @@ export async function fetchConversation(
   userId: string,
   before?: number,
   signal?: AbortSignal
-): Promise<{ user: SocialUser; messages: DirectMessage[]; seenTs: number | null } | null> {
+): Promise<{
+  user: SocialUser;
+  messages: DirectMessage[];
+  seenTs: number | null;
+  /** How far *this* account had read when the page was asked for — the line. */
+  readTs: number | null;
+} | null> {
   try {
     const query = before ? `?before=${before}` : "";
     const res = await fetch(
@@ -116,9 +124,18 @@ export async function fetchConversation(
       { headers: authHeaders(), signal }
     );
     if (!res.ok) return null;
-    const data = (await res.json()) as { user: SocialUser; messages: DirectMessage[]; seenTs?: number | null };
+    const data = (await res.json()) as {
+      user: SocialUser;
+      messages: DirectMessage[];
+      seenTs?: number | null;
+      readTs?: number | null;
+    };
     // Absent from an API older than read receipts: nothing is known to be seen.
-    return { ...data, seenTs: typeof data.seenTs === "number" ? data.seenTs : null };
+    return {
+      ...data,
+      seenTs: typeof data.seenTs === "number" ? data.seenTs : null,
+      readTs: typeof data.readTs === "number" ? data.readTs : null,
+    };
   } catch {
     return null;
   }
@@ -162,8 +179,14 @@ export async function sendDirectMessage(
     const data = (await res.json().catch(() => ({}))) as {
       message?: DirectMessage;
       error?: string;
+      reason?: string;
     };
     if (!res.ok || !data.message) {
+      // The server writes its refusals in English, for bots and for the logs.
+      // The one a person can actually run into gets said in their language.
+      if (data.reason === "dm_friends_only") {
+        return { ok: false, error: translate("directMessagesModal.friendsOnlyRefused") };
+      }
       return { ok: false, error: data.error ?? translate("common.couldNotSend") };
     }
     return { ok: true, message: data.message };
@@ -267,20 +290,28 @@ export async function deleteDirectMessage(
 export interface DmSettings {
   /** Whether "visto" is shared — mutual: off also hides when others read yours. */
   readReceipts: boolean;
+  /** Who may start a conversation with this account. */
+  allowFrom: DmAllowFrom;
 }
+
+export type DmAllowFrom = "everyone" | "friends";
 
 export async function fetchDmSettings(): Promise<DmSettings | null> {
   try {
     const res = await fetch(`${getSignalingHttpBase()}/dm/settings`, { headers: authHeaders() });
     if (!res.ok) return null;
     const data = (await res.json()) as Partial<DmSettings>;
-    return { readReceipts: data.readReceipts !== false };
+    return { readReceipts: data.readReceipts !== false, allowFrom: data.allowFrom === "friends" ? "friends" : "everyone" };
   } catch {
     return null;
   }
 }
 
-export async function saveDmSettings(settings: DmSettings): Promise<DmSettings | null> {
+export async function saveDmSettings(settings: {
+  readReceipts: boolean;
+  /** Left out to change only "visto" — the server keeps what it has. */
+  allowFrom?: DmAllowFrom;
+}): Promise<DmSettings | null> {
   try {
     const res = await fetch(`${getSignalingHttpBase()}/dm/settings`, {
       method: "PUT",
@@ -289,7 +320,96 @@ export async function saveDmSettings(settings: DmSettings): Promise<DmSettings |
     });
     if (!res.ok) return null;
     const data = (await res.json()) as Partial<DmSettings>;
-    return { readReceipts: data.readReceipts !== false };
+    return { readReceipts: data.readReceipts !== false, allowFrom: data.allowFrom === "friends" ? "friends" : "everyone" };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Puts this account's bookmark back, so the conversation reads as unread
+ * again. False when the server had nothing to go back to — a conversation
+ * where the other person never wrote.
+ */
+export async function markConversationUnread(userId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${getSignalingHttpBase()}/dm/${encodeURIComponent(userId)}/unread`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Pins a conversation to the top of this account's list, or unpins it. */
+export async function setConversationPinned(userId: string, pinned: boolean): Promise<boolean> {
+  try {
+    const res = await fetch(`${getSignalingHttpBase()}/dm/${encodeURIComponent(userId)}/pin`, {
+      method: "PUT",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ pinned }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export interface DmSearchHit {
+  /** The other person in the conversation the message belongs to. */
+  otherId: string;
+  message: DirectMessage;
+}
+
+/**
+ * Messages holding `query` — everywhere, or inside one conversation when
+ * `withUserId` is given. The people are answered alongside, because a hit
+ * from a conversation the list has not loaded is an id with no name.
+ */
+export async function searchDirectMessages(
+  query: string,
+  withUserId?: string,
+  signal?: AbortSignal
+): Promise<{ hits: DmSearchHit[]; users: SocialUser[] } | null> {
+  try {
+    const params = new URLSearchParams({ q: query });
+    if (withUserId) params.set("with", withUserId);
+    const res = await fetch(`${getSignalingHttpBase()}/dm/search?${params.toString()}`, {
+      headers: authHeaders(),
+      signal,
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { hits?: DmSearchHit[]; users?: SocialUser[] };
+    return { hits: data.hits ?? [], users: data.users ?? [] };
+  } catch {
+    return null;
+  }
+}
+
+export interface LinkPreview {
+  url: string;
+  title?: string;
+  description?: string;
+  image?: string;
+  siteName: string;
+}
+
+/**
+ * The card for a link in a message, read by the server (the pages people link
+ * to do not allow a browser to read them). Null for a link with no card —
+ * which callers remember, so one is never asked for twice.
+ */
+export async function fetchLinkPreview(url: string, signal?: AbortSignal): Promise<LinkPreview | null> {
+  try {
+    const res = await fetch(`${getSignalingHttpBase()}/dm/preview?url=${encodeURIComponent(url)}`, {
+      headers: authHeaders(),
+      signal,
+    });
+    if (!res.ok || res.status === 204) return null;
+    const data = (await res.json()) as { preview?: LinkPreview };
+    return data.preview ?? null;
   } catch {
     return null;
   }

@@ -139,6 +139,18 @@ test("the list moves a conversation up when something arrives in it", () => {
   assert.equal(list[1].lastMessage.ts, 100);
 });
 
+test("a pinned conversation stays on top of a newer one", () => {
+  const user = (id: string) => ({ id, username: id, displayName: id, flags: [] });
+  const list = [
+    { user: user(ANA), lastMessage: msg(ANA, ME, 100), unread: 0, pinned: true },
+    { user: user(BIA), lastMessage: msg(BIA, ME, 200), unread: 0 },
+  ];
+  // Even with something arriving in the unpinned one, which is what would
+  // otherwise put it first.
+  const live = liveConversationList(list, [msg(BIA, ME, 300)], ME);
+  assert.deepEqual(live.map((row) => row.user.id), [ANA, BIA]);
+});
+
 test("the list ignores deliveries older than what it already shows", () => {
   const user = { id: ANA, username: ANA, displayName: ANA, flags: [] };
   const newest = msg(ANA, ME, 500);

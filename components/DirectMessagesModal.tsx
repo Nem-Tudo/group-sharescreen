@@ -37,13 +37,17 @@ import {
   MdOutlineAddReaction,
   MdRefresh,
   MdReply,
+  MdMarkUnreadChatAlt,
+  MdPushPin,
   MdSchedule,
+  MdSearch,
   MdSend,
   MdSettings,
 } from "react-icons/md";
 import { LuPanelLeftClose, LuPanelLeftOpen } from "react-icons/lu";
 import { GifPicker } from "@/components/GifPicker";
 import { InviteEmbeds } from "@/components/groups/InviteEmbed";
+import { LinkPreviewCard } from "@/components/LinkPreviewCard";
 import { Popover, Tooltip } from "@/components/Tooltip";
 import { AttachMenu, splitPicked } from "@/components/AttachMenu";
 import { AttachmentTray } from "@/components/AttachmentTray";
@@ -104,14 +108,19 @@ import {
   fetchConversation,
   fetchConversations,
   markConversationRead,
+  markConversationUnread,
   reactToDirectMessage,
+  searchDirectMessages,
   sendDirectMessage,
   sendDmTyping,
+  setConversationPinned,
   type Conversation,
   type DirectMessage,
   type DmCallInfo,
   type DmReaction,
+  type DmAllowFrom,
   type DmReplyTo,
+  type DmSearchHit,
 } from "@/lib/dmApi";
 import type { SocialUser } from "@/lib/socialApi";
 import {
@@ -130,7 +139,15 @@ import {
   withFreshPage,
   withOlderPage,
 } from "@/lib/dmThread";
-import { loadDmSettings, noteDmChange, noteDmEdit, noteDmReactions, setDmReadReceipts, useDmLive } from "@/lib/dmLive";
+import {
+  loadDmSettings,
+  noteDmChange,
+  noteDmEdit,
+  noteDmReactions,
+  setDmAllowFrom,
+  setDmReadReceipts,
+  useDmLive,
+} from "@/lib/dmLive";
 import { describeReaction, toggleReaction as toggledReactions } from "@/lib/groupReactions";
 import { createTypingAnnouncer, formatTypingLabel, type TypingAnnouncer } from "@/lib/typing";
 import { MD_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
@@ -186,6 +203,8 @@ const NEAR_BOTTOM_PX = 96;
 /** How close to the top starts reading the page before. */
 const NEAR_TOP_PX = 80;
 const COMPOSER_MAX_HEIGHT_PX = 144;
+/** How long after the last keystroke the search is sent. */
+const SEARCH_DEBOUNCE_MS = 300;
 const MAX_LENGTH = 2000;
 // How long a call line that still says "em chamada" is believed. It is closed
 // by the call's room emptying out (see the API's callMessages' finishCallRoom),
@@ -374,6 +393,7 @@ type BubbleHandlers = {
   discard: (clientId: string) => void;
   mediaLoad: () => void;
   menu: (event: ReactMouseEvent, bubble: Bubble) => void;
+  jump: (messageId: string) => void;
 };
 
 /** Everything a bubble needs, whether delivered or still on its way. */
@@ -495,6 +515,8 @@ const MessageBubble = memo(function MessageBubble({
   onDiscard,
   onMediaLoad,
   onMenu,
+  onJump,
+  flash,
 }: {
   bubble: Bubble;
   grouped: boolean;
@@ -520,6 +542,10 @@ const MessageBubble = memo(function MessageBubble({
   onDiscard: (clientId: string) => void;
   onMediaLoad: () => void;
   onMenu: (event: ReactMouseEvent, bubble: Bubble) => void;
+  /** Goes to the message this one answers — see the quote above. */
+  onJump: (messageId: string) => void;
+  /** Lit for a moment after being jumped to, so the eye finds it. */
+  flash: boolean;
 }) {
   const t = useT();
   const { mine, status } = bubble;
@@ -631,9 +657,24 @@ const MessageBubble = memo(function MessageBubble({
   const quote = bubble.replyTo && (
     // A snapshot taken when the reply was sent, not a pointer (see the API
     // side). It keeps saying what it said even when the original is far
-    // outside the loaded page.
+    // outside the loaded page — and clicking it goes there, loading the pages
+    // in between if it has to (see jumpToMessage), the way the group's text
+    // room has always done it.
     <span
-      className={`mb-1 block border-l-2 pl-2 text-xs opacity-75 ${
+      role="button"
+      tabIndex={0}
+      title={t("groups.textChannelView.jumpToReply")}
+      onClick={(e) => {
+        e.stopPropagation();
+        onJump(bubble.replyTo!.id);
+      }}
+      onKeyDown={(e) => {
+        if (e.key !== "Enter" && e.key !== " ") return;
+        e.preventDefault();
+        e.stopPropagation();
+        onJump(bubble.replyTo!.id);
+      }}
+      className={`mb-1 block cursor-pointer border-l-2 pl-2 text-xs opacity-75 transition hover:opacity-100 ${
         mine && !rows ? "border-white/40 dark:border-zinc-950/30" : "border-zinc-400"
       }`}
     >
@@ -740,12 +781,15 @@ const MessageBubble = memo(function MessageBubble({
     const author = bubble.author;
     return (
       <li
+        data-message-id={bubble.messageId}
         {...gestures.handlers}
         style={gestures.style}
         className={`group relative -mx-1.5 rounded-lg px-2 text-sm transition-colors ${
           editing
             ? "bg-amber-50 ring-1 ring-amber-300 dark:bg-amber-500/10 dark:ring-amber-500/40"
-            : "hover:bg-zinc-100/80 dark:hover:bg-zinc-900/70"
+            : flash
+              ? "bg-blue-100/80 dark:bg-blue-500/25"
+              : "hover:bg-zinc-100/80 dark:hover:bg-zinc-900/70"
         } ${grouped ? "pb-0.5" : "mt-2.5 pb-0.5"} ${status === "sending" ? "opacity-60" : ""}`}
       >
         <SwipeReplyHint pull={gestures.pull} progress={gestures.progress} armed={gestures.armed} />
@@ -779,6 +823,7 @@ const MessageBubble = memo(function MessageBubble({
               </div>
             )}
             {bubble.text && <InviteEmbeds text={bubble.text} />}
+            {bubble.text && <LinkPreviewCard text={bubble.text} />}
             {media}
             {reactions}
             {failure}
@@ -797,11 +842,12 @@ const MessageBubble = memo(function MessageBubble({
 
   return (
     <li
+      data-message-id={bubble.messageId}
       {...gestures.handlers}
       style={gestures.style}
       className={`group relative flex items-end gap-0.5 ${mine ? "justify-end" : "justify-start"} ${
         grouped ? "mt-0.5" : "mt-2.5"
-      }`}
+      } ${flash ? "rounded-lg bg-blue-100/80 py-0.5 dark:bg-blue-500/25" : ""}`}
     >
       <SwipeReplyHint pull={gestures.pull} progress={gestures.progress} armed={gestures.armed} />
       {mine && actions(bubbleAction)}
@@ -838,8 +884,10 @@ const MessageBubble = memo(function MessageBubble({
           </span>
         </div>
         {/* Under the bubble rather than in it: the card keeps its own colours
-            whichever side's bubble the link was sent in. */}
+            whichever side's bubble the link was sent in. The same goes for a
+            link's own card (see LinkPreviewCard). */}
         {bubble.text && <InviteEmbeds text={bubble.text} />}
+        {bubble.text && <LinkPreviewCard text={bubble.text} />}
         {reactions}
         {failure}
       </div>
@@ -1140,6 +1188,23 @@ export function DirectMessagesModal({
   const [profileId, setProfileId] = useState<string | null>(null);
   // The reaction picker that is open, as "<message id>:<where>".
   const [pickerFor, setPickerFor] = useState<string | null>(null);
+  // The message a jump landed on, lit for a moment (see jumpToMessage).
+  const [flashId, setFlashId] = useState<string | null>(null);
+  // Where this account had read when the thread was opened — the "novas
+  // mensagens" line. Tagged, and kept across the re-reads the open thread
+  // does, because the thread marks itself read at once: taking the server's
+  // newer answer would move the line to the bottom while somebody reads.
+  const [unreadMark, setUnreadMark] = useState<{ userId: string; value: number } | null>(null);
+  // What is typed in the list's search box, and what the server answered for
+  // it. The answer is tagged with the query it belongs to, so a slow reply to
+  // something already retyped is dropped rather than drawn.
+  const [query, setQuery] = useState("");
+  const [hits, setHits] = useState<{ query: string; rows: DmSearchHit[]; users: SocialUser[] } | null>(null);
+  // A search hit opens its conversation and then goes to the message — which
+  // cannot happen until that conversation is on screen. A ref rather than
+  // state: nothing is drawn from it, and the render it would cause is the one
+  // the thread arriving causes anyway.
+  const pendingJumpRef = useRef<{ userId: string; messageId: string } | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsFailed, setSettingsFailed] = useState(false);
   // Where the reader is in the thread, tagged like everything else so a thread
@@ -1194,6 +1259,9 @@ export function DirectMessagesModal({
   // those only come from the server, which checks both sides.
   const myReadReceipts =
     account && live.readReceipts?.accountId === account.id ? live.readReceipts.value : null;
+  // Null until the settings have been read, which is what disables the choice
+  // rather than drawing a default somebody never picked.
+  const myAllowFrom = account && live.allowFrom?.accountId === account.id ? live.allowFrom.value : null;
   const seenTs =
     loaded && activeId ? seenThrough(loaded.seenTs, live.seen[activeId], myReadReceipts) : null;
 
@@ -1414,6 +1482,9 @@ export function DirectMessagesModal({
         return;
       }
       setThreadFailed(null);
+      setUnreadMark((current) =>
+        current?.userId === activeId ? current : { userId: activeId, value: data.readTs ?? 0 }
+      );
       setThread((previous) => ({
         userId: activeId,
         user: data.user,
@@ -1426,7 +1497,43 @@ export function DirectMessagesModal({
     return () => controller.abort();
   }, [open, activeId, threadSeq]);
 
-  // The bookmark, moved once per message that arrives in the open thread —
+  // What the server finds for what is typed in the box.
+  //
+  // Debounced, because this is a search over a message history and a request
+  // per keystroke would be one per letter of "aniversário". Under two letters
+  // it does not ask at all: the answer would be most of the conversation.
+  useEffect(() => {
+    const needle = query.trim();
+    // Nothing is cleared here: what was found is tagged with the query it was
+    // found for, and a stale answer simply stops matching (see hitRows).
+    if (!open || !account || needle.length < 2) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void searchDirectMessages(needle, undefined, controller.signal).then((data) => {
+        if (controller.signal.aborted || !data) return;
+        setHits({ query: needle, rows: data.hits, users: data.users });
+      });
+    }, SEARCH_DEBOUNCE_MS);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [query, open, account]);
+
+  // A hit was clicked in another conversation: it was opened, and this goes
+  // to the message once that thread is actually on screen. A hit in the open
+  // conversation never gets here — it jumps on the click (see hitRow).
+  useEffect(() => {
+    const pending = pendingJumpRef.current;
+    if (!pending || loaded?.userId !== pending.userId) return;
+    pendingJumpRef.current = null;
+    void jumpToMessage(pending.messageId);
+    // jumpToMessage is re-made every render and is not what decides this — the
+    // thread arriving is.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded?.userId]);
+
+  // The bookmark, moved once per message that arrives in the open thread —  // The bookmark, moved once per message that arrives in the open thread —
   // not once per message arriving anywhere, which is what re-running on every
   // socket delivery used to do. And only while the page is in front: a thread
   // left open behind another window has not been read, so its unread count
@@ -1601,6 +1708,14 @@ export function DirectMessagesModal({
   // on every render (they read whatever state is current), so the bubbles get
   // wrappers made once that look the current ones up — otherwise every render
   // would hand every bubble "new" props and the memo above would never hold.
+  // What jumpToMessage reads between its awaits: a loop cannot see state that
+  // changed after it started, and `loaded` in its closure is whatever it was
+  // when the jump began.
+  const loadedRef = useRef<Thread | null>(null);
+  useLayoutEffect(() => {
+    loadedRef.current = loaded;
+  });
+
   const handlersRef = useRef<BubbleHandlers | null>(null);
   useLayoutEffect(() => {
     handlersRef.current = {
@@ -1616,6 +1731,7 @@ export function DirectMessagesModal({
       discard,
       mediaLoad: handleMediaLoad,
       menu: messageMenu,
+      jump: (messageId) => void jumpToMessage(messageId),
     };
   });
   const [bubbleHandlers] = useState<BubbleHandlers>(() => ({
@@ -1628,10 +1744,15 @@ export function DirectMessagesModal({
     discard: (clientId) => handlersRef.current?.discard(clientId),
     mediaLoad: () => handlersRef.current?.mediaLoad(),
     menu: (event, bubble) => handlersRef.current?.menu(event, bubble),
+    jump: (messageId) => handlersRef.current?.jump(messageId),
   }));
 
   const otherName = active?.displayName ?? t("common.someone");
   const editingMessageId = editingHere?.messageId ?? null;
+  // Null rather than 0 for a conversation with no bookmark at all: everything
+  // in it would otherwise be "new", which for a first conversation is a line
+  // above the first thing anybody said.
+  const unreadFrom = unreadMark && unreadMark.userId === activeId && unreadMark.value > 0 ? unreadMark.value : null;
   const threadItems = useMemo(() => {
     // The rows' single "Visto": under the newest message of mine, once read.
     let seenLabelKey: string | null = null;
@@ -1641,10 +1762,32 @@ export function DirectMessagesModal({
       break;
     }
 
+    // Where "novas mensagens" goes: above the oldest message of theirs that
+    // had not been read when this thread was opened. Only theirs — a line
+    // over something this account wrote is a line about nothing — and only
+    // when there is something above it, since a line at the very top of a
+    // conversation says the same as no line at all.
+    let unreadKey: string | null = null;
+    if (unreadFrom !== null) {
+      const first = bubbles.findIndex((bubble) => !bubble.mine && bubble.ts > unreadFrom);
+      if (first > 0) unreadKey = bubbles[first].key;
+    }
+
     const items: ReactNode[] = [];
     bubbles.forEach((bubble, index) => {
       const previous = bubbles[index - 1];
       const newDay = !previous || dayKey(previous.ts) !== dayKey(bubble.ts);
+      if (bubble.key === unreadKey) {
+        items.push(
+          <li key="unread-line" className="my-2 flex items-center gap-2" aria-label={t("directMessagesModal.newMessagesLine")}>
+            <span className="h-px flex-1 bg-emerald-500/50" />
+            <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+              {t("directMessagesModal.newMessagesLine")}
+            </span>
+            <span className="h-px flex-1 bg-emerald-500/50" />
+          </li>
+        );
+      }
       if (newDay) {
         items.push(
           <li key={`day:${dayKey(bubble.ts)}`} className="mb-1 mt-4 flex justify-center first:mt-0">
@@ -1691,6 +1834,8 @@ export function DirectMessagesModal({
           onDiscard={bubbleHandlers.discard}
           onMediaLoad={bubbleHandlers.mediaLoad}
           onMenu={bubbleHandlers.menu}
+          onJump={bubbleHandlers.jump}
+          flash={Boolean(bubble.messageId) && bubble.messageId === flashId}
         />
       );
     });
@@ -1699,7 +1844,7 @@ export function DirectMessagesModal({
       items.push(<TypingBubble key="typing" label={formatTypingLabel([active.displayName])} />);
     }
     return items;
-  }, [bubbles, now, otherName, layout, pickerFor, selfId, editingMessageId, bubbleHandlers, otherTyping, active]);
+  }, [bubbles, now, otherName, layout, pickerFor, selfId, editingMessageId, bubbleHandlers, otherTyping, active, unreadFrom, flashId, t]);
 
   if (!open) return null;
 
@@ -2053,6 +2198,13 @@ export function DirectMessagesModal({
     if (next) setThreadSeq((n) => n + 1);
   }
 
+  /** "Todos" or "Só amigos" — see the API's allowFrom. */
+  async function chooseAllowFrom(value: DmAllowFrom) {
+    if (!account || myAllowFrom === value) return;
+    setSettingsFailed(false);
+    if (!(await setDmAllowFrom(account.id, value))) setSettingsFailed(true);
+  }
+
   // ── Right button ────────────────────────────────────────────────────
   //
   // On a message: the quick reactions, then what its hover buttons do and
@@ -2176,6 +2328,27 @@ export function DirectMessagesModal({
             window.setTimeout(() => setListSeq((n) => n + 1), 300);
           },
         },
+        {
+          label: t("directMessagesModal.markAsUnread"),
+          icon: <MdMarkUnreadChatAlt className="h-4 w-4" />,
+          // The open conversation marks itself read as it is looked at, so
+          // un-reading it would be undone by the next frame.
+          disabled: conversation.unread > 0 || (split && user.id === activeId),
+          onSelect: () => {
+            void markConversationUnread(user.id).then((ok) => {
+              if (ok) setListSeq((n) => n + 1);
+            });
+          },
+        },
+        {
+          label: conversation.pinned ? t("directMessagesModal.unpin") : t("directMessagesModal.pin"),
+          icon: <MdPushPin className="h-4 w-4" />,
+          onSelect: () => {
+            void setConversationPinned(user.id, !conversation.pinned).then((ok) => {
+              if (ok) setListSeq((n) => n + 1);
+            });
+          },
+        },
         muteEntry(user.id),
         { type: "divider" },
         { label: t("groups.memberMenu.copyId"), icon: <MdContentCopy className="h-4 w-4" />, onSelect: () => void copyText(user.id) },
@@ -2234,6 +2407,59 @@ export function DirectMessagesModal({
   }
 
   // ── Scrolling ───────────────────────────────────────────────────────
+
+  /**
+   * Scrolls to one message, loading the pages between here and it if it is
+   * not on screen yet — what a reply's quote and a search hit both do.
+   *
+   * Reads the thread through `loadedRef` rather than through `loaded`: this
+   * loop lives across awaits, and the `loaded` in its closure is whatever it
+   * was when the first click happened. Capped at a dozen pages: past that it
+   * is a conversation somebody would rather search than scroll through, and
+   * the alternative is a click that quietly downloads a year of history.
+   */
+  async function jumpToMessage(messageId: string) {
+    if (!activeId) return;
+    const target = activeId;
+    olderInFlightRef.current = true;
+    try {
+      for (let attempt = 0; attempt < 12; attempt += 1) {
+        const node = scrollRef.current?.querySelector(
+          `[data-message-id="${CSS.escape(messageId)}"]`
+        ) as HTMLElement | null;
+        if (node) {
+          node.scrollIntoView({ block: "center", behavior: "smooth" });
+          setFlashId(messageId);
+          window.setTimeout(() => setFlashId((current) => (current === messageId ? null : current)), 1800);
+          return;
+        }
+        const current = loadedRef.current;
+        if (!current || current.userId !== target || !current.hasMore) break;
+        const oldest = current.messages[0];
+        if (!oldest) break;
+        setLoadingOlder(true);
+        const data = await fetchConversation(target, oldest.ts);
+        setLoadingOlder(false);
+        if (!data || data.messages.length === 0) break;
+        setThread((thread) =>
+          thread && thread.userId === target
+            ? {
+                ...thread,
+                messages: withOlderPage(thread.messages, data.messages),
+                hasMore: mayHaveMore(data.messages),
+              }
+            : thread
+        );
+        // One frame, so the page just added is in the DOM to be found.
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      }
+      // Deleted, or further back than we are willing to walk. Said out loud
+      // rather than silently doing nothing to a click.
+      setError({ userId: target, value: t("directMessagesModal.messageNotFound") });
+    } finally {
+      olderInFlightRef.current = false;
+    }
+  }
 
   async function loadOlder() {
     if (!activeId || !loaded || !loaded.hasMore || olderInFlightRef.current) return;
@@ -2373,6 +2599,42 @@ export function DirectMessagesModal({
               />
             </span>
           </button>
+          {/* Who may start one, under who sees what was read: both are about
+              what other people get from this account, and both are mutual
+              enough that they belong side by side rather than on a settings
+              page somewhere else. */}
+          <div className="mt-1 border-t border-zinc-200 px-2 pb-1 pt-2 dark:border-zinc-800">
+            <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+              {t("directMessagesModal.whoCanMessage")}
+            </p>
+            <p className="mt-0.5 text-xs leading-snug text-zinc-500 dark:text-zinc-400">
+              {t("directMessagesModal.whoCanMessageHint")}
+            </p>
+            <div className="mt-2 flex gap-1.5" role="radiogroup" aria-label={t("directMessagesModal.whoCanMessage")}>
+              {(["everyone", "friends"] as const).map((option) => {
+                const on = (myAllowFrom ?? "everyone") === option;
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    role="radio"
+                    aria-checked={on}
+                    disabled={myAllowFrom === null}
+                    onClick={() => void chooseAllowFrom(option)}
+                    className={`flex-1 cursor-pointer rounded-lg border px-2 py-1.5 text-xs font-medium transition disabled:cursor-wait disabled:opacity-60 ${
+                      on
+                        ? "border-zinc-950 bg-zinc-950 text-white dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-950"
+                        : "border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                    }`}
+                  >
+                    {option === "everyone"
+                      ? t("directMessagesModal.allowEveryone")
+                      : t("directMessagesModal.allowFriends")}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           {settingsFailed && (
             <p className="px-2 pb-1 text-xs text-red-600 dark:text-red-400">{t("common.couldNotSave")}</p>
           )}
@@ -2529,8 +2791,93 @@ export function DirectMessagesModal({
 
   // ── The list ──
 
+  // What the box is filtering right now, once it is worth filtering by.
+  const needle = query.trim().toLowerCase();
+  const searchingNow = needle.length > 0;
+  // The people, filtered here — the list is already loaded, so a name is not
+  // worth a round trip. The messages beside them are the server's answer.
+  const shownConversations =
+    liveConversations && searchingNow
+      ? liveConversations.filter(
+          (conversation) =>
+            conversation.user.displayName.toLowerCase().includes(needle) ||
+            conversation.user.username.toLowerCase().includes(needle)
+        )
+      : liveConversations;
+  const hitRows = hits && hits.query === query.trim() ? hits.rows : [];
+  // Derived rather than stored: the answer carries the query it belongs to,
+  // so "still looking" is simply "the answer on hand is for something else".
+  const searching = needle.length >= 2 && hits?.query !== query.trim();
+  const hitUsers = new Map((hits?.users ?? []).map((user) => [user.id, user]));
+
+  const searchBox = (
+    <div className="shrink-0 border-b border-zinc-200 px-2 py-2 dark:border-zinc-800">
+      <div className="relative">
+        <MdSearch className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={t("directMessagesModal.searchPlaceholder")}
+          aria-label={t("directMessagesModal.searchPlaceholder")}
+          className="w-full rounded-xl border border-zinc-300 bg-white py-1.5 pl-8 pr-8 text-sm text-zinc-950 outline-none transition placeholder:text-zinc-400 focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+        />
+        {query && (
+          <button
+            type="button"
+            onClick={() => setQuery("")}
+            aria-label={t("directMessagesModal.clearSearch")}
+            className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+          >
+            <MdClose className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+
+  /** One message the search found, in whichever conversation it was in. */
+  function hitRow(hit: DmSearchHit) {
+    const user = hitUsers.get(hit.otherId) ?? liveConversations?.find((c) => c.user.id === hit.otherId)?.user;
+    if (!user) return null;
+    const mine = hit.message.from === account?.id;
+    return (
+      <li key={hit.message.id}>
+        <button
+          type="button"
+          // The conversation first, the message once it is drawn — see
+          // pendingJump, which is what carries the second half.
+          onClick={() => {
+            if (activeId === user.id) {
+              void jumpToMessage(hit.message.id);
+              return;
+            }
+            pendingJumpRef.current = { userId: user.id, messageId: hit.message.id };
+            openThread(user.id);
+          }}
+          className="flex w-full items-start gap-2.5 rounded-xl px-2 py-2 text-left transition hover:bg-zinc-100 dark:hover:bg-zinc-900"
+        >
+          <UserAvatar src={user.avatarUrl} name={user.displayName} size={28} userId={user.id} className="mt-0.5 shrink-0" />
+          <span className="min-w-0 flex-1">
+            <span className="flex items-baseline justify-between gap-2">
+              <span className="truncate text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                {user.displayName}
+              </span>
+              <span className="shrink-0 text-[11px] text-zinc-400">{listTimeLabel(hit.message.ts, now)}</span>
+            </span>
+            <span className="mt-0.5 line-clamp-2 break-words text-xs text-zinc-500 dark:text-zinc-400">
+              {mine ? t("directMessagesModal.youLine", { line: messageSummary(hit.message) }) : messageSummary(hit.message)}
+            </span>
+          </span>
+        </button>
+      </li>
+    );
+  }
+
   const listPane = (
-    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+    <div className="flex min-h-0 flex-1 flex-col">
+      {searchBox}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
       {liveConversations === null ? (
         listFailed ? (
           <div className="flex flex-col items-center gap-2 px-6 py-12 text-center">
@@ -2552,9 +2899,15 @@ export function DirectMessagesModal({
         <p className="px-6 py-12 text-center text-sm text-zinc-500 dark:text-zinc-400">
           {t("directMessagesModal.noConversationYetOpenSomeoneS")}
         </p>
+      ) : searchingNow && (shownConversations ?? []).length === 0 && hitRows.length === 0 ? (
+        <p className="px-6 py-12 text-center text-sm text-zinc-500 dark:text-zinc-400">
+          {searching || needle.length < 2
+            ? t("directMessagesModal.searching")
+            : t("directMessagesModal.nothingFoundFor", { query: query.trim() })}
+        </p>
       ) : (
         <ul className="flex flex-col gap-0.5 p-2">
-          {liveConversations.map((conversation) => {
+          {(shownConversations ?? []).map((conversation) => {
             const { user, lastMessage } = conversation;
             const selected = split && user.id === activeId;
             // The open conversation is being read as it is looked at; its
@@ -2563,6 +2916,11 @@ export function DirectMessagesModal({
             const mine = lastMessage.from === account?.id;
             const line = messageSummary(lastMessage);
             const typing = Boolean(live.typing[user.id]);
+            // What is half-written in that conversation's box, when it is not
+            // the one on screen — the last message there is not what somebody
+            // coming back to this list needs to be reminded of. Trimmed
+            // because a box holding only spaces is an empty box.
+            const rowDraft = user.id === activeId ? "" : (drafts[user.id] ?? "").trim();
             return (
               <li key={user.id}>
                 <button
@@ -2626,10 +2984,16 @@ export function DirectMessagesModal({
                       </span>
                       </span>
                       <span
-                        className={`shrink-0 text-[11px] ${
+                        className={`flex shrink-0 items-center gap-1 text-[11px] ${
                           unread > 0 ? "font-semibold text-emerald-600 dark:text-emerald-400" : "text-zinc-400"
                         }`}
                       >
+                        {conversation.pinned && (
+                          <MdPushPin
+                            aria-label={t("directMessagesModal.pinned")}
+                            className="h-3 w-3 rotate-45 text-zinc-400"
+                          />
+                        )}
                         {listTimeLabel(lastMessage.ts, now)}
                       </span>
                     </span>
@@ -2637,6 +3001,13 @@ export function DirectMessagesModal({
                       {typing ? (
                         <span className="min-w-0 flex-1 truncate text-xs font-medium text-emerald-600 dark:text-emerald-400">
                           {t("directMessagesModal.typing")}
+                        </span>
+                      ) : rowDraft ? (
+                        <span className="min-w-0 flex-1 truncate text-xs text-zinc-500 dark:text-zinc-400">
+                          <span className="font-medium text-amber-600 dark:text-amber-400">
+                            {t("directMessagesModal.draftLabel")}
+                          </span>{" "}
+                          {rowDraft}
                         </span>
                       ) : (
                         <span
@@ -2660,8 +3031,26 @@ export function DirectMessagesModal({
               </li>
             );
           })}
+          {searchingNow && (
+            // The messages, under the people — a name is what somebody is
+            // usually after, and what they said is the longer answer.
+            <>
+              <li className="px-2 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                {searching ? t("directMessagesModal.searching") : t("common.messages")}
+              </li>
+              {hitRows.length === 0 && !searching && (
+                <li className="px-2 pb-2 text-xs text-zinc-500 dark:text-zinc-400">
+                  {needle.length < 2
+                    ? t("directMessagesModal.typeTwoLetters")
+                    : t("directMessagesModal.noMessagesFound")}
+                </li>
+              )}
+              {hitRows.map(hitRow)}
+            </>
+          )}
         </ul>
       )}
+      </div>
     </div>
   );
 
