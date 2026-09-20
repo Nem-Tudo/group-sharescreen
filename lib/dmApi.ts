@@ -67,6 +67,12 @@ export interface DirectMessage {
    * matched to the real message, whichever of the two copies lands first.
    */
   clientId?: string;
+  /**
+   * When this message was pinned in the conversation, and by which of the
+   * two. Both absent on one that is not pinned (and from an older API).
+   */
+  pinnedAt?: number;
+  pinnedBy?: string;
 }
 
 export interface DmReaction {
@@ -282,6 +288,50 @@ export async function deleteDirectMessage(
     if (res.ok) return { ok: true };
     const data = (await res.json().catch(() => ({}))) as { error?: string };
     return { ok: false, error: data.error ?? translate("common.didnTWork") };
+  } catch {
+    return { ok: false, error: translate("common.noConnectionToTheServer") };
+  }
+}
+
+/** Everything pinned in one conversation, newest pin first. */
+export async function fetchPinnedDms(
+  userId: string,
+  signal?: AbortSignal
+): Promise<{ messages: DirectMessage[]; limit: number } | null> {
+  try {
+    const res = await fetch(`${getSignalingHttpBase()}/dm/${encodeURIComponent(userId)}/pins`, {
+      headers: authHeaders(),
+      signal,
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { messages?: DirectMessage[]; limit?: number };
+    return { messages: data.messages ?? [], limit: data.limit ?? 0 };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Pins a message in a conversation, or takes the pin off. Either side may do
+ * both, to either side's messages — see the API's route.
+ */
+export async function setDmPinned(
+  userId: string,
+  messageId: string,
+  pinned: boolean
+): Promise<{ ok: true; message: DirectMessage } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(
+      `${getSignalingHttpBase()}/dm/${encodeURIComponent(userId)}/messages/${encodeURIComponent(messageId)}/pin`,
+      {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ pinned }),
+      }
+    );
+    const data = (await res.json().catch(() => ({}))) as { message?: DirectMessage; error?: string };
+    if (!res.ok || !data.message) return { ok: false, error: data.error ?? translate("common.couldNotSave") };
+    return { ok: true, message: data.message };
   } catch {
     return { ok: false, error: translate("common.noConnectionToTheServer") };
   }

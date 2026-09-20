@@ -325,6 +325,12 @@ export interface GroupMessage {
    * message is drawn with, rather than the webhook as it is now.
    */
   webhook?: { id: string; avatarUrl: string | null };
+  /**
+   * When this message was pinned to the top of the room, and by whom. Both
+   * absent on one that is not pinned (and from an older API).
+   */
+  pinnedAt?: number;
+  pinnedBy?: string;
 }
 
 /** The prefix a webhook's `from` carries on its messages. */
@@ -925,6 +931,51 @@ export const sendGroupMessage = (
       ...(payload.name ? { name: payload.name } : {}),
     }
   );
+
+/** Everything pinned in a room, newest pin first, with the people to draw it. */
+export const fetchPinnedMessages = (groupId: string, channelId: string, signal?: AbortSignal) =>
+  request<{ messages: GroupMessage[]; authors: Record<string, GroupUser>; limit: number }>(
+    "GET",
+    `/groups/${enc(groupId)}/channels/${enc(channelId)}/pins`,
+    undefined,
+    signal
+  );
+
+/**
+ * Pins a message or takes the pin off. Needs "Gerenciar mensagens" — a pin is
+ * a statement about the room, not about one's own message.
+ */
+export const setGroupMessagePinned = (
+  groupId: string,
+  channelId: string,
+  messageId: string,
+  pinned: boolean
+) =>
+  request<{ message: GroupMessage }>(
+    "POST",
+    `/groups/${enc(groupId)}/channels/${enc(channelId)}/messages/${enc(messageId)}/pin`,
+    { pinned }
+  );
+
+/**
+ * Messages in a group holding `query`, newest first — every room this person
+ * may read, or one when `channelId` is given. `channels` names the rooms the
+ * hits came from. Under two characters the server answers nothing.
+ */
+export const searchGroupMessages = (
+  groupId: string,
+  query: string,
+  channelId: string | null,
+  signal?: AbortSignal
+) => {
+  const params = new URLSearchParams({ q: query });
+  if (channelId) params.set("channel", channelId);
+  return request<{
+    messages: GroupMessage[];
+    authors: Record<string, GroupUser>;
+    channels: Record<string, string>;
+  }>("GET", `/groups/${enc(groupId)}/search?${params}`, undefined, signal);
+};
 
 /** Puts this person's reaction on a message (`on`), or takes it back. Answers with the message's reactions. */
 export const reactToGroupMessage = (groupId: string, channelId: string, messageId: string, emoji: string, on: boolean) =>

@@ -10,6 +10,8 @@ import {
   MdLink,
   MdMoreVert,
   MdPeopleOutline,
+  MdPushPin,
+  MdSearch,
   MdPersonAdd,
   MdSettings,
   MdShare,
@@ -30,6 +32,7 @@ import { canManage } from "@/lib/groupPermissions";
 import type { GroupChannel, GroupDetail } from "@/lib/groupsApi";
 import { canShareNatively, haptic, shareLink } from "@/lib/nativeApp";
 import { useT, useTCount } from "@/lib/useI18n";
+import { openMessageFinder, useMessageFinderQuiet } from "@/lib/messageFinder";
 
 // The groups on a phone, laid out the way a chat app is: a screen per level.
 //
@@ -179,6 +182,7 @@ function RoomOptionsSheet({
 }) {
   const t = useT();
   const openChannelSettings = useOpenChannelSettings();
+  const finder = useMessageFinderQuiet();
   const groupId = detail.group.id;
   const link = typeof window === "undefined" ? "" : `${window.location.origin}/groups/${groupId}/${channel.id}`;
   const act = (fn: () => void) => () => {
@@ -198,6 +202,23 @@ function RoomOptionsSheet({
         <SheetRow icon={MdLink} label={t("groups.groupRail.copyLink")} onClick={act(() => void copyText(link))} />
         <SheetRow icon={MdContentCopy} label={t("groups.memberMenu.copyId")} onClick={act(() => void copyText(channel.id))} />
         <SheetRow icon={MdPeopleOutline} label={t("groups.textChannelView.groupMembers")} onClick={act(onOpenMembers)} />
+        {/* The room's own panel, opened from here because a phone's title bar
+            belongs to this shell rather than to the room (see
+            lib/messageFinder's note on the request store). */}
+        {finder && (
+          <>
+            <SheetRow
+              icon={MdPushPin}
+              label={t("messageFinder.pinned")}
+              onClick={act(() => openMessageFinder(channel.id, "pins"))}
+            />
+            <SheetRow
+              icon={MdSearch}
+              label={t("messageFinder.search")}
+              onClick={act(() => openMessageFinder(channel.id, "search"))}
+            />
+          </>
+        )}
         {canManage(detail, "manageChannels") && (
           <SheetRow
             icon={MdSettings}

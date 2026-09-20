@@ -3873,5 +3873,19 @@
   "notificationSettings.removeDeviceConfirm": "Stop sending notifications to this device?",
   "notificationSettings.signInFirst": "Sign in to set up your notifications.",
   "directMessagesModal.muteConversation": "Mute conversation",
-  "directMessagesModal.unmuteConversation": "Unmute conversation"
+  "directMessagesModal.unmuteConversation": "Unmute conversation",
+  "messageFinder.pinned": "Pinned",
+  "messageFinder.search": "Search",
+  "messageFinder.pin": "Pin message",
+  "messageFinder.unpin": "Unpin",
+  "messageFinder.pinnedMessage": "Pinned message",
+  "messageFinder.copyMessageLink": "Copy message link",
+  "messageFinder.noPins": "Nothing is pinned here yet.",
+  "messageFinder.typeToSearch": "Type to search the messages.",
+  "messageFinder.searching": "Searching…",
+  "messageFinder.nothingFound": "Nothing found.",
+  "messageFinder.searchPlaceholder": "Search the messages",
+  "messageFinder.jumpToMessage": "Go to the message",
+  "messageFinder.wholeGroup": "Whole group",
+  "messageFinder.thisRoom": "This room only"
 }

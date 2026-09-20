@@ -65,7 +65,7 @@ import { openContextMenu } from "@/lib/contextMenu";
 import { useMessageGestures } from "@/lib/messageGestures";
 import { useNotifyPrefs } from "@/lib/notifyPrefs";
 import { trackFeatureEvent } from "@/lib/features";
-import { markFeatureUsed } from "@/components/NewBadge";
+import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
 import {
   NOTIFICATION_SETTINGS_BADGE,
   NOTIFICATION_SETTINGS_EVENTS,
@@ -112,8 +112,10 @@ import {
   reactToDirectMessage,
   searchDirectMessages,
   sendDirectMessage,
+  fetchPinnedDms,
   sendDmTyping,
   setConversationPinned,
+  setDmPinned,
   type Conversation,
   type DirectMessage,
   type DmCallInfo,
@@ -143,12 +145,21 @@ import {
   loadDmSettings,
   noteDmChange,
   noteDmEdit,
+  noteDmPinned,
   noteDmReactions,
   setDmAllowFrom,
   setDmReadReceipts,
   useDmLive,
 } from "@/lib/dmLive";
 import { describeReaction, toggleReaction as toggledReactions } from "@/lib/groupReactions";
+import { MessageFinderPanel, type FinderRow } from "@/components/MessageFinderPanel";
+import {
+  MESSAGE_FINDER_EVENTS,
+  MESSAGE_FINDER_FEATURE,
+  trackFinderEvent,
+  useMessageFinder,
+  type FinderPanel,
+} from "@/lib/messageFinder";
 import { createTypingAnnouncer, formatTypingLabel, type TypingAnnouncer } from "@/lib/typing";
 import { MD_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 import { useT } from "@/lib/useI18n";
@@ -416,6 +427,8 @@ type Bubble = {
   messageId?: string;
   /** When its text was last changed, if ever. */
   editedAt?: number;
+  /** When it was pinned in the conversation, if it is — see lib/messageFinder. */
+  pinnedAt?: number;
   reactions: DmReaction[];
   /** Mine, delivered, and read by the other side (with "visto" shared). */
   seen: boolean;
@@ -654,6 +667,26 @@ const MessageBubble = memo(function MessageBubble({
     </span>
   ) : null;
 
+  // Pinned: a small pin where the "(editada)" goes, so the state is visible
+  // on the message itself and not only in the list.
+  const pinnedMark = bubble.pinnedAt ? (
+    <MdPushPin
+      aria-label={t("messageFinder.pinnedMessage")}
+      title={t("messageFinder.pinnedMessage")}
+      className={`ml-1 inline h-3 w-3 shrink-0 align-[-0.1em] ${
+        rows ? "text-zinc-400 dark:text-zinc-500" : mine ? "text-white/60 dark:text-zinc-950/60" : "text-zinc-400"
+      }`}
+    />
+  ) : null;
+
+  const marks =
+    pinnedMark || editedMark ? (
+      <>
+        {pinnedMark}
+        {editedMark}
+      </>
+    ) : null;
+
   const quote = bubble.replyTo && (
     // A snapshot taken when the reply was sent, not a pointer (see the API
     // side). It keeps saying what it said even when the original is far
@@ -819,7 +852,7 @@ const MessageBubble = memo(function MessageBubble({
           <div className="min-w-0 flex-1">
             {bubble.text && (
               <div className="select-text break-words text-zinc-900 dark:text-zinc-100">
-                <Markdown text={bubble.text} renderText={(plain) => linkify(plain, false)} trailing={editedMark} />
+                <Markdown text={bubble.text} renderText={(plain) => linkify(plain, false)} trailing={marks} />
               </div>
             )}
             {bubble.text && <InviteEmbeds text={bubble.text} />}
@@ -865,7 +898,7 @@ const MessageBubble = memo(function MessageBubble({
           {media}
           {bubble.text && (
             <div className="select-text break-words">
-              <Markdown text={bubble.text} compact renderText={(plain) => linkify(plain, mine)} trailing={editedMark} />
+              <Markdown text={bubble.text} compact renderText={(plain) => linkify(plain, mine)} trailing={marks} />
             </div>
           )}
           <span
@@ -1188,6 +1221,10 @@ export function DirectMessagesModal({
   const [profileId, setProfileId] = useState<string | null>(null);
   // The reaction picker that is open, as "<message id>:<where>".
   const [pickerFor, setPickerFor] = useState<string | null>(null);
+  // Pins and the conversation's own search — one experiment with the group
+  // rooms' (see lib/messageFinder).
+  const finder = useMessageFinder();
+  const [finderPanel, setFinderPanel] = useState<FinderPanel | null>(null);
   // The message a jump landed on, lit for a moment (see jumpToMessage).
   const [flashId, setFlashId] = useState<string | null>(null);
   // Where this account had read when the thread was opened — the "novas
@@ -1676,6 +1713,9 @@ export function DirectMessagesModal({
           ts: message.ts,
           messageId: message.id,
           editedAt: message.editedAt,
+          // The live word over the page's, exactly as the reactions and the
+          // calls are laid over it: a pin from either side lands here.
+          pinnedAt: message.id in live.pins ? live.pins[message.id] ?? undefined : message.pinnedAt,
           reactions: reactionsFor(message, live.reactions, readAt),
           seen: mine && seenTs !== null && message.ts <= seenTs,
           author: mine ? meAuthor : otherAuthor,
@@ -1701,7 +1741,7 @@ export function DirectMessagesModal({
         })
       ),
     ],
-    [messages, outgoing, selfId, live.calls, live.reactions, readAt, seenTs, meAuthor, otherAuthor]
+    [messages, outgoing, selfId, live.calls, live.reactions, live.pins, readAt, seenTs, meAuthor, otherAuthor]
   );
 
   // What the bubbles call back into. The functions behind them are re-created
@@ -2211,6 +2251,55 @@ export function DirectMessagesModal({
   // copying it. On a conversation: opening it, calling, marking it read. A
   // link inside a message keeps the browser's own menu.
 
+  function openFinder(panel: FinderPanel) {
+    setFinderPanel(panel);
+    markFeatureUsed(MESSAGE_FINDER_FEATURE);
+    trackFinderEvent(panel === "pins" ? MESSAGE_FINDER_EVENTS.pinsOpen : MESSAGE_FINDER_EVENTS.searchOpen);
+  }
+
+  /**
+   * Pins a message in the open conversation, or takes the pin off.
+   *
+   * Written into the live store before the server answers, the way an edit
+   * is: the answer is not in doubt, and the tick in the menu should not wait
+   * for a round trip. A refusal puts it back the way it was.
+   */
+  async function togglePin(messageId: string, pinned: boolean) {
+    if (!activeId) return;
+    const before = messages.find((m) => m.id === messageId)?.pinnedAt ?? null;
+    markFeatureUsed(MESSAGE_FINDER_FEATURE);
+    noteDmPinned(messageId, pinned ? Date.now() : null);
+    const result = await setDmPinned(activeId, messageId, pinned);
+    if (!result.ok) {
+      noteDmPinned(messageId, before);
+      setError({ userId: activeId, value: result.error });
+      return;
+    }
+    noteDmPinned(messageId, result.message.pinnedAt ?? null);
+    trackFinderEvent(pinned ? MESSAGE_FINDER_EVENTS.pin : MESSAGE_FINDER_EVENTS.unpin);
+  }
+
+  /** One pinned or found message, as the finder panel's row. */
+  function finderRow(message: DirectMessage): FinderRow {
+    const author = message.from === selfId ? meAuthor : otherAuthor;
+    return {
+      id: message.id,
+      ts: message.ts,
+      name: author?.name ?? "",
+      avatarUrl: author?.avatarUrl ?? null,
+      userId: author?.id ?? null,
+      bot: author?.bot,
+      nameColor: author?.nameColor ?? null,
+      snippet:
+        stripMarkdown(message.text ?? "").trim() ||
+        (message.kind === "gif"
+          ? "[GIF]"
+          : message.images?.length
+            ? `[${t("common.image")}]`
+            : message.attachments?.[0]?.name ?? ""),
+    };
+  }
+
   function messageMenu(event: ReactMouseEvent, bubble: Bubble) {
     if ((event.target as Element).closest("a[href]")) return;
     const me = account?.id ?? "";
@@ -2281,6 +2370,12 @@ export function DirectMessagesModal({
           icon: <MdContentCopy className="h-4 w-4" />,
           onSelect: () => void copyText(bubble.text),
         },
+        finder.enabled &&
+          bubble.messageId && {
+            label: bubble.pinnedAt ? t("messageFinder.unpin") : t("messageFinder.pin"),
+            icon: <MdPushPin className="h-4 w-4" />,
+            onSelect: () => void togglePin(bubble.messageId!, !bubble.pinnedAt),
+          },
         bubble.messageId && {
           label: t("groups.contextMenu.copyMessageId"),
           icon: <MdContentCopy className="h-4 w-4" />,
@@ -2732,6 +2827,35 @@ export function DirectMessagesModal({
       </h2>
     );
 
+  // The conversation's pins and its own search. Only inside a thread: both
+  // are about *this* conversation, and the list already has the search that
+  // crosses all of them.
+  const finderButtons = finder.enabled && activeId && (
+    <>
+      <Tooltip content={t("messageFinder.pinned")} placement="bottom">
+        <button
+          type="button"
+          onClick={() => openFinder("pins")}
+          aria-label={t("messageFinder.pinned")}
+          className={`relative cursor-pointer ${headerButton}`}
+        >
+          <MdPushPin className="h-5 w-5" />
+          <NewBadge id={MESSAGE_FINDER_FEATURE} />
+        </button>
+      </Tooltip>
+      <Tooltip content={t("messageFinder.search")} placement="bottom">
+        <button
+          type="button"
+          onClick={() => openFinder("search")}
+          aria-label={t("messageFinder.search")}
+          className={`cursor-pointer ${headerButton}`}
+        >
+          <MdSearch className="h-5 w-5" />
+        </button>
+      </Tooltip>
+    </>
+  );
+
   // Only inside a thread, and only once we know who it is with. The window
   // stays open on purpose — the ringing screen (see components/CallHost) draws
   // above it, and closing this would throw away the conversation the call came
@@ -3140,6 +3264,33 @@ export function DirectMessagesModal({
             </>
           )}
         </div>
+        {finderPanel && activeId && (
+          <MessageFinderPanel
+            panel={finderPanel}
+            onPanelChange={openFinder}
+            onClose={() => setFinderPanel(null)}
+            onJump={(row) => {
+              if (!split) setFinderPanel(null);
+              void jumpToMessage(row.id);
+            }}
+            // Every pin heard or written bumps this, and the list reads
+            // itself again — including the other side's (see lib/dmLive).
+            refreshKey={live.pinsVersion}
+            loadPins={async (signal) => {
+              const result = await fetchPinnedDms(activeId, signal);
+              return result ? result.messages.map(finderRow) : null;
+            }}
+            search={async (query, signal) => {
+              // The conversation's own half of the search that the list
+              // already does across all of them (see the `with` parameter).
+              const result = await searchDirectMessages(query, activeId, signal);
+              return result ? result.hits.map((hit) => finderRow(hit.message)) : null;
+            }}
+            // No "manage messages" here: a conversation of two has no
+            // audience to protect, and both may pin and unpin either side's.
+            onUnpin={(row) => void togglePin(row.id, false)}
+          />
+        )}
         {showNewPill && (
           <button
             type="button"
@@ -3418,6 +3569,7 @@ export function DirectMessagesModal({
             <div className={headerRow}>
               {threadIdentity}
               {showListsButton}
+              {finderButtons}
               {callButton}
               {expandButton}
               {closeButton}
@@ -3464,6 +3616,7 @@ export function DirectMessagesModal({
                 </Tooltip>
               )}
               {threadIdentity}
+              {finderButtons}
               {callButton}
               {!activeId && settingsButton}
               {expandButton}

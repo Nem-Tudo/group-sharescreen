@@ -30,8 +30,10 @@ import {
   MdOpenInNew,
   MdOutlineAddReaction,
   MdPeopleOutline,
+  MdPushPin,
   MdRefresh,
   MdReply,
+  MdSearch,
   MdSettings,
   MdVolumeUp,
 } from "react-icons/md";
@@ -89,8 +91,11 @@ import {
   deleteGroupMessage,
   editGroupMessage,
   fetchMessages,
+  fetchPinnedMessages,
   reactToGroupMessage,
+  searchGroupMessages,
   searchMembers,
+  setGroupMessagePinned,
   sendGroupTyping,
   WEBHOOK_AUTHOR_PREFIX,
   type GroupDetail,
@@ -119,11 +124,26 @@ import {
 } from "@/lib/groupOutbox";
 import { prefetchUserProfile } from "@/lib/userProfile";
 import { useGroupNavigation } from "@/lib/groupNavigation";
+import { groupPath } from "@/lib/groupLinks";
 import { UNKNOWN_ROOM, UNKNOWN_USER, plainTokens, splitTokens, type Named } from "@/lib/messageTokens";
 import { stripMarkdown } from "@/lib/markdown";
 import { Markdown } from "@/components/Markdown";
 import { MessageEmbeds } from "@/components/MessageEmbeds";
 import { useT } from "@/lib/useI18n";
+import { MessageFinderPanel, type FinderRow } from "@/components/MessageFinderPanel";
+import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
+import {
+  MESSAGE_FINDER_EVENTS,
+  MESSAGE_FINDER_FEATURE,
+  MESSAGE_LINK_PARAM,
+  clearMessageFinder,
+  groupMessageLink,
+  takeLinkedMessageId,
+  trackFinderEvent,
+  useMessageFinder,
+  useMessageFinderRequest,
+  type FinderPanel,
+} from "@/lib/messageFinder";
 import { translate } from "@/lib/i18n";
 import { formatLocale } from "@/lib/i18n";
 import { isPageInFront } from "@/lib/pageFocus";
@@ -226,6 +246,15 @@ function outgoingAsMessage(outgoing: OutgoingMessage, selfId: string): GroupMess
   };
 }
 
+/** The room header's own icon buttons — lit while the panel they open is up. */
+function headerButton(active: boolean): string {
+  return `relative flex shrink-0 cursor-pointer items-center rounded-lg p-1.5 transition ${
+    active
+      ? "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
+      : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+  }`;
+}
+
 const rowAction =
   "inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-400 opacity-100 transition hover:bg-zinc-200/70 hover:text-zinc-800 active:scale-95 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200";
 
@@ -312,7 +341,41 @@ export const TextChannelView = memo(function TextChannelView({
   const selfId = detail.me.id;
   // Deleting somebody else's message is "Gerenciar mensagens" (see lib/groupPermissions).
   const canManageMessages = canManage(detail, "manageMessages");
-  // Which custom emoji the composer and the reaction picker offer here.
+  // Pins, search and message links — one experiment (see lib/messageFinder).
+  const finder = useMessageFinder();
+  const [finderPanel, setFinderPanel] = useState<FinderPanel | null>(null);
+  // Bumped whenever a message in this room changed, so the pinned list reads
+  // itself again: somebody else pinning something arrives as an ordinary
+  // message update, and the list is a server answer rather than a slice of
+  // what this component holds.
+  const [pinsSeq, setPinsSeq] = useState(0);
+  // Whether the search covers the whole group or only this room. The group is
+  // the default: somebody looking for something said "in here" rarely
+  // remembers which room it was in.
+  const [searchWholeGroup, setSearchWholeGroup] = useState(true);
+
+  function openFinder(panel: FinderPanel) {
+    setFinderPanel(panel);
+    markFeatureUsed(MESSAGE_FINDER_FEATURE);
+    trackFinderEvent(
+      panel === "pins" ? MESSAGE_FINDER_EVENTS.pinsOpen : MESSAGE_FINDER_EVENTS.searchOpen,
+      groupId
+    );
+  }
+
+  // A phone's room bar is several components away from this one, so its menu
+  // asks through the store rather than through a prop (see lib/messageFinder).
+  const finderRequest = useMessageFinderRequest();
+  useEffect(() => {
+    if (!finderRequest || finderRequest.scopeId !== channelId) return;
+    clearMessageFinder();
+    openFinder(finderRequest.panel);
+    // openFinder is remade every render and is not what decides this — the
+    // request arriving is.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finderRequest, channelId]);
+
+    // Which custom emoji the composer and the reaction picker offer here.
   const emojiPlace = useMemo(() => ({ group: groupId, channel: channelId }), [groupId, channelId]);
   // "Farmando aura": the mark after an author's name (see AuraMark).
   const auraOf = useAuraOf(detail);
@@ -544,6 +607,8 @@ export const TextChannelView = memo(function TextChannelView({
       onGroupMessageUpdated(({ message, mentioned }) => {
         if (message.channelId !== channelId) return;
         if (Object.keys(mentioned).length > 0) setAuthors((prev) => ({ ...mentioned, ...prev }));
+        // Cheap, and only read while the pinned list is open (see its effect).
+        setPinsSeq((n) => n + 1);
         // Only what an edit changes — the reactions held may be newer.
         setMessages(
           (prev) =>
@@ -551,7 +616,17 @@ export const TextChannelView = memo(function TextChannelView({
               m.id === message.id
                 ? // pingedMe was the answer for the old mentions; the new ones
                   // are worked out here, as for a message just arrived.
-                  { ...m, text: message.text, mentions: message.mentions, editedAt: message.editedAt, pingedMe: undefined }
+                  {
+                    ...m,
+                    text: message.text,
+                    mentions: message.mentions,
+                    editedAt: message.editedAt,
+                    // A pin arrives as an ordinary update, because that is
+                    // what it is: the same message, differently marked.
+                    pinnedAt: message.pinnedAt,
+                    pinnedBy: message.pinnedBy,
+                    pingedMe: undefined,
+                  }
                 : m
             ) ?? prev
         );
@@ -1290,6 +1365,75 @@ export const TextChannelView = memo(function TextChannelView({
 
   // ── Right button ─────────────────────────────────────────────────────
   //
+  /** One found or pinned message, as the finder panel's row. */
+  function finderRow(message: GroupMessage, people: Record<string, GroupUser>): FinderRow {
+    const author = people[message.from] ?? userOf(message);
+    const plain = stripMarkdown(
+      plainTokens(message.text ?? "", (id) => personById.get(id)?.name, (id) => roomById.get(id)?.name)
+    ).trim();
+    return {
+      id: message.id,
+      ts: message.ts,
+      name: author?.name ?? message.fromName ?? "",
+      avatarUrl: author?.avatarUrl ?? null,
+      userId: author && !author.guest && !author.webhook ? author.id : null,
+      isGuest: author?.guest,
+      bot: author?.bot,
+      webhook: author?.webhook,
+      nameColor: author?.nameColor ?? null,
+      // A message can be a picture, a GIF or a file and no words at all — a
+      // row with an empty line under the name would say nothing about which.
+      snippet:
+        plain ||
+        (message.kind === "gif"
+          ? "[GIF]"
+          : message.images?.length
+            ? `[${t("common.image")}]`
+            : message.attachments?.[0]?.name ?? ""),
+    };
+  }
+
+  /** Takes the pin off by id — from the panel, where the message may not be loaded here. */
+  async function unpinById(messageId: string, message?: GroupMessage) {
+    const result = await setGroupMessagePinned(groupId, channelId, messageId, false);
+    if (!result.ok) {
+      void openPopup("generic", { data: { title: t("common.didnTWork"), message: result.error } });
+    } else if (message) {
+      setMessages(
+        (prev) => prev?.map((m) => (m.id === messageId ? { ...m, pinnedAt: undefined, pinnedBy: undefined } : m)) ?? prev
+      );
+      trackFinderEvent(MESSAGE_FINDER_EVENTS.unpin, groupId);
+    } else {
+      trackFinderEvent(MESSAGE_FINDER_EVENTS.unpin, groupId);
+    }
+    setPinsSeq((n) => n + 1);
+  }
+
+  /**
+   * Pins a message, or takes the pin off. Written straight into the room's
+   * own copy as well as sent: the server tells everybody looking, this tab
+   * included, but the tick in the menu should not wait for a round trip.
+   */
+  async function togglePin(message: GroupMessage) {
+    const pinned = !message.pinnedAt;
+    markFeatureUsed(MESSAGE_FINDER_FEATURE);
+    const result = await setGroupMessagePinned(groupId, channelId, message.id, pinned);
+    if (!result.ok) {
+      void openPopup("generic", { data: { title: t("common.didnTWork"), message: result.error } });
+      return;
+    }
+    setMessages(
+      (prev) =>
+        prev?.map((m) =>
+          m.id === message.id
+            ? { ...m, pinnedAt: result.message.pinnedAt, pinnedBy: result.message.pinnedBy }
+            : m
+        ) ?? prev
+    );
+    setPinsSeq((n) => n + 1);
+    trackFinderEvent(pinned ? MESSAGE_FINDER_EVENTS.pin : MESSAGE_FINDER_EVENTS.unpin, groupId);
+  }
+
   // A message's menu: the quick reactions on top, then what its hover actions
   // do and what they had no room for — copying it, mentioning its author.
   // A link inside keeps the browser's own menu (open in a new tab, copy the
@@ -1394,6 +1538,25 @@ export const TextChannelView = memo(function TextChannelView({
           icon: <MdAlternateEmail className="h-4 w-4" />,
           onSelect: () => mentionInComposer(author),
         },
+        finder.enabled &&
+          !outgoing &&
+          canManageMessages && {
+            label: message.pinnedAt
+              ? t("messageFinder.unpin")
+              : t("messageFinder.pin"),
+            icon: <MdPushPin className="h-4 w-4" />,
+            onSelect: () => void togglePin(message),
+          },
+        finder.enabled &&
+          !outgoing && {
+            label: t("messageFinder.copyMessageLink"),
+            icon: <MdLink className="h-4 w-4" />,
+            onSelect: () => {
+              markFeatureUsed(MESSAGE_FINDER_FEATURE);
+              trackFinderEvent(MESSAGE_FINDER_EVENTS.linkCopy, groupId);
+              void copyText(groupMessageLink(groupId, channelId, message.id));
+            },
+          },
         !outgoing && {
           label: t("groups.contextMenu.copyMessageId"),
           icon: <MdContentCopy className="h-4 w-4" />,
@@ -1529,6 +1692,24 @@ export const TextChannelView = memo(function TextChannelView({
     jumpRef.current = jumpToMessage;
   });
   const jumpTo = useCallback((messageId: string) => void jumpRef.current(messageId), []);
+
+  /**
+   * A link to one message (`?m=<id>`, see lib/messageFinder) — followed once
+   * the first page of the room is actually on screen, because the jump reads
+   * what is loaded and pages backwards from there.
+   *
+   * The id is taken off the address as it is read, so it is spent: it says
+   * "scroll here", not "this is where the page is", and a reload an hour
+   * later should leave somebody where they were.
+   */
+  const followedLink = useRef<string | null>(null);
+  useEffect(() => {
+    if (!messages || messages.length === 0) return;
+    if (followedLink.current === channelId) return;
+    followedLink.current = channelId;
+    const linked = takeLinkedMessageId();
+    if (linked) jumpTo(linked);
+  }, [messages, channelId, jumpTo]);
 
   /**
    * One line of the log — drawn through MessageRow, which calls this only when
@@ -1673,6 +1854,17 @@ export const TextChannelView = memo(function TextChannelView({
                   className="min-w-0 font-medium text-zinc-700 hover:underline dark:text-zinc-300"
                 />
                 <span className="shrink-0 text-xs tabular-nums text-zinc-400 dark:text-zinc-600">{timeLabel(message.ts)}</span>
+                {/* Pinned: said once, beside the time, so the list is not the
+                    only place the state is visible. A run of messages from
+                    one person shows it on the line that carries the name —
+                    the others have no header to put it on. */}
+                {message.pinnedAt && (
+                  <MdPushPin
+                    aria-label={t("messageFinder.pinnedMessage")}
+                    title={t("messageFinder.pinnedMessage")}
+                    className="h-3 w-3 shrink-0 self-center text-zinc-400 dark:text-zinc-600"
+                  />
+                )}
               </span>
             </button>
             {!outgoing && actionsFor(message)}
@@ -1938,6 +2130,33 @@ export const TextChannelView = memo(function TextChannelView({
             </>
           )}
         </h2>
+        {finder.enabled && (
+          <>
+            <Tooltip content={t("messageFinder.pinned")}>
+              <button
+                type="button"
+                onClick={() => openFinder("pins")}
+                aria-label={t("messageFinder.pinned")}
+                className={headerButton(finderPanel === "pins")}
+              >
+                <MdPushPin className="h-4 w-4" />
+                {/* On the first of the two only: two badges side by side
+                    read as decoration rather than as news. */}
+                <NewBadge id={MESSAGE_FINDER_FEATURE} />
+              </button>
+            </Tooltip>
+            <Tooltip content={t("messageFinder.search")}>
+              <button
+                type="button"
+                onClick={() => openFinder("search")}
+                aria-label={t("messageFinder.search")}
+                className={headerButton(finderPanel === "search")}
+              >
+                <MdSearch className="h-4 w-4" />
+              </button>
+            </Tooltip>
+          </>
+        )}
         <Tooltip content={t("groups.textChannelView.groupMembers")}>
           <button
             type="button"
@@ -1962,6 +2181,65 @@ export const TextChannelView = memo(function TextChannelView({
           >
             {jumping ? t("groups.textChannelView.lookingForTheMessage") : t("groups.textChannelView.originalNotFound")}
           </button>
+        )}
+        {finderPanel && (
+          <MessageFinderPanel
+            groupId={groupId}
+            panel={finderPanel}
+            onPanelChange={openFinder}
+            onClose={() => setFinderPanel(null)}
+            onJump={(row) => {
+              // Closed on a phone, where the panel covers the room it is
+              // about to scroll; left open on a wide screen, where somebody
+              // is walking down a list of hits.
+              if (window.innerWidth < 640) setFinderPanel(null);
+              // A hit from another room is not something this view can
+              // scroll to: the room is opened at that message instead,
+              // through the same link a "copiar link" produces.
+              if (row.scopeId && row.scopeId !== channelId) {
+                navigation.push(`${groupPath(groupId, row.scopeId)}?${MESSAGE_LINK_PARAM}=${encodeURIComponent(row.id)}`);
+                return;
+              }
+              jumpTo(row.id);
+            }}
+            refreshKey={pinsSeq}
+            scope={{
+              wideLabel: t("messageFinder.wholeGroup"),
+              narrowLabel: t("messageFinder.thisRoom"),
+              wide: searchWholeGroup,
+              onChange: setSearchWholeGroup,
+            }}
+            loadPins={async (signal) => {
+              const result = await fetchPinnedMessages(groupId, channelId, signal);
+              return result.ok ? result.messages.map((m) => finderRow(m, result.authors)) : null;
+            }}
+            search={async (query, signal) => {
+              const result = await searchGroupMessages(
+                groupId,
+                query,
+                searchWholeGroup ? null : channelId,
+                signal
+              );
+              if (!result.ok) return null;
+              return result.messages.map((m) => ({
+                ...finderRow(m, result.authors),
+                // Named only when the answer could have come from anywhere:
+                // inside one room the label would be the same on every row.
+                context: searchWholeGroup ? result.channels[m.channelId] : undefined,
+                scopeId: m.channelId,
+              }));
+            }}
+            onUnpin={
+              canManageMessages
+                ? (row) => {
+                    const message = messages?.find((m) => m.id === row.id);
+                    // Not on this page any more: unpinned by id alone, and
+                    // the list reads itself again from the server.
+                    void unpinById(row.id, message);
+                  }
+                : undefined
+            }
+          />
         )}
         {unseen > 0 && (
           <button

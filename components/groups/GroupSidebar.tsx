@@ -526,6 +526,9 @@ export function GroupRoomsPanel({
   // room read, copying its link, folding every category at once.
 
   const canInvite = canManage(detail, "createInvites");
+  // For the list's own menu (see panelMenu) — the same settings the group's
+  // name opens, one right-click away from the rooms they are about.
+  const openGroupSettings = useOpenSettings(group.id);
   const linkTo = (channelId?: string) => `${window.location.origin}${groupPath(group.id, channelId)}`;
 
   function confirmDeleteChannel(channel: GroupChannel) {
@@ -711,6 +714,13 @@ export function GroupRoomsPanel({
         },
         { label: t("botDirectory.title"), icon: <MdSmartToy className="h-4 w-4" />, onSelect: openBotExplorer },
         { label: t("groups.groupRail.copyLink"), icon: <MdLink className="h-4 w-4" />, onSelect: () => void copyText(linkTo()) },
+        { label: t("groups.memberMenu.copyId"), icon: <MdContentCopy className="h-4 w-4" />, onSelect: () => void copyText(group.id) },
+        isManager && { type: "divider" as const },
+        isManager && {
+          label: t("groups.groupSidebar.settings"),
+          icon: <MdSettings className="h-4 w-4" />,
+          onSelect: () => openGroupSettings(),
+        },
       ],
     });
   }
@@ -1326,6 +1336,7 @@ export function GroupRoomsPanel({
       >
         <GroupMenu
           detail={detail}
+          onContextMenu={panelMenu}
           className="-mx-1.5 flex min-w-0 items-center gap-1 rounded-lg px-1.5 py-1 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-900"
         >
           <GroupName
@@ -1426,10 +1437,19 @@ export function GroupMenu({
   detail,
   children,
   className = "",
+  onContextMenu,
 }: {
   detail: GroupDetail;
   children: ReactNode;
   className?: string;
+  /**
+   * The right button, when whoever renders this has a better menu for it —
+   * the rooms list hands over its own (see panelMenu), so right-clicking the
+   * group's name offers making a room, a category and the rest of the direct
+   * things, exactly as right-clicking the list below it does. Without one,
+   * the menu below stands in.
+   */
+  onContextMenu?: (event: MouseEvent<HTMLElement>) => void;
 }) {
   const t = useT();
   const navigation = useGroupNavigation();
@@ -1478,6 +1498,66 @@ export function GroupMenu({
           navigation.push("/groups");
         },
       },
+    });
+  }
+
+  function groupMenu(event: MouseEvent<HTMLElement>) {
+    openContextMenu(event, {
+      title: group.name,
+      entries: [
+        isManager && {
+          label: t("groups.groupSidebar.settings"),
+          icon: <MdSettings className="h-4 w-4" />,
+          onSelect: () => openSettings(),
+        },
+        canTheme && {
+          label: t("common.groupTheme"),
+          icon: <MdPalette className="h-4 w-4" />,
+          // Without the plan it is a way *to* the plan, exactly as in the panel.
+          hint: hasThemePlan ? undefined : t("groups.groupSidebar.proMax"),
+          onSelect: () => {
+            if (!hasThemePlan) {
+              openProModal("premium_max");
+              return;
+            }
+            void openPopup("room_theme", {
+              data: { currentThemeId: group.theme, groupId: group.id },
+            });
+          },
+        },
+        {
+          label: t("botDirectory.title"),
+          icon: <MdSmartToy className="h-4 w-4" />,
+          onSelect: () => openBotExplorer(),
+        },
+        aura.enabled && {
+          label: t("groups.aura.menuItem"),
+          icon: <MdAutoAwesome className="h-4 w-4 text-violet-500" />,
+          hint: auraLevel > 0 ? t("groups.aura.levelShort", { level: auraLevel }) : undefined,
+          onSelect: () => openSettings("aura"),
+        },
+        { type: "divider" },
+        { type: "label", label: t("common.notifications") },
+        ...(Object.keys(NOTIFY_LABELS) as GroupNotifyLevel[]).map((level) => ({
+          label: NOTIFY_LABELS[level],
+          checked: me.notify === level,
+          disabled: me.guest,
+          onSelect: () => void changeNotify(level),
+        })),
+        me.role !== "owner" && { type: "divider" as const },
+        me.role !== "owner" && {
+          label: t("common.leaveTheGroup"),
+          icon: <MdLogout className="h-4 w-4" />,
+          danger: true,
+          onSelect: () => confirmLeave(),
+        },
+        { type: "divider" },
+        {
+          label: t("groups.memberMenu.copyId"),
+          icon: <MdContentCopy className="h-4 w-4" />,
+          onSelect: () => void copyText(group.id),
+        },
+      ],
     });
   }
 
@@ -1593,22 +1673,11 @@ export function GroupMenu({
       <button
         type="button"
         onClick={() => setMenuOpen((o) => !o)}
-        // The group's id is what a bot or a support message asks for, and
-        // nothing else here is — so it lives on the right button, the way a
-        // room's and a member's id do, instead of taking a line in the menu.
-        onContextMenu={(e) => {
-          setMenuOpen(false);
-          openContextMenu(e, {
-            title: group.name,
-            entries: [
-              {
-                label: t("groups.memberMenu.copyId"),
-                icon: <MdContentCopy className="h-4 w-4" />,
-                onSelect: () => void copyText(group.id),
-              },
-            ],
-          });
-        }}
+        // The right button: the same things the panel offers, as the site's
+        // own context menu at the pointer, with "Copiar ID" at the end — the
+        // id is what a bot or a support message asks for, and the one thing
+        // that does not earn a line in the panel everybody opens all day.
+        onContextMenu={onContextMenu ?? groupMenu}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
         title={t("groups.groupSidebar.groupOptions")}

@@ -55,6 +55,22 @@ export type DmLiveState = {
   /** Messages edited or deleted since they were read, by id — see dmThread's withChanges. */
   changes: Readonly<Record<string, DmChange>>;
   /**
+   * Which messages have been pinned or unpinned since the page they are on
+   * was read, by id — the timestamp, or null for "no longer pinned".
+   *
+   * Its own map rather than a third kind of `changes`: a pin does not touch
+   * the words, and folding it into the edit record would make every reader of
+   * that record (the conversation list's newest line, above all) have to know
+   * about a change that says nothing about what the message says.
+   */
+  pins: Readonly<Record<string, number | null>>;
+  /**
+   * How many pins have been heard or written. The pinned list re-reads on it:
+   * a list is the server's answer, and "something was pinned" is all a
+   * screen showing one needs to know to ask again.
+   */
+  pinsVersion: number;
+  /**
    * How each call line stands now, by message id.
    *
    * A call's line changes while it is on screen — ringing, answered, over —
@@ -78,6 +94,8 @@ let state: DmLiveState = {
   seen: {},
   reactions: {},
   changes: {},
+  pins: {},
+  pinsVersion: 0,
   calls: {},
   deletions: 0,
   readReceipts: null,
@@ -148,6 +166,19 @@ export function noteDmCall(messageId: string, call: DmCallInfo): void {
   set({ calls: next });
 }
 
+/**
+ * A message pinned or unpinned — heard from the other side, or written here
+ * before the server answers. `null` means it is no longer pinned.
+ */
+export function noteDmPinned(messageId: string, pinnedAt: number | null): void {
+  const next: Record<string, number | null> = { ...state.pins };
+  delete next[messageId];
+  next[messageId] = pinnedAt;
+  const ids = Object.keys(next);
+  for (let i = 0; i < ids.length - MAX_CHANGES; i += 1) delete next[ids[i]];
+  set({ pins: next, pinsVersion: state.pinsVersion + 1 });
+}
+
 /** An edit this tab made, drawn before the server answers — stamped now, or when the server said. */
 export function noteDmEdit(messageId: string, text: string, editedAt?: number): void {
   noteDmChange(messageId, { text, editedAt: editedAt ?? Date.now() });
@@ -186,6 +217,12 @@ function handle(event: DmSocketEvent) {
       const held = state.changes[message.id];
       if (held && (held.deleted || held.editedAt > message.editedAt)) return;
       noteDmChange(message.id, { text: message.text, editedAt: message.editedAt });
+      return;
+    }
+    case "dm-pinned": {
+      if (typeof event.messageId !== "string") return;
+      const at = event.pinnedAt;
+      noteDmPinned(event.messageId, typeof at === "number" ? at : null);
       return;
     }
     case "dm-call": {
@@ -231,6 +268,8 @@ const SERVER_STATE: DmLiveState = {
   seen: {},
   reactions: {},
   changes: {},
+  pins: {},
+  pinsVersion: 0,
   calls: {},
   deletions: 0,
   readReceipts: null,

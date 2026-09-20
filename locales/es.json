@@ -3873,5 +3873,19 @@
   "notificationSettings.removeDeviceConfirm": "¿Dejar de enviar notificaciones a este dispositivo?",
   "notificationSettings.signInFirst": "Inicia sesión para configurar tus notificaciones.",
   "directMessagesModal.muteConversation": "Silenciar conversación",
-  "directMessagesModal.unmuteConversation": "Dejar de silenciar"
+  "directMessagesModal.unmuteConversation": "Dejar de silenciar",
+  "messageFinder.pinned": "Fijadas",
+  "messageFinder.search": "Buscar",
+  "messageFinder.pin": "Fijar mensaje",
+  "messageFinder.unpin": "Dejar de fijar",
+  "messageFinder.pinnedMessage": "Mensaje fijado",
+  "messageFinder.copyMessageLink": "Copiar enlace del mensaje",
+  "messageFinder.noPins": "Todavía no hay mensajes fijados aquí.",
+  "messageFinder.typeToSearch": "Escribe para buscar en los mensajes.",
+  "messageFinder.searching": "Buscando…",
+  "messageFinder.nothingFound": "No se encontró nada.",
+  "messageFinder.searchPlaceholder": "Buscar en los mensajes",
+  "messageFinder.jumpToMessage": "Ir al mensaje",
+  "messageFinder.wholeGroup": "Todo el grupo",
+  "messageFinder.thisRoom": "Solo esta sala"
 }
