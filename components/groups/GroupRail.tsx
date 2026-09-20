@@ -28,7 +28,7 @@ import {
   MdKeyboardArrowUp,
   MdKeyboardDoubleArrowLeft,
   MdKeyboardDoubleArrowRight,
-  MdNumbers,
+  MdLink,
   MdScreenShare,
   MdSearch,
   MdVerticalAlignBottom,
@@ -1013,27 +1013,29 @@ function GroupMenu({
         type="button"
         onClick={() => {
           const url = `${window.location.origin}${groupPath(group.id)}`;
-          void copyText(url).then(() => {
+          void copyText(url).then((ok) => {
+            if (!ok) return;
             setCopied("link");
             setTimeout(onClose, 700);
           });
         }}
         className={item}
       >
-        <MdContentCopy className="h-4 w-4 shrink-0 opacity-70" />
+        <MdLink className="h-4 w-4 shrink-0 opacity-70" />
         {copied === "link" ? t("common.linkCopied") : t("groups.groupRail.copyLink")}
       </button>
       <button
         type="button"
         onClick={() => {
-          void copyText(group.id).then(() => {
+          void copyText(group.id).then((ok) => {
+            if (!ok) return;
             setCopied("id");
             setTimeout(onClose, 700);
           });
         }}
         className={item}
       >
-        <MdNumbers className="h-4 w-4 shrink-0 opacity-70" />
+        <MdContentCopy className="h-4 w-4 shrink-0 opacity-70" />
         {copied === "id" ? t("groups.memberMenu.copied") : t("groups.memberMenu.copyId")}
       </button>
       <div className="my-1 border-t border-zinc-200 dark:border-zinc-800" />

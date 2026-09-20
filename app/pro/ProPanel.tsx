@@ -1019,8 +1019,11 @@ export function ProPanel({
     };
   }, [canUpgrade, plan]);
 
-  const handleUpgrade = useCallback(async () => {
-    if (!plan) return;
+  // Answers whether the charge was actually created, because the combined
+  // "Assinatura" option below has to stop when it was not — see
+  // handleUpgradeSubscription.
+  const handleUpgrade = useCallback(async (): Promise<boolean> => {
+    if (!plan) return false;
     setBusy(true);
     setGenerating(true);
     setError(null);
@@ -1035,11 +1038,12 @@ export function ProPanel({
       if (result.needsTaxId) setNeedsTaxId(true);
       setBusy(false);
       setGenerating(false);
-      return;
+      return false;
     }
     setUpgradePix(result.charge);
     setBusy(false);
     setGenerating(false);
+    return true;
   }, [email, taxId, plan]);
 
   // Schedules the mandate that takes over billing, at the new plan's full
@@ -1092,9 +1096,15 @@ export function ProPanel({
    * scheduling can — on iOS or an installed PWA — replace this page outright
    * (see checkoutMustReplacePage), and doing that first would risk leaving
    * before the Pix code ever appears.
+   *
+   * And it is a gate, not just an order. Scheduling used to run whatever the
+   * top-up did, and its own `setError(null)` then wiped the reason the top-up
+   * had failed — so a refused charge (an email still missing, a purchase
+   * already in flight, the gateway down) sent the person off to approve a
+   * mandate they had not asked for, with nothing on screen to say why.
    */
   const handleUpgradeSubscription = useCallback(async () => {
-    await handleUpgrade();
+    if (!(await handleUpgrade())) return;
     await handleScheduleUpgrade();
   }, [handleUpgrade, handleScheduleUpgrade]);
 
