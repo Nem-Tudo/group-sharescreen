@@ -293,9 +293,15 @@ export interface GroupMessage {
   from: string;
   fromName: string;
   text: string;
-  kind?: "text" | "gif" | "image";
+  /**
+   * "aura" is the group's own line about somebody giving it an aura — no text
+   * of its own, said here in the reader's language (see TextChannelView).
+   */
+  kind?: "text" | "gif" | "image" | "aura";
   url?: string;
   images?: string[];
+  /** The group's aura level when that line was written. Only on a kind "aura" one. */
+  auraLevel?: number;
   /** Videos, audio and documents — see lib/chatAttachments. Absent when there are none. */
   attachments?: ChatAttachment[];
   /** Rich cards from a webhook or bot — see lib/messageEmbeds. Absent when there are none. */
@@ -662,6 +668,14 @@ export interface GroupAuraState {
   level: number;
   perks: string[];
   levels: { level: number; auras: number; perks: string[]; emojiSlots?: number }[];
+  /**
+   * The text room the group announces an aura in (see the API's
+   * GroupDoc.auraChannelId) — null for nowhere, and also for a room the caller
+   * cannot see. Absent from an older API.
+   */
+  channel?: { id: string; name: string } | null;
+  /** Whether the caller may change that room ("Gerenciar grupo"). Absent from an older API. */
+  canSetChannel?: boolean;
   /** Who is lifting the group, with how many of their auras count here. */
   givers: { id: string; name: string; username: string | null; avatarUrl: string | null; flags: string[]; count: number }[];
   mine: {
@@ -681,6 +695,10 @@ export const fetchGroupAura = (groupId: string) =>
 /** Gives the group one of the caller's auras. */
 export const giveGroupAura = (groupId: string) =>
   request<GroupAuraState & { code?: string }>("POST", `/groups/${enc(groupId)}/aura`);
+
+/** Points the group's aura lines at one of its text rooms, or turns them off with null. */
+export const setGroupAuraChannel = (groupId: string, channelId: string | null) =>
+  request<GroupAuraState>("PUT", `/groups/${enc(groupId)}/aura/channel`, { channelId });
 
 /** Takes one of the caller's auras off a group — answers the group's state when they are still in it. */
 export const removeGroupAura = (groupId: string) =>

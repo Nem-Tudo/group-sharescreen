@@ -19,6 +19,7 @@ import {
 import useNtPopups from "ntpopups";
 import {
   MdAlternateEmail,
+  MdAutoAwesome,
   MdChatBubbleOutline,
   MdClose,
   MdContentCopy,
@@ -1079,7 +1080,9 @@ export const TextChannelView = memo(function TextChannelView({
         : message.attachments?.length
           ? { text: attachmentsPreview(message.attachments).slice(0, 200) }
           : {}),
-      ...(message.kind ? { kind: message.kind } : {}),
+      // An aura line is not a message anybody replies to (it has no actions),
+      // and a quote has no way to draw one.
+      ...(message.kind && message.kind !== "aura" ? { kind: message.kind } : {}),
       ...(message.images ? { images: message.images.slice(0, 3) } : {}),
     });
   }
@@ -1478,6 +1481,34 @@ export const TextChannelView = memo(function TextChannelView({
    */
   function drawRow(message: GroupMessage, outgoing: OutgoingMessage | undefined, grouped: boolean): ReactNode {
     const author = userOf(message);
+    // The group's own line about an aura (see the API's postAuraMessage): one
+    // sentence, written here rather than stored, so it reads in the reader's
+    // language. Nothing to reply to, edit or delete — it is not somebody's
+    // message, it is the group saying what happened.
+    if (message.kind === "aura") {
+      return (
+        <li
+          key={message.id}
+          data-message-id={outgoing ? undefined : message.id}
+          className="-mx-1.5 mt-2.5 flex items-center gap-2 rounded-lg px-2 py-1 text-sm"
+        >
+          <MdAutoAwesome className="h-4 w-4 shrink-0 text-violet-500" />
+          <span className="min-w-0 break-words text-zinc-600 dark:text-zinc-300">
+            <button
+              type="button"
+              onClick={(e) => clickPerson(e, author)}
+              onContextMenu={(e) => contextPerson(e, author)}
+              className="cursor-pointer font-semibold text-zinc-800 hover:underline dark:text-zinc-100"
+            >
+              {author.name}
+            </button>{" "}
+            {t("groups.aura.chatLine")}
+            {Boolean(message.auraLevel) && ` ${t("groups.aura.chatLineLevel", { level: message.auraLevel })}`}
+          </span>
+          <span className="shrink-0 text-xs tabular-nums text-zinc-400 dark:text-zinc-600">{timeLabel(message.ts)}</span>
+        </li>
+      );
+    }
     // By id, @everyone, a role I hold, or an @online/@offline/expression
     // that took me in — see lib/mentionExpr's mentionsTakeIn. My own
     // messages too: mentioning myself, or everybody, lights it up here the

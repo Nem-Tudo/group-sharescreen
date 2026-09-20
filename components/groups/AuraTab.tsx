@@ -1,12 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { MdAutoAwesome, MdCheck, MdLockOutline } from "react-icons/md";
+import { MdAutoAwesome, MdCheck, MdChatBubbleOutline, MdLockOutline } from "react-icons/md";
 import { UserAvatar } from "@/components/UserAvatar";
 import { GroupIcon } from "@/components/groups/GroupIcon";
 import { markFeatureUsed } from "@/components/NewBadge";
 import { primaryButton, secondaryButton } from "@/components/groups/dialogKit";
-import { fetchGroupAura, giveGroupAura, removeGroupAura, type GroupAuraState } from "@/lib/groupsApi";
+import {
+  fetchGroupAura,
+  giveGroupAura,
+  removeGroupAura,
+  setGroupAuraChannel,
+  type GroupAuraState,
+} from "@/lib/groupsApi";
 import {
   DEFAULT_AURA_LEVELS,
   GROUP_AURA_BADGE,
@@ -24,6 +30,10 @@ import { useI18n } from "@/lib/useI18n";
 // to the next one, what each level brings, who is lifting it), and where the
 // person looking stands — how many auras their plan gives, and a button to
 // give this group one, or take one back from here or from anywhere else.
+//
+// It is also where the group picks the text room its auras are announced in
+// (Discord's boost messages, see the API's postAuraMessage) — for whoever runs
+// the group; everybody else is only told where they go.
 
 const auraGradient = "bg-gradient-to-br from-fuchsia-500 via-violet-500 to-sky-500";
 
@@ -33,6 +43,7 @@ export function AuraTab({ groupId }: { groupId: string }) {
   const [state, setState] = useState<GroupAuraState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [savingChannel, setSavingChannel] = useState(false);
   // Read again whenever the group's count moves — somebody else's aura, or a
   // plan lapsing, arrives as a "group-updated" that refreshes the detail.
   const liveCount = detail?.group.aura?.count;
@@ -86,6 +97,19 @@ export function AuraTab({ groupId }: { groupId: string }) {
     if (fromGroupId !== groupId) void refreshGroup(fromGroupId);
   }
 
+  /** Points the aura lines at a room, or at nowhere with null. */
+  async function pickChannel(channelId: string | null) {
+    setSavingChannel(true);
+    setError(null);
+    const result = await setGroupAuraChannel(groupId, channelId);
+    setSavingChannel(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    setState(result);
+  }
+
   if (!state) {
     return error ? (
       <p className="text-sm text-red-500">{error}</p>
@@ -101,6 +125,7 @@ export function AuraTab({ groupId }: { groupId: string }) {
   const here = mine.placements.filter((p) => p.groupId === groupId);
   const elsewhere = mine.placements.filter((p) => p.groupId !== groupId);
   const free = Math.max(0, mine.total - mine.used);
+  const textChannels = (detail?.channels ?? []).filter((c) => c.kind === "text");
   const canGive = state.available && free > 0 && here.length < mine.perGroup && !detail?.me.guest;
 
   return (
@@ -270,6 +295,43 @@ export function AuraTab({ groupId }: { groupId: string }) {
           </ul>
         )}
         {error && <p className="text-xs text-red-500">{error}</p>}
+      </section>
+
+      {/* Where an aura is announced. */}
+      <section className="flex flex-col gap-2 rounded-xl border border-zinc-200 p-3 dark:border-zinc-800">
+        <h3 className="flex items-center gap-1.5 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+          <MdChatBubbleOutline className="h-4 w-4 text-zinc-500" />
+          {t("groups.aura.channelTitle")}
+        </h3>
+        <p className="text-xs text-zinc-600 dark:text-zinc-400">{t("groups.aura.channelHint")}</p>
+        {state.canSetChannel ? (
+          <>
+            <select
+              value={state.channel?.id ?? ""}
+              disabled={savingChannel}
+              onChange={(e) => void pickChannel(e.target.value || null)}
+              aria-label={t("groups.aura.channelTitle")}
+              className="max-w-xs cursor-pointer rounded-lg border border-zinc-300 bg-white px-2.5 py-2 text-sm text-zinc-950 outline-none focus:border-zinc-500 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+            >
+              <option value="">{t("groups.aura.channelNone")}</option>
+              {textChannels.map((channel) => (
+                <option key={channel.id} value={channel.id}>
+                  #{channel.name}
+                </option>
+              ))}
+            </select>
+            {/* A room this person cannot see is never named back by the API, so
+                a saved one that has vanished from the list reads as "nowhere".
+                Said plainly rather than silently resetting it. */}
+            {state.channel && !textChannels.some((c) => c.id === state.channel?.id) && (
+              <p className="text-xs text-amber-600 dark:text-amber-400">{t("groups.aura.channelUnknown")}</p>
+            )}
+          </>
+        ) : (
+          <p className="text-sm text-zinc-700 dark:text-zinc-200">
+            {state.channel ? `#${state.channel.name}` : t("groups.aura.channelNone")}
+          </p>
+        )}
       </section>
 
       {/* Who is lifting the group. */}
