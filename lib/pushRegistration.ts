@@ -9,7 +9,11 @@ import {
 import { openDirectMessages } from "./dmWindow";
 import { isDesktopApp } from "./desktop";
 import { hasNativeNotifications, requestNativeCallAccept } from "./androidNotifications";
-import { translate } from "@/lib/i18n";
+import { getAccountToken } from "./accountApi";
+import { getSignalingHttpBase } from "./roomsApi";
+import { getDeviceId } from "./deviceId";
+import { saveSwSession } from "./swSession";
+import { getLocale, translate } from "@/lib/i18n";
 
 // Getting this device onto the list of places a notification can reach.
 //
@@ -297,6 +301,17 @@ async function registerWeb(vapidPublicKey: string, interactive: boolean): Promis
     const json = subscription.toJSON();
     if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) return false;
     currentEndpoint = json.endpoint;
+    // What the worker needs in order to mint a replacement on its own when the
+    // browser retires this subscription (see swSession.ts and the worker's
+    // `pushsubscriptionchange` handler), and to act on a notification's
+    // buttons while nothing of the app is running.
+    void saveSwSession({
+      token: getAccountToken(),
+      apiBase: getSignalingHttpBase(),
+      vapidPublicKey,
+      deviceId: getDeviceId() ?? "",
+      locale: getLocale(),
+    });
     return await registerPushSubscription({
       kind: "webpush",
       endpoint: json.endpoint,
@@ -308,20 +323,54 @@ async function registerWeb(vapidPublicKey: string, interactive: boolean): Promis
   }
 }
 
-/** Stops this device receiving anything. */
-export async function disablePush(): Promise<void> {
-  const endpoint = currentEndpoint;
-  if (endpoint) {
-    currentEndpoint = null;
-    await unregisterPushSubscription(endpoint);
+/**
+ * Stops this device receiving anything.
+ *
+ * Called from signing out and from muting, and both of those matter:
+ *
+ *   - **Signing out.** The subscription row is filed under whoever was logged
+ *     in, and until somebody else signs in on this browser it stays there —
+ *     so a shared computer went on showing the previous person's private
+ *     messages on the lock screen. That is the one outcome this must not have.
+ *   - **Muting.** The global mute lives in this browser and was only ever read
+ *     by the in-app notification path, which means somebody who silenced the
+ *     bell went on being pushed to with the app *closed* — precisely when the
+ *     interruption is worth most. Muting now takes this device off the list;
+ *     un-muting puts it back (see lib/notifications.ts).
+ *
+ * `keepSubscription` is what separates the two. A mute should keep the
+ * browser's own subscription alive so un-muting is instant and costs no second
+ * permission prompt; signing out throws it away for good.
+ */
+export async function disablePush(options: { keepSubscription?: boolean } = {}): Promise<void> {
+  // Told to the server *before* anything is thrown away: once a subscription
+  // is unsubscribed its endpoint is unrecoverable, and the row would sit there
+  // until it failed enough times to be swept.
+  //
+  // Read back from the browser rather than trusted to `currentEndpoint`, which
+  // is only set when *this page* did the registering — a tab opened straight
+  // onto the settings screen has never registered anything and would otherwise
+  // find nothing to turn off.
+  let endpoint = currentEndpoint;
+  let subscription: PushSubscription | null = null;
+  if (!endpoint && webPushSupported()) {
+    try {
+      const registration = await navigator.serviceWorker.getRegistration("/");
+      subscription = (await registration?.pushManager.getSubscription()) ?? null;
+      endpoint = subscription?.endpoint ?? null;
+    } catch {
+      // No worker, no subscription — nothing to turn off on this side.
+    }
   }
-  if (!webPushSupported()) return;
+  currentEndpoint = null;
+  if (endpoint) await unregisterPushSubscription(endpoint);
+
+  if (options.keepSubscription || !webPushSupported()) return;
   try {
-    const registration = await navigator.serviceWorker.getRegistration("/");
-    const subscription = await registration?.pushManager.getSubscription();
-    // Told to the server *before* being thrown away above: once the
-    // subscription is gone the endpoint is unrecoverable, and the row would
-    // sit there until it failed enough times to be swept.
+    if (!subscription) {
+      const registration = await navigator.serviceWorker.getRegistration("/");
+      subscription = (await registration?.pushManager.getSubscription()) ?? null;
+    }
     await subscription?.unsubscribe();
   } catch {
     // Nothing to undo — the server-side removal above is what actually stops

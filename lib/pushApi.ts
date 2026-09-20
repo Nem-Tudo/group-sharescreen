@@ -3,7 +3,7 @@
 import { getAccountToken } from "./accountApi";
 import { getSignalingHttpBase } from "./roomsApi";
 import { getDeviceId } from "./deviceId";
-import { translate } from "@/lib/i18n";
+import { getLocale, translate } from "@/lib/i18n";
 
 // The push-subscription client: three thin calls onto the API's /push routes.
 //
@@ -18,7 +18,54 @@ export interface PushConfig {
   webPush: boolean;
   fcm: boolean;
   vapidPublicKey: string;
+  /** The kinds that can be silenced one by one — the API's own list. */
+  kinds?: NotifyKind[];
 }
+
+/** Kept in step with the API's NOTIFY_KINDS (see notifyPrefsModels.ts). */
+export type NotifyKind =
+  | "dm"
+  | "call"
+  | "group-message"
+  | "theme-like"
+  | "friend-request"
+  | "gift";
+
+/** One device this account receives notifications on. */
+export interface PushDevice {
+  id: string;
+  kind: "webpush" | "fcm";
+  deviceId: string;
+  userAgent: string;
+  locale: string | null;
+  createdAt: number;
+  lastSeenAt: number;
+  /** Whether this is the browser asking. */
+  current: boolean;
+}
+
+/** What somebody has said they do not want to be told about. */
+export interface NotifyPrefs {
+  mutedKinds: NotifyKind[];
+  mutedDms: string[];
+  mutedGroups: string[];
+  /** Minutes from local midnight, or null for "no quiet hours". */
+  quietFrom: number | null;
+  quietTo: number | null;
+  /** Minutes to add to UTC for the person's local time. */
+  quietOffset: number | null;
+  quietAllowCalls: boolean;
+}
+
+export const DEFAULT_NOTIFY_PREFS: NotifyPrefs = {
+  mutedKinds: [],
+  mutedDms: [],
+  mutedGroups: [],
+  quietFrom: null,
+  quietTo: null,
+  quietOffset: null,
+  quietAllowCalls: true,
+};
 
 function authHeaders(): Record<string, string> {
   const token = getAccountToken();
@@ -58,11 +105,101 @@ export async function registerPushSubscription(input: {
     const res = await fetch(`${getSignalingHttpBase()}/push/subscribe`, {
       method: "POST",
       headers: { ...authHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ ...input, deviceId }),
+      // The language this browser is reading the site in, so the notification
+      // that lands on it is written in that one. Sent on every registration —
+      // which is every app open — so switching the site's language switches
+      // them too, without a route of its own.
+      body: JSON.stringify({ ...input, deviceId, locale: getLocale() }),
     });
     return res.ok;
   } catch {
     return false;
+  }
+}
+
+// ─── The device list ──────────────────────────────────────────────────────
+
+/** Where this account receives notifications, newest use first. */
+export async function fetchPushDevices(): Promise<PushDevice[]> {
+  const deviceId = getDeviceId();
+  try {
+    const res = await fetch(
+      `${getSignalingHttpBase()}/push/devices?deviceId=${encodeURIComponent(deviceId ?? "")}`,
+      { headers: authHeaders() }
+    );
+    if (!res.ok) return [];
+    const data = (await res.json()) as { devices?: PushDevice[] };
+    return Array.isArray(data.devices) ? data.devices : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Turns one device off — including one that is not this one. */
+export async function removePushDevice(id: string): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${getSignalingHttpBase()}/push/devices/${encodeURIComponent(id)}`,
+      { method: "DELETE", headers: authHeaders() }
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// ─── Preferences ──────────────────────────────────────────────────────────
+
+export async function fetchNotifyPrefs(): Promise<NotifyPrefs | null> {
+  try {
+    const res = await fetch(`${getSignalingHttpBase()}/push/prefs`, { headers: authHeaders() });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { prefs?: NotifyPrefs };
+    return data.prefs ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Changes some of them; whatever is left out is left alone. */
+export async function saveNotifyPrefs(patch: Partial<NotifyPrefs>): Promise<NotifyPrefs | null> {
+  try {
+    const res = await fetch(`${getSignalingHttpBase()}/push/prefs`, {
+      method: "PATCH",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { prefs?: NotifyPrefs };
+    return data.prefs ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Silences (or un-silences) one conversation, group or kind.
+ *
+ * Its own call rather than a PATCH of the whole list: the mute button in a
+ * conversation must not be able to overwrite a list another tab changed a
+ * moment ago — the API adds and removes one entry at a time.
+ */
+export async function setNotifyMute(
+  list: "dm" | "group" | "kind",
+  id: string,
+  muted: boolean
+): Promise<NotifyPrefs | null> {
+  try {
+    const res = await fetch(`${getSignalingHttpBase()}/push/prefs/mute`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ list, id, muted }),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { prefs?: NotifyPrefs };
+    return data.prefs ?? null;
+  } catch {
+    return null;
   }
 }
 

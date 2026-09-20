@@ -234,6 +234,31 @@ export function setNotificationsMuted(muted: boolean): void {
     // Private-mode/quota — the preference just won't persist, which is fine.
   }
   emitPermissionChange();
+
+  // And the half of "notifications" this switch used to have no say over.
+  //
+  // The mute is read by showNotification below, which only ever runs with the
+  // app open — so somebody who silenced the bell went on getting pushes on
+  // their lock screen with the app *closed*, which is the moment an unwanted
+  // interruption costs the most. It is the same word on the same switch, so
+  // it has to mean the same thing in both places.
+  //
+  // Imported lazily: this module is loaded by signalingClient on every page,
+  // including ones with no account, and pushRegistration pulls in Capacitor
+  // and the whole platform-detection chain behind it. Nothing here waits on
+  // the result — muting has already taken effect locally, and the device
+  // coming off the server's list a moment later is not something anybody sees.
+  void import("./pushRegistration")
+    .then(async (push) => {
+      // The browser's own subscription is kept on a mute, so un-muting is
+      // instant and costs no second permission prompt.
+      if (muted) await push.disablePush({ keepSubscription: true });
+      else await push.ensurePushRegistration();
+    })
+    .catch(() => {
+      // A device that could not be taken off the list still shows nothing in
+      // the app, which is most of what was asked for.
+    });
 }
 
 // ---------------------------------------------------------------------------

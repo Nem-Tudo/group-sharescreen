@@ -15,6 +15,7 @@ import {
   MdLogin,
   MdLogout,
   MdMonitor,
+  MdNotificationsNone,
   MdOutlineMap,
   MdPalette,
   MdPeopleOutline,
@@ -57,6 +58,10 @@ import { WIDE_POPUP_SIZE } from "@/components/groups/dialogKit";
 import { accountTierOf } from "@/lib/entitlements";
 import { ACCOUNT_EMOJI_LIMITS, CUSTOM_EMOJI_BADGE, CUSTOM_EMOJI_FEATURE } from "@/lib/customEmoji";
 import { useFeature } from "@/lib/features";
+import {
+  NOTIFICATION_SETTINGS_BADGE,
+  NOTIFICATION_SETTINGS_FEATURE,
+} from "@/lib/notificationSettings";
 
 // "Você" — the last of the bottom tabs (see components/MobileTabBar), and the
 // one screen that holds everything about the person and the app that the
@@ -86,6 +91,9 @@ export function MeScreen() {
   const [nameInput, setNameInput] = useState("");
   const [oauthTicket, setOAuthTicket] = useState<Extract<OAuthResult, { kind: "ticket" }> | null>(null);
   const appShell = useIsAppShell();
+  // The exposure is counted here because this row is the only place the
+  // screen is offered — see lib/notificationSettings.ts.
+  const notificationSettings = useFeature(NOTIFICATION_SETTINGS_FEATURE);
 
   const name = account?.displayName ?? state.name ?? "";
   const isAdmin = Boolean(account?.flags?.includes("ADMIN") || state.account?.flags?.includes("ADMIN"));
@@ -223,6 +231,20 @@ export function MeScreen() {
             <Row href={`/user/${account.username}`} icon={MdPersonOutline} label={t("accountMenu.myProfile")} />
             <Row onClick={() => openDirectMessages(null)} icon={MdChatBubbleOutline} label={t("common.messages")} />
             <Row href="/friends" icon={MdPeopleOutline} label={t("common.friends")} />
+            {/* The one screen that answers "por que meu celular não tocou":
+                the permission, the devices this account receives on, what it
+                is told about and when it is not. Behind a feature flag (see
+                lib/notificationSettings.ts) because it is new; the fixes it
+                was built with are not. Counted as an exposure here, which is
+                the one place it is actually offered. */}
+            {notificationSettings.enabled && (
+              <Row
+                href="/me/notifications"
+                icon={MdNotificationsNone}
+                label={t("common.notifications")}
+                badge={<NewBadge id={NOTIFICATION_SETTINGS_BADGE} />}
+              />
+            )}
             {/* Bots live in the developer dashboard, its own site — opened
                 outside, where the same account signs in. */}
             {!account.bot && (
@@ -336,6 +358,7 @@ function Row({
   label,
   tone,
   chevron = true,
+  badge,
 }: {
   href?: string;
   onClick?: () => void;
@@ -344,6 +367,8 @@ function Row({
   label: string;
   tone?: "red" | "purple";
   chevron?: boolean;
+  /** The blue "NOVO", for a row that has just appeared. */
+  badge?: ReactNode;
 }) {
   const color =
     tone === "red" ? "text-red-600 dark:text-red-500" : tone === "purple" ? "text-purple-600 dark:text-purple-400" : "";
@@ -351,6 +376,7 @@ function Row({
     <>
       <Icon className={`h-5 w-5 shrink-0 opacity-80 ${iconClassName}`} />
       <span className="min-w-0 flex-1 truncate">{label}</span>
+      {badge}
       {chevron && <MdChevronRight className="h-5 w-5 shrink-0 text-zinc-400" />}
     </>
   );

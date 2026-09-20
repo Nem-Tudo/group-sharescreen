@@ -56,7 +56,9 @@ import { QUICK_REACTIONS, ReactionPicker } from "@/components/groups/ReactionPic
 import { ReactionsDialog } from "@/components/groups/ReactionsDialog";
 import { useOpenChannelSettings } from "@/components/groups/ChannelSettingsDialog";
 import { copyText } from "@/lib/clipboard";
+import { SwipeReplyHint } from "@/components/SwipeReplyHint";
 import { openContextMenu } from "@/lib/contextMenu";
+import { useMessageGestures, type MessageGestures } from "@/lib/messageGestures";
 import { mentionInComposer } from "@/lib/groupMentionBridge";
 import { Twemoji } from "@/components/Twemoji";
 import { rememberChannel } from "@/components/groups/lastChannel";
@@ -259,16 +261,30 @@ const MessageRow = memo(
     message,
     outgoing,
     grouped,
+    onReply,
+    onMenu,
   }: {
-    draw: (message: GroupMessage, outgoing: OutgoingMessage | undefined, grouped: boolean) => ReactNode;
+    draw: (
+      message: GroupMessage,
+      outgoing: OutgoingMessage | undefined,
+      grouped: boolean,
+      gestures: MessageGestures
+    ) => ReactNode;
     message: GroupMessage;
     outgoing: OutgoingMessage | undefined;
     grouped: boolean;
     editing: boolean;
     picker: string | null;
     context: RowContext;
+    /** Dragged to the left; absent for a line there is nothing to answer. */
+    onReply?: () => void;
+    /** Held, and the right button on a desktop. */
+    onMenu?: (event: React.MouseEvent) => void;
   }) {
-    return <>{draw(message, outgoing, grouped)}</>;
+    // Here rather than in the room's drawing function, which is a plain
+    // function called in a loop and so no place for a hook.
+    const gestures = useMessageGestures({ onReply, onMenu });
+    return <>{draw(message, outgoing, grouped, gestures)}</>;
   },
   (a, b) =>
     a.message === b.message &&
@@ -1479,7 +1495,12 @@ export const TextChannelView = memo(function TextChannelView({
    * One line of the log — drawn through MessageRow, which calls this only when
    * the line (or something every line reads, see rowContext) has changed.
    */
-  function drawRow(message: GroupMessage, outgoing: OutgoingMessage | undefined, grouped: boolean): ReactNode {
+  function drawRow(
+    message: GroupMessage,
+    outgoing: OutgoingMessage | undefined,
+    grouped: boolean,
+    gestures: MessageGestures
+  ): ReactNode {
     const author = userOf(message);
     // The group's own line about an aura (see the API's postAuraMessage): one
     // sentence, written here rather than stored, so it reads in the reader's
@@ -1533,7 +1554,8 @@ export const TextChannelView = memo(function TextChannelView({
       <li
         key={message.id}
         data-message-id={outgoing ? undefined : message.id}
-        onContextMenu={(e) => messageMenu(e, message, outgoing)}
+        {...gestures.handlers}
+        style={gestures.style}
         className={`group relative -mx-1.5 rounded-lg px-2 text-sm transition-colors ${
           grouped ? "pb-0.5" : "mt-2.5 pb-0.5"
         } ${
@@ -1546,6 +1568,7 @@ export const TextChannelView = memo(function TextChannelView({
           outgoing?.status === "sending" ? "opacity-60" : ""
         }`}
       >
+        <SwipeReplyHint pull={gestures.pull} progress={gestures.progress} armed={gestures.armed} />
         {message.replyTo && (
           // The quote is a way to the message it answers; its author's name,
           // a way to them (the same three gestures as any name here).
@@ -1814,6 +1837,10 @@ export const TextChannelView = memo(function TextChannelView({
           editing={editingId === message.id}
           picker={pickerFor?.startsWith(`${message.id}:`) ? pickerFor : null}
           context={rowContext}
+          // Nothing to answer in a line that is still on its way out, and
+          // the group's own aura line is not somebody's message at all.
+          onReply={outgoing || message.kind === "aura" ? undefined : () => startReply(message)}
+          onMenu={message.kind === "aura" ? undefined : (e) => messageMenu(e, message, outgoing)}
         />
       );
       previous = message;

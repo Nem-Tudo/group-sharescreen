@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useAuth } from "@/lib/AuthContext";
 import { showNotification } from "@/lib/notifications";
+import { ensureNotifyPrefs, isDmMuted } from "@/lib/notifyPrefs";
 import { isPageInFront } from "@/lib/pageFocus";
 import { upsertNotification } from "@/lib/notificationInbox";
 import { playDirectMessageSound } from "@/lib/soundEffects";
@@ -44,6 +45,17 @@ export function DmNotifier() {
   // which is exactly the shape of the bug that was reported.
   const announcedRef = useRef<string | null>(null);
 
+  // Which conversations are silenced, read once per session.
+  //
+  // Here rather than in the settings screen because this is the component
+  // that needs the answer *before* anybody visits it: it is mounted at the
+  // layout root and a message can arrive on the first second of a page, long
+  // before somebody opens a settings page they may never open at all.
+  useEffect(() => {
+    if (!account) return;
+    void ensureNotifyPrefs();
+  }, [account]);
+
   useEffect(() => {
     if (!lastDm || !account) return;
     const { message, fromUser } = lastDm;
@@ -74,6 +86,12 @@ export function DmNotifier() {
       userId: message.from,
     });
     if (!alertTarget) return;
+    // A silenced conversation still lands in the bell above — it is a fact
+    // about the conversation, not about the noise — but makes none of it.
+    // "Silenciar" has to mean the same thing whether the app is open or shut,
+    // and the push half is already held back by the API (see its
+    // notifyPrefsStore); this is the other half.
+    if (isDmMuted(message.from)) return;
     playDirectMessageSound();
     void showNotification({
       title: name,

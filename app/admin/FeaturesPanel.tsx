@@ -357,6 +357,12 @@ function CreateFeatureForm({ onCreated }: { onCreated: (feature: AdminFeature) =
   const [target, setTarget] = useState<FeatureTarget>("user");
   const [variants, setVariants] = useState("on");
   const [rollout, setRollout] = useState("0");
+  // Marcada por padrão: quase todo experimento do site roda em tela que um
+  // visitante também vê, e deixar a caixa desmarcada fazia a métrica sair
+  // pela metade sem ninguém perceber — o jeito de descobrir era estranhar um
+  // número baixo depois. Quem não quiser visitante desmarca aqui, que é o
+  // momento em que se está pensando no público do experimento.
+  const [includeGuests, setIncludeGuests] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -373,6 +379,9 @@ function CreateFeatureForm({ onCreated }: { onCreated: (feature: AdminFeature) =
           target,
           variants: splitList(variants.toLowerCase()),
           rollout: Number(rollout.replace(",", ".")) || 0,
+          // Só faz sentido para o alvo "user": uma sala e um grupo não têm
+          // visitante para incluir, e a API ignora o campo nos dois casos.
+          includeGuests: target === "user" && includeGuests,
         })
       );
     } catch (err) {
@@ -425,6 +434,18 @@ function CreateFeatureForm({ onCreated }: { onCreated: (feature: AdminFeature) =
           ))}
         </div>
         <p className="mt-1 text-xs text-zinc-500">{t(`admin.features.targetHint.${target}`)}</p>
+        {/* Só aparece para "user", como no editor: uma sala e um grupo não
+            têm visitante para incluir. */}
+        {target === "user" && (
+          <label className="mt-2 flex items-center gap-2 text-xs text-zinc-700 dark:text-zinc-300">
+            <input
+              type="checkbox"
+              checked={includeGuests}
+              onChange={(e) => setIncludeGuests(e.target.checked)}
+            />
+            {t("admin.features.includeGuests")}
+          </label>
+        )}
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className={labelClass}>

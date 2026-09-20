@@ -31,6 +31,8 @@ import {
   MdErrorOutline,
   MdGif,
   MdKeyboardArrowDown,
+  MdNotifications,
+  MdNotificationsOff,
   MdOpenInFull,
   MdOutlineAddReaction,
   MdRefresh,
@@ -56,6 +58,14 @@ import { Twemoji } from "@/components/Twemoji";
 import { QUICK_REACTIONS, ReactionPicker } from "@/components/groups/ReactionPicker";
 import { copyText } from "@/lib/clipboard";
 import { openContextMenu } from "@/lib/contextMenu";
+import { useMessageGestures } from "@/lib/messageGestures";
+import { useNotifyPrefs } from "@/lib/notifyPrefs";
+import { trackFeatureEvent } from "@/lib/features";
+import { markFeatureUsed } from "@/components/NewBadge";
+import {
+  NOTIFICATION_SETTINGS_BADGE,
+  NOTIFICATION_SETTINGS_EVENTS,
+} from "@/lib/notificationSettings";
 import { useEmojiAutocomplete } from "@/lib/useEmojiAutocomplete";
 import { ChatImageModal, type ChatImagePreviewState } from "@/components/ChatImageModal";
 import { UserProfileDialog } from "@/components/UserProfileDialog";
@@ -66,6 +76,7 @@ import {
 } from "@/lib/chatImage";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { UserAvatar } from "@/components/UserAvatar";
+import { SwipeReplyHint } from "@/components/SwipeReplyHint";
 import { useAuth } from "@/lib/AuthContext";
 import { verifiedBadge } from "@/lib/entitlements";
 import { openDirectMessages, setDirectMessagesExpanded, useDirectMessagesOutlet } from "@/lib/dmWindow";
@@ -548,6 +559,18 @@ const MessageBubble = memo(function MessageBubble({
 
   const replyTarget = () => replyTargetOf(bubble, mine ? t("common.you") : otherName);
 
+  // A phone has no hover and no right button, which is where both of this
+  // row's actions used to live — see lib/messageGestures.
+  const gestures = useMessageGestures({
+    onReply: bubble.messageId
+      ? () => {
+          const target = replyTarget();
+          if (target) onReply(target);
+        }
+      : undefined,
+    onMenu: (event) => onMenu(event, bubble),
+  });
+
   const actions = (className: string) =>
     bubble.messageId ? (
       <span className={`flex shrink-0 items-center ${rows ? "" : "self-center"}`}>
@@ -717,13 +740,15 @@ const MessageBubble = memo(function MessageBubble({
     const author = bubble.author;
     return (
       <li
-        onContextMenu={(e) => onMenu(e, bubble)}
+        {...gestures.handlers}
+        style={gestures.style}
         className={`group relative -mx-1.5 rounded-lg px-2 text-sm transition-colors ${
           editing
             ? "bg-amber-50 ring-1 ring-amber-300 dark:bg-amber-500/10 dark:ring-amber-500/40"
             : "hover:bg-zinc-100/80 dark:hover:bg-zinc-900/70"
         } ${grouped ? "pb-0.5" : "mt-2.5 pb-0.5"} ${status === "sending" ? "opacity-60" : ""}`}
       >
+        <SwipeReplyHint pull={gestures.pull} progress={gestures.progress} armed={gestures.armed} />
         {bubble.replyTo && <div className="pt-1 text-zinc-700 dark:text-zinc-300">{quote}</div>}
         {!grouped && author && (
           <div className="flex items-center justify-between gap-1.5">
@@ -772,11 +797,13 @@ const MessageBubble = memo(function MessageBubble({
 
   return (
     <li
-      onContextMenu={(e) => onMenu(e, bubble)}
-      className={`group flex items-end gap-0.5 ${mine ? "justify-end" : "justify-start"} ${
+      {...gestures.handlers}
+      style={gestures.style}
+      className={`group relative flex items-end gap-0.5 ${mine ? "justify-end" : "justify-start"} ${
         grouped ? "mt-0.5" : "mt-2.5"
       }`}
     >
+      <SwipeReplyHint pull={gestures.pull} progress={gestures.progress} armed={gestures.armed} />
       {mine && actions(bubbleAction)}
       <div className={`flex max-w-[82%] flex-col ${mine ? "items-end" : "items-start"}`}>
         <div
@@ -1158,6 +1185,10 @@ export function DirectMessagesModal({
     loaded?.user ?? conversations?.find((c) => c.user.id === activeId)?.user ?? null;
   const presence = usePresence(activeId);
   const otherTyping = activeId ? Boolean(live.typing[activeId]) : false;
+  // Which conversations are silenced — read here rather than in the menu
+  // because a context menu is built once, on the click, and would otherwise
+  // never re-render when the list changes under it.
+  const notifyPrefs = useNotifyPrefs();
   // This account's own switch, once known. Unknown reads as "on" for drawing
   // the switch — it is the default — but never shows a "visto" on its own:
   // those only come from the server, which checks both sides.
@@ -2145,10 +2176,38 @@ export function DirectMessagesModal({
             window.setTimeout(() => setListSeq((n) => n + 1), 300);
           },
         },
+        muteEntry(user.id),
         { type: "divider" },
         { label: t("groups.memberMenu.copyId"), icon: <MdContentCopy className="h-4 w-4" />, onSelect: () => void copyText(user.id) },
       ],
     });
+  }
+
+  /**
+   * "Silenciar conversa" — the same entry in both menus.
+   *
+   * It silences the *push*, not the conversation: the messages still arrive,
+   * the list still shows them unread, and the app still announces them while
+   * it is open. What stops is the phone lighting up in a pocket, which is the
+   * only part of a busy conversation anybody actually wants to turn off.
+   *
+   * Per account rather than per browser, unlike the bell's global mute — it
+   * is a fact about a person and follows them to a new phone (see
+   * lib/notifyPrefs.ts).
+   */
+  function muteEntry(userId: string) {
+    const muted = notifyPrefs.prefs.mutedDms.includes(userId);
+    return {
+      label: muted
+        ? t("directMessagesModal.unmuteConversation")
+        : t("directMessagesModal.muteConversation"),
+      icon: muted ? <MdNotifications className="h-4 w-4" /> : <MdNotificationsOff className="h-4 w-4" />,
+      onSelect: () => {
+        trackFeatureEvent(NOTIFICATION_SETTINGS_EVENTS.dmMuted);
+        markFeatureUsed(NOTIFICATION_SETTINGS_BADGE);
+        void notifyPrefs.setDmMuted(userId, !muted);
+      },
+    };
   }
 
   /** The thread's header: the person it is with. */
@@ -2167,6 +2226,7 @@ export function DirectMessagesModal({
           icon: expanded ? <MdCloseFullscreen className="h-4 w-4" /> : <MdOpenInFull className="h-4 w-4" />,
           onSelect: () => setDirectMessagesExpanded(!expanded),
         },
+        muteEntry(activeId),
         { type: "divider" },
         { label: t("groups.memberMenu.copyId"), icon: <MdContentCopy className="h-4 w-4" />, onSelect: () => void copyText(activeId) },
       ],
@@ -2333,43 +2393,66 @@ export function DirectMessagesModal({
     </Popover>
   );
 
+  // The bar's controls are icons with nothing written on them, so each one
+  // says what it is on hover — the hint the settings and the attach button
+  // beside them already carried through their popovers. A <Tooltip> rather
+  // than `title`: the browser's own hint is a second, slower, unstyled bubble
+  // next to the app's, and the two would sit under the same cursor.
   const expandButton = wide && (
-    <button
-      type="button"
-      onClick={() => setDirectMessagesExpanded(!expanded)}
-      aria-label={expanded ? t("directMessagesModal.collapse") : t("directMessagesModal.expand")}
-      title={expanded ? t("directMessagesModal.collapse") : t("directMessagesModal.expand")}
-      className={headerButton}
-    >
-      {expanded ? <MdCloseFullscreen className="h-5 w-5" /> : <MdOpenInFull className="h-[1.1rem] w-[1.1rem]" />}
-    </button>
+    <Tooltip content={expanded ? t("directMessagesModal.collapse") : t("directMessagesModal.expand")} placement="bottom">
+      <button
+        type="button"
+        onClick={() => setDirectMessagesExpanded(!expanded)}
+        aria-label={expanded ? t("directMessagesModal.collapse") : t("directMessagesModal.expand")}
+        className={headerButton}
+      >
+        {expanded ? <MdCloseFullscreen className="h-5 w-5" /> : <MdOpenInFull className="h-[1.1rem] w-[1.1rem]" />}
+      </button>
+    </Tooltip>
   );
 
   const closeButton = (
-    <button type="button" onClick={close} aria-label={t("common.close")} title={t("common.close")} className={headerButton}>
-      <MdClose className="h-5 w-5" />
-    </button>
+    <Tooltip content={t("common.close")} placement="bottom">
+      <button type="button" onClick={close} aria-label={t("common.close")} className={headerButton}>
+        <MdClose className="h-5 w-5" />
+      </button>
+    </Tooltip>
   );
 
   const threadIdentity =
     activeId && active ? (
       <div className="flex min-w-0 flex-1 items-center gap-2.5" onContextMenu={threadHeaderMenu}>
-        <UserAvatar src={active.avatarUrl} name={active.displayName} size={34} userId={active.id} className="shrink-0" />
-        <div className="min-w-0">
+        {/* The face opens the profile, like the name beside it — in the
+            expanded window this header is the only place the person is drawn
+            while a thread is open, and clicking a face is how the profile is
+            reached everywhere else (the conversations list, the home page's
+            recent messages, a room's participant list). */}
+        <Tooltip content={t("common.viewProfile")} placement="bottom">
           <button
             type="button"
             onClick={() => setProfileId(active.id)}
-            title={t("common.viewProfile")}
-            className="block max-w-full cursor-pointer text-left hover:underline"
+            aria-label={t("common.seeDisplaynameSProfile", { displayName: active.displayName })}
+            className="shrink-0 cursor-pointer rounded-full"
           >
-            <DisplayUserName
-              name={active.displayName}
-              verified={verifiedBadge(active.flags)}
-              bot={active.bot}
-              color={active.nameColor ?? null}
-              className="block truncate text-sm font-semibold text-zinc-950 dark:text-zinc-50"
-            />
+            <UserAvatar src={active.avatarUrl} name={active.displayName} size={34} userId={active.id} />
           </button>
+        </Tooltip>
+        <div className="min-w-0">
+          <Tooltip content={t("common.viewProfile")} placement="bottom">
+            <button
+              type="button"
+              onClick={() => setProfileId(active.id)}
+              className="block max-w-full cursor-pointer text-left hover:underline"
+            >
+              <DisplayUserName
+                name={active.displayName}
+                verified={verifiedBadge(active.flags)}
+                bot={active.bot}
+                color={active.nameColor ?? null}
+                className="block truncate text-sm font-semibold text-zinc-950 dark:text-zinc-50"
+              />
+            </button>
+          </Tooltip>
           {otherTyping ? (
             <span className="block truncate text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
               {t("directMessagesModal.typing")}
@@ -2392,15 +2475,16 @@ export function DirectMessagesModal({
   // above it, and closing this would throw away the conversation the call came
   // out of.
   const callButton = activeId && active && (
-    <button
-      type="button"
-      onClick={() => void placeCall(activeId)}
-      aria-label={t("common.callDisplayname", { displayName: active.displayName })}
-      title={t("common.callDisplayname", { displayName: active.displayName })}
-      className="shrink-0 rounded-full p-1.5 text-emerald-600 transition hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
-    >
-      <MdCall className="h-5 w-5" />
-    </button>
+    <Tooltip content={t("common.callDisplayname", { displayName: active.displayName })} placement="bottom">
+      <button
+        type="button"
+        onClick={() => void placeCall(activeId)}
+        aria-label={t("common.callDisplayname", { displayName: active.displayName })}
+        className="shrink-0 rounded-full p-1.5 text-emerald-600 transition hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
+      >
+        <MdCall className="h-5 w-5" />
+      </button>
+    </Tooltip>
   );
 
   // Folds the lists beside a direct call away — this window's conversations
@@ -2490,7 +2574,20 @@ export function DirectMessagesModal({
                     selected ? "bg-zinc-100 dark:bg-zinc-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-900"
                   }`}
                 >
-                  <UserAvatar src={user.avatarUrl} name={user.displayName} size={40} userId={user.id} className="shrink-0" />
+                  {/* The face opens the profile, like the name beside it —
+                      a span for the same reason (a button inside a button). */}
+                  <span
+                    role="button"
+                    tabIndex={-1}
+                    title={t("common.viewProfile")}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setProfileId(user.id);
+                    }}
+                    className="shrink-0 cursor-pointer"
+                  >
+                    <UserAvatar src={user.avatarUrl} name={user.displayName} size={40} userId={user.id} />
+                  </span>
                   <span className="min-w-0 flex-1">
                     <span className="flex items-baseline gap-2">
                       {/* A span rather than a button: this row is already
@@ -2684,14 +2781,16 @@ export function DirectMessagesModal({
               <span className="text-amber-700/70 dark:text-amber-300/60"> · {t("groups.groupMessageComposer.editHint")}</span>
             )}
           </span>
-          <button
-            type="button"
-            onClick={() => setEditing(null)}
-            aria-label={t("groups.groupMessageComposer.cancelEdit")}
-            className="shrink-0 rounded-full p-1 hover:bg-amber-100 dark:hover:bg-amber-500/20"
-          >
-            <MdClose className="h-4 w-4" />
-          </button>
+          <Tooltip content={t("groups.groupMessageComposer.cancelEdit")}>
+            <button
+              type="button"
+              onClick={() => setEditing(null)}
+              aria-label={t("groups.groupMessageComposer.cancelEdit")}
+              className="shrink-0 rounded-full p-1 hover:bg-amber-100 dark:hover:bg-amber-500/20"
+            >
+              <MdClose className="h-4 w-4" />
+            </button>
+          </Tooltip>
         </div>
       )}
 
@@ -2706,14 +2805,16 @@ export function DirectMessagesModal({
               {replyingTo.text || (replyingTo.kind === "gif" ? "GIF" : t("common.image"))}
             </span>
           </span>
-          <button
-            type="button"
-            onClick={() => setReply(null)}
-            aria-label={t("common.cancelReply")}
-            className="shrink-0 rounded-full p-1 text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800"
-          >
-            <MdClose className="h-4 w-4" />
-          </button>
+          <Tooltip content={t("common.cancelReply")}>
+            <button
+              type="button"
+              onClick={() => setReply(null)}
+              aria-label={t("common.cancelReply")}
+              className="shrink-0 rounded-full p-1 text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800"
+            >
+              <MdClose className="h-4 w-4" />
+            </button>
+          </Tooltip>
         </div>
       )}
 
@@ -2860,15 +2961,23 @@ export function DirectMessagesModal({
           onPickCustom={emoji.insertCustom}
           className={iconButton}
         />
-        <button
-          type="submit"
-          disabled={!canSend}
-          aria-label={editingHere ? t("common.save") : t("common.send")}
-          title={editingHere ? t("common.save") : t("directMessagesModal.sendEnter")}
-          className="shrink-0 rounded-full bg-zinc-950 p-2.5 text-white transition hover:bg-zinc-800 disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+        {/* Wrapped, because an empty box disables this button and a disabled
+            button fires no pointer events of its own — see Tooltip's
+            wrapperClassName. Which is exactly when the hint is worth having:
+            "Enter para enviar" answers why nothing happened. */}
+        <Tooltip
+          content={editingHere ? t("common.save") : t("directMessagesModal.sendEnter")}
+          wrapperClassName="shrink-0 inline-flex"
         >
-          {editingHere ? <MdCheck className="h-5 w-5" /> : <MdSend className="h-5 w-5" />}
-        </button>
+          <button
+            type="submit"
+            disabled={!canSend}
+            aria-label={editingHere ? t("common.save") : t("common.send")}
+            className="shrink-0 rounded-full bg-zinc-950 p-2.5 text-white transition hover:bg-zinc-800 disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+          >
+            {editingHere ? <MdCheck className="h-5 w-5" /> : <MdSend className="h-5 w-5" />}
+          </button>
+        </Tooltip>
       </form>
     </>
   );
@@ -2954,15 +3063,16 @@ export function DirectMessagesModal({
           >
             <div className={headerRow}>
               {activeId && (
-                <button
-                  type="button"
-                  onClick={backToList}
-                  aria-label={t("directMessagesModal.backToTheConversations")}
-                  title={t("common.back")}
-                  className={headerButton}
-                >
-                  <MdArrowBack className="h-5 w-5" />
-                </button>
+                <Tooltip content={t("directMessagesModal.backToTheConversations")} placement="bottom">
+                  <button
+                    type="button"
+                    onClick={backToList}
+                    aria-label={t("directMessagesModal.backToTheConversations")}
+                    className={headerButton}
+                  >
+                    <MdArrowBack className="h-5 w-5" />
+                  </button>
+                </Tooltip>
               )}
               {threadIdentity}
               {callButton}

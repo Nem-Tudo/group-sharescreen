@@ -1,22 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
 import useNtPopups from "ntpopups";
 import { MdCall, MdChatBubbleOutline, MdContentCopy, MdDoneAll, MdOpenInFull, MdPictureInPicture } from "react-icons/md";
 import { Tooltip } from "@/components/Tooltip";
 import { UserAvatar } from "@/components/UserAvatar";
 import { useAuth } from "@/lib/AuthContext";
-import { fetchConversations, type Conversation } from "@/lib/dmApi";
 import { useDmLive } from "@/lib/dmLive";
-import { liveConversationList, messageSummary, newestListChange } from "@/lib/dmThread";
-import { openDirectMessages, useDirectMessagesWindow } from "@/lib/dmWindow";
-import { selectDmReadSeq, selectRecentDms } from "@/lib/signalingSelectors";
-import { useSignalingSelector } from "@/lib/useSignalingSelector";
+import { messageSummary } from "@/lib/dmThread";
+import { openDirectMessages } from "@/lib/dmWindow";
+import { useRecentConversations } from "@/lib/useRecentConversations";
 import { useT, useTCount } from "@/lib/useI18n";
 import { startCall } from "@/lib/callsApi";
 import { copyText } from "@/lib/clipboard";
 import { openContextMenu } from "@/lib/contextMenu";
-import { markConversationRead } from "@/lib/dmApi";
 import { avatarShapeClass } from "@/lib/avatarShape";
 
 // The people this account talks to, one click from a group's top bar.
@@ -39,56 +35,28 @@ import { avatarShapeClass } from "@/lib/avatarShape";
 /** The most faces the bar ever shows. */
 const MAX_FACES = 5;
 
-/** How long after a nudge the list is re-read, so a burst is one request. */
-const REFRESH_DEBOUNCE_MS = 800;
-
 /** Which breakpoint each face appears from, by its position. */
 const FACE_VISIBILITY = ["hidden sm:flex", "hidden sm:flex", "hidden md:flex", "hidden xl:flex", "hidden xl:flex"];
 
-export function DmRecentStrip({ compact = false, leading = false }: { compact?: boolean; leading?: boolean }) {
+export function DmRecentStrip({
+  compact = false,
+  leading = false,
+  maxFaces = MAX_FACES,
+}: {
+  compact?: boolean;
+  leading?: boolean;
+  /** Fewer faces where the bar is tighter — the site header, which carries a
+   *  row of its own links beside this (see components/SiteHeader). */
+  maxFaces?: number;
+}) {
   const t = useT();
   const tCount = useTCount();
   const { openPopup } = useNtPopups();
   const { account } = useAuth();
   const live = useDmLive();
-  const recentDms = useSignalingSelector(selectRecentDms);
-  const dmReadSeq = useSignalingSelector(selectDmReadSeq);
-  const { open: windowOpen } = useDirectMessagesWindow();
-  const [conversations, setConversations] = useState<Conversation[] | null>(null);
-  // Not every delivery: this account's own sends move their row through the
-  // live overlay below and need nothing from the server (see newestListChange).
-  const listNudge = account ? newestListChange(recentDms, account.id, conversations) : null;
-
-  // Re-read when a message arrives, when a conversation is read on another
-  // device, and when the window closes — which is when this account most
-  // likely just read something here.
-  useEffect(() => {
-    if (!account) return;
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => {
-      void fetchConversations(controller.signal).then((data) => {
-        if (!controller.signal.aborted && data) setConversations(data.conversations);
-      });
-    }, REFRESH_DEBOUNCE_MS);
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [account, listNudge, dmReadSeq, windowOpen]);
-
-  // What arrived since the read, laid over it, so the order moves the moment
-  // a message lands rather than a beat later.
-  const rows = useMemo(
-    () =>
-      conversations && account
-        ? liveConversationList(conversations, recentDms, account.id).slice(0, MAX_FACES)
-        : [],
-    [conversations, recentDms, account]
-  );
+  const { rows, totalUnread, markRead } = useRecentConversations(Math.min(maxFaces, MAX_FACES));
 
   if (!account) return null;
-
-  const totalUnread = (conversations ?? []).reduce((total, c) => total + c.unread, 0);
 
   /**
    * Rings `userId`, and says why if it could not — blocked, rate-limited,
@@ -193,12 +161,7 @@ export function DmRecentStrip({ compact = false, leading = false }: { compact?: 
                         label: t("groups.groupRail.markAsRead"),
                         icon: <MdDoneAll className="h-4 w-4" />,
                         disabled: unread === 0,
-                        onSelect: () => {
-                          markConversationRead(user.id);
-                          setConversations((current) =>
-                            current?.map((c) => (c.user.id === user.id ? { ...c, unread: 0 } : c)) ?? current
-                          );
-                        },
+                        onSelect: () => markRead(user.id),
                       },
                       { type: "divider" },
                       {

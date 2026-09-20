@@ -8,6 +8,7 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { UserProfileDialog } from "@/components/UserProfileDialog";
 import { Tooltip } from "@/components/Tooltip";
 import { AddFriendDialog } from "@/components/AddFriendDialog";
+import { HomeRecentMessages } from "@/components/HomeRecentMessages";
 import { useAuth } from "@/lib/AuthContext";
 import { verifiedBadge } from "@/lib/entitlements";
 import type { PresenceInfo } from "@/lib/signalingClient";
@@ -198,6 +199,14 @@ export function HomeFriendsPanel({ className = "" }: { className?: string }) {
       // and leave the extra space blank under a short list.
       className={`flex w-full max-w-md flex-col rounded-2xl border border-black/10 bg-white p-5 shadow-sm lg:w-88 dark:border-white/10 dark:bg-zinc-950 ${className}`}
     >
+      {/* Above the friends, and inside the same card rather than a fourth
+          box on the page: what somebody came back to GoLive for is usually
+          waiting in a conversation, and the friends list under it is the
+          other half of the same question — who is around. Renders nothing
+          when there are no conversations (see HomeRecentMessages), so a new
+          account sees the panel it always saw. */}
+      <HomeRecentMessages />
+
       <div className="flex items-baseline justify-between gap-2">
         <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
           {t("common.friends")}

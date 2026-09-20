@@ -28,6 +28,7 @@ import {
 import { signalingClient, getStoredName } from "./signalingClient";
 import { useGuestToken, getStoredGuestToken } from "./guestToken";
 import { fetchGuestPoints } from "./guestPoints";
+import { resetNotifyPrefs } from "./notifyPrefs";
 import { useT } from "@/lib/useI18n";
 
 type AuthContextValue = {
@@ -311,6 +312,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const registeredForTokenRef = useRef<string | null>(null);
 
   const logout = useCallback(() => {
+    // Before anything else, and not awaited: the push subscription for this
+    // browser is filed under the account signing out, and nothing else would
+    // ever take it off that list. Until somebody signed in here again, this
+    // device went on showing that account's private messages and calls on its
+    // lock screen — on a shared computer, to whoever sat down next.
+    //
+    // Deliberately the full form rather than a mute: signing out is not "be
+    // quiet for now", and the subscription itself is thrown away.
+    void import("./pushRegistration")
+      .then((push) => push.disablePush())
+      .catch(() => {
+        // Unreachable API or a browser that refuses the worker: the sign-out
+        // itself must not fail over a notification that may still arrive.
+      });
+    void import("./swSession")
+      .then((session) => session.clearSwSessionToken())
+      .catch(() => {
+        // Same: the worker simply keeps a token it can no longer use, and the
+        // API answers 401 to whatever it tries with it.
+      });
+    // The silenced conversations belong to the account that is leaving, and
+    // the next one to sign in here must not inherit them.
+    resetNotifyPrefs();
     logoutAccount();
     setAccount(null);
     setConnections(null);
