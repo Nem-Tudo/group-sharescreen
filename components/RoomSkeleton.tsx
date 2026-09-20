@@ -58,6 +58,8 @@ export function RoomSkeleton() {
       // skeleton would scroll the page while the room it stands in for does
       // not — the one difference a user would actually feel.
       data-room-shell
+      // See WatchRoom's own note: transparent under a wallpaper.
+      data-room-page=""
       className="flex min-h-0 flex-1 flex-col bg-zinc-50 dark:bg-black"
       // Nothing here carries meaning to read out, so it is hidden from
       // assistive tech entirely and the status is announced instead — a

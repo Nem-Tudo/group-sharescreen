@@ -185,6 +185,17 @@ function ColorField({
         </label>
       )}
 
+      {/* Said here because it is the one place the answer is surprising: the
+          slider does what it says inside the room, and deliberately does not
+          in a modal or a menu, which float over arbitrary content (see the
+          `[data-room-theme]` block in globals.css). They wear this colour
+          flattened over the page instead. */}
+      {alpha && opacity < 1 && (
+        <p className="pl-11 text-[11px] text-zinc-400 dark:text-zinc-600">
+          {t("themeEditorDialog.opacityWindowsNote")}
+        </p>
+      )}
+
       {open && (
         <div className="theme-picker pb-1">
           {/* Fed the six-digit half. The alpha is the slider's, and a picker

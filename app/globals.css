@@ -293,6 +293,51 @@ html[data-room-theme="image"]::after {
   opacity: var(--room-background-dim, 0);
 }
 
+/* The room's own full-viewport background, while a wallpaper or a gradient is
+   worn. The shell paints the page colour (`bg-zinc-50 dark:bg-black`) across
+   the whole screen, which would cover the two layers above — so the element
+   steps aside here rather than the colour being painted transparent in
+   lib/roomThemes.ts. That used to be the trick, and it took every
+   `bg-black/60` dialog backdrop on the site down with it: the page colour is
+   `--color-black`, and a translucent mix of `transparent` is just
+   transparent. */
+html[data-room-theme="image"] [data-room-page],
+html[data-room-theme="gradient"] [data-room-page] {
+  background-color: transparent;
+}
+
+/* ─── Themes, and the things that float above a room ──────────────────────
+   A room theme's surfaces may be translucent on purpose: the author sets an
+   opacity per colour so their wallpaper reads through the chat and the
+   panels. That is right for a panel, which is fixed in the room and has the
+   theme's own page behind it. It is wrong for everything that floats — a
+   modal, a popover, a tooltip, a right-click menu, a sheet — because those
+   are over arbitrary content, frequently over each other, and two translucent
+   cards stacked over a video is a dialog you cannot read.
+
+   So a floating layer re-declares the surface tokens as the flattened colours
+   the theme also publishes (see `flattenOver` in lib/roomThemes.ts): the same
+   hue the author picked, as it looks over their page, with nothing showing
+   through it. Declared on the floating element itself, so it beats the
+   `!important` values inherited from <html> — inheritance never outranks a
+   declaration on the element, whatever the ancestor wrote.
+
+   Only the surfaces move. Text, accents and the palette's meaning-carrying
+   colours are untouched, so a dialog still reads as the same theme. */
+html[data-room-theme][data-theme="dark"] :is(.tippy-box, .ntpopups-main, .golive-dialog-card, [role="dialog"], [role="menu"], [data-room-floating]) {
+  --color-zinc-950: var(--room-surface-solid);
+  --color-zinc-900: var(--room-raised-solid);
+  --color-zinc-800: var(--room-border-solid);
+  --color-zinc-700: var(--room-input-solid);
+}
+
+html[data-room-theme][data-theme="light"] :is(.tippy-box, .ntpopups-main, .golive-dialog-card, [role="dialog"], [role="menu"], [data-room-floating]) {
+  --color-white: var(--room-surface-solid);
+  --color-zinc-100: var(--room-raised-solid);
+  --color-zinc-200: var(--room-border-solid);
+  --color-zinc-300: var(--room-input-solid);
+}
+
 /* The theme's accent, for the few places in a room that are a deliberate
    highlight rather than a surface — the active tab of the dock, above all.
    Falls back to what those places painted before themes existed, so the class

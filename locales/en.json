@@ -3024,6 +3024,7 @@
   "themeEditorDialog.newTheme": "New theme",
   "themeEditorDialog.nobodyIsBroadcastingYet": "Nobody is broadcasting yet",
   "themeEditorDialog.opacity": "Opacity",
+  "themeEditorDialog.opacityWindowsNote": "Windows and menus use this colour with no transparency.",
   "themeEditorDialog.opacityOfLabel": "Opacity of {label}",
   "themeEditorDialog.perSaleEachPersonBuysIt": "per sale. Each person buys it once only.",
   "themeEditorDialog.pointsItWillBeAdjustedOn": "points — it will be adjusted on save.",

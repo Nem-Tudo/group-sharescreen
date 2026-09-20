@@ -281,6 +281,29 @@ export function luminance(hex: string): number {
   );
 }
 
+/**
+ * One colour laid over another, as an opaque `#rrggbb`.
+ *
+ * What a translucent surface *actually looks like* once it is over the thing
+ * it was designed to be over. A theme's panels are drawn with the author's
+ * alpha so the wallpaper reads through them; a dialog cannot do that — it is
+ * over the room, over another dialog, over anything — so it wears the same
+ * colour flattened instead of the same alpha. Same hue the author picked,
+ * nothing showing through it.
+ */
+export function flattenOver(value: string, base: string): string {
+  const alpha = colorAlpha(value);
+  const top = colorBase(value);
+  if (alpha >= 1) return top;
+  const under = colorBase(base);
+  const channel = (hex: string, index: number) =>
+    Number.parseInt(hex.slice(1 + index * 2, 3 + index * 2), 16);
+  const mixed = [0, 1, 2].map((i) =>
+    Math.round(channel(top, i) * alpha + channel(under, i) * (1 - alpha))
+  );
+  return `#${mixed.map((c) => c.toString(16).padStart(2, "0")).join("")}`;
+}
+
 /** How much of `text` the quieter steps keep when a theme names neither. */
 const SOFT_FALLBACK_ALPHA = 0.72;
 const MUTED_FALLBACK_ALPHA = 0.55;
@@ -334,18 +357,21 @@ function tokensFor(input: RoomThemeSpec): Record<string, string> {
   const spec = completeSpec(input);
   const { palette } = spec;
   const dark = isDarkTheme(spec);
-  // With a picture behind the room, the page itself has to get out of the
-  // way: the room's outermost element paints the page token across the whole
-  // viewport, and an opaque one would cover the image completely. It becomes
-  // transparent and the picture is painted on <html> instead (see globals.css),
-  // with the real colour kept in --room-page-solid for the dimming layer to
-  // use — the image is darkened *towards the theme's own page colour* rather
-  // than towards black, so a light theme with a photo stays a light theme.
-  // The page token gets out of the way for anything painted *behind* the room
-  // — a picture or a gradient. Both are drawn on <html> (see globals.css), and
-  // an opaque page would cover them completely, because the room's outermost
-  // element paints that token across the whole viewport.
-  const page = spec.background || spec.gradient ? "transparent" : palette.page;
+  // The page token stays opaque, always — including under a wallpaper.
+  //
+  // It used to become `transparent` when a theme had a picture or a gradient,
+  // because the room's outermost element paints it across the whole viewport
+  // and an opaque one would cover the image. But that token is `--color-black`
+  // (or `--color-zinc-50`), and the room is not its only reader: every
+  // `bg-black/60` dialog backdrop on the site is `color-mix(..., var(--color-black)
+  // 60%, transparent)`, which with a transparent base mixes transparent into
+  // transparent — the dim behind every modal simply disappeared, and with it
+  // any solid fill in a popup that happened to use the page colour.
+  //
+  // So the *element* gets out of the way instead of the colour: see
+  // globals.css's `[data-room-page]` rule, which makes the room's own
+  // full-viewport background transparent while a wallpaper or gradient is worn.
+  const page = colorBase(palette.page);
   const gradient = gradientCss(spec);
   const shared = {
     "--background": page,
@@ -369,9 +395,29 @@ function tokensFor(input: RoomThemeSpec): Record<string, string> {
   const surface = palette.surface;
   const raised = palette.raised;
 
+  // The same four surfaces, flattened, for anything that floats.
+  //
+  // A dialog, a popover, a tooltip or a right-click menu is not over the
+  // wallpaper — it is over the room, and often over another dialog. Wearing
+  // the author's alpha there stacks translucency on translucency until the
+  // chat behind shows through the words in front. So globals.css hands these
+  // to every floating layer instead (see its `[data-room-theme]` block), and
+  // they are the panel colour *as it reads over the page*: same hue the author
+  // chose, nothing showing through it.
+  const solidSurface = flattenOver(surface, palette.page);
+  const solidRaised = flattenOver(raised, solidSurface);
+  const floating = {
+    "--room-surface-solid": solidSurface,
+    "--room-raised-solid": solidRaised,
+    // Lines and fields sit *on* the panel, so that is what they flatten over.
+    "--room-border-solid": flattenOver(palette.border, solidSurface),
+    "--room-input-solid": flattenOver(palette.input, solidSurface),
+  };
+
   return dark
     ? {
         ...shared,
+        ...floating,
         "--color-black": page,
         "--color-zinc-950": surface,
         "--color-zinc-900": raised,
@@ -398,6 +444,7 @@ function tokensFor(input: RoomThemeSpec): Record<string, string> {
       }
     : {
         ...shared,
+        ...floating,
         "--color-zinc-50": page,
         "--color-white": surface,
         "--color-zinc-100": raised,

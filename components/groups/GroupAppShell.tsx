@@ -345,7 +345,13 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
 
   return (
     <GroupNavContext.Provider value={{ openNav: () => setNavOpen(true), openMembers: () => setMembersOpen(true) }}>
-      <div data-group-shell className="flex min-h-0 flex-1 select-none flex-col bg-zinc-50 dark:bg-black">
+      {/* data-room-page: a group's voice room wears its theme inside this
+          shell, and this is the element painting the page behind it. */}
+      <div
+        data-group-shell
+        data-room-page=""
+        className="flex min-h-0 flex-1 select-none flex-col bg-zinc-50 dark:bg-black"
+      >
         <header
           data-header-compact={headerFit >= 1 ? "" : undefined}
           className={`shrink-0 border-b border-black/10 bg-white dark:border-white/10 dark:bg-zinc-950 ${

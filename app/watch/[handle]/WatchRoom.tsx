@@ -6992,6 +6992,12 @@ export function WatchRoom({
       // branch would mean unmounting the video element the floating window is
       // showing, which is exactly the thing that must survive.
       data-pip={pipActive ? "true" : undefined}
+      // The element that paints the page colour across the viewport. While a
+      // theme with a wallpaper or a gradient is worn, globals.css makes this
+      // one transparent so those layers (drawn on <html>) can be seen —
+      // instead of the page *colour* being painted transparent, which also
+      // emptied every `bg-black/60` backdrop on the site.
+      data-room-page=""
       className={`flex min-h-0 flex-1 flex-col ${
         // The conversation's own card is what this is drawn on.
         callLayout ? "" : "bg-zinc-50 dark:bg-black"
