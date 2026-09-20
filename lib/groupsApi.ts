@@ -659,6 +659,13 @@ export interface MyAuraPlacement {
   groupIconUrl: string | null;
   createdAt: number;
   counting: boolean;
+  /**
+   * When this aura may be taken back — an aura has to stay a few days on the
+   * group (see the API's AURA_MIN_STAY_MS). 0 for somebody who waits for
+   * nothing, and absent from an older API. It does not hold for a group they
+   * have left: that one is theirs to take back at once.
+   */
+  removableAt?: number;
 }
 
 export interface GroupAuraState {
@@ -685,6 +692,8 @@ export interface GroupAuraState {
     perGroup: number;
     /** In use (on a group they are still in). */
     used: number;
+    /** How long an aura has to stay put, in milliseconds — 0 for somebody who waits for nothing. */
+    minStayMs?: number;
     placements: MyAuraPlacement[];
   };
 }

@@ -1490,7 +1490,7 @@ export const TextChannelView = memo(function TextChannelView({
         <li
           key={message.id}
           data-message-id={outgoing ? undefined : message.id}
-          className="-mx-1.5 mt-2.5 flex items-center gap-2 rounded-lg px-2 py-1 text-sm"
+          className="group -mx-1.5 mt-2.5 flex items-center gap-2 rounded-lg px-2 py-1 text-sm"
         >
           <MdAutoAwesome className="h-4 w-4 shrink-0 text-violet-500" />
           <span className="min-w-0 break-words text-zinc-600 dark:text-zinc-300">
@@ -1506,6 +1506,19 @@ export const TextChannelView = memo(function TextChannelView({
             {Boolean(message.auraLevel) && ` ${t("groups.aura.chatLineLevel", { level: message.auraLevel })}`}
           </span>
           <span className="shrink-0 text-xs tabular-nums text-zinc-400 dark:text-zinc-600">{timeLabel(message.ts)}</span>
+          {/* Only "Gerenciar mensagens" takes an announcement down — not
+              whoever gave the aura (the API says the same). */}
+          {canManageMessages && !outgoing && (
+            <button
+              type="button"
+              onClick={(e) => confirmDelete(message, e.shiftKey)}
+              aria-label={t("common.delete")}
+              title={t("groups.textChannelView.deleteShiftHint")}
+              className={rowAction}
+            >
+              <MdDeleteOutline className="h-3.5 w-3.5" />
+            </button>
+          )}
         </li>
       );
     }

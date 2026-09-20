@@ -3768,6 +3768,8 @@
   "groups.aura.channelHint": "Sempre que alguém der aura ao grupo, uma mensagem é enviada nessa sala de texto.",
   "groups.aura.channelNone": "Não enviar em nenhuma sala",
   "groups.aura.channelUnknown": "A sala escolhida não existe mais. Escolha outra.",
+  "groups.aura.stayHint": "Uma aura precisa ficar {days} dias no grupo antes de ser tirada.",
+  "groups.aura.lockedUntil": "Você pode tirar em {when}.",
   "groups.aura.farmingMark.one": "Farmando aura neste grupo ({count} aura)",
   "groups.aura.farmingMark.other": "Farmando aura neste grupo ({count} auras)",
   "customEmoji.yourEmojis": "Seus emojis customizados",

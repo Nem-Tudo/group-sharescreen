@@ -24,6 +24,7 @@ import {
 import { trackFeatureEvent } from "@/lib/features";
 import { openProModal } from "@/lib/proModal";
 import { refreshGroup, useGroupDetail } from "@/lib/useGroups";
+import { formatLocale } from "@/lib/i18n";
 import { useI18n } from "@/lib/useI18n";
 
 // The group settings' "Aura" tab: where the group stands (its level, the bar
@@ -36,6 +37,26 @@ import { useI18n } from "@/lib/useI18n";
 // the group; everybody else is only told where they go.
 
 const auraGradient = "bg-gradient-to-br from-fuchsia-500 via-violet-500 to-sky-500";
+
+/** When an aura may be taken back, as a date somebody reads — "12 de out., 14:30". */
+function whenLabel(at: number): string {
+  return new Date(at).toLocaleString(formatLocale(), {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/**
+ * The moment an aura may be taken back, or 0 when it already may — an aura has
+ * to stay on the group a few days (see the API's AURA_MIN_STAY_MS). Read from
+ * the placement, so an older API (no `removableAt`) holds nothing back.
+ */
+function heldUntil(placement: { removableAt?: number } | undefined): number {
+  const at = placement?.removableAt ?? 0;
+  return Date.now() < at ? at : 0;
+}
 
 export function AuraTab({ groupId }: { groupId: string }) {
   const { t, tc } = useI18n();
@@ -250,7 +271,17 @@ export function AuraTab({ groupId }: { groupId: string }) {
                 </span>
               </button>
               {here.length > 0 && (
-                <button type="button" disabled={busy} onClick={() => void remove(groupId)} className={secondaryButton}>
+                <button
+                  type="button"
+                  disabled={busy || heldUntil(here[here.length - 1]) > 0}
+                  onClick={() => void remove(groupId)}
+                  title={
+                    heldUntil(here[here.length - 1])
+                      ? t("groups.aura.lockedUntil", { when: whenLabel(heldUntil(here[here.length - 1])) })
+                      : undefined
+                  }
+                  className={secondaryButton}
+                >
                   {t("groups.aura.removeHere")}
                 </button>
               )}
@@ -258,6 +289,12 @@ export function AuraTab({ groupId }: { groupId: string }) {
             {here.length > 0 && (
               <p className="text-xs text-violet-600 dark:text-violet-400">
                 {tc("groups.aura.youGaveHere", here.length)}
+              </p>
+            )}
+            {heldUntil(here[here.length - 1]) > 0 && (
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                {t("groups.aura.stayHint", { days: Math.round((mine.minStayMs ?? 0) / 86400000) })}{" "}
+                {t("groups.aura.lockedUntil", { when: whenLabel(heldUntil(here[here.length - 1])) })}
               </p>
             )}
             {!canGive && free === 0 && here.length === 0 && (
@@ -284,9 +321,10 @@ export function AuraTab({ groupId }: { groupId: string }) {
                 )}
                 <button
                   type="button"
-                  disabled={busy}
+                  disabled={busy || heldUntil(p) > 0}
                   onClick={() => void remove(p.groupId)}
-                  className="cursor-pointer rounded-md px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-500/10 disabled:opacity-50"
+                  title={heldUntil(p) ? t("groups.aura.lockedUntil", { when: whenLabel(heldUntil(p)) }) : undefined}
+                  className="cursor-pointer rounded-md px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {t("groups.aura.takeBack")}
                 </button>

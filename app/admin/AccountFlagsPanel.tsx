@@ -112,6 +112,11 @@ const FEATURE_FLAGS: KnownFlagItem[] = [
     description: "Permissão para atribuir URLs de convite reservadas do sistema em grupos.",
   },
   {
+    flag: "BOOSTING_BYPASS_COOLDOWN",
+    label: "Aura sem Espera",
+    description: "Permite tirar uma aura de um grupo antes dos 3 dias mínimos que ela precisa ficar lá.",
+  },
+  {
     flag: "OFFICIAL_DISCORD_JOINED",
     label: "Discord Oficial",
     description: "Conta com participação confirmada no servidor oficial do Discord.",

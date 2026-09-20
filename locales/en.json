@@ -3768,6 +3768,8 @@
   "groups.aura.channelHint": "Whenever somebody gives the group aura, a message is sent in this text room.",
   "groups.aura.channelNone": "Do not send it anywhere",
   "groups.aura.channelUnknown": "The room you picked no longer exists. Pick another one.",
+  "groups.aura.stayHint": "An aura has to stay {days} days on the group before it can be taken back.",
+  "groups.aura.lockedUntil": "You can take it back on {when}.",
   "groups.aura.farmingMark.one": "Farming aura in this group ({count} aura)",
   "groups.aura.farmingMark.other": "Farming aura in this group ({count} auras)",
   "customEmoji.yourEmojis": "Your emojis",
