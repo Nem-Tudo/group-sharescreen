@@ -580,12 +580,46 @@ export const TextChannelView = memo(function TextChannelView({
 
   // ── Scroll ───────────────────────────────────────────────────────────
 
+  // Pinning to the bottom once is not enough on the first paint of a room:
+  // the log keeps growing for a frame or two after it (web fonts settling,
+  // emoji and embeds measured, the composer taking its final height), and the
+  // scroll left behind lands a little above the newest line. So the position
+  // is written again on the next two frames, for as long as nobody has
+  // scrolled away in the meantime.
+  const pinFrames = useRef<number[]>([]);
+
+  const cancelPin = useCallback(() => {
+    for (const id of pinFrames.current) cancelAnimationFrame(id);
+    pinFrames.current = [];
+  }, []);
+
+  const pinToBottom = useCallback(
+    (el: HTMLDivElement) => {
+      cancelPin();
+      el.scrollTop = el.scrollHeight;
+      if (typeof requestAnimationFrame === "undefined") return;
+      const again = (left: number) => {
+        pinFrames.current.push(
+          requestAnimationFrame(() => {
+            if (!atBottomRef.current || scrollRef.current !== el) return;
+            el.scrollTop = el.scrollHeight;
+            if (left > 0) again(left - 1);
+          })
+        );
+      };
+      again(1);
+    },
+    [cancelPin]
+  );
+
+  useEffect(() => cancelPin, [cancelPin]);
+
   useLayoutEffect(() => {
     const el = scrollRef.current;
     const want = pendingScroll.current;
     if (!el || !want) return;
     pendingScroll.current = null;
-    if (want.type === "bottom") el.scrollTop = el.scrollHeight;
+    if (want.type === "bottom") pinToBottom(el);
     else if (want.type === "preserve") el.scrollTop = el.scrollHeight - want.height + want.top;
     else revealMessage(want.id);
   }, [messages, outbox]);
@@ -680,13 +714,18 @@ export const TextChannelView = memo(function TextChannelView({
       if (atBottomRef.current) el.scrollTop = el.scrollHeight;
     });
     observer.observe(el);
+    // The log itself too, not only its box: a message that grows after it was
+    // drawn (a picture given its size, an embed, a line rewrapped by the font
+    // that finished loading) moves the bottom without the box ever changing.
+    const content = el.firstElementChild;
+    if (content) observer.observe(content);
     return () => observer.disconnect();
   });
 
   /** Pictures landing after the scroll moved would otherwise leave the newest line under the fold. */
   function onMediaLoad() {
     const el = scrollRef.current;
-    if (el && atBottomRef.current) el.scrollTop = el.scrollHeight;
+    if (el && atBottomRef.current) pinToBottom(el);
   }
 
   // ── People ───────────────────────────────────────────────────────────

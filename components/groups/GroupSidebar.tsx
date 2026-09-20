@@ -1437,8 +1437,6 @@ export function GroupMenu({
   const session = useGroupVoiceSession();
   const openSettings = useOpenSettings(detail.group.id);
   const [menuOpen, setMenuOpen] = useState(false);
-  // Says "Copiado!" for a moment before the menu closes itself.
-  const [copiedId, setCopiedId] = useState(false);
   const { group, me } = detail;
   const { account } = useAuth();
   // The same plan gate as a room's theme — see WatchRoom's hasThemePlan.
@@ -1559,20 +1557,6 @@ export function GroupMenu({
               <NewBadge id={GROUP_AURA_BADGE} />
             </button>
           )}
-          <button
-            type="button"
-            onClick={() => {
-              void copyText(group.id).then((ok) => {
-                if (!ok) return;
-                setCopiedId(true);
-                setTimeout(() => setMenuOpen(false), 700);
-              });
-            }}
-            className={menuItemClass}
-          >
-            <MdContentCopy className="h-4 w-4 opacity-70" />
-            {copiedId ? t("groups.memberMenu.copied") : t("groups.memberMenu.copyId")}
-          </button>
           <div className="my-1 border-t border-zinc-200 dark:border-zinc-800" />
           <p className="px-2 pb-0.5 pt-1 text-xs font-semibold text-zinc-500 dark:text-zinc-400">{t("common.notifications")}</p>
           {(Object.keys(NOTIFY_LABELS) as GroupNotifyLevel[]).map((level) => (
@@ -1608,9 +1592,22 @@ export function GroupMenu({
     >
       <button
         type="button"
-        onClick={() => {
-          setCopiedId(false);
-          setMenuOpen((o) => !o);
+        onClick={() => setMenuOpen((o) => !o)}
+        // The group's id is what a bot or a support message asks for, and
+        // nothing else here is — so it lives on the right button, the way a
+        // room's and a member's id do, instead of taking a line in the menu.
+        onContextMenu={(e) => {
+          setMenuOpen(false);
+          openContextMenu(e, {
+            title: group.name,
+            entries: [
+              {
+                label: t("groups.memberMenu.copyId"),
+                icon: <MdContentCopy className="h-4 w-4" />,
+                onSelect: () => void copyText(group.id),
+              },
+            ],
+          });
         }}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
