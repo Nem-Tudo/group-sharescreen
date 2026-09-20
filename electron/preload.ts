@@ -234,6 +234,26 @@ contextBridge.exposeInMainWorld("golive", {
     return ipcRenderer.invoke(IPC.shareUseSaved) as Promise<boolean>;
   },
 
+  /**
+   * The push-to-talk key, as an accelerator — "" turns it off. Separate from
+   * setGlobalShortcuts because this key is not an action that fires: the
+   * shell follows it down and up (see main.ts's push-to-talk section).
+   */
+  setPushToTalk(accelerator: unknown): void {
+    ipcRenderer.send(IPC.pushToTalkSet, typeof accelerator === "string" ? accelerator : "");
+  },
+
+  onPushToTalk(callback: unknown): () => void {
+    if (typeof callback !== "function") return () => {};
+    const listener = (_event: unknown, held: unknown) => {
+      if (typeof held === "boolean") (callback as (h: boolean) => void)(held);
+    };
+    ipcRenderer.on(IPC.pushToTalkState, listener);
+    return () => {
+      ipcRenderer.off(IPC.pushToTalkState, listener);
+    };
+  },
+
   onGlobalShortcut(callback: unknown): () => void {
     if (typeof callback !== "function") return () => {};
     const listener = (_event: unknown, action: unknown) => {

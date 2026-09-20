@@ -194,6 +194,13 @@ import { trackFeatureEvent } from "@/lib/features";
 import Tippy from "@tippyjs/react";
 import { setTileExperimentMode, useTileExperiment, useTileExperimentTip } from "@/lib/clipsMode";
 import {
+  usePushToTalk,
+  usePushToTalkGate,
+  trackPushToTalkKeySet,
+  PUSH_TO_TALK_BADGE,
+} from "@/lib/pushToTalk";
+import { ShortcutRecorder } from "@/components/ShortcutRecorder";
+import {
   EXTRA_SCREEN_SLOTS,
   isExtraScreenSlot,
   MULTI_SCREEN_EVENTS,
@@ -251,6 +258,7 @@ import { usePartnerAd } from "@/lib/usePartnerAd";
 import { usePartnerExperiment } from "@/lib/partnerExperiment";
 import {
   useGlobalShortcutListener,
+  setStoredShortcut,
   type ShortcutAction,
 } from "@/lib/keyboardShortcuts";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
@@ -1812,6 +1820,13 @@ export function WatchRoom({
   // How many screens/windows (the first included) this account may share.
   const screenLimit = multiScreenLimit(account?.flags);
   const screenUpgrade = nextScreenUpgrade(account?.flags);
+  // "Apertar para falar" (see lib/pushToTalk): the same two gates, plus a key
+  // the person records in the shortcuts panel. Desktop app only.
+  const pushToTalk = usePushToTalk();
+  const pushToTalkTip = useTileExperimentTip("pushToTalk", pushToTalk.available);
+  // The mic is left open and its track muted between presses — see
+  // usePushToTalkGate for why that rather than stopping the capture.
+  usePushToTalkGate(isMicOn ? localMicStream : null, pushToTalk);
   // One blue tip at a time; the other waits for the next visit.
   const newFeatureTip = clipsTip.show
     ? { ...clipsTip, text: "watch.watchRoom.clipsModeTip" }
@@ -5542,6 +5557,56 @@ export function WatchRoom({
     />
   );
 
+  // "Apertar para falar", the same way: one definition, rendered both in "Mais
+  // opções" and in the mic's own panel — the mic button is where somebody
+  // wondering why nobody hears them right-clicks first, and the key it waits
+  // for is set right under it.
+  const pushToTalkToggle = pushToTalk.available && isDesktopApp() && (
+    <MenuToggleRow
+      label={translate("watch.watchRoom.pushToTalkMode")}
+      badge={<NewBadge id={PUSH_TO_TALK_BADGE} />}
+      active={pushToTalk.on}
+      onToggle={() => setTileExperimentMode("pushToTalk", !pushToTalk.on)}
+      // Switched on with no key recorded, the microphone would simply stop
+      // being heard with nothing on screen saying why.
+      hint={
+        pushToTalk.needsKey
+          ? translate("watch.watchRoom.pushToTalkNeedsKey")
+          : translate("watch.watchRoom.pushToTalkModeHint")
+      }
+      activeIcon={<MicIcon className="h-4 w-4" />}
+      inactiveIcon={<MicIcon className="h-4 w-4 opacity-50" />}
+    />
+  );
+
+  // The key itself, next to the switch in the mic's panel. Only once the
+  // switch is on: a key for a feature that is off is a question nobody asked.
+  const pushToTalkKeyRow = pushToTalk.available && isDesktopApp() && pushToTalk.on && (
+    <div className="flex items-center justify-between gap-2 px-2 py-1.5">
+      <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+        {translate("watch.watchRoom.pushToTalkKey")}
+      </span>
+      <ShortcutRecorder
+        value={pushToTalk.combo}
+        onChange={(combo) => {
+          setStoredShortcut("pushToTalk", combo);
+          // Only when one is actually set: clearing it is the opposite of
+          // taking the feature up.
+          if (combo) trackPushToTalkKeySet();
+        }}
+        // The same account gate every other shortcut has (see
+        // KeyboardShortcutsModal) — this panel must not be a way around it.
+        disabled={!state.account}
+        onDisabledClick={() => setAccountModal("create")}
+        placeholder={
+          state.account
+            ? translate("common.clickToRecord")
+            : translate("keyboardShortcutsModal.accountRequired")
+        }
+      />
+    </div>
+  );
+
   const menuItems = (
     <>
       {!group && !callLayout && (
@@ -5956,6 +6021,17 @@ export function WatchRoom({
     );
   }
 
+  // Push to talk turns the mic button into three states instead of two: off
+  // (red), on and being heard (green), and on but waiting for the key
+  // (amber). Without that third one the button would say "your microphone is
+  // on" all call long while nobody could hear a word.
+  const micWaitingForKey = pushToTalk.active && isMicOn && !pushToTalk.held;
+  const micToneClass = !isMicOn
+    ? "bg-red-600 hover:bg-red-700"
+    : micWaitingForKey
+      ? "bg-amber-500 hover:bg-amber-600"
+      : "bg-emerald-600 hover:bg-emerald-700";
+
   const mainControls = (
     <>
       <div className="flex items-stretch">
@@ -6001,21 +6077,25 @@ export function WatchRoom({
                 disabled={isMicOn && !micGainAvailable}
               />
               {noiseSuppressionToggle}
+              {pushToTalkToggle}
+              {pushToTalkKeyRow}
             </div>
           }
         >
-          <div className="flex items-stretch">
+          <div className="relative flex items-stretch">
           {dockExtra(
             <Tooltip content={translate("watch.watchRoom.microphoneSettings")}>
               <button
                 type="button"
-                onClick={() =>
-                  setQuickShortcutAction((current) => (current === "toggleMute" ? null : "toggleMute"))
-                }
+                onClick={() => {
+                  // Opening this panel while the tip is up is the click it
+                  // was counting (see useTileExperimentTip's clicked).
+                  pushToTalkTip.clicked();
+                  setQuickShortcutAction((current) => (current === "toggleMute" ? null : "toggleMute"));
+                }}
                 aria-label={translate("watch.watchRoom.microphoneSettings")}
                 aria-expanded={quickShortcutAction === "toggleMute"}
-                className={`h-full rounded-l-lg border-r border-black/15 px-1 text-white transition ${isMicOn ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700"
-                  }`}
+                className={`h-full rounded-l-lg border-r border-black/15 px-1 text-white transition ${micToneClass}`}
               >
                 <ChevronDownIcon className="h-3.5 w-3.5" />
               </button>
@@ -6027,7 +6107,9 @@ export function WatchRoom({
             onEnableMic={enableMicFromHint}
             tooltip={
               isMicOn
-                ? translate("common.turnOffMicrophone")
+                ? pushToTalk.active
+                  ? translate("watch.watchRoom.pushToTalkHoldToTalk", { key: pushToTalk.combo })
+                  : translate("common.turnOffMicrophone")
                 : (micBlockedReason ?? translate("common.turnOnMicrophone"))
             }
             wrapperClassName="flex"
@@ -6043,12 +6125,33 @@ export function WatchRoom({
               // screenBlockedReason for the same reasoning.
               disabled={!isMicOn && Boolean(micBlockedReason)}
               aria-label={isMicOn ? translate("common.turnOffMicrophone") : translate("common.turnOnMicrophone")}
-              className={`${dockCompact ? "rounded-lg" : "rounded-r-lg"} p-2 text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${isMicOn ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700"
-                }`}
+              className={`${dockCompact ? "rounded-lg" : "rounded-r-lg"} p-2 text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${micToneClass}`}
             >
               {isMicOn ? <MicIcon className="h-5 w-5" /> : <MicOffIcon className="h-5 w-5" />}
             </button>
           </MicUsageHint>
+          {/* The "novo" tip for "Apertar para falar", on the arrow that opens
+              the panel its switch is in — the other experiments' tips hang off
+              "Mais opções" for the same reason (see useTileExperimentTip). */}
+          {pushToTalkTip.show && quickShortcutAction !== "toggleMute" && (
+            <span
+              role="status"
+              className="absolute left-0 top-full z-50 mt-2 w-60 rounded-lg bg-blue-600 px-3 py-2 text-left text-xs font-medium text-white shadow-lg"
+            >
+              <span className="absolute -top-1 left-3 h-2 w-2 rotate-45 bg-blue-600" />
+              <span className="flex items-start gap-2">
+                <span className="flex-1">{translate("watch.watchRoom.pushToTalkTip")}</span>
+                <button
+                  type="button"
+                  onClick={pushToTalkTip.dismiss}
+                  aria-label={translate("watch.watchRoom.clipsModeTipDismiss")}
+                  className="-m-1 shrink-0 rounded p-1 leading-none text-white/80 hover:text-white"
+                >
+                  ✕
+                </button>
+              </span>
+            </span>
+          )}
           </div>
         </ShortcutQuickPopover>
       </div>

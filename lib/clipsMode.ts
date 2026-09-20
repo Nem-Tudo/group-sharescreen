@@ -11,7 +11,7 @@ import { trackFeatureEvent, useFeature } from "./features";
 //     no API change), which decides who gets to see the switch at all;
 //   - the person's own switch in "Mais opções", off by default.
 
-export type TileExperiment = "clips" | "recording" | "multiScreen" | "dualCamera";
+export type TileExperiment = "clips" | "recording" | "multiScreen" | "dualCamera" | "pushToTalk";
 
 // `defaultOn`: the switch starts on for whoever never touched it.
 const CONFIG: Record<
@@ -40,6 +40,15 @@ const CONFIG: Record<
     tipKey: "sharescreen:dualCameraTipSeen",
     defaultOn: true,
   },
+  // "Apertar para falar" (see lib/pushToTalk): the mic stays open and silent,
+  // and only the key lets it through. Off by default — it changes what the
+  // mic button means, and somebody who never asked for it should never have
+  // to find out why nobody hears them.
+  pushToTalk: {
+    feature: "push-to-talk",
+    modeKey: "sharescreen:pushToTalkMode",
+    tipKey: "sharescreen:pushToTalkTipSeen",
+  },
 };
 
 // Usage stats, compared between the sides of each experiment. Every name has
@@ -67,6 +76,12 @@ export const TILE_EXPERIMENT_EVENTS = {
   dualCamera: {
     modeOn: "multi_screen_mode_on",
     modeOff: "multi_screen_mode_off",
+  },
+  pushToTalk: {
+    modeOn: "push_to_talk_mode_on",
+    modeOff: "push_to_talk_mode_off",
+    keySet: "push_to_talk_key_set", // a key was recorded for it
+    talk: "push_to_talk_talk", // value: seconds the key was held
   },
 } as const;
 

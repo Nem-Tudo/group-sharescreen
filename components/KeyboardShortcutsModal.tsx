@@ -19,6 +19,7 @@ import { isDesktopApp } from "@/lib/desktop";
 import { useT } from "@/lib/useI18n";
 import { useTileExperiment } from "@/lib/clipsMode";
 import { NewBadge } from "@/components/NewBadge";
+import { PUSH_TO_TALK_BADGE, trackPushToTalkKeySet } from "@/lib/pushToTalk";
 
 export function KeyboardShortcutsModal({
   open,
@@ -35,12 +36,18 @@ export function KeyboardShortcutsModal({
   const { shortcuts, updateShortcut, resetShortcuts } = useShortcuts();
   const clipsAvailable = useTileExperiment("clips").available;
   const recordingAvailable = useTileExperiment("recording").available;
+  // The key for "Apertar para falar" is recorded here, beside the other audio
+  // ones — the room's switch turns the feature on, this is what gives it a
+  // key to listen for (see lib/pushToTalk).
+  const pushToTalkAvailable = useTileExperiment("pushToTalk").available;
 
   if (!open) return null;
 
   const isDesktop = isDesktopApp();
 
-  const audioShortcuts = SHORTCUT_DEFINITIONS.filter((d) => d.category === "audio");
+  const audioShortcuts = SHORTCUT_DEFINITIONS.filter(
+    (d) => d.category === "audio" && (d.experiment !== "pushToTalk" || pushToTalkAvailable)
+  );
   const videoShortcuts = SHORTCUT_DEFINITIONS.filter((d) => d.category === "video");
   const musicShortcuts = SHORTCUT_DEFINITIONS.filter((d) => d.category === "music");
   // Only the ones whose experiment this person has (see lib/clipsMode).
@@ -105,6 +112,7 @@ export function KeyboardShortcutsModal({
                       {def.label}
                     </p>
                     {def.category === "clips" && <NewBadge id={`shortcut-${def.id}`} />}
+                    {def.id === "pushToTalk" && <NewBadge id={PUSH_TO_TALK_BADGE} />}
                   </div>
                   <p className="text-xs text-zinc-500 dark:text-zinc-400">
                     {def.description}
@@ -113,7 +121,12 @@ export function KeyboardShortcutsModal({
                 <div className="shrink-0">
                   <ShortcutRecorder
                     value={shortcuts[def.id] || ""}
-                    onChange={(combo) => updateShortcut(def.id, combo)}
+                    onChange={(combo) => {
+                      updateShortcut(def.id, combo);
+                      // Only when one is actually set: clearing it is the
+                      // opposite of taking up the feature.
+                      if (def.id === "pushToTalk" && combo) trackPushToTalkKeySet();
+                    }}
                     disabled={isDisabled}
                     onDisabledClick={onDisabledClick}
                     placeholder={placeholder}

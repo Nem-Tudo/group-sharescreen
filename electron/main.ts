@@ -1849,6 +1849,15 @@ if (!gotLock) {
       }
     });
 
+    ipcMain.on(IPC.pushToTalkSet, (_event, accelerator) => {
+      // Released first, and unconditionally: a page that reloaded while the
+      // key was down re-registers the same key on the way up, and without
+      // this the shell would still believe it is held — and never send the
+      // "down" that opens the mic again.
+      releasePushToTalk();
+      setPushToTalkAccelerator(typeof accelerator === "string" ? accelerator : "");
+    });
+
     // A launch *from* a deep link on Windows/Linux arrives in this process's
     // own argv rather than through "second-instance". Read before the window
     // is created, not after: handling it afterwards would load the home page
@@ -1899,6 +1908,88 @@ if (!gotLock) {
         // Ignore accelerators not supported by OS
       }
     }
+    // unregisterAll above took push-to-talk's key down with everybody else's,
+    // so it is put back here — the site sets the two independently and must
+    // not have one of them silently clear the other.
+    registerPushToTalk();
+  }
+
+  // ── Push to talk ───────────────────────────────────────────────────────
+  //
+  // Electron's globalShortcut answers "this key was pressed" and nothing
+  // else: there is no key-up, and no way to ask whether a key is down right
+  // now. What there *is*, on every platform we ship, is the OS repeating the
+  // hotkey while it stays held. So the key going down is the first trigger,
+  // and the key coming up is inferred from the repeats stopping.
+  //
+  // That inference costs a tail — the mic stays open for a fraction of a
+  // second after the key is released — and the tail has to be longer than the
+  // gap before the *first* repeat (Windows' default keyboard delay, up to
+  // ~1s, typically 500ms) or every press would cut itself off mid-word. Once
+  // repeats are actually arriving the gap between them is small, so the wait
+  // drops to a much shorter one and the tail with it.
+  //
+  // The renderer narrows this further on its own: while GoLive has focus it
+  // has real keyup events and uses those instead (see lib/pushToTalk.ts).
+  // This path is for what only the shell can do — the key held inside a game,
+  // with the window nowhere on screen.
+  const PTT_FIRST_REPEAT_MS = 1100;
+  const PTT_REPEAT_MS = 320;
+  let pttAccelerator = "";
+  let pttHeld = false;
+  let pttRepeats = 0;
+  let pttReleaseTimer: NodeJS.Timeout | null = null;
+
+  function sendPushToTalk(held: boolean) {
+    if (pttHeld === held) return;
+    pttHeld = held;
+    mainWindow?.webContents.send(IPC.pushToTalkState, held);
+  }
+
+  /** The key is up, or presumed up — always safe to call. */
+  function releasePushToTalk() {
+    if (pttReleaseTimer) {
+      clearTimeout(pttReleaseTimer);
+      pttReleaseTimer = null;
+    }
+    pttRepeats = 0;
+    sendPushToTalk(false);
+  }
+
+  function onPushToTalkPressed() {
+    pttRepeats += 1;
+    sendPushToTalk(true);
+    if (pttReleaseTimer) clearTimeout(pttReleaseTimer);
+    pttReleaseTimer = setTimeout(
+      releasePushToTalk,
+      pttRepeats > 1 ? PTT_REPEAT_MS : PTT_FIRST_REPEAT_MS
+    );
+  }
+
+  function registerPushToTalk() {
+    if (!pttAccelerator) return;
+    try {
+      globalShortcut.register(pttAccelerator, onPushToTalkPressed);
+    } catch {
+      // Not an accelerator this OS accepts — the site keeps working, just
+      // without the key.
+    }
+  }
+
+  function setPushToTalkAccelerator(accelerator: string) {
+    if (accelerator === pttAccelerator) return;
+    // Whatever was held under the old key is not held under the new one, and
+    // an unregistered key can never send its own release.
+    releasePushToTalk();
+    if (pttAccelerator) {
+      try {
+        globalShortcut.unregister(pttAccelerator);
+      } catch {
+        // Never registered in the first place.
+      }
+    }
+    pttAccelerator = accelerator;
+    registerPushToTalk();
   }
 
   // The helper is a child process holding an open audio client. Its own
@@ -1911,6 +2002,7 @@ if (!gotLock) {
     closeCallWindow();
     stopSystemAudioCapture();
     stopNativeVideo();
+    releasePushToTalk();
     globalShortcut.unregisterAll();
   });
 

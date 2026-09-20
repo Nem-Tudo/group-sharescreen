@@ -13,7 +13,8 @@ export type ShortcutAction =
   | "nextMusic"
   | "previousMusic"
   | "clipTile"
-  | "toggleRecordTile";
+  | "toggleRecordTile"
+  | "pushToTalk";
 
 export interface ShortcutDefinition {
   id: ShortcutAction;
@@ -25,7 +26,13 @@ export interface ShortcutDefinition {
    * Only offered to people in this tile experiment (see lib/clipsMode) —
    * the shortcut does nothing without the feature behind it.
    */
-  experiment?: "clips" | "recording";
+  experiment?: "clips" | "recording" | "pushToTalk";
+  /**
+   * Not an action that fires on press: a key whose held state something
+   * follows (push to talk). Kept out of the shell's ordinary shortcut map —
+   * registered there it would toggle instead of open (see lib/pushToTalk).
+   */
+  held?: boolean;
 }
 
 export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
@@ -42,6 +49,17 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
     get description() { return translate("keyboardShortcuts.turnsYourMicrophoneOnOrOff"); },
     category: "audio",
     appOnly: false,
+  },
+  {
+    id: "pushToTalk",
+    get label() { return translate("keyboardShortcuts.pushToTalk"); },
+    get description() { return translate("keyboardShortcuts.pushToTalkDescription"); },
+    category: "audio",
+    // The website can only follow the key while it has focus, and a key you
+    // have to be looking at the app to use is not push to talk.
+    appOnly: true,
+    experiment: "pushToTalk",
+    held: true,
   },
   {
     id: "toggleScreenShare",
@@ -108,9 +126,15 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutAction, string> = {
   previousMusic: "",
   clipTile: "",
   toggleRecordTile: "",
+  pushToTalk: "",
 };
 
 const STORAGE_KEY = "golive:keyboard-shortcuts";
+
+/** The ones whose held state matters rather than their press — see `held`. */
+export const HELD_ACTIONS = new Set<ShortcutAction>(
+  SHORTCUT_DEFINITIONS.filter((d) => d.held).map((d) => d.id)
+);
 
 let memoryShortcuts: Record<ShortcutAction, string> | null = null;
 const listeners = new Set<() => void>();
@@ -171,7 +195,10 @@ function syncDesktopShortcuts(shortcuts: Record<ShortcutAction, string>) {
   if (bridge?.setGlobalShortcuts) {
     const electronShortcuts: Record<string, string> = {};
     for (const [action, combo] of Object.entries(shortcuts)) {
-      if (combo) {
+      // A held key is followed, not fired: registered here it would be an
+      // ordinary hotkey and push to talk would become push *once* to talk
+      // forever. lib/pushToTalk registers it on its own channel instead.
+      if (combo && !HELD_ACTIONS.has(action as ShortcutAction)) {
         electronShortcuts[action] = shortcutToElectronAccelerator(combo);
       }
     }

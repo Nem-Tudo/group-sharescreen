@@ -212,6 +212,14 @@ export const IPC = {
   /** main -> renderer: a registered global shortcut fired. */
   shortcutsTriggered: "golive:shortcuts:triggered",
   /**
+   * renderer -> main: the push-to-talk key, as an accelerator ("" turns it
+   * off). Kept apart from shortcutsSet because this one is not an action that
+   * fires: it is a key whose *held* state the site follows.
+   */
+  pushToTalkSet: "golive:ptt:set",
+  /** main -> renderer: the push-to-talk key went down (true) or came up (false). */
+  pushToTalkState: "golive:ptt:state",
+  /**
    * renderer -> main: the next getDisplayMedia should reuse the last shared
    * source instead of opening the picker.
    *

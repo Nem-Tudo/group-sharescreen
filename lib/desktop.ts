@@ -208,6 +208,17 @@ export interface DesktopBridge {
    * Returns an unsubscribe function.
    */
   onGlobalShortcut?(callback: (action: string) => void): () => void;
+  /**
+   * Sets (or clears, with "") the push-to-talk key in the shell, so it is
+   * followed even while another application has focus. Undefined on a shell
+   * older than the feature — see lib/pushToTalk.ts, the only caller.
+   */
+  setPushToTalk?(accelerator: string): void;
+  /**
+   * Subscribes to that key going down and coming up. Returns an unsubscribe
+   * function.
+   */
+  onPushToTalk?(callback: (held: boolean) => void): () => void;
 
   /**
    * System audio capture with GoLive's own output excluded — the thing that

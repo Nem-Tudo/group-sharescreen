@@ -74,6 +74,34 @@ O renderer não é estrangulado enquanto escondido (`backgroundThrottling: false
 em `webPreferences`, que já estava lá pelos atalhos globais), e é isso que
 mantém o socket e os handlers vivos em vez de limitados a um timer por segundo.
 
+## Apertar para falar, e a tecla que ninguém vê soltar
+
+`globalShortcut` responde uma única pergunta — "esta tecla foi apertada" — e o
+push to talk precisa da outra: quando ela foi **solta**. Não existe key-up, e
+não existe perguntar se a tecla está pressionada agora.
+
+O que existe é o sistema operacional repetindo o atalho enquanto a tecla fica
+presa. Então a descida é o primeiro disparo, e a subida é inferida das
+repetições pararem. Isso cobra um rabinho — o microfone continua aberto por uma
+fração de segundo depois que a tecla sobe — e esse rabinho **tem que ser maior
+que o intervalo até a primeira repetição** (o atraso de teclado do Windows,
+tipicamente 500ms), senão toda frase começaria cortada. Depois que as
+repetições estão chegando o intervalo entre elas é curto, e a espera cai junto.
+
+O site estreita isso sozinho: com o GoLive em foco ele tem keyup de verdade e
+usa esse (`lib/pushToTalk.ts`). O caminho daqui é para o que só o shell pode
+fazer — a tecla segurada dentro de um jogo, com a janela em lugar nenhum.
+
+Duas armadilhas, as duas já resolvidas em `main.ts`:
+
+- `updateGlobalShortcuts` começa com `unregisterAll()`, que levava junto a
+  tecla do push to talk. Ela é registrada de novo no fim — o site define as
+  duas coisas em canais separados e uma não pode apagar a outra em silêncio.
+- Uma página que recarregou com a tecla presa registra a mesma tecla de novo
+  já com ela solta. Por isso o handler de `pushToTalkSet` solta antes de
+  registrar: sem isso o shell seguiria achando que está presa e nunca mandaria
+  a descida que reabre o microfone.
+
 ## The OAuth handoff
 
 The interesting part, because it spans three processes that cannot see each
