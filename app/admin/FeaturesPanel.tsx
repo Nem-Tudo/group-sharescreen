@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { MdAdd, MdClose, MdDelete, MdExpandLess, MdExpandMore, MdRefresh, MdStar, MdStarBorder } from "react-icons/md";
+import { MdAdd, MdClose, MdDelete, MdDownload, MdExpandLess, MdExpandMore, MdRefresh, MdStar, MdStarBorder } from "react-icons/md";
 import {
   checkFeature,
   createFeature,
@@ -137,6 +137,46 @@ function Pill({ children, tone = "zinc" }: { children: React.ReactNode; tone?: "
 
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Export
+//
+// The numbers as JSON, for reading outside this panel — one feature, or every
+// one of them in a single file. Built here from the same API the tables use
+// (no export endpoint), so what lands in the file is exactly what is on
+// screen, over the same number of days.
+
+async function exportFeatureStats(features: AdminFeature[], days: number): Promise<void> {
+  const entries = await Promise.all(
+    features.map(async (feature) => ({
+      key: feature.key,
+      target: feature.target,
+      enabled: feature.enabled,
+      archived: feature.archived === true,
+      rolloutBp: feature.rolloutBp,
+      variants: feature.variants,
+      stats: await fetchFeatureStats(feature.key, days),
+    }))
+  );
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    days,
+    features: entries,
+  };
+  const stamp = new Date().toISOString().slice(0, 10);
+  const name = features.length === 1 ? features[0].key : "features";
+  download(`golive-${name}-stats-${stamp}.json`, JSON.stringify(payload, null, 2));
+}
+
+function download(filename: string, text: string) {
+  const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  // Straight away would race the download in Safari; a tick later it is safe.
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export function FeaturesPanel() {
   const t = useT();
   const [features, setFeatures] = useState<AdminFeature[]>([]);
@@ -144,6 +184,7 @@ export function FeaturesPanel() {
   const [showArchived, setShowArchived] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -184,6 +225,23 @@ export function FeaturesPanel() {
         <div className="flex shrink-0 gap-2">
           <button type="button" onClick={load} className={buttonClass} aria-label={t("admin.features.reload")}>
             <MdRefresh className="h-4 w-4" />
+          </button>
+          {/* Every feature's numbers in one file — the archived ones too when
+              they are on screen, so what is exported is the list being read. */}
+          <button
+            type="button"
+            disabled={exporting || visible.length === 0}
+            onClick={() => {
+              setExporting(true);
+              exportFeatureStats(visible, EXPORT_DAYS)
+                .then(() => setError(null))
+                .catch((err: Error) => setError(err.message))
+                .finally(() => setExporting(false));
+            }}
+            className={`${buttonClass} flex items-center gap-1 disabled:opacity-50`}
+          >
+            <MdDownload className="h-4 w-4" />
+            {exporting ? t("admin.features.exporting") : t("admin.features.exportAll")}
           </button>
           <button
             type="button"
@@ -900,6 +958,11 @@ function confidence(hitsA: number, sizeA: number, hitsB: number, sizeB: number):
   return 2 * normalCdf(Math.abs(z)) - 1;
 }
 
+// How far back an export reaches, whatever the panel is showing: a file is
+// read later and elsewhere, so it carries the long view rather than whichever
+// range happened to be selected.
+const EXPORT_DAYS = 90;
+
 function isMoney(event: string): boolean {
   return event.includes("purchase");
 }
@@ -915,6 +978,7 @@ function StatsSection({
 }) {
   const t = useT();
   const [pinning, setPinning] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [stats, setStats] = useState<FeatureStats | null>(null);
   const [days, setDays] = useState(14);
   const [dailyEvent, setDailyEvent] = useState<string>("");
@@ -989,6 +1053,21 @@ function StatsSection({
         <button type="button" onClick={load} className={`${buttonClass} flex items-center gap-1`}>
           <MdRefresh className="h-4 w-4" />
           {t("admin.features.refresh")}
+        </button>
+        <button
+          type="button"
+          disabled={exporting}
+          onClick={() => {
+            setExporting(true);
+            exportFeatureStats([feature], EXPORT_DAYS)
+              .then(() => setError(null))
+              .catch((err: Error) => setError(err.message))
+              .finally(() => setExporting(false));
+          }}
+          className={`${buttonClass} flex items-center gap-1 disabled:opacity-50`}
+        >
+          <MdDownload className="h-4 w-4" />
+          {exporting ? t("admin.features.exporting") : t("admin.features.exportStats")}
         </button>
         <button
           type="button"

@@ -3794,5 +3794,8 @@
   "pro.compare.auras": "Auras para impulsar grupos",
   "pro.compare.customEmojis": "Emojis personalizados de la cuenta",
   "customEmoji.meHint": "Hasta {limit} emojis tuyos, para usar en cualquier lugar",
-  "customEmoji.configure": "Configurar"
+  "customEmoji.configure": "Configurar",
+  "admin.features.exportStats": "Exportar JSON",
+  "admin.features.exportAll": "Exportar todo",
+  "admin.features.exporting": "Exportando..."
 }
