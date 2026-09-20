@@ -171,6 +171,12 @@ const FRESH_MS = 30_000;
 const cache = new Map<string, { at: number; set: CustomEmojiSet }>();
 const inflight = new Map<string, Promise<void>>();
 const listeners = new Set<() => void>();
+// The places being looked at right now, by key — every mounted
+// useCustomEmojiSet. What invalidateCustomEmojis reads: a hook only asks the
+// API from its effect, which does not run again while it sits on the same
+// place, so dropping what it holds without asking again would leave it with
+// nothing until the page reloaded.
+const watched = new Map<string, { place: EmojiPlace; count: number }>();
 
 function emit() {
   for (const listener of listeners) listener();
@@ -183,10 +189,15 @@ function subscribe(listener: () => void) {
   };
 }
 
-/** Reads what `place` offers again — after adding, renaming or deleting one. */
+/**
+ * Every place reads what it offers again — after adding, renaming or deleting
+ * one. What is held stays on screen until the new answer lands (an emoji that
+ * exists must not blink out because another one was just made), and a place
+ * nobody is looking at is marked stale so it is read again on its next open.
+ */
 export function invalidateCustomEmojis(): void {
-  cache.clear();
-  emit();
+  for (const [key, held] of cache) cache.set(key, { ...held, at: 0 });
+  for (const { place } of watched.values()) void loadCustomEmojis(place, true);
 }
 
 export function loadCustomEmojis(place: EmojiPlace, force = false): Promise<void> {
@@ -194,7 +205,9 @@ export function loadCustomEmojis(place: EmojiPlace, force = false): Promise<void
   const held = cache.get(key);
   if (!force && held && Date.now() - held.at < FRESH_MS) return Promise.resolve();
   const running = inflight.get(key);
-  if (running) return running;
+  // A read already on its way may have left before whatever forced this one,
+  // so a forced read waits for it and then asks again.
+  if (running) return force ? running.then(() => loadCustomEmojis(place, true)) : running;
   const token = authToken();
   if (!token) return Promise.resolve();
   const params = new URLSearchParams();
@@ -231,7 +244,17 @@ export function useCustomEmojiSet(place: EmojiPlace, enabled: boolean): CustomEm
     () => null
   );
   useEffect(() => {
-    if (enabled) void loadCustomEmojis(place);
+    if (!enabled) return;
+    void loadCustomEmojis(place);
+    const held = watched.get(key);
+    if (held) held.count += 1;
+    else watched.set(key, { place, count: 1 });
+    return () => {
+      const still = watched.get(key);
+      if (!still) return;
+      still.count -= 1;
+      if (still.count <= 0) watched.delete(key);
+    };
     // The key says everything about the place.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, enabled]);

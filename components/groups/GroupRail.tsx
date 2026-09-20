@@ -28,6 +28,7 @@ import {
   MdKeyboardArrowUp,
   MdKeyboardDoubleArrowLeft,
   MdKeyboardDoubleArrowRight,
+  MdNumbers,
   MdScreenShare,
   MdSearch,
   MdVerticalAlignBottom,
@@ -39,6 +40,7 @@ import { GroupIcon } from "@/components/groups/GroupIcon";
 import { GroupLink } from "@/components/groups/GroupLink";
 import { GroupName } from "@/components/groups/GroupName";
 import { nameMatches, searchWords, setGroupsHomeQuery } from "@/components/groups/groupSearch";
+import { copyText } from "@/lib/clipboard";
 import { groupPath } from "@/lib/groupLinks";
 import { useGroupNavigation } from "@/lib/groupNavigation";
 import type { GroupSummary } from "@/lib/groupsApi";
@@ -990,7 +992,8 @@ function GroupMenu({
   onClose: () => void;
 }) {
   const t = useT();
-  const [copied, setCopied] = useState(false);
+  // Which of the two copy items has just been used, so only its own label says so.
+  const [copied, setCopied] = useState<"link" | "id" | null>(null);
   const item =
     "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent dark:text-zinc-200 dark:hover:bg-zinc-900";
   const hasNews = !group.suspended && (group.unread || group.mentions > 0);
@@ -1010,15 +1013,28 @@ function GroupMenu({
         type="button"
         onClick={() => {
           const url = `${window.location.origin}${groupPath(group.id)}`;
-          void navigator.clipboard?.writeText(url).then(() => {
-            setCopied(true);
+          void copyText(url).then(() => {
+            setCopied("link");
             setTimeout(onClose, 700);
           });
         }}
         className={item}
       >
         <MdContentCopy className="h-4 w-4 shrink-0 opacity-70" />
-        {copied ? t("common.linkCopied") : t("groups.groupRail.copyLink")}
+        {copied === "link" ? t("common.linkCopied") : t("groups.groupRail.copyLink")}
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          void copyText(group.id).then(() => {
+            setCopied("id");
+            setTimeout(onClose, 700);
+          });
+        }}
+        className={item}
+      >
+        <MdNumbers className="h-4 w-4 shrink-0 opacity-70" />
+        {copied === "id" ? t("groups.memberMenu.copied") : t("groups.memberMenu.copyId")}
       </button>
       <div className="my-1 border-t border-zinc-200 dark:border-zinc-800" />
       <button type="button" disabled={index <= 0} onClick={act(() => onMove(0))} className={item}>
