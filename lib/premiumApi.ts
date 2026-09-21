@@ -67,6 +67,14 @@ export type PremiumPlan = {
    */
   pixPriceCents: number;
   pixPriceLabel: string;
+  /**
+   * Whether this reader may pay by Pix at all — the "assinatura sem Pix"
+   * rollout, decided by the API from the account (see its
+   * premiumExperiments.ts). Optional so an older API reads as "yes", which is
+   * what every deployment before it did; the route refuses the charge anyway,
+   * so this only decides whether a button somebody cannot use is drawn.
+   */
+  pixAvailable?: boolean;
   currency: string;
   frequency: number;
   frequencyType: string;

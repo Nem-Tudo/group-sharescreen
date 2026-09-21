@@ -299,6 +299,18 @@ export function ProPanel({
         }
       : null);
   const pixSurchargePercent = pixSurcharge(pricing);
+  /**
+   * Whether this reader is offered Pix at all — the "assinatura sem Pix"
+   * rollout (PIX_OFF_FEATURE), decided by the API and read off the plan it
+   * priced for this account. Read from the plan rather than from useFeature
+   * on purpose: the button and the route must agree, and the route asks the
+   * account, so the page asks the same answer rather than a second one that
+   * could disagree with it for a render.
+   *
+   * An older API sends no field, which reads as "yes" — the page every
+   * deployment before this one drew.
+   */
+  const pixOffered = plan?.pixAvailable !== false;
   const [loadingPlan, setLoadingPlan] = useState(true);
   // The comparison-table experiment (see PlanComparison). Nothing plan-shaped
   // is drawn until it is decided, so nobody sees one layout flip to the other.
@@ -764,6 +776,18 @@ export function ProPanel({
   // again when the account changes: the Pix price is an experiment decided per
   // account, so the numbers on the buttons belong to whoever is signed in.
   const accountId = account?.id ?? null;
+  // One per visit to the page, per account. The top of the funnel every other
+  // number below is read against: a combination that sells twice as much to
+  // half as many people has not sold more (see the API's
+  // premiumExperiments.ts). Reported from here rather than from the route so
+  // it counts the panel being *drawn* — /pro is not the only place it opens
+  // from (ProModal shows the same panel).
+  const viewReported = useRef<string | null>(null);
+  useEffect(() => {
+    if (!accountId || viewReported.current === accountId) return;
+    viewReported.current = accountId;
+    trackFeatureEvent("pro_view");
+  }, [accountId]);
   useEffect(() => {
     const controller = new AbortController();
     void fetchPremiumPlans(controller.signal, { personal: true }).then((loaded) => {
@@ -839,6 +863,12 @@ export function ProPanel({
       switchReported.current = true;
       trackFeatureEvent("pro_checkout_switch_pix_to_sub", { feature: "pix-price" });
     }
+    // The click itself, as opposed to the checkout the API records once it
+    // has created one. The gap between the two is the failures — a card form
+    // that never opened, a provider that was down — and a combination cannot
+    // be blamed for a checkout it never got to start.
+    trackFeatureEvent("pro_checkout_click");
+    trackFeatureEvent("pro_checkout_click_subscription");
     setBusy(true);
     setGenerating(true);
     setError(null);
@@ -955,6 +985,9 @@ export function ProPanel({
   }, [checkoutUrl]);
 
   const handlePix = useCallback(async () => {
+    // See handleSubscribe: the click, before anything can go wrong with it.
+    trackFeatureEvent("pro_checkout_click");
+    trackFeatureEvent("pro_checkout_click_pix");
     setBusy(true);
     setGenerating(true);
     setError(null);
@@ -978,6 +1011,10 @@ export function ProPanel({
     setPix(result.charge);
     // The price is on screen now — see handleSubscribe for what this arms.
     sawPixQr.current = true;
+    // A code that actually reached somebody's screen. pro_pix_expired (on the
+    // API) is read against this one: abandonment only means anything as a
+    // share of the codes that were shown.
+    trackFeatureEvent("pro_pix_qr_seen");
     setBusy(false);
     setGenerating(false);
     // See handleSubscribe: plan?.id is what this buys.
@@ -1273,7 +1310,14 @@ export function ProPanel({
                     <button
                       key={entry.cycle}
                       type="button"
-                      onClick={() => setCycle(entry.cycle)}
+                      onClick={() => {
+                        setCycle(entry.cycle);
+                        // Which cycle people actually pick, per side. A
+                        // yearly subscription is worth twelve monthly ones
+                        // and a combination that moves people onto it earns
+                        // far more than its sale count suggests.
+                        trackFeatureEvent(`pro_cycle_click_${entry.cycle}`);
+                      }}
                       aria-pressed={active}
                       className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
                         active
@@ -1688,6 +1732,7 @@ export function ProPanel({
                   {!checkoutUrl &&
                     !pixPending &&
                     !liveCardSub &&
+                    pixOffered &&
                     pixSurchargePercent > 0 && (
                       <PixSurchargeNotice
                         percent={pixSurchargePercent}
@@ -1723,6 +1768,12 @@ export function ProPanel({
                           Labelled with days, not with "Pix" alone — a button
                           that said only "Pix" would be promising a
                           subscription Pix cannot hold. */}
+                      {/* Left out entirely for the "assinatura sem Pix"
+                          side: the treatment is that the only way to buy is
+                          a subscription, and a disabled Pix button would be
+                          a worse version of that — it would still advertise
+                          the option this is measuring the absence of. */}
+                      {pixOffered && (
                       <button
                         type="button"
                         onClick={handlePix}
@@ -1736,6 +1787,7 @@ export function ProPanel({
                               pricing?.periodDays ?? 30
                             } dias`}
                       </button>
+                      )}
                     </div>
                   )}
                   {/* What "trocar" actually does, said before the money

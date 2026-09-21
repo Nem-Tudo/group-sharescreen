@@ -1152,6 +1152,11 @@ function StatsSection({
 
           {stats.events[PARTNER_EVENTS.impression] && <PartnerCtrTable groups={groups} stats={stats} />}
 
+          {/* Only in the panel that actually holds combination rows (the
+              premium-combo feature) — every other feature's stats have none,
+              and the table then renders nothing. */}
+          <PremiumComboTable stats={stats} />
+
           {stats.skipped && Object.keys(stats.skipped).length > 0 && (
             <div className={`${cardClass} text-xs`}>
               <h3 className="font-semibold text-zinc-700 dark:text-zinc-300">{t("admin.features.skippedTitle")}</h3>
@@ -1338,6 +1343,188 @@ function EventTable({
 // The event tables above divide by *people* exposed; an ad's CTR divides by
 // times shown, which needs two events' counts put side by side — and the
 // confidence is the same two-proportion test, run on impressions instead.
+// The /pro rollouts read together — the one table that ranks combinations
+// rather than sides.
+//
+// Three experiments decide how the page sells (the comparison table, the Pix
+// price, and whether Pix is offered at all), and each is assigned
+// independently, so every panel above answers "did my side win *on average
+// over the other two*". That is the wrong question when the three interact,
+// and they plainly do: a dearer Pix cannot push anybody towards subscribing
+// on a page where Pix has been removed altogether.
+//
+// So the API writes a second copy of every money event under a cell name —
+// pro_purchase.t1p0s0, see its premiumExperiments.ts — and this reads them
+// back as a grid. The column that decides is the last one: **net revenue per
+// person who saw a price**. Not sales (cells sell at different prices), not
+// revenue (cells are not the same size), and not conversion (a cheap Pix
+// converts best and earns least).
+//
+// pro_price_seen is the denominator everywhere, and a cell with too few of
+// them is greyed rather than ranked: the difference between two combinations
+// is small, and a hundred people cannot show it.
+
+/** How a cell name is spelled: <event>.t<table>p<pixPrice>s<subOnly>. */
+const COMBO_RE = /^(.*)\.(t[0-2]p[01]s[01])$/;
+/** What the first digit means, in the order the API assigns it. */
+const COMBO_TABLE = ["sem tabela", "tabela", "tabela + compra em cima"];
+
+/** The least "viu o preço" a cell needs before its rate is worth reading. */
+const COMBO_MIN_SEEN = 200;
+
+interface ComboCell {
+  seen: number;
+  checkout: number;
+  purchases: number;
+  subs: number;
+  pix: number;
+  first: number;
+  renewals: number;
+  netCents: number;
+  days: number;
+  cancels: number;
+  cancelDays: number;
+}
+
+function emptyComboCell(): ComboCell {
+  return {
+    seen: 0, checkout: 0, purchases: 0, subs: 0, pix: 0, first: 0,
+    renewals: 0, netCents: 0, days: 0, cancels: 0, cancelDays: 0,
+  };
+}
+
+function PremiumComboTable({ stats }: { stats: FeatureStats }) {
+  const t = useT();
+  const cells = useMemo(() => {
+    const map = new Map<string, ComboCell>();
+    for (const [event, groups] of Object.entries(stats.events)) {
+      const match = COMBO_RE.exec(event);
+      if (!match) continue;
+      const [, name, combo] = match;
+      let cell = map.get(combo);
+      if (!cell) map.set(combo, (cell = emptyComboCell()));
+      // Summed over the groups of whichever feature owns this panel: the cell
+      // name already carries the whole split, so cutting it again by a group
+      // would only split the same people twice.
+      let count = 0;
+      let unique = 0;
+      let value = 0;
+      for (const entry of Object.values(groups)) {
+        count += entry?.count ?? 0;
+        unique += entry?.unique ?? 0;
+        value += entry?.value ?? 0;
+      }
+      // Distinct people for the denominators — somebody who opens /pro five
+      // times is one person deciding, not five.
+      if (name === "pro_price_seen") cell.seen += unique;
+      else if (name === "pro_checkout") cell.checkout += unique;
+      else if (name === "pro_purchase") cell.purchases += count;
+      else if (name === "pro_purchase_subscription") cell.subs += count;
+      else if (name === "pro_purchase_pix") cell.pix += count;
+      else if (name === "pro_first_purchase") cell.first += unique;
+      else if (name === "pro_renewal") cell.renewals += count;
+      else if (name === "pro_net_revenue") cell.netCents += value;
+      else if (name === "pro_days_sold") cell.days += value;
+      else if (name === "pro_cancel") {
+        cell.cancels += count;
+        cell.cancelDays += value;
+      }
+    }
+    return [...map.entries()]
+      .map(([combo, cell]) => ({
+        combo,
+        cell,
+        // The ranking number, in centavos. Everything else in the row is
+        // there to explain it, or to warn that it cannot be trusted yet.
+        perPerson: cell.seen ? cell.netCents / cell.seen : null,
+      }))
+      .sort((a, b) => (b.perPerson ?? -1) - (a.perPerson ?? -1));
+  }, [stats.events]);
+
+  if (cells.length === 0) return null;
+
+  const ranked = cells.filter((entry) => entry.cell.seen >= COMBO_MIN_SEEN && entry.perPerson !== null);
+  const best = ranked[0] ?? null;
+  const money = (cents: number) => `R$ ${(cents / 100).toFixed(2).replace(".", ",")}`;
+  const pct = (part: number, whole: number) => (whole ? `${((part / whole) * 100).toFixed(1)}%` : "—");
+  const label = (combo: string) => {
+    const table = COMBO_TABLE[Number(combo[1])] ?? combo;
+    const subOnly = combo[5] === "1";
+    const pixPrice = combo[3] === "1";
+    // With no Pix on the page its price is not a side of anything, so it is
+    // left unnamed — two cells that differ only in it are the same page.
+    const pix = subOnly
+      ? t("admin.features.comboNoPix")
+      : pixPrice
+        ? t("admin.features.comboPixOwnPrice")
+        : t("admin.features.comboPixSamePrice");
+    return `${table} · ${pix}`;
+  };
+
+  return (
+    <div className={`${cardClass} overflow-x-auto ring-1 ring-amber-500/40`}>
+      <h3 className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">{t("admin.features.comboTitle")}</h3>
+      <p className="mt-1 text-[11px] text-zinc-500">{t("admin.features.comboHint", { min: COMBO_MIN_SEEN })}</p>
+      {best && (
+        <p className="mt-2 rounded-md bg-amber-500/10 px-2 py-1 text-[11px] text-amber-700 dark:text-amber-300">
+          {t("admin.features.comboBest", { combo: label(best.combo), value: money(best.perPerson ?? 0) })}
+        </p>
+      )}
+      <table className="mt-2 w-full min-w-[60rem] text-xs tabular-nums">
+        <thead>
+          <tr className="text-left text-zinc-500">
+            <th className="py-1 pr-3 font-medium">{t("admin.features.comboCell")}</th>
+            <th className="py-1 pr-3 text-right font-medium">{t("admin.features.comboSeen")}</th>
+            <th className="py-1 pr-3 text-right font-medium">{t("admin.features.comboCheckout")}</th>
+            <th className="py-1 pr-3 text-right font-medium">{t("admin.features.comboPurchases")}</th>
+            <th className="py-1 pr-3 text-right font-medium">{t("admin.features.comboConversion")}</th>
+            <th className="py-1 pr-3 text-right font-medium">{t("admin.features.comboSubShare")}</th>
+            <th className="py-1 pr-3 text-right font-medium">{t("admin.features.comboRenewals")}</th>
+            <th className="py-1 pr-3 text-right font-medium">{t("admin.features.comboDays")}</th>
+            <th className="py-1 pr-3 text-right font-medium">{t("admin.features.comboCancelDays")}</th>
+            <th className="py-1 pr-3 text-right font-medium">{t("admin.features.comboRevenue")}</th>
+            <th className="py-1 text-right font-medium">{t("admin.features.comboPerPerson")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {cells.map(({ combo, cell, perPerson }) => {
+            const thin = cell.seen < COMBO_MIN_SEEN;
+            const lift = best && perPerson !== null && best.perPerson ? perPerson / best.perPerson - 1 : null;
+            return (
+              <tr
+                key={combo}
+                className={`border-t border-zinc-100 dark:border-zinc-900 ${thin ? "opacity-50" : ""} ${
+                  best?.combo === combo ? "bg-amber-500/10" : ""
+                }`}
+              >
+                <td className="py-1 pr-3">
+                  <span className="font-medium text-zinc-900 dark:text-zinc-100">{label(combo)}</span>
+                  <span className="ml-2 font-mono text-[10px] text-zinc-400">{combo}</span>
+                </td>
+                <td className="py-1 pr-3 text-right">{number(cell.seen)}</td>
+                <td className="py-1 pr-3 text-right">{number(cell.checkout)}</td>
+                <td className="py-1 pr-3 text-right">{number(cell.purchases)}</td>
+                <td className="py-1 pr-3 text-right">{pct(cell.first, cell.seen)}</td>
+                <td className="py-1 pr-3 text-right font-semibold">{pct(cell.subs, cell.subs + cell.pix)}</td>
+                <td className="py-1 pr-3 text-right">{number(cell.renewals)}</td>
+                <td className="py-1 pr-3 text-right">{cell.seen ? (cell.days / cell.seen).toFixed(1) : "—"}</td>
+                <td className="py-1 pr-3 text-right">{cell.cancels ? Math.round(cell.cancelDays / cell.cancels) : "—"}</td>
+                <td className="py-1 pr-3 text-right">{money(cell.netCents)}</td>
+                <td className="py-1 text-right font-semibold">
+                  {perPerson === null ? "—" : money(perPerson)}
+                  {lift !== null && lift < 0 && !thin && (
+                    <span className="ml-1 text-[10px] font-normal text-red-500">{(lift * 100).toFixed(0)}%</span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function PartnerCtrTable({ groups, stats }: { groups: string[]; stats: FeatureStats }) {
   const t = useT();
   const count = (event: string, group: string) => stats.events[event]?.[group]?.count ?? 0;
