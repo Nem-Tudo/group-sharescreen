@@ -9,6 +9,7 @@ import {
   MdOutlineShowChart,
   MdOutlineTableChart,
   MdOutlineOpenInNew,
+  MdPauseCircleOutline,
 } from "react-icons/md";
 import {
   PARTNER_REPORT_RANGES,
@@ -173,6 +174,16 @@ export function PartnerReportClient({ token }: { token: string }) {
   const ctr = partnerCtr(stats);
   const hasVideoReward = Boolean(ad.rewardVideoUrl && ad.rewardPoints);
   const hasClickReward = Boolean(ad.clickRewardPoints);
+  // The ad gate only ever serves ads that have a reward video, so an ad
+  // without one has no gate numbers and never will. Shown from the first
+  // impression rather than from the first click, so an advertiser whose gate
+  // is converting badly still sees that it ran — a block that only appears
+  // once something goes well is a block that hides bad news.
+  const gateImpressions = stats.gateImpressions ?? 0;
+  const gateCompletions = stats.gateCompletions ?? 0;
+  const gateSkips = stats.gateSkips ?? 0;
+  const gateClicks = stats.gateClicks ?? 0;
+  const hasGate = gateImpressions > 0;
 
   return (
     // Every colour the charts use is declared here, once, for both themes —
@@ -190,6 +201,10 @@ export function PartnerReportClient({ token }: { token: string }) {
           --series-1: #2a78d6;
           --series-2: #eb6834;
           --series-3: #1baf7a;
+          /* A fourth source of clicks (the ad gate). Purple rather than
+             another blue: it sits in the same bar as series-1 and series-3,
+             and two hues a viewer has to squint at is the same as one. */
+          --series-4: #8b5cf6;
           --ordinal-1: #1c5cab;
           --ordinal-2: #2a78d6;
           --ordinal-3: #5598e7;
@@ -205,6 +220,7 @@ export function PartnerReportClient({ token }: { token: string }) {
           --series-1: #3987e5;
           --series-2: #d95926;
           --series-3: #199e70;
+          --series-4: #a78bfa;
           --ordinal-1: #86b6ef;
           --ordinal-2: #5598e7;
           --ordinal-3: #2a78d6;
@@ -378,6 +394,15 @@ export function PartnerReportClient({ token }: { token: string }) {
               parts={[
                 { label: t("ad.partnerReportClient.onTheCard"), value: stats.clicks, color: "--series-2" },
                 { label: t("ad.partnerReportClient.onTheVideo"), value: stats.clicksByVideo, color: "--series-3" },
+                ...(hasGate
+                  ? [
+                      {
+                        label: t("ad.partnerReportClient.onThePause"),
+                        value: gateClicks,
+                        color: "--series-4",
+                      },
+                    ]
+                  : []),
               ]}
             />
             <dl className="mt-4 grid grid-cols-2 gap-3 border-t border-[var(--hairline)] pt-3 text-xs">
@@ -401,6 +426,41 @@ export function PartnerReportClient({ token }: { token: string }) {
               </div>
             </dl>
           </div>
+
+          {hasGate && (
+            <div className="rounded-2xl border border-[var(--hairline)] bg-[var(--surface)] p-4">
+              <h2 className="flex items-center gap-1.5 text-sm font-semibold text-[var(--ink-1)]">
+                <MdPauseCircleOutline className="h-4 w-4 text-sky-500" />
+                {t("ad.partnerReportClient.gateTitle")}
+              </h2>
+              <p className="mt-0.5 mb-3 text-xs text-[var(--ink-3)]">
+                {t("ad.partnerReportClient.gateDescription")}
+              </p>
+              <FunnelChart
+                stages={[
+                  {
+                    label: t("ad.partnerReportClient.gateShown"),
+                    value: gateImpressions,
+                    hint: t("ad.partnerReportClient.gateShownHint"),
+                  },
+                  {
+                    label: t("ad.partnerReportClient.gateWatchedFully"),
+                    value: gateCompletions,
+                    hint: t("ad.partnerReportClient.gateWatchedFullyHint"),
+                  },
+                  { label: t("ad.partnerReportClient.gateClicked"), value: gateClicks },
+                ]}
+              />
+              {gateSkips > 0 && (
+                <p className="mt-3 border-t border-[var(--hairline)] pt-3 text-xs text-[var(--ink-2)]">
+                  <strong className="text-base font-semibold tabular-nums text-[var(--ink-1)]">
+                    {formatCount(gateSkips)}
+                  </strong>{" "}
+                  {t("ad.partnerReportClient.gateSkippedHint")}
+                </p>
+              )}
+            </div>
+          )}
 
           {(hasVideoReward || hasClickReward) && (
             <div className="rounded-2xl border border-[var(--hairline)] bg-[var(--surface)] p-4">

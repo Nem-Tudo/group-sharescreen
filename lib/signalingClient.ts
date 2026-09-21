@@ -3536,8 +3536,22 @@ class SignalingClient {
    * broadcast only actually resumes when "broadcast-ad-gate-cleared" comes
    * back — nothing here changes the local state on its own.
    */
-  clearBroadcastAdGate(reason: "ad" | "pro", partnerId?: string | null) {
-    this.rawSend({ type: "ad-gate-cleared", reason, partnerId: partnerId ?? null });
+  clearBroadcastAdGate(
+    reason: "ad" | "pro",
+    partnerId?: string | null,
+    // Whether the video reached its own end, as opposed to being left behind
+    // at the minute mark (see MAX_GATE_SECONDS). Nothing about the broadcast
+    // turns on it — both let it resume — it is the advertiser's number: a
+    // completion and a minute of a three-minute video are different facts
+    // about the ad, and only they can act on the difference.
+    watchedFully = false
+  ) {
+    this.rawSend({
+      type: "ad-gate-cleared",
+      reason,
+      partnerId: partnerId ?? null,
+      watchedFully,
+    });
   }
 
   /** We had no ad to show them, so let the broadcast through. */
@@ -3620,8 +3634,20 @@ class SignalingClient {
   // sidebar card's or the reward-video popup's (see the server's
   // "partner-click" case). Defaults to the card, which is the button that
   // existed before the popup had one.
-  reportPartnerClick(id: string, source: "card" | "video" = "card") {
+  /**
+   * The ad's own button was pressed. `source` is which of the three places it
+   * was pressed in — the sidebar card, the reward-video popup, or the ad
+   * gate — and the API keeps three counters, because they are three
+   * different states of mind and a single total could never be split back
+   * apart afterwards.
+   */
+  reportPartnerClick(id: string, source: "card" | "video" | "gate" = "card") {
     this.rawSend({ type: "partner-click", id, source });
+  }
+
+  /** The ad gate put this ad in front of somebody. */
+  reportPartnerGateImpression(id: string) {
+    this.rawSend({ type: "partner-gate-impression", id });
   }
 
   // Watch-to-earn funnel (see PartnerRewardModal.tsx) — sent once when the

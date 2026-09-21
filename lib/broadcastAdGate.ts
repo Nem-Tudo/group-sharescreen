@@ -64,7 +64,7 @@ export const AD_GATE_EVENTS = {
  * (NO_AD_WAIT_SECONDS below), and that is the same constant deliberately:
  * whatever the reason, the gate costs a minute.
  */
-export const MAX_GATE_SECONDS = 60;
+export const MAX_GATE_SECONDS = 30;
 
 /**
  * How long somebody waits when we have no ad to show them.

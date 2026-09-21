@@ -27,6 +27,12 @@ export type PartnerReportBucket = {
   minimizes: number;
   rewardVideoOpens: number;
   rewardVideoCompletions: number;
+  // The ad gate's funnel. Absent from an older API, which is why every reader
+  // of these takes them through `?? 0` rather than trusting the type.
+  gateImpressions: number;
+  gateClicks: number;
+  gateCompletions: number;
+  gateSkips: number;
 };
 
 // Mirrors the API's partnerStatsSummaries. Kept here rather than imported from
@@ -40,6 +46,15 @@ export type PartnerReportStats = {
   minimizes: number;
   rewardVideoOpens: number;
   rewardVideoCompletions: number;
+  // The ad gate — the popup that stands in front of a long broadcast until
+  // an ad is watched. Counted apart from everything above because it is not
+  // the same audience: a sidebar impression is somebody who happened to have
+  // the ad on screen, a gate impression is somebody who cannot get their
+  // broadcast back until they deal with it.
+  gateImpressions: number;
+  gateClicks: number;
+  gateCompletions: number;
+  gateSkips: number;
   uniqueViews: number;
   rewardClaims: number;
   clickRewardClaims: number;

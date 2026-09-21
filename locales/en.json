@@ -4017,5 +4017,14 @@
   "broadcastAdGate.backToBroadcastIn": "Back to broadcasting in {seconds}s",
   "broadcastAdGate.forOnlyPrice": "For only {price}",
   "broadcastAdGate.playAd": "Play the ad",
-  "broadcastAdGate.pauseAd": "Pause the ad"
+  "broadcastAdGate.pauseAd": "Pause the ad",
+  "ad.partnerReportClient.onThePause": "On the pause",
+  "ad.partnerReportClient.gateTitle": "Broadcast pause",
+  "ad.partnerReportClient.gateDescription": "People broadcasting for many hours without Pro have their broadcast paused until they watch an ad. It is the most attentive spot on the site — and the most expensive in patience, so it is worth watching how many actually click.",
+  "ad.partnerReportClient.gateShown": "Shown in the pause",
+  "ad.partnerReportClient.gateShownHint": "They cannot get their broadcast back without dealing with it.",
+  "ad.partnerReportClient.gateWatchedFully": "Watched to the end",
+  "ad.partnerReportClient.gateWatchedFullyHint": "The video reached its own end.",
+  "ad.partnerReportClient.gateClicked": "Clicked the button",
+  "ad.partnerReportClient.gateSkippedHint": "left at the one-minute mark without seeing the rest of the video — that ceiling applies to any ad longer than this."
 }

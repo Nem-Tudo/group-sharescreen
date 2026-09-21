@@ -4017,5 +4017,14 @@
   "broadcastAdGate.backToBroadcastIn": "Voltar a transmitir em {seconds}s",
   "broadcastAdGate.forOnlyPrice": "Por apenas {price}",
   "broadcastAdGate.playAd": "Assistir o anúncio",
-  "broadcastAdGate.pauseAd": "Pausar o anúncio"
+  "broadcastAdGate.pauseAd": "Pausar o anúncio",
+  "ad.partnerReportClient.onThePause": "Na pausa",
+  "ad.partnerReportClient.gateTitle": "Pausa da transmissão",
+  "ad.partnerReportClient.gateDescription": "Quem transmite há muitas horas sem assinar o Pro tem a transmissão pausada até assistir um anúncio. É o lugar de maior atenção do site — e o mais caro em paciência, então vale olhar quantos clicam de verdade.",
+  "ad.partnerReportClient.gateShown": "Apareceu na pausa",
+  "ad.partnerReportClient.gateShownHint": "A pessoa não recupera a transmissão sem resolver isso.",
+  "ad.partnerReportClient.gateWatchedFully": "Assistiu até o fim",
+  "ad.partnerReportClient.gateWatchedFullyHint": "O vídeo chegou ao próprio fim.",
+  "ad.partnerReportClient.gateClicked": "Clicou no botão",
+  "ad.partnerReportClient.gateSkippedHint": "saíram ao completar 1 minuto, sem ver o resto do vídeo — o teto vale para qualquer anúncio mais longo que isso."
 }

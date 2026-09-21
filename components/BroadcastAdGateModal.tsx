@@ -151,7 +151,12 @@ export function BroadcastAdGateModal({
 
   const partnerId = partner?.id ?? null;
   useEffect(() => {
-    if (partnerId) trackAdGate(AD_GATE_EVENTS.opened);
+    if (!partnerId) return;
+    trackAdGate(AD_GATE_EVENTS.opened);
+    // The advertiser's own impression count, kept apart from the sidebar's:
+    // this is somebody who cannot get their broadcast back until they deal
+    // with the ad, which converts nothing like a square on a page.
+    signalingClient.reportPartnerGateImpression(partnerId);
   }, [partnerId]);
 
   // The anti-skip guards, for as long as the video is locked.
@@ -189,11 +194,12 @@ export function BroadcastAdGateModal({
   function handleEnded() {
     if (finished) return;
     setFinished(true);
+    // `true`: the video reached its own end — see clearBroadcastAdGate.
     // Straight through rather than behind a "continuar" button. They watched
     // the whole thing; making them click once more to get their own screen
     // back is a toll on top of a toll. The popup closes when the server
     // confirms, which is what actually un-blanks the picture.
-    signalingClient.clearBroadcastAdGate("ad", partnerId);
+    signalingClient.clearBroadcastAdGate("ad", partnerId, true);
   }
 
   // A long ad, left behind at the minute mark. Counts as watched — they gave
@@ -227,7 +233,7 @@ export function BroadcastAdGateModal({
     if (!partnerId) return;
     trackAdGate(AD_GATE_EVENTS.adClick);
     trackPartnerClick("video");
-    signalingClient.reportPartnerClick(partnerId, "video");
+    signalingClient.reportPartnerClick(partnerId, "gate");
   }
 
   function handleClose() {
