@@ -1355,19 +1355,42 @@ function EventTable({
 //
 // So the API writes a second copy of every money event under a cell name —
 // pro_purchase.t1p0s0, see its premiumExperiments.ts — and this reads them
-// back as a grid. The column that decides is the last one: **net revenue per
-// person who saw a price**. Not sales (cells sell at different prices), not
-// revenue (cells are not the same size), and not conversion (a cheap Pix
-// converts best and earns least).
+// back as a grid, divided everywhere by pro_price_seen, the people that cell
+// actually quoted a price to.
 //
-// pro_price_seen is the denominator everywhere, and a cell with too few of
-// them is greyed rather than ranked: the difference between two combinations
-// is small, and a hundred people cannot show it.
+// **What it ranks on, and why not the obvious thing.** Cash taken so far is
+// the wrong ranking for the question being asked, and wrong in a direction
+// that matters: a Pix charge lands whole on day one, while a subscription's
+// worth is one month now and another every month after. Read a week in, cash
+// says Pix wins — it would say that even if every subscriber stayed for two
+// years. So the ranking column is a projection: the cash already taken, plus
+// the monthly money already under mandate (pro_mrr_add, minus the mandates
+// since cancelled) multiplied by a horizon somebody picks. At one month it is
+// nearly the cash column; at twelve it is close to a lifetime value. Moving
+// the selector *is* the analysis — a combination that only wins at one month
+// is a combination that sold Pix.
+//
+// Two things it deliberately does not do:
+//
+//   - It does not project Pix. A live mandate charging again is a fact about
+//     an arrangement that exists; a Pix buyer returning is a hope. The hope
+//     is shown beside it as the repeat rate, to be weighed by a person.
+//   - It does not discount for churn it has not seen. Over a week almost
+//     nobody has cancelled, so the twelve-month figure is an upper bound for
+//     every cell alike. It is comparable between cells, which is all the
+//     ranking needs, and it is not a forecast.
+//
+// The numbers are cumulative since the feature was created — the "últimos N
+// dias" selector below drives the chart, not this — because the daily series
+// keeps counts and not amounts. After changing a rollout percentage, reset
+// the stats rather than reading across the change.
 
 /** How a cell name is spelled: <event>.t<table>p<pixPrice>s<subOnly>. */
 const COMBO_RE = /^(.*)\.(t[0-2]p[01]s[01])$/;
 /** What the first digit means, in the order the API assigns it. */
 const COMBO_TABLE = ["sem tabela", "tabela", "tabela + compra em cima"];
+/** Horizons the ranking can be read at, in months. */
+const COMBO_HORIZONS = [1, 3, 6, 12];
 
 /** The least "viu o preço" a cell needs before its rate is worth reading. */
 const COMBO_MIN_SEEN = 200;
@@ -1376,11 +1399,17 @@ interface ComboCell {
   seen: number;
   checkout: number;
   purchases: number;
-  subs: number;
-  pix: number;
+  /** First purchases, by method — the choice the rollouts shape. */
+  firstPix: number;
+  firstSub: number;
   first: number;
+  repeat: number;
   renewals: number;
+  grossCents: number;
   netCents: number;
+  /** Mandates opened, and what they are worth a month between them. */
+  mandates: number;
+  mrrCents: number;
   days: number;
   cancels: number;
   cancelDays: number;
@@ -1388,13 +1417,16 @@ interface ComboCell {
 
 function emptyComboCell(): ComboCell {
   return {
-    seen: 0, checkout: 0, purchases: 0, subs: 0, pix: 0, first: 0,
-    renewals: 0, netCents: 0, days: 0, cancels: 0, cancelDays: 0,
+    seen: 0, checkout: 0, purchases: 0, firstPix: 0, firstSub: 0, first: 0,
+    repeat: 0, renewals: 0, grossCents: 0, netCents: 0, mandates: 0,
+    mrrCents: 0, days: 0, cancels: 0, cancelDays: 0,
   };
 }
 
 function PremiumComboTable({ stats }: { stats: FeatureStats }) {
   const t = useT();
+  const [horizon, setHorizon] = useState(3);
+
   const cells = useMemo(() => {
     const map = new Map<string, ComboCell>();
     for (const [event, groups] of Object.entries(stats.events)) {
@@ -1414,45 +1446,71 @@ function PremiumComboTable({ stats }: { stats: FeatureStats }) {
         unique += entry?.unique ?? 0;
         value += entry?.value ?? 0;
       }
-      // Distinct people for the denominators — somebody who opens /pro five
-      // times is one person deciding, not five.
+      // Distinct people wherever the number is a rate's denominator or
+      // numerator — somebody who opens /pro five times is one person
+      // deciding, not five — and plain counts for money and for repeats,
+      // where every occurrence is its own event.
       if (name === "pro_price_seen") cell.seen += unique;
       else if (name === "pro_checkout") cell.checkout += unique;
-      else if (name === "pro_purchase") cell.purchases += count;
-      else if (name === "pro_purchase_subscription") cell.subs += count;
-      else if (name === "pro_purchase_pix") cell.pix += count;
+      else if (name === "pro_purchase") { cell.purchases += count; cell.grossCents += value; }
       else if (name === "pro_first_purchase") cell.first += unique;
+      else if (name === "pro_first_purchase_pix") cell.firstPix += unique;
+      else if (name === "pro_first_purchase_subscription") cell.firstSub += unique;
+      else if (name === "pro_repeat_purchase") cell.repeat += count;
       else if (name === "pro_renewal") cell.renewals += count;
       else if (name === "pro_net_revenue") cell.netCents += value;
+      else if (name === "pro_mrr_add") { cell.mandates += count; cell.mrrCents += value; }
       else if (name === "pro_days_sold") cell.days += value;
-      else if (name === "pro_cancel") {
-        cell.cancels += count;
-        cell.cancelDays += value;
-      }
+      else if (name === "pro_cancel") { cell.cancels += count; cell.cancelDays += value; }
     }
-    return [...map.entries()]
-      .map(([combo, cell]) => ({
+    return [...map.entries()].map(([combo, cell]) => {
+      // What a mandate in this cell is worth a month, from this cell's own
+      // sales — so a cell that sold yearly plans is not credited with monthly
+      // prices. The mandates since cancelled are taken out at that average
+      // rather than at their own price, which is not recorded: a cancellation
+      // says who stopped, not what they were paying.
+      const perMandate = cell.mandates ? cell.mrrCents / cell.mandates : 0;
+      // Never more cancellations than mandates this cell opened. Somebody who
+      // subscribed before the rollout existed can still cancel inside it, and
+      // their cancellation is not evidence about a page they never saw — left
+      // unbounded it would eat the monthly money of mandates that are alive.
+      const lost = Math.min(cell.cancels, cell.mandates);
+      const liveMrr = Math.max(0, cell.mrrCents - lost * perMandate);
+      return {
         combo,
         cell,
-        // The ranking number, in centavos. Everything else in the row is
-        // there to explain it, or to warn that it cannot be trusted yet.
-        perPerson: cell.seen ? cell.netCents / cell.seen : null,
-      }))
-      .sort((a, b) => (b.perPerson ?? -1) - (a.perPerson ?? -1));
+        cashPerPerson: cell.seen ? cell.grossCents / cell.seen : null,
+        mrrPerPerson: cell.seen ? liveMrr / cell.seen : null,
+      };
+    });
   }, [stats.events]);
 
-  if (cells.length === 0) return null;
+  // The ranking, at the horizon on screen. Recomputed rather than stored: the
+  // selector is the analysis, and a row that changes place when it moves is
+  // the finding.
+  const ranked = useMemo(() => {
+    const projected = cells.map((entry) => ({
+      ...entry,
+      projected:
+        entry.cashPerPerson === null
+          ? null
+          : entry.cashPerPerson + (entry.mrrPerPerson ?? 0) * horizon,
+    }));
+    return projected.sort((a, b) => (b.projected ?? -1) - (a.projected ?? -1));
+  }, [cells, horizon]);
 
-  const ranked = cells.filter((entry) => entry.cell.seen >= COMBO_MIN_SEEN && entry.perPerson !== null);
-  const best = ranked[0] ?? null;
+  if (ranked.length === 0) return null;
+
+  const best = ranked.find((entry) => entry.cell.seen >= COMBO_MIN_SEEN && entry.projected !== null) ?? null;
   const money = (cents: number) => `R$ ${(cents / 100).toFixed(2).replace(".", ",")}`;
-  const pct = (part: number, whole: number) => (whole ? `${((part / whole) * 100).toFixed(1)}%` : "—");
+  const pct = (part: number, whole: number, digits = 1) =>
+    whole ? `${((part / whole) * 100).toFixed(digits)}%` : "—";
   const label = (combo: string) => {
     const table = COMBO_TABLE[Number(combo[1])] ?? combo;
     const subOnly = combo[5] === "1";
     const pixPrice = combo[3] === "1";
     // With no Pix on the page its price is not a side of anything, so it is
-    // left unnamed — two cells that differ only in it are the same page.
+    // left unnamed — the API already folds those two cells into one.
     const pix = subOnly
       ? t("admin.features.comboNoPix")
       : pixPrice
@@ -1461,35 +1519,66 @@ function PremiumComboTable({ stats }: { stats: FeatureStats }) {
     return `${table} · ${pix}`;
   };
 
+  const head = (key: string, hint?: string) => (
+    <th className="py-1 pr-3 text-right font-medium" title={hint}>
+      {t(key)}
+    </th>
+  );
+
   return (
     <div className={`${cardClass} overflow-x-auto ring-1 ring-amber-500/40`}>
-      <h3 className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">{t("admin.features.comboTitle")}</h3>
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">{t("admin.features.comboTitle")}</h3>
+        <select
+          value={horizon}
+          onChange={(e) => setHorizon(Number(e.target.value))}
+          className={`${inputClass} w-auto py-1 text-xs`}
+        >
+          {COMBO_HORIZONS.map((months) => (
+            <option key={months} value={months}>
+              {t("admin.features.comboHorizon", { count: months })}
+            </option>
+          ))}
+        </select>
+      </div>
       <p className="mt-1 text-[11px] text-zinc-500">{t("admin.features.comboHint", { min: COMBO_MIN_SEEN })}</p>
       {best && (
         <p className="mt-2 rounded-md bg-amber-500/10 px-2 py-1 text-[11px] text-amber-700 dark:text-amber-300">
-          {t("admin.features.comboBest", { combo: label(best.combo), value: money(best.perPerson ?? 0) })}
+          {t("admin.features.comboBest", {
+            combo: label(best.combo),
+            value: money(best.projected ?? 0),
+            count: horizon,
+          })}
         </p>
       )}
-      <table className="mt-2 w-full min-w-[60rem] text-xs tabular-nums">
+      <table className="mt-2 w-full min-w-[72rem] text-xs tabular-nums">
         <thead>
           <tr className="text-left text-zinc-500">
             <th className="py-1 pr-3 font-medium">{t("admin.features.comboCell")}</th>
-            <th className="py-1 pr-3 text-right font-medium">{t("admin.features.comboSeen")}</th>
-            <th className="py-1 pr-3 text-right font-medium">{t("admin.features.comboCheckout")}</th>
-            <th className="py-1 pr-3 text-right font-medium">{t("admin.features.comboPurchases")}</th>
-            <th className="py-1 pr-3 text-right font-medium">{t("admin.features.comboConversion")}</th>
-            <th className="py-1 pr-3 text-right font-medium">{t("admin.features.comboSubShare")}</th>
-            <th className="py-1 pr-3 text-right font-medium">{t("admin.features.comboRenewals")}</th>
-            <th className="py-1 pr-3 text-right font-medium">{t("admin.features.comboDays")}</th>
-            <th className="py-1 pr-3 text-right font-medium">{t("admin.features.comboCancelDays")}</th>
-            <th className="py-1 pr-3 text-right font-medium">{t("admin.features.comboRevenue")}</th>
-            <th className="py-1 text-right font-medium">{t("admin.features.comboPerPerson")}</th>
+            {head("admin.features.comboSeen")}
+            {head("admin.features.comboCheckout")}
+            {head("admin.features.comboConversion")}
+            {head("admin.features.comboSubShare", t("admin.features.comboSubShareHint"))}
+            {head("admin.features.comboMandates")}
+            {head("admin.features.comboCancels")}
+            {head("admin.features.comboRepeat", t("admin.features.comboRepeatHint"))}
+            {head("admin.features.comboCash", t("admin.features.comboCashHint"))}
+            {head("admin.features.comboMrr", t("admin.features.comboMrrHint"))}
+            {head("admin.features.comboProjected", t("admin.features.comboProjectedHint"))}
+            {head("admin.features.confidence", t("admin.features.comboConfidenceHint"))}
           </tr>
         </thead>
         <tbody>
-          {cells.map(({ combo, cell, perPerson }) => {
+          {ranked.map(({ combo, cell, cashPerPerson, mrrPerPerson, projected }) => {
             const thin = cell.seen < COMBO_MIN_SEEN;
-            const lift = best && perPerson !== null && best.perPerson ? perPerson / best.perPerson - 1 : null;
+            const gap = best && projected !== null && best.projected ? projected / best.projected - 1 : null;
+            // On the first-purchase rate, which is a proportion — the
+            // projection is money and has no z-test. It answers the question
+            // that actually stops somebody acting too early: could this cell
+            // be selling at the same rate as the leader by luck alone.
+            const conf =
+              best && best.combo !== combo ? confidence(cell.first, cell.seen, best.cell.first, best.cell.seen) : null;
+            const firsts = cell.firstPix + cell.firstSub;
             return (
               <tr
                 key={combo}
@@ -1502,18 +1591,34 @@ function PremiumComboTable({ stats }: { stats: FeatureStats }) {
                   <span className="ml-2 font-mono text-[10px] text-zinc-400">{combo}</span>
                 </td>
                 <td className="py-1 pr-3 text-right">{number(cell.seen)}</td>
-                <td className="py-1 pr-3 text-right">{number(cell.checkout)}</td>
-                <td className="py-1 pr-3 text-right">{number(cell.purchases)}</td>
-                <td className="py-1 pr-3 text-right">{pct(cell.first, cell.seen)}</td>
-                <td className="py-1 pr-3 text-right font-semibold">{pct(cell.subs, cell.subs + cell.pix)}</td>
-                <td className="py-1 pr-3 text-right">{number(cell.renewals)}</td>
-                <td className="py-1 pr-3 text-right">{cell.seen ? (cell.days / cell.seen).toFixed(1) : "—"}</td>
-                <td className="py-1 pr-3 text-right">{cell.cancels ? Math.round(cell.cancelDays / cell.cancels) : "—"}</td>
-                <td className="py-1 pr-3 text-right">{money(cell.netCents)}</td>
-                <td className="py-1 text-right font-semibold">
-                  {perPerson === null ? "—" : money(perPerson)}
-                  {lift !== null && lift < 0 && !thin && (
-                    <span className="ml-1 text-[10px] font-normal text-red-500">{(lift * 100).toFixed(0)}%</span>
+                <td className="py-1 pr-3 text-right">{pct(cell.checkout, cell.seen)}</td>
+                <td className="py-1 pr-3 text-right">{pct(cell.first, cell.seen, 2)}</td>
+                <td className="py-1 pr-3 text-right font-semibold">{pct(cell.firstSub, firsts)}</td>
+                <td className="py-1 pr-3 text-right">{number(cell.mandates)}</td>
+                <td className="py-1 pr-3 text-right">
+                  {number(cell.cancels)}
+                  {cell.cancels > 0 && (
+                    <span className="ml-1 text-[10px] font-normal text-zinc-400">
+                      {Math.round(cell.cancelDays / cell.cancels)}d
+                    </span>
+                  )}
+                </td>
+                <td className="py-1 pr-3 text-right">{cell.repeat ? number(cell.repeat) : "—"}</td>
+                <td className="py-1 pr-3 text-right">{cashPerPerson === null ? "—" : money(cashPerPerson)}</td>
+                <td className="py-1 pr-3 text-right">{mrrPerPerson ? money(mrrPerPerson) : "—"}</td>
+                <td className="py-1 pr-3 text-right font-semibold">
+                  {projected === null ? "—" : money(projected)}
+                  {gap !== null && gap < 0 && !thin && (
+                    <span className="ml-1 text-[10px] font-normal text-red-500">{(gap * 100).toFixed(0)}%</span>
+                  )}
+                </td>
+                <td className="py-1 text-right">
+                  {conf === null ? (
+                    "—"
+                  ) : (
+                    <span className={conf >= 0.95 ? "font-semibold text-emerald-600 dark:text-emerald-400" : "text-zinc-500"}>
+                      {(conf * 100).toFixed(0)}%
+                    </span>
                   )}
                 </td>
               </tr>
@@ -1521,6 +1626,35 @@ function PremiumComboTable({ stats }: { stats: FeatureStats }) {
           })}
         </tbody>
       </table>
+      {/* The raw cash ledger, out of the way: it is what the projection is
+          built from, and the one place the provider's own net shows up. */}
+      <details className="mt-2">
+        <summary className="cursor-pointer text-[11px] text-zinc-500">{t("admin.features.comboRawTitle")}</summary>
+        <table className="mt-2 w-full text-xs tabular-nums">
+          <thead>
+            <tr className="text-left text-zinc-500">
+              <th className="py-1 pr-3 font-medium">{t("admin.features.comboCell")}</th>
+              {head("admin.features.comboPurchases")}
+              {head("admin.features.comboRenewals")}
+              {head("admin.features.comboRevenue")}
+              {head("admin.features.comboNet", t("admin.features.comboNetHint"))}
+              {head("admin.features.comboDays")}
+            </tr>
+          </thead>
+          <tbody>
+            {ranked.map(({ combo, cell }) => (
+              <tr key={combo} className="border-t border-zinc-100 dark:border-zinc-900">
+                <td className="py-1 pr-3 font-mono text-[10px] text-zinc-400">{combo}</td>
+                <td className="py-1 pr-3 text-right">{number(cell.purchases)}</td>
+                <td className="py-1 pr-3 text-right">{number(cell.renewals)}</td>
+                <td className="py-1 pr-3 text-right">{money(cell.grossCents)}</td>
+                <td className="py-1 pr-3 text-right">{cell.netCents ? money(cell.netCents) : "—"}</td>
+                <td className="py-1 pr-3 text-right">{cell.seen ? (cell.days / cell.seen).toFixed(1) : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </details>
     </div>
   );
 }
