@@ -3358,7 +3358,7 @@
   "watch.watchRoom.stopThisScreen": "Parar esta tela",
   "watch.watchRoom.screen": "Tela",
   "watch.watchRoom.closeScreen": "Fechar",
-  "watch.watchRoom.addAnotherScreen": "Transmitir outra tela ou janela ({count}/{limit})",
+  "watch.watchRoom.addAnotherScreen": "Adicionar outra tela ou janela ({count}/{limit})",
   "watch.watchRoom.screenLimitReached": "Você atingiu o limite do seu plano: {limit} telas ao mesmo tempo.",
   "watch.watchRoom.beingRecordedBy": "Sua transmissão está sendo gravada por {names}",
   "watch.watchRoom.moreOptionsPullUp": "Mais opções (puxe para cima)",
