@@ -936,30 +936,33 @@ export function PartnerCard({
               // points on the table. Once this browser has collected them the
               // button is a plain "assistir de novo" — animating it then would
               // be advertising a reward it can no longer pay.
-              className={`mt-2 flex w-full items-center cursor-pointer ${
-                rewardDurationLabel ? "justify-between" : "justify-center"
-              } gap-2 rounded-lg border border-current px-3 py-1.5 text-xs font-semibold opacity-90 transition hover:opacity-100 ${
+              className={`mt-2 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-current px-3 py-1.5 text-xs font-semibold opacity-90 transition hover:opacity-100 ${
                 rewardClaimedLocally ? "" : "partner-reward-glow"
               }`}
             >
-              {/* Rewatching is always allowed — only the reward itself is
+              {/* The whole deal in one line: how long it takes and what it
+                  pays. The length used to be a badge off at the far end,
+                  which read as a detail about the button rather than as half
+                  of what is being offered — and it is the half somebody
+                  decides on. It is measured off the video itself (see the
+                  hook), so a video that has not answered yet falls back to
+                  the plain "Resgatar".
+
+                  Rewatching is always allowed — only the reward itself is
                   one-time (see PartnerRewardModal, which knows not to let a
                   rewatch pay out again). */}
-              <span className="flex min-w-0 items-center gap-1.5">
-                {rewardClaimedLocally ? (
-                  t("partnerCard.watchAgain")
-                ) : (
-                  <>
-                    {t("common.redeem")}
-                    <BsCoin className="h-3.5 w-3.5 shrink-0" />
-                    {data.rewardPoints}
-                  </>
-                )}
-              </span>
-              {rewardDurationLabel && (
-                <span className="shrink-0 rounded-full bg-black/10 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums dark:bg-white/10">
-                  {rewardDurationLabel}
-                </span>
+              {rewardClaimedLocally ? (
+                <span className="truncate">{t("partnerCard.watchAgain")}</span>
+              ) : (
+                <>
+                  <span className="truncate">
+                    {rewardDurationLabel
+                      ? t("partnerCard.watchAndRedeem", { duration: rewardDurationLabel })
+                      : t("common.redeem")}
+                  </span>
+                  <BsCoin className="h-3.5 w-3.5 shrink-0" />
+                  <span className="shrink-0 tabular-nums">{data.rewardPoints}</span>
+                </>
               )}
             </button>
           )}

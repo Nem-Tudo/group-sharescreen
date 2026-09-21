@@ -1028,21 +1028,14 @@ export function PartnerAdsPanel() {
                 <span className="truncate">{preview.buttonLabel || t("common.button")}</span>
               </div>
               {previewRewardVideo && (
-                <div
-                  className={`mt-2 flex w-full items-center ${
-                    previewRewardDuration ? "justify-between" : "justify-center"
-                  } gap-2 rounded-lg border border-current px-3 py-1.5 text-xs font-semibold opacity-90`}
-                >
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    {t("common.redeem")}
-                    <BsCoin className="h-3.5 w-3.5 shrink-0" />
-                    {rewardPointsInput.trim()}
+                <div className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-current px-3 py-1.5 text-xs font-semibold opacity-90">
+                  <span className="truncate">
+                    {previewRewardDuration
+                      ? t("partnerCard.watchAndRedeem", { duration: previewRewardDuration })
+                      : t("common.redeem")}
                   </span>
-                  {previewRewardDuration && (
-                    <span className="shrink-0 rounded-full bg-black/10 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums dark:bg-white/10">
-                      {previewRewardDuration}
-                    </span>
-                  )}
+                  <BsCoin className="h-3.5 w-3.5 shrink-0" />
+                  <span className="shrink-0 tabular-nums">{rewardPointsInput.trim()}</span>
                 </div>
               )}
             </div>

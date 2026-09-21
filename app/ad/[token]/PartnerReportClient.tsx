@@ -20,6 +20,7 @@ import {
   type PartnerReport,
   type PartnerReportRange,
 } from "@/lib/partnerReport";
+import { useVideoDurationLabel } from "@/lib/useVideoDuration";
 import { partnerWideImage } from "@/lib/partner";
 import {
   FunnelChart,
@@ -72,6 +73,11 @@ export function PartnerReportClient({ token }: { token: string }) {
   // keeps the last report on screen (see the effect below): a blank page is a
   // worse answer to a dropped packet than numbers half a second old.
   const [report, setReport] = useState<PartnerReport | undefined>(undefined);
+  // How long the reward video runs, for the button in the preview below —
+  // read off the video itself, the same way the real card reads it. Up here
+  // rather than beside the button because there are early returns between the
+  // two, and a hook cannot sit after one.
+  const adRewardDuration = useVideoDurationLabel(report?.ad.rewardVideoUrl ?? null);
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState(0);
@@ -551,9 +557,13 @@ export function PartnerReportClient({ token }: { token: string }) {
                   onClick={() => openRewardPreview(ad.rewardVideoUrl!, ad.rewardPoints!)}
                   className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-current px-3 py-1.5 text-xs font-semibold opacity-90 transition hover:opacity-100"
                 >
-                  {t("common.redeem")}
+                  <span className="truncate">
+                    {adRewardDuration
+                      ? t("partnerCard.watchAndRedeem", { duration: adRewardDuration })
+                      : t("common.redeem")}
+                  </span>
                   <BsCoin className="h-3.5 w-3.5 shrink-0" />
-                  {ad.rewardPoints}
+                  <span className="shrink-0 tabular-nums">{ad.rewardPoints}</span>
                 </button>
               )}
             </div>
