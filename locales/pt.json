@@ -4026,5 +4026,6 @@
   "ad.partnerReportClient.gateWatchedFully": "Assistiu até o fim",
   "ad.partnerReportClient.gateWatchedFullyHint": "O vídeo chegou ao próprio fim.",
   "ad.partnerReportClient.gateClicked": "Clicou no botão",
-  "ad.partnerReportClient.gateSkippedHint": "saíram ao completar 1 minuto, sem ver o resto do vídeo — o teto vale para qualquer anúncio mais longo que isso."
+  "ad.partnerReportClient.gateSkippedHint": "saíram ao completar 1 minuto, sem ver o resto do vídeo — o teto vale para qualquer anúncio mais longo que isso.",
+  "broadcastAdGate.adDoneTakeYourTime": "Anúncio concluído. Sem pressa — se algo te interessou, dá pra clicar no anunciante antes de voltar."
 }

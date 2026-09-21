@@ -4026,5 +4026,6 @@
   "ad.partnerReportClient.gateWatchedFully": "Watched to the end",
   "ad.partnerReportClient.gateWatchedFullyHint": "The video reached its own end.",
   "ad.partnerReportClient.gateClicked": "Clicked the button",
-  "ad.partnerReportClient.gateSkippedHint": "left at the one-minute mark without seeing the rest of the video — that ceiling applies to any ad longer than this."
+  "ad.partnerReportClient.gateSkippedHint": "left at the one-minute mark without seeing the rest of the video — that ceiling applies to any ad longer than this.",
+  "broadcastAdGate.adDoneTakeYourTime": "Ad finished. No rush — if something caught your eye, you can click the advertiser before going back."
 }

@@ -87,6 +87,11 @@ export function BroadcastAdGateModal({
   // above: this one is rendered (it decides when the way out appears), and a
   // ref does not re-render.
   const [watched, setWatched] = useState(0);
+  // The video reached its own end. Deliberately not the same thing as
+  // leaving: see handleEnded.
+  const [completed, setCompleted] = useState(false);
+  // The clear has been sent and the broadcast is on its way back. Only ever
+  // set by somebody pressing the button.
   const [finished, setFinished] = useState(false);
   const [started, setStarted] = useState(false);
   // Whether the ad is running right now. Its own state rather than something
@@ -159,10 +164,13 @@ export function BroadcastAdGateModal({
     signalingClient.reportPartnerGateImpression(partnerId);
   }, [partnerId]);
 
-  // The anti-skip guards, for as long as the video is locked.
+  // The anti-skip guards, for as long as the video is locked. Dropped the
+  // moment it has been watched through: the gate is satisfied at that point,
+  // so there is nothing left for the restriction to protect, and somebody who
+  // wants to rewind and re-read the ad should be able to.
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || finished) return;
+    if (!video || completed || finished) return;
     const onTimeUpdate = () => {
       if (video.currentTime > maxTimeRef.current) maxTimeRef.current = video.currentTime;
       // Off maxTimeRef, not currentTime: rewinding is allowed (there is no
@@ -189,27 +197,36 @@ export function BroadcastAdGateModal({
       video.removeEventListener("timeupdate", onTimeUpdate);
       video.removeEventListener("seeking", onSeeking);
     };
-  }, [finished, partnerId]);
+  }, [completed, finished, partnerId]);
 
+  // The video ran out. That unlocks the way back — it does not take it.
+  //
+  // This used to resume the broadcast the instant the last frame played,
+  // which sounds generous and is actually the popup slamming shut on somebody
+  // who was about to click the advertiser's button. The whole reason they sat
+  // through a minute is that something in it might have been worth having,
+  // and the moment to act on that is exactly the moment this was closing.
+  // Worse, it is the advertiser's only conversion, thrown away to save the
+  // viewer one click they may well want to make anyway.
+  //
+  // So: the video ends, the button lights up, and leaving is a decision.
   function handleEnded() {
-    if (finished) return;
-    setFinished(true);
-    // `true`: the video reached its own end — see clearBroadcastAdGate.
-    // Straight through rather than behind a "continuar" button. They watched
-    // the whole thing; making them click once more to get their own screen
-    // back is a toll on top of a toll. The popup closes when the server
-    // confirms, which is what actually un-blanks the picture.
-    signalingClient.clearBroadcastAdGate("ad", partnerId, true);
+    setCompleted(true);
   }
 
-  // A long ad, left behind at the minute mark. Counts as watched — they gave
-  // the gate everything it asks of anyone — with its own event beside it so
-  // the two can be told apart when reading the numbers.
-  function handleSkip() {
+  /**
+   * Back to broadcasting, by the button.
+   *
+   * `completed` is what the advertiser's two counters turn on — a video seen
+   * to its end and one left at the minute mark are different facts about the
+   * ad (see clearBroadcastAdGate). Nothing about the broadcast depends on it;
+   * both ways out resume it.
+   */
+  function handleLeave() {
     if (finished) return;
     setFinished(true);
-    trackAdGate(AD_GATE_EVENTS.skipped, watched);
-    signalingClient.clearBroadcastAdGate("ad", partnerId);
+    if (!completed) trackAdGate(AD_GATE_EVENTS.skipped, watched);
+    signalingClient.clearBroadcastAdGate("ad", partnerId, completed);
   }
 
   function togglePlay() {
@@ -246,8 +263,24 @@ export function BroadcastAdGateModal({
   // thing — showing the ad's own remaining time on a three-minute video would
   // be telling somebody they have three minutes to go when they have one.
   const untilSkip = Math.max(0, MAX_GATE_SECONDS - watched);
-  const canSkip = Boolean(partner) && !finished && untilSkip <= 0;
+  // Two ways to earn the way back, and either is enough: the ad ended, or the
+  // minute is up on one too long to sit through.
+  const canLeave = Boolean(partner) && !finished && (completed || untilSkip <= 0);
   const untilFree = remaining === null ? untilSkip : Math.min(remaining, untilSkip);
+  // How much of the way to the exit they are, 0..1 — the button's own bar.
+  //
+  // Taken from `watched` over "watched plus what is left" rather than from
+  // the video's duration, which means it needs no duration at all: it is
+  // already correct for a short ad (the bar fills as the video does) and for
+  // a long one (it fills to the minute mark and stops), and it is honest
+  // before metadata has loaded, where a duration-based figure would divide by
+  // something it does not know yet.
+  const exitProgress = noAd
+    ? (NO_AD_WAIT_SECONDS - waitLeft) / NO_AD_WAIT_SECONDS
+    : completed || untilFree <= 0
+      ? 1
+      : watched / Math.max(1, watched + untilFree);
+  const exitReady = noAd ? waitDone : canLeave;
 
   const hoursLabel = formatGateHours(gate.firstHours);
   const intervalLabel = formatGateHours(gate.intervalHours);
@@ -325,6 +358,15 @@ export function BroadcastAdGateModal({
                   src={partner.rewardVideoUrl}
                   playsInline
                   preload="metadata"
+                  // The duration is known from `preload="metadata"`, before a
+                  // frame has played. Without this the button would promise a
+                  // minute on a thirty-second ad and then correct itself the
+                  // moment they pressed play, which reads as the countdown
+                  // being made up.
+                  onLoadedMetadata={(e) => {
+                    const { duration } = e.currentTarget;
+                    if (Number.isFinite(duration)) setRemaining(duration);
+                  }}
                   onPlay={() => {
                     setPlaying(true);
                     if (started) return;
@@ -333,15 +375,17 @@ export function BroadcastAdGateModal({
                   }}
                   onPause={() => setPlaying(false)}
                   onEnded={handleEnded}
-                  onClick={togglePlay}
-                  // No native `controls`: they come with a seek bar, and the
-                  // one thing this player may not offer is skipping ahead. So
-                  // the single control that is allowed — pause — is drawn
-                  // here instead, rather than shipping a scrub bar that snaps
-                  // back and looks broken.
-                  className="aspect-video w-full cursor-pointer bg-black"
+                  onClick={completed ? undefined : togglePlay}
+                  // No native `controls` while it is locked: they come with a
+                  // seek bar, and the one thing this player may not offer is
+                  // skipping ahead — a scrub bar that snaps back looks
+                  // broken. Once it has been watched through there is nothing
+                  // left to protect, so the real controls take over and the
+                  // ad can be replayed or scrubbed like any other video.
+                  controls={completed}
+                  className={`aspect-video w-full bg-black ${completed ? "" : "cursor-pointer"}`}
                 />
-                {!playing && !finished && (
+                {!playing && !completed && !finished && (
                   <button
                     type="button"
                     onClick={togglePlay}
@@ -353,7 +397,7 @@ export function BroadcastAdGateModal({
                     </span>
                   </button>
                 )}
-                {playing && (
+                {playing && !completed && (
                   <button
                     type="button"
                     onClick={togglePlay}
@@ -409,7 +453,7 @@ export function BroadcastAdGateModal({
                   <p className="min-w-0 text-sm font-semibold text-zinc-900 dark:text-white">
                     {partner.title}
                   </p>
-                  {remaining !== null && !canSkip && !finished && (
+                  {remaining !== null && !canLeave && !finished && (
                     <span className="shrink-0 rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium tabular-nums text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
                       {formatClock(untilFree)}
                     </span>
@@ -447,6 +491,16 @@ export function BroadcastAdGateModal({
             </div>
           )}
 
+          {/* The ad is done and the way back is waiting in the footer. This
+              says so, and says the one thing somebody might not think of on
+              their own: there is no hurry, and the advertiser's button is
+              right there. */}
+          {canLeave && completed && (
+            <p className="mt-3 rounded-xl bg-emerald-500/10 px-3 py-2 text-center text-xs text-emerald-700 dark:text-emerald-400">
+              {t("broadcastAdGate.adDoneTakeYourTime")}
+            </p>
+          )}
+
           {finished && (
             <p className="mt-3 text-center text-sm font-medium text-emerald-600 dark:text-emerald-400">
               {t("broadcastAdGate.thanksResuming")}
@@ -463,25 +517,54 @@ export function BroadcastAdGateModal({
             way, so the buttons are pinned and the explanation is what
             scrolls. */}
         <div className="shrink-0 border-t border-zinc-200 px-4 pb-4 pt-3 dark:border-zinc-800 sm:px-5 sm:pb-5">
-          {/* The way out of the no-ad wait. A button rather than the
-              broadcast simply coming back on its own: the minute passes while
-              they are looking at something else as often as not, and a
-              picture that returns unannounced is a picture nobody knows is
-              live again. */}
-          {(noAd || canSkip) && (
-            <button
-              type="button"
-              onClick={noAd ? handleWaitConfirm : handleSkip}
-              disabled={noAd && !waitDone}
-              className="mb-3 w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-zinc-200 disabled:text-zinc-400 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-500"
-            >
-              {!noAd || waitDone
-                ? t("broadcastAdGate.backToBroadcast")
-                : t("broadcastAdGate.backToBroadcastIn", { seconds: String(waitLeft) })}
-            </button>
-          )}
+          {/* items-start, not items-center: the Pro side is a button with a
+              price line under it, so centring the row would centre the exit
+              button against that whole stack and leave the two buttons
+              sitting at different heights. Aligning the tops is what makes
+              them read as a pair. */}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+            {/* The way out. On screen from the start rather than appearing
+                once it is earned: a button that materialises is a button
+                somebody has to notice, while one that fills up in front of
+                them answers "how much longer" without being asked, which is
+                the only question anybody has while this is open.
 
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
+                A button rather than the broadcast simply coming back on its
+                own — the minute passes while they are looking at something
+                else as often as not, and a picture that returns unannounced
+                is a picture nobody knows is live again. */}
+            {(noAd || partner) && (
+              <button
+                type="button"
+                onClick={noAd ? handleWaitConfirm : handleLeave}
+                disabled={!exitReady || finished}
+                className={`relative w-full overflow-hidden rounded-lg px-4 py-2.5 text-sm font-semibold transition sm:flex-1 ${
+                  exitReady
+                    ? "bg-emerald-600 text-white hover:bg-emerald-500"
+                    : "cursor-not-allowed bg-emerald-600/25 text-white/80"
+                }`}
+              >
+                {/* The darker fill, behind the label. Only while it is
+                    filling: once the button is live it is a solid button, and
+                    a progress bar at 100% is just a second colour nobody
+                    needs to interpret. */}
+                {!exitReady && (
+                  <span
+                    aria-hidden
+                    className="absolute inset-y-0 left-0 bg-emerald-600/70 transition-[width] duration-300 ease-linear"
+                    style={{ width: `${Math.round(Math.min(1, Math.max(0, exitProgress)) * 100)}%` }}
+                  />
+                )}
+                <span className="relative">
+                  {exitReady
+                    ? t("broadcastAdGate.backToBroadcast")
+                    : t("broadcastAdGate.backToBroadcastIn", {
+                        seconds: String(noAd ? waitLeft : Math.ceil(untilFree)),
+                      })}
+                </span>
+              </button>
+            )}
+
             <div className="flex flex-col items-stretch gap-1 sm:items-end">
               <button
                 type="button"
