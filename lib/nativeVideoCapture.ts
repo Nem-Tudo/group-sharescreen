@@ -55,6 +55,33 @@ import {
 export const NATIVE_VIDEO_FEATURE = "native-video-capture";
 
 /**
+ * Keeping chosen applications out of the *picture* of a screen share — the
+ * black rectangle with "Oculto pelo usuário" written across it. A separate
+ * rollout from the capture it rides on, because it is a separate thing to
+ * offer somebody, but it can only exist on top of it: covering a window is
+ * something the helper does while it encodes, and Chromium's capture has no
+ * equivalent (see HiddenWindows in electron/native/src/videocap.cpp).
+ */
+export const HIDDEN_WINDOWS_FEATURE = "hidden-windows";
+
+/** Counted on the website, where the picker that collects them cannot reach. */
+export const HIDDEN_WINDOWS_EVENTS = {
+  /** The picker's panel was opened on the way to this share. */
+  open: "hidden_windows_open",
+  /** A share went out with windows covered. value: how many applications. */
+  share: "hidden_windows_share",
+} as const;
+
+/**
+ * Tells the shell whether a share from this page would go through the helper,
+ * which is what decides whether the picker offers to hide anything. Safe to
+ * call anywhere: it does nothing outside the desktop app.
+ */
+export function setNativeVideoIntent(wanted: boolean): void {
+  getDesktopBridge()?.nativeVideo?.setIntent?.(wanted);
+}
+
+/**
  * The experiment's treatments, as named in the admin panel. Any other name
  * is treated as `forced`.
  *
@@ -172,8 +199,13 @@ export interface NativeVideoOptions {
  * the caller keeps Chromium's capture.
  */
 export type NativeVideoStart =
-  | { source: NativeVideoSource; failure?: undefined }
-  | { source: null; failure: string | null };
+  | {
+      source: NativeVideoSource;
+      failure?: undefined;
+      /** What the picker settled on for this share, for the statistics. */
+      hidden?: { count: number; panelOpened: boolean };
+    }
+  | { source: null; failure: string | null; hidden?: undefined };
 
 export async function startNativeVideo(options: NativeVideoOptions): Promise<NativeVideoStart> {
   const bridge = getDesktopBridge()?.nativeVideo;
@@ -195,7 +227,7 @@ export async function startNativeVideo(options: NativeVideoOptions): Promise<Nat
   source.started(result.encoder);
   sources.set(source.track, source);
   console.info(`[golive] GPU capture: ${result.width}x${result.height} via ${result.encoder}`);
-  return { source };
+  return { source, hidden: result.hidden };
 }
 
 export class NativeVideoSource {

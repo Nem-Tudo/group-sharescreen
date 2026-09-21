@@ -45,7 +45,11 @@ const COMMON_FLAGS = ["/nologo", "/EHsc", "/O2", "/MT", "/W3", "/DUNICODE", "/D_
 // coroutine headers, which current MSVC refuses outright. Media Foundation is
 // mfplat/mfuuid; oleaut32.lib is VariantInit, for ICodecAPI; gdi32.lib
 // exports the GPU scheduler's priority call; d2d1.lib draws the pointer over
-// a Desktop Duplication frame.
+// a Desktop Duplication frame, and the cover over a window somebody asked to
+// keep off the stream; dwrite.lib writes that cover's caption and
+// windowscodecs.lib decodes the wordmark under it out of the binary's own
+// resources; dwmapi.lib is DwmGetWindowAttribute, which tells a suspended
+// Store app's leftover window from one somebody actually has open.
 const HELPERS = [
   {
     name: "golive-audiocap",
@@ -57,6 +61,8 @@ const HELPERS = [
     name: "golive-videocap",
     stem: "videocap",
     flags: ["/std:c++20", "/permissive-", "/Zc:__cplusplus"],
+    // Compiled into the binary by videocap.rc — see sourceHash.
+    extraInputs: [path.join(here, "..", "..", "public", "branding.png")],
     libs: [
       "ole32.lib",
       "oleaut32.lib",
@@ -65,6 +71,9 @@ const HELPERS = [
       "avrt.lib",
       "d3d11.lib",
       "d2d1.lib",
+      "dwrite.lib",
+      "windowscodecs.lib",
+      "dwmapi.lib",
       "dxgi.lib",
       "mfplat.lib",
       "mfuuid.lib",
@@ -103,11 +112,13 @@ const HELPERS = [
 });
 
 // Every input that ends up in the binary, not only the C++: a change to the
-// version information or the manifest is a different executable too, and a
-// stamp that ignored them would call the committed binary current after one.
+// version information, the manifest or an asset compiled in through the .rc
+// (videocap's wordmark) is a different executable too, and a stamp that
+// ignored them would call the committed binary current after one.
 function sourceHash(helper) {
   const hash = createHash("sha256");
-  for (const file of [helper.source, helper.resourceScript, helper.manifest]) hash.update(readFileSync(file));
+  const inputs = [helper.source, helper.resourceScript, helper.manifest, ...(helper.extraInputs ?? [])];
+  for (const file of inputs) hash.update(readFileSync(file));
   return hash.digest("hex");
 }
 

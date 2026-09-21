@@ -48,6 +48,13 @@ export const IPC = {
    * nobody opens.
    */
   pickerAudioApps: "golive:picker:audio-apps",
+  /**
+   * picker -> main: the applications that are open, for the "hide these
+   * windows" panel. Asked for when that panel is opened, and separate from
+   * pickerList for the same reason pickerAudioApps is — it reads an icon out
+   * of every executable it finds.
+   */
+  pickerHiddenApps: "golive:picker:hidden-apps",
   /** picker -> main: the user's choice (see PickerChoice), or null to cancel. */
   pickerChoose: "golive:picker:choose",
 
@@ -77,6 +84,18 @@ export const IPC = {
    * the GPU (see electron/nativeVideo.ts). Answers a NativeVideoProbe.
    */
   nativeVideoProbe: "golive:native-video:probe",
+  /**
+   * renderer -> main: whether a share from this page would be captured by the
+   * helper at all — the experiment is on, and the person has not switched the
+   * GPU capture off.
+   *
+   * Sent because the picker has to decide, before any of that has happened,
+   * whether to offer "hide these windows". Covering a window is something
+   * only the helper can do; on Chromium's own capture the panel would be a
+   * privacy promise the share does not keep, which is the one kind of broken
+   * control worth going out of the way to avoid.
+   */
+  nativeVideoIntent: "golive:native-video:intent",
   /**
    * renderer -> main: start the GPU capture on the surface the last
    * getDisplayMedia was answered with. Answers a NativeVideoStartResult.
@@ -348,7 +367,20 @@ export interface NativeVideoStartOptions {
 export type NativeVideoCaptureMethod = "duplication" | "wgc";
 
 export type NativeVideoStartResult =
-  | { ok: true; width: number; height: number; encoder: string }
+  | {
+      ok: true;
+      width: number;
+      height: number;
+      encoder: string;
+      /**
+       * How many applications this capture is covering, and whether the panel
+       * that chooses them was opened on the way here. Reported back because
+       * the usage statistics live on the website (trackFeatureEvent) and the
+       * picker that collected this is a shell window with no way to reach
+       * them.
+       */
+      hidden?: { count: number; panelOpened: boolean };
+    }
   | {
       ok: false;
       reason: "unsupported" | "no-source" | "timeout" | "no-frames" | "failed";
@@ -387,6 +419,18 @@ export interface PickerAudioApp {
   locked: boolean;
 }
 
+/** One row of the picker's "hide these windows" panel. */
+export interface PickerHiddenApp {
+  /** Lower-cased executable file name — what the hidden list is written in. */
+  key: string;
+  /** What the vendor calls it ("WhatsApp"), or the file name as a fallback. */
+  name: string;
+  /** PNG data URL of the executable's icon, when one could be read. */
+  icon: string | null;
+  /** Whether its windows are currently painted over in a share. */
+  hidden: boolean;
+}
+
 /** Everything the picker window needs to draw itself. */
 export interface PickerData {
   sources: PickerSource[];
@@ -417,6 +461,20 @@ export interface PickerData {
     perApp: boolean;
     /** The "Compartilhar som da tela" checkbox. */
     enabled: boolean;
+  };
+  video: {
+    /**
+     * Whether windows can be kept out of the picture at all.
+     *
+     * True only when a share from this machine is actually going to be
+     * captured by the helper: it can run here (the probe) and the page said
+     * it means to use it (IPC.nativeVideoIntent). Chromium's own capture has
+     * no way to cover anything, so anywhere else the control is not drawn —
+     * a checkbox that says a window will not be shared had better be right.
+     */
+    supported: boolean;
+    /** How many applications are hidden already, for the button's badge. */
+    hiddenCount: number;
   };
 }
 
@@ -454,5 +512,23 @@ export interface PickerChoice {
      * changes only the keys named here.
      */
     listed?: string[];
+  };
+  /**
+   * The windows to keep out of the picture, as they stood on confirm. Absent
+   * on a cancellation, and `apps` is absent until the panel has been opened
+   * — the same distinction the audio half makes, for the same reason.
+   */
+  hidden?: {
+    /** Lower-cased executable file names. */
+    apps?: string[];
+    /** Every application the panel showed, which is only the ones open. */
+    listed?: string[];
+    /**
+     * Whether the panel was opened at all. The page counts that separately
+     * from going through with it: "people find this" and "people use this"
+     * are different questions and the first one is how you tell a feature
+     * nobody wants from one nobody can find.
+     */
+    opened?: boolean;
   };
 }

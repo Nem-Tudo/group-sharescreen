@@ -53,8 +53,14 @@ function settingsPath(): string {
   return path.join(app.getPath("userData"), SETTINGS_FILE);
 }
 
-/** Lower-cased, de-duplicated, and free of anything that isn't a file name. */
-export function normalizeMutedApps(value: unknown): string[] {
+/**
+ * Lower-cased, de-duplicated, and free of anything that isn't a file name.
+ *
+ * Shared with the hidden-window list (see videoSettings.ts): both are lists
+ * of executables on this machine, written by the same picker, and a second
+ * copy of this would be a second set of rules for what counts as one.
+ */
+export function normalizeAppKeys(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   const seen = new Set<string>();
   for (const entry of value) {
@@ -81,7 +87,7 @@ export function getSystemAudioSettings(): SystemAudioSettings {
     // Anything but an explicit false means on: a file written by an older
     // build has no such field, and system audio was always on then.
     enabled: record.enabled !== false,
-    mutedApps: normalizeMutedApps(record.mutedApps),
+    mutedApps: normalizeAppKeys(record.mutedApps),
   };
   return cached;
 }
@@ -89,7 +95,7 @@ export function getSystemAudioSettings(): SystemAudioSettings {
 export function saveSystemAudioSettings(settings: SystemAudioSettings): SystemAudioSettings {
   const next: SystemAudioSettings = {
     enabled: settings.enabled !== false,
-    mutedApps: normalizeMutedApps(settings.mutedApps),
+    mutedApps: normalizeAppKeys(settings.mutedApps),
   };
   cached = next;
   try {

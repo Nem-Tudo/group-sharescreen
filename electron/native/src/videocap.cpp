@@ -42,6 +42,11 @@
 //                       --max-width <px> --max-height <px> --fps <n>
 //                       --bitrate <kbps> [--cursor 0|1]
 //                       [--capture-method duplication|wgc]
+//                       [--hide <executable>]... [--hide-label <text>]
+//       --hide paints over every window belonging to that executable, so a
+//       program a person does not want on the stream does not go out with it
+//       (see HiddenWindows). Monitors only: a window capture already contains
+//       nothing but the window that was picked.
 //       --capture-method picks how a monitor is captured: Desktop Duplication
 //       (the default; no frame drawn around the screen) or Windows Graphics
 //       Capture. A window is always captured with Graphics Capture.
@@ -79,6 +84,14 @@
 #include <codecapi.h>
 #include <avrt.h>
 #include <d2d1_1.h>
+// The cover drawn over a hidden window: its caption (DirectWrite) and the
+// GoLive wordmark, decoded from this binary's own resources (WIC).
+#include <dwrite.h>
+#include <wincodec.h>
+// DwmGetWindowAttribute: a suspended Store application leaves a visible,
+// titled window behind, and only DWMWA_CLOAKED tells it apart from one
+// somebody actually has open.
+#include <dwmapi.h>
 
 #include <fcntl.h>
 #include <io.h>
@@ -90,9 +103,12 @@
 #include <atomic>
 #include <cstdint>
 #include <cstring>
+#include <cwchar>
+#include <cwctype>
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 // windows.h defines GetCurrentTime as a macro, and C++/WinRT has a member of
@@ -122,6 +138,10 @@ static const int EXIT_TARGET_GONE = 4;
 // this file has no use for. Exported by gdi32.dll.
 extern "C" LONG WINAPI D3DKMTSetProcessSchedulingPriorityClass(HANDLE process, INT priority);
 static const INT D3DKMT_PRIORITY_HIGH = 4;
+
+// The GoLive wordmark, compiled in from public/branding.png — see videocap.rc
+// and HiddenWindows::LoadBranding. Must agree with the id in that file.
+static const int kBrandingResource = 101;
 
 // ---------------------------------------------------------------------------
 // Output
@@ -950,6 +970,290 @@ class CursorOverlay {
   LONG hotX_ = 0, hotY_ = 0;
 };
 
+// ---------------------------------------------------------------------------
+// Hidden windows
+// ---------------------------------------------------------------------------
+
+// "Do not put this program on the stream" — the picker's second list, arriving
+// here as one --hide <executable> per application (see hiddenAppRows in
+// electron/main.ts). Every visible window of a named process is painted black,
+// with a caption saying so in the middle of it.
+//
+// Why it is painted rather than left out
+// --------------------------------------
+// Windows has no "capture the screen except that window". The one API that
+// excludes a window from a capture, SetWindowDisplayAffinity, only works on
+// windows the calling process owns — that is how an application hides *itself*
+// from recorders, not how a recorder hides somebody else's window. Desktop
+// Duplication and Graphics Capture both hand over the desktop as it is. So the
+// screen is captured whole and the window is covered, on the GPU, in the same
+// place and for the same reason the pointer is drawn over it (see
+// CursorOverlay).
+//
+// What that costs, and what the picker says out loud
+// --------------------------------------------------
+// It is the window's rectangle, not its shape: anything in front of a hidden
+// window is covered along with it, and so are its rounded corners and shadow.
+// And the rectangle is where the window was when this last looked, which is at
+// most kScanMs ago — dragging one across the screen can uncover it for a frame.
+// This is "my conversations are not on the stream", not a guarantee against
+// somebody stepping through a recording frame by frame, and the panel says so
+// rather than letting anyone find out the hard way.
+class HiddenWindows {
+ public:
+  /** False when there is nothing to hide, or nothing to draw with. */
+  bool Init(ID3D11Device* device, std::vector<std::wstring> names, std::wstring label) {
+    if (names.empty()) return false;
+    names_ = std::move(names);
+    label_ = std::move(label);
+    if (FAILED(D2D1CreateFactory(D2D1_FACTORY_TYPE_MULTI_THREADED, factory_.put()))) return false;
+    winrt::com_ptr<IDXGIDevice> dxgi;
+    if (FAILED(device->QueryInterface(__uuidof(IDXGIDevice), dxgi.put_void()))) return false;
+    winrt::com_ptr<ID2D1Device> d2d;
+    if (FAILED(factory_->CreateDevice(dxgi.get(), d2d.put()))) return false;
+    if (FAILED(d2d->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, context_.put()))) return false;
+    if (FAILED(context_->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 1.0f), cover_.put()))) return false;
+    if (FAILED(context_->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.82f), ink_.put()))) return false;
+    // The caption and the wordmark are what explain the black rectangle, not
+    // what makes it work: a machine where either fails still gets the cover,
+    // which is the part somebody's privacy depends on.
+    DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
+                        reinterpret_cast<IUnknown**>(write_.put()));
+    LoadBranding();
+    return true;
+  }
+
+  /** The texture drawn into was replaced. */
+  void Invalidate() { target_ = nullptr; }
+
+  // `origin` is where the captured picture starts in screen coordinates — the
+  // monitor's top-left. Window captures never call this: what they contain is
+  // one window, and hiding another one out of it means nothing.
+  void Draw(ID3D11Texture2D* texture, const RECT& origin) {
+    if (!context_) return;
+    Refresh();
+    if (rects_.empty()) return;
+    if (!target_) {
+      winrt::com_ptr<IDXGISurface> surface;
+      if (FAILED(texture->QueryInterface(__uuidof(IDXGISurface), surface.put_void()))) return;
+      D2D1_BITMAP_PROPERTIES1 props = D2D1::BitmapProperties1(
+          D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+          D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE));
+      if (FAILED(context_->CreateBitmapFromDxgiSurface(surface.get(), &props, target_.put()))) return;
+    }
+    context_->SetTarget(target_.get());
+    context_->BeginDraw();
+    for (const RECT& rect : rects_) {
+      D2D1_RECT_F box = D2D1::RectF(static_cast<FLOAT>(rect.left - origin.left),
+                                    static_cast<FLOAT>(rect.top - origin.top),
+                                    static_cast<FLOAT>(rect.right - origin.left),
+                                    static_cast<FLOAT>(rect.bottom - origin.top));
+      context_->FillRectangle(box, cover_.get());
+      DrawLabel(box);
+    }
+    HRESULT hr = context_->EndDraw();
+    context_->SetTarget(nullptr);
+    if (FAILED(hr)) target_ = nullptr;
+  }
+
+ private:
+  // How often the windows are located again. Every frame would be honest and
+  // is not worth it: this walks the whole desktop, and at 60 fps the answer
+  // would be the same nine times out of ten. The cost of the gap is a window
+  // dragged fast showing through for a frame — see the class comment.
+  static const DWORD kScanMs = 60;
+  // How long a process id is trusted to still mean the program it meant.
+  // Windows reuses them, and a recycled id inheriting a "hide this" answer
+  // would black out an innocent window.
+  static const DWORD kPidCacheMs = 5000;
+  static const size_t kMaxRects = 64;
+  // 740x187, the wordmark's own proportions (see public/branding.png).
+  static constexpr FLOAT kBrandingAspect = 187.0f / 740.0f;
+
+  void Refresh() {
+    const DWORD now = GetTickCount();
+    if (scanned_ && now - lastScan_ < kScanMs) return;
+    lastScan_ = now;
+    scanned_ = true;
+    if (now - lastPurge_ > kPidCacheMs) {
+      matches_.clear();
+      lastPurge_ = now;
+    }
+    rects_.clear();
+    EnumWindows(Collect, reinterpret_cast<LPARAM>(this));
+  }
+
+  static BOOL CALLBACK Collect(HWND window, LPARAM param) {
+    reinterpret_cast<HiddenWindows*>(param)->Consider(window);
+    return TRUE;  // keep enumerating
+  }
+
+  void Consider(HWND window) {
+    if (rects_.size() >= kMaxRects) return;
+    if (!IsWindowVisible(window) || IsIconic(window)) return;
+    // Click-through overlays — a colour filter, an on-screen display — are
+    // full-screen windows holding nothing anybody reads. Covering one would
+    // black out the entire share on behalf of a program that shows nothing.
+    if (GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_TRANSPARENT) return;
+    BOOL cloaked = FALSE;
+    if (SUCCEEDED(DwmGetWindowAttribute(window, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked) return;
+    RECT rect = {};
+    if (!GetWindowRect(window, &rect)) return;
+    // Not DWMWA_EXTENDED_FRAME_BOUNDS, which is the smaller of the two: the
+    // window rectangle takes in the invisible resize border and the shadow,
+    // and erring large is the right direction for a cover.
+    if (rect.right - rect.left < 8 || rect.bottom - rect.top < 8) return;
+    if (!Matches(window)) return;
+    // Owned windows — a dialog, a menu, a preview popup — are included
+    // deliberately. They belong to the program being hidden and routinely
+    // hold exactly what somebody wanted off the stream.
+    rects_.push_back(rect);
+  }
+
+  bool Matches(HWND window) {
+    DWORD pid = 0;
+    GetWindowThreadProcessId(window, &pid);
+    if (pid == 0) return false;
+    auto known = matches_.find(pid);
+    if (known != matches_.end()) return known->second;
+
+    bool hit = false;
+    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (process) {
+      wchar_t image[MAX_PATH] = {};
+      DWORD size = ARRAYSIZE(image);
+      if (QueryFullProcessImageNameW(process, 0, image, &size)) {
+        const wchar_t* slash = wcsrchr(image, L'\\');
+        std::wstring exe = slash ? slash + 1 : image;
+        for (wchar_t& c : exe) c = static_cast<wchar_t>(std::towlower(c));
+        for (const std::wstring& wanted : names_) {
+          if (exe == wanted) {
+            hit = true;
+            break;
+          }
+        }
+      }
+      CloseHandle(process);
+    }
+    if (matches_.size() > 512) matches_.clear();
+    matches_[pid] = hit;
+    return hit;
+  }
+
+  // The caption, and the wordmark under it. Both are skipped when the window
+  // is too small to hold them legibly — a black square with a letter and a
+  // half in it reads as a glitch, and a plain black square reads as a cover.
+  void DrawLabel(const D2D1_RECT_F& box) {
+    const FLOAT width = box.right - box.left;
+    const FLOAT height = box.bottom - box.top;
+    if (width < 200.0f || height < 76.0f) return;
+
+    const FLOAT fontSize = std::min(34.0f, std::max(13.0f, height * 0.085f));
+    IDWriteTextFormat* format = Format(fontSize);
+    const FLOAT lineHeight = format ? fontSize * 1.4f : 0.0f;
+
+    FLOAT logoWidth = 0.0f;
+    FLOAT logoHeight = 0.0f;
+    if (branding_ && width >= 240.0f && height >= 130.0f) {
+      logoWidth = std::min(width * 0.42f, 260.0f);
+      logoHeight = logoWidth * kBrandingAspect;
+    }
+    if (lineHeight == 0.0f && logoHeight == 0.0f) return;
+
+    const FLOAT gap = lineHeight > 0.0f && logoHeight > 0.0f ? fontSize * 0.7f : 0.0f;
+    FLOAT top = box.top + (height - (lineHeight + gap + logoHeight)) / 2.0f;
+    if (format) {
+      D2D1_RECT_F line = D2D1::RectF(box.left, top, box.right, top + lineHeight);
+      // DrawTextW rather than DrawText: windows.h has already turned the
+      // latter into the former, and the method is declared through the same
+      // macro.
+      context_->DrawTextW(label_.c_str(), static_cast<UINT32>(label_.size()), format, line, ink_.get(),
+                          D2D1_DRAW_TEXT_OPTIONS_CLIP);
+      top += lineHeight + gap;
+    }
+    if (logoHeight > 0.0f) {
+      const FLOAT left = box.left + (width - logoWidth) / 2.0f;
+      D2D1_RECT_F dest = D2D1::RectF(left, top, left + logoWidth, top + logoHeight);
+      context_->DrawBitmap(branding_.get(), &dest, 0.85f, D2D1_INTERPOLATION_MODE_LINEAR, nullptr, nullptr);
+    }
+  }
+
+  // One format, remade when the size a window asks for changes. Windows being
+  // hidden are a handful at most, and rebuilding for each is cheaper than
+  // keeping a map of them.
+  IDWriteTextFormat* Format(FLOAT size) {
+    if (!write_) return nullptr;
+    const int wanted = static_cast<int>(size);
+    if (format_ && formatSize_ == wanted) return format_.get();
+    format_ = nullptr;
+    if (FAILED(write_->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD,
+                                        DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+                                        static_cast<FLOAT>(wanted), L"", format_.put()))) {
+      format_ = nullptr;
+      return nullptr;
+    }
+    format_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    format_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    format_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+    formatSize_ = wanted;
+    return format_.get();
+  }
+
+  // public/branding.png, compiled into this binary (see videocap.rc). A file
+  // read from disk would be one more thing to find at runtime, in a helper
+  // that is deliberately given nothing but its command line.
+  void LoadBranding() {
+    HRSRC found = FindResourceW(nullptr, MAKEINTRESOURCEW(kBrandingResource), RT_RCDATA);
+    if (!found) return;
+    HGLOBAL handle = LoadResource(nullptr, found);
+    const DWORD size = SizeofResource(nullptr, found);
+    void* bytes = handle ? LockResource(handle) : nullptr;
+    if (!bytes || size == 0) return;
+
+    winrt::com_ptr<IWICImagingFactory> wic;
+    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+                                __uuidof(IWICImagingFactory), wic.put_void()))) {
+      return;
+    }
+    winrt::com_ptr<IWICStream> stream;
+    if (FAILED(wic->CreateStream(stream.put()))) return;
+    if (FAILED(stream->InitializeFromMemory(static_cast<BYTE*>(bytes), size))) return;
+    winrt::com_ptr<IWICBitmapDecoder> decoder;
+    if (FAILED(wic->CreateDecoderFromStream(stream.get(), nullptr, WICDecodeMetadataCacheOnLoad, decoder.put()))) {
+      return;
+    }
+    winrt::com_ptr<IWICBitmapFrameDecode> frame;
+    if (FAILED(decoder->GetFrame(0, frame.put()))) return;
+    winrt::com_ptr<IWICFormatConverter> converter;
+    if (FAILED(wic->CreateFormatConverter(converter.put()))) return;
+    if (FAILED(converter->Initialize(frame.get(), GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr,
+                                     0.0, WICBitmapPaletteTypeMedianCut))) {
+      return;
+    }
+    D2D1_BITMAP_PROPERTIES1 props = D2D1::BitmapProperties1(
+        D2D1_BITMAP_OPTIONS_NONE, D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+    if (FAILED(context_->CreateBitmapFromWicBitmap(converter.get(), &props, branding_.put()))) branding_ = nullptr;
+  }
+
+  winrt::com_ptr<ID2D1Factory1> factory_;
+  winrt::com_ptr<ID2D1DeviceContext> context_;
+  winrt::com_ptr<ID2D1Bitmap1> target_;
+  winrt::com_ptr<ID2D1SolidColorBrush> cover_;
+  winrt::com_ptr<ID2D1SolidColorBrush> ink_;
+  winrt::com_ptr<IDWriteFactory> write_;
+  winrt::com_ptr<IDWriteTextFormat> format_;
+  winrt::com_ptr<ID2D1Bitmap1> branding_;
+  int formatSize_ = 0;
+
+  std::vector<std::wstring> names_;
+  std::wstring label_;
+  std::vector<RECT> rects_;
+  std::unordered_map<DWORD, bool> matches_;
+  DWORD lastScan_ = 0;
+  DWORD lastPurge_ = 0;
+  bool scanned_ = false;
+};
+
 // The DXGI output showing `monitor`, if it is on this device's adapter —
 // Desktop Duplication only works from a device on the adapter the monitor
 // is connected to.
@@ -1071,6 +1375,13 @@ class Capture {
   // that arrives while nothing on screen is changing (a capture delivers no
   // frames then, and the request would wait for the next one).
   void RequestRepeat() { repeatRequested_ = true; }
+
+  // The applications whose windows are painted over (see HiddenWindows).
+  // Called before the capture starts, so nothing races the first frame, and
+  // only for a monitor: `origin` is its top-left in screen coordinates.
+  void SetHiding(std::vector<std::wstring> names, std::wstring label, const RECT& origin) {
+    if (hidden_.Init(device_.get(), std::move(names), std::move(label))) hideOrigin_ = origin;
+  }
 
   void Stop() {
     stopping_ = true;
@@ -1194,6 +1505,9 @@ class Capture {
   void ComposeLocked() {
     if (!duplicating_) return;
     context_->CopyResource(input_.get(), clean_.get());
+    // The cover first, the pointer over it: a pointer hovering a hidden
+    // window is where the person's hand is, not something the window holds.
+    hidden_.Draw(input_.get(), hideOrigin_);
     if (cursorEnabled_) cursor_.Draw(input_.get(), monitorRect_);
   }
 
@@ -1234,6 +1548,11 @@ class Capture {
     if (!EnsureInput(width, height)) return;
     D3D11_BOX box = {0, 0, 0, width, height, 1};
     context_->CopySubresourceRegion(input_.get(), 0, 0, 0, 0, texture.get(), 0, &box);
+    // Graphics Capture keeps no clean/composed pair — every frame is copied
+    // into input_ whole — so the cover goes on here rather than in
+    // ComposeLocked, which would paint over an already-covered frame and
+    // leave the previous rectangles behind.
+    hidden_.Draw(input_.get(), hideOrigin_);
     haveInput_ = true;
     // Copied even when it is not sent yet: if the screen then goes still, the
     // newest picture is the one the repeater sends, not an older one.
@@ -1288,6 +1607,7 @@ class Capture {
     enumerator_ = nullptr;
     haveInput_ = false;
     cursor_.Invalidate();
+    hidden_.Invalidate();
 
     D3D11_TEXTURE2D_DESC desc = {};
     desc.Width = width;
@@ -1408,6 +1728,10 @@ class Capture {
   DXGI_MODE_ROTATION rotation_ = DXGI_MODE_ROTATION_UNSPECIFIED;
   RECT monitorRect_ = {0, 0, 0, 0};
   winrt::com_ptr<ID3D11Texture2D> clean_;
+  // Not under "Desktop Duplication": the cover is drawn on both paths, and
+  // its origin is the monitor's corner whichever one captured it.
+  HiddenWindows hidden_;
+  RECT hideOrigin_ = {0, 0, 0, 0};
   CursorOverlay cursor_;
   bool cursorEnabled_ = false;
   std::thread duplicator_;
@@ -1430,6 +1754,13 @@ struct Options {
   // For a monitor: Desktop Duplication first (the default), or straight to
   // Graphics Capture when the person picked it.
   bool duplication = true;
+  // Executables whose windows are painted over, lower-cased file names
+  // ("whatsapp.exe"), and what is written in the middle of the cover. The
+  // caption arrives on the command line rather than living here because this
+  // file is compiled without /utf-8 — an accented literal in the source would
+  // be read in the build machine's codepage and reach the screen mangled.
+  std::vector<std::wstring> hide;
+  std::wstring hideLabel = L"Oculto pelo usuario";
 };
 
 static bool ParseArgs(int argc, wchar_t** argv, Options& o) {
@@ -1466,6 +1797,15 @@ static bool ParseArgs(int argc, wchar_t** argv, Options& o) {
     } else if (arg == L"--cursor") {
       if (!next(value)) return false;
       o.cursor = value != 0;
+    } else if (arg == L"--hide") {
+      if (i + 1 >= argc) return false;
+      std::wstring name = argv[++i];
+      for (wchar_t& c : name) c = static_cast<wchar_t>(std::towlower(c));
+      if (!name.empty() && name.size() <= 260 && o.hide.size() < 32) o.hide.push_back(name);
+    } else if (arg == L"--hide-label") {
+      if (i + 1 >= argc) return false;
+      o.hideLabel = argv[++i];
+      if (o.hideLabel.size() > 80) o.hideLabel.resize(80);
     } else if (arg == L"--capture-method") {
       if (i + 1 >= argc) return false;
       std::wstring method = argv[++i];
@@ -1612,7 +1952,8 @@ int wmain(int argc, wchar_t** argv) {
   Options options;
   if (!ParseArgs(argc, argv, options)) {
     Log("usage: golive-videocap (--probe | (--window <hwnd> | --monitor <x> <y>) [--max-width n] "
-        "[--max-height n] [--fps n] [--bitrate kbps] [--cursor 0|1] [--capture-method duplication|wgc])");
+        "[--max-height n] [--fps n] [--bitrate kbps] [--cursor 0|1] [--capture-method duplication|wgc] "
+        "[--hide executable]... [--hide-label text])");
     return EXIT_BAD_ARGS;
   }
 
@@ -1683,10 +2024,14 @@ int wmain(int argc, wchar_t** argv) {
 
   winrt::Windows::Graphics::SizeInt32 size{0, 0};
   wgc::GraphicsCaptureItem item{nullptr};
+  // Where the captured picture starts on the desktop, which is what turns a
+  // hidden window's screen rectangle into one in the frame.
+  RECT monitorRect = {0, 0, 0, 0};
   if (monitor) {
     MONITORINFO info = {};
     info.cbSize = sizeof(info);
     if (!GetMonitorInfoW(monitor, &info)) return EXIT_TARGET_GONE;
+    monitorRect = info.rcMonitor;
     size.Width = info.rcMonitor.right - info.rcMonitor.left;
     size.Height = info.rcMonitor.bottom - info.rcMonitor.top;
   } else {
@@ -1711,6 +2056,12 @@ int wmain(int argc, wchar_t** argv) {
   std::thread encoderThread([&encoder] { encoder.Run(); });
 
   Capture capture(device.get(), &pool, &encoder);
+  // Only for a monitor. A window capture holds one window and nothing else,
+  // so there is nothing in it to hide — and blacking out the very window
+  // somebody chose to share would be the only thing it could do.
+  if (monitor && !options.hide.empty()) {
+    capture.SetHiding(options.hide, options.hideLabel, monitorRect);
+  }
   bool started = false;
   try {
     if (monitor && options.duplication) {

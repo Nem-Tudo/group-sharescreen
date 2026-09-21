@@ -9,7 +9,13 @@
 // loaded in that window has no business seeing it.
 
 import { contextBridge, ipcRenderer } from "electron";
-import { IPC, type PickerAudioApp, type PickerChoice, type PickerData } from "./channels";
+import {
+  IPC,
+  type PickerAudioApp,
+  type PickerChoice,
+  type PickerData,
+  type PickerHiddenApp,
+} from "./channels";
 
 contextBridge.exposeInMainWorld("picker", {
   list(): Promise<PickerData> {
@@ -19,6 +25,11 @@ contextBridge.exposeInMainWorld("picker", {
   // IPC.pickerAudioApps for why it is not part of list().
   audioApps(): Promise<PickerAudioApp[]> {
     return ipcRenderer.invoke(IPC.pickerAudioApps);
+  },
+  // Likewise on opening the "não mostrar estas janelas" panel, and likewise
+  // not before: it reads an icon out of every open application.
+  hiddenApps(): Promise<PickerHiddenApp[]> {
+    return ipcRenderer.invoke(IPC.pickerHiddenApps);
   },
   choose(choice: PickerChoice): void {
     ipcRenderer.send(IPC.pickerChoose, choice);

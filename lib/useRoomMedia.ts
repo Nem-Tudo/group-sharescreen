@@ -108,7 +108,10 @@ import { translate } from "@/lib/i18n";
 import { getDesktopBridge } from "./desktop";
 import { trackFeatureEvent, useFeature } from "./features";
 import {
+  HIDDEN_WINDOWS_EVENTS,
+  HIDDEN_WINDOWS_FEATURE,
   NATIVE_VIDEO_FEATURE,
+  setNativeVideoIntent,
   NATIVE_VIDEO_VARIANTS,
   hasNativeVideoBridge,
   nativeVideoPeerConfig,
@@ -3347,11 +3350,27 @@ export function useRoomMedia(room: string) {
     setStoredNativeVideoMethod(value);
     trackFeatureEvent(value === "wgc" ? SCREEN_SHARE_STATS.nativeMethodWgc : SCREEN_SHARE_STATS.nativeMethodDuplication);
   }, []);
+  // Keeping chosen applications out of the picture of a share — the picker's
+  // "não mostrar estas janelas" panel. Its own rollout, tracked where the
+  // control can actually appear: the panel is drawn by the desktop app's
+  // picker, and only when the helper is going to capture the share, so
+  // counting anybody else as exposed to it would be counting people who were
+  // never shown anything.
+  const hiddenWindowsFeature = useFeature(HIDDEN_WINDOWS_FEATURE, {
+    track: nativeVideoBridge && nativeVideoWanted,
+  });
+  const hiddenWindowsOn = nativeVideoBridge && nativeVideoWanted && hiddenWindowsFeature.enabled;
+
   const nativeVideoWantedRef = useRef(false);
   useEffect(() => {
     nativeVideoWantedRef.current = nativeVideoWanted;
     if (nativeVideoWanted) void probeNativeVideo();
   }, [nativeVideoWanted]);
+  // The shell decides what the picker offers, and it has to know before the
+  // picker opens — which is before any of this has been asked for.
+  useEffect(() => {
+    setNativeVideoIntent(hiddenWindowsOn);
+  }, [hiddenWindowsOn]);
 
   // Swaps Chromium's video track for the helper's when the experiment is on
   // and the helper starts; the share is otherwise returned as it was, so
@@ -3378,7 +3397,7 @@ export function useRoomMedia(room: string) {
       bitrateKbps: BITRATE_CEILING_KBPS[shareBitrateRef.current],
       captureMethod: nativeVideoMethodRef.current,
     };
-    const { source: native, failure } = await startNativeVideo(options);
+    const { source: native, failure, hidden } = await startNativeVideo(options);
     if (!native) {
       // Null failure: not tried at all (turned off for this session after an
       // earlier failure), which is not a new fallback to count.
@@ -3394,6 +3413,15 @@ export function useRoomMedia(room: string) {
     }
     stream.addTrack(native.track);
     setScreenStartConfig({ ...config, usedNative: true });
+    // The picker collected these in the shell, which has no way to reach the
+    // statistics; they come back with the start result instead. "Opened the
+    // panel" and "went through with it" are counted apart on purpose — the
+    // gap between them is the difference between a feature nobody wants and
+    // one nobody can find.
+    if (hidden?.panelOpened) trackFeatureEvent(HIDDEN_WINDOWS_EVENTS.open);
+    if (hidden && hidden.count > 0) {
+      trackFeatureEvent(HIDDEN_WINDOWS_EVENTS.share, { value: hidden.count });
+    }
     trackFeatureEvent(SCREEN_SHARE_STATS.nativeStart);
     trackEvent("screen_share_native_video", { encoder: native.encoder.slice(0, 60) });
     return stream;

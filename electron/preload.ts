@@ -321,6 +321,14 @@ contextBridge.exposeInMainWorld("golive", {
           return ipcRenderer.invoke(IPC.nativeVideoStart, options);
         },
 
+        // Whether a share from this page would be captured here at all. The
+        // picker reads it to decide whether to offer "não mostrar estas
+        // janelas", which only this capture can honour — see
+        // IPC.nativeVideoIntent.
+        setIntent(wanted: unknown): void {
+          ipcRenderer.send(IPC.nativeVideoIntent, wanted === true);
+        },
+
         control(command: unknown): void {
           if (!command || typeof command !== "object") return;
           const { bitrateKbps, keyFrame } = command as { bitrateKbps?: unknown; keyFrame?: unknown };

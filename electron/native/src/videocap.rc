@@ -38,3 +38,15 @@ END
 
 // RT_MANIFEST (24), resource id 1: the manifest for an .exe.
 1 24 "videocap.manifest"
+
+// The GoLive wordmark, drawn in the middle of a hidden window's cover (see
+// HiddenWindows in videocap.cpp). Compiled in rather than read from disk: this
+// helper is handed nothing but a command line, and a path to an asset is one
+// more thing that can go missing on a user's machine. The id must agree with
+// kBrandingResource in videocap.cpp.
+//
+// RCDATA because it is a PNG: the bitmap type rc knows about is .bmp only,
+// and WIC decodes this at startup anyway. The path is relative to src/, which
+// build.mjs passes to rc as an include directory, and the backslashes are
+// doubled because rc reads escape sequences inside a quoted string.
+101 RCDATA "..\\..\\..\\public\\branding.png"

@@ -34,6 +34,10 @@ on:
     paths:
       - "electron/native/src/**"
       - "electron/native/build.mjs"
+      # Compiled into golive-videocap by videocap.rc — it is drawn on the
+      # cover over a window somebody kept out of their share, so a new
+      # wordmark is a new binary (see sourceHash in build.mjs).
+      - "public/branding.png"
       - ".github/workflows/build-audiocap.yml"
   workflow_dispatch:
 

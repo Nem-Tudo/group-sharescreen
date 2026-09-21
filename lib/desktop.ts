@@ -271,13 +271,27 @@ export interface DesktopBridge {
       cursor?: boolean;
       captureMethod?: "duplication" | "wgc";
     }): Promise<
-      | { ok: true; width: number; height: number; encoder: string }
+      | {
+          ok: true;
+          width: number;
+          height: number;
+          encoder: string;
+          /** The windows this capture is covering — see setIntent. */
+          hidden?: { count: number; panelOpened: boolean };
+        }
       | {
           ok: false;
           reason: "unsupported" | "no-source" | "timeout" | "no-frames" | "failed";
           detail?: string;
         }
     >;
+    /**
+     * Whether a share from this page would be captured by the helper at all.
+     * The screen picker reads it to decide whether to offer "não mostrar
+     * estas janelas", which is something only this capture can do — see
+     * HiddenWindows in electron/native/src/videocap.cpp.
+     */
+    setIntent(wanted: boolean): void;
     control(command: { bitrateKbps?: number; keyFrame?: boolean }): void;
     stop(): void;
     /**

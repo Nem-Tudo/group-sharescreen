@@ -216,6 +216,77 @@
         font-size: 12px;
       }
       .app .hint { color: var(--muted); font-size: 10px; flex: none; }
+
+      /* "Não mostrar estas janelas" --------------------------------------- */
+      footer button.hide {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border-radius: 8px;
+        font-size: 12px;
+        border-color: transparent;
+        color: var(--muted);
+      }
+      footer button.hide:hover:not(:disabled) { border-color: var(--border); color: var(--text); }
+      footer button.hide:disabled { opacity: 0.45; cursor: not-allowed; }
+      footer button.hide[aria-expanded="true"] {
+        border-color: var(--border);
+        background: var(--panel);
+        color: var(--text);
+      }
+      /* The count, so the state is readable without opening the panel —
+         something hidden is a thing people need to be reminded of, not a
+         setting they should have to go and check. */
+      footer button.hide .count {
+        min-width: 16px;
+        padding: 0 5px;
+        border-radius: 999px;
+        background: var(--accent);
+        color: #fff;
+        font-size: 10px;
+        font-weight: 700;
+        line-height: 16px;
+        text-align: center;
+      }
+      #hide-panel {
+        position: absolute;
+        left: 20px;
+        bottom: 60px;
+        z-index: 2;
+        width: 360px;
+        max-height: min(380px, calc(100vh - 140px));
+        display: flex;
+        flex-direction: column;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+      }
+      #hide-panel h2 {
+        margin: 0;
+        padding: 12px 14px 0;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      #hide-panel p {
+        margin: 4px 0 0;
+        padding: 0 14px 10px;
+        font-size: 11px;
+        color: var(--muted);
+        border-bottom: 1px solid var(--border);
+      }
+      /* The limits, spelled out where the decision is made rather than in a
+         help page nobody opens. This control is about somebody's privacy and
+         it is not airtight — see HiddenWindows in videocap.cpp. */
+      #hide-panel .caveat {
+        margin: 0;
+        padding: 9px 14px;
+        border-bottom: none;
+        border-top: 1px solid var(--border);
+        font-size: 10.5px;
+        line-height: 1.45;
+      }
     </style>
   </head>
   <body>
@@ -236,7 +307,38 @@
       <div class="apps" id="audio-apps"></div>
     </div>
 
+    <div id="hide-panel" hidden role="dialog" aria-label="Não mostrar estas janelas">
+      <h2>Não mostrar estas janelas</h2>
+      <p>
+        Apps abertos agora. Marque um para as janelas dele saírem cobertas por um retângulo
+        preto — só na transmissão; na sua tela nada muda.
+      </p>
+      <div class="apps" id="hide-apps"></div>
+      <p class="caveat">
+        É o retângulo da janela: o que estiver por cima dela também fica coberto, e ao
+        arrastar a janela bem rápido ela pode aparecer por um instante. Vale para telas
+        inteiras — ao compartilhar só uma janela, nada mais entra nela.
+      </p>
+    </div>
+
     <footer>
+      <button
+        type="button"
+        id="hide-toggle"
+        class="hide"
+        aria-expanded="false"
+        hidden
+      >
+        <!-- Inline so the restrictive CSP needs no exception for it. -->
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 3l18 18"></path>
+          <path d="M10.6 5.1A9.6 9.6 0 0 1 12 5c5 0 9 4.5 10 7a13.5 13.5 0 0 1-3.2 4.2"></path>
+          <path d="M6.6 6.6A13.6 13.6 0 0 0 2 12c1 2.5 5 7 10 7a9.8 9.8 0 0 0 4.3-1"></path>
+          <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"></path>
+        </svg>
+        <span>Não mostrar janelas</span>
+        <span class="count" id="hide-count" hidden>0</span>
+      </button>
       <div id="audio-row" hidden>
         <label>
           <input type="checkbox" id="audio-toggle" />
@@ -274,6 +376,10 @@
         var panel = document.getElementById("audio-panel");
         var backdrop = document.getElementById("backdrop");
         var appList = document.getElementById("audio-apps");
+        var hideBtn = document.getElementById("hide-toggle");
+        var hidePanel = document.getElementById("hide-panel");
+        var hideList = document.getElementById("hide-apps");
+        var hideCount = document.getElementById("hide-count");
 
         var sources = [];
         var tab = "screen";
@@ -293,6 +399,17 @@
         var listed = null;
         var appsLoaded = false;
 
+        // The same three-way distinction as the mute list above, for the same
+        // reason: null means "never opened the panel", which main answers by
+        // leaving the saved list alone, and is not the same as an empty list.
+        var hiddenApps = null;
+        var hiddenListed = null;
+        var hiddenLoaded = false;
+        var hiddenOpened = false;
+        // What was saved before this picker opened, for the badge — the panel
+        // has not been read yet and the count still has to be right.
+        var hiddenSaved = 0;
+
         function choose(id) {
           // Guarded because "closed" also settles the request in main: a
           // double send would be answered by nobody, which is harmless but
@@ -306,6 +423,13 @@
             if (muted) {
               choice.audio.muted = muted;
               choice.audio.listed = listed;
+            }
+            if (hiddenOpened) {
+              choice.hidden = { opened: true };
+              if (hiddenApps) {
+                choice.hidden.apps = hiddenApps;
+                choice.hidden.listed = hiddenListed;
+              }
             }
           }
           window.picker.choose(choice);
@@ -353,6 +477,7 @@
             card.addEventListener("click", function () {
               selectedId = source.id;
               confirmBtn.disabled = false;
+              syncHideControl();
               render();
             });
             // Double-click is the gesture people expect to mean "this one,
@@ -467,6 +592,133 @@
           );
         }
 
+        // --- hidden windows -------------------------------------------------
+
+        function updateHideCount() {
+          var count = hiddenApps ? hiddenApps.length : hiddenSaved;
+          hideCount.textContent = String(count);
+          hideCount.hidden = count === 0;
+        }
+
+        function renderHiddenApps(apps) {
+          hideList.textContent = "";
+          if (apps.length === 0) {
+            var status = document.createElement("p");
+            status.className = "status";
+            status.textContent = "Nenhum app aberto agora.";
+            hideList.appendChild(status);
+            return;
+          }
+          apps.forEach(function (entry) {
+            var row = document.createElement("label");
+            row.className = "app";
+
+            var box = document.createElement("input");
+            box.type = "checkbox";
+            // Marked means hidden. The opposite of the audio panel above,
+            // and deliberately so: there the list is of things being shared
+            // and you unmark to remove one, here the list is of things being
+            // covered and marking one is what puts it there.
+            box.checked = entry.hidden;
+            box.addEventListener("change", function () {
+              if (box.checked) {
+                if (hiddenApps.indexOf(entry.key) === -1) hiddenApps.push(entry.key);
+              } else {
+                hiddenApps = hiddenApps.filter(function (key) {
+                  return key !== entry.key;
+                });
+              }
+              updateHideCount();
+            });
+            row.appendChild(box);
+
+            if (entry.icon) {
+              var icon = document.createElement("img");
+              icon.src = entry.icon;
+              icon.alt = "";
+              row.appendChild(icon);
+            } else {
+              var placeholder = document.createElement("span");
+              placeholder.className = "noicon";
+              row.appendChild(placeholder);
+            }
+
+            var name = document.createElement("span");
+            name.className = "name";
+            name.textContent = entry.name;
+            name.title = entry.name;
+            row.appendChild(name);
+
+            hideList.appendChild(row);
+          });
+        }
+
+        function loadHiddenApps() {
+          if (hiddenLoaded) return;
+          hiddenLoaded = true;
+          hideList.textContent = "";
+          var status = document.createElement("p");
+          status.className = "status";
+          status.textContent = "Procurando apps abertos…";
+          hideList.appendChild(status);
+          window.picker.hiddenApps().then(
+            function (apps) {
+              hiddenListed = apps.map(function (entry) {
+                return entry.key;
+              });
+              hiddenApps = apps
+                .filter(function (entry) {
+                  return entry.hidden;
+                })
+                .map(function (entry) {
+                  return entry.key;
+                });
+              renderHiddenApps(apps);
+              updateHideCount();
+            },
+            function () {
+              // Retryable: read fresh the next time the panel is opened,
+              // rather than being stuck on the error.
+              hiddenLoaded = false;
+              hideList.textContent = "";
+              var failed = document.createElement("p");
+              failed.className = "status";
+              failed.textContent = "Não foi possível ler a lista de apps.";
+              hideList.appendChild(failed);
+            }
+          );
+        }
+
+        // Screens only. A window share carries the one window that was
+        // chosen, so there is nothing in it to cover — and the helper ignores
+        // the list there. Disabled and explained rather than hidden: a
+        // control that vanishes when you select a card reads as a bug, and
+        // the reason is the useful part.
+        function syncHideControl() {
+          var source = selectedId
+            ? sources.filter(function (s) {
+                return s.id === selectedId;
+              })[0]
+            : null;
+          var windowShare = Boolean(source) && source.kind === "window";
+          hideBtn.disabled = windowShare;
+          hideBtn.title = windowShare
+            ? "Ao compartilhar uma janela só, nada além dela entra na transmissão."
+            : "Escolha apps que não devem aparecer na transmissão.";
+          if (windowShare) openHidePanel(false);
+        }
+
+        function openHidePanel(open) {
+          hidePanel.hidden = !open;
+          backdrop.hidden = !open;
+          hideBtn.setAttribute("aria-expanded", String(open));
+          if (open) {
+            hiddenOpened = true;
+            openPanel(false);
+            loadHiddenApps();
+          }
+        }
+
         function openPanel(open) {
           panel.hidden = !open;
           backdrop.hidden = !open;
@@ -481,10 +733,16 @@
         }
 
         gear.addEventListener("click", function () {
+          // One popover at a time: they share a backdrop and the same corner.
+          if (panel.hidden) openHidePanel(false);
           openPanel(panel.hidden);
+        });
+        hideBtn.addEventListener("click", function () {
+          openHidePanel(hidePanel.hidden);
         });
         backdrop.addEventListener("click", function () {
           openPanel(false);
+          openHidePanel(false);
         });
         audioToggle.addEventListener("change", syncAudioControls);
 
@@ -510,12 +768,13 @@
           // Escape closes the popover first: dismissing the whole picker
           // because someone wanted to back out of a panel would throw away
           // the source they had already chosen.
-          if (e.key === "Escape" && !panel.hidden) {
+          if (e.key === "Escape" && (!panel.hidden || !hidePanel.hidden)) {
             openPanel(false);
+            openHidePanel(false);
             return;
           }
           if (e.key === "Escape") choose(null);
-          if (e.key === "Enter" && selectedId && panel.hidden) choose(selectedId);
+          if (e.key === "Enter" && selectedId && panel.hidden && hidePanel.hidden) choose(selectedId);
         });
 
         window.picker.list().then(function (data) {
@@ -538,6 +797,14 @@
           // of it, so the gear would open a panel that cannot do anything.
           gear.hidden = !data.audio.perApp;
           syncAudioControls();
+
+          // Only where a share from this machine is actually going to be
+          // captured by the helper — nothing else can cover a window, and a
+          // control that said otherwise would be a promise the share breaks.
+          hideBtn.hidden = !(data.video && data.video.supported);
+          hiddenSaved = (data.video && data.video.hiddenCount) || 0;
+          updateHideCount();
+          syncHideControl();
 
           // Open on the tab holding the pre-selected source, so a remembered
           // *window* is visible rather than selected behind the Telas tab

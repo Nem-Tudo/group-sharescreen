@@ -18,8 +18,15 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { NativeFrameReader } from "../lib/nativeVideoFrames";
 import { IPC, type NativeVideoStartOptions, type NativeVideoStartResult } from "./channels";
+import { getHiddenWindowSettings } from "./videoSettings";
 
 const HELPER = "golive-videocap.exe";
+// What is written across a window kept out of the share (see HiddenWindows in
+// videocap.cpp; the wordmark under it is drawn from the helper's own
+// resources). Sent on the command line rather than compiled in, so the one
+// place this text exists is here, in the shell, with the rest of the app's
+// Portuguese.
+const HIDDEN_LABEL = "Oculto pelo usuário";
 const READY_TIMEOUT_MS = 6000;
 // How long after READY the first encoded frame may take. READY means the
 // capture and the encoder are set up, not that the encoder produces anything
@@ -95,6 +102,34 @@ export function probeNativeVideo(): Promise<NativeVideoProbe> {
 }
 
 // ---------------------------------------------------------------------------
+// Whether the page is going to use this at all
+
+// Set by the renderer (see IPC.nativeVideoIntent), and read by the picker,
+// which has to decide whether to offer "não mostrar estas janelas" *before*
+// any share has started. False until the page says otherwise: on Chromium's
+// own capture nothing can be covered, and a panel that promised otherwise
+// would be worse than no panel at all.
+let nativeWanted = false;
+
+export function setNativeVideoIntent(wanted: boolean): void {
+  nativeWanted = wanted;
+}
+
+export function willUseNativeVideo(): boolean {
+  return nativeWanted;
+}
+
+// Whether the hide panel was opened on the way to the share that is about to
+// start. Handed to the page with the start result and cleared there: it is a
+// fact about one trip through the picker, and reporting it again on the next
+// share would count one person's curiosity twice.
+let hiddenPanelOpened = false;
+
+export function rememberHiddenPanelOpened(opened: boolean): void {
+  hiddenPanelOpened = opened;
+}
+
+// ---------------------------------------------------------------------------
 // Which surface
 
 let lastSource: { id: string; displayId: string } | null = null;
@@ -166,6 +201,16 @@ export async function startNativeVideo(
     options.captureMethod === "wgc" ? "wgc" : "duplication",
   ];
 
+  // The applications whose windows are painted over. Only on a screen share:
+  // a window capture contains the one window that was picked and nothing
+  // else, so there is nothing in it to hide — and the helper refuses the
+  // argument there anyway.
+  const hiddenApps = source?.id.startsWith("screen:") ? getHiddenWindowSettings().hiddenApps : [];
+  for (const key of hiddenApps) args.push("--hide", key);
+  if (hiddenApps.length > 0) args.push("--hide-label", HIDDEN_LABEL);
+  const hidden = { count: hiddenApps.length, panelOpened: hiddenPanelOpened };
+  hiddenPanelOpened = false;
+
   let child: ChildProcessWithoutNullStreams;
   try {
     child = spawn(helperPath(), args, { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
@@ -231,7 +276,7 @@ export async function startNativeVideo(
       // The first frame, not READY, is what makes this a capture the page can
       // use. Frames before the page has heard back are still sent: it
       // subscribes before it asks, and asks for a fresh IDR anyway.
-      if (frames.length > 0 && ready && !settled) settle({ ok: true, ...ready });
+      if (frames.length > 0 && ready && !settled) settle({ ok: true, ...ready, hidden });
       for (const frame of frames) {
         const { data: payload, ...meta } = frame;
         target.send(IPC.nativeVideoFrame, meta, payload);

@@ -50,6 +50,7 @@ import {
   type PickerAudioApp,
   type PickerChoice,
   type PickerData,
+  type PickerHiddenApp,
   type PickerSource,
   type ToastAction,
   type ToastInfo,
@@ -74,10 +75,11 @@ import {
 import { getSavedShareSource, saveShareSource } from "./shareSource.js";
 import {
   getSystemAudioSettings,
-  normalizeMutedApps,
+  normalizeAppKeys,
   ownAppKey,
   saveSystemAudioSettings,
 } from "./audioSettings";
+import { getHiddenWindowSettings, saveHiddenWindowSettings } from "./videoSettings";
 import {
   applySystemAudioSettings,
   isSystemAudioCapturing,
@@ -91,9 +93,12 @@ import {
   controlNativeVideo,
   isNativeVideoAvailable,
   probeNativeVideo,
+  rememberHiddenPanelOpened,
   rememberSharedSource,
+  setNativeVideoIntent,
   startNativeVideo,
   stopNativeVideo,
+  willUseNativeVideo,
 } from "./nativeVideo";
 
 // Where the UI comes from. Overridable so `npm run electron:dev` can point at
@@ -248,6 +253,8 @@ function handleDeepLink(rawUrl: string) {
 interface ResolvedChoice {
   id: string | null;
   audio: { enabled: boolean; mutedApps: string[] } | null;
+  /** The windows to keep out of the picture, or null when nothing said. */
+  hidden: { hiddenApps: string[]; panelOpened: boolean } | null;
 }
 
 interface PickResult {
@@ -255,6 +262,8 @@ interface PickResult {
   source: DesktopCapturerSource | null;
   /** The audio settings as confirmed, or null on a dismissal. */
   audio: ResolvedChoice["audio"];
+  /** The hidden-window settings as confirmed, or null on a dismissal. */
+  hidden: ResolvedChoice["hidden"];
 }
 
 // Shown only when the OS has no picker of its own (see useSystemPicker
@@ -322,7 +331,11 @@ async function pickSource(parent: BrowserWindow | null): Promise<PickResult> {
     thumbnailSize: { width: 320, height: 200 },
     fetchWindowIcons: true,
   });
-  if (sources.length === 0) return { source: null, audio: null };
+  if (sources.length === 0) return { source: null, audio: null, hidden: null };
+  // Whether covering a window is on the table at all. Both halves matter and
+  // neither is guessable from the other: the machine has to be able to run
+  // the helper, and the page has to actually be going to use it.
+  const canHide = willUseNativeVideo() && (await probeNativeVideo()).supported;
 
   const picker = new BrowserWindow({
     parent: parent ?? undefined,
@@ -369,6 +382,10 @@ async function pickSource(parent: BrowserWindow | null): Promise<PickResult> {
       perApp: isSystemAudioExclusionSupported(),
       enabled: getSystemAudioSettings().enabled,
     },
+    video: {
+      supported: canHide,
+      hiddenCount: canHide ? getHiddenWindowSettings().hiddenApps.length : 0,
+    },
   };
 
   return new Promise((resolve) => {
@@ -378,17 +395,20 @@ async function pickSource(parent: BrowserWindow | null): Promise<PickResult> {
       settled = true;
       ipcMain.removeHandler(IPC.pickerList);
       ipcMain.removeHandler(IPC.pickerAudioApps);
+      ipcMain.removeHandler(IPC.pickerHiddenApps);
       ipcMain.removeAllListeners(IPC.pickerChoose);
       if (!picker.isDestroyed()) picker.close();
       const id = choice?.id ?? null;
       resolve({
         source: sources.find((s) => s.id === id) ?? null,
         audio: choice?.audio ?? null,
+        hidden: choice?.hidden ?? null,
       });
     };
 
     ipcMain.handle(IPC.pickerList, () => data);
     ipcMain.handle(IPC.pickerAudioApps, () => audioAppRows());
+    ipcMain.handle(IPC.pickerHiddenApps, () => hiddenAppRows());
     ipcMain.on(IPC.pickerChoose, (_event, choice: unknown) => {
       finish(readPickerChoice(choice));
     });
@@ -450,6 +470,36 @@ async function audioAppRows(): Promise<PickerAudioApp[]> {
   });
 }
 
+// The rows of the picker's "não mostrar estas janelas" panel: the
+// applications that have a window open right now.
+//
+// Only --list-windows here, where the audio panel also takes in whatever is
+// holding an audio stream. The question is different: this hides *windows*,
+// so a music player minimised to the tray has nothing for it to act on, and
+// listing one would offer a switch that does nothing.
+//
+// GoLive is an ordinary row. Unlike its audio one — where muting itself is
+// structural and cannot be turned off — hiding the GoLive window from your
+// own share is a perfectly reasonable thing to want, and it is the room's
+// faces and chat, which is exactly the kind of thing this feature is for.
+async function hiddenAppRows(): Promise<PickerHiddenApp[]> {
+  const hidden = new Set(getHiddenWindowSettings().hiddenApps);
+  const rows = new Map<string, PickerHiddenApp>();
+  for (const entry of await listOpenApps()) {
+    if (rows.has(entry.key)) continue;
+    rows.set(entry.key, {
+      key: entry.key,
+      name: entry.self ? "Go Live" : entry.name,
+      icon: await fileIcon(entry.path),
+      hidden: hidden.has(entry.key),
+    });
+  }
+  // Alphabetical, which is the only order somebody can predict: the
+  // enumeration's own is window z-order, and a list that reshuffles itself
+  // between openings is one nobody can find anything in twice.
+  return [...rows.values()].sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+}
+
 async function fileIcon(exePath: string): Promise<string | null> {
   try {
     const icon = await app.getFileIcon(exePath, { size: "small" });
@@ -469,11 +519,29 @@ function readPickerChoice(value: unknown): ResolvedChoice | null {
   if (!value || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
   const id = typeof record.id === "string" ? record.id : null;
+  const hidden = readHiddenChoice(record.hidden as PickerChoice["hidden"]);
   const audio = record.audio as PickerChoice["audio"] | undefined;
-  if (!audio || typeof audio !== "object") return { id, audio: null };
+  if (!audio || typeof audio !== "object") return { id, audio: null, hidden };
   return {
     id,
     audio: { enabled: audio.enabled !== false, mutedApps: mergeMutedApps(audio) },
+    hidden,
+  };
+}
+
+// The same shape as mergeMutedApps, and for the same reason: the panel edits
+// the applications it could show, which is only the ones open, and everything
+// else the person had hidden is carried over untouched. An absent `apps`
+// means the panel was never opened, which changes nothing.
+function readHiddenChoice(hidden: PickerChoice["hidden"]): ResolvedChoice["hidden"] {
+  if (!hidden || typeof hidden !== "object") return null;
+  const saved = getHiddenWindowSettings().hiddenApps;
+  if (!Array.isArray(hidden.apps)) return { hiddenApps: saved, panelOpened: hidden.opened === true };
+  const listed = new Set(normalizeAppKeys(hidden.listed ?? []));
+  const kept = saved.filter((key) => !listed.has(key));
+  return {
+    hiddenApps: [...new Set([...kept, ...normalizeAppKeys(hidden.apps)])],
+    panelOpened: hidden.opened === true,
   };
 }
 
@@ -487,9 +555,9 @@ function readPickerChoice(value: unknown): ResolvedChoice | null {
 function mergeMutedApps(audio: NonNullable<PickerChoice["audio"]>): string[] {
   const saved = getSystemAudioSettings().mutedApps;
   if (!Array.isArray(audio.muted)) return saved;
-  const listed = new Set(normalizeMutedApps(audio.listed ?? []));
+  const listed = new Set(normalizeAppKeys(audio.listed ?? []));
   const kept = saved.filter((key) => !listed.has(key));
-  return [...new Set([...kept, ...normalizeMutedApps(audio.muted)])];
+  return [...new Set([...kept, ...normalizeAppKeys(audio.muted)])];
 }
 
 // What the page may ask the GPU capture for, checked here because it arrives
@@ -637,7 +705,7 @@ function installDisplayMediaHandler() {
             return;
           }
         }
-        const { source, audio } = await pickSource(mainWindow);
+        const { source, audio, hidden } = await pickSource(mainWindow);
         // Saved only on a confirmed share. Dismissing the picker calls the
         // whole thing off, and a setting the user changed on their way to
         // cancelling was never applied to anything.
@@ -650,6 +718,13 @@ function installDisplayMediaHandler() {
         // systemAudio.ts.
         if (source && audio) {
           applySystemAudioSettings(saveSystemAudioSettings(audio));
+        }
+        // No "apply to this share" counterpart: the cover is drawn by the
+        // capture helper, which the page starts *after* this answer, so
+        // saving here is already in time for the share being set up.
+        if (source && hidden) {
+          saveHiddenWindowSettings({ hiddenApps: hidden.hiddenApps });
+          rememberHiddenPanelOpened(hidden.panelOpened);
         }
         // Remembered on a confirmed share only, for the same reason the audio
         // settings are: a source highlighted on the way to pressing cancel
@@ -1752,6 +1827,12 @@ if (!gotLock) {
       });
     });
     ipcMain.on(IPC.nativeVideoStop, () => stopNativeVideo());
+    // Not origin-checked into a refusal but into a "no": anything that is not
+    // our page saying yes leaves the picker without the hide panel, which is
+    // the safe side of this particular switch.
+    ipcMain.on(IPC.nativeVideoIntent, (event, wanted: unknown) => {
+      setNativeVideoIntent(event.sender.getURL().startsWith(APP_ORIGIN) && wanted === true);
+    });
 
     // The background switches, as the website's settings page reads and
     // writes them. Origin-checked like every other capability here: these
