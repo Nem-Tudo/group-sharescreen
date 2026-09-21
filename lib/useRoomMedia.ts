@@ -107,6 +107,7 @@ import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
 import { getDesktopBridge } from "./desktop";
 import { trackFeatureEvent, useFeature } from "./features";
+import { GPU_SURVEY_FEATURE, noteGpuShareStarted } from "./gpuShareSurvey";
 import {
   HIDDEN_WINDOWS_EVENTS,
   HIDDEN_WINDOWS_FEATURE,
@@ -3361,6 +3362,15 @@ export function useRoomMedia(room: string) {
   });
   const hiddenWindowsOn = nativeVideoBridge && nativeVideoWanted && hiddenWindowsFeature.enabled;
 
+  // "A transmissão por GPU ficou melhor?", asked once after a long one (see
+  // lib/gpuShareSurvey.ts). Tracked where it can actually be shown — only
+  // somebody capturing on the GPU is ever asked — so the exposure count is
+  // the people who could see it rather than everybody in a room.
+  const gpuSurveyFeature = useFeature(GPU_SURVEY_FEATURE, {
+    track: nativeVideoBridge && nativeVideoWanted,
+  });
+  const gpuSurveyOn = nativeVideoBridge && gpuSurveyFeature.enabled;
+
   const nativeVideoWantedRef = useRef(false);
   useEffect(() => {
     nativeVideoWantedRef.current = nativeVideoWanted;
@@ -3413,6 +3423,15 @@ export function useRoomMedia(room: string) {
     }
     stream.addTrack(native.track);
     setScreenStartConfig({ ...config, usedNative: true });
+    // Armed here rather than in the survey module's own timer: this is the
+    // one place that knows the share is on the GPU *and* what it was set to,
+    // which is the context the answers are read next to.
+    noteGpuShareStarted(gpuSurveyOn, {
+      encoder: native.encoder,
+      method: nativeVideoMethodRef.current,
+      resolution: `${dims.width}x${dims.height}`,
+      fps: shareFpsRef.current,
+    });
     // The picker collected these in the shell, which has no way to reach the
     // statistics; they come back with the start result instead. "Opened the
     // panel" and "went through with it" are counted apart on purpose — the
@@ -3425,7 +3444,7 @@ export function useRoomMedia(room: string) {
     trackFeatureEvent(SCREEN_SHARE_STATS.nativeStart);
     trackEvent("screen_share_native_video", { encoder: native.encoder.slice(0, 60) });
     return stream;
-  }, [nativeVideoBridge]);
+  }, [nativeVideoBridge, gpuSurveyOn]);
 
   const screen = useBroadcastChannel(
     "screen",

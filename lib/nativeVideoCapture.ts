@@ -43,6 +43,7 @@
 // instead of the per-viewer tiers of the ordinary path.
 
 import { getDesktopBridge } from "./desktop";
+import { noteGpuShareEnded } from "./gpuShareSurvey";
 import {
   ParameterSetKeeper,
   codecStringFromSps,
@@ -324,6 +325,10 @@ export class NativeVideoSource {
   stop(): void {
     if (this.stopped) return;
     this.stopped = true;
+    // Every way a GPU share ends comes through here — the button in the room,
+    // Windows' own "parar de compartilhar", the helper dying — which is why
+    // the survey is armed from here and not from the room's stop handler.
+    noteGpuShareEnded();
     clearInterval(this.bitrateTimer);
     this.unsubscribe();
     this.bridge.stop();

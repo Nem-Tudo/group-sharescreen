@@ -258,6 +258,7 @@ import { StreamerModeModal } from "@/components/StreamerModeModal";
 import { UpdateAppButton } from "@/components/UpdateAppButton";
 import { AccountModal } from "@/components/AccountModal";
 import { GuestBroadcastLimitModal } from "@/components/GuestBroadcastLimitModal";
+import { GpuShareSurveyModal } from "@/components/GpuShareSurveyModal";
 import { MobileScreenShareModal } from "@/components/MobileScreenShareModal";
 import { GUEST_FEATURES, accountTierOf, hasFeature, isThemeBanned, tierAtLeast } from "@/lib/entitlements";
 import { PartnerMediaTile } from "@/components/PartnerMediaTile";
@@ -8706,6 +8707,11 @@ export function WatchRoom({
         onCreateAccount={() => setAccountModal("create")}
         onClose={() => signalingClient.clearGuestBroadcastLimit()}
       />
+
+      {/* "A transmissao por GPU ficou melhor?", after a long one. Decides for
+          itself whether there is anything to ask and whether this person is
+          on the experiment — see lib/gpuShareSurvey.ts. */}
+      <GpuShareSurveyModal />
 
       <KeyboardShortcutsModal
         open={shortcutsModalOpen}
