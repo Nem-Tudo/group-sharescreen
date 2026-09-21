@@ -32,6 +32,10 @@ export type EmbeddedPlayer = {
   nextVideo?: () => void;
   previousVideo?: () => void;
   getPlaylist?: () => string[];
+  // Swapping what is playing without building another iframe — how the room's
+  // own queue advances (see MusicBar). A rebuilt embed costs a second of
+  // silence between tracks and re-runs every autoplay gate; this doesn't.
+  loadVideoById?: (options: { videoId: string; startSeconds?: number }) => void;
   // What is playing right now, which for a playlist changes under us as the
   // queue advances — the only way to put a track's name on screen without
   // asking YouTube's Data API (and carrying a key for it).

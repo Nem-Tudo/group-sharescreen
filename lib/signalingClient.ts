@@ -2,7 +2,7 @@
 
 import { trackEvent } from "./analytics";
 import type { VideoSource, VideoSourceKind } from "./videoSource";
-import type { MusicSource, MusicSourceKind } from "./musicSource";
+import type { MusicControlMode, MusicSource, MusicSourceKind } from "./musicSource";
 import type { Announcement } from "./announcement";
 import { readEmbeds, type MessageEmbed } from "./messageEmbeds";
 import type { Partner } from "./partner";
@@ -3302,13 +3302,49 @@ class SignalingClient {
   // one — and all three are refused server-side for anyone who isn't a room
   // manager with a real account, so the UI gating these is a courtesy rather
   // than the rule.
-  setMusicSource(kind: MusicSourceKind, url: string, controlMode: "owner" | "anyone") {
+  setMusicSource(kind: MusicSourceKind, url: string, controlMode: MusicControlMode) {
     this.rawSend({ type: "music-set", kind, url, controlMode });
+  }
+
+  // Pondo música a partir de uma lista de faixas, que é o que uma importação
+  // do Spotify produz (ver lib/musicImportApi.ts). Mesmos dois portões do
+  // setMusicSource: isto substitui a trilha da sala.
+  setMusicQueue(tracks: { videoId: string; title?: string }[], controlMode: MusicControlMode) {
+    this.rawSend({ type: "music-set-queue", tracks, controlMode });
+  }
+
+  // O primeiro cliente cujo player listou a playlist do YouTube entrega os
+  // ids, e a sala passa a tocar a própria fila com as mesmas músicas, no mesmo
+  // lugar. Só é aceito enquanto a fila está vazia (ver o servidor).
+  importMusicPlaylist(id: string, tracks: { videoId: string; title?: string }[]) {
+    this.rawSend({ type: "music-queue-import", id, tracks });
+  }
+
+  /** Um link colado, ou faixas já resolvidas, no fim da fila. */
+  addMusicToQueue(input: { url?: string; title?: string; tracks?: { videoId: string; title?: string }[] }) {
+    this.rawSend({ type: "music-queue-add", ...input });
+  }
+
+  removeMusicFromQueue(trackId: string) {
+    this.rawSend({ type: "music-queue-remove", trackId });
+  }
+
+  /** Arrastar: `index` é a posição na ordem que a pessoa está vendo. */
+  moveMusicInQueue(trackId: string, index: number) {
+    this.rawSend({ type: "music-queue-move", trackId, index });
+  }
+
+  playMusicTrack(id: string, trackId: string) {
+    this.rawSend({ type: "music-queue-play", id, trackId });
+  }
+
+  setMusicShuffle(on: boolean) {
+    this.rawSend({ type: "music-queue-shuffle", on });
   }
 
   // Changed on the music already playing, so handing the decks over doesn't
   // mean taking the track off and starting it again.
-  setMusicControlMode(controlMode: "owner" | "anyone") {
+  setMusicControlMode(controlMode: MusicControlMode) {
     this.rawSend({ type: "music-control-mode", controlMode });
   }
 

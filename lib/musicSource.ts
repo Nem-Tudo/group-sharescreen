@@ -26,6 +26,20 @@ import { parseYouTubeSource } from "./videoSource";
 // in MusicBar rather than a change of shape everywhere.
 export type MusicSourceKind = "youtube";
 
+// Uma faixa da fila da sala (ver o RoomMusicTrack do servidor).
+export type MusicTrack = {
+  id: string;
+  videoId: string;
+  /** Rótulo, não identidade: o que toca é o videoId. */
+  title?: string;
+  addedById: string;
+  addedByName: string;
+};
+
+// Quem pode o quê, em três degraus. O do meio é o que existe para uma sala
+// aceitar pedido de música sem entregar o botão de pausa junto.
+export type MusicControlMode = "owner" | "add" | "anyone";
+
 export type MusicSource = {
   id: string;
   kind: MusicSourceKind;
@@ -49,7 +63,23 @@ export type MusicSource = {
   // one person; music is something the room has rather than something a
   // participant brought. Absent from a server that predates it, which is read
   // as the old behaviour ("owner").
-  controlMode?: "owner" | "anyone";
+  controlMode?: MusicControlMode;
+  // A fila da sala e onde ela está. Vazia para uma música que é um vídeo só,
+  // ou uma playlist do YouTube que nenhum cliente expandiu ainda — a forma que
+  // existia antes da fila, tocada pela playlist do próprio embed. Tendo fila,
+  // ela é a autoridade: `videoId` é a faixa de `queueIndex`, `playlistId` some,
+  // e o player carrega um vídeo por vez. É o que torna reordenar possível: a
+  // ordem de uma playlist do YouTube é do YouTube, não nossa.
+  //
+  // Ausentes de um servidor anterior a elas, lidas como fila vazia.
+  queue?: MusicTrack[];
+  queueIndex?: number;
+  // Os ids na ordem de tocar. Vazia significa "a ordem da própria fila". O
+  // sorteio é feito uma vez no servidor e enviado — não uma permutação que
+  // cada cliente deriva de uma semente, que ficava igual toda vez para a mesma
+  // sala e portanto não era aleatória coisa nenhuma.
+  order?: string[];
+  shuffle?: boolean;
   playing: boolean;
   playbackRate: number;
   positionSeconds: number;
@@ -67,6 +97,48 @@ export function musicPosition(music: MusicSource, now = Date.now()): number {
   if (!music.playing) return music.positionSeconds;
   const elapsed = Math.max(0, (now - music.updatedAt) / 1000);
   return music.positionSeconds + elapsed * (music.playbackRate || 1);
+}
+
+// Gêmeos das funções do servidor (roomStore.ts). Quem pode dirigir, quem pode
+// pôr música na fila — a regra é enforçada lá; aqui ela decide o que desenhar,
+// e as duas não podem discordar.
+export function canControlMusic(music: MusicSource | null, isManager: boolean): boolean {
+  if (!music) return isManager;
+  return isManager || music.controlMode === "anyone";
+}
+
+export function canAddMusic(music: MusicSource | null, isManager: boolean): boolean {
+  if (!music) return isManager;
+  return isManager || music.controlMode === "anyone" || music.controlMode === "add";
+}
+
+/** A fila na ordem em que vai tocar — a sorteada, quando existe uma. */
+export function musicPlayOrder(music: MusicSource): MusicTrack[] {
+  const queue = music.queue ?? [];
+  const order = music.order ?? [];
+  if (order.length === 0) return queue;
+  const byId = new Map(queue.map((track) => [track.id, track]));
+  const out = order.map((id) => byId.get(id)).filter((t): t is MusicTrack => t !== undefined);
+  // Uma faixa que entrou na fila e ainda não está na ordem (mensagens que se
+  // cruzaram) aparece no fim, em vez de sumir da lista.
+  for (const track of queue) if (!order.includes(track.id)) out.push(track);
+  return out;
+}
+
+export function currentMusicTrack(music: MusicSource): MusicTrack | null {
+  const queue = music.queue ?? [];
+  if (queue.length === 0) return null;
+  return queue[Math.min(Math.max(0, music.queueIndex ?? 0), queue.length - 1)] ?? null;
+}
+
+/** A faixa seguinte (ou anterior) na ordem de tocar, dando a volta no fim. */
+export function neighbourMusicTrack(music: MusicSource, direction: 1 | -1): MusicTrack | null {
+  const order = musicPlayOrder(music);
+  if (order.length === 0) return null;
+  const current = currentMusicTrack(music);
+  const at = current ? order.findIndex((track) => track.id === current.id) : -1;
+  if (at < 0) return order[0];
+  return order[(at + direction + order.length) % order.length] ?? null;
 }
 
 // Client-side twin of the server's parse, used only to tell someone their

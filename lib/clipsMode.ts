@@ -109,6 +109,10 @@ export const TILE_EXPERIMENT_EVENTS = {
     shuffleOff: "music_shuffle_off",
     pick: "music_track_pick", // uma faixa escolhida na lista
     advance: "music_shuffle_advance", // a fila pulou para um sorteado
+    add: "music_queue_add", // um link pôs uma música na fila
+    remove: "music_queue_remove",
+    move: "music_queue_move", // uma faixa foi arrastada
+    spotify: "music_spotify_import", // value: quantas faixas vieram
   },
 } as const;
 

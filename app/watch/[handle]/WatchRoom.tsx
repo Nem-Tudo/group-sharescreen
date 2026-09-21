@@ -127,6 +127,7 @@ import type { CameraFacing } from "@/lib/mediaPreferences";
 import { ChatPanel } from "@/components/ChatPanel";
 import { RoomInfoControls } from "@/components/RoomInfoControls";
 import { MusicBar } from "@/components/MusicBar";
+import type { MusicControlMode } from "@/lib/musicSource";
 import { LocalMediaControls, RemoteMediaControls } from "@/components/LocalMediaControls";
 import { LocalMusicBar, RemoteMusicBar } from "@/components/LocalMusicBar";
 import { MemberActionsMenu, type MemberActions } from "@/components/MemberActionsModal";
@@ -4098,9 +4099,19 @@ export function WatchRoom({
 
   // Putting music on means the room ends up with *one* soundtrack, whichever
   // of the two kinds it is — so each one turns the other off on the way in.
-  function replaceMusicWithYouTube(url: string, controlMode: "owner" | "anyone") {
+  function replaceMusicWithYouTube(url: string, controlMode: MusicControlMode) {
     for (const slot of localMusicSlots) fileChannels[slot].stop();
     signalingClient.setMusicSource("youtube", url, controlMode);
+  }
+
+  // Uma playlist do Spotify, já resolvida em faixas do YouTube (ver
+  // lib/musicImportApi): vira a fila da sala de uma vez.
+  function replaceMusicWithTracks(
+    tracks: { videoId: string; title?: string }[],
+    controlMode: MusicControlMode
+  ) {
+    for (const slot of localMusicSlots) fileChannels[slot].stop();
+    signalingClient.setMusicQueue(tracks, controlMode);
   }
 
   function replaceMusicWithLocalFiles(slot: LocalMediaSlot) {
@@ -4209,6 +4220,7 @@ export function WatchRoom({
     openPopup("add_music_source", {
       data: {
         onSubmit: replaceMusicWithYouTube,
+        onSubmitTracks: replaceMusicWithTracks,
         onLocalFiles: replaceMusicWithLocalFiles,
         localFilesSlot: myMusicSlot ?? freeLocalMediaSlot,
         hasAccount: Boolean(state.account),
@@ -7532,6 +7544,7 @@ export function WatchRoom({
           canControl={isRoomManager || state.music.controlMode === "anyone"}
           isRoomManager={isRoomManager}
           isMusicOwner={state.selfUserId !== null && state.music.addedById === state.selfUserId}
+          selfUserId={state.selfUserId}
           // Se quem pôs a música saiu, ninguém estava reancorando a posição
           // nem reportando a fila virar de faixa — a sala ia se separando
           // sozinha. Sem essa pessoa, quem pode controlar assume (ver

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   MdMusicNote,
@@ -16,11 +16,11 @@ import {
   MdLockOpen,
   MdQueueMusic,
   MdShuffle,
+  MdPlaylistAdd,
 } from "react-icons/md";
 import { Tooltip } from "@/components/Tooltip";
 import { MusicQueuePanel } from "@/components/MusicQueuePanel";
 import { markFeatureUsed } from "@/components/NewBadge";
-import { shuffledNeighbour, shuffledOrder } from "@/lib/musicShuffle";
 import {
   TILE_EXPERIMENT_EVENTS,
   trackTileExperiment,
@@ -30,7 +30,15 @@ import {
 import { VolumeSlider } from "@/components/VolumeSlider";
 import { signalingClient } from "@/lib/signalingClient";
 import { isPageHidden, onPageHiddenChange } from "@/lib/pageHidden";
-import { musicPosition, formatMusicTime, type MusicSource } from "@/lib/musicSource";
+import {
+  musicPosition,
+  formatMusicTime,
+  currentMusicTrack,
+  neighbourMusicTrack,
+  canAddMusic,
+  type MusicControlMode,
+  type MusicSource,
+} from "@/lib/musicSource";
 import { isYouTubeVideoId } from "@/lib/videoSource";
 import {
   loadYouTubeApi,
@@ -81,28 +89,26 @@ function getPlayerHost(): HTMLDivElement {
 // be called with no `this` and blow up on its own field.
 const defaultServerNow = () => signalingClient.serverNow();
 
-// A ordem aleatória é preferência deste navegador, não campo do registro da
-// sala: só quem dirige escolhe o próximo índice, e o índice escolhido viaja
-// pelo caminho de sempre. Ver lib/musicShuffle para por que isso basta.
-const SHUFFLE_KEY = "sharescreen:musicShuffle";
+// Quanto tempo a barra espera o player carregar a playlist do YouTube antes de
+// desistir de expandi-la em fila (ver a importação mais abaixo). Curto: se os
+// ids não estão lá em alguns segundos, o player não carregou uma playlist.
+const PLAYLIST_IMPORT_TIMEOUT_MS = 12_000;
 
-function readShuffle(): boolean {
-  // Chamado como estado inicial, que também roda no servidor.
-  if (typeof window === "undefined") return false;
-  try {
-    return window.localStorage.getItem(SHUFFLE_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
+// O cadeado é um botão de três posições, não dois. O do meio — "eu controlo,
+// todo mundo põe na fila" — é o que existe para uma sala aceitar pedido de
+// música sem entregar o botão de pausa junto, e é provavelmente o estado em
+// que a maioria das salas devia estar.
+const MUSIC_MODE_NEXT: Record<MusicControlMode, MusicControlMode> = {
+  owner: "add",
+  add: "anyone",
+  anyone: "owner",
+};
 
-function writeShuffle(on: boolean) {
-  try {
-    window.localStorage.setItem(SHUFFLE_KEY, on ? "1" : "0");
-  } catch {
-    // Armazenamento recusado — a preferência só não sobrevive ao reload.
-  }
-}
+const MUSIC_MODE_LABEL: Record<MusicControlMode, string> = {
+  owner: "musicBar.modeOwner",
+  add: "musicBar.modeAdd",
+  anyone: "musicBar.modeAnyone",
+};
 
 // How far out of step with the room this player may drift before it is pulled
 // back. Looser than a video tile's third of a second (see VideoSourceTile):
@@ -163,6 +169,7 @@ export function MusicBar({
   canControl,
   isRoomManager,
   isMusicOwner,
+  selfUserId = null,
   musicOwnerPresent = true,
   onReplace,
   serverNow = defaultServerNow,
@@ -182,6 +189,8 @@ export function MusicBar({
   // position heartbeat, so a room full of admins doesn't have five clients
   // re-reporting the same track over each other.
   isMusicOwner: boolean;
+  /** Quem está vendo, para a fila saber quais faixas são dela. */
+  selfUserId?: string | null;
   /**
    * Whether the person who put the music on is still in the room. When they
    * are not, nobody was re-anchoring the room's arithmetic and nobody was
@@ -224,29 +233,23 @@ export function MusicBar({
   // thumb the person is holding.
   const [scrubbing, setScrubbing] = useState<number | null>(null);
 
-  // A aba da playlist e a ordem aleatória (experimento "room-music-queue").
+  // A aba da fila, a ordem aleatória e a importação do Spotify
+  // (experimento "room-music-queue").
   const queueExperiment = useTileExperiment("musicQueue", { track: true });
   const [queueOpen, setQueueOpen] = useState(false);
-  const [shuffle, setShuffle] = useState(readShuffle);
-  // O que o player diz que a fila é. Lido dele, e não do registro da sala: a
-  // lista de ids é a mesma para todo mundo (é a playlist do YouTube), então
-  // nada disso precisa viajar.
-  const [playlistIds, setPlaylistIds] = useState<string[]>([]);
-  const [playerIndex, setPlayerIndex] = useState(-1);
+  // O que o player diz que tem carregado. Só serve para duas coisas: expandir
+  // uma playlist do YouTube em fila (os ids só existem dentro de um player
+  // carregado) e saber qual vídeo está no ar agora.
   const [currentVideoId, setCurrentVideoId] = useState<string | null>(null);
 
-  // A ordem que a sala inteira calcularia: a semente é o id da música, que
-  // veio do servidor (ver lib/musicShuffle).
-  const shuffleOrder = useMemo(
-    () => shuffledOrder(`${music.id}:${music.playlistId ?? ""}`, playlistIds.length),
-    [music.id, music.playlistId, playlistIds.length]
-  );
-  const shuffleOrderRef = useRef(shuffleOrder);
-  const shuffleRef = useRef(shuffle);
-  useEffect(() => {
-    shuffleOrderRef.current = shuffleOrder;
-    shuffleRef.current = shuffle;
-  }, [shuffleOrder, shuffle]);
+  // A fila da sala, que é do servidor (ver o RoomMusic dele). Tendo fila, ela
+  // manda: `videoId` é só a faixa que está tocando, e este player carrega um
+  // vídeo por vez em vez de entregar a vez para a playlist do YouTube.
+  const queue = music.queue ?? [];
+  const queueMode = queue.length > 0;
+  const shuffle = Boolean(music.shuffle);
+  const canAdd = canAddMusic(music, isRoomManager);
+  const mode: MusicControlMode = music.controlMode ?? "owner";
 
   // Quem dirige: quem pôs a música, e — se essa pessoa saiu — qualquer um que
   // possa controlar. É o único que reporta o que o player faz sozinho.
@@ -364,7 +367,13 @@ export function MusicBar({
   // player, not a reconfigured one — and deliberately not on `canControl`:
   // this embed is never visible, so there are no native controls to rebuild
   // for, and a promotion mid-song must not restart it for the whole room.
-  const sourceKey = `${music.id}:${music.videoId}:${music.playlistId ?? ""}`;
+  // Com fila, o iframe é construído uma vez e as faixas trocam dentro dele
+  // (loadVideoById, na sincronização abaixo): reconstruir por faixa custaria um
+  // segundo de silêncio entre as músicas e passaria por todos os portões de
+  // autoplay de novo. Por isso a chave não carrega o vídeo nesse caso.
+  const sourceKey = queueMode
+    ? `${music.id}:queue`
+    : `${music.id}:${music.videoId}:${music.playlistId ?? ""}`;
   useEffect(() => {
     // A group room's player gets a node of its own inside the host (so two
     // bars never share one); an ordinary room's sits inside the bar, as ever.
@@ -377,9 +386,7 @@ export function MusicBar({
     setLoadError(false);
     setNeedsGesture(false);
     setTitle(null);
-    // Outra música, outra fila: o que ficou na tela é da anterior.
-    setPlaylistIds([]);
-    setPlayerIndex(-1);
+    // Outra música: o que ficou na tela é da anterior.
     setCurrentVideoId(null);
     setDuration(0);
 
@@ -438,16 +445,6 @@ export function MusicBar({
               const data = playerRef.current?.getVideoData?.();
               if (data?.title) setTitle(data.title);
               if (event.data === PLAYER_STATE.PLAYING) setNeedsGesture(false);
-              // A fila e o que está tocando, para a aba da direita.
-              const player = playerRef.current;
-              const list = player?.getPlaylist?.();
-              if (Array.isArray(list)) {
-                setPlaylistIds((prev) =>
-                  prev.length === list.length && prev.every((id, i) => id === list[i]) ? prev : list
-                );
-              }
-              const index = player?.getPlaylistIndex?.();
-              if (typeof index === "number") setPlayerIndex(index);
               if (data?.video_id) setCurrentVideoId(data.video_id);
               // Só o que uma pessoa daqui fez viaja, e só se ela pode dirigir.
               // Um play/pause que esta barra acabou de executar para seguir a
@@ -456,26 +453,22 @@ export function MusicBar({
               // E, fora de uma ação local, só quem dirige reporta: o resto tem
               // permissão de controlar, não de narrar (ver LOCAL_INTENT_MS).
               if (!isDriverRef.current && !hasLocalIntent()) return;
-              // Faixa acabou com a ordem aleatória ligada: o YouTube ia para a
-              // seguinte da lista, e quem dirige manda para a sorteada. Todo
-              // mundo segue pelo índice, como sempre — é por isso que o modo
-              // aleatório não precisa de nada no servidor.
-              if (
-                event.data === PLAYER_STATE.ENDED &&
-                musicRef.current.playlistId &&
-                shuffleRef.current &&
-                isDriverRef.current &&
-                shuffleOrderRef.current.length > 1 &&
-                player?.playVideoAt
-              ) {
-                const from = typeof index === "number" && index >= 0 ? index : 0;
-                const next = shuffledNeighbour(shuffleOrderRef.current, from, 1);
-                seekSettledAtRef.current = Date.now() + SEEK_SETTLE_MS;
-                player.playVideoAt(next);
-                trackTileExperiment(TILE_EXPERIMENT_EVENTS.musicQueue.advance);
-                // O índice novo só existe depois que o item carrega.
-                setTimeout(() => pushNowRef.current(), 700);
-                return;
+              // A faixa acabou e a sala tem fila: quem dirige pede a próxima
+              // da ordem de tocar (sorteada ou não) e o servidor a manda para
+              // todo mundo. É o único lugar em que a fila anda sozinha.
+              if (event.data === PLAYER_STATE.ENDED) {
+                const now = musicRef.current;
+                if ((now.queue?.length ?? 0) > 0) {
+                  const next = neighbourMusicTrack(now, 1);
+                  if (next) {
+                    seekSettledAtRef.current = Date.now() + SEEK_SETTLE_MS;
+                    signalingClient.playMusicTrack(now.id, next.id);
+                    if (now.shuffle) {
+                      trackTileExperiment(TILE_EXPERIMENT_EVENTS.musicQueue.advance);
+                    }
+                  }
+                  return;
+                }
               }
               if (
                 event.data === PLAYER_STATE.PLAYING ||
@@ -552,8 +545,27 @@ export function MusicBar({
       const justActed =
         canControlRef.current && Date.now() - lastPushAtRef.current < SELF_ECHO_MS;
 
-      // The queue first: chasing a timestamp that belongs to a different
-      // track is worse than not chasing at all.
+      // A faixa primeiro: perseguir um tempo que é de outra música é pior que
+      // não perseguir nada.
+      //
+      // Com fila da sala, a troca é dentro deste mesmo player — nada de iframe
+      // novo por música. Vale para todo mundo, inclusive para quem acabou de
+      // pedir a troca: o pedido foi para o servidor, e o que volta de lá é o
+      // que toca.
+      const track = currentMusicTrack(current);
+      if (track && player.loadVideoById) {
+        const loaded = player.getVideoData?.()?.video_id;
+        if (loaded && loaded !== track.videoId) {
+          markApplyingRemote();
+          seekSettledAtRef.current = Date.now() + SEEK_SETTLE_MS;
+          player.loadVideoById({
+            videoId: track.videoId,
+            startSeconds: Math.max(0, musicPosition(current, serverNowRef.current())),
+          });
+          return;
+        }
+      }
+
       if (
         !justActed &&
         current.playlistId &&
@@ -646,17 +658,6 @@ export function MusicBar({
         if (data?.video_id) {
           setCurrentVideoId((prev) => (prev === data.video_id ? prev : (data.video_id ?? null)));
         }
-        // A fila às vezes termina de carregar sem mudar de estado, e o índice
-        // muda quando o YouTube passa de faixa sozinho: a aba da direita lê
-        // daqui para não depender só dos eventos.
-        const index = player.getPlaylistIndex?.();
-        if (typeof index === "number") setPlayerIndex((prev) => (prev === index ? prev : index));
-        const list = player.getPlaylist?.();
-        if (Array.isArray(list)) {
-          setPlaylistIds((prev) =>
-            prev.length === list.length && prev.every((id, i) => id === list[i]) ? prev : list
-          );
-        }
       } else {
         setPosition(musicPosition(musicRef.current, serverNowRef.current()));
       }
@@ -680,26 +681,35 @@ export function MusicBar({
     };
   }, [ready, musicPlaying, music]);
 
-  // Com a aba aberta e a música pausada nada mais lê o player (o contador só
-  // corre tocando), e a lista ficaria vazia até a próxima ação. Um relógio
-  // lento só enquanto ela está aberta resolve sem custar nada no resto.
+  // Expandir uma playlist do YouTube na fila da sala.
+  //
+  // Os ids de uma playlist só existem dentro de um player que a carregou — a
+  // Data API custaria chave e cota para algo que um cliente já tem em mãos —
+  // então quem dirige os entrega e o servidor passa a sala para a fila
+  // própria, na mesma faixa. É o que torna reordenar e sortear possíveis: a
+  // ordem de uma playlist do YouTube é do YouTube.
+  //
+  // Sem títulos: o player os conhece um a um, e a lista os busca sozinha (ver
+  // lib/youtubeTitles). Mandar sessenta títulos aqui seria só uma mensagem
+  // maior.
   useEffect(() => {
-    if (!queueOpen || !ready) return;
-    const read = () => {
+    if (!ready || queueMode || !music.playlistId || !isDriver) return;
+    const startedAt = Date.now();
+    const timer = setInterval(() => {
       const player = playerRef.current;
       const list = player?.getPlaylist?.();
-      if (Array.isArray(list)) {
-        setPlaylistIds((prev) =>
-          prev.length === list.length && prev.every((id, i) => id === list[i]) ? prev : list
+      if (Array.isArray(list) && list.length > 0) {
+        clearInterval(timer);
+        signalingClient.importMusicPlaylist(
+          music.id,
+          list.filter((id) => isYouTubeVideoId(id)).map((videoId) => ({ videoId }))
         );
+        return;
       }
-      const index = player?.getPlaylistIndex?.();
-      if (typeof index === "number") setPlayerIndex((prev) => (prev === index ? prev : index));
-    };
-    read();
-    const timer = setInterval(read, 1000);
+      if (Date.now() - startedAt > PLAYLIST_IMPORT_TIMEOUT_MS) clearInterval(timer);
+    }, 700);
     return () => clearInterval(timer);
-  }, [queueOpen, ready]);
+  }, [ready, queueMode, music.playlistId, music.id, isDriver]);
 
   // Autoplay with sound needs the page to have been interacted with. When it
   // hasn't been, the player sits at PAUSED/unstarted while the room believes
@@ -742,31 +752,27 @@ export function MusicBar({
     schedulePush();
   };
 
-  // Ir para um item da fila, pelo índice na ordem original — o que viaja para
-  // a sala, com ordem aleatória ou sem.
-  const playAt = useCallback(
-    (index: number) => {
-      const player = playerRef.current;
-      if (!player?.playVideoAt || !canControl) return;
+  // Ir para uma faixa da fila. O pedido vai para o servidor e o que toca é o
+  // que volta de lá — inclusive aqui. Um player que se adianta ao registro é
+  // exatamente a classe de bug que a sincronização passa o dia desfazendo.
+  const playTrack = useCallback(
+    (trackId: string) => {
+      if (!canControl) return;
       markLocalIntent();
       seekSettledAtRef.current = Date.now() + SEEK_SETTLE_MS;
-      player.playVideoAt(index);
-      setPlayerIndex(index);
-      // O índice da fila só muda depois que o próximo item carrega, então o
-      // envio que o carrega tem de esperar por isso em vez de ler -1 agora.
-      setTimeout(() => pushNow(), 700);
+      signalingClient.playMusicTrack(musicRef.current.id, trackId);
     },
-    [canControl, markLocalIntent, pushNow]
+    [canControl, markLocalIntent]
   );
 
   const skip = (direction: 1 | -1) => {
     const player = playerRef.current;
     if (!player || !canControl) return;
-    // Com a ordem aleatória ligada, "próxima" é a próxima da ordem sorteada —
-    // a mesma que quem dirige usaria quando a faixa acaba sozinha.
-    if (shuffle && shuffleOrder.length > 1 && player.playVideoAt) {
-      const from = playerIndex >= 0 ? playerIndex : (music.playlistIndex ?? 0);
-      playAt(shuffledNeighbour(shuffleOrder, from, direction));
+    // Com fila, "próxima" é a próxima da ordem de tocar — a sorteada quando há
+    // uma, a mesma que a faixa acabando sozinha usaria.
+    if (queueMode) {
+      const next = neighbourMusicTrack(music, direction);
+      if (next) playTrack(next.id);
       return;
     }
     markLocalIntent();
@@ -776,10 +782,14 @@ export function MusicBar({
     setTimeout(() => pushNow(), 700);
   };
 
+  // O sorteio é feito no servidor e mandado para a sala (ver
+  // shuffleMusicOrder lá). Antes era uma permutação que cada cliente derivava
+  // do id da sala: todo mundo em ordem igual, sim, mas a mesma ordem toda vez
+  // — que é o oposto de aleatório.
   const toggleShuffle = () => {
+    if (!canControl) return;
     const next = !shuffle;
-    setShuffle(next);
-    writeShuffle(next);
+    signalingClient.setMusicShuffle(next);
     markFeatureUsed("room-music-queue");
     trackTileExperiment(
       next
@@ -798,10 +808,15 @@ export function MusicBar({
     setNeedsGesture(false);
   };
 
-  const hasPlaylist = Boolean(music.playlistId);
+  // Os botões de faixa: uma fila tem faixas, uma playlist do YouTube ainda
+  // não expandida também.
+  const hasPlaylist = queueMode || Boolean(music.playlistId);
   const shownPosition = scrubbing ?? position;
   const disabledControl = !canControl || !ready;
-  const queueAvailable = queueExperiment.available && hasPlaylist;
+  // A aba aparece para quem está no experimento, com fila ou com playlist —
+  // uma playlist vira fila sozinha em segundos (ver a importação acima), e
+  // quem pode pôr música precisa da aba mesmo quando a sala toca um vídeo só.
+  const queueAvailable = queueExperiment.available && (hasPlaylist || canAdd);
   // O aviso azul fica no botão que leva ao recurso — aqui, o da própria aba
   // (ver CLAUDE.md). Não entra na fila de dicas do "⋯": não disputa espaço com
   // elas porque não mora lá.
@@ -992,19 +1007,15 @@ export function MusicBar({
           />
           {isRoomManager && (
             <MusicButton
-              label={
-                music.controlMode === "anyone"
-                  ? t("musicBar.everyoneCanControlItClickTo")
-                  : t("musicBar.onlyTheOwnerAndTheAdministrators")
-              }
+              label={t(MUSIC_MODE_LABEL[mode])}
               onClick={() =>
-                signalingClient.setMusicControlMode(
-                  music.controlMode === "anyone" ? "owner" : "anyone"
-                )
+                signalingClient.setMusicControlMode(MUSIC_MODE_NEXT[mode])
               }
             >
-              {music.controlMode === "anyone" ? (
+              {mode === "anyone" ? (
                 <MdLockOpen className="h-4 w-4" />
+              ) : mode === "add" ? (
+                <MdPlaylistAdd className="h-4 w-4" />
               ) : (
                 <MdLock className="h-4 w-4" />
               )}
@@ -1030,22 +1041,20 @@ export function MusicBar({
 
   // A aba vai para o <body> por conta própria (ver MusicQueuePanel), então ela
   // é a mesma esteja a barra na sala ou na faixa do grupo.
-  const queue = queueAvailable ? (
+  const queuePanel = queueAvailable ? (
     <MusicQueuePanel
       open={queueOpen}
       onClose={() => setQueueOpen(false)}
-      videoIds={playlistIds}
-      currentIndex={playerIndex}
+      music={music}
       currentVideoId={currentVideoId}
-      order={shuffleOrder}
-      shuffle={shuffle}
-      canShuffle
+      canControl={canControl}
+      canAdd={canAdd}
+      selfUserId={selfUserId}
       onToggleShuffle={toggleShuffle}
-      canControl={canControl && ready}
-      onPick={(index) => {
+      onPick={(trackId) => {
         trackTileExperiment(TILE_EXPERIMENT_EVENTS.musicQueue.pick);
         markFeatureUsed("room-music-queue");
-        playAt(index);
+        playTrack(trackId);
       }}
     />
   ) : null;
@@ -1053,7 +1062,7 @@ export function MusicBar({
   return (
     <>
       {slot ? createPortal(bar, slot) : bar}
-      {queue}
+      {queuePanel}
     </>
   );
 }
