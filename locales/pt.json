@@ -3887,5 +3887,14 @@
   "messageFinder.searchPlaceholder": "Procurar nas mensagens",
   "messageFinder.jumpToMessage": "Ir para a mensagem",
   "messageFinder.wholeGroup": "Todo o grupo",
-  "messageFinder.thisRoom": "Só esta sala"
+  "messageFinder.thisRoom": "Só esta sala",
+  "musicBar.queueTitle": "Playlist",
+  "musicBar.queueCount": "{count} faixas",
+  "musicBar.queueLoading": "Carregando a playlist…",
+  "musicBar.queueTrackNumber": "Faixa {number}",
+  "musicBar.queueReadOnly": "Só quem controla a música pode trocar de faixa.",
+  "musicBar.shuffle": "Aleatório",
+  "musicBar.shuffleOn": "Ordem aleatória ligada. Clique para tocar na ordem da playlist",
+  "musicBar.shuffleOff": "Ordem da playlist. Clique para tocar em ordem aleatória",
+  "watch.watchRoom.musicQueueTip": "Novo: abra a playlist da sala aqui para escolher a faixa ou ligar a ordem aleatória."
 }

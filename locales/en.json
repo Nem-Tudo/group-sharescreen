@@ -3887,5 +3887,14 @@
   "messageFinder.searchPlaceholder": "Search the messages",
   "messageFinder.jumpToMessage": "Go to the message",
   "messageFinder.wholeGroup": "Whole group",
-  "messageFinder.thisRoom": "This room only"
+  "messageFinder.thisRoom": "This room only",
+  "musicBar.queueTitle": "Playlist",
+  "musicBar.queueCount": "{count} tracks",
+  "musicBar.queueLoading": "Loading the playlist…",
+  "musicBar.queueTrackNumber": "Track {number}",
+  "musicBar.queueReadOnly": "Only whoever controls the music can change track.",
+  "musicBar.shuffle": "Shuffle",
+  "musicBar.shuffleOn": "Shuffle is on. Click to play in playlist order",
+  "musicBar.shuffleOff": "Playlist order. Click to shuffle",
+  "watch.watchRoom.musicQueueTip": "New: open the room's playlist here to pick a track or turn shuffle on."
 }

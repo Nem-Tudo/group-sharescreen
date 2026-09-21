@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   MdMusicNote,
@@ -14,8 +14,19 @@ import {
   MdPlaylistPlay,
   MdLock,
   MdLockOpen,
+  MdQueueMusic,
+  MdShuffle,
 } from "react-icons/md";
 import { Tooltip } from "@/components/Tooltip";
+import { MusicQueuePanel } from "@/components/MusicQueuePanel";
+import { markFeatureUsed } from "@/components/NewBadge";
+import { shuffledNeighbour, shuffledOrder } from "@/lib/musicShuffle";
+import {
+  TILE_EXPERIMENT_EVENTS,
+  trackTileExperiment,
+  useTileExperiment,
+  useTileExperimentTip,
+} from "@/lib/clipsMode";
 import { VolumeSlider } from "@/components/VolumeSlider";
 import { signalingClient } from "@/lib/signalingClient";
 import { isPageHidden, onPageHiddenChange } from "@/lib/pageHidden";
@@ -70,6 +81,29 @@ function getPlayerHost(): HTMLDivElement {
 // be called with no `this` and blow up on its own field.
 const defaultServerNow = () => signalingClient.serverNow();
 
+// A ordem aleatória é preferência deste navegador, não campo do registro da
+// sala: só quem dirige escolhe o próximo índice, e o índice escolhido viaja
+// pelo caminho de sempre. Ver lib/musicShuffle para por que isso basta.
+const SHUFFLE_KEY = "sharescreen:musicShuffle";
+
+function readShuffle(): boolean {
+  // Chamado como estado inicial, que também roda no servidor.
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(SHUFFLE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeShuffle(on: boolean) {
+  try {
+    window.localStorage.setItem(SHUFFLE_KEY, on ? "1" : "0");
+  } catch {
+    // Armazenamento recusado — a preferência só não sobrevive ao reload.
+  }
+}
+
 // How far out of step with the room this player may drift before it is pulled
 // back. Looser than a video tile's third of a second (see VideoSourceTile):
 // nobody is comparing two screens frame by frame here, and every correction
@@ -89,7 +123,19 @@ const OWNER_HEARTBEAT_MS = 15_000;
 // A seek/play issued to follow the room fires the same events a person
 // pressing the button would; reporting those back would bounce around the
 // room forever.
-const REMOTE_APPLY_QUIET_MS = 500;
+//
+// Era meio segundo, e meio segundo é menos do que um seek demora para virar
+// PLAYING: o player passa por BUFFERING e só avisa que está tocando um ou dois
+// segundos depois, já fora da janela — aí esse evento, que é a sala sendo
+// seguida, voltava para a sala como se fosse alguém apertando play. Com
+// controlMode "anyone" isso é todo mundo empurrando a posição de todo mundo, e
+// é a metade do "a música fica pulando sozinha".
+const REMOTE_APPLY_QUIET_MS = 2500;
+// A outra metade: depois desta janela, um evento do player que ninguém aqui
+// pediu (a fila virou de faixa, o YouTube re-bufferizou) só vale como notícia
+// se este cliente for o que dirige. Quem só está ouvindo com permissão de
+// controlar não reporta nada até encostar em algum botão.
+const LOCAL_INTENT_MS = 6000;
 // How long this client's own action is allowed to be ahead of the record
 // without being corrected back to it — the round trip of a push landing on the
 // server and coming home. Deliberately short: it is the window in which this
@@ -117,6 +163,7 @@ export function MusicBar({
   canControl,
   isRoomManager,
   isMusicOwner,
+  musicOwnerPresent = true,
   onReplace,
   serverNow = defaultServerNow,
   slot = null,
@@ -135,6 +182,14 @@ export function MusicBar({
   // position heartbeat, so a room full of admins doesn't have five clients
   // re-reporting the same track over each other.
   isMusicOwner: boolean;
+  /**
+   * Whether the person who put the music on is still in the room. When they
+   * are not, nobody was re-anchoring the room's arithmetic and nobody was
+   * reporting the queue advancing — a playlist left behind by whoever chose it
+   * drifted for everybody and stopped changing tracks in step. With them gone,
+   * whoever can control it drives instead (see isDriver below).
+   */
+  musicOwnerPresent?: boolean;
   onReplace: () => void;
   // The room's clock rather than this device's — a position extrapolated from
   // a server timestamp against a badly-set local clock is wrong by a constant
@@ -169,6 +224,38 @@ export function MusicBar({
   // thumb the person is holding.
   const [scrubbing, setScrubbing] = useState<number | null>(null);
 
+  // A aba da playlist e a ordem aleatória (experimento "room-music-queue").
+  const queueExperiment = useTileExperiment("musicQueue", { track: true });
+  const [queueOpen, setQueueOpen] = useState(false);
+  const [shuffle, setShuffle] = useState(readShuffle);
+  // O que o player diz que a fila é. Lido dele, e não do registro da sala: a
+  // lista de ids é a mesma para todo mundo (é a playlist do YouTube), então
+  // nada disso precisa viajar.
+  const [playlistIds, setPlaylistIds] = useState<string[]>([]);
+  const [playerIndex, setPlayerIndex] = useState(-1);
+  const [currentVideoId, setCurrentVideoId] = useState<string | null>(null);
+
+  // A ordem que a sala inteira calcularia: a semente é o id da música, que
+  // veio do servidor (ver lib/musicShuffle).
+  const shuffleOrder = useMemo(
+    () => shuffledOrder(`${music.id}:${music.playlistId ?? ""}`, playlistIds.length),
+    [music.id, music.playlistId, playlistIds.length]
+  );
+  const shuffleOrderRef = useRef(shuffleOrder);
+  const shuffleRef = useRef(shuffle);
+  useEffect(() => {
+    shuffleOrderRef.current = shuffleOrder;
+    shuffleRef.current = shuffle;
+  }, [shuffleOrder, shuffle]);
+
+  // Quem dirige: quem pôs a música, e — se essa pessoa saiu — qualquer um que
+  // possa controlar. É o único que reporta o que o player faz sozinho.
+  const isDriver = canControl && (isMusicOwner || !musicOwnerPresent);
+  const isDriverRef = useRef(isDriver);
+  useEffect(() => {
+    isDriverRef.current = isDriver;
+  }, [isDriver]);
+
   // Everything the player callbacks need to read at the moment they fire,
   // rather than the values that existed when the player was built.
   const musicRef = useRef(music);
@@ -195,10 +282,22 @@ export function MusicBar({
   }, []);
   const isApplyingRemote = () => Date.now() < applyingRemoteUntilRef.current;
 
+  // Enquanto isto estiver no futuro, o que o player disser é consequência de
+  // alguém aqui ter apertado alguma coisa — e aí vale reportar mesmo sem ser
+  // quem dirige (ver LOCAL_INTENT_MS).
+  const localIntentUntilRef = useRef(0);
+  const markLocalIntent = useCallback(() => {
+    localIntentUntilRef.current = Date.now() + LOCAL_INTENT_MS;
+    // Uma ação local encerra a janela de "estou seguindo a sala": o que a
+    // pessoa acabou de pedir não pode ser engolido como eco.
+    applyingRemoteUntilRef.current = 0;
+  }, []);
+  const hasLocalIntent = () => Date.now() < localIntentUntilRef.current;
+
   // Sends where this player actually is. Read at send time rather than
   // captured at schedule time, so a burst of events collapses into the truth
   // at the end instead of a queue of stale snapshots.
-  const pushNow = useCallback(() => {
+  const pushNow = useCallback((options: { heartbeat?: boolean } = {}) => {
     const player = playerRef.current;
     const current = musicRef.current;
     if (!player || !canControlRef.current) return;
@@ -213,16 +312,40 @@ export function MusicBar({
     // an extrapolated position running a second past the end of a finished
     // track is nothing anyone can hear.
     if (state === PLAYER_STATE.ENDED && current.playlistId) return;
-    lastPushAtRef.current = Date.now();
+    const playing = state === PLAYER_STATE.PLAYING || state === PLAYER_STATE.BUFFERING;
+    const position = player.getCurrentTime() || 0;
     const index = player.getPlaylistIndex?.();
+    // Um batimento (ver OWNER_HEARTBEAT_MS) existe para reancorar a conta da
+    // sala; se o registro já concorda com este player, ele não tem notícia
+    // nenhuma para dar. Isso é o que deixa vários administradores baterem ao
+    // mesmo tempo, quando quem pôs a música saiu, sem virar uma briga de
+    // relógios: o primeiro que chegar cala os outros.
+    if (options.heartbeat) {
+      const agrees =
+        current.playing === playing &&
+        Math.abs(musicPosition(current, serverNowRef.current()) - position) < 2 &&
+        (typeof index !== "number" ||
+          index < 0 ||
+          current.playlistIndex === undefined ||
+          current.playlistIndex === index);
+      if (agrees) return;
+    }
+    lastPushAtRef.current = Date.now();
     signalingClient.setMusicState(
       current.id,
-      state === PLAYER_STATE.PLAYING || state === PLAYER_STATE.BUFFERING,
-      player.getCurrentTime() || 0,
+      playing,
+      position,
       player.getPlaybackRate() || 1,
       typeof index === "number" && index >= 0 ? index : undefined
     );
   }, []);
+
+  // O player é construído uma vez e seus callbacks vivem com a versão de
+  // `pushNow` daquele momento; isto é o que eles chamam para pegar a atual.
+  const pushNowRef = useRef(pushNow);
+  useEffect(() => {
+    pushNowRef.current = pushNow;
+  }, [pushNow]);
 
   const schedulePush = useCallback(() => {
     if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
@@ -254,6 +377,11 @@ export function MusicBar({
     setLoadError(false);
     setNeedsGesture(false);
     setTitle(null);
+    // Outra música, outra fila: o que ficou na tela é da anterior.
+    setPlaylistIds([]);
+    setPlayerIndex(-1);
+    setCurrentVideoId(null);
+    setDuration(0);
 
     loadYouTubeApi()
       .then((YT) => {
@@ -310,10 +438,45 @@ export function MusicBar({
               const data = playerRef.current?.getVideoData?.();
               if (data?.title) setTitle(data.title);
               if (event.data === PLAYER_STATE.PLAYING) setNeedsGesture(false);
-              // Only what a person here did travels, and only if they are
-              // allowed to drive. A play/pause this bar just performed to
-              // follow the room is exactly what must not be echoed back.
+              // A fila e o que está tocando, para a aba da direita.
+              const player = playerRef.current;
+              const list = player?.getPlaylist?.();
+              if (Array.isArray(list)) {
+                setPlaylistIds((prev) =>
+                  prev.length === list.length && prev.every((id, i) => id === list[i]) ? prev : list
+                );
+              }
+              const index = player?.getPlaylistIndex?.();
+              if (typeof index === "number") setPlayerIndex(index);
+              if (data?.video_id) setCurrentVideoId(data.video_id);
+              // Só o que uma pessoa daqui fez viaja, e só se ela pode dirigir.
+              // Um play/pause que esta barra acabou de executar para seguir a
+              // sala é exatamente o que não pode voltar.
               if (!canControlRef.current || isApplyingRemote()) return;
+              // E, fora de uma ação local, só quem dirige reporta: o resto tem
+              // permissão de controlar, não de narrar (ver LOCAL_INTENT_MS).
+              if (!isDriverRef.current && !hasLocalIntent()) return;
+              // Faixa acabou com a ordem aleatória ligada: o YouTube ia para a
+              // seguinte da lista, e quem dirige manda para a sorteada. Todo
+              // mundo segue pelo índice, como sempre — é por isso que o modo
+              // aleatório não precisa de nada no servidor.
+              if (
+                event.data === PLAYER_STATE.ENDED &&
+                musicRef.current.playlistId &&
+                shuffleRef.current &&
+                isDriverRef.current &&
+                shuffleOrderRef.current.length > 1 &&
+                player?.playVideoAt
+              ) {
+                const from = typeof index === "number" && index >= 0 ? index : 0;
+                const next = shuffledNeighbour(shuffleOrderRef.current, from, 1);
+                seekSettledAtRef.current = Date.now() + SEEK_SETTLE_MS;
+                player.playVideoAt(next);
+                trackTileExperiment(TILE_EXPERIMENT_EVENTS.musicQueue.advance);
+                // O índice novo só existe depois que o item carrega.
+                setTimeout(() => pushNowRef.current(), 700);
+                return;
+              }
               if (
                 event.data === PLAYER_STATE.PLAYING ||
                 event.data === PLAYER_STATE.PAUSED ||
@@ -325,6 +488,7 @@ export function MusicBar({
             },
             onPlaybackRateChange: () => {
               if (cancelled || !canControlRef.current || isApplyingRemote()) return;
+              if (!isDriverRef.current && !hasLocalIntent()) return;
               schedulePush();
             },
           },
@@ -355,6 +519,7 @@ export function MusicBar({
   // Follows the room: play/pause, the playlist's current item, and the
   // position everyone extrapolates from. Runs on every change to the record
   // *and* on a timer, since a playing track's target moves on its own.
+  const syncRef = useRef<() => void>(() => {});
   useEffect(() => {
     if (!ready) return;
 
@@ -413,8 +578,20 @@ export function MusicBar({
 
       if (driving || !current.playing || Date.now() < seekSettledAtRef.current) return;
 
+      // Um player que está bufferizando não está atrasado: ele está parado
+      // esperando rede, e o relógio dele marca exatamente para onde já foi
+      // mandado. Corrigir aqui é pedir outro buffer, que atrasa mais, que pede
+      // outra correção — o soluço que a sala inteira ouve.
+      if (state === PLAYER_STATE.BUFFERING) return;
+
       const target = musicPosition(current, serverNowRef.current());
       const actual = player.getCurrentTime() || 0;
+      // Um alvo além do fim da faixa é um registro velho atravessando a virada
+      // da fila (a conta da sala extrapola sem saber onde a música acaba).
+      // Buscar lá dentro é pular o fim de toda faixa; melhor deixar acabar e
+      // seguir o índice que vem.
+      const duration = player.getDuration?.() ?? 0;
+      if (duration > 0 && target > duration - 0.5) return;
       if (Math.abs(target - actual) > DRIFT_TOLERANCE_SECONDS) {
         markApplyingRemote();
         seekSettledAtRef.current = Date.now() + SEEK_SETTLE_MS;
@@ -422,18 +599,32 @@ export function MusicBar({
       }
     }
 
+    syncRef.current = sync;
     sync();
-    const timer = setInterval(sync, DRIFT_CHECK_MS);
+    // Um intervalo só, que não é refeito a cada mensagem da sala. Antes ele
+    // dependia de `music`, e como o registro chega de novo a cada ação (e a
+    // cada batimento), o relógio da correção reiniciava antes de disparar:
+    // numa sala ativa a deriva praticamente nunca era conferida.
+    const timer = setInterval(() => syncRef.current(), DRIFT_CHECK_MS);
     return () => clearInterval(timer);
-  }, [ready, music, markApplyingRemote]);
+  }, [ready, markApplyingRemote]);
+
+  // O registro mudou: seguir na hora, sem esperar o intervalo acima.
+  useEffect(() => {
+    if (ready) syncRef.current();
+  }, [ready, music]);
 
   // Keeps the room's arithmetic anchored (see OWNER_HEARTBEAT_MS). Only the
   // person who put the music on, and only while it is playing.
   useEffect(() => {
-    if (!ready || !isMusicOwner || !canControl || !music.playing) return;
-    const timer = setInterval(() => pushNow(), OWNER_HEARTBEAT_MS);
+    // Quem dirige, que é quem pôs a música — ou qualquer um que possa
+    // controlar, quando essa pessoa já saiu da sala. Sem isso, uma playlist
+    // deixada para trás ficava sem ninguém reancorando a conta, e quem chegasse
+    // depois entrava com o erro acumulado desde o último relatório.
+    if (!ready || !isDriver || !music.playing) return;
+    const timer = setInterval(() => pushNow({ heartbeat: true }), OWNER_HEARTBEAT_MS);
     return () => clearInterval(timer);
-  }, [ready, isMusicOwner, canControl, music.playing, pushNow]);
+  }, [ready, isDriver, music.playing, pushNow]);
 
   // The readout. Reads the player when it has one and falls back to the
   // room's own arithmetic before it is ready, so the bar is never blank.
@@ -452,6 +643,20 @@ export function MusicBar({
         setDuration(player.getDuration?.() ?? 0);
         const data = player.getVideoData?.();
         if (data?.title) setTitle((prev) => (prev === data.title ? prev : data.title ?? null));
+        if (data?.video_id) {
+          setCurrentVideoId((prev) => (prev === data.video_id ? prev : (data.video_id ?? null)));
+        }
+        // A fila às vezes termina de carregar sem mudar de estado, e o índice
+        // muda quando o YouTube passa de faixa sozinho: a aba da direita lê
+        // daqui para não depender só dos eventos.
+        const index = player.getPlaylistIndex?.();
+        if (typeof index === "number") setPlayerIndex((prev) => (prev === index ? prev : index));
+        const list = player.getPlaylist?.();
+        if (Array.isArray(list)) {
+          setPlaylistIds((prev) =>
+            prev.length === list.length && prev.every((id, i) => id === list[i]) ? prev : list
+          );
+        }
       } else {
         setPosition(musicPosition(musicRef.current, serverNowRef.current()));
       }
@@ -474,6 +679,27 @@ export function MusicBar({
       unsubscribe();
     };
   }, [ready, musicPlaying, music]);
+
+  // Com a aba aberta e a música pausada nada mais lê o player (o contador só
+  // corre tocando), e a lista ficaria vazia até a próxima ação. Um relógio
+  // lento só enquanto ela está aberta resolve sem custar nada no resto.
+  useEffect(() => {
+    if (!queueOpen || !ready) return;
+    const read = () => {
+      const player = playerRef.current;
+      const list = player?.getPlaylist?.();
+      if (Array.isArray(list)) {
+        setPlaylistIds((prev) =>
+          prev.length === list.length && prev.every((id, i) => id === list[i]) ? prev : list
+        );
+      }
+      const index = player?.getPlaylistIndex?.();
+      if (typeof index === "number") setPlayerIndex((prev) => (prev === index ? prev : index));
+    };
+    read();
+    const timer = setInterval(read, 1000);
+    return () => clearInterval(timer);
+  }, [queueOpen, ready]);
 
   // Autoplay with sound needs the page to have been interacted with. When it
   // hasn't been, the player sits at PAUSED/unstarted while the room believes
@@ -502,6 +728,7 @@ export function MusicBar({
   const togglePlay = () => {
     const player = playerRef.current;
     if (!player || !canControl) return;
+    markLocalIntent();
     if (music.playing) player.pauseVideo();
     else player.playVideo();
   };
@@ -509,20 +736,56 @@ export function MusicBar({
   const seekTo = (seconds: number) => {
     const player = playerRef.current;
     if (!player || !canControl) return;
+    markLocalIntent();
     seekSettledAtRef.current = Date.now() + SEEK_SETTLE_MS;
     player.seekTo(Math.max(0, seconds), true);
     schedulePush();
   };
 
+  // Ir para um item da fila, pelo índice na ordem original — o que viaja para
+  // a sala, com ordem aleatória ou sem.
+  const playAt = useCallback(
+    (index: number) => {
+      const player = playerRef.current;
+      if (!player?.playVideoAt || !canControl) return;
+      markLocalIntent();
+      seekSettledAtRef.current = Date.now() + SEEK_SETTLE_MS;
+      player.playVideoAt(index);
+      setPlayerIndex(index);
+      // O índice da fila só muda depois que o próximo item carrega, então o
+      // envio que o carrega tem de esperar por isso em vez de ler -1 agora.
+      setTimeout(() => pushNow(), 700);
+    },
+    [canControl, markLocalIntent, pushNow]
+  );
+
   const skip = (direction: 1 | -1) => {
     const player = playerRef.current;
     if (!player || !canControl) return;
+    // Com a ordem aleatória ligada, "próxima" é a próxima da ordem sorteada —
+    // a mesma que quem dirige usaria quando a faixa acaba sozinha.
+    if (shuffle && shuffleOrder.length > 1 && player.playVideoAt) {
+      const from = playerIndex >= 0 ? playerIndex : (music.playlistIndex ?? 0);
+      playAt(shuffledNeighbour(shuffleOrder, from, direction));
+      return;
+    }
+    markLocalIntent();
     seekSettledAtRef.current = Date.now() + SEEK_SETTLE_MS;
     if (direction === 1) player.nextVideo?.();
     else player.previousVideo?.();
-    // The queue index only updates once the next item has loaded, so the
-    // push that carries it has to wait for that rather than read -1 now.
     setTimeout(() => pushNow(), 700);
+  };
+
+  const toggleShuffle = () => {
+    const next = !shuffle;
+    setShuffle(next);
+    writeShuffle(next);
+    markFeatureUsed("room-music-queue");
+    trackTileExperiment(
+      next
+        ? TILE_EXPERIMENT_EVENTS.musicQueue.shuffleOn
+        : TILE_EXPERIMENT_EVENTS.musicQueue.shuffleOff
+    );
   };
 
   const activateAudio = () => {
@@ -538,6 +801,24 @@ export function MusicBar({
   const hasPlaylist = Boolean(music.playlistId);
   const shownPosition = scrubbing ?? position;
   const disabledControl = !canControl || !ready;
+  const queueAvailable = queueExperiment.available && hasPlaylist;
+  // O aviso azul fica no botão que leva ao recurso — aqui, o da própria aba
+  // (ver CLAUDE.md). Não entra na fila de dicas do "⋯": não disputa espaço com
+  // elas porque não mora lá.
+  const queueTip = useTileExperimentTip("musicQueue", queueAvailable);
+
+  const openQueue = () => {
+    // clicked() conta o clique na dica; sem ela na tela, nao houve clique em
+    // dica nenhuma.
+    if (queueTip.show) queueTip.clicked();
+    markFeatureUsed("room-music-queue");
+    trackTileExperiment(
+      queueOpen
+        ? TILE_EXPERIMENT_EVENTS.musicQueue.modeOff
+        : TILE_EXPERIMENT_EVENTS.musicQueue.modeOn
+    );
+    setQueueOpen(!queueOpen);
+  };
 
   const bar = (
     // Last in the slot, under any local-file soundtracks — the order the room
@@ -617,6 +898,19 @@ export function MusicBar({
               <MdSkipNext className="h-5 w-5" />
             </MusicButton>
           )}
+          {queueAvailable && (
+            <MusicButton
+              label={shuffle ? t("musicBar.shuffleOn") : t("musicBar.shuffleOff")}
+              disabled={disabledControl}
+              onClick={() => {
+                if (queueTip.show) queueTip.clicked();
+                toggleShuffle();
+              }}
+              className={`hidden sm:flex ${shuffle ? "bg-white/25" : ""}`}
+            >
+              <MdShuffle className="h-4 w-4" />
+            </MusicButton>
+          )}
         </div>
 
         {/* The scrubber. Shown to everyone as a progress readout; only a
@@ -651,6 +945,36 @@ export function MusicBar({
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5">
+          {queueAvailable && (
+            <span className="relative inline-flex shrink-0">
+              <MusicButton
+                label={t("musicBar.queueTitle")}
+                onClick={openQueue}
+                className={queueOpen ? "bg-white/25" : queueTip.show ? "ring-2 ring-white" : ""}
+              >
+                <MdQueueMusic className="h-4 w-4" />
+              </MusicButton>
+              {queueTip.show && !queueOpen && (
+                <span
+                  role="status"
+                  className="absolute right-0 top-full z-50 mt-2 w-56 rounded-lg bg-blue-600 px-3 py-2 text-left text-xs font-medium text-white shadow-lg"
+                >
+                  <span className="absolute -top-1 right-3 h-2 w-2 rotate-45 bg-blue-600" />
+                  <span className="flex items-start gap-2">
+                    <span className="flex-1">{t("watch.watchRoom.musicQueueTip")}</span>
+                    <button
+                      type="button"
+                      onClick={queueTip.dismiss}
+                      aria-label={t("watch.watchRoom.clipsModeTipDismiss")}
+                      className="-m-1 rounded p-1 leading-none text-white/80 hover:text-white"
+                    >
+                      ✕
+                    </button>
+                  </span>
+                </span>
+              )}
+            </span>
+          )}
           {needsGesture && (
             <button
               type="button"
@@ -704,7 +1028,34 @@ export function MusicBar({
     </div>
   );
 
-  return slot ? createPortal(bar, slot) : bar;
+  // A aba vai para o <body> por conta própria (ver MusicQueuePanel), então ela
+  // é a mesma esteja a barra na sala ou na faixa do grupo.
+  const queue = queueAvailable ? (
+    <MusicQueuePanel
+      open={queueOpen}
+      onClose={() => setQueueOpen(false)}
+      videoIds={playlistIds}
+      currentIndex={playerIndex}
+      currentVideoId={currentVideoId}
+      order={shuffleOrder}
+      shuffle={shuffle}
+      canShuffle
+      onToggleShuffle={toggleShuffle}
+      canControl={canControl && ready}
+      onPick={(index) => {
+        trackTileExperiment(TILE_EXPERIMENT_EVENTS.musicQueue.pick);
+        markFeatureUsed("room-music-queue");
+        playAt(index);
+      }}
+    />
+  ) : null;
+
+  return (
+    <>
+      {slot ? createPortal(bar, slot) : bar}
+      {queue}
+    </>
+  );
 }
 
 function MusicButton({

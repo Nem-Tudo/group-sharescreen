@@ -7532,6 +7532,14 @@ export function WatchRoom({
           canControl={isRoomManager || state.music.controlMode === "anyone"}
           isRoomManager={isRoomManager}
           isMusicOwner={state.selfUserId !== null && state.music.addedById === state.selfUserId}
+          // Se quem pôs a música saiu, ninguém estava reancorando a posição
+          // nem reportando a fila virar de faixa — a sala ia se separando
+          // sozinha. Sem essa pessoa, quem pode controlar assume (ver
+          // MusicBar's isDriver).
+          musicOwnerPresent={
+            (state.selfUserId !== null && state.music.addedById === state.selfUserId) ||
+            state.peers.some((p) => p.userId && p.userId === state.music?.addedById)
+          }
           onReplace={openAddMusicPopup}
         />
       )}

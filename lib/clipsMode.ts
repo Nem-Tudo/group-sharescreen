@@ -11,7 +11,13 @@ import { trackFeatureEvent, useFeature } from "./features";
 //     no API change), which decides who gets to see the switch at all;
 //   - the person's own switch in "Mais opções", off by default.
 
-export type TileExperiment = "clips" | "recording" | "multiScreen" | "dualCamera" | "pushToTalk";
+export type TileExperiment =
+  | "clips"
+  | "recording"
+  | "multiScreen"
+  | "dualCamera"
+  | "pushToTalk"
+  | "musicQueue";
 
 // `defaultOn`: the switch starts on for whoever never touched it.
 const CONFIG: Record<
@@ -49,6 +55,17 @@ const CONFIG: Record<
     modeKey: "sharescreen:pushToTalkMode",
     tipKey: "sharescreen:pushToTalkTipSeen",
   },
+  // A aba da playlist e a ordem aleatória da música da sala (ver
+  // components/MusicQueuePanel e lib/musicShuffle). Sem interruptor no "⋯":
+  // ela mora na própria barra de música, que é onde quem está ouvindo procura.
+  // `defaultOn` porque o que o experimento decide aqui é só se o botão da aba
+  // existe — a ordem aleatória continua desligada até alguém ligar.
+  musicQueue: {
+    feature: "room-music-queue",
+    modeKey: "sharescreen:musicQueueMode",
+    tipKey: "sharescreen:musicQueueTipSeen",
+    defaultOn: true,
+  },
 };
 
 // Usage stats, compared between the sides of each experiment. Every name has
@@ -82,6 +99,16 @@ export const TILE_EXPERIMENT_EVENTS = {
     modeOff: "push_to_talk_mode_off",
     keySet: "push_to_talk_key_set", // a key was recorded for it
     talk: "push_to_talk_talk", // value: seconds the key was held
+  },
+  musicQueue: {
+    // Nomes de "modo" aqui são a aba, não a ordem aleatória: o interruptor
+    // desse experimento é o botão que abre a lista.
+    modeOn: "music_queue_open",
+    modeOff: "music_queue_close",
+    shuffleOn: "music_shuffle_on",
+    shuffleOff: "music_shuffle_off",
+    pick: "music_track_pick", // uma faixa escolhida na lista
+    advance: "music_shuffle_advance", // a fila pulou para um sorteado
   },
 } as const;
 
