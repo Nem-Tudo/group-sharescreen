@@ -35,7 +35,7 @@ export const MULTI_SCREEN_LIMITS: Record<FeatureTier, number> = {
   // Same as free on purpose: more screens is a Pro Max perk.
   premium: 2,
   premium_max: 5,
-  pro_ultra: 10,
+  pro_ultra: 30,
 };
 
 export function multiScreenLimit(flags: readonly string[] | undefined | null): number {

@@ -1380,13 +1380,38 @@ function EventTable({
 //     every cell alike. It is comparable between cells, which is all the
 //     ranking needs, and it is not a forecast.
 //
+// **The fourth digit is the broadcast ad gate** (see the API's
+// broadcastAdGate.ts): the popup that stops a long broadcast until an ad is
+// watched, with a "buy Pro and never see this again" button on it. It is the
+// strongest single thing deciding whether somebody buys, and it sells a
+// different purchase from the other three — they meet somebody reading a
+// price, it meets somebody wanting a popup gone. It is rolled out
+// independently, so it lands evenly across the cells in expectation and does
+// not bias the ranking; what it does is widen every cell's spread, and an
+// uneven split by luck moves the ranking for real.
+//
+// So it is carried in the cell name and folded away here by default: the
+// filter adds a0 and a1 back together, which is the full-power view, and
+// picking a side gives the clean read of the /pro page by itself. The "ad
+// gate" column is the check that the fold is safe — a cell whose share of
+// gated people is far from the overall one is a cell whose ranking is partly
+// that luck, and it is marked rather than silently ranked.
+//
 // The numbers are cumulative since the feature was created — the "últimos N
 // dias" selector below drives the chart, not this — because the daily series
 // keeps counts and not amounts. After changing a rollout percentage, reset
 // the stats rather than reading across the change.
 
-/** How a cell name is spelled: <event>.t<table>p<pixPrice>s<subOnly>. */
-const COMBO_RE = /^(.*)\.(t[0-2]p[01]s[01])$/;
+/**
+ * How a cell name is spelled:
+ * <event>.t<table>p<pixPrice>s<subOnly>a<adGate>.
+ *
+ * The ad-gate digit is optional so rows written before it existed are still
+ * read; they are counted as being outside the gate, which is what they were.
+ */
+const COMBO_RE = /^(.*)\.(t[0-2]p[01]s[01])(?:a([01]))?$/;
+/** How far a cell's gated share may sit from the overall one before it is flagged. */
+const COMBO_AD_SKEW = 0.08;
 /** What the first digit means, in the order the API assigns it. */
 const COMBO_TABLE = ["sem tabela", "tabela", "tabela + compra em cima"];
 /** Horizons the ranking can be read at, in months. */
@@ -1423,18 +1448,29 @@ function emptyComboCell(): ComboCell {
   };
 }
 
+/** Adds every figure of `from` into `into`. */
+function addComboCell(into: ComboCell, from: ComboCell): ComboCell {
+  for (const key of Object.keys(into) as (keyof ComboCell)[]) into[key] += from[key];
+  return into;
+}
+
+type ComboSides = { out: ComboCell; gated: ComboCell };
+
 function PremiumComboTable({ stats }: { stats: FeatureStats }) {
   const t = useT();
   const [horizon, setHorizon] = useState(3);
+  /** Which side of the ad gate to read: both folded together, or one alone. */
+  const [adSide, setAdSide] = useState<"all" | "out" | "gated">("all");
 
-  const cells = useMemo(() => {
-    const map = new Map<string, ComboCell>();
+  const sides = useMemo(() => {
+    const map = new Map<string, ComboSides>();
     for (const [event, groups] of Object.entries(stats.events)) {
       const match = COMBO_RE.exec(event);
       if (!match) continue;
-      const [, name, combo] = match;
-      let cell = map.get(combo);
-      if (!cell) map.set(combo, (cell = emptyComboCell()));
+      const [, name, combo, adDigit] = match;
+      let entry = map.get(combo);
+      if (!entry) map.set(combo, (entry = { out: emptyComboCell(), gated: emptyComboCell() }));
+      const cell = adDigit === "1" ? entry.gated : entry.out;
       // Summed over the groups of whichever feature owns this panel: the cell
       // name already carries the whole split, so cutting it again by a group
       // would only split the same people twice.
@@ -1463,7 +1499,18 @@ function PremiumComboTable({ stats }: { stats: FeatureStats }) {
       else if (name === "pro_days_sold") cell.days += value;
       else if (name === "pro_cancel") { cell.cancels += count; cell.cancelDays += value; }
     }
-    return [...map.entries()].map(([combo, cell]) => {
+    return map;
+  }, [stats.events]);
+
+  const cells = useMemo(() => {
+    return [...sides.entries()].map(([combo, side]) => {
+      const cell =
+        adSide === "out"
+          ? side.out
+          : adSide === "gated"
+            ? side.gated
+            : addComboCell(addComboCell(emptyComboCell(), side.out), side.gated);
+      const bothSeen = side.out.seen + side.gated.seen;
       // What a mandate in this cell is worth a month, from this cell's own
       // sales — so a cell that sold yearly plans is not credited with monthly
       // prices. The mandates since cancelled are taken out at that average
@@ -1479,11 +1526,26 @@ function PremiumComboTable({ stats }: { stats: FeatureStats }) {
       return {
         combo,
         cell,
+        // The share of this cell that is in the ad gate, always from both
+        // sides even when one of them is being read alone — it is a fact
+        // about how the split fell, not about what is on screen.
+        adShare: bothSeen ? side.gated.seen / bothSeen : null,
         cashPerPerson: cell.seen ? cell.grossCents / cell.seen : null,
         mrrPerPerson: cell.seen ? liveMrr / cell.seen : null,
       };
     });
-  }, [stats.events]);
+  }, [sides, adSide]);
+
+  /** The gated share over every cell — what each cell's own share is judged against. */
+  const overallAdShare = useMemo(() => {
+    let gated = 0;
+    let total = 0;
+    for (const side of sides.values()) {
+      gated += side.gated.seen;
+      total += side.out.seen + side.gated.seen;
+    }
+    return total ? gated / total : null;
+  }, [sides]);
 
   // The ranking, at the horizon on screen. Recomputed rather than stored: the
   // selector is the analysis, and a row that changes place when it moves is
@@ -1540,6 +1602,15 @@ function PremiumComboTable({ stats }: { stats: FeatureStats }) {
             </option>
           ))}
         </select>
+        <select
+          value={adSide}
+          onChange={(e) => setAdSide(e.target.value as "all" | "out" | "gated")}
+          className={`${inputClass} w-auto py-1 text-xs`}
+        >
+          <option value="all">{t("admin.features.comboAdAll")}</option>
+          <option value="out">{t("admin.features.comboAdOut")}</option>
+          <option value="gated">{t("admin.features.comboAdIn")}</option>
+        </select>
       </div>
       <p className="mt-1 text-[11px] text-zinc-500">{t("admin.features.comboHint", { min: COMBO_MIN_SEEN })}</p>
       {best && (
@@ -1556,6 +1627,7 @@ function PremiumComboTable({ stats }: { stats: FeatureStats }) {
           <tr className="text-left text-zinc-500">
             <th className="py-1 pr-3 font-medium">{t("admin.features.comboCell")}</th>
             {head("admin.features.comboSeen")}
+            {head("admin.features.comboAdShare", t("admin.features.comboAdShareHint"))}
             {head("admin.features.comboCheckout")}
             {head("admin.features.comboConversion")}
             {head("admin.features.comboSubShare", t("admin.features.comboSubShareHint"))}
@@ -1569,7 +1641,7 @@ function PremiumComboTable({ stats }: { stats: FeatureStats }) {
           </tr>
         </thead>
         <tbody>
-          {ranked.map(({ combo, cell, cashPerPerson, mrrPerPerson, projected }) => {
+          {ranked.map(({ combo, cell, adShare, cashPerPerson, mrrPerPerson, projected }) => {
             const thin = cell.seen < COMBO_MIN_SEEN;
             const gap = best && projected !== null && best.projected ? projected / best.projected - 1 : null;
             // On the first-purchase rate, which is a proportion — the
@@ -1579,6 +1651,16 @@ function PremiumComboTable({ stats }: { stats: FeatureStats }) {
             const conf =
               best && best.combo !== combo ? confidence(cell.first, cell.seen, best.cell.first, best.cell.seen) : null;
             const firsts = cell.firstPix + cell.firstSub;
+            // The split fell unevenly here. Not fatal and not a bug — it is
+            // what a small sample does — but the gate moves buying hard
+            // enough that a cell holding noticeably more (or less) of it than
+            // the rest is partly being ranked on that, so it is said out loud
+            // instead of being averaged in silently.
+            const skewed =
+              !thin &&
+              adShare !== null &&
+              overallAdShare !== null &&
+              Math.abs(adShare - overallAdShare) > COMBO_AD_SKEW;
             return (
               <tr
                 key={combo}
@@ -1591,6 +1673,15 @@ function PremiumComboTable({ stats }: { stats: FeatureStats }) {
                   <span className="ml-2 font-mono text-[10px] text-zinc-400">{combo}</span>
                 </td>
                 <td className="py-1 pr-3 text-right">{number(cell.seen)}</td>
+                <td
+                  className={`py-1 pr-3 text-right ${
+                    skewed ? "font-semibold text-amber-600 dark:text-amber-400" : "text-zinc-500"
+                  }`}
+                  title={skewed ? t("admin.features.comboAdSkewed") : undefined}
+                >
+                  {adShare === null ? "—" : `${(adShare * 100).toFixed(0)}%`}
+                  {skewed && " ⚠"}
+                </td>
                 <td className="py-1 pr-3 text-right">{pct(cell.checkout, cell.seen)}</td>
                 <td className="py-1 pr-3 text-right">{pct(cell.first, cell.seen, 2)}</td>
                 <td className="py-1 pr-3 text-right font-semibold">{pct(cell.firstSub, firsts)}</td>

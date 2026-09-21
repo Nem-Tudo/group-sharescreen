@@ -46,19 +46,34 @@ export const AD_GATE_EVENTS = {
   noAd: "ad_gate_no_ad",
   /** They sat out the no-ad wait and pressed the button at the end of it. */
   waitConfirmed: "ad_gate_wait_confirmed",
+  /** A long ad left behind at the minute mark; value = seconds watched. */
+  skipped: "ad_gate_skipped",
 } as const;
+
+/**
+ * The most the gate ever costs: one minute.
+ *
+ * It is a ceiling, not a duration. A thirty-second ad is thirty seconds; a
+ * three-minute one is still a minute, after which the way back appears even
+ * though the video is still running. Advertisers can upload whatever length
+ * they like, and without this the cost of the gate would be set by whoever
+ * happened to win the weighted roll — somebody's broadcast held for three
+ * minutes because of an inventory decision they have no part in.
+ *
+ * A minute is also what somebody waits when we have nothing to show at all
+ * (NO_AD_WAIT_SECONDS below), and that is the same constant deliberately:
+ * whatever the reason, the gate costs a minute.
+ */
+export const MAX_GATE_SECONDS = 60;
 
 /**
  * How long somebody waits when we have no ad to show them.
  *
- * There has to be *something*, or "no inventory" becomes the cheapest way
- * past the gate and the gate stops meaning anything. But it is our shelf that
- * is empty, not their fault, so it is a minute of nothing rather than a
- * minute of being sold to — and it ends with a button they press, so the
- * broadcast comes back when they are ready for it rather than while they are
- * looking away.
+ * The same minute as the ceiling above, and the same constant on purpose:
+ * whatever the reason, the gate costs a minute. Splitting them would be an
+ * invitation to make the empty-shelf case the longer of the two.
  */
-export const NO_AD_WAIT_SECONDS = 60;
+export const NO_AD_WAIT_SECONDS = MAX_GATE_SECONDS;
 
 export function trackAdGate(event: string, value?: number) {
   trackFeatureEvent(event, value ? { value: Math.max(1, Math.round(value)) } : {});

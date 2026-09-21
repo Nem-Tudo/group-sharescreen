@@ -10,6 +10,7 @@ import { useOpenPro } from "@/lib/proModal";
 import { trackPartnerClick } from "@/lib/partnerExperiment";
 import {
   AD_GATE_EVENTS,
+  MAX_GATE_SECONDS,
   NO_AD_WAIT_SECONDS,
   formatGateHours,
   trackAdGate,
@@ -82,6 +83,10 @@ export function BroadcastAdGateModal({
   // times a second.
   const maxTimeRef = useRef(0);
   const [remaining, setRemaining] = useState<number | null>(null);
+  // The furthest point actually reached, as state rather than only as the ref
+  // above: this one is rendered (it decides when the way out appears), and a
+  // ref does not re-render.
+  const [watched, setWatched] = useState(0);
   const [finished, setFinished] = useState(false);
   const [started, setStarted] = useState(false);
   // The no-ad wait (see NO_AD_WAIT_SECONDS). Counted down in wall-clock
@@ -151,6 +156,10 @@ export function BroadcastAdGateModal({
     if (!video || finished) return;
     const onTimeUpdate = () => {
       if (video.currentTime > maxTimeRef.current) maxTimeRef.current = video.currentTime;
+      // Off maxTimeRef, not currentTime: rewinding is allowed (there is no
+      // reason to forbid it), and it must not take back a minute already sat
+      // through.
+      setWatched(maxTimeRef.current);
       const left = (video.duration || 0) - video.currentTime;
       setRemaining(Number.isFinite(left) ? left : null);
     };
@@ -183,6 +192,16 @@ export function BroadcastAdGateModal({
     signalingClient.clearBroadcastAdGate("ad", partnerId);
   }
 
+  // A long ad, left behind at the minute mark. Counts as watched — they gave
+  // the gate everything it asks of anyone — with its own event beside it so
+  // the two can be told apart when reading the numbers.
+  function handleSkip() {
+    if (finished) return;
+    setFinished(true);
+    trackAdGate(AD_GATE_EVENTS.skipped, watched);
+    signalingClient.clearBroadcastAdGate("ad", partnerId);
+  }
+
   function handlePro() {
     trackAdGate(AD_GATE_EVENTS.proClick);
     signalingClient.reportBroadcastAdGateProClick();
@@ -201,18 +220,29 @@ export function BroadcastAdGateModal({
     onClose();
   }
 
+  // How long until they get their screen back, whichever comes first: the ad
+  // ending, or the minute being up. One number, always meaning the same
+  // thing — showing the ad's own remaining time on a three-minute video would
+  // be telling somebody they have three minutes to go when they have one.
+  const untilSkip = Math.max(0, MAX_GATE_SECONDS - watched);
+  const canSkip = Boolean(partner) && !finished && untilSkip <= 0;
+  const untilFree = remaining === null ? untilSkip : Math.min(remaining, untilSkip);
+
   const hoursLabel = formatGateHours(gate.firstHours);
   const intervalLabel = formatGateHours(gate.intervalHours);
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-      <div className="flex max-h-[92dvh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-950">
-        <div className="flex items-start justify-between gap-3 px-5 pb-3 pt-5">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm sm:p-4">
+      {/* dvh rather than vh: on a phone the browser's own chrome slides in and
+          out as you scroll, and vh measures the tallest it ever is — which is
+          exactly how a popup ends up with its buttons under the address bar. */}
+      <div className="flex max-h-[96dvh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-950 sm:max-h-[92dvh]">
+        <div className="flex shrink-0 items-start justify-between gap-3 px-4 pb-3 pt-4 sm:px-5 sm:pt-5">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400">
-              <MdPauseCircleOutline className="h-6 w-6" />
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 sm:h-10 sm:w-10">
+              <MdPauseCircleOutline className="h-5 w-5 sm:h-6 sm:w-6" />
             </span>
-            <h2 className="text-base font-semibold text-zinc-900 dark:text-white">
+            <h2 className="text-[15px] font-semibold leading-tight text-zinc-900 dark:text-white sm:text-base">
               {t("broadcastAdGate.title")}
             </h2>
           </div>
@@ -230,13 +260,16 @@ export function BroadcastAdGateModal({
           </button>
         </div>
 
-        <div className="overflow-y-auto px-5 pb-5">
-          <p className="text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 sm:px-5">
+          <p className="text-[13px] leading-relaxed text-zinc-600 dark:text-zinc-400 sm:text-sm">
             {t("broadcastAdGate.explanation", { hours: hoursLabel, interval: intervalLabel })}
           </p>
 
           {/* What did *not* just happen. */}
-          <ul className="mt-4 space-y-2 rounded-xl bg-zinc-50 p-3.5 text-sm text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
+          {/* Tighter on a phone, and the first thing given up when the
+              screen is short: it is reassurance, and reassurance below a
+              button nobody can reach is worth nothing. */}
+          <ul className="mt-3 space-y-1.5 rounded-xl bg-zinc-50 p-3 text-[13px] text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400 sm:mt-4 sm:space-y-2 sm:p-3.5 sm:text-sm">
             <li className="flex items-start gap-2.5">
               <CheckIcon className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
               <span>{t("broadcastAdGate.stillInTheRoom")}</span>
@@ -251,7 +284,7 @@ export function BroadcastAdGateModal({
             </li>
           </ul>
 
-          <div className="mt-4 overflow-hidden rounded-xl border border-zinc-200 bg-black dark:border-zinc-800">
+          <div className="mt-3 overflow-hidden rounded-xl border border-zinc-200 bg-black dark:border-zinc-800 sm:mt-4">
             {loading && (
               <div className="flex aspect-video items-center justify-center">
                 <div className="h-8 w-8 animate-spin rounded-full border-4 border-white/20 border-t-white/80" />
@@ -277,11 +310,13 @@ export function BroadcastAdGateModal({
               />
             )}
             {noAd && (
-              <div className="flex aspect-video flex-col items-center justify-center gap-3 px-6 text-center">
-                <p className="text-sm text-zinc-400">{t("broadcastAdGate.noAdAvailable")}</p>
+              <div className="flex aspect-video flex-col items-center justify-center gap-2 px-4 text-center sm:gap-3 sm:px-6">
+                <p className="text-[13px] text-zinc-400 sm:text-sm">
+                  {t("broadcastAdGate.noAdAvailable")}
+                </p>
                 {!waitDone && (
                   <>
-                    <span className="text-4xl font-semibold tabular-nums text-white">
+                    <span className="text-3xl font-semibold tabular-nums text-white sm:text-4xl">
                       {formatClock(waitLeft)}
                     </span>
                     <p className="text-xs text-zinc-500">{t("broadcastAdGate.noAdWaitHint")}</p>
@@ -301,9 +336,9 @@ export function BroadcastAdGateModal({
               <p className="min-w-0 truncate text-xs text-zinc-500 dark:text-zinc-400">
                 {partner.title}
               </p>
-              {remaining !== null && (
+              {remaining !== null && !canSkip && (
                 <span className="shrink-0 rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium tabular-nums text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
-                  {formatClock(remaining)}
+                  {formatClock(untilFree)}
                 </span>
               )}
             </div>
@@ -315,37 +350,47 @@ export function BroadcastAdGateModal({
             </p>
           )}
 
+        </div>
+
+        {/* Outside the scrolling body on purpose. A phone held in landscape —
+            which is how somebody streaming a game is holding it — has barely
+            three hundred pixels of height, and in a single scrolling column
+            both ways out of this popup end up below the fold. Somebody who
+            cannot see how to get their broadcast back assumes there is no
+            way, so the buttons are pinned and the explanation is what
+            scrolls. */}
+        <div className="shrink-0 border-t border-zinc-200 px-4 pb-4 pt-3 dark:border-zinc-800 sm:px-5 sm:pb-5">
           {/* The way out of the no-ad wait. A button rather than the
               broadcast simply coming back on its own: the minute passes while
               they are looking at something else as often as not, and a
               picture that returns unannounced is a picture nobody knows is
               live again. */}
-          {noAd && (
+          {(noAd || canSkip) && (
             <button
               type="button"
-              onClick={handleWaitConfirm}
-              disabled={!waitDone}
-              className="mt-4 w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-zinc-200 disabled:text-zinc-400 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-500"
+              onClick={noAd ? handleWaitConfirm : handleSkip}
+              disabled={noAd && !waitDone}
+              className="mb-3 w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-zinc-200 disabled:text-zinc-400 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-500"
             >
-              {waitDone
+              {!noAd || waitDone
                 ? t("broadcastAdGate.backToBroadcast")
                 : t("broadcastAdGate.backToBroadcastIn", { seconds: String(waitLeft) })}
             </button>
           )}
 
-          <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
             {partner?.buttonUrl ? (
               <a
                 href={partner.buttonUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={handleAdClick}
-                className="rounded-lg px-4 py-2.5 text-center text-sm font-medium text-zinc-600 transition hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
+                className="truncate rounded-lg px-4 py-2 text-center text-[13px] font-medium text-zinc-600 transition hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900 sm:py-2.5 sm:text-sm"
               >
                 {partner.buttonLabel}
               </a>
             ) : (
-              <span />
+              <span className="hidden sm:block" />
             )}
             <div className="flex flex-col items-stretch gap-1 sm:items-end">
               <button
@@ -353,14 +398,14 @@ export function BroadcastAdGateModal({
                 onClick={handlePro}
                 className="flex items-center justify-center gap-2 rounded-lg bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-500"
               >
-                <VerifiedBadgeIcon className="h-4 w-4" />
-                {t("broadcastAdGate.getProNoAds")}
+                <VerifiedBadgeIcon className="h-4 w-4 shrink-0" />
+                <span className="truncate">{t("broadcastAdGate.getProNoAds")}</span>
               </button>
               {/* Only when there is a real number. A price is the one thing
                   in this popup that must never be a placeholder, so a plan
                   list that has not loaded simply renders nothing. */}
               {proPrice && (
-                <span className="text-center text-xs text-zinc-500 dark:text-zinc-400 sm:text-right">
+                <span className="text-center text-xs font-medium text-emerald-600 dark:text-emerald-400 sm:text-right">
                   {t("broadcastAdGate.forOnlyPrice", { price: proPrice })}
                 </span>
               )}
