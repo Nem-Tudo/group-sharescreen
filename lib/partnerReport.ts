@@ -66,6 +66,8 @@ export type PartnerReportAd = {
   // Long markdown copy for the reward popup. Absent from an older API.
   extendedDescription?: string | null;
   imageUrl: string | null;
+  /** Square brand mark beside the title, when the ad has one. */
+  iconUrl: string | null;
   buttonLabel: string;
   buttonUrl: string;
   backgroundColor: string | null;

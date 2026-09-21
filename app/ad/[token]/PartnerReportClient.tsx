@@ -20,6 +20,7 @@ import {
   type PartnerReport,
   type PartnerReportRange,
 } from "@/lib/partnerReport";
+import { partnerWideImage } from "@/lib/partner";
 import {
   FunnelChart,
   SplitBar,
@@ -514,15 +515,33 @@ export function PartnerReportClient({ token }: { token: string }) {
               <span className="rounded-full bg-black/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide opacity-70 dark:bg-white/10">
                 {t("common.sponsored")}
               </span>
-              {ad.imageUrl && (
+              {/* Banner at the head of the card, square mark standing in as a
+                  square when there is none — the rule the real card follows
+                  (see lib/partner's partnerWideImage), so this preview stays a
+                  preview. */}
+              {partnerWideImage(ad) && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={ad.imageUrl}
+                  src={partnerWideImage(ad)!}
                   alt=""
-                  className="mt-2 max-h-32 w-full rounded-lg object-cover"
+                  className={
+                    ad.imageUrl
+                      ? "mt-2 max-h-32 w-full rounded-lg object-cover"
+                      : "mx-auto mt-2 aspect-square w-16 rounded-xl object-cover ring-1 ring-black/10"
+                  }
                 />
               )}
-              <p className="mt-2 text-sm font-semibold">{ad.title}</p>
+              <div className="mt-2 flex items-center gap-2">
+                {ad.iconUrl && ad.imageUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={ad.iconUrl}
+                    alt=""
+                    className="h-7 w-7 shrink-0 rounded-lg object-cover ring-1 ring-black/10"
+                  />
+                )}
+                <p className="min-w-0 text-sm font-semibold">{ad.title}</p>
+              </div>
               <p className="mt-1 whitespace-pre-line text-xs opacity-80">{ad.description}</p>
               <div
                 className="mt-3 rounded-lg px-3 py-2 text-center text-sm font-semibold"

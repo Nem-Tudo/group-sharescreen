@@ -13,6 +13,9 @@ export type Partner = {
   // opens. Absent from an API that predates it.
   hasExtendedDescription?: boolean;
   imageUrl: string | null;
+  // Square brand mark, shown beside the title (see PartnerCard). The banner
+  // above is the campaign; this is who is running it. null = none.
+  iconUrl: string | null;
   buttonLabel: string;
   buttonUrl: string;
   backgroundColor: string | null;
@@ -36,9 +39,41 @@ export type Partner = {
   // regardless.
   clickRewardPoints: number | null;
   clickRewardPlacement: PartnerClickRewardPlacement | null;
+  // Dayparts, when the ad has any — see lib/partnerSchedule.ts, which is what
+  // turns them into the card actually on screen. Absent on the overwhelming
+  // majority of ads, which look the same round the clock.
+  schedules?: PartnerSchedule[];
 };
 
 export type PartnerClickRewardPlacement = "video" | "card" | "both";
+
+/**
+ * One window of an ad's day and what changes while it runs — mirrors the
+ * API's PartnerSchedule.
+ *
+ * `startMinute`/`endMinute` are minutes since *local* midnight, both ends
+ * inclusive, resolved in the visitor's own clock. An end before its start
+ * wraps past midnight, so "19:01 as 11:59" is a single window.
+ *
+ * Every creative field is null when the window leaves the ad's own alone.
+ */
+export type PartnerSchedule = {
+  id: string;
+  /** Admin-side only: a name so two windows can be told apart in the panel. */
+  label: string;
+  startMinute: number;
+  endMinute: number;
+  title: string | null;
+  description: string | null;
+  imageUrl: string | null;
+  iconUrl: string | null;
+  buttonLabel: string | null;
+  buttonUrl: string | null;
+  backgroundColor: string | null;
+  textColor: string | null;
+  buttonBackgroundColor: string | null;
+  buttonTextColor: string | null;
+};
 
 export type PartnerCardData = {
   id?: string;
@@ -46,6 +81,7 @@ export type PartnerCardData = {
   description: string;
   hasExtendedDescription?: boolean;
   imageUrl?: string | null;
+  iconUrl?: string | null;
   buttonLabel: string;
   buttonUrl: string;
   backgroundColor?: string | null;
@@ -57,6 +93,7 @@ export type PartnerCardData = {
   rewardPoints?: number | null;
   clickRewardPoints?: number | null;
   clickRewardPlacement?: PartnerClickRewardPlacement | null;
+  schedules?: PartnerSchedule[];
 };
 
 export const FALLBACK_PARTNER: PartnerCardData = {
@@ -82,6 +119,37 @@ export const EXAMPLE_PARTNER: PartnerCardData = {
   buttonBackgroundColor: "#ffffff",
   buttonTextColor: "#000000",
 };
+
+/**
+ * The ad's picture for a *square* (or near-square) slot: the 44px block beside
+ * the ad gate's copy, the 16px mark on the folded strip, the stage card's
+ * left column when there is no banner.
+ *
+ * The icon first, because that is the shape it was drawn in. A banner squeezed
+ * into a square is cropped to its middle third, which is reliably the part of
+ * a banner with nothing on it — the logo is at one end and the call to action
+ * at the other. It is still the fallback, because an ad with a banner and no
+ * icon is better represented by a cropped banner than by a blank.
+ */
+export function partnerSquareImage(partner: {
+  iconUrl?: string | null;
+  imageUrl?: string | null;
+}): string | null {
+  return partner.iconUrl || partner.imageUrl || null;
+}
+
+/**
+ * The ad's picture for a *wide* slot: the sidebar card's header, the stage
+ * card's left column, the grid tile. The banner first — this is the shape it
+ * was made for — and the icon when there is no banner, drawn as a square
+ * rather than stretched across the space (see each caller).
+ */
+export function partnerWideImage(partner: {
+  iconUrl?: string | null;
+  imageUrl?: string | null;
+}): string | null {
+  return partner.imageUrl || partner.iconUrl || null;
+}
 
 export async function fetchPartner(
   signal?: AbortSignal,

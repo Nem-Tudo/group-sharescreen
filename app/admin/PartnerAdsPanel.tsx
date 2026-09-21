@@ -21,8 +21,19 @@ import { translate } from "@/lib/i18n";
 import { formatLocale } from "@/lib/i18n";
 import { partnerRewardPopupSize, type PartnerRewardPopupData } from "@/components/PartnerRewardModal";
 import { PartnerMediaDrop } from "./PartnerMediaDrop";
+import { PartnerScheduleEditor } from "./PartnerScheduleEditor";
+import { partnerWideImage, type PartnerSchedule } from "@/lib/partner";
+import {
+  activePartnerSchedule,
+  formatMinuteOfDay,
+  minuteOfDay,
+  parseMinuteOfDay,
+  resolvePartnerCreative,
+} from "@/lib/partnerSchedule";
 
 const STATS_POLL_INTERVAL_MS = 3000;
+// The windows in an ad's tooltip, one per line.
+const NEWLINE = String.fromCharCode(10);
 // Mirrors the API's PARTNER_EXTENDED_DESCRIPTION_MAX_LEN.
 const EXTENDED_DESCRIPTION_MAX_LEN = 20000;
 
@@ -47,6 +58,7 @@ const emptyFormDefaults = {
   description: "",
   extendedDescription: "",
   imageUrl: "",
+  iconUrl: "",
   buttonLabel: "",
   buttonUrl: "",
   backgroundColor: "#111827",
@@ -94,6 +106,13 @@ export function PartnerAdsPanel() {
   const [clickRewardPointsInput, setClickRewardPointsInput] = useState("");
   const [clickRewardPlacement, setClickRewardPlacement] =
     useState<PartnerClickRewardPlacement>("both");
+  // Dayparts (see lib/partnerSchedule.ts). Their own state rather than part of
+  // `form`, which is all plain strings bound to text inputs.
+  const [schedules, setSchedules] = useState<PartnerSchedule[]>([]);
+  // Which hour the preview below is showing, as "HH:MM". Empty means "now",
+  // which is what the card would be doing if it were on screen this second —
+  // the answer an admin wants by default, with the others a keystroke away.
+  const [previewTime, setPreviewTime] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Which ad's report link was just copied, so the button can say so for a
@@ -142,6 +161,10 @@ export function PartnerAdsPanel() {
     setAsOf(Date.now());
     if (!initialLoadDone.current) {
       setEmptyPercentInput(String(data.emptyPercent));
+      // The preview clock starts on the hour it actually is. Seeded from here,
+      // beside asOf and for the same reason: this runs in a fetch's `.then`,
+      // never during a render, so reading the wall clock stays out of one.
+      setPreviewTime(formatMinuteOfDay(minuteOfDay(new Date())));
       initialLoadDone.current = true;
     }
   }
@@ -187,6 +210,7 @@ export function PartnerAdsPanel() {
     setRewardPointsInput("");
     setClickRewardPointsInput("");
     setClickRewardPlacement("both");
+    setSchedules([]);
     extendedCaretRef.current = null;
     setError(null);
   }
@@ -199,6 +223,7 @@ export function PartnerAdsPanel() {
       description: p.description,
       extendedDescription: p.extendedDescription ?? "",
       imageUrl: p.imageUrl ?? "",
+      iconUrl: p.iconUrl ?? "",
       buttonLabel: p.buttonLabel,
       buttonUrl: p.buttonUrl,
       backgroundColor: p.backgroundColor ?? "#111827",
@@ -213,6 +238,7 @@ export function PartnerAdsPanel() {
     setRewardPointsInput(p.rewardPoints != null ? String(p.rewardPoints) : "");
     setClickRewardPointsInput(p.clickRewardPoints != null ? String(p.clickRewardPoints) : "");
     setClickRewardPlacement(p.clickRewardPlacement ?? "both");
+    setSchedules(p.schedules ?? []);
     extendedCaretRef.current = null;
     setError(null);
   }
@@ -247,6 +273,15 @@ export function PartnerAdsPanel() {
       setError(t("admin.partnerAdsPanel.setHowManyPointsTheVideo"));
       return;
     }
+    // The API refuses this too; caught here so the admin is told next to the
+    // window they typed it in rather than by a line at the foot of the form.
+    const brokenWindow = schedules.find((s) => s.startMinute === s.endMinute);
+    if (brokenWindow) {
+      setError(
+        `A faixa "${brokenWindow.label || "sem nome"}" começa e termina no mesmo horário.`
+      );
+      return;
+    }
     setSending(true);
     try {
       const input: PartnerInput = {
@@ -255,6 +290,9 @@ export function PartnerAdsPanel() {
         // Sent even when empty: an empty string is how an edit clears it.
         extendedDescription: form.extendedDescription.trim(),
         imageUrl: form.imageUrl.trim() || undefined,
+        // Sent even when empty, like extendedDescription above: an empty
+        // string is how an edit clears the icon.
+        iconUrl: form.iconUrl.trim(),
         buttonLabel: form.buttonLabel.trim(),
         buttonUrl: form.buttonUrl.trim(),
         backgroundColor: form.backgroundColor.trim() || undefined,
@@ -267,6 +305,9 @@ export function PartnerAdsPanel() {
         rewardPoints: trimmedRewardVideoUrl && rewardPointsInput.trim() ? Number(rewardPointsInput) : undefined,
         clickRewardPoints: trimmedClickRewardPoints ? Number(trimmedClickRewardPoints) : undefined,
         clickRewardPlacement: trimmedClickRewardPoints ? clickRewardPlacement : undefined,
+        // Always sent, empty list included — removing the last window has to
+        // actually remove it, and an omitted field would leave it in place.
+        schedules,
       };
       if (mode === "edit" && editingId) {
         await editPartner(editingId, input);
@@ -315,6 +356,31 @@ export function PartnerAdsPanel() {
   }
 
   const needsSave = String(emptyPercent) !== emptyPercentInput.trim();
+
+  // The card the preview below draws: the form as typed, with whichever
+  // daypart covers the chosen hour laid over it — exactly the resolution the
+  // visitor's browser does (see lib/partnerSchedule.ts), so what shows here is
+  // what shows there.
+  const previewMinute = parseMinuteOfDay(previewTime) ?? 0;
+  const previewSchedule = activePartnerSchedule({ schedules }, previewMinute);
+  const preview = resolvePartnerCreative(
+    {
+      title: form.title,
+      description: form.description,
+      imageUrl: form.imageUrl,
+      iconUrl: form.iconUrl,
+      buttonLabel: form.buttonLabel,
+      buttonUrl: form.buttonUrl,
+      backgroundColor: form.backgroundColor,
+      textColor: form.textColor,
+      buttonBackgroundColor: form.buttonBackgroundColor,
+      buttonTextColor: form.buttonTextColor,
+      schedules,
+    },
+    previewMinute
+  );
+  const previewHero = partnerWideImage(preview);
+  const previewHeroIsIcon = Boolean(previewHero) && previewHero === preview.iconUrl;
 
   // The real reward popup, filled from the form as it stands, in preview mode
   // (see PartnerRewardModal's `preview`): nothing it does is counted or paid.
@@ -431,6 +497,19 @@ export function PartnerAdsPanel() {
                     <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
                       +{p.clickRewardPoints} pts por clique (
                       {CLICK_REWARD_PLACEMENT_LABELS[p.clickRewardPlacement ?? "both"]})
+                    </span>
+                  )}
+                  {p.schedules && p.schedules.length > 0 && (
+                    <span
+                      title={p.schedules
+                        .map(
+                          (sch) =>
+                            `${formatMinuteOfDay(sch.startMinute)}–${formatMinuteOfDay(sch.endMinute)}: ${sch.label || "sem nome"}`
+                        )
+                        .join(NEWLINE)}
+                      className="shrink-0 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-900/40 dark:text-sky-400"
+                    >
+                      {p.schedules.length} faixa{p.schedules.length > 1 ? "s" : ""} de horário
                     </span>
                   )}
                   <span className="shrink-0 text-zinc-500 dark:text-zinc-400">peso {p.weight}</span>
@@ -585,6 +664,27 @@ export function PartnerAdsPanel() {
             <PartnerMediaDrop kind="image" onUploaded={(url) => update("imageUrl", url)} />
           </div>
 
+          <div>
+            <label htmlFor="partner-icon" className={labelClass}>
+              Ícone quadrado (opcional)
+            </label>
+            <input
+              id="partner-icon"
+              value={form.iconUrl}
+              onChange={(e) => update("iconUrl", e.target.value)}
+              placeholder="https://..."
+              className={inputClass}
+            />
+            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+              A marca do anunciante. Quadrada — o banner acima é a campanha,
+              isso aqui é de quem ela é. Usada em todo espaço quadrado, onde um
+              banner sairia cortado no meio: a pausa por anúncio, a barrinha do
+              anúncio recolhido, o canto do anúncio em tela e o lado do título.
+              Sem banner, ela também assume a frente do card.
+            </p>
+            <PartnerMediaDrop kind="image" onUploaded={(url) => update("iconUrl", url)} />
+          </div>
+
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <label htmlFor="partner-button-label" className={labelClass}>
@@ -611,6 +711,23 @@ export function PartnerAdsPanel() {
               />
             </div>
           </div>
+
+          <PartnerScheduleEditor
+            schedules={schedules}
+            onChange={setSchedules}
+            base={{
+              title: form.title,
+              description: form.description,
+              imageUrl: form.imageUrl,
+              iconUrl: form.iconUrl,
+              buttonLabel: form.buttonLabel,
+              buttonUrl: form.buttonUrl,
+              backgroundColor: form.backgroundColor,
+              textColor: form.textColor,
+              buttonBackgroundColor: form.buttonBackgroundColor,
+              buttonTextColor: form.buttonTextColor,
+            }}
+          />
 
           <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/40">
             <p className={labelClass}>{t("admin.partnerAdsPanel.videoRewardOptional")}</p>
@@ -844,27 +961,73 @@ export function PartnerAdsPanel() {
               behind a toggle. Mirrors PartnerCard's real markup; when the two
               drift, that one is the original. */}
           <div>
-            <p className={labelClass}>{t("common.preview")}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className={labelClass}>{t("common.preview")}</p>
+              {/* With dayparts on, "how does it look" is not one question any
+                  more. The clock is what picks which of them is being asked,
+                  and it starts on the hour it actually is. */}
+              {schedules.length > 0 && (
+                <span className="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                  às
+                  <input
+                    type="time"
+                    value={previewTime}
+                    onChange={(e) => setPreviewTime(e.target.value)}
+                    className="rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                  />
+                  {previewSchedule ? (
+                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400">
+                      {previewSchedule.label || "faixa sem nome"}
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-zinc-100 px-2 py-0.5 font-semibold text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
+                      fora das faixas
+                    </span>
+                  )}
+                </span>
+              )}
+            </div>
             <div
               className="mt-1 w-72 max-w-full overflow-hidden rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
-              style={{ backgroundColor: form.backgroundColor, color: form.textColor }}
+              style={{ backgroundColor: preview.backgroundColor!, color: preview.textColor! }}
             >
               <div className="mb-2 flex items-center">
                 <span className="rounded-full bg-black/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide opacity-70 dark:bg-white/10">
                   {t("common.sponsored")}
                 </span>
               </div>
-              {form.imageUrl && (
+              {/* The same rule the real card follows: the banner at the head
+                  of the card, the square mark standing in (as a square) when
+                  there is no banner, and no second copy of it by the title. */}
+              {previewHero && (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={form.imageUrl} alt="" className="mb-2 max-h-32 w-full rounded-lg object-cover" />
+                <img
+                  src={previewHero}
+                  alt=""
+                  className={
+                    previewHeroIsIcon
+                      ? "mx-auto mb-2 aspect-square w-16 rounded-xl object-cover ring-1 ring-black/10 dark:ring-white/10"
+                      : "mb-2 max-h-32 w-full rounded-lg object-cover"
+                  }
+                />
               )}
-              <p className="text-sm font-semibold">{form.title || t("common.adTitle")}</p>
+              <div className="flex items-center gap-2">
+                {preview.iconUrl && !previewHeroIsIcon && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={preview.iconUrl}
+                    alt=""
+                    className="h-7 w-7 shrink-0 rounded-lg object-cover ring-1 ring-black/10 dark:ring-white/10"
+                  />
+                )}
+                <p className="min-w-0 text-sm font-semibold">{preview.title || t("common.adTitle")}</p>
+              </div>
               <p className="mt-1 whitespace-pre-line text-xs opacity-80">
-                {form.description || t("common.adDescription")}
+                {preview.description || t("common.adDescription")}
               </p>
               <div
                 className="mt-3 flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-center text-sm font-semibold"
-                style={{ backgroundColor: form.buttonBackgroundColor, color: form.buttonTextColor }}
+                style={{ backgroundColor: preview.buttonBackgroundColor!, color: preview.buttonTextColor! }}
               >
                 {previewCardClickReward && (
                   <>
@@ -872,7 +1035,7 @@ export function PartnerAdsPanel() {
                     <span className="shrink-0 tabular-nums">{clickRewardPointsInput.trim()}</span>
                   </>
                 )}
-                <span className="truncate">{form.buttonLabel || t("common.button")}</span>
+                <span className="truncate">{preview.buttonLabel || t("common.button")}</span>
               </div>
               {previewRewardVideo && (
                 <div

@@ -21,6 +21,8 @@ import {
   type PartnerClickRewardPlacement,
   type PartnerCardData,
   fetchPartner,
+  partnerSquareImage,
+  partnerWideImage,
   FALLBACK_PARTNER,
   EXAMPLE_PARTNER,
 } from "@/lib/partner";
@@ -37,6 +39,7 @@ import {
   type PartnerClickSpot,
 } from "@/lib/partnerExperiment";
 import { PartnerClickRewardHint, PartnerClickRewardPill } from "@/components/PartnerClickReward";
+import { usePartnerCreative } from "@/lib/partnerSchedule";
 
 const STATS_DASHBOARD_URL = process.env.NEXT_PUBLIC_STATS_DASHBOARD_URL;
 
@@ -148,7 +151,11 @@ export function PartnerCard({
   const [internalPartner, setInternalPartner] = useState<PartnerCardData | null>(null);
   const [internalLoaded, setInternalLoaded] = useState(false);
 
-  const partner = isControlled ? (externalPartner ?? null) : internalPartner;
+  const servedPartner = isControlled ? (externalPartner ?? null) : internalPartner;
+  // The daypart running right now (see lib/partnerSchedule). Harmless on the
+  // controlled path, where usePartnerAd has already resolved it: a resolved ad
+  // carries no windows, so this hands it straight back and sets no timer.
+  const partner = usePartnerCreative(servedPartner);
   const loaded = isControlled ? externalLoaded : internalLoaded;
   // Shared with the landing page's own readout instead of polling separately
   // for the same number — see lib/peopleOnline.ts.
@@ -356,7 +363,11 @@ export function PartnerCard({
   const reportedSessionIds = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (isControlled) return;
-    const serve = partner;
+    // The *served* object, never the daypart-resolved one: a window turning
+    // over at 19:01 redraws the card but is not the server serving the slot
+    // again, and counting it as one would inflate impressions by however many
+    // windows the ad happens to have.
+    const serve = servedPartner;
     const id = serve?.id;
     if (!serve || !id) return;
     function maybeReport() {
@@ -372,7 +383,7 @@ export function PartnerCard({
     maybeReport();
     document.addEventListener("visibilitychange", maybeReport);
     return () => document.removeEventListener("visibilitychange", maybeReport);
-  }, [isControlled, partner]);
+  }, [isControlled, servedPartner]);
 
   // Badge on the reward button — the ad carries no duration field, so it's
   // read off the video itself (see the hook).
@@ -476,6 +487,13 @@ export function PartnerCard({
   // lines scroll inside it, so the participant list keeps its room either
   // way; the reader just chose to scroll for them.
   const showFullDescription = expandedDescription === displayData.description;
+  // The picture at the head of the card. A banner when there is one — this is
+  // a wide slot and that is the shape it was made for — and otherwise the
+  // square mark, which beats leaving the head of the card blank. When the mark
+  // is standing in, it is drawn as a square rather than stretched across the
+  // slot, and the title below drops its own copy of it (see partnerWideImage).
+  const heroImage = partnerWideImage(displayData);
+  const heroIsIcon = Boolean(heroImage) && heroImage === displayData.iconUrl;
   // Whether the CTA below should advertise (and pay) click points right now:
   // a real ad, configured to offer them on the card, not already collected by
   // this browser. Once collected the button quietly goes back to being a
@@ -552,7 +570,7 @@ export function PartnerCard({
       style={isStage || maxCardHeight === null ? undefined : { maxHeight: maxCardHeight }}
       className={
         isStage
-          ? "relative w-full max-w-xl shrink-0 text-left"
+          ? "relative w-full max-w-xl shrink-0 text-left lg:max-w-2xl"
           : "relative mt-auto max-h-[33dvh] w-full shrink-0 overflow-y-auto lg:max-h-[45dvh]"
       }
       // Pointer events rather than mouse ones so a pen or a hovering trackpad
@@ -698,12 +716,18 @@ export function PartnerCard({
       )}
 
       <div
-        // On the stage, from sm up: its own horizontal layout — the image in a
+        // On the stage, from sm up: its own horizontal layout — the banner in a
         // column of its own on the left, everything else stacked beside it —
         // instead of the sidebar's tall card stretched across the pane.
-        className={`w-full overflow-hidden rounded-lg border border-zinc-200 p-3 dark:border-zinc-800 sm:p-4 ${
-          isStage && displayData.imageUrl
-            ? "sm:grid sm:grid-cols-[minmax(0,13rem)_minmax(0,1fr)] sm:gap-x-4 sm:[&>*:not(img)]:col-start-2"
+        //
+        // The banner column is wide, and grows again from lg: the image is the
+        // only part of an ad anybody looks at from across a room, and the copy
+        // beside it is three short lines that do not need half a pane. Its own
+        // shape, too — see the img below — rather than the square it used to be
+        // cropped into, which cut the ends off every banner ever uploaded.
+        className={`w-full overflow-hidden rounded-xl border border-zinc-200 p-3 dark:border-zinc-800 sm:p-4 ${
+          isStage && heroImage
+            ? "sm:grid sm:grid-cols-[minmax(0,15rem)_minmax(0,1fr)] sm:items-center sm:gap-x-5 sm:[&>*:not(img)]:col-start-2 lg:grid-cols-[minmax(0,19rem)_minmax(0,1fr)]"
             : ""
         }`}
         style={{
@@ -752,23 +776,54 @@ export function PartnerCard({
           </span>
         </div>
 
-        {displayData.imageUrl && (
+        {heroImage && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={displayData.imageUrl}
+            src={heroImage}
             alt=""
             // Grows only from lg, not from sm: between the two the card is
             // still inside the shared drawer, where every pixel it takes is
             // one the participant list loses.
             className={
-              isStage
-                ? "mb-2 aspect-video w-full rounded-lg object-cover sm:col-start-1 sm:row-span-6 sm:row-start-1 sm:mb-0 sm:aspect-square sm:self-center"
-                : "mb-2 max-h-20 w-full rounded-lg object-cover lg:max-h-32"
+              heroIsIcon
+                ? // A square mark filling in for a missing banner: kept square
+                  // and centred, at a size it was drawn to be read at. Cropping
+                  // it to 16:9 the way a banner is cropped would cut the top
+                  // and bottom off a logo.
+                  `mx-auto mb-2 aspect-square rounded-xl object-cover ring-1 ring-black/10 dark:ring-white/10 ${
+                    isStage
+                      ? "w-24 sm:col-start-1 sm:row-span-full sm:row-start-1 sm:mb-0 sm:w-32 sm:self-center"
+                      : "w-16 lg:w-20"
+                  }`
+                : isStage
+                  ? // 16:9 in both directions now. It was squared off from sm
+                    // up, which meant every banner — and they are all banners —
+                    // lost its two ends to object-cover exactly where the logo
+                    // and the call to action tend to sit.
+                    "mb-2 aspect-video w-full rounded-lg object-cover sm:col-start-1 sm:row-span-full sm:row-start-1 sm:mb-0 sm:self-center"
+                  : "mb-2 max-h-20 w-full rounded-lg object-cover lg:max-h-32"
             }
           />
         )}
 
-        <p className="text-sm font-semibold">{displayData.title}</p>
+        {/* The brand's own mark beside its headline, when it has one — an ad
+            is somebody's, and a square logo says whose faster than a line of
+            copy does. Sized up on the stage, where the card has the room. */}
+        <div className="flex items-center gap-2">
+          {displayData.iconUrl && !heroIsIcon && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={displayData.iconUrl}
+              alt=""
+              className={`shrink-0 rounded-lg object-cover ring-1 ring-black/10 dark:ring-white/10 ${
+                isStage ? "h-10 w-10" : "h-7 w-7"
+              }`}
+            />
+          )}
+          <p className={`min-w-0 font-semibold ${isStage ? "text-sm sm:text-base" : "text-sm"}`}>
+            {displayData.title}
+          </p>
+        </div>
         {/* Cut only when the card wouldn't otherwise fit beside four
             participants (see the measuring effect) — a short ad in a tall
             column reads in full, exactly as written. */}
@@ -800,7 +855,13 @@ export function PartnerCard({
           target="_blank"
           rel="noopener noreferrer"
           onClick={() => handleCtaClick(cardSpot)}
-          className={`relative ${earnLook ? "mt-1.5" : "mt-3"} flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-center text-sm font-semibold transition hover:opacity-90`}
+          // Full width in the sidebar, where the column *is* the button's
+          // width; on the stage only as wide as it needs to be, because a
+          // button stretched across a whole pane reads as a banner rather than
+          // as something to press.
+          className={`relative ${earnLook ? "mt-1.5" : "mt-3"} flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-center text-sm font-semibold transition hover:opacity-90 ${
+            isStage ? "sm:w-fit sm:min-w-[12rem] sm:px-6 sm:py-2.5" : ""
+          }`}
           style={{
             backgroundColor: displayData.buttonBackgroundColor ?? "#18181b",
             color: displayData.buttonTextColor ?? "#ffffff",
@@ -1084,9 +1145,16 @@ export function PartnerCardMinimized({
             color: partner.textColor ?? "#18181b",
           }}
         >
-          {partner.imageUrl && (
+          {/* At 16px a banner is a smear, so this is the icon's slot — see
+              partnerSquareImage, which falls back to the banner anyway for an
+              ad that has no icon. */}
+          {partnerSquareImage(partner) && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={partner.imageUrl} alt="" className="h-4 w-4 shrink-0 rounded object-cover" />
+            <img
+              src={partnerSquareImage(partner)!}
+              alt=""
+              className="h-4 w-4 shrink-0 rounded object-cover"
+            />
           )}
           <span className="min-w-0 flex-1 truncate">{partner.title}</span>
           {points > 0 && (

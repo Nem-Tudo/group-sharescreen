@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { getSignalingHttpBase } from "./roomsApi";
 import { trackFeatureEvent } from "./features";
 import type { PartnerCardData } from "./partner";
+import { minuteOfDay, resolvePartnerCreative } from "./partnerSchedule";
 import { fetchPremiumPlans } from "./premiumApi";
 
 // "Transmissão pausada" — the ad gate, as the site sees it.
@@ -98,7 +99,12 @@ export async function fetchAdGatePartner(signal?: AbortSignal): Promise<PartnerC
   const res = await fetch(`${getSignalingHttpBase()}/partner/ad-gate`, { signal });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = (await res.json()) as { partner: PartnerCardData | null };
-  return data.partner?.rewardVideoUrl ? data.partner : null;
+  if (!data.partner?.rewardVideoUrl) return null;
+  // Whichever daypart is running as the popup opens (see lib/partnerSchedule).
+  // Resolved once, not on a timer like the sidebar card's: the gate is over in
+  // about a minute, and swapping the creative under somebody who is already
+  // watching it would cost them the video they had nearly finished.
+  return resolvePartnerCreative(data.partner, minuteOfDay(new Date()));
 }
 
 /**

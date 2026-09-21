@@ -143,7 +143,12 @@ export function PartnerMediaTile({
   const btnBg = partner.buttonBackgroundColor ?? "#10b981";
   const btnText = partner.buttonTextColor ?? "#ffffff";
 
+  // The banner fills the tile when there is one; an ad with only a square mark
+  // shows that mark above its copy instead, at a size it was drawn to be read
+  // at, rather than a tile with nothing in it. See lib/partner's
+  // partnerWideImage for the rule.
   const hasImage = Boolean(partner.imageUrl);
+  const iconOnly = !hasImage && Boolean(partner.iconUrl);
 
   return (
     <div
@@ -179,8 +184,26 @@ export function PartnerMediaTile({
       ) : (
         /* Text/Button layout when ad has no banner image */
         <div className="flex h-full w-full min-h-0 flex-col items-center justify-center p-3 text-center sm:p-5">
+          {/* A compact tile draws no copy at all, so with no banner it used to
+              be an empty coloured rectangle. The mark alone is still the ad. */}
+          {compact && iconOnly && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={partner.iconUrl!}
+              alt=""
+              className="h-10 w-10 shrink-0 rounded-xl object-cover ring-1 ring-black/20"
+            />
+          )}
           {!compact && (
             <>
+              {iconOnly && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={partner.iconUrl!}
+                  alt=""
+                  className="mb-2 h-12 w-12 shrink-0 rounded-xl object-cover ring-1 ring-black/20 sm:h-16 sm:w-16"
+                />
+              )}
               <p className="max-w-lg line-clamp-2 text-sm font-bold sm:text-base">
                 {partner.title}
               </p>
@@ -207,6 +230,23 @@ export function PartnerMediaTile({
             </>
           )}
         </div>
+      )}
+
+      {/* The advertiser's square mark, over the banner's own corner. The
+          banner is contained rather than cropped here, so there is background
+          to sit on at almost every tile shape, and on a banner that is all
+          artwork this is the only thing that says whose it is. Only over a
+          banner: with no banner the mark is the tile's own picture above,
+          and a second copy in the corner would be the same logo twice. */}
+      {partner.iconUrl && hasImage && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={partner.iconUrl}
+          alt=""
+          className={`pointer-events-none absolute left-2 top-2 z-10 select-none rounded-lg object-cover ring-1 ring-black/20 ${
+            compact ? "h-6 w-6" : "h-8 w-8 sm:h-10 sm:w-10"
+          }`}
+        />
       )}
 
       {/* Unified Play + Coins button overlay (bottom-right in compact mode, center in normal mode) */}

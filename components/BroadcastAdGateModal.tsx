@@ -18,6 +18,7 @@ import {
   useCheapestProPrice,
   type BroadcastAdGate,
 } from "@/lib/broadcastAdGate";
+import { partnerSquareImage } from "@/lib/partner";
 import { playBroadcastPausedSound } from "@/lib/soundEffects";
 
 // The popup in front of a broadcast the ad gate has paused (see
@@ -440,10 +441,14 @@ export function BroadcastAdGateModal({
               fairer to the advertiser and more use to the reader. */}
           {partner && (
             <div className="mt-3 flex items-start gap-3">
-              {partner.imageUrl && (
+              {/* A square block, so the square mark is what belongs in it —
+                  see partnerSquareImage. The banner only lands here for an ad
+                  that has no icon, and it is cropped to its middle when it
+                  does. */}
+              {partnerSquareImage(partner) && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={partner.imageUrl}
+                  src={partnerSquareImage(partner)!}
                   alt=""
                   className="h-11 w-11 shrink-0 rounded-lg object-cover"
                 />

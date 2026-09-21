@@ -10,7 +10,7 @@ import type {
   AnnouncementSound,
   AnnouncementVisibility,
 } from "./announcement";
-import type { Partner, PartnerClickRewardPlacement } from "./partner";
+import type { Partner, PartnerClickRewardPlacement, PartnerSchedule } from "./partner";
 import type { Supporter } from "./supporter";
 import { translate } from "@/lib/i18n";
 import type { BadgeDefinition } from "./badges";
@@ -612,6 +612,8 @@ export type PartnerInput = {
   // Markdown shown beside the reward video; empty string clears it.
   extendedDescription?: string;
   imageUrl?: string;
+  // Square brand mark; empty string clears it.
+  iconUrl?: string;
   buttonLabel: string;
   buttonUrl: string;
   backgroundColor?: string;
@@ -627,6 +629,10 @@ export type PartnerInput = {
   // parsePartnerBody, which pairs them).
   clickRewardPoints?: number;
   clickRewardPlacement?: PartnerClickRewardPlacement;
+  // Dayparts (see lib/partnerSchedule.ts). Always sent, empty array included:
+  // an omitted list would leave whatever was saved before in place, and
+  // deleting the last window has to actually delete it.
+  schedules?: PartnerSchedule[];
 };
 
 /**

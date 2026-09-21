@@ -10,6 +10,7 @@ import {
   type PartnerCardData,
 } from "./partner";
 import { trackPartnerImpression, trackPartnerSessionView, usePartnerExperiment } from "./partnerExperiment";
+import { usePartnerCreative } from "./partnerSchedule";
 
 const ROTATE_INTERVAL_MS = 3 * 60 * 1000;
 
@@ -158,12 +159,18 @@ export function usePartnerAd({ visible = true }: { visible?: boolean } = {}) {
     return () => document.removeEventListener("visibilitychange", maybeReport);
   }, [partner, visible]);
 
-  const activeAd: PartnerCardData = partner ?? FALLBACK_PARTNER;
-  const isFallback = partner === null;
+  // The ad as the clock has it: an ad with dayparts (see lib/partnerSchedule)
+  // is a different card at 12:00 than at 20:00, and this is the one place the
+  // room, the group slot and the grid tile all read it from, so resolving
+  // here is what keeps the three of them showing the same thing.
+  const scheduled = usePartnerCreative(partner);
+
+  const activeAd: PartnerCardData = scheduled ?? FALLBACK_PARTNER;
+  const isFallback = scheduled === null;
 
   return {
     ad: activeAd,
-    rawPartner: partner,
+    rawPartner: scheduled,
     loaded,
     isFallback,
   };
