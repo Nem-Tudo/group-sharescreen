@@ -3918,5 +3918,21 @@
   "musicBar.modeAnyone": "Todos controlan y añaden. Haz clic para cerrarlo",
   "musicBar.modeAddShort": "Todos pueden añadir canciones (solo la administración controla)",
   "addMusicSourceModal.pasteASpotifyPlaylist": "Pega una lista o álbum de Spotify:",
-  "addMusicSourceModal.spotifyPlaysFromYoutube": "Las canciones suenan por YouTube — Spotify solo da 30 segundos a quien no tiene Premium."
+  "addMusicSourceModal.spotifyPlaysFromYoutube": "Las canciones suenan por YouTube — Spotify solo da 30 segundos a quien no tiene Premium.",
+  "videoTile.rotateOrFlip": "Girar / invertir",
+  "videoTile.rotateLeft": "Girar 90° a la izquierda",
+  "videoTile.rotateRight": "Girar 90° a la derecha",
+  "videoTile.flipHorizontal": "Invertir en horizontal",
+  "videoTile.flipVertical": "Invertir en vertical",
+  "videoTile.orientationReset": "Volver a lo normal",
+  "videoTile.orientationOnlyForMe": "Solo en mi vista",
+  "videoTile.orientationForEveryone": "Para todos",
+  "videoTile.orientationForEveryoneHint": "Cambia cómo ve tu transmisión toda la sala. Quien ya la haya girado por su cuenta sigue viéndola a su manera.",
+  "videoTile.orientationOverridesBroadcaster": "Lo giraste por tu cuenta: eso reemplaza lo que eligió quien transmite.",
+  "watch.watchRoom.orientationMode": "Girar / invertir",
+  "watch.watchRoom.orientationModeHint": "Muestra un botón en cada transmisión para girarla 90° o invertirla solo en tu vista, y una barra de zoom cuando está en foco, hiperfoco o pantalla completa. En la tuya, puedes girarla para toda la sala.",
+  "watch.watchRoom.orientationTip": "Nuevo: gira, invierte o amplía la imagen de cualquier transmisión",
+  "videoTile.zoom": "Zoom",
+  "videoTile.zoomReset": "Volver al tamaño normal",
+  "videoTile.zoomHint": "Zoom en la imagen. Con la imagen ampliada, arrástrala con el ratón para moverte por ella."
 }

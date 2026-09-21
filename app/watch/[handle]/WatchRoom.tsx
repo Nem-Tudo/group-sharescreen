@@ -183,6 +183,7 @@ import {
   EyeIcon,
   EyeOffIcon,
   FocusIcon,
+  OrientationIcon,
   ScreenIcon,
   CameraIcon,
   ObsSourceIcon,
@@ -194,6 +195,11 @@ import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
 import { trackFeatureEvent } from "@/lib/features";
 import Tippy from "@tippyjs/react";
 import { setTileExperimentMode, useTileExperiment, useTileExperimentTip } from "@/lib/clipsMode";
+import {
+  isDefaultOrientation,
+  parseOrientation,
+  type Orientation,
+} from "@/lib/tileOrientation";
 import {
   usePushToTalk,
   usePushToTalkGate,
@@ -1825,6 +1831,43 @@ export function WatchRoom({
   // the person records in the shortcuts panel. Desktop app only.
   const pushToTalk = usePushToTalk();
   const pushToTalkTip = useTileExperimentTip("pushToTalk", pushToTalk.available);
+  // "Girar/inverter" (see lib/tileOrientation): the button in each tile's
+  // corner. Tracked here, where its switch is, rather than in every tile.
+  const orientationMode = useTileExperiment("orientation", { track: true });
+  const orientationTip = useTileExperimentTip("orientation", orientationMode.available);
+  // How *we* asked the room to show each of our own transmissions, by
+  // broadcast channel ("screen", "camera", "screen2", "file1", ...). Kept
+  // here rather than in the tile because the server forgets it on every join
+  // (see its ClientInfo.tileOrientations), so somebody has to say it again
+  // after a reconnect — the effect below. Every viewer may still turn the
+  // same tile their own way, which wins for them alone.
+  const [myOrientations, setMyOrientations] = useState<Record<string, Orientation>>({});
+  const setMyOrientation = useCallback((channel: string, orientation: Orientation) => {
+    setMyOrientations((prev) => {
+      const next = { ...prev };
+      if (isDefaultOrientation(orientation)) delete next[channel];
+      else next[channel] = orientation;
+      return next;
+    });
+    signalingClient.setTileOrientation(channel, orientation);
+  }, []);
+  // Our connection id changes on every (re)connect, and the server drops
+  // these on join — so this is both "announce what we already chose" and
+  // "say it again after a reconnect".
+  const myOrientationsRef = useRef(myOrientations);
+  myOrientationsRef.current = myOrientations;
+  useEffect(() => {
+    if (!state.selfId) return;
+    for (const [channel, orientation] of Object.entries(myOrientationsRef.current)) {
+      signalingClient.setTileOrientation(channel, orientation);
+    }
+  }, [state.selfId]);
+  // What a peer asked everyone to see for one of their channels, if anything.
+  const peerOrientation = useCallback(
+    (peerId: string, channel: string): Orientation | null =>
+      parseOrientation(state.peers.find((p) => p.id === peerId)?.orientations?.[channel]),
+    [state.peers]
+  );
   // The mic is left open and its track muted between presses — see
   // usePushToTalkGate for why that rather than stopping the capture.
   usePushToTalkGate(isMicOn ? localMicStream : null, pushToTalk);
@@ -1833,7 +1876,9 @@ export function WatchRoom({
     ? { ...clipsTip, text: "watch.watchRoom.clipsModeTip" }
     : recordingTip.show
       ? { ...recordingTip, text: "watch.watchRoom.recordingModeTip" }
-      : null;
+      : orientationTip.show
+        ? { ...orientationTip, text: "watch.watchRoom.orientationTip" }
+        : null;
   // Picks which shell that panel gets: a popover anchored to the button from
   // sm up, the bottom sheet below it (see menuItems further down). Reports
   // false until the first client paint, so the sheet is what a phone gets
@@ -4431,6 +4476,8 @@ export function WatchRoom({
           compact={compact}
           onStopWatching={extraScreensActive > 0 ? stopShare : hideOwnPreview}
           stopWatchingLabel={translate(extraScreensActive > 0 ? "watch.watchRoom.stopThisScreen" : "watch.watchRoom.hideMyBroadcast")}
+          orientation={myOrientations["screen"] ?? null}
+          onOrientationChange={(next) => setMyOrientation("screen", next)}
           onDoubleClick={doubleClickFocus ? () => toggleSpotlight(id) : undefined}
           onFocus={() => toggleSpotlight(id)}
           isSpotlighted={spotlightId === id}
@@ -4472,6 +4519,8 @@ export function WatchRoom({
           compact={compact}
           onStopWatching={() => dualCamera.stop()}
           stopWatchingLabel={translate("watch.watchRoom.dualCameraOff")}
+          orientation={myOrientations["camera2"] ?? null}
+          onOrientationChange={(next) => setMyOrientation("camera2", next)}
           onDoubleClick={doubleClickFocus ? () => toggleSpotlight(id) : undefined}
           onFocus={() => toggleSpotlight(id)}
           isSpotlighted={spotlightId === id}
@@ -4512,6 +4561,8 @@ export function WatchRoom({
           fill={fill}
           compact={compact}
           onStopWatching={() => extraScreens[slot].stop()}
+          orientation={myOrientations[slot] ?? null}
+          onOrientationChange={(next) => setMyOrientation(slot, next)}
           stopWatchingLabel={translate("watch.watchRoom.stopThisScreen")}
           onDoubleClick={doubleClickFocus ? () => toggleSpotlight(id) : undefined}
           onFocus={() => toggleSpotlight(id)}
@@ -4551,6 +4602,8 @@ export function WatchRoom({
           tileId={id}
           stream={localCameraStream}
           mirrored={mirrorOwnCamera}
+          orientation={myOrientations["camera"] ?? null}
+          onOrientationChange={(next) => setMyOrientation("camera", next)}
           beingRecorded={recordedChannels.has("camera")}
           // Our own capture keeps running whether or not this preview is on
           // screen, so releasing it would cost a black tile on the way back and
@@ -4616,6 +4669,8 @@ export function WatchRoom({
             />
           }
           onTogglePlay={() => localMediaSources[slot].togglePlay()}
+          orientation={myOrientations[slot] ?? null}
+          onOrientationChange={(next) => setMyOrientation(slot, next)}
           muted
           allowUnmute={false}
           fill={fill}
@@ -4694,6 +4749,7 @@ export function WatchRoom({
           onVisibilityChange={(visible) => qualityNegotiator.setHidden(slot, peerId, !visible)}
           onStopWatching={() => fileChannels[slot].stopWatchingPeer(peerId)}
           connectionStats={{ channel: slot, originId: peerId }}
+          orientation={peerOrientation(peerId, slot)}
           onDoubleClick={doubleClickFocus ? () => toggleSpotlight(id) : undefined}
           onFocus={() => toggleSpotlight(id)}
           isSpotlighted={spotlightId === id}
@@ -4830,6 +4886,7 @@ export function WatchRoom({
           onVisibilityChange={(visible) => qualityNegotiator.setHidden("screen", peerId, !visible)}
           onStopWatching={() => stopWatchingPeer(peerId)}
           connectionStats={{ channel: "screen", originId: peerId }}
+          orientation={peerOrientation(peerId, "screen")}
           onDoubleClick={doubleClickFocus ? () => toggleSpotlight(id) : undefined}
           onFocus={() => toggleSpotlight(id)}
           isSpotlighted={spotlightId === id}
@@ -4882,6 +4939,7 @@ export function WatchRoom({
           onVisibilityChange={(visible) => qualityNegotiator.setHidden("camera2", peerId, !visible)}
           onStopWatching={() => dualCamera.stopWatchingPeer(peerId)}
           connectionStats={{ channel: "camera2", originId: peerId }}
+          orientation={peerOrientation(peerId, "camera2")}
           onDoubleClick={doubleClickFocus ? () => toggleSpotlight(id) : undefined}
           onFocus={() => toggleSpotlight(id)}
           isSpotlighted={spotlightId === id}
@@ -4934,6 +4992,7 @@ export function WatchRoom({
           onVisibilityChange={(visible) => qualityNegotiator.setHidden(slot, peerId, !visible)}
           onStopWatching={() => extraScreens[slot].stopWatchingPeer(peerId)}
           connectionStats={{ channel: slot, originId: peerId }}
+          orientation={peerOrientation(peerId, slot)}
           onDoubleClick={doubleClickFocus ? () => toggleSpotlight(id) : undefined}
           onFocus={() => toggleSpotlight(id)}
           isSpotlighted={spotlightId === id}
@@ -4983,6 +5042,7 @@ export function WatchRoom({
           onVisibilityChange={(visible) => qualityNegotiator.setHidden("camera", peerId, !visible)}
           onStopWatching={() => stopWatchingCameraPeer(peerId)}
           connectionStats={{ channel: "camera", originId: peerId }}
+          orientation={peerOrientation(peerId, "camera")}
           onDoubleClick={doubleClickFocus ? () => toggleSpotlight(id) : undefined}
           onFocus={() => toggleSpotlight(id)}
           isSpotlighted={spotlightId === id}
@@ -5816,6 +5876,17 @@ export function WatchRoom({
           hint={translate("watch.watchRoom.recordingModeHint")}
           activeIcon={<RecordIcon className="h-4 w-4" />}
           inactiveIcon={<RecordIcon className="h-4 w-4 opacity-50" />}
+        />
+      )}
+      {orientationMode.available && (
+        <MenuToggleRow
+          label={translate("watch.watchRoom.orientationMode")}
+          badge={<NewBadge id="tile-orientation" />}
+          active={orientationMode.on}
+          onToggle={() => setTileExperimentMode("orientation", !orientationMode.on)}
+          hint={translate("watch.watchRoom.orientationModeHint")}
+          activeIcon={<OrientationIcon className="h-4 w-4" />}
+          inactiveIcon={<OrientationIcon className="h-4 w-4 opacity-50" />}
         />
       )}
       {multiScreenMode.available && (

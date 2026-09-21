@@ -108,6 +108,13 @@ export type PeerInfo = {
   // somebody who cannot hear you is the one thing that list can save you
   // from. Undefined from a server that predates it, read as false.
   micsMuted?: boolean;
+  // How this peer wants their own transmissions turned/flipped for the whole
+  // room ("girar/inverter" — see lib/tileOrientation.ts), one entry per
+  // broadcast channel ("screen", "camera", "screen2", "file1", ...). Absent
+  // from an older server, and empty for anyone who never touched it — both
+  // read as "the picture as it comes". A viewer's own turn of the same tile
+  // overrides this for them alone and is never announced.
+  orientations?: Record<string, { rotation?: number; flipX?: boolean; flipY?: boolean }>;
   role?: "moderator" | "obs";
   obsTarget?: string;
   // Stable per-account/per-guest identity (see server/signaling.ts's
@@ -1917,6 +1924,30 @@ class SignalingClient {
           ),
         });
         break;
+      // "Girar/inverter" for the whole room — see PeerInfo.orientations. The
+      // whole-turn-and-no-flips case is what "back to normal" looks like on
+      // the wire, and it is dropped from the map rather than stored, so a
+      // tile's orientation is either there or absent, never a no-op entry.
+      case "peer-tile-orientation": {
+        const channel = String(msg.channel ?? "");
+        if (!channel) break;
+        const cleared = !msg.rotation && msg.flipX !== true && msg.flipY !== true;
+        this.setState({
+          peers: this.state.peers.map((p) => {
+            if (p.id !== msg.id) return p;
+            const next = { ...(p.orientations ?? {}) };
+            if (cleared) delete next[channel];
+            else
+              next[channel] = {
+                rotation: Number(msg.rotation) || 0,
+                flipX: msg.flipX === true,
+                flipY: msg.flipY === true,
+              };
+            return { ...p, orientations: next };
+          }),
+        });
+        break;
+      }
       case "peer-mic":
         this.setState({
           peers: this.state.peers.map((p) =>
@@ -3425,6 +3456,16 @@ class SignalingClient {
   // room's participant list can show it — see PeerInfo.micsMuted.
   setMicsMuted(muted: boolean) {
     this.rawSend({ type: "mics-muted", muted });
+  }
+
+  // "Girar/inverter" for everyone watching one of my transmissions (see
+  // PeerInfo.orientations). A quarter turn of 0 with no flips means "as it
+  // comes", and clears the channel's entry on the server.
+  setTileOrientation(
+    channel: string,
+    orientation: { rotation: number; flipX: boolean; flipY: boolean }
+  ) {
+    this.rawSend({ type: "tile-orientation", channel, ...orientation });
   }
 
   // Called by ChatPanel.tsx's own idle timer, not on every keystroke — see

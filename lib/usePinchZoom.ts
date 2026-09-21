@@ -1,6 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  NO_ORIENTATION,
+  orientationFitScale,
+  orientationTransform,
+  type Orientation,
+} from "./tileOrientation";
 
 // Pinch-to-zoom for a <video> inside a fullscreen tile on a touchscreen.
 //
@@ -58,7 +64,9 @@ export function usePinchZoom({
   containerRef,
   videoRef,
   enabled,
+  zoomEnabled = false,
   mirrored = false,
+  orientation,
 }: {
   // Where the gesture is listened for — the fullscreen box.
   containerRef: React.RefObject<HTMLElement | null>;
@@ -68,13 +76,26 @@ export function usePinchZoom({
   // Off outside fullscreen, where the tile is one cell of a grid and hijacking
   // the page's own scroll gesture would be actively wrong.
   enabled: boolean;
+  // Zoom driven by something other than the fingers — the slider a mouse gets
+  // (see VideoTile's ZoomSlider), plus dragging the zoomed picture around
+  // with the pointer. On wherever that slider is: a tile on the stage, in
+  // hyperfocus, or in fullscreen. Separate from `enabled` because the two
+  // answer different questions — this one never touches the touch gestures,
+  // which stay fullscreen-only.
+  zoomEnabled?: boolean;
   // Flip the picture left-to-right — our own front camera, shown the way a
   // mirror (and every camera app) shows it. Lives here because this hook owns
   // the video's transform: a separate flip would be overwritten by a pinch,
   // or would flip the pan along with the picture.
   mirrored?: boolean;
+  // "Girar/inverter" (see lib/tileOrientation.ts): the quarter turn and the
+  // flips this viewer — or the broadcaster — put on this tile. Here for the
+  // same reason `mirrored` is: this hook owns the video's transform, and a
+  // second one written from the tile would be gone by the next pinch frame.
+  orientation?: Orientation;
 }) {
   const mirroredRef = useRef(mirrored);
+  const orientationRef = useRef<Orientation>(orientation ?? NO_ORIENTATION);
   const transformRef = useRef<Transform>({ scale: 1, x: 0, y: 0 });
   const [scale, setScale] = useState(1);
   // Set by any gesture that moved something, and read by the tile's tap
@@ -86,17 +107,59 @@ export function usePinchZoom({
     const video = videoRef.current;
     if (!video) return;
     const { scale: s, x, y } = transformRef.current;
-    // The flip goes innermost, so it turns the picture without turning the
-    // pinch/pan maths, which all happen in screen space around it.
-    const flip = mirroredRef.current ? "scaleX(-1)" : "";
+    const o = orientationRef.current;
+    // The mirror of our own front camera and a flip somebody asked for are
+    // the same operation, so they cancel out rather than stacking up.
+    const flipX = o.flipX !== mirroredRef.current;
+    // A quarter-turned picture is as tall as it was wide, so it has to be
+    // scaled back into the box — see orientationFitScale.
+    const container = containerRef.current;
+    const fit = orientationFitScale(
+      o.rotation,
+      container?.clientWidth ?? 0,
+      container?.clientHeight ?? 0,
+      video.videoWidth,
+      video.videoHeight
+    );
+    // The turn and the flips go innermost, so they move the picture without
+    // moving the pinch/pan maths, which all happen in screen space around it.
+    const inner = orientationTransform({ ...o, flipX }, fit);
     video.style.transform =
-      s === 1 && x === 0 && y === 0 ? flip : `translate3d(${x}px, ${y}px, 0) scale(${s}) ${flip}`.trim();
-  }, [videoRef]);
+      s === 1 && x === 0 && y === 0
+        ? inner
+        : `translate3d(${x}px, ${y}px, 0) scale(${s}) ${inner}`.trim();
+  }, [videoRef, containerRef]);
 
   useEffect(() => {
     mirroredRef.current = mirrored;
     applyTransform();
   }, [mirrored, applyTransform]);
+
+  useEffect(() => {
+    orientationRef.current = orientation ?? NO_ORIENTATION;
+    applyTransform();
+  }, [orientation, applyTransform]);
+
+  // The fit above is measured from the box and from the picture's own size,
+  // so it has to be worked out again whenever either changes — a tile
+  // resized by the grid, or a stream whose dimensions only arrive with its
+  // metadata. Only while the picture is actually turned: for everything else
+  // the transform does not depend on any of it.
+  const rotated = (orientation?.rotation ?? 0) % 180 !== 0;
+  useEffect(() => {
+    const container = containerRef.current;
+    const video = videoRef.current;
+    if (!rotated || !container || !video) return;
+    const observer = new ResizeObserver(() => applyTransform());
+    observer.observe(container);
+    video.addEventListener("loadedmetadata", applyTransform);
+    video.addEventListener("resize", applyTransform);
+    return () => {
+      observer.disconnect();
+      video.removeEventListener("loadedmetadata", applyTransform);
+      video.removeEventListener("resize", applyTransform);
+    };
+  }, [rotated, containerRef, videoRef, applyTransform]);
 
   const reset = useCallback(() => {
     transformRef.current = { scale: 1, x: 0, y: 0 };
@@ -104,20 +167,11 @@ export function usePinchZoom({
     setScale(1);
   }, [applyTransform]);
 
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!enabled || !container) {
-      reset();
-      return;
-    }
-
-    let pinch: PinchStart | null = null;
-    let pan: PanStart | null = null;
-
-    // How far the picture may be dragged before its edge would come inside
-    // the screen. Worked out from the *picture*, not the element: an
-    // object-contain video is letterboxed inside its box, and clamping to the
-    // box would let somebody drag the image off into the black bars.
+  // How far the picture may be dragged before its edge would come inside
+  // the screen. Worked out from the *picture*, not the element: an
+  // object-contain video is letterboxed inside its box, and clamping to the
+  // box would let somebody drag the image off into the black bars.
+  const maxOffset = useCallback(
     function maxOffset(atScale: number): { x: number; y: number } {
       const el = containerRef.current;
       const video = videoRef.current;
@@ -127,14 +181,29 @@ export function usePinchZoom({
       const intrinsicW = video.videoWidth || boxW;
       const intrinsicH = video.videoHeight || boxH;
       const fit = Math.min(boxW / intrinsicW, boxH / intrinsicH);
-      const drawnW = intrinsicW * fit * atScale;
-      const drawnH = intrinsicH * fit * atScale;
+      // A quarter-turned picture is drawn with its sides swapped (and scaled
+      // back into the box), which is what decides how far it may be dragged.
+      const turned = orientationRef.current.rotation % 180 !== 0;
+      const turnFit = orientationFitScale(
+        orientationRef.current.rotation,
+        boxW,
+        boxH,
+        intrinsicW,
+        intrinsicH
+      );
+      const baseW = (turned ? intrinsicH : intrinsicW) * fit * turnFit;
+      const baseH = (turned ? intrinsicW : intrinsicH) * fit * turnFit;
+      const drawnW = baseW * atScale;
+      const drawnH = baseH * atScale;
       return {
         x: Math.max(0, (drawnW - boxW) / 2),
         y: Math.max(0, (drawnH - boxH) / 2),
       };
-    }
+    },
+    [containerRef, videoRef]
+  );
 
+  const commit = useCallback(
     function commit(next: Transform) {
       const bounds = maxOffset(next.scale);
       transformRef.current = {
@@ -151,7 +220,105 @@ export function usePinchZoom({
           ? current
           : transformRef.current.scale
       );
+    },
+    [applyTransform, maxOffset]
+  );
+
+  // The slider's side of the same maths: the zoom changes about the middle of
+  // the box, and whatever the picture was panned to is pulled along with it —
+  // so zooming back out never leaves it stuck off in a corner.
+  const setZoom = useCallback(
+    (next: number) => {
+      const target = clamp(next, MIN_SCALE, MAX_SCALE);
+      const current = transformRef.current;
+      if (target <= MIN_SCALE) {
+        transformRef.current = { scale: MIN_SCALE, x: 0, y: 0 };
+        applyTransform();
+        setScale(MIN_SCALE);
+        return;
+      }
+      const ratio = target / current.scale;
+      commit({ scale: target, x: current.x * ratio, y: current.y * ratio });
+    },
+    [applyTransform, commit]
+  );
+
+  // Nothing to zoom any more — the tile left the stage, or fullscreen closed
+  // behind it and no slider is left. A zoomed, panned picture back in a grid
+  // cell is just a broken-looking tile, so it goes back to fitting. Written
+  // as a cleanup rather than a plain "if": this has to fire on the way *out*
+  // of being zoomable, not on every render that is not.
+  useEffect(() => {
+    if (!enabled && !zoomEnabled) return;
+    return () => {
+      reset();
+    };
+  }, [enabled, zoomEnabled, reset]);
+
+  // Dragging the zoomed picture around with the mouse. The touch side of this
+  // lives in the pinch handlers below; a pointer needs its own because it has
+  // no second finger to say "this is a gesture, not a click", so it starts
+  // only on the picture itself (never on a control layered over it) and only
+  // once there is something to pan.
+  useEffect(() => {
+    const video = videoRef.current;
+    if ((!enabled && !zoomEnabled) || !video) return;
+    let pan: PanStart | null = null;
+    let pointerId: number | null = null;
+
+    function onPointerDown(event: PointerEvent) {
+      if (event.pointerType !== "mouse" || event.button !== 0) return;
+      if (transformRef.current.scale <= 1) return;
+      gestureRef.current = false;
+      pan = {
+        pointerX: event.clientX,
+        pointerY: event.clientY,
+        originX: transformRef.current.x,
+        originY: transformRef.current.y,
+      };
+      pointerId = event.pointerId;
     }
+
+    function onPointerMove(event: PointerEvent) {
+      if (!pan || event.pointerId !== pointerId) return;
+      const dx = event.clientX - pan.pointerX;
+      const dy = event.clientY - pan.pointerY;
+      if (!gestureRef.current && Math.hypot(dx, dy) < PAN_SLOP_PX) return;
+      if (!gestureRef.current) {
+        gestureRef.current = true;
+        // Captured only once it really is a drag, so a plain click on the
+        // picture still reaches the tile's own handler.
+        video?.setPointerCapture(event.pointerId);
+      }
+      event.preventDefault();
+      commit({ scale: transformRef.current.scale, x: pan.originX + dx, y: pan.originY + dy });
+    }
+
+    function onPointerUp(event: PointerEvent) {
+      if (event.pointerId !== pointerId) return;
+      if (video?.hasPointerCapture(event.pointerId)) video.releasePointerCapture(event.pointerId);
+      pan = null;
+      pointerId = null;
+    }
+
+    video.addEventListener("pointerdown", onPointerDown);
+    video.addEventListener("pointermove", onPointerMove);
+    video.addEventListener("pointerup", onPointerUp);
+    video.addEventListener("pointercancel", onPointerUp);
+    return () => {
+      video.removeEventListener("pointerdown", onPointerDown);
+      video.removeEventListener("pointermove", onPointerMove);
+      video.removeEventListener("pointerup", onPointerUp);
+      video.removeEventListener("pointercancel", onPointerUp);
+    };
+  }, [enabled, zoomEnabled, videoRef, commit]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!enabled || !container) return;
+
+    let pinch: PinchStart | null = null;
+    let pan: PanStart | null = null;
 
     function beginPinch(a: Touch, b: Touch) {
       const el = containerRef.current;
@@ -277,17 +444,23 @@ export function usePinchZoom({
       container.removeEventListener("touchmove", onTouchMove);
       container.removeEventListener("touchend", onTouchEnd);
       container.removeEventListener("touchcancel", onTouchEnd);
-      // Leaving fullscreen puts the tile back in a grid where a zoomed,
-      // panned picture would just be a broken-looking cell.
-      reset();
     };
-  }, [enabled, containerRef, videoRef, applyTransform, reset]);
+    // Leaving fullscreen puts the tile back in a grid where a zoomed, panned
+    // picture would just be a broken-looking cell — that reset is the effect
+    // above, which also knows whether a slider is still there to keep the
+    // zoom for (a tile on the stage).
+  }, [enabled, containerRef, videoRef, commit, reset]);
 
   return {
     /** Current zoom, for the badge that shows it and offers a way back. */
     scale,
     isZoomed: scale > 1,
     reset,
+    /** The slider's ends, so the control never invents its own. */
+    minScale: MIN_SCALE,
+    maxScale: MAX_SCALE,
+    /** Zoom straight to a level — what the slider moves. */
+    setZoom,
     /**
      * True when the touch sequence that just ended moved the picture. The
      * tile's tap handler reads it (and clears it) so the click a one-finger

@@ -834,3 +834,137 @@ export function RubyVerifiedBadgeIcon({ className }: IconProps) {
     </Tooltip>
   );
 }
+
+// "Girar/inverter" (see lib/tileOrientation.ts): the trigger in a tile's
+// button cluster, and the four actions inside its panel. All four are drawn
+// on the same 24x24 grid as the icons above so they line up in a row of
+// buttons with them.
+export function OrientationIcon({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <rect x="3" y="8" width="13" height="10" rx="2" />
+      <path d="M16 3.5a6 6 0 0 1 4.9 5.3" />
+      <path d="M13.6 5.6 16 3.2l2.4 2.4" />
+    </svg>
+  );
+}
+
+export function RotateLeftIcon({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M3 12a9 9 0 1 1 3 6.7" />
+      <path d="M3 5v7h7" />
+    </svg>
+  );
+}
+
+export function RotateRightIcon({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M21 12a9 9 0 1 0-3 6.7" />
+      <path d="M21 5v7h-7" />
+    </svg>
+  );
+}
+
+export function FlipHorizontalIcon({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M12 3v18" strokeDasharray="3 3" />
+      <path d="M9 7 4 12l5 5z" fill="currentColor" />
+      <path d="M15 7l5 5-5 5z" />
+    </svg>
+  );
+}
+
+export function FlipVerticalIcon({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M3 12h18" strokeDasharray="3 3" />
+      <path d="M7 9 12 4l5 5z" fill="currentColor" />
+      <path d="M7 15l5 5 5-5z" />
+    </svg>
+  );
+}
+
+export function ZoomIcon({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <circle cx="10.5" cy="10.5" r="6.5" />
+      <path d="M20 20l-4.5-4.5" />
+      <path d="M7.5 10.5h6" />
+    </svg>
+  );
+}
+
+export function ResetIcon({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M4 12a8 8 0 1 0 2.5-5.8L3 9" />
+      <path d="M3 4v5h5" />
+    </svg>
+  );
+}

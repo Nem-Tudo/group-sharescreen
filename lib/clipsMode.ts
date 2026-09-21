@@ -17,7 +17,8 @@ export type TileExperiment =
   | "multiScreen"
   | "dualCamera"
   | "pushToTalk"
-  | "musicQueue";
+  | "musicQueue"
+  | "orientation";
 
 // `defaultOn`: the switch starts on for whoever never touched it.
 const CONFIG: Record<
@@ -60,6 +61,16 @@ const CONFIG: Record<
   // ela mora na própria barra de música, que é onde quem está ouvindo procura.
   // `defaultOn` porque o que o experimento decide aqui é só se o botão da aba
   // existe — a ordem aleatória continua desligada até alguém ligar.
+  // "Girar/inverter" (ver lib/tileOrientation): o botão no canto de cada
+  // tile. `defaultOn` porque não custa nada — é um `transform` no vídeo, e
+  // quem não usa só tem um botão a mais no hover; o interruptor no "⋯" está
+  // lá para quem prefere o canto limpo.
+  orientation: {
+    feature: "tile-orientation",
+    modeKey: "sharescreen:orientationMode",
+    tipKey: "sharescreen:orientationTipSeen",
+    defaultOn: true,
+  },
   musicQueue: {
     feature: "room-music-queue",
     modeKey: "sharescreen:musicQueueMode",
@@ -99,6 +110,10 @@ export const TILE_EXPERIMENT_EVENTS = {
     modeOff: "push_to_talk_mode_off",
     keySet: "push_to_talk_key_set", // a key was recorded for it
     talk: "push_to_talk_talk", // value: seconds the key was held
+  },
+  orientation: {
+    modeOn: "orientation_mode_on",
+    modeOff: "orientation_mode_off",
   },
   musicQueue: {
     // Nomes de "modo" aqui são a aba, não a ordem aleatória: o interruptor

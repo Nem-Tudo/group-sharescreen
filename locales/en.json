@@ -3918,5 +3918,21 @@
   "musicBar.modeAnyone": "Everyone controls and adds. Click to close it back up",
   "musicBar.modeAddShort": "Everyone can add songs (only the administration controls)",
   "addMusicSourceModal.pasteASpotifyPlaylist": "Paste a Spotify playlist or album:",
-  "addMusicSourceModal.spotifyPlaysFromYoutube": "The songs play from YouTube — Spotify only gives 30 seconds to anyone without Premium."
+  "addMusicSourceModal.spotifyPlaysFromYoutube": "The songs play from YouTube — Spotify only gives 30 seconds to anyone without Premium.",
+  "videoTile.rotateOrFlip": "Rotate / flip",
+  "videoTile.rotateLeft": "Rotate 90° left",
+  "videoTile.rotateRight": "Rotate 90° right",
+  "videoTile.flipHorizontal": "Flip horizontally",
+  "videoTile.flipVertical": "Flip vertically",
+  "videoTile.orientationReset": "Back to normal",
+  "videoTile.orientationOnlyForMe": "Just for me",
+  "videoTile.orientationForEveryone": "For everyone",
+  "videoTile.orientationForEveryoneHint": "Changes how the whole room sees your broadcast. Anyone who already rotated it themselves keeps their own view.",
+  "videoTile.orientationOverridesBroadcaster": "You rotated this yourself — that overrides what the broadcaster chose.",
+  "watch.watchRoom.orientationMode": "Rotate / flip",
+  "watch.watchRoom.orientationModeHint": "Puts a button on every broadcast to rotate it 90° or flip it, just in your own view, and a zoom bar while it is on the stage, in hyperfocus or fullscreen. On your own broadcast you can rotate it for the whole room.",
+  "watch.watchRoom.orientationTip": "New: rotate, flip or zoom into any broadcast's picture",
+  "videoTile.zoom": "Zoom",
+  "videoTile.zoomReset": "Back to the normal size",
+  "videoTile.zoomHint": "Zoom into the picture. While it is zoomed, drag it with the mouse to move around."
 }

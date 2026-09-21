@@ -3,6 +3,7 @@
 import {
   memo,
   useEffect,
+  useMemo,
   useLayoutEffect,
   useRef,
   useState,
@@ -29,6 +30,13 @@ import {
   ChartIcon,
   ClipIcon,
   RecordIcon,
+  OrientationIcon,
+  ZoomIcon,
+  RotateLeftIcon,
+  RotateRightIcon,
+  FlipHorizontalIcon,
+  FlipVerticalIcon,
+  ResetIcon,
 } from "@/components/icons";
 import { RecordingModal, formatDuration } from "@/components/RecordingModal";
 import { markFeatureUsed } from "@/components/NewBadge";
@@ -39,7 +47,20 @@ import { registerTileCommands } from "@/lib/tileCommands";
 import { ConnectionStatsOverlay } from "@/components/ConnectionStatsOverlay";
 import type { QualityChannel } from "@/lib/qualityNegotiation";
 import { VolumeSlider } from "@/components/VolumeSlider";
-import { Tooltip } from "@/components/Tooltip";
+import { Tooltip, Popover } from "@/components/Tooltip";
+import {
+  NO_ORIENTATION,
+  ORIENTATION_EVENTS,
+  clearLocalOrientation,
+  flipOrientation,
+  isDefaultOrientation,
+  rotateOrientation,
+  sameOrientation,
+  setLocalOrientation,
+  trackOrientation,
+  useLocalOrientation,
+  type Orientation,
+} from "@/lib/tileOrientation";
 import { MAX_GAIN } from "@/lib/audioGain";
 import { useGainedAudio } from "@/lib/useGainedAudio";
 import { usePinchZoom } from "@/lib/usePinchZoom";
@@ -109,6 +130,8 @@ const VideoTileView = memo(function VideoTileView({
   clippable = true,
   beingRecorded = false,
   mirrored = false,
+  orientation,
+  onOrientationChange,
   tileId,
   className = "",
 }: {
@@ -231,6 +254,14 @@ const VideoTileView = memo(function VideoTileView({
   // Show the picture flipped left-to-right — only the local preview of our own
   // front camera. What the room receives is never flipped.
   mirrored?: boolean;
+  // "Girar/inverter" (see lib/tileOrientation.ts): the quarter turn and the
+  // flips the *broadcaster* asked the whole room for, if any. This viewer's
+  // own turn of the same tile — kept here, never announced — overrides it.
+  orientation?: Orientation | null;
+  // Only on a tile of our own: turning/flipping it for everybody watching.
+  // Its presence is what puts the "para todos" half in the tile's orientation
+  // panel, so a viewer never sees controls over somebody else's picture.
+  onOrientationChange?: (orientation: Orientation) => void;
   // The room's id for this tile (see WatchRoom's RoomTile), under which the
   // clip/record keyboard shortcuts reach it (see lib/tileCommands).
   tileId?: string;
@@ -257,6 +288,32 @@ const VideoTileView = memo(function VideoTileView({
   const [clipping, setClipping] = useState(false);
   const clipsMode = useTileExperiment("clips");
   const recordingMode = useTileExperiment("recording");
+  // "Girar/inverter" — the panel behind the button in the corner.
+  const orientationMode = useTileExperiment("orientation");
+  const [orientationOpen, setOrientationOpen] = useState(false);
+  const localOrientation = useLocalOrientation(tileId);
+  const broadcastOrientation = orientation ?? null;
+  // The viewer's own turn wins over the broadcaster's: somebody who already
+  // tilted this tile to suit themselves must not have it yanked around when
+  // the broadcaster gets round to fixing it at the source.
+  const shownOrientation = localOrientation ?? broadcastOrientation ?? NO_ORIENTATION;
+  // Memoised on its three fields: the tile re-renders on plenty of things
+  // that have nothing to do with the picture's angle, and a fresh object each
+  // time would rewrite the video's transform on every one of them.
+  const appliedOrientation = useMemo(
+    () => ({
+      rotation: shownOrientation.rotation,
+      flipX: shownOrientation.flipX,
+      flipY: shownOrientation.flipY,
+    }),
+    [shownOrientation.rotation, shownOrientation.flipX, shownOrientation.flipY]
+  );
+  const canOrient = Boolean(tileId) && !compact && orientationMode.active;
+  // The zoom bar, same experiment as the panel above. Only where the picture
+  // is big enough for zooming into it to mean anything — on the stage, in
+  // hyperfocus, or in fullscreen — and only for a pointer: a touchscreen
+  // already pinches, and a second way in would just cover the video.
+  const canZoom = !compact && orientationMode.active && (isFullscreen || isSpotlighted || isHyperfocused);
   const canClip = clippable && clipsMode.active && clipSupported();
   const canRecord = clippable && recordingMode.active && clipSupported();
   useEffect(() => {
@@ -384,7 +441,14 @@ const VideoTileView = memo(function VideoTileView({
   // at somebody's shared 1440p desktop is reading text at a tenth of its
   // size, and the browser's own pinch does nothing inside a fullscreen
   // element — see lib/usePinchZoom.ts.
-  const pinchZoom = usePinchZoom({ containerRef, videoRef, enabled: isFullscreen, mirrored });
+  const pinchZoom = usePinchZoom({
+    containerRef,
+    videoRef,
+    enabled: isFullscreen,
+    zoomEnabled: canZoom,
+    mirrored,
+    orientation: appliedOrientation,
+  });
 
   // Resetting the spinner is derived state, not a side effect: it is a pure
   // function of "the stream changed". React's documented pattern for that is
@@ -742,7 +806,13 @@ const VideoTileView = memo(function VideoTileView({
     : fullscreenMouseActive
       ? "[@media(hover:hover)]:pointer-events-auto [@media(hover:hover)]:opacity-100"
       : "[@media(hover:hover)]:pointer-events-none [@media(hover:hover)]:opacity-0";
-  const overlayVisibilityClass = `${touchHiddenInFullscreen ? "opacity-0 pointer-events-none" : "opacity-100"
+  // While the orientation panel is open the cluster stays put whatever the
+  // mouse is doing: the panel is portaled onto <body>, so walking the pointer
+  // over to it leaves the tile, and a button that vanishes under the panel it
+  // opened is a button nobody can click twice.
+  const overlayVisibilityClass = orientationOpen
+    ? "opacity-100 pointer-events-auto"
+    : `${touchHiddenInFullscreen ? "opacity-0 pointer-events-none" : "opacity-100"
     } ${mouseVisibilityClass}`;
 
   return (
@@ -1045,6 +1115,99 @@ const VideoTileView = memo(function VideoTileView({
             </button>
           </Tooltip>
         )}
+        {canZoom && (
+          <div
+            // Hidden where there is no pointer to use it: a touchscreen
+            // pinches the picture instead (see usePinchZoom).
+            className="hidden items-center gap-1.5 rounded-full bg-black/60 px-2 py-1 text-white [@media(hover:hover)]:flex"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <Tooltip content={t("videoTile.zoomReset")}>
+              <button
+                type="button"
+                onClick={() => pinchZoom.reset()}
+                disabled={!pinchZoom.isZoomed}
+                aria-label={t("videoTile.zoomReset")}
+                className="rounded p-0.5 transition disabled:opacity-40"
+              >
+                <ZoomIcon className="h-4 w-4" />
+              </button>
+            </Tooltip>
+            <Tooltip content={t("videoTile.zoomHint")}>
+              <input
+                type="range"
+                min={pinchZoom.minScale}
+                max={pinchZoom.maxScale}
+                step="0.1"
+                value={pinchZoom.scale}
+                onChange={(event) => {
+                  pinchZoom.setZoom(Number(event.target.value));
+                  markFeatureUsed("tile-orientation");
+                }}
+                // Counted where the dial comes to rest rather than on every
+                // step of the way, which would be dozens of events per drag.
+                onPointerUp={() => trackOrientation(ORIENTATION_EVENTS.zoom, pinchZoom.scale * 100)}
+                onKeyUp={() => trackOrientation(ORIENTATION_EVENTS.zoom, pinchZoom.scale * 100)}
+                aria-label={t("videoTile.zoom")}
+                className="h-1.5 w-20 cursor-pointer accent-current"
+              />
+            </Tooltip>
+            <span className="w-7 text-right text-[11px] font-semibold tabular-nums">
+              {pinchZoom.scale.toFixed(1)}x
+            </span>
+          </div>
+        )}
+        {canOrient && tileId && (
+          <Popover
+            open={orientationOpen}
+            onClose={() => setOrientationOpen(false)}
+            placement="bottom-end"
+            tooltip={t("videoTile.rotateOrFlip")}
+            content={
+              <OrientationPanel
+                shown={shownOrientation}
+                local={localOrientation}
+                broadcast={broadcastOrientation}
+                onLocal={(next) => {
+                  setLocalOrientation(tileId, next);
+                  markFeatureUsed("tile-orientation");
+                }}
+                onClearLocal={() => clearLocalOrientation(tileId)}
+                onBroadcast={
+                  onOrientationChange
+                    ? (next) => {
+                        onOrientationChange(next);
+                        markFeatureUsed("tile-orientation");
+                      }
+                    : undefined
+                }
+              />
+            }
+          >
+            <button
+              type="button"
+              onClick={() => {
+                setOrientationOpen((open) => {
+                  if (!open) trackOrientation(ORIENTATION_EVENTS.open);
+                  return !open;
+                });
+              }}
+              aria-label={t("videoTile.rotateOrFlip")}
+              aria-pressed={orientationOpen}
+              className={`rounded-full p-2 text-white active:bg-black/80 ${
+                orientationOpen
+                  ? "bg-emerald-600 hover:bg-emerald-700"
+                  : isDefaultOrientation(shownOrientation)
+                    ? "bg-black/60 hover:bg-black/80"
+                    : // Already turned: said out loud, so nobody spends a
+                      // minute wondering why this one picture is sideways.
+                      "bg-sky-600 hover:bg-sky-700"
+              }`}
+            >
+              <OrientationIcon className="h-5 w-5" />
+            </button>
+          </Popover>
+        )}
         {pipSupported && (
           <Tooltip content={isPiP ? t("videoTile.exitPictureInPicture") : t("videoTile.pictureInPicture")}>
             <button
@@ -1134,6 +1297,12 @@ const VideoTileView = memo(function VideoTileView({
     if (key === "connectionStats") {
       if (a.connectionStats?.channel !== b.connectionStats?.channel) return false;
       if (a.connectionStats?.originId !== b.connectionStats?.originId) return false;
+    } else if (key === "orientation") {
+      // Read out of the peer list on every render (see WatchRoom's
+      // peerOrientation), so it is a fresh object each time even when nobody
+      // turned anything — compared by value, or every tile in the room would
+      // redraw on every room render.
+      if (!sameOrientation(a.orientation ?? null, b.orientation ?? null)) return false;
     } else if (!Object.is(a[key], b[key])) {
       return false;
     }
@@ -1158,6 +1327,7 @@ const TILE_CALLBACKS = [
   "onToggleMic",
   "onToggleMicsMuted",
   "onTogglePlay",
+  "onOrientationChange",
 ] as const satisfies readonly (keyof VideoTileProps)[];
 
 type AnyCallback = (...args: unknown[]) => unknown;
@@ -1194,6 +1364,200 @@ export function VideoTile(props: VideoTileProps) {
   return <VideoTileView {...(passed as VideoTileProps)} />;
 }
 
+
+// The "girar/inverter" panel behind a tile's orientation button.
+//
+// Two halves, and the order is the point: what this viewer sees comes first,
+// because that is what almost everyone opening this wants. The "para todos"
+// half only exists on a tile of our own, and only ever reaches the room — the
+// viewer's own turn keeps overriding it for them (see lib/tileOrientation).
+function OrientationPanel({
+  shown,
+  local,
+  broadcast,
+  onLocal,
+  onClearLocal,
+  onBroadcast,
+}: {
+  /** What the picture is at right now: the local turn, or the broadcaster's. */
+  shown: Orientation;
+  local: Orientation | null;
+  broadcast: Orientation | null;
+  onLocal: (orientation: Orientation) => void;
+  onClearLocal: () => void;
+  onBroadcast?: (orientation: Orientation) => void;
+}) {
+  const t = useT();
+  const action =
+    "flex flex-1 items-center justify-center rounded-md p-2 text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-40 disabled:hover:bg-transparent dark:text-zinc-200 dark:hover:bg-zinc-800";
+
+  function localAction(next: Orientation, event: string, value?: number) {
+    onLocal(next);
+    trackOrientation(event, value);
+  }
+
+  function broadcastAction(next: Orientation) {
+    onBroadcast?.(next);
+    trackOrientation(
+      isDefaultOrientation(next) ? ORIENTATION_EVENTS.broadcastReset : ORIENTATION_EVENTS.broadcast,
+      next.rotation
+    );
+  }
+
+  // The "para todos" row edits the broadcaster's own value, not what this tab
+  // happens to be showing — otherwise a local turn would quietly leak into
+  // what the room gets the next time its owner pressed one of these.
+  const base = broadcast ?? NO_ORIENTATION;
+
+  return (
+    <div className="flex w-64 flex-col gap-2 rounded-lg border border-zinc-200 bg-white p-2.5 text-sm shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex flex-col gap-1.5">
+        <span className="px-0.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+          {t("videoTile.orientationOnlyForMe")}
+        </span>
+        <div className="flex items-center gap-1">
+          <Tooltip content={t("videoTile.rotateLeft")}>
+            <button
+              type="button"
+              className={action}
+              aria-label={t("videoTile.rotateLeft")}
+              onClick={() => {
+                const next = rotateOrientation(shown, -1);
+                localAction(next, ORIENTATION_EVENTS.rotate, next.rotation);
+              }}
+            >
+              <RotateLeftIcon className="h-5 w-5" />
+            </button>
+          </Tooltip>
+          <Tooltip content={t("videoTile.rotateRight")}>
+            <button
+              type="button"
+              className={action}
+              aria-label={t("videoTile.rotateRight")}
+              onClick={() => {
+                const next = rotateOrientation(shown, 1);
+                localAction(next, ORIENTATION_EVENTS.rotate, next.rotation);
+              }}
+            >
+              <RotateRightIcon className="h-5 w-5" />
+            </button>
+          </Tooltip>
+          <Tooltip content={t("videoTile.flipHorizontal")}>
+            <button
+              type="button"
+              className={`${action} ${shown.flipX ? "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300" : ""}`}
+              aria-label={t("videoTile.flipHorizontal")}
+              aria-pressed={shown.flipX}
+              onClick={() => localAction(flipOrientation(shown, "x"), ORIENTATION_EVENTS.flip)}
+            >
+              <FlipHorizontalIcon className="h-5 w-5" />
+            </button>
+          </Tooltip>
+          <Tooltip content={t("videoTile.flipVertical")}>
+            <button
+              type="button"
+              className={`${action} ${shown.flipY ? "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300" : ""}`}
+              aria-label={t("videoTile.flipVertical")}
+              aria-pressed={shown.flipY}
+              onClick={() => localAction(flipOrientation(shown, "y"), ORIENTATION_EVENTS.flip)}
+            >
+              <FlipVerticalIcon className="h-5 w-5" />
+            </button>
+          </Tooltip>
+          {/* Back to whatever the picture would be without this viewer's own
+              turn — which is not the same as "straight": a broadcaster may
+              have turned it for everyone, and this is how you get back to
+              their version rather than to none. */}
+          <Tooltip content={t("videoTile.orientationReset")}>
+            <button
+              type="button"
+              className={action}
+              aria-label={t("videoTile.orientationReset")}
+              disabled={!local}
+              onClick={() => {
+                onClearLocal();
+                trackOrientation(ORIENTATION_EVENTS.reset);
+              }}
+            >
+              <ResetIcon className="h-5 w-5" />
+            </button>
+          </Tooltip>
+        </div>
+        {local && broadcast && !isDefaultOrientation(broadcast) && (
+          <span className="px-0.5 text-[11px] leading-snug text-zinc-500">
+            {t("videoTile.orientationOverridesBroadcaster")}
+          </span>
+        )}
+      </div>
+
+      {onBroadcast && (
+        <div className="flex flex-col gap-1.5 border-t border-zinc-200 pt-2 dark:border-zinc-800">
+          <span className="px-0.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            {t("videoTile.orientationForEveryone")}
+          </span>
+          <div className="flex items-center gap-1">
+            <Tooltip content={t("videoTile.rotateLeft")}>
+              <button
+                type="button"
+                className={action}
+                aria-label={t("videoTile.rotateLeft")}
+                onClick={() => broadcastAction(rotateOrientation(base, -1))}
+              >
+                <RotateLeftIcon className="h-5 w-5" />
+              </button>
+            </Tooltip>
+            <Tooltip content={t("videoTile.rotateRight")}>
+              <button
+                type="button"
+                className={action}
+                aria-label={t("videoTile.rotateRight")}
+                onClick={() => broadcastAction(rotateOrientation(base, 1))}
+              >
+                <RotateRightIcon className="h-5 w-5" />
+              </button>
+            </Tooltip>
+            <Tooltip content={t("videoTile.flipHorizontal")}>
+              <button
+                type="button"
+                className={`${action} ${base.flipX ? "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300" : ""}`}
+                aria-label={t("videoTile.flipHorizontal")}
+                aria-pressed={base.flipX}
+                onClick={() => broadcastAction(flipOrientation(base, "x"))}
+              >
+                <FlipHorizontalIcon className="h-5 w-5" />
+              </button>
+            </Tooltip>
+            <Tooltip content={t("videoTile.flipVertical")}>
+              <button
+                type="button"
+                className={`${action} ${base.flipY ? "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300" : ""}`}
+                aria-label={t("videoTile.flipVertical")}
+                aria-pressed={base.flipY}
+                onClick={() => broadcastAction(flipOrientation(base, "y"))}
+              >
+                <FlipVerticalIcon className="h-5 w-5" />
+              </button>
+            </Tooltip>
+            <Tooltip content={t("videoTile.orientationReset")}>
+              <button
+                type="button"
+                className={action}
+                aria-label={t("videoTile.orientationReset")}
+                disabled={isDefaultOrientation(base)}
+                onClick={() => broadcastAction(NO_ORIENTATION)}
+              >
+                <ResetIcon className="h-5 w-5" />
+              </button>
+            </Tooltip>
+          </div>
+          <span className="px-0.5 text-[11px] leading-snug text-zinc-500">
+            {t("videoTile.orientationForEveryoneHint")}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function PlaceholderTile({
   fill,
