@@ -679,8 +679,8 @@ export function PartnerAdsPanel() {
               A marca do anunciante. Quadrada — o banner acima é a campanha,
               isso aqui é de quem ela é. Usada em todo espaço quadrado, onde um
               banner sairia cortado no meio: a pausa por anúncio, a barrinha do
-              anúncio recolhido, o canto do anúncio em tela e o lado do título.
-              Sem banner, ela também assume a frente do card.
+              anúncio recolhido e o canto do anúncio em tela. Sem banner, ela
+              assume a frente do card.
             </p>
             <PartnerMediaDrop kind="image" onUploaded={(url) => update("iconUrl", url)} />
           </div>
@@ -1011,17 +1011,7 @@ export function PartnerAdsPanel() {
                   }
                 />
               )}
-              <div className="flex items-center gap-2">
-                {preview.iconUrl && !previewHeroIsIcon && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={preview.iconUrl}
-                    alt=""
-                    className="h-7 w-7 shrink-0 rounded-lg object-cover ring-1 ring-black/10 dark:ring-white/10"
-                  />
-                )}
-                <p className="min-w-0 text-sm font-semibold">{preview.title || t("common.adTitle")}</p>
-              </div>
+              <p className="text-sm font-semibold">{preview.title || t("common.adTitle")}</p>
               <p className="mt-1 whitespace-pre-line text-xs opacity-80">
                 {preview.description || t("common.adDescription")}
               </p>

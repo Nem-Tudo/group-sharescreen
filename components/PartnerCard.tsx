@@ -716,66 +716,26 @@ export function PartnerCard({
       )}
 
       <div
-        // On the stage, from sm up: its own horizontal layout — the banner in a
-        // column of its own on the left, everything else stacked beside it —
-        // instead of the sidebar's tall card stretched across the pane.
+        // On the stage, from sm up: its own horizontal layout — the banner on
+        // the left, everything else in one box beside it — instead of the
+        // sidebar's tall card stretched across the pane.
         //
-        // The banner column is wide, and grows again from lg: the image is the
-        // only part of an ad anybody looks at from across a room, and the copy
-        // beside it is three short lines that do not need half a pane. Its own
-        // shape, too — see the img below — rather than the square it used to be
-        // cropped into, which cut the ends off every banner ever uploaded.
+        // A flex row of exactly two, deliberately, rather than the grid this
+        // was: in a grid the copy's lines were rows of their own, and a banner
+        // taller than them had its extra height shared out between them, which
+        // left the chip, the headline and the copy floating apart.
+        //
+        // The banner is wide, and grows again from lg: the image is the only
+        // part of an ad anybody looks at from across a room, and the copy
+        // beside it is three short lines that do not need half a pane.
         className={`w-full overflow-hidden rounded-xl border border-zinc-200 p-3 dark:border-zinc-800 sm:p-4 ${
-          isStage && heroImage
-            ? "sm:grid sm:grid-cols-[minmax(0,15rem)_minmax(0,1fr)] sm:items-center sm:gap-x-5 sm:[&>*:not(img)]:col-start-2 lg:grid-cols-[minmax(0,19rem)_minmax(0,1fr)]"
-            : ""
+          isStage && heroImage ? "sm:flex sm:items-center sm:gap-5" : ""
         }`}
         style={{
           backgroundColor: displayData.backgroundColor ?? "#ffffff",
           color: displayData.textColor ?? "#18181b",
         }}
       >
-        <div className="mb-2 flex items-center justify-between gap-2">
-          {showingHouseAdContent && showOnlineWidget && (
-            <Popover
-              open={statsOpen}
-              onClose={() => setStatsOpen(false)}
-              placement="top"
-              content={statsPanel}
-            >
-              <button
-                type="button"
-                onClick={() => setStatsOpen((open) => !open)}
-                className="flex items-center gap-1 text-xs font-medium text-emerald-400 cursor-pointer"
-              >
-                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />
-                {peopleOnline} online agora
-                <ChevronUpIcon
-                  className={`h-3 w-3 transition-transform ${statsOpen ? "rotate-180" : ""}`}
-                />
-              </button>
-            </Popover>
-          )}
-          <span className={`flex shrink-0 items-center gap-1 ${onDismiss ? "ml-auto" : ""}`}>
-            <span className="shrink-0 rounded-full bg-black/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide opacity-70 dark:bg-white/10">
-              {t("common.sponsored")}
-            </span>
-            {onDismiss && (
-              <button
-                type="button"
-                onClick={onDismiss}
-                aria-label={t("partnerCard.collapseAd")}
-                title={t("partnerCard.collapseAd")}
-                // In the ad's own text colour, like the chip beside it — the
-                // advertiser picks the background, so no fixed colour is safe.
-                className="-mr-1 flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-full opacity-60 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
-              >
-                <ChevronUpIcon className="h-3.5 w-3.5 rotate-180" />
-              </button>
-            )}
-          </span>
-        </div>
-
         {heroImage && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -791,203 +751,233 @@ export function PartnerCard({
                   // it to 16:9 the way a banner is cropped would cut the top
                   // and bottom off a logo.
                   `mx-auto mb-2 aspect-square rounded-xl object-cover ring-1 ring-black/10 dark:ring-white/10 ${
-                    isStage
-                      ? "w-24 sm:col-start-1 sm:row-span-full sm:row-start-1 sm:mb-0 sm:w-32 sm:self-center"
-                      : "w-16 lg:w-20"
+                    isStage ? "w-24 sm:mx-0 sm:mb-0 sm:w-32 sm:shrink-0" : "w-16 lg:w-20"
                   }`
                 : isStage
                   ? // 16:9 in both directions now. It was squared off from sm
                     // up, which meant every banner — and they are all banners —
                     // lost its two ends to object-cover exactly where the logo
                     // and the call to action tend to sit.
-                    "mb-2 aspect-video w-full rounded-lg object-cover sm:col-start-1 sm:row-span-full sm:row-start-1 sm:mb-0 sm:self-center"
+                    "mb-2 aspect-video w-full rounded-lg object-cover sm:mb-0 sm:w-[15rem] sm:shrink-0 lg:w-[19rem]"
                   : "mb-2 max-h-20 w-full rounded-lg object-cover lg:max-h-32"
             }
           />
         )}
 
-        {/* The brand's own mark beside its headline, when it has one — an ad
-            is somebody's, and a square logo says whose faster than a line of
-            copy does. Sized up on the stage, where the card has the room. */}
-        <div className="flex items-center gap-2">
-          {displayData.iconUrl && !heroIsIcon && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={displayData.iconUrl}
-              alt=""
-              className={`shrink-0 rounded-lg object-cover ring-1 ring-black/10 dark:ring-white/10 ${
-                isStage ? "h-10 w-10" : "h-7 w-7"
-              }`}
-            />
-          )}
-          <p className={`min-w-0 font-semibold ${isStage ? "text-sm sm:text-base" : "text-sm"}`}>
-            {displayData.title}
-          </p>
-        </div>
-        {/* Cut only when the card wouldn't otherwise fit beside four
-            participants (see the measuring effect) — a short ad in a tall
-            column reads in full, exactly as written. */}
-        <p
-          ref={descriptionRef}
-          className={`mt-1 whitespace-pre-line text-xs opacity-80 ${
-            descriptionTruncated && !showFullDescription ? "line-clamp-3" : ""
-          }`}
-        >
-          {displayData.description}
-        </p>
-        {descriptionTruncated && (
-          <button
-            type="button"
-            onClick={() =>
-              setExpandedDescription(showFullDescription ? null : displayData.description)
-            }
-            className="mt-0.5 text-xs font-semibold underline underline-offset-2 opacity-70 transition hover:opacity-100"
-          >
-            {showFullDescription ? t("partnerCard.readLess") : t("partnerCard.readMore")}
-          </button>
-        )}
-
-        {earnLook && (
-          <PartnerClickRewardHint points={data.clickRewardPoints!} className="mt-3 opacity-90" />
-        )}
-        <a
-          href={displayData.buttonUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={() => handleCtaClick(cardSpot)}
-          // Full width in the sidebar, where the column *is* the button's
-          // width; on the stage only as wide as it needs to be, because a
-          // button stretched across a whole pane reads as a banner rather than
-          // as something to press.
-          className={`relative ${earnLook ? "mt-1.5" : "mt-3"} flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-center text-sm font-semibold transition hover:opacity-90 ${
-            isStage ? "sm:w-fit sm:min-w-[12rem] sm:px-6 sm:py-2.5" : ""
-          }`}
-          style={{
-            backgroundColor: displayData.buttonBackgroundColor ?? "#18181b",
-            color: displayData.buttonTextColor ?? "#ffffff",
-          }}
-        >
-          {/* "Resgatado!" is laid over the label rather than replacing it:
-              the real content stays in the box (just invisible), so the
-              button keeps the exact size it had a moment ago instead of
-              resizing itself around a shorter word and back. */}
-          <span
-            className={`flex min-w-0 items-center justify-center gap-1.5 ${
-              clickRewardJustClaimed ? "invisible" : ""
-            }`}
-          >
-            {cardClickRewardActive && !earnLook && (
-              <>
-                <BsCoin className="h-4 w-4 shrink-0" />
-                <span className="shrink-0 tabular-nums">{data.clickRewardPoints}</span>
-              </>
+        {/* Everything that isn't the picture, in one box. It has to be one:
+            the two sit side by side on the stage, and with each line its own
+            grid row — which is what this was — the picture's height was shared
+            out between them, prising the chip, the headline and the copy apart
+            from each other down the height of the banner. */}
+        <div className={isStage && heroImage ? "min-w-0 sm:flex-1" : "contents"}>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            {showingHouseAdContent && showOnlineWidget && (
+              <Popover
+                open={statsOpen}
+                onClose={() => setStatsOpen(false)}
+                placement="top"
+                content={statsPanel}
+              >
+                <button
+                  type="button"
+                  onClick={() => setStatsOpen((open) => !open)}
+                  className="flex items-center gap-1 text-xs font-medium text-emerald-400 cursor-pointer"
+                >
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />
+                  {peopleOnline} online agora
+                  <ChevronUpIcon
+                    className={`h-3 w-3 transition-transform ${statsOpen ? "rotate-180" : ""}`}
+                  />
+                </button>
+              </Popover>
             )}
-            <span className="truncate">{displayData.buttonLabel}</span>
-            {earnLook && <PartnerClickRewardPill points={data.clickRewardPoints!} />}
-          </span>
-          {clickRewardJustClaimed && (
-            <span className="absolute inset-0 flex items-center justify-center">{t("common.redeemed")}</span>
-          )}
-        </a>
-
-        {clickRewardError && (
-          <p className="mt-1.5 text-center text-[11px] font-medium text-amber-500">
-            {clickRewardError}
-          </p>
-        )}
-
-        {showingRealAd && data.id && data.rewardVideoUrl && data.rewardPoints && (
-          <button
-            type="button"
-            onClick={() => {
-              trackEvent("partner_reward_video_opened", { partnerId: data.id });
-              trackPartnerVideoOpen();
-              openPopup("partner_reward", {
-                // Sized to give the video roughly the room it had back when
-                // this was a full-screen takeover, without becoming one: the
-                // backdrop stays translucent and the call keeps running
-                // behind it.
-                // Wider when the ad has a long description beside the video.
-                ...partnerRewardPopupSize(data.hasExtendedDescription),
-                // The popup's own × is deliberately the only way out —
-                // losing an almost-finished video to a stray backdrop click
-                // or Escape means watching the whole thing again.
-                closeOnEscape: false,
-                closeOnClickOutside: false,
-                requireAction: true,
-                onClose: bumpRewardStateSoon,
-                data: {
-                  partnerId: data.id,
-                  videoUrl: data.rewardVideoUrl,
-                  points: data.rewardPoints,
-                  title: data.title,
-                  description: data.description,
-                  hasExtendedDescription: data.hasExtendedDescription,
-                  imageUrl: data.imageUrl,
-                  buttonLabel: data.buttonLabel,
-                  buttonUrl: data.buttonUrl,
-                  buttonBackgroundColor: data.buttonBackgroundColor,
-                  buttonTextColor: data.buttonTextColor,
-                  clickRewardPoints: clickRewardAppliesTo(data, "video")
-                    ? data.clickRewardPoints
-                    : null,
-                  onClaimed: bumpRewardStateSoon,
-                },
-              });
-            }}
-            // Glows in the main CTA's own color (same trick, same reason as
-            // PartnerRewardModal's --partner-cta-glow-color): this button is
-            // an outline sitting under that solid one, and sharing its color
-            // is what makes the two read as one offer.
-            style={{
-              ["--partner-reward-glow-color" as string]:
-                displayData.buttonBackgroundColor ?? "#18181b",
-            }}
-            // The glow (see globals.css) runs only while there are still
-            // points on the table. Once this browser has collected them the
-            // button is a plain "assistir de novo" — animating it then would
-            // be advertising a reward it can no longer pay.
-            className={`mt-2 flex w-full items-center cursor-pointer ${
-              rewardDurationLabel ? "justify-between" : "justify-center"
-            } gap-2 rounded-lg border border-current px-3 py-1.5 text-xs font-semibold opacity-90 transition hover:opacity-100 ${
-              rewardClaimedLocally ? "" : "partner-reward-glow"
-            }`}
-          >
-            {/* Rewatching is always allowed — only the reward itself is
-                one-time (see PartnerRewardModal, which knows not to let a
-                rewatch pay out again). */}
-            <span className="flex min-w-0 items-center gap-1.5">
-              {rewardClaimedLocally ? (
-                t("partnerCard.watchAgain")
-              ) : (
-                <>
-                  {t("common.redeem")}
-                  <BsCoin className="h-3.5 w-3.5 shrink-0" />
-                  {data.rewardPoints}
-                </>
+            <span className={`flex shrink-0 items-center gap-1 ${onDismiss ? "ml-auto" : ""}`}>
+              <span className="shrink-0 rounded-full bg-black/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide opacity-70 dark:bg-white/10">
+                {t("common.sponsored")}
+              </span>
+              {onDismiss && (
+                <button
+                  type="button"
+                  onClick={onDismiss}
+                  aria-label={t("partnerCard.collapseAd")}
+                  title={t("partnerCard.collapseAd")}
+                  // In the ad's own text colour, like the chip beside it — the
+                  // advertiser picks the background, so no fixed colour is safe.
+                  className="-mr-1 flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-full opacity-60 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
+                >
+                  <ChevronUpIcon className="h-3.5 w-3.5 rotate-180" />
+                </button>
               )}
             </span>
-            {rewardDurationLabel && (
-              <span className="shrink-0 rounded-full bg-black/10 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums dark:bg-white/10">
-                {rewardDurationLabel}
-              </span>
-            )}
-          </button>
-        )}
+          </div>
 
-        {showingHouseAdContent && (
-          <button
-            type="button"
-            onClick={() => {
-              trackEvent("partner_example_viewed");
-              setStatsOpen(false);
-              setShowingExample(true);
-            }}
-            className="mt-2 block w-full rounded-lg border border-current px-3 py-1.5 text-center text-xs font-medium opacity-70 transition hover:opacity-100"
+          <p className={`font-semibold ${isStage ? "text-sm sm:text-base" : "text-sm"}`}>
+            {displayData.title}
+          </p>
+          {/* Cut only when the card wouldn't otherwise fit beside four
+              participants (see the measuring effect) — a short ad in a tall
+              column reads in full, exactly as written. */}
+          <p
+            ref={descriptionRef}
+            className={`mt-1 whitespace-pre-line text-xs opacity-80 ${
+              descriptionTruncated && !showFullDescription ? "line-clamp-3" : ""
+            }`}
           >
-            {t("partnerCard.seeAnExampleAd")}
-          </button>
-        )}
+            {displayData.description}
+          </p>
+          {descriptionTruncated && (
+            <button
+              type="button"
+              onClick={() =>
+                setExpandedDescription(showFullDescription ? null : displayData.description)
+              }
+              className="mt-0.5 text-xs font-semibold underline underline-offset-2 opacity-70 transition hover:opacity-100"
+            >
+              {showFullDescription ? t("partnerCard.readLess") : t("partnerCard.readMore")}
+            </button>
+          )}
+
+          {earnLook && (
+            <PartnerClickRewardHint points={data.clickRewardPoints!} className="mt-3 opacity-90" />
+          )}
+          <a
+            href={displayData.buttonUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => handleCtaClick(cardSpot)}
+            // Full width of whatever column it is in, on the stage as much as
+            // in the sidebar. The "Resgatar" button below is an outline sitting
+            // under this solid one and reads as part of the same offer, which
+            // only holds while the two are the same width — a CTA sized to its
+            // own label left the pair ragged.
+            className={`relative ${earnLook ? "mt-1.5" : "mt-3"} flex w-full items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-center text-sm font-semibold transition hover:opacity-90`}
+            style={{
+              backgroundColor: displayData.buttonBackgroundColor ?? "#18181b",
+              color: displayData.buttonTextColor ?? "#ffffff",
+            }}
+          >
+            {/* "Resgatado!" is laid over the label rather than replacing it:
+                the real content stays in the box (just invisible), so the
+                button keeps the exact size it had a moment ago instead of
+                resizing itself around a shorter word and back. */}
+            <span
+              className={`flex min-w-0 items-center justify-center gap-1.5 ${
+                clickRewardJustClaimed ? "invisible" : ""
+              }`}
+            >
+              {cardClickRewardActive && !earnLook && (
+                <>
+                  <BsCoin className="h-4 w-4 shrink-0" />
+                  <span className="shrink-0 tabular-nums">{data.clickRewardPoints}</span>
+                </>
+              )}
+              <span className="truncate">{displayData.buttonLabel}</span>
+              {earnLook && <PartnerClickRewardPill points={data.clickRewardPoints!} />}
+            </span>
+            {clickRewardJustClaimed && (
+              <span className="absolute inset-0 flex items-center justify-center">{t("common.redeemed")}</span>
+            )}
+          </a>
+
+          {clickRewardError && (
+            <p className="mt-1.5 text-center text-[11px] font-medium text-amber-500">
+              {clickRewardError}
+            </p>
+          )}
+
+          {showingRealAd && data.id && data.rewardVideoUrl && data.rewardPoints && (
+            <button
+              type="button"
+              onClick={() => {
+                trackEvent("partner_reward_video_opened", { partnerId: data.id });
+                trackPartnerVideoOpen();
+                openPopup("partner_reward", {
+                  // Sized to give the video roughly the room it had back when
+                  // this was a full-screen takeover, without becoming one: the
+                  // backdrop stays translucent and the call keeps running
+                  // behind it.
+                  // Wider when the ad has a long description beside the video.
+                  ...partnerRewardPopupSize(data.hasExtendedDescription),
+                  // The popup's own × is deliberately the only way out —
+                  // losing an almost-finished video to a stray backdrop click
+                  // or Escape means watching the whole thing again.
+                  closeOnEscape: false,
+                  closeOnClickOutside: false,
+                  requireAction: true,
+                  onClose: bumpRewardStateSoon,
+                  data: {
+                    partnerId: data.id,
+                    videoUrl: data.rewardVideoUrl,
+                    points: data.rewardPoints,
+                    title: data.title,
+                    description: data.description,
+                    hasExtendedDescription: data.hasExtendedDescription,
+                    imageUrl: data.imageUrl,
+                    buttonLabel: data.buttonLabel,
+                    buttonUrl: data.buttonUrl,
+                    buttonBackgroundColor: data.buttonBackgroundColor,
+                    buttonTextColor: data.buttonTextColor,
+                    clickRewardPoints: clickRewardAppliesTo(data, "video")
+                      ? data.clickRewardPoints
+                      : null,
+                    onClaimed: bumpRewardStateSoon,
+                  },
+                });
+              }}
+              // Glows in the main CTA's own color (same trick, same reason as
+              // PartnerRewardModal's --partner-cta-glow-color): this button is
+              // an outline sitting under that solid one, and sharing its color
+              // is what makes the two read as one offer.
+              style={{
+                ["--partner-reward-glow-color" as string]:
+                  displayData.buttonBackgroundColor ?? "#18181b",
+              }}
+              // The glow (see globals.css) runs only while there are still
+              // points on the table. Once this browser has collected them the
+              // button is a plain "assistir de novo" — animating it then would
+              // be advertising a reward it can no longer pay.
+              className={`mt-2 flex w-full items-center cursor-pointer ${
+                rewardDurationLabel ? "justify-between" : "justify-center"
+              } gap-2 rounded-lg border border-current px-3 py-1.5 text-xs font-semibold opacity-90 transition hover:opacity-100 ${
+                rewardClaimedLocally ? "" : "partner-reward-glow"
+              }`}
+            >
+              {/* Rewatching is always allowed — only the reward itself is
+                  one-time (see PartnerRewardModal, which knows not to let a
+                  rewatch pay out again). */}
+              <span className="flex min-w-0 items-center gap-1.5">
+                {rewardClaimedLocally ? (
+                  t("partnerCard.watchAgain")
+                ) : (
+                  <>
+                    {t("common.redeem")}
+                    <BsCoin className="h-3.5 w-3.5 shrink-0" />
+                    {data.rewardPoints}
+                  </>
+                )}
+              </span>
+              {rewardDurationLabel && (
+                <span className="shrink-0 rounded-full bg-black/10 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums dark:bg-white/10">
+                  {rewardDurationLabel}
+                </span>
+              )}
+            </button>
+          )}
+
+          {showingHouseAdContent && (
+            <button
+              type="button"
+              onClick={() => {
+                trackEvent("partner_example_viewed");
+                setStatsOpen(false);
+                setShowingExample(true);
+              }}
+              className="mt-2 block w-full rounded-lg border border-current px-3 py-1.5 text-center text-xs font-medium opacity-70 transition hover:opacity-100"
+            >
+              {t("partnerCard.seeAnExampleAd")}
+            </button>
+          )}
+        </div>
       </div>
       </div>
 

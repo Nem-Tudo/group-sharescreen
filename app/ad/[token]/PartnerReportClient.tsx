@@ -531,17 +531,7 @@ export function PartnerReportClient({ token }: { token: string }) {
                   }
                 />
               )}
-              <div className="mt-2 flex items-center gap-2">
-                {ad.iconUrl && ad.imageUrl && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={ad.iconUrl}
-                    alt=""
-                    className="h-7 w-7 shrink-0 rounded-lg object-cover ring-1 ring-black/10"
-                  />
-                )}
-                <p className="min-w-0 text-sm font-semibold">{ad.title}</p>
-              </div>
+              <p className="mt-2 text-sm font-semibold">{ad.title}</p>
               <p className="mt-1 whitespace-pre-line text-xs opacity-80">{ad.description}</p>
               <div
                 className="mt-3 rounded-lg px-3 py-2 text-center text-sm font-semibold"
