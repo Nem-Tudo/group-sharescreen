@@ -265,6 +265,33 @@ export function playPurchaseSound() {
   ], "purchase");
 }
 
+/**
+ * The ad gate pausing a broadcast (see lib/broadcastAdGate.ts).
+ *
+ * Deliberately *not* the warning below, which is a square-wave triple beep
+ * that reads as an alarm. This one is the opposite instruction to the ear: a
+ * soft two-note fall, the shape of something politely pausing rather than
+ * something going wrong. It exists because the popup can open while the
+ * person is looking at the game they are streaming and not at the browser at
+ * all, and the picture going black with no sound is how a broadcast looks
+ * when it *breaks*. Two notes are enough to say "this was on purpose".
+ */
+export function playBroadcastPausedSound() {
+  playNotes([
+    { freq: 587, start: 0, duration: 0.22, gain: 0.09, type: "sine" },
+    { freq: 440, start: 0.16, duration: 0.34, gain: 0.08, type: "sine" },
+    { freq: 880, start: 0.16, duration: 0.3, gain: 0.03, type: "triangle" },
+  ], "broadcastPaused");
+}
+
+/** The picture coming back: the same two notes the other way up. */
+export function playBroadcastResumedSound() {
+  playNotes([
+    { freq: 440, start: 0, duration: 0.18, gain: 0.08, type: "sine" },
+    { freq: 659, start: 0.12, duration: 0.3, gain: 0.09, type: "sine" },
+  ], "broadcastResumed");
+}
+
 // Used for site-wide "top" warnings/announcements (see AnnouncementBanner).
 export function playWarningSound() {
   playNotes([

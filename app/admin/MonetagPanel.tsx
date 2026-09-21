@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { fetchAdsEnabled, setAdsEnabled } from "@/lib/adminApi";
+import {
+  fetchAdsEnabled,
+  setAdsEnabled,
+  fetchBroadcastGateHours,
+  setBroadcastGateHours,
+  type BroadcastGateHours,
+} from "@/lib/adminApi";
 import { useT } from "@/lib/useI18n";
 
 // The Monetag switch: turns the site's ad network on and off.
@@ -83,6 +89,133 @@ export function MonetagPanel() {
                 ? t("admin.monetagPanel.enabled")
                 : t("admin.monetagPanel.disabled")}
         </button>
+        {error && <span className="text-sm text-red-500">{error}</span>}
+      </div>
+
+      <BroadcastGatePanel adsEnabled={enabled} />
+    </div>
+  );
+}
+
+/**
+ * The two dials behind the ad gate on long broadcasts (see the site's
+ * lib/broadcastAdGate.ts).
+ *
+ * Inside the Monetag card rather than in a card of its own: it is the same
+ * document, the same route, and the same question — how much advertising does
+ * somebody who is not paying see. Two panels for one answer is how the two
+ * drift apart in somebody's head.
+ *
+ * Saved together and only on a press, unlike the switch above. The switch is
+ * an emergency control and wants one click; these are numbers being typed,
+ * and a field that saved on every keystroke would push a gate at "2" on the
+ * way to typing "20".
+ */
+function BroadcastGatePanel({ adsEnabled }: { adsEnabled: boolean | undefined }) {
+  const t = useT();
+  const [hours, setHours] = useState<BroadcastGateHours | null>(null);
+  const [first, setFirst] = useState("");
+  const [interval, setIntervalValue] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchBroadcastGateHours()
+      .then((value) => {
+        if (cancelled) return;
+        setHours(value);
+        setFirst(String(value.firstHours));
+        setIntervalValue(String(value.intervalHours));
+      })
+      .catch(() => {
+        // Left blank rather than filled with a guess: a number in these boxes
+        // is read as what the site is doing, and inventing one here would be
+        // the panel lying about the live configuration.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleSave() {
+    if (saving || adsEnabled === undefined) return;
+    const firstHours = Number(first.replace(",", "."));
+    const intervalHours = Number(interval.replace(",", "."));
+    if (!Number.isFinite(firstHours) || !Number.isFinite(intervalHours) || firstHours < 0 || intervalHours < 0) {
+      setError(t("common.couldNotUpdate"));
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+    try {
+      const next = await setBroadcastGateHours(adsEnabled, { firstHours, intervalHours });
+      setHours(next);
+      setFirst(String(next.firstHours));
+      setIntervalValue(String(next.intervalHours));
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("common.couldNotUpdate"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mt-5 border-t border-zinc-200 pt-4 dark:border-zinc-800">
+      <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
+        {t("admin.monetagPanel.gateTitle")}
+      </h3>
+      <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+        {t("admin.monetagPanel.gateDescription")}
+      </p>
+
+      <div className="mt-3 flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-zinc-500 dark:text-zinc-400">
+            {t("admin.monetagPanel.gateFirstHours")}
+          </span>
+          <input
+            type="number"
+            min={0}
+            step="0.5"
+            value={first}
+            onChange={(e) => {
+              setFirst(e.target.value);
+              setSaved(false);
+            }}
+            className="w-32 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm tabular-nums text-zinc-900 dark:border-zinc-800 dark:bg-zinc-900 dark:text-white"
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-zinc-500 dark:text-zinc-400">
+            {t("admin.monetagPanel.gateIntervalHours")}
+          </span>
+          <input
+            type="number"
+            min={0}
+            step="0.5"
+            value={interval}
+            onChange={(e) => {
+              setIntervalValue(e.target.value);
+              setSaved(false);
+            }}
+            className="w-32 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm tabular-nums text-zinc-900 dark:border-zinc-800 dark:bg-zinc-900 dark:text-white"
+          />
+        </label>
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving || hours === null || adsEnabled === undefined}
+          className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
+        >
+          {saving ? t("common.saving") : t("admin.monetagPanel.gateSave")}
+        </button>
+        {saved && (
+          <span className="text-sm text-emerald-500">{t("admin.monetagPanel.gateSaved")}</span>
+        )}
         {error && <span className="text-sm text-red-500">{error}</span>}
       </div>
     </div>

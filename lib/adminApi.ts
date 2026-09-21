@@ -430,6 +430,57 @@ export async function setCloudflareTurnEnabled(enabled: boolean): Promise<Cloudf
 // decide whether to render a slot — so this goes to the public route rather
 // than minting an admin-only mirror of it. Writing it is admin-only, and the
 // API pushes the new value down every open socket before answering.
+/**
+ * The ad gate's two dials (see the API's adsConfig.ts), as the admin panel
+ * reads and writes them.
+ *
+ * Kept beside the kill switch above because they share one document and one
+ * route, and split into a type of their own because the panel edits them as a
+ * pair: a "first" without an "interval" is not half a setting, it is a
+ * setting nobody can read.
+ */
+export type BroadcastGateHours = { firstHours: number; intervalHours: number };
+
+export async function fetchBroadcastGateHours(): Promise<BroadcastGateHours> {
+  const res = await fetch(`${getSignalingHttpBase()}/ads/config`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = (await res.json()) as Record<string, unknown>;
+  return {
+    firstHours: typeof data.broadcastGateFirstHours === "number" ? data.broadcastGateFirstHours : 6,
+    intervalHours:
+      typeof data.broadcastGateIntervalHours === "number" ? data.broadcastGateIntervalHours : 2,
+  };
+}
+
+/**
+ * Writes the dials.
+ *
+ * The route takes the kill switch in the same body and requires it, so the
+ * current value is sent back unchanged rather than guessed at — this saves
+ * hours, and turning advertising off is not something it may do by accident.
+ */
+export async function setBroadcastGateHours(
+  adsEnabled: boolean,
+  hours: BroadcastGateHours
+): Promise<BroadcastGateHours> {
+  const data = await adminFetch<Record<string, unknown>>("/admin/ads/config", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      adsterraEnabled: adsEnabled,
+      broadcastGateFirstHours: hours.firstHours,
+      broadcastGateIntervalHours: hours.intervalHours,
+    }),
+  });
+  return {
+    firstHours: typeof data.broadcastGateFirstHours === "number" ? data.broadcastGateFirstHours : hours.firstHours,
+    intervalHours:
+      typeof data.broadcastGateIntervalHours === "number"
+        ? data.broadcastGateIntervalHours
+        : hours.intervalHours,
+  };
+}
+
 export async function fetchAdsEnabled(): Promise<boolean> {
   const res = await fetch(`${getSignalingHttpBase()}/ads/config`);
   if (!res.ok) throw new Error(translate("adminApi.couldNotReadTheAdSettings"));

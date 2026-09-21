@@ -38,6 +38,7 @@ import {
   FlipVerticalIcon,
   ResetIcon,
 } from "@/components/icons";
+import { MdPauseCircleOutline } from "react-icons/md";
 import { RecordingModal, formatDuration } from "@/components/RecordingModal";
 import { markFeatureUsed } from "@/components/NewBadge";
 import { ClipBuffer, TileRecorder, clipSupported, CLIP_MS } from "@/lib/clipBuffer";
@@ -129,6 +130,7 @@ const VideoTileView = memo(function VideoTileView({
   badgeClassName = "bg-red-500/90",
   clippable = true,
   beingRecorded = false,
+  adPaused = false,
   mirrored = false,
   orientation,
   onOrientationChange,
@@ -251,6 +253,16 @@ const VideoTileView = memo(function VideoTileView({
   // Our own transmission, while somebody in the room is recording it (see
   // lib/recordingNotice): drawn with a red frame.
   beingRecorded?: boolean;
+  // The broadcaster's picture is paused until they watch an ad or buy Pro
+  // (see lib/broadcastAdGate.ts). Covered rather than removed: the tile, its
+  // connection and its place in the grid all stay exactly where they were, so
+  // the moment it clears the picture is simply back.
+  //
+  // The cover is drawn here rather than left to the black frames arriving
+  // over the wire, and that is the whole point of the flag. Black video with
+  // no explanation is indistinguishable from a broadcast that has broken, and
+  // the person watching would spend the next minute asking about it in chat.
+  adPaused?: boolean;
   // Show the picture flipped left-to-right — only the local preview of our own
   // front camera. What the room receives is never flipped.
   mirrored?: boolean;
@@ -835,6 +847,16 @@ const VideoTileView = memo(function VideoTileView({
     >
       {beingRecorded && (
         <div className="pointer-events-none absolute inset-0 z-30 rounded-xl border border-red-500/60" />
+      )}
+      {/* Above everything the tile draws over its video, including the
+          loading spinner: while this is up there is nothing to wait for. */}
+      {adPaused && (
+        <div className="pointer-events-none absolute inset-0 z-40 flex flex-col items-center justify-center gap-2 rounded-xl bg-black px-4 text-center">
+          <MdPauseCircleOutline className="h-8 w-8 text-zinc-500" />
+          <p className="max-w-[28rem] text-xs leading-relaxed text-zinc-400 sm:text-sm">
+            {t("videoTile.broadcastPausedUntilAd")}
+          </p>
+        </div>
       )}
       {/* Every one of these means "there is a picture now", and any single one
           of them is enough. `loadeddata` alone used to be the only way out of

@@ -93,6 +93,7 @@ import {
   playShareStartSound,
   playShareStopSound,
   playHangUpSound,
+  playBroadcastResumedSound,
 } from "@/lib/soundEffects";
 import { qualityNegotiator } from "@/lib/qualityNegotiation";
 import { isTurnConfigured, subscribeIceServers, TURN_CONFIGURED } from "@/lib/iceConfig";
@@ -258,6 +259,8 @@ import { StreamerModeModal } from "@/components/StreamerModeModal";
 import { UpdateAppButton } from "@/components/UpdateAppButton";
 import { AccountModal } from "@/components/AccountModal";
 import { GuestBroadcastLimitModal } from "@/components/GuestBroadcastLimitModal";
+import { BroadcastAdGateModal } from "@/components/BroadcastAdGateModal";
+import { setOutgoingVideoPaused } from "@/lib/broadcastAdGate";
 import { GpuShareSurveyModal } from "@/components/GpuShareSurveyModal";
 import { MobileScreenShareModal } from "@/components/MobileScreenShareModal";
 import { GUEST_FEATURES, accountTierOf, hasFeature, isThemeBanned, tierAtLeast } from "@/lib/entitlements";
@@ -3140,6 +3143,57 @@ export function WatchRoom({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.guestBroadcastLimitSeq]);
 
+  // --- the ad gate (see lib/broadcastAdGate.ts) ----------------------------
+  //
+  // Everything the room does about it is here: blank what is going out, put
+  // the popup up, and put the picture back. Nothing is torn down and nothing
+  // is restarted — see setOutgoingVideoPaused for why that is the whole
+  // design, and VideoTile's `adPaused` for what the other side sees.
+  const adGate = state.broadcastAdGate;
+  // Every video this browser is sending. Listed rather than reached for
+  // through some shared registry because the list *is* the contract: a
+  // channel missing from it is a channel that keeps broadcasting through the
+  // pause, which would be the one bug here nobody would notice locally.
+  const outgoingVideoStreams = [
+    localStream,
+    localCameraStream,
+    dualCamera.localStream,
+    ...EXTRA_SCREEN_SLOTS.map((slot) => extraScreens[slot].localStream),
+    ...LOCAL_MEDIA_SLOTS.map((slot) => fileChannels[slot]?.localStream ?? null),
+  ];
+  // Re-applied whenever the list changes, not only when the gate does: a
+  // channel started *during* the pause (a second screen added while the
+  // popup is up) has to be blanked too, and it arrives as a new stream in
+  // this array rather than as a change to the gate.
+  useEffect(() => {
+    setOutgoingVideoPaused(outgoingVideoStreams, Boolean(adGate));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [Boolean(adGate), ...outgoingVideoStreams]);
+
+  // The picture came back, with a sound to say so. Only after a gate that
+  // actually existed — the first render has none, and chiming at somebody
+  // who was never paused is worse than saying nothing.
+  const hadAdGate = useRef(false);
+  useEffect(() => {
+    if (adGate) {
+      hadAdGate.current = true;
+      return;
+    }
+    if (!hadAdGate.current) return;
+    hadAdGate.current = false;
+    playBroadcastResumedSound();
+  }, [adGate]);
+
+  // The popup's ✕ hides it without clearing the gate — the broadcast stays
+  // paused, and the tiles stay black, which is the honest thing to draw.
+  //
+  // What is remembered is *which* gate was dismissed, not a bare flag. The
+  // server sends a fresh object for every pause, so the next one is
+  // automatically undismissed without anything having to reset anything: a
+  // dismissal is about this interruption, not the next one.
+  const [dismissedGate, setDismissedGate] = useState<object | null>(null);
+  const adGateOpen = Boolean(adGate) && dismissedGate !== adGate;
+
   // They took the offer. The notice was a question, registering is the
   // answer, and leaving it sitting behind the account dialog for them to
   // dismiss afterwards would be asking it twice.
@@ -4877,6 +4931,7 @@ export function WatchRoom({
           }
           accessibleLabel={peer?.name ?? translate("common.someone")}
           badge={translate("watch.watchRoom.liveScreen")}
+          adPaused={peer?.adPaused === true}
           muted={transmissionMuted[volumeKey] ?? true}
           onMutedChange={(muted) => setTransmissionMuted(volumeKey, muted)}
           volume={transmissionVolumes[volumeKey] ?? transmissionVolumes[peer?.userId ?? peerId] ?? 1}
@@ -4932,6 +4987,7 @@ export function WatchRoom({
           }
           accessibleLabel={`${peer?.name ?? translate("common.someone")} (${translate("watch.watchRoom.secondCamera")})`}
           badge={translate("watch.watchRoom.liveCamera")}
+          adPaused={peer?.adPaused === true}
           muted
           allowUnmute={false}
           fill={fill}
@@ -4985,6 +5041,7 @@ export function WatchRoom({
           }
           accessibleLabel={`${peer?.name ?? translate("common.someone")} (${number})`}
           badge={translate("watch.watchRoom.liveScreen")}
+          adPaused={peer?.adPaused === true}
           muted
           allowUnmute={false}
           fill={fill}
@@ -5033,6 +5090,7 @@ export function WatchRoom({
           }
           accessibleLabel={peer?.name ?? translate("common.someone")}
           badge={translate("watch.watchRoom.liveCamera")}
+          adPaused={peer?.adPaused === true}
           muted={transmissionMuted[volumeKey] ?? true}
           onMutedChange={(muted) => setTransmissionMuted(volumeKey, muted)}
           volume={transmissionVolumes[volumeKey] ?? transmissionVolumes[peer?.userId ?? peerId] ?? 1}
@@ -8700,6 +8758,9 @@ export function WatchRoom({
           conta grátis" opens that one *over* this, and someone who backs out
           of registering should find the explanation still there instead of
           having silently spent it. */}
+      {adGate && adGateOpen && (
+        <BroadcastAdGateModal gate={adGate} onClose={() => setDismissedGate(adGate)} />
+      )}
       <GuestBroadcastLimitModal
         open={Boolean(state.guestBroadcastLimit) && accountModal === null}
         ended={state.guestBroadcastLimit?.ended ?? false}

@@ -101,6 +101,13 @@ export type PeerInfo = {
   // from (see localFilePosition). The picture itself arrives as live video on
   // the channel this names.
   files?: SharedFile[];
+  // Their transmissions are still up, but blanked while they watch an ad or
+  // buy Pro (see lib/broadcastAdGate.ts). Not the same as `sharing: false`
+  // and deliberately so: the tile stays, the connection stays, and what
+  // changes is that it is painted black with a line saying why. Undefined
+  // from a server that predates it, read as false — which is the old
+  // behaviour, an ordinary tile.
+  adPaused?: boolean;
   mic: boolean;
   // Whether they have silenced everyone else's mic for themselves
   // ("silenciar microfones"). Their own listening setting — nothing about
@@ -823,6 +830,21 @@ export type SignalingState = {
   // capture down and explain what happened.
   guestBroadcastLimit: { limitSeconds: number; ended: boolean } | null;
   guestBroadcastLimitSeq: number;
+  // Our own broadcast, paused until an ad is watched or Pro is bought (see
+  // lib/broadcastAdGate.ts and the API's ad gate). Null whenever it is not
+  // paused, which is almost always. Carries the two hour figures rather than
+  // letting the popup write them down, because they are moved from the admin
+  // panel while people are live.
+  //
+  // Not a counter beside it, unlike the refusals above: this is a *state*,
+  // not an event — it stays true for as long as the broadcast stands still,
+  // and the thing that ends it is the server saying so.
+  broadcastAdGate: { totalSeconds: number; firstHours: number; intervalHours: number } | null;
+  // The ad gate's dials as the admin currently has them, whether or not we
+  // are paused — pushed with the ads config (see "ads-config"). Null until
+  // the server has said, which is the state every reader treats as "do not
+  // claim a number".
+  broadcastGateHours: { firstHours: number; intervalHours: number } | null;
   // Ids (PeerInfo.id) of peers currently shown as "typing..." in the chat
   // (see ChatPanel.tsx) — purely a live relay (server/signaling.ts's
   // "peer-typing"), nothing persisted or replayed on join. Each entry is
@@ -885,6 +907,8 @@ const initialState: SignalingState = {
   partnerSeq: 0,
   adsEnabled: null,
   adsConfigSeq: 0,
+  broadcastAdGate: null,
+  broadcastGateHours: null,
   socialSeq: 0,
   lastGift: null,
   giftSeq: 0,
@@ -1912,6 +1936,9 @@ class SignalingClient {
                   screen: typeof msg.screen === "boolean" ? msg.screen : null,
                   camera: typeof msg.camera === "boolean" ? msg.camera : null,
                   files: Array.isArray(msg.files) ? (msg.files as SharedFile[]) : [],
+                  // See PeerInfo.adPaused. An older server never sends it,
+                  // which reads as false and leaves the tile alone.
+                  adPaused: msg.adPaused === true,
                 }
               : p
           ),
@@ -2481,7 +2508,40 @@ class SignalingClient {
           adsEnabled:
             typeof msg.adsterraEnabled === "boolean" ? msg.adsterraEnabled : null,
           adsConfigSeq: this.state.adsConfigSeq + 1,
+          // Both or neither: two dials that only make sense together, from a
+          // server old enough to send neither.
+          broadcastGateHours:
+            typeof msg.broadcastGateFirstHours === "number" &&
+            typeof msg.broadcastGateIntervalHours === "number"
+              ? {
+                  firstHours: msg.broadcastGateFirstHours as number,
+                  intervalHours: msg.broadcastGateIntervalHours as number,
+                }
+              : this.state.broadcastGateHours,
         });
+        break;
+      // Our own broadcast has been paused until an ad is watched (see
+      // lib/broadcastAdGate.ts). Re-sent by the server if we ask to share
+      // again while paused, so arriving twice is normal and idempotent.
+      case "broadcast-ad-gate": {
+        const firstHours = typeof msg.firstHours === "number" ? msg.firstHours : 6;
+        const intervalHours = typeof msg.intervalHours === "number" ? msg.intervalHours : 2;
+        this.setState({
+          broadcastAdGate: {
+            totalSeconds: typeof msg.totalSeconds === "number" ? msg.totalSeconds : 0,
+            firstHours,
+            intervalHours,
+          },
+          broadcastGateHours: { firstHours, intervalHours },
+        });
+        break;
+      }
+      // The picture comes back. Only ever the server's to say — the popup
+      // asks, and this is the answer, so a clear that was refused (an ad id
+      // that does not exist, a "pro" from somebody who is not) leaves the
+      // broadcast paused instead of quietly resuming on a client's say-so.
+      case "broadcast-ad-gate-cleared":
+        this.setState({ broadcastAdGate: null });
         break;
       case "ice-servers-changed":
         // The admin switched Cloudflare's TURN on or off — see
@@ -3468,6 +3528,28 @@ class SignalingClient {
     this.rawSend({ type: "tile-orientation", channel, ...orientation });
   }
 
+  /**
+   * The ad gate is done with (see lib/broadcastAdGate.ts).
+   *
+   * `partnerId` is the ad that was watched, and the server checks it; "pro"
+   * carries none, and the server re-reads the account instead. Either way the
+   * broadcast only actually resumes when "broadcast-ad-gate-cleared" comes
+   * back — nothing here changes the local state on its own.
+   */
+  clearBroadcastAdGate(reason: "ad" | "pro", partnerId?: string | null) {
+    this.rawSend({ type: "ad-gate-cleared", reason, partnerId: partnerId ?? null });
+  }
+
+  /** We had no ad to show them, so let the broadcast through. */
+  reportBroadcastAdGateNoAd() {
+    this.rawSend({ type: "ad-gate-no-ad" });
+  }
+
+  /** "Assinar Pro" pressed in the gate's popup — counted, nothing else. */
+  reportBroadcastAdGateProClick() {
+    this.rawSend({ type: "ad-gate-pro-click" });
+  }
+
   // Called by ChatPanel.tsx's own idle timer, not on every keystroke — see
   // its doc comment for when true/false actually get sent.
   setTyping(typing: boolean) {
@@ -3564,3 +3646,43 @@ class SignalingClient {
 }
 
 export const signalingClient = new SignalingClient();
+
+// --- a door for the console, in development only ---------------------------
+//
+// Some of what this app does is only reachable by the server deciding it has
+// happened. The ad gate pausing a broadcast is the clearest case: looking at
+// that popup otherwise means broadcasting for six hours, which is not a way
+// to check a margin.
+//
+// So this feeds the real message into the real handler — not a second code
+// path that renders something popup-shaped. Everything downstream (the tracks
+// going black, the room being told, the sound, the ✕) behaves exactly as it
+// does in production, which is the only reason it is worth having.
+//
+// Dead code in a production build: Next inlines `process.env.NODE_ENV`, so
+// the whole block folds away rather than shipping a way to fake server
+// messages to every visitor.
+if (process.env.NODE_ENV === "development" && typeof window !== "undefined") {
+  (window as unknown as { golive: unknown }).golive = {
+    signaling: signalingClient,
+    /**
+     * Opens the ad gate's popup as if the server had just paused us.
+     *
+     * The real pause also blanks what is going out and tells the room; this
+     * only does the half this browser owns, so the tiles other people see
+     * stay as they were. Start a share first if you want to watch the local
+     * preview go black too.
+     */
+    adGate(totalSeconds = 6 * 3600, firstHours = 6, intervalHours = 2) {
+      (signalingClient as unknown as {
+        handleMessage(msg: Record<string, unknown>): void;
+      }).handleMessage({ type: "broadcast-ad-gate", totalSeconds, firstHours, intervalHours });
+    },
+    /** Closes it the way a cleared gate does. */
+    clearAdGate() {
+      (signalingClient as unknown as {
+        handleMessage(msg: Record<string, unknown>): void;
+      }).handleMessage({ type: "broadcast-ad-gate-cleared" });
+    },
+  };
+}

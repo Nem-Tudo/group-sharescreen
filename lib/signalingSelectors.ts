@@ -26,6 +26,10 @@ export const selectVideoSources = (s: SignalingState) => s.videoSources;
 export const selectAlertTarget = (s: SignalingState) => s.alertTarget;
 export const selectSocialSeq = (s: SignalingState) => s.socialSeq;
 export const selectAdsEnabled = (s: SignalingState) => s.adsEnabled;
+// Our own broadcast paused for an ad (see lib/broadcastAdGate.ts). One object
+// that is null the overwhelming majority of the time, so a subscriber to it
+// re-renders essentially never.
+export const selectBroadcastAdGate = (s: SignalingState) => s.broadcastAdGate;
 export const selectDesktopUpdateSeq = (s: SignalingState) => s.desktopUpdateSeq;
 export const selectRecentDms = (s: SignalingState) => s.recentDms;
 export const selectDmSeq = (s: SignalingState) => s.dmSeq;
@@ -122,4 +126,4 @@ export const selectStreamViewer = pickFields(["deviceConflict", "joinError", "jo
 // notification and gift anywhere on the account re-rendered the entire room,
 // call included. Add a field here when the room starts reading one; the
 // type (Pick) makes a missing one a compile error.
-export const selectWatchRoom = pickFields(["account", "name", "music", "selfUserId", "peers", "status", "selfId", "roomMemberLimit", "nameError", "room", "videoSources", "roomOwnerId", "roomRemoval", "roomPermissions", "guestBroadcastLimit", "roomLocation", "roomDescription", "roomCategory", "roomAdmins", "permissionDenied", "roomTheme", "roomCreated", "joinError", "deviceConflict", "chatMessages", "bannedReason", "typingPeerIds", "selfDevice", "roomConverted", "permissionDeniedSeq", "myRoomPermissions", "joinErrorKind", "guestBroadcastLimitSeq", "chatBlockedMessage", "roomSilenced"]);
+export const selectWatchRoom = pickFields(["account", "name", "music", "selfUserId", "peers", "status", "selfId", "roomMemberLimit", "nameError", "room", "videoSources", "roomOwnerId", "roomRemoval", "roomPermissions", "guestBroadcastLimit", "roomLocation", "roomDescription", "roomCategory", "roomAdmins", "permissionDenied", "roomTheme", "roomCreated", "joinError", "deviceConflict", "chatMessages", "bannedReason", "typingPeerIds", "selfDevice", "roomConverted", "permissionDeniedSeq", "myRoomPermissions", "joinErrorKind", "guestBroadcastLimitSeq", "chatBlockedMessage", "roomSilenced", "broadcastAdGate"]);

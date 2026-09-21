@@ -117,6 +117,12 @@ const FEATURE_FLAGS: KnownFlagItem[] = [
     description: "Permite tirar uma aura de um grupo antes dos 3 dias mínimos que ela precisa ficar lá.",
   },
   {
+    flag: "BYPASS_AD_GATE",
+    label: "Isento de Pausa por Anúncio",
+    description:
+      "Transmite sem parar para assistir anúncio, por mais horas que acumule (ver a pausa por anúncio nas transmissões longas).",
+  },
+  {
     flag: "OFFICIAL_DISCORD_JOINED",
     label: "Discord Oficial",
     description: "Conta com participação confirmada no servidor oficial do Discord.",
