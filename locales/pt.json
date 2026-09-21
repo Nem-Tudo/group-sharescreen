@@ -4004,7 +4004,7 @@
   "broadcastAdGate.comesBackAsItWas": "Nada foi encerrado: a imagem volta exatamente como estava.",
   "broadcastAdGate.noAdAvailable": "Não temos nenhum anúncio pra te mostrar agora.",
   "broadcastAdGate.thanksResuming": "Valeu! Voltando com a transmissão...",
-  "broadcastAdGate.getProNoAds": "Assinar o Pro e nunca mais ver isso",
+  "broadcastAdGate.getProNoAds": "Adquirir o Pro e nunca mais ver isso",
   "admin.monetagPanel.gateTitle": "Pausa por anúncio nas transmissões longas",
   "admin.monetagPanel.gateDescription": "Quem não é Pro transmite as primeiras horas de graça; depois disso a transmissão pausa e pede um anúncio a cada intervalo. Vale o tempo total de transmissão da conta, somando todas as sessões. Zero em qualquer um dos dois desliga a pausa. Vale na hora, inclusive pra quem já está transmitindo.",
   "admin.monetagPanel.gateFirstHours": "Primeira pausa (horas)",
@@ -4015,5 +4015,7 @@
   "broadcastAdGate.noAdWaitDone": "Pronto, pode voltar!",
   "broadcastAdGate.backToBroadcast": "Voltar a transmitir",
   "broadcastAdGate.backToBroadcastIn": "Voltar a transmitir em {seconds}s",
-  "broadcastAdGate.forOnlyPrice": "Por apenas {price}"
+  "broadcastAdGate.forOnlyPrice": "Por apenas {price}",
+  "broadcastAdGate.playAd": "Assistir o anúncio",
+  "broadcastAdGate.pauseAd": "Pausar o anúncio"
 }

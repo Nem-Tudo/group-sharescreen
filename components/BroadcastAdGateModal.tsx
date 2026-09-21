@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { MdClose, MdPauseCircleOutline } from "react-icons/md";
+import { MdClose, MdPauseCircleOutline, MdPlayArrow, MdPause } from "react-icons/md";
 import { MicIcon, CheckIcon, VerifiedBadgeIcon } from "./icons";
 import { useT } from "@/lib/useI18n";
 import { useAuth } from "@/lib/AuthContext";
@@ -89,6 +89,10 @@ export function BroadcastAdGateModal({
   const [watched, setWatched] = useState(0);
   const [finished, setFinished] = useState(false);
   const [started, setStarted] = useState(false);
+  // Whether the ad is running right now. Its own state rather than something
+  // read off the element, because it is what the play/pause control draws
+  // itself from and the element does not tell React when it changes.
+  const [playing, setPlaying] = useState(false);
   // The no-ad wait (see NO_AD_WAIT_SECONDS). Counted down in wall-clock
   // seconds, deliberately without pausing when the tab is hidden: there is
   // nothing to watch, so there is nothing to miss by looking away, and a
@@ -202,6 +206,17 @@ export function BroadcastAdGateModal({
     signalingClient.clearBroadcastAdGate("ad", partnerId);
   }
 
+  function togglePlay() {
+    const video = videoRef.current;
+    if (!video) return;
+    // `void`: a play() rejected by the browser (an autoplay policy, a source
+    // that will not load) leaves the button showing "play", which is exactly
+    // what the person should see, and an unhandled rejection in the console
+    // helps nobody.
+    if (video.paused) void video.play().catch(() => {});
+    else video.pause();
+  }
+
   function handlePro() {
     trackAdGate(AD_GATE_EVENTS.proClick);
     signalingClient.reportBroadcastAdGateProClick();
@@ -284,30 +299,65 @@ export function BroadcastAdGateModal({
             </li>
           </ul>
 
-          <div className="mt-3 overflow-hidden rounded-xl border border-zinc-200 bg-black dark:border-zinc-800 sm:mt-4">
+          <div className="group mt-3 overflow-hidden rounded-xl border border-zinc-200 bg-black dark:border-zinc-800 sm:mt-4">
             {loading && (
               <div className="flex aspect-video items-center justify-center">
                 <div className="h-8 w-8 animate-spin rounded-full border-4 border-white/20 border-t-white/80" />
               </div>
             )}
             {!loading && partner?.rewardVideoUrl && (
-              <video
-                ref={videoRef}
-                src={partner.rewardVideoUrl}
-                autoPlay
-                playsInline
-                onPlay={() => {
-                  if (started) return;
-                  setStarted(true);
-                  trackAdGate(AD_GATE_EVENTS.adStart);
-                }}
-                onEnded={handleEnded}
-                // No `controls` while it is locked: there is nothing here to
-                // operate, and a seek bar that refuses to seek is a worse
-                // experience than no seek bar at all.
-                controls={finished}
-                className="aspect-video w-full bg-black"
-              />
+              <div className="relative">
+                {/* Deliberately no `autoPlay`. A video that starts by itself
+                    is one somebody has already stopped listening to, and on a
+                    phone it either fails the autoplay policy or blares out of
+                    a speaker in a room the person did not choose. Pressing
+                    play is also the moment the minute starts, which makes the
+                    cost something they opted into rather than something that
+                    began while they were reading. */}
+                <video
+                  ref={videoRef}
+                  src={partner.rewardVideoUrl}
+                  playsInline
+                  preload="metadata"
+                  onPlay={() => {
+                    setPlaying(true);
+                    if (started) return;
+                    setStarted(true);
+                    trackAdGate(AD_GATE_EVENTS.adStart);
+                  }}
+                  onPause={() => setPlaying(false)}
+                  onEnded={handleEnded}
+                  onClick={togglePlay}
+                  // No native `controls`: they come with a seek bar, and the
+                  // one thing this player may not offer is skipping ahead. So
+                  // the single control that is allowed — pause — is drawn
+                  // here instead, rather than shipping a scrub bar that snaps
+                  // back and looks broken.
+                  className="aspect-video w-full cursor-pointer bg-black"
+                />
+                {!playing && !finished && (
+                  <button
+                    type="button"
+                    onClick={togglePlay}
+                    aria-label={t("broadcastAdGate.playAd")}
+                    className="absolute inset-0 flex items-center justify-center bg-black/40 transition hover:bg-black/30"
+                  >
+                    <span className="flex h-16 w-16 items-center justify-center rounded-full bg-white/90 text-black shadow-lg">
+                      <MdPlayArrow className="h-9 w-9" />
+                    </span>
+                  </button>
+                )}
+                {playing && (
+                  <button
+                    type="button"
+                    onClick={togglePlay}
+                    aria-label={t("broadcastAdGate.pauseAd")}
+                    className="absolute bottom-2 left-2 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition hover:bg-black/80 focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+                  >
+                    <MdPause className="h-5 w-5" />
+                  </button>
+                )}
+              </div>
             )}
             {noAd && (
               <div className="flex aspect-video flex-col items-center justify-center gap-2 px-4 text-center sm:gap-3 sm:px-6">
@@ -331,16 +381,63 @@ export function BroadcastAdGateModal({
             )}
           </div>
 
-          {partner && !finished && (
-            <div className="mt-2 flex items-center justify-between gap-3">
-              <p className="min-w-0 truncate text-xs text-zinc-500 dark:text-zinc-400">
-                {partner.title}
-              </p>
-              {remaining !== null && !canSkip && (
-                <span className="shrink-0 rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium tabular-nums text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
-                  {formatClock(untilFree)}
-                </span>
+          {/* Whose ad this is. It used to be a truncated line of title and
+              nothing else, which is a strange thing to ask somebody to sit
+              through a minute of: the video says what is being advertised,
+              but not by whom, and the way to act on it was a button at the
+              far end of the popup next to an unrelated one. Name, blurb and
+              the advertiser's own button now sit together, which is both
+              fairer to the advertiser and more use to the reader. */}
+          {partner && (
+            <div className="mt-3 flex items-start gap-3">
+              {partner.imageUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={partner.imageUrl}
+                  alt=""
+                  className="h-11 w-11 shrink-0 rounded-lg object-cover"
+                />
               )}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="min-w-0 text-sm font-semibold text-zinc-900 dark:text-white">
+                    {partner.title}
+                  </p>
+                  {remaining !== null && !canSkip && !finished && (
+                    <span className="shrink-0 rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium tabular-nums text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
+                      {formatClock(untilFree)}
+                    </span>
+                  )}
+                </div>
+                {partner.description && (
+                  <p className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+                    {partner.description}
+                  </p>
+                )}
+                {partner.buttonUrl && (
+                  <a
+                    href={partner.buttonUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={handleAdClick}
+                    // The advertiser's own colours, the same ones their card
+                    // in the sidebar is painted with — a neutral popup-styled
+                    // button here would be a different button to the one they
+                    // designed.
+                    style={{
+                      backgroundColor: partner.buttonBackgroundColor || undefined,
+                      color: partner.buttonTextColor || undefined,
+                    }}
+                    className={`mt-2 inline-flex max-w-full items-center justify-center truncate rounded-lg px-3 py-1.5 text-xs font-semibold transition hover:opacity-90 ${
+                      partner.buttonBackgroundColor
+                        ? ""
+                        : "bg-zinc-900 text-white dark:bg-white dark:text-black"
+                    }`}
+                  >
+                    {partner.buttonLabel}
+                  </a>
+                )}
+              </div>
             </div>
           )}
 
@@ -378,20 +475,7 @@ export function BroadcastAdGateModal({
             </button>
           )}
 
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-            {partner?.buttonUrl ? (
-              <a
-                href={partner.buttonUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={handleAdClick}
-                className="truncate rounded-lg px-4 py-2 text-center text-[13px] font-medium text-zinc-600 transition hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900 sm:py-2.5 sm:text-sm"
-              >
-                {partner.buttonLabel}
-              </a>
-            ) : (
-              <span className="hidden sm:block" />
-            )}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
             <div className="flex flex-col items-stretch gap-1 sm:items-end">
               <button
                 type="button"

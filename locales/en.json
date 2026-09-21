@@ -4015,5 +4015,7 @@
   "broadcastAdGate.noAdWaitDone": "All set, you can go back!",
   "broadcastAdGate.backToBroadcast": "Back to broadcasting",
   "broadcastAdGate.backToBroadcastIn": "Back to broadcasting in {seconds}s",
-  "broadcastAdGate.forOnlyPrice": "For only {price}"
+  "broadcastAdGate.forOnlyPrice": "For only {price}",
+  "broadcastAdGate.playAd": "Play the ad",
+  "broadcastAdGate.pauseAd": "Pause the ad"
 }
