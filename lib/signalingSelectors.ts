@@ -22,6 +22,9 @@ export const selectAccount = (s: SignalingState) => s.account;
 export const selectRoom = (s: SignalingState) => s.room;
 export const selectPeers = (s: SignalingState) => s.peers;
 export const selectChatMessages = (s: SignalingState) => s.chatMessages;
+export const selectChatMessageCount = (s: SignalingState) => s.chatMessages.length;
+export const selectTypingPeerIds = (s: SignalingState) => s.typingPeerIds;
+export const selectMusic = (s: SignalingState) => s.music;
 export const selectVideoSources = (s: SignalingState) => s.videoSources;
 export const selectAlertTarget = (s: SignalingState) => s.alertTarget;
 export const selectSocialSeq = (s: SignalingState) => s.socialSeq;
@@ -121,9 +124,29 @@ export const selectStreamDashboard = pickFields(["account", "deviceConflict", "n
 // A stream's viewer page.
 export const selectStreamViewer = pickFields(["deviceConflict", "joinError", "joinErrorKind", "name", "peers", "room", "selfId", "videoSources"]);
 
+// What the room's music reads outside the bar itself: whether there is any,
+// and whether it is playing. Two primitives, so the room re-renders when music
+// starts, stops or pauses — not on every heartbeat that re-anchors its
+// position (see MusicBar's OWNER_HEARTBEAT_MS), which replaces the whole
+// record. The bar subscribes to the full record on its own (RoomMusicBar).
+export const selectMusicSummary = (s: SignalingState) => ({
+  hasMusic: s.music !== null,
+  musicPlaying: s.music?.playing ?? false,
+});
+
+// What useRoomSoundEffects reads, for the component that runs it.
+export const selectRoomSoundEffects = pickFields(["chatMessages", "name", "peers", "room", "selfId"]);
+
 // Everything a room (WatchRoom) reads — and nothing else. It used to take the
 // whole state, so every friend's presence change, private message, group
 // notification and gift anywhere on the account re-rendered the entire room,
 // call included. Add a field here when the room starts reading one; the
 // type (Pick) makes a missing one a compile error.
-export const selectWatchRoom = pickFields(["account", "name", "music", "selfUserId", "peers", "status", "selfId", "roomMemberLimit", "nameError", "room", "videoSources", "roomOwnerId", "roomRemoval", "roomPermissions", "guestBroadcastLimit", "roomLocation", "roomDescription", "roomCategory", "roomAdmins", "permissionDenied", "roomTheme", "roomCreated", "joinError", "deviceConflict", "chatMessages", "bannedReason", "typingPeerIds", "selfDevice", "roomConverted", "permissionDeniedSeq", "myRoomPermissions", "joinErrorKind", "guestBroadcastLimitSeq", "chatBlockedMessage", "roomSilenced", "broadcastAdGate"]);
+//
+// The chat, who is typing and the music record are deliberately *not* here.
+// Each changes many times a minute in a lively room — a message, a keystroke
+// toggling "digitando", a music heartbeat — and while they were, every one
+// re-rendered the entire room. They are read by the small components that
+// actually show them (RoomChat, ChatUnreadBadge, RoomMusicBar,
+// RoomSoundEffects in WatchRoom), and the room itself by selectMusicSummary.
+export const selectWatchRoom = pickFields(["account", "name", "selfUserId", "peers", "status", "selfId", "roomMemberLimit", "nameError", "room", "videoSources", "roomOwnerId", "roomRemoval", "roomPermissions", "guestBroadcastLimit", "roomLocation", "roomDescription", "roomCategory", "roomAdmins", "permissionDenied", "roomTheme", "roomCreated", "joinError", "deviceConflict", "bannedReason", "selfDevice", "roomConverted", "permissionDeniedSeq", "myRoomPermissions", "joinErrorKind", "guestBroadcastLimitSeq", "chatBlockedMessage", "roomSilenced", "broadcastAdGate"]);

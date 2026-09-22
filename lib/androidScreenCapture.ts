@@ -135,7 +135,23 @@ const AUDIO_BUFFER_SECONDS = 0.15;
 
 // The explicit ArrayBuffer parameter is load-bearing: a bare `Uint8Array`
 // widens to ArrayBufferLike, which a Blob will not take.
+//
+// Uint8Array.fromBase64 where the WebView has it: native and synchronous, so
+// the order of the audio chunks cannot change, and it replaces a per-byte JS
+// loop that ran on the UI thread for every screen frame (tens of KB, several
+// times a second) and every 20 ms of audio. Older WebViews keep the loop.
+const nativeFromBase64 = (
+  Uint8Array as unknown as { fromBase64?: (s: string) => Uint8Array<ArrayBuffer> }
+).fromBase64?.bind(Uint8Array);
+
 function decodeBase64(base64: string): Uint8Array<ArrayBuffer> {
+  if (nativeFromBase64) {
+    try {
+      return nativeFromBase64(base64);
+    } catch {
+      // Something it rejects that atob might still read; fall through.
+    }
+  }
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);

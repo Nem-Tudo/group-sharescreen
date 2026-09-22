@@ -109,6 +109,7 @@ const VideoTileView = memo(function VideoTileView({
   onDoubleClick,
   onRenderedSizeChange,
   onVisibilityChange,
+  reportUnmountAsHidden = false,
   detachWhenHidden = true,
   onFocus,
   onNativePip,
@@ -168,6 +169,11 @@ const VideoTileView = memo(function VideoTileView({
   // them altogether (see WatchRoom's tileVisibility). Omitted where nobody is
   // watching visibility.
   onVisibilityChange?: (visible: boolean) => void;
+  // Also tell onVisibilityChange "hidden" when this tile goes away altogether
+  // (hidden by the person, or hyperfocus on another tile). Off by default,
+  // because for a remote tile going away means the stream went away and
+  // there is nothing left to tell.
+  reportUnmountAsHidden?: boolean;
   // Whether to release the stream from the element while off screen. On by
   // default: an attached <video> keeps decoding every frame whether or not
   // anyone can see it, which in a room full of shares is the single largest
@@ -328,15 +334,6 @@ const VideoTileView = memo(function VideoTileView({
   const canZoom = !compact && orientationMode.active && (isFullscreen || isSpotlighted || isHyperfocused);
   const canClip = clippable && clipsMode.active && clipSupported();
   const canRecord = clippable && recordingMode.active && clipSupported();
-  useEffect(() => {
-    if (!canClip || !stream) return;
-    const buffer = new ClipBuffer(stream);
-    clipBufferRef.current = buffer;
-    return () => {
-      buffer.dispose();
-      if (clipBufferRef.current === buffer) clipBufferRef.current = null;
-    };
-  }, [canClip, stream]);
   // "Gravar": a recording from one click to the next, shown afterwards in a
   // modal to watch back and download (see RecordingModal).
   const recorderRef = useRef<TileRecorder | null>(null);
@@ -510,6 +507,24 @@ const VideoTileView = memo(function VideoTileView({
   // actually being watched.
   const visible = (onScreen && pageVisible) || isPiP || isFullscreen;
 
+  // The clip buffer runs only for a tile that is on screen. It is several
+  // MediaRecorders at once, re-encoding the stream (about 4 encoders and
+  // ~30 MB per tile), and it used to run for every clippable tile in the
+  // room, including the ones scrolled out of view. The page being hidden does
+  // *not* stop it, unlike the video above: the desktop app's clip shortcut is
+  // global, pressed from inside a game with this window minimised, and has to
+  // find the last 30 seconds there.
+  const clipBuffering = canClip && (onScreen || isPiP || isFullscreen);
+  useEffect(() => {
+    if (!clipBuffering || !stream) return;
+    const buffer = new ClipBuffer(stream);
+    clipBufferRef.current = buffer;
+    return () => {
+      buffer.dispose();
+      if (clipBufferRef.current === buffer) clipBufferRef.current = null;
+    };
+  }, [clipBuffering, stream]);
+
   // Attaching the stream to the element stays an effect: that genuinely is a
   // side effect on a DOM node.
   useEffect(() => {
@@ -538,6 +553,17 @@ const VideoTileView = memo(function VideoTileView({
   useEffect(() => {
     visibilityCallbackRef.current?.(visible);
   }, [visible]);
+  const reportUnmountRef = useRef(reportUnmountAsHidden);
+  useEffect(() => {
+    reportUnmountRef.current = reportUnmountAsHidden;
+  }, [reportUnmountAsHidden]);
+  useEffect(
+    () => () => {
+      // The latest callback on purpose: whatever the parent last handed in.
+      if (reportUnmountRef.current) visibilityCallbackRef.current?.(false);
+    },
+    []
+  );
 
   useGainedAudio(videoRef, stream, volume ?? internalVolume, isMuted);
 

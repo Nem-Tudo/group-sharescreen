@@ -56,6 +56,8 @@ import {
 } from "./mediaPreferences";
 import {
   BEST_TIER,
+  MAX_TIER_FPS,
+  WORST_TIER,
   capTier,
   tierForRenderedSize,
   type QualityTier,
@@ -108,6 +110,7 @@ import { translate } from "@/lib/i18n";
 import { getDesktopBridge } from "./desktop";
 import { trackFeatureEvent, useFeature } from "./features";
 import { GPU_SURVEY_FEATURE, noteGpuShareStarted } from "./gpuShareSurvey";
+import { setStreamPerfEnabled, STREAM_PERF_EVENTS, STREAM_PERF_FEATURE } from "./streamPerf";
 import {
   HIDDEN_WINDOWS_EVENTS,
   HIDDEN_WINDOWS_FEATURE,
@@ -312,9 +315,41 @@ const BITRATE_CEILING_KBPS: Record<ShareBitrate, number> = {
 // pixels at up to this frame rate" is exactly the question, and asking it in
 // one place keeps a dial from ever landing on a tier that does not exist
 // (720p at 60fps, say) and silently rounding somewhere surprising.
-function ceilingTierFor(resolution: ShareResolution, fps: ShareFps): QualityTier {
+//
+// The fps goes in rounded *up* to a rate the ladder has at every resolution
+// (30 and above). Passed in raw, 24 and 15 matched only 576p15 — the one tier
+// that low — so picking 24 fps at 1080p served everyone 1024x576 at 15 fps.
+// The dial's own rate is still what gets sent: the capture is asked for it
+// (see captureConstraints), and an encoder never produces more frames than
+// its source hands it.
+export function ceilingTierFor(resolution: ShareResolution, fps: number): QualityTier {
   const dims = RESOLUTION_DIMENSIONS[resolution];
-  return tierForRenderedSize(dims.width, dims.height, 1, undefined, fps);
+  return tierForRenderedSize(dims.width, dims.height, 1, undefined, Math.max(30, fps));
+}
+
+// What a capture asks for: the picked resolution and fps, the fps held to the
+// highest rate any tier sends (MAX_TIER_FPS). Above that the extra frames
+// were captured, copied and scaled, then dropped by every sender.
+//
+// `bounded` adds a `max` to the frame rate, for getDisplayMedia: with ideal
+// alone a screen capture on a high-refresh monitor may run faster than asked,
+// and every sender then pays for frames it throws away. Only the rate — the
+// dimensions keep ideal alone, so a portrait window or an ultrawide screen is
+// scaled exactly as before. Not for cameras at all: a hard ceiling a webcam
+// cannot meet is an OverconstrainedError, and a camera that fails to open is
+// far worse than one running a little over.
+export function captureConstraints(
+  resolution: ShareResolution,
+  fps: number,
+  bounded: boolean
+): MediaTrackConstraints {
+  const dims = RESOLUTION_DIMENSIONS[resolution];
+  const frameRate = Math.min(fps, MAX_TIER_FPS);
+  return {
+    width: { ideal: dims.width },
+    height: { ideal: dims.height },
+    frameRate: bounded ? { ideal: frameRate, max: frameRate } : { ideal: frameRate },
+  };
 }
 
 // The peer-count throttle tables that used to live here are gone on purpose.
@@ -562,14 +597,9 @@ function useExtraScreenChannel(
     slot,
     room,
     async () => {
-      const dims = RESOLUTION_DIMENSIONS[resolutionRef.current];
       try {
         return await navigator.mediaDevices.getDisplayMedia({
-          video: {
-            width: { ideal: dims.width },
-            height: { ideal: dims.height },
-            frameRate: { ideal: fpsRef.current },
-          },
+          video: captureConstraints(resolutionRef.current, fpsRef.current, true),
           audio: false,
         });
       } catch (err) {
@@ -698,6 +728,7 @@ interface ShareStats {
   seconds: number;
   samples: number;
   cpuSamples: number;
+  sampling: boolean;
   timer: ReturnType<typeof setInterval>;
   last: { framesSent: number; at: number } | null;
 }
@@ -720,7 +751,16 @@ function startShareStats(quality: QualityPreset | null): ShareStats {
     samples: 0,
     cpuSamples: 0,
     last: null,
-    timer: setInterval(() => void sampleShare(stats), SHARE_SAMPLE_MS),
+    sampling: false,
+    timer: setInterval(() => {
+      // One sample at a time; see MediaStatsPump for what overlapping reads
+      // of the same counters do to the differences taken between them.
+      if (stats.sampling) return;
+      stats.sampling = true;
+      void sampleShare(stats).finally(() => {
+        stats.sampling = false;
+      });
+    }, SHARE_SAMPLE_MS),
   };
   return stats;
 }
@@ -1135,12 +1175,47 @@ function useBroadcastChannel(
   // The tier one peer should actually be served at: their size-based request
   // capped by our ceiling, or the ceiling flat out when the broadcaster has
   // turned per-viewer sizing off.
-  const tierForPeer = useCallback((peerId: string): QualityTier => {
+  //
+  // Then capped once more by the topology planner's tier for them, when it
+  // has one (see applyDirectCaps): the planner is the part that knows the
+  // whole room does not fit our uplink or our encoder.
+  //
+  // The planner itself is fed wantedTierForPeer, without its own cap: fed
+  // the capped tiers, it would see a room that now fits, lift the caps, see
+  // it overflow again, and flap every planning pass.
+  const directTierCaps = useRef<Map<string, QualityTier>>(new Map());
+  const wantedTierForPeer = useCallback((peerId: string): QualityTier => {
     const ceiling = qualityCeilingRef.current;
     if (!honorRequestsRef.current) return ceiling;
     const requested = requestedTiers.current.get(peerId);
     return requested ? capTier(requested, ceiling) : ceiling;
   }, []);
+  const tierForPeer = useCallback(
+    (peerId: string): QualityTier => {
+      const tier = wantedTierForPeer(peerId);
+      const planned = directTierCaps.current.get(peerId);
+      return planned ? capTier(tier, planned) : tier;
+    },
+    [wantedTierForPeer]
+  );
+
+  // The planner's tiers for the viewers we serve ourselves (experiment
+  // "stream-perf", see lib/streamPerf). An empty map lifts every cap — which
+  // is also what happens whenever the room fits and there is no plan at all.
+  // Re-tiers only the controllers whose answer actually moved; setTier is a
+  // no-op for the rest.
+  const applyDirectCaps = useCallback(
+    (caps: Map<string, QualityTier>) => {
+      const previous = directTierCaps.current;
+      if (caps.size === 0 && previous.size === 0) return;
+      directTierCaps.current = caps;
+      for (const peerId of sendPCs.current.keys()) {
+        if (previous.get(peerId) === caps.get(peerId)) continue;
+        qualityRegistry.current.get(peerId)?.setTier(tierForPeer(peerId));
+      }
+    },
+    [tierForPeer]
+  );
 
   // Who this share actually has to serve, and at what tier — each one's
   // request already capped by our ceiling, and every peer who is watching,
@@ -1169,6 +1244,21 @@ function useBroadcastChannel(
   // relays, which is right for the same reason: forwarding a stream requires
   // receiving it, and they are not.
   const getRequestedTiers = useCallback(() => {
+    const served = new Map<string, QualityTier>();
+    for (const peer of signalingClient.state.peers) {
+      if (peer.role === "moderator") continue;
+      if (viewerPausedPeers.current.has(peer.id)) continue;
+      served.set(peer.id, wantedTierForPeer(peer.id));
+    }
+    return served;
+  }, [wantedTierForPeer]);
+
+  // The same people at what is actually encoded for them — the planner's caps
+  // applied. For the encode-load estimate, which calibrates the encode budget
+  // against observed CPU pressure: charged the uncapped demand, a capped share
+  // running comfortably would read as "this much load, no pressure", inflate
+  // the budget, and talk the planner out of the very caps that made it fit.
+  const getServedTiers = useCallback(() => {
     const served = new Map<string, QualityTier>();
     for (const peer of signalingClient.state.peers) {
       if (peer.role === "moderator") continue;
@@ -1438,7 +1528,7 @@ function useBroadcastChannel(
           const transceivers = pc.getTransceivers();
           const transceiver = transceivers.find((t) => t.sender === sender);
           const mode = degradationModeRef.current;
-          if (transceiver) applyVideoCodecPreferences(transceiver, mode);
+          if (transceiver) applyVideoCodecPreferences(transceiver, mode, true);
 
           // Serve this peer at the lower of what they asked for and the
           // ceiling we picked. Before their first request arrives we assume
@@ -1799,7 +1889,8 @@ function useBroadcastChannel(
     const wanted = {
       width: videoQuality.width,
       height: videoQuality.height,
-      frameRate: videoQuality.frameRate,
+      // Held to what any tier sends, as at start (see captureConstraints).
+      frameRate: Math.min(videoQuality.frameRate, MAX_TIER_FPS),
     };
     const applied = appliedConstraints.current;
     const dimensionsChanged =
@@ -2372,6 +2463,10 @@ function useBroadcastChannel(
         // immediately before scheduling the next retry, and resetting it there
         // would flatten the backoff back to a constant interval.
         sendRetryAttempts.current.delete(from);
+        // Their capacity report describes a link that is gone. Nothing else
+        // ever deleted from this map, so a long share in a busy room held one
+        // entry for everyone who had ever passed through.
+        peerCapacities.current.delete(from);
         return;
       }
       if (data.channel !== channel) return;
@@ -2779,6 +2874,7 @@ function useBroadcastChannel(
       if (resumingPeersRef.current.has(peerId)) clearResuming(peerId);
       viewerPausedPeers.current.delete(peerId);
       sendRetryAttempts.current.delete(peerId);
+      peerCapacities.current.delete(peerId);
       relayedAway.current.delete(peerId);
       activeRelays.current.delete(peerId);
       // Someone who has left the room and comes back is a fresh viewer, not
@@ -2887,8 +2983,16 @@ function useBroadcastChannel(
     const pausedPeers = viewerPausedPeers.current;
     const recoveryTimers = recvRecoveryTimers.current;
     const watchdogs = resumeWatchdogs.current;
+    const relayLinks = relays.current;
     return () => {
       stop();
+      // The recvPCs below are closed directly, bypassing closeRecvPC — which
+      // is the only place a relay we were running for someone got released.
+      // So leaving the room left every RelayLink standing: its children's
+      // sendPCs open and re-encoding, their controllers still registered with
+      // the stats pump, and its 1 s stall timer ticking, all for a room we
+      // were no longer in.
+      relayLinks.clear();
       // Closing the pcs directly rather than through closeRecvPC means these
       // are not cleared along the way. They are harmless if they do fire (each
       // checks that its pc is still the current one, which it will not be), but
@@ -2931,8 +3035,10 @@ function useBroadcastChannel(
     // and surfacing them as state would re-render every tile in the room each
     // time a single viewer resized its window.
     getRequestedTiers,
+    getServedTiers,
     getPeerCapacities,
     applyRelayPlan,
+    applyDirectCaps,
   };
 }
 
@@ -3403,7 +3509,9 @@ export function useRoomMedia(room: string) {
     const options: NativeVideoOptions = {
       maxWidth: dims.width,
       maxHeight: dims.height,
-      fps: shareFpsRef.current,
+      // Held to what any tier sends, like every other capture (see
+      // captureConstraints): the helper encodes every frame it captures.
+      fps: Math.min(shareFpsRef.current, MAX_TIER_FPS),
       bitrateKbps: BITRATE_CEILING_KBPS[shareBitrateRef.current],
       captureMethod: nativeVideoMethodRef.current,
     };
@@ -3455,12 +3563,8 @@ export function useRoomMedia(room: string) {
       // peerQualityController), so capturing small would only put a hard
       // ceiling on the one or two people actually watching fullscreen while
       // saving nothing for the many watching in a grid.
-      const dims = RESOLUTION_DIMENSIONS[shareResolutionRef.current];
-      const videoConstraints: MediaTrackConstraints = {
-        width: { ideal: dims.width },
-        height: { ideal: dims.height },
-        frameRate: { ideal: shareFpsRef.current },
-      };
+      const videoConstraints = captureConstraints(shareResolutionRef.current, shareFpsRef.current, false);
+      const displayConstraints = captureConstraints(shareResolutionRef.current, shareFpsRef.current, true);
       if (source === "camera") {
         return captureCamera(videoConstraints, cameraDeviceIdRef.current, cameraFacingRef.current);
       }
@@ -3475,6 +3579,7 @@ export function useRoomMedia(room: string) {
         // share, and leaving the previous one's up while a new share starts
         // would be saying something untrue about the share in front of you.
         setSystemAudioUnavailable(null);
+        const dims = RESOLUTION_DIMENSIONS[shareResolutionRef.current];
         return captureAndroidScreen({
           width: dims.width,
           height: dims.height,
@@ -3519,7 +3624,7 @@ export function useRoomMedia(room: string) {
       const activationLost = !hasUserActivation();
       const capture = navigator.mediaDevices
         .getDisplayMedia({
-          video: videoConstraints,
+          video: displayConstraints,
           audio: excluded ? false : audioConstraints,
         })
         .catch((err) => {
@@ -3555,7 +3660,7 @@ export function useRoomMedia(room: string) {
               await getDesktopBridge()?.useSavedShareSource?.();
               try {
                 return await navigator.mediaDevices.getDisplayMedia({
-                  video: videoConstraints,
+                  video: displayConstraints,
                   audio: false,
                 });
               } catch (retryErr) {
@@ -3647,13 +3752,8 @@ export function useRoomMedia(room: string) {
       // peerQualityController), so capturing small would only put a hard
       // ceiling on the one or two people actually watching fullscreen while
       // saving nothing for the many watching in a grid.
-      const dims = RESOLUTION_DIMENSIONS[shareResolutionRef.current];
       return captureCamera(
-        {
-          width: { ideal: dims.width },
-          height: { ideal: dims.height },
-          frameRate: { ideal: shareFpsRef.current },
-        },
+        captureConstraints(shareResolutionRef.current, shareFpsRef.current, false),
         cameraDeviceIdRef.current,
         cameraFacingRef.current
       );
@@ -3738,12 +3838,7 @@ export function useRoomMedia(room: string) {
       if (!mainTrack) throw new ShareStartError(t("useRoomMedia.dualCameraNeedsCamera"));
       const mainFacing = mainTrack.getSettings().facingMode ?? cameraFacingRef.current;
       const other: CameraFacing = mainFacing === "environment" ? "user" : "environment";
-      const dims = RESOLUTION_DIMENSIONS[shareResolutionRef.current];
-      const video: MediaTrackConstraints = {
-        width: { ideal: dims.width },
-        height: { ideal: dims.height },
-        frameRate: { ideal: shareFpsRef.current },
-      };
+      const video = captureConstraints(shareResolutionRef.current, shareFpsRef.current, false);
       // What went wrong, as the browser said it, so the message tells a real
       // limit apart from something fixable — and so the numbers do too.
       // Every path into this is the device itself saying no (a permission
@@ -4142,7 +4237,7 @@ export function useRoomMedia(room: string) {
   // revised *down* under CPU pressure — only up, 12% at a time, whenever
   // pressure was low. The planner ended up believing in a machine far stronger
   // than the real one and stopped degrading when it should have.
-  const getScreenTiers = screen.getRequestedTiers;
+  const getScreenTiers = screen.getServedTiers;
   const getCameraTiers = camera.getRequestedTiers;
   // Every live slot's tiers, since each is a real encode of its own.
   const getFileTiers = useCallback(
@@ -4201,6 +4296,15 @@ export function useRoomMedia(room: string) {
     fileActive,
   ]);
 
+  // Experiment "stream-perf" (see lib/streamPerf). An exposure only once a
+  // screen share is running, which is the only time it changes anything.
+  const streamPerf = useFeature(STREAM_PERF_FEATURE, { track: screen.active });
+  useEffect(() => {
+    setStreamPerfEnabled(streamPerf.enabled);
+  }, [streamPerf.enabled]);
+  // One event per stretch of downgrading, not one per planning pass.
+  const directDowngradeCounted = useRef(false);
+
   const topology = useMeshTopology(
     sharingAnything,
     selfRef,
@@ -4214,10 +4318,34 @@ export function useRoomMedia(room: string) {
   // which tears down any relays that were running and returns everyone to
   // being served directly.
   const applyRelayPlan = screen.applyRelayPlan;
+  const applyDirectCaps = screen.applyDirectCaps;
   useEffect(() => {
+    const selfId = signalingClient.state.selfId;
+    // The plan's first hop: the people we serve ourselves, at the tier the
+    // planner worked out fits (its globalDowngrade already applied). Only
+    // under experiment "stream-perf"; otherwise an empty map, i.e. every
+    // direct viewer at their full tier, as before.
+    const caps = new Map<string, QualityTier>();
+    if (streamPerf.enabled) {
+      for (const edge of topology.plan?.edges ?? []) {
+        if (edge.depth === 1) caps.set(edge.to, edge.tier);
+      }
+      // Whoever the plan could not fit even at the bottom rung is still
+      // served by us (the peer-list loop does not know about plans) — at the
+      // bottom rung, rather than at the full tier that did not fit.
+      for (const id of topology.plan?.unserved ?? []) caps.set(id, WORST_TIER);
+    }
+    applyDirectCaps(caps);
+    const downgrade = caps.size > 0 ? (topology.plan?.globalDowngrade ?? 0) : 0;
+    if (downgrade > 0 && !directDowngradeCounted.current) {
+      directDowngradeCounted.current = true;
+      trackFeatureEvent(STREAM_PERF_EVENTS.directDowngrade, { value: downgrade });
+    } else if (downgrade === 0) {
+      directDowngradeCounted.current = false;
+    }
+
     if (!RELAY_ENABLED) return;
     const assignments = new Map<string, RelayChild[]>();
-    const selfId = signalingClient.state.selfId;
     for (const edge of topology.plan?.edges ?? []) {
       if (edge.depth <= 1 || edge.from === selfId) continue;
       const list = assignments.get(edge.from) ?? [];
@@ -4225,7 +4353,20 @@ export function useRoomMedia(room: string) {
       assignments.set(edge.from, list);
     }
     applyRelayPlan(assignments);
-  }, [topology.plan, applyRelayPlan]);
+  }, [topology.plan, applyRelayPlan, applyDirectCaps, streamPerf.enabled]);
+
+  // "Qualidade reduzida para caber na sua conexão" is only true where the
+  // reduction is carried out. Outside the experiment a plain-mesh downgrade
+  // is computed and then applied to nobody, so the notice would claim
+  // something that is not happening; it is dropped there. A cascade's notice
+  // (depth > 1) is about relays, which do happen, and stays.
+  const shownTopology = useMemo(
+    () =>
+      streamPerf.enabled || !topology.plan || topology.plan.depth > 1 || topology.reason === null
+        ? topology
+        : { ...topology, reason: null },
+    [topology, streamPerf.enabled]
+  );
 
   // Mirrors noiseSuppressionOn below without going stale inside the capture
   // closure, which useBroadcastChannel only ever calls once per mic start
@@ -4510,7 +4651,7 @@ export function useRoomMedia(room: string) {
     // Live telemetry, for the share panel: measured uplink, measured content
     // cost, and whether the room currently needs anyone to relay.
     meshCapacity: capacity,
-    meshTopology: topology,
+    meshTopology: shownTopology,
 
     forceRelayIce,
     forceRelayAllowed,

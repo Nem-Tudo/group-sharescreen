@@ -11,6 +11,7 @@ import {
 } from "./partner";
 import { trackPartnerImpression, trackPartnerSessionView, usePartnerExperiment } from "./partnerExperiment";
 import { usePartnerCreative } from "./partnerSchedule";
+import { isPageHidden, onPageHiddenChange } from "./pageHidden";
 
 const ROTATE_INTERVAL_MS = 3 * 60 * 1000;
 
@@ -85,7 +86,7 @@ export function usePartnerAd({ visible = true }: { visible?: boolean } = {}) {
   useEffect(() => {
     const controller = new AbortController();
     const timer = setInterval(() => {
-      if (document.visibilityState !== "visible") return;
+      if (isPageHidden()) return;
       if (!visibleRef.current) {
         pendingRotationRef.current = true;
         return;
@@ -101,7 +102,7 @@ export function usePartnerAd({ visible = true }: { visible?: boolean } = {}) {
   // The deferred tick, paid the moment the card gets its square back.
   useEffect(() => {
     if (!visible || !pendingRotationRef.current) return;
-    if (document.visibilityState !== "visible") return;
+    if (isPageHidden()) return;
     pendingRotationRef.current = false;
     const controller = new AbortController();
     rotate(controller.signal);
@@ -137,7 +138,7 @@ export function usePartnerAd({ visible = true }: { visible?: boolean } = {}) {
     const id = serve?.id;
     if (!serve || !id) return;
     function maybeReport() {
-      if (document.visibilityState !== "visible") return;
+      if (isPageHidden()) return;
       // Nothing is owed for an ad the slot is not currently showing. Not a
       // lost count either: `visible` is a dependency, so this effect runs
       // again when the card comes back and reports then — the dedupe below is
@@ -155,8 +156,7 @@ export function usePartnerAd({ visible = true }: { visible?: boolean } = {}) {
       trackPartnerImpression();
     }
     maybeReport();
-    document.addEventListener("visibilitychange", maybeReport);
-    return () => document.removeEventListener("visibilitychange", maybeReport);
+    return onPageHiddenChange(maybeReport);
   }, [partner, visible]);
 
   // The ad as the clock has it: an ad with dayparts (see lib/partnerSchedule)

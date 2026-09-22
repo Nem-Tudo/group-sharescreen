@@ -7,6 +7,7 @@ import { trackEvent } from "@/lib/analytics";
 import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
 import { selectPartnerPush } from "@/lib/signalingSelectors";
 import { signalingClient } from "@/lib/signalingClient";
+import { isPageHidden, onPageHiddenChange } from "@/lib/pageHidden";
 import { ArrowLeftIcon, ChartIcon, ChevronUpIcon } from "@/components/icons";
 import { BsCoin } from "react-icons/bs";
 import { CUSTOMIZER_STARTING_POINT, PartnerAdCustomizer } from "@/components/PartnerAdCustomizer";
@@ -285,7 +286,7 @@ export function PartnerCard({
       // A hidden tab has nobody to show an ad to. Rotating there would burn
       // a serve — and, once the tab came back, an impression — on a slot
       // nobody was looking at.
-      if (document.visibilityState !== "visible") return;
+      if (isPageHidden()) return;
       fetchPartner(controller.signal, currentIdRef.current)
         .then(applyServedPartner)
         .catch(() => {
@@ -362,7 +363,7 @@ export function PartnerCard({
     const id = serve?.id;
     if (!serve || !id) return;
     function maybeReport() {
-      if (document.visibilityState !== "visible") return;
+      if (isPageHidden()) return;
       if (!reportedSessionIds.current.has(id!)) {
         reportedSessionIds.current.add(id!);
         signalingClient.reportPartnerSessionView(id!);
@@ -372,8 +373,7 @@ export function PartnerCard({
       signalingClient.reportPartnerView(id!);
     }
     maybeReport();
-    document.addEventListener("visibilitychange", maybeReport);
-    return () => document.removeEventListener("visibilitychange", maybeReport);
+    return onPageHiddenChange(maybeReport);
   }, [isControlled, servedPartner]);
 
   // Badge on the reward button — the ad carries no duration field, so it's

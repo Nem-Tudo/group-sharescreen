@@ -242,6 +242,7 @@ export class NativeVideoSource {
   private readonly preview: Preview;
   private readonly unsubscribe: () => void;
   private readonly bitrateTimer: ReturnType<typeof setInterval>;
+  private adjusting = false;
   private ceilingKbps: number;
   private currentKbps: number;
   private smoothedKbps = 0;
@@ -262,7 +263,15 @@ export class NativeVideoSource {
       (meta, data) => this.onFrame(meta, data),
       (reason) => this.onEnded(reason)
     );
-    this.bitrateTimer = setInterval(() => void this.adjustBitrate(), BITRATE_INTERVAL_MS);
+    this.bitrateTimer = setInterval(() => {
+      // One pass at a time: getStats on a loaded machine can outlast the
+      // interval, and two passes would read the same counters.
+      if (this.adjusting) return;
+      this.adjusting = true;
+      void this.adjustBitrate().finally(() => {
+        this.adjusting = false;
+      });
+    }, BITRATE_INTERVAL_MS);
     // The share's teardown stops every track in its stream without knowing
     // where they came from (see stop() in useRoomMedia's useBroadcastChannel);
     // this is what makes that enough to end the helper too.
@@ -335,6 +344,11 @@ export class NativeVideoSource {
     for (const sink of this.sinks) sink.close();
     this.sinks.clear();
     this.preview.close();
+  }
+
+  /** Whether our own preview of this share is on screen. See Preview.setActive. */
+  setPreviewActive(active: boolean) {
+    this.preview.setActive(active);
   }
 
   private onFrame(_meta: NativeFrameMeta, raw: Uint8Array) {
@@ -660,6 +674,7 @@ class Preview {
   private waitingForKey = true;
   private writing = false;
   private ended = false;
+  private active = true;
 
   constructor(
     track: TrackGenerator,
@@ -669,8 +684,28 @@ class Preview {
     this.writer = track.writable.getWriter();
   }
 
+  /**
+   * Whether anybody can see the preview. While nobody can, nothing is
+   * decoded: the viewers are fed the helper's encoded frames directly (see
+   * the sinks), so this decode exists only for our own tile — and it ran at
+   * full resolution for the whole share, including the usual case of a
+   * streamer playing with this window minimised. The track keeps its last
+   * picture meanwhile; coming back asks the helper for an IDR, and the
+   * preview moves again as soon as it lands.
+   */
+  setActive(active: boolean) {
+    if (this.ended || this.active === active) return;
+    this.active = active;
+    if (active) {
+      this.waitingForKey = true;
+      this.requestKey();
+    } else {
+      this.closeDecoder();
+    }
+  }
+
   push(frame: NativeFrame) {
-    if (this.ended) return;
+    if (this.ended || !this.active) return;
     if (this.waitingForKey) {
       if (!frame.key) return;
       if (!this.configure()) return;

@@ -1,5 +1,6 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
 import { getDesktopBridge } from "./desktop";
 
 // Whether nobody can see this page at all — the tab in the background, the
@@ -63,4 +64,9 @@ export function onPageHiddenChange(listener: () => void): () => void {
   return () => {
     listeners.delete(listener);
   };
+}
+
+/** isPageHidden as React state, for a component that should rest while unseen. */
+export function usePageHidden(): boolean {
+  return useSyncExternalStore(onPageHiddenChange, isPageHidden, () => false);
 }

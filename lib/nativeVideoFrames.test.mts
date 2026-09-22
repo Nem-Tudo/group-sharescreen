@@ -60,6 +60,25 @@ test("several frames in one chunk", () => {
   assert.deepEqual(reader.push(record([3]).subarray(10)).map((f) => [...f.data]), [[3]]);
 });
 
+test("a large frame over uneven chunks is whole and owns its bytes", () => {
+  const payload = Array.from({ length: 5000 }, (_, i) => i % 251);
+  const stream = new Uint8Array([...record(payload, { key: true }), ...record([9, 8, 7])]);
+  const reader = new NativeFrameReader();
+  const out = [];
+  const chunks: Uint8Array[] = [];
+  for (let at = 0, size = 1; at < stream.length; at += size, size = (size * 7) % 997 || 13) {
+    const chunk = stream.slice(at, at + size);
+    chunks.push(chunk);
+    out.push(...reader.push(chunk));
+  }
+  // The pipe's buffers are not ours to keep: scribbling over them afterwards
+  // must not reach a frame already handed out.
+  for (const chunk of chunks) chunk.fill(0);
+  assert.equal(out.length, 2);
+  assert.deepEqual([...out[0].data], payload);
+  assert.deepEqual([...out[1].data], [9, 8, 7]);
+});
+
 test("a stream out of step is refused rather than misread", () => {
   const reader = new NativeFrameReader();
   const bad = record([1]);

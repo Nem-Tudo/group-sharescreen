@@ -25,6 +25,7 @@ import { signalingClient, type SharedFile } from "@/lib/signalingClient";
 import { formatMusicTime } from "@/lib/musicSource";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
+import { usePageHidden } from "@/lib/pageHidden";
 
 // The transport for a local file being played into the room, drawn inside its
 // own tile (see VideoTile's `transport` slot).
@@ -156,10 +157,18 @@ export function RemoteMediaControls({
   // reflected on the next render without an effect having to copy it into
   // state.
   const [now, setNow] = useState(() => Date.now());
+  // Only while the readout can move and be seen. It ticked twice a second for
+  // as long as a file was shared, paused or not, and through a minimised
+  // desktop window — a re-render of the whole transport each time for a bar
+  // standing still or on nobody's screen. Picking back up corrects the bar on
+  // the first tick, half a second at most.
+  const pageHidden = usePageHidden();
+  const ticking = file.playing && !pageHidden;
   useEffect(() => {
+    if (!ticking) return;
     const timer = setInterval(() => setNow(Date.now()), REMOTE_TICK_MS);
     return () => clearInterval(timer);
-  }, []);
+  }, [ticking]);
   const position = localFilePosition(file, now);
 
   function send(request: LocalMediaAction) {

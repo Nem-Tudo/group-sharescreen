@@ -1065,6 +1065,21 @@ function createWindow(initialUrl: string = APP_URL) {
     if (/^https?:$/.test(safeProtocol(url))) void shell.openExternal(url);
   });
 
+  // The ring is the page's to end (callRinging with null), and a page that
+  // reloads, navigates away for real or crashes mid-ring never sends that:
+  // the always-on-top call window stayed up with its animation running and
+  // the taskbar kept flashing, for a call no page knew about any more. A
+  // same-document navigation is the site's own routing, where the page lives
+  // on and still owns the ring. If the call is somehow still ringing, the
+  // page that loads next says so again.
+  mainWindow.webContents.on("did-start-navigation", (details) => {
+    if (!details.isMainFrame || details.isSameDocument) return;
+    if (ringingCall) setCallRinging(null);
+  });
+  mainWindow.webContents.on("render-process-gone", () => {
+    if (ringingCall) setCallRinging(null);
+  });
+
   void mainWindow.loadURL(initialUrl);
 }
 
@@ -1352,12 +1367,41 @@ const TOAST_HEIGHT = 112;
 // Off the screen edge and clear of the taskbar, where system notifications sit.
 const TOAST_MARGIN = 8;
 
+// How long a finished notification's window is kept, hidden, for the next
+// one. Each window is a whole renderer process, and in an active chat a new
+// one was spawned — and a transparent always-on-top surface handed to the
+// compositor — every few seconds. Kept for good, though, it would hold that
+// process's memory for the rest of the session, so it goes once things are
+// quiet.
+const TOAST_IDLE_CLOSE_MS = 60_000;
+let toastIdleTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearToastIdleTimer() {
+  if (!toastIdleTimer) return;
+  clearTimeout(toastIdleTimer);
+  toastIdleTimer = null;
+}
+
 function closeToastWindow() {
   currentToast = null;
+  clearToastIdleTimer();
   if (!toastWindow) return;
   const window = toastWindow;
   toastWindow = null;
   if (!window.isDestroyed()) window.close();
+}
+
+/** Done with this notification: hide the window, and keep it for a while. */
+function hideToastWindow() {
+  currentToast = null;
+  const window = toastWindow;
+  if (!window || window.isDestroyed()) return;
+  window.hide();
+  clearToastIdleTimer();
+  toastIdleTimer = setTimeout(() => {
+    toastIdleTimer = null;
+    if (toastWindow === window && !window.isVisible()) closeToastWindow();
+  }, TOAST_IDLE_CLOSE_MS);
 }
 
 /**
@@ -1383,7 +1427,15 @@ function placeInCorner(window: BrowserWindow) {
 function showToast(toast: ToastInfo) {
   currentToast = toast;
   if (toastWindow && !toastWindow.isDestroyed()) {
-    toastWindow.webContents.send(IPC.toastUpdate, { toast, logo: overlayLogo() });
+    clearToastIdleTimer();
+    if (toastWindow.isVisible()) {
+      toastWindow.webContents.send(IPC.toastUpdate, { toast, logo: overlayLogo() });
+      return;
+    }
+    // Kept from an earlier one: shown again as a fresh card, entrance and all.
+    placeInCorner(toastWindow);
+    toastWindow.showInactive();
+    toastWindow.webContents.send(IPC.toastUpdate, { toast, logo: overlayLogo(), fresh: true });
     return;
   }
 
@@ -1915,7 +1967,7 @@ if (!gotLock) {
       if (!toastWindow || event.sender !== toastWindow.webContents) return;
       const action = readToastAction(raw);
       if (!action || !currentToast || action.id !== currentToast.id) return;
-      closeToastWindow();
+      hideToastWindow();
       if (action.action !== "click" || !mainWindow) return;
       // The app comes up first, so whatever the page opens for this click
       // lands on a window somebody can see.

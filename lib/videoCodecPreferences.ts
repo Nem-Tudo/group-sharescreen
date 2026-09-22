@@ -4,6 +4,8 @@
 // useRoomMedia.ts, and a plain function living in useRoomMedia.ts would have
 // made the relay's import of it circular.
 import type { DegradationMode } from "./peerQualityController";
+import { shouldAvoidSoftwareVp9, STREAM_PERF_EVENTS } from "./streamPerf";
+import { trackFeatureEvent } from "./features";
 
 // Codec preference. VP9 first for text-heavy screen content (its screen
 // content mode is what keeps small text legible at low bitrate). H264 first
@@ -40,12 +42,28 @@ export function videoCodecOrder(mode: DegradationMode): VideoCodecOrder {
   return mode === "text" ? "text" : "motion";
 }
 
-export function applyVideoCodecPreferences(transceiver: RTCRtpTransceiver, mode: DegradationMode) {
+// Counted once per page: the event says "this broadcaster's text profile ran
+// on H264 because VP9 was software", not how many connections that took.
+let codecFallbackCounted = false;
+
+// `ownShare`: a broadcaster's own connections, where experiment
+// "stream-perf" may move a software VP9 out of first place (see
+// lib/streamPerf). A relay's re-encodes keep the plain ordering.
+export function applyVideoCodecPreferences(transceiver: RTCRtpTransceiver, mode: DegradationMode, ownShare = false) {
   if (typeof RTCRtpSender.getCapabilities !== "function") return;
   const capabilities = RTCRtpSender.getCapabilities("video");
   if (!capabilities?.codecs) return;
-  const order =
-    videoCodecOrder(mode) === "text"
+  const textOrder = videoCodecOrder(mode) === "text";
+  // VP9 still second, ahead of AV1: its screen-content mode is the reason the
+  // text profile wanted it, and it stays the fallback for a peer without H264.
+  const avoidVp9 = textOrder && ownShare && shouldAvoidSoftwareVp9();
+  if (avoidVp9 && !codecFallbackCounted) {
+    codecFallbackCounted = true;
+    trackFeatureEvent(STREAM_PERF_EVENTS.codecFallback);
+  }
+  const order = avoidVp9
+    ? ["video/H264", "video/VP9", "video/AV1", "video/VP8"]
+    : textOrder
       ? ["video/VP9", "video/AV1", "video/H264", "video/VP8"]
       : ["video/H264", "video/AV1", "video/VP9", "video/VP8"];
   const sorted = [...capabilities.codecs].sort((a, b) => {

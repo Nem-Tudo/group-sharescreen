@@ -19,6 +19,7 @@ import {
 } from "@/lib/announcement";
 import { trackEvent } from "@/lib/analytics";
 import { playWarningSound } from "@/lib/soundEffects";
+import { isPageHidden, onPageHiddenChange } from "@/lib/pageHidden";
 
 // Nothing ever notifies: the device a page is running on cannot change
 // without a reload, so the "store" behind useSyncExternalStore below has no
@@ -192,14 +193,13 @@ export function AnnouncementBanner() {
   useEffect(() => {
     if (!announcement || !deliveryKey || !willShow) return;
     function maybeReportView() {
-      if (document.visibilityState !== "visible") return;
+      if (isPageHidden()) return;
       if (!deliveryKey || reportedViewKeys.current.has(deliveryKey)) return;
       reportedViewKeys.current.add(deliveryKey);
       signalingClient.reportAnnouncementView(announcement!.id);
     }
     maybeReportView();
-    document.addEventListener("visibilitychange", maybeReportView);
-    return () => document.removeEventListener("visibilitychange", maybeReportView);
+    return onPageHiddenChange(maybeReportView);
   }, [announcement, deliveryKey, willShow]);
 
   const pathname = usePathname();
