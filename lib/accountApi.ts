@@ -26,6 +26,15 @@ export type Account = {
   ownedCosmetics?: string[];
   equippedNameColor?: string | null;
   equippedProfileColor?: string | null;
+  /**
+   * The verified mark this account chose to wear instead of the highest one
+   * its plan affords ("blue"/"gold" for a Pro Ultra subscriber, "blue" for a
+   * Pro Max one), or null/absent for "the highest I have". Only for the
+   * settings screen that lets somebody pick it — everybody else's view of
+   * this account draws the mark from `flags`' BADGE_TONE_* entries instead
+   * (see lib/entitlements.ts's verifiedBadge), never from this field.
+   */
+  verifiedTone?: "blue" | "gold" | "ruby" | null;
   // Public profile page content (see app/user/[id]/page.tsx and lib/
   // userProfile.ts) — DB-edited only, unlike points above.
   bio?: string | null;
@@ -494,6 +503,8 @@ export type UpdateProfileInput = {
   /** 0-100. Travels beside the link so it can be changed on its own. */
   songVolume?: number;
   equippedProfileColor?: string | null;
+  /** Null clears the choice (back to the highest mark the plan affords); absent leaves it alone. */
+  verifiedTone?: "blue" | "gold" | "ruby" | null;
 };
 
 export async function updateProfile(input: UpdateProfileInput): Promise<Account> {

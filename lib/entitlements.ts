@@ -106,13 +106,27 @@ export function hasVerifiedBadge(flags: readonly string[] | undefined | null): b
  * every rule written against a lower flag keeps matching them (see the API's
  * entitlements.ts). Testing a lower flag first would make the higher mark
  * unreachable.
+ *
+ * A Pro Max/Pro Ultra subscriber may choose to wear a plainer mark than their
+ * plan affords (see the account settings' verified-badge picker) — the API
+ * publishes that choice as BADGE_TONE_BLUE/BADGE_TONE_GOLD alongside
+ * PRO_MAX/PRO_ULTRA (see its entitlements.ts and accountStore's
+ * publishedFlags), and this is the one place that reads them, so every
+ * caller below sees the chosen mark without carrying the preference itself.
  */
 export type VerifiedTone = "blue" | "gold" | "ruby" | null;
 
 export function verifiedBadge(flags: readonly string[] | undefined | null): VerifiedTone {
   if (!flags) return null;
-  if (flags.includes("PRO_ULTRA")) return "ruby";
-  if (flags.includes("PRO_MAX")) return "gold";
+  if (flags.includes("PRO_ULTRA")) {
+    if (flags.includes("BADGE_TONE_BLUE")) return "blue";
+    if (flags.includes("BADGE_TONE_GOLD")) return "gold";
+    return "ruby";
+  }
+  if (flags.includes("PRO_MAX")) {
+    if (flags.includes("BADGE_TONE_BLUE")) return "blue";
+    return "gold";
+  }
   if (flags.includes("VERIFIED") || flags.includes("PRO")) return "blue";
   return null;
 }

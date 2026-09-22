@@ -26,7 +26,7 @@ import {
   type AvatarOptions,
   type UsernameChangeAllowance,
 } from "@/lib/accountApi";
-import { hasFeature } from "@/lib/entitlements";
+import { hasFeature, verifiedBadge } from "@/lib/entitlements";
 import { planIcon } from "@/components/planIcons";
 import { DEFAULT_SONG_VOLUME, ProfileSongPlayer } from "@/components/ProfileSongPlayer";
 import { parseYouTubeId } from "@/lib/profileSong";
@@ -598,6 +598,11 @@ function ProfileContent({
     null
   );
   const [editProfileGroup, setEditProfileGroup] = useState<string | null>(account.profileGroupId ?? null);
+  // null means "the highest mark my plan affords" — see accountApi's
+  // UpdateProfileInput.verifiedTone.
+  const [editVerifiedTone, setEditVerifiedTone] = useState<"blue" | "gold" | "ruby" | null>(
+    account.verifiedTone ?? null
+  );
   const [editLinks, setEditLinks] = useState<ProfileLink[]>(account.profileLinks ?? []);
   const [myGroups, setMyGroups] = useState<GroupSummary[] | null>(null);
   const [saving, setSaving] = useState(false);
@@ -622,6 +627,7 @@ function ProfileContent({
     setEditTheme(account.profileTheme ?? null);
     setEditSong(songLinkOf(account.profileSong));
     setEditSongVolume(account.profileSong?.volume ?? DEFAULT_SONG_VOLUME);
+    setEditVerifiedTone(account.verifiedTone ?? null);
     setEditProfileGroup(account.profileGroupId ?? null);
     setEditLinks(account.profileLinks ?? []);
   }, [account]);
@@ -826,6 +832,7 @@ function ProfileContent({
     setEditTheme(account.profileTheme ?? null);
     setEditSong(songLinkOf(account.profileSong));
     setEditSongVolume(account.profileSong?.volume ?? DEFAULT_SONG_VOLUME);
+    setEditVerifiedTone(account.verifiedTone ?? null);
     setEditProfileGroup(account.profileGroupId ?? null);
     setEditLinks(account.profileLinks ?? []);
     setAvatarPickerOpen(false);
@@ -885,6 +892,10 @@ function ProfileContent({
         // Same rule as the song: sent only when it moved, so an unrelated bio
         // edit is never refused over a link somebody typed wrong weeks ago.
         ...(linksChanged ? { profileLinks: linksToSave } : {}),
+        // Only when it moved, same rule as the rows above — an unrelated bio
+        // edit must not be refused over a badge choice the plan no longer
+        // affords.
+        ...(editVerifiedTone !== (account.verifiedTone ?? null) ? { verifiedTone: editVerifiedTone } : {}),
       });
 
       // The card is built by GET /users/:id, not by the save, so a changed
@@ -935,6 +946,13 @@ function ProfileContent({
   const canEditProfileGroup = hasFeature("profile_group", authAccount?.features ?? []);
   const canEditLinks = hasFeature("profile_links", authAccount?.features ?? []);
   const canChooseShape = hasFeature("avatar_shape", authAccount?.features ?? []);
+  // The highest mark this account's own plan affords — gold for Pro Max,
+  // ruby for Pro Ultra. Only those two have anything to pick between; a Pro
+  // (or free) account already wears the one mark it can, so there is nothing
+  // to offer it here.
+  const entitledTone = verifiedBadge(authAccount?.flags ?? account.flags);
+  const VERIFIED_TONE_OPTIONS: readonly ("ruby" | "gold" | "blue")[] =
+    entitledTone === "ruby" ? ["ruby", "gold", "blue"] : entitledTone === "gold" ? ["gold", "blue"] : [];
   const savedAvatarShape = account.avatarShape ?? avatarShapeOf(account.avatarUrl);
   const avatarShapeChanged = editAvatarShape !== savedAvatarShape;
   // What the card draws: the choice being edited, or the one everybody else
@@ -1751,6 +1769,49 @@ function ProfileContent({
 
         {isEditing && (
           <form onSubmit={handleSave} className="mt-5 flex flex-col gap-4">
+            {/* Pro Max/Pro Ultra only, and shown only to those two: a Pro or
+                free account has one mark or none, so there is nothing here
+                for it to choose. */}
+            {VERIFIED_TONE_OPTIONS.length > 0 && (
+              <div className="flex flex-col gap-1.5" style={themedLabel}>
+                <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400" style={themedHint}>
+                  {t("userProfileCard.verifiedBadgeTone")}
+                </span>
+                <p className="text-[11px] text-zinc-400 dark:text-zinc-600" style={themedHint}>
+                  {t("userProfileCard.verifiedBadgeToneHint")}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {VERIFIED_TONE_OPTIONS.map((tone) => {
+                    // The highest tone doubles as "auto": picking it again
+                    // clears the preference rather than storing a redundant
+                    // copy of what the plan already gives for free.
+                    const selected = (editVerifiedTone ?? entitledTone) === tone;
+                    const label =
+                      tone === "ruby"
+                        ? t("userProfileCard.verifiedToneRuby")
+                        : tone === "gold"
+                          ? t("userProfileCard.verifiedToneGold")
+                          : t("userProfileCard.verifiedToneBlue");
+                    return (
+                      <button
+                        key={tone}
+                        type="button"
+                        onClick={() => setEditVerifiedTone(tone === entitledTone ? null : tone)}
+                        aria-pressed={selected}
+                        className={`flex items-center gap-1.5 rounded-lg border-2 px-3 py-1.5 text-xs font-semibold transition ${
+                          selected
+                            ? "border-emerald-500 text-zinc-900 dark:text-zinc-50"
+                            : "cursor-pointer border-zinc-200 text-zinc-600 hover:border-zinc-300 dark:border-zinc-800 dark:text-zinc-300 dark:hover:border-zinc-600"
+                        }`}
+                      >
+                        <VerifiedBadge flags={tone === "ruby" ? ["PRO_ULTRA"] : tone === "gold" ? ["PRO_MAX"] : ["VERIFIED"]} className="h-3.5 w-3.5 shrink-0" />
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             <PlanSection
               tier="proMax"
               title={t("userProfileCard.profileBackground")}
