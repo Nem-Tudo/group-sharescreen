@@ -5,6 +5,7 @@ import Link from "next/link";
 import { fetchUserProfile, formatDuration, peekUserProfile, type UserProfile } from "@/lib/userProfile";
 import { MicIcon, ScreenIcon } from "@/components/icons";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
+import { Popover } from "@/components/Tooltip";
 import { BotTag } from "@/components/BotTag";
 import { botAddPath } from "@/lib/botsApi";
 import { BsCoin, BsClock, BsShop } from "react-icons/bs";
@@ -26,7 +27,7 @@ import {
   type AvatarOptions,
   type UsernameChangeAllowance,
 } from "@/lib/accountApi";
-import { hasFeature, verifiedBadge } from "@/lib/entitlements";
+import { hasFeature, maxVerifiedTone, verifiedBadge } from "@/lib/entitlements";
 import { planIcon } from "@/components/planIcons";
 import { DEFAULT_SONG_VOLUME, ProfileSongPlayer } from "@/components/ProfileSongPlayer";
 import { parseYouTubeId } from "@/lib/profileSong";
@@ -603,6 +604,7 @@ function ProfileContent({
   const [editVerifiedTone, setEditVerifiedTone] = useState<"blue" | "gold" | "ruby" | null>(
     account.verifiedTone ?? null
   );
+  const [verifiedTonePickerOpen, setVerifiedTonePickerOpen] = useState(false);
   const [editLinks, setEditLinks] = useState<ProfileLink[]>(account.profileLinks ?? []);
   const [myGroups, setMyGroups] = useState<GroupSummary[] | null>(null);
   const [saving, setSaving] = useState(false);
@@ -837,6 +839,7 @@ function ProfileContent({
     setEditLinks(account.profileLinks ?? []);
     setAvatarPickerOpen(false);
     setBannerPickerOpen(false);
+    setVerifiedTonePickerOpen(false);
     setOpenField(null);
     setError(null);
   }
@@ -950,9 +953,24 @@ function ProfileContent({
   // ruby for Pro Ultra. Only those two have anything to pick between; a Pro
   // (or free) account already wears the one mark it can, so there is nothing
   // to offer it here.
-  const entitledTone = verifiedBadge(authAccount?.flags ?? account.flags);
+  const entitledTone = maxVerifiedTone(authAccount?.flags ?? account.flags);
   const VERIFIED_TONE_OPTIONS: readonly ("ruby" | "gold" | "blue")[] =
     entitledTone === "ruby" ? ["ruby", "gold", "blue"] : entitledTone === "gold" ? ["gold", "blue"] : [];
+  // What the badge next to the name draws: the pending choice while there is
+  // one to preview, or the saved mark everybody else already sees. Built as
+  // synthetic flags rather than read from `account.flags` while editing,
+  // because the account itself does not know about a choice until it is
+  // saved — see VerifiedBadge, which only ever reads flags.
+  const headerVerifiedTone =
+    isEditing && VERIFIED_TONE_OPTIONS.length > 0 ? (editVerifiedTone ?? entitledTone) : verifiedBadge(account.flags);
+  const headerVerifiedFlags =
+    headerVerifiedTone === "ruby"
+      ? ["PRO_ULTRA"]
+      : headerVerifiedTone === "gold"
+        ? ["PRO_MAX"]
+        : headerVerifiedTone === "blue"
+          ? ["VERIFIED"]
+          : [];
   const savedAvatarShape = account.avatarShape ?? avatarShapeOf(account.avatarUrl);
   const avatarShapeChanged = editAvatarShape !== savedAvatarShape;
   // What the card draws: the choice being edited, or the one everybody else
@@ -1394,7 +1412,12 @@ function ProfileContent({
               }
             >
               <h1
-                className="flex items-center gap-1.5 truncate text-2xl font-semibold text-zinc-950 dark:text-zinc-50"
+                // Not truncated while the badge picker can show here: a
+                // dashed pill next to the name needs room to sit on its own
+                // line rather than being squeezed into an ellipsis with it.
+                className={`flex flex-wrap items-center gap-1.5 text-2xl font-semibold text-zinc-950 dark:text-zinc-50 ${
+                  isEditing && VERIFIED_TONE_OPTIONS.length > 0 ? "" : "truncate"
+                }`}
                 style={theme ? { color: theme.text, textShadow: theme.textShadow } : undefined}
               >
                 {/* The pending value, not the saved one: closing an editor
@@ -1406,7 +1429,72 @@ function ProfileContent({
                 >
                   {isEditing ? editDisplayName : account.displayName}
                 </span>
-                <VerifiedBadge flags={account?.flags} className="h-6 w-6 shrink-0" />
+                <VerifiedBadge flags={headerVerifiedFlags} className="h-6 w-6 shrink-0" />
+                {isEditing && VERIFIED_TONE_OPTIONS.length > 0 && (
+                  <Popover
+                    open={verifiedTonePickerOpen}
+                    onClose={() => setVerifiedTonePickerOpen(false)}
+                    placement="bottom-start"
+                    tooltip={t("userProfileCard.verifiedBadgeTone")}
+                    content={
+                      <div className="flex w-48 flex-col gap-0.5 rounded-xl border border-zinc-200 bg-white p-1.5 shadow-lg dark:border-zinc-800 dark:bg-zinc-950">
+                        <p className="px-2 pb-1 pt-0.5 text-[11px] text-zinc-400 dark:text-zinc-600">
+                          {t("userProfileCard.verifiedBadgeToneHint")}
+                        </p>
+                        {VERIFIED_TONE_OPTIONS.map((tone) => {
+                          // The highest tone doubles as "auto": picking it
+                          // again clears the preference rather than storing
+                          // a redundant copy of what the plan already gives
+                          // for free.
+                          const selected = (editVerifiedTone ?? entitledTone) === tone;
+                          const label =
+                            tone === "ruby"
+                              ? t("userProfileCard.verifiedToneRuby")
+                              : tone === "gold"
+                                ? t("userProfileCard.verifiedToneGold")
+                                : t("userProfileCard.verifiedToneBlue");
+                          return (
+                            <button
+                              key={tone}
+                              type="button"
+                              onClick={() => {
+                                setEditVerifiedTone(tone === entitledTone ? null : tone);
+                                setVerifiedTonePickerOpen(false);
+                              }}
+                              aria-pressed={selected}
+                              className={`flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs font-semibold transition ${
+                                selected
+                                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                                  : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                              }`}
+                            >
+                              <VerifiedBadge
+                                flags={tone === "ruby" ? ["PRO_ULTRA"] : tone === "gold" ? ["PRO_MAX"] : ["VERIFIED"]}
+                                className="h-3.5 w-3.5 shrink-0"
+                              />
+                              {label}
+                              {selected && <MdCheck className="ml-auto h-3.5 w-3.5 shrink-0" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    }
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setVerifiedTonePickerOpen((open) => !open)}
+                      aria-expanded={verifiedTonePickerOpen}
+                      // Text and all, not just the pencil: a bare icon this
+                      // size sitting right after a 24px badge read as part of
+                      // the decoration rather than as something to press —
+                      // which is exactly why nobody found it.
+                      className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-full border border-dashed border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-500 transition hover:border-solid hover:border-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:border-zinc-600 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                    >
+                      <MdEdit className="h-3.5 w-3.5 shrink-0" />
+                      {t("userProfileCard.changeVerifiedBadge")}
+                    </button>
+                  </Popover>
+                )}
               </h1>
             </InlineEdit>
             <div className="flex flex-wrap items-center gap-2 mt-0.5">
@@ -1769,49 +1857,6 @@ function ProfileContent({
 
         {isEditing && (
           <form onSubmit={handleSave} className="mt-5 flex flex-col gap-4">
-            {/* Pro Max/Pro Ultra only, and shown only to those two: a Pro or
-                free account has one mark or none, so there is nothing here
-                for it to choose. */}
-            {VERIFIED_TONE_OPTIONS.length > 0 && (
-              <div className="flex flex-col gap-1.5" style={themedLabel}>
-                <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400" style={themedHint}>
-                  {t("userProfileCard.verifiedBadgeTone")}
-                </span>
-                <p className="text-[11px] text-zinc-400 dark:text-zinc-600" style={themedHint}>
-                  {t("userProfileCard.verifiedBadgeToneHint")}
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {VERIFIED_TONE_OPTIONS.map((tone) => {
-                    // The highest tone doubles as "auto": picking it again
-                    // clears the preference rather than storing a redundant
-                    // copy of what the plan already gives for free.
-                    const selected = (editVerifiedTone ?? entitledTone) === tone;
-                    const label =
-                      tone === "ruby"
-                        ? t("userProfileCard.verifiedToneRuby")
-                        : tone === "gold"
-                          ? t("userProfileCard.verifiedToneGold")
-                          : t("userProfileCard.verifiedToneBlue");
-                    return (
-                      <button
-                        key={tone}
-                        type="button"
-                        onClick={() => setEditVerifiedTone(tone === entitledTone ? null : tone)}
-                        aria-pressed={selected}
-                        className={`flex items-center gap-1.5 rounded-lg border-2 px-3 py-1.5 text-xs font-semibold transition ${
-                          selected
-                            ? "border-emerald-500 text-zinc-900 dark:text-zinc-50"
-                            : "cursor-pointer border-zinc-200 text-zinc-600 hover:border-zinc-300 dark:border-zinc-800 dark:text-zinc-300 dark:hover:border-zinc-600"
-                        }`}
-                      >
-                        <VerifiedBadge flags={tone === "ruby" ? ["PRO_ULTRA"] : tone === "gold" ? ["PRO_MAX"] : ["VERIFIED"]} className="h-3.5 w-3.5 shrink-0" />
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
             <PlanSection
               tier="proMax"
               title={t("userProfileCard.profileBackground")}

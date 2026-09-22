@@ -9,6 +9,8 @@ export type BadgeId =
   | "staff"
   | "bug_hunter"
   | "pro"
+  | "pro_max"
+  | "pro_ultra"
   | "contributor"
   | "beta_mobile"
   | "beta_tester"
@@ -72,6 +74,36 @@ export const DEFAULT_BADGES: BadgeDefinition[] = [
     textClass: "text-amber-500",
     borderClass: "border-amber-500/30",
     requiredPlan: "pro",
+    createdAt: 1725753600000,
+  },
+  {
+    id: "pro_max",
+    get name() { return translate("common.proMax"); },
+    flagTag: "PRO_MAX",
+    get description() { return translate("badges.goliveProMaxSubscriber"); },
+    iconUrl:
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23f59e0b'%3E%3Cpath d='M13 2 3 14h9l-1 8 10-12h-9l1-8z'/%3E%3C/svg%3E",
+    chipClass:
+      "border-amber-500/30 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-400",
+    bgClass: "bg-amber-500/15",
+    textClass: "text-amber-500",
+    borderClass: "border-amber-500/30",
+    requiredFlag: "PRO_MAX",
+    createdAt: 1725753600000,
+  },
+  {
+    id: "pro_ultra",
+    get name() { return translate("common.proUltra"); },
+    flagTag: "PRO_ULTRA",
+    get description() { return translate("badges.goliveProUltraSubscriber"); },
+    iconUrl:
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23f59e0b'%3E%3Cpath d='M13 2 3 14h9l-1 8 10-12h-9l1-8z'/%3E%3C/svg%3E",
+    chipClass:
+      "border-amber-500/30 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-400",
+    bgClass: "bg-amber-500/15",
+    textClass: "text-amber-500",
+    borderClass: "border-amber-500/30",
+    requiredFlag: "PRO_ULTRA",
     createdAt: 1725753600000,
   },
   {
@@ -249,9 +281,23 @@ function userHasBadge(
     }
   }
 
-  // Pro badge
-  if (badge.id === "pro") {
-    return isPro;
+  // The three plan badges are mutually exclusive: a Pro Ultra subscriber's
+  // flags carry PRO, PRO_MAX *and* PRO_ULTRA all at once (see the API's
+  // accountStore, which piles each rung's flag on top of the ones below it),
+  // and BADGE_TONE_BLUE/BADGE_TONE_GOLD only change which *colour* the
+  // checkmark next to their name draws (see lib/entitlements.ts'
+  // verifiedBadge) — the plan itself, and so which one of these three badges
+  // is earned, never moves. Matching each independently on its own flag would
+  // stack all three on every Pro Ultra profile; only the highest one earned.
+  if (badge.id === "pro" || badge.id === "pro_max" || badge.id === "pro_ultra") {
+    const highest = flags.includes("PRO_ULTRA")
+      ? "pro_ultra"
+      : flags.includes("PRO_MAX")
+        ? "pro_max"
+        : isPro
+          ? "pro"
+          : null;
+    return badge.id === highest;
   }
 
   // General flag-based badge created via database
