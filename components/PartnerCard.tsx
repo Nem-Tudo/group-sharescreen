@@ -9,7 +9,7 @@ import { selectPartnerPush } from "@/lib/signalingSelectors";
 import { signalingClient } from "@/lib/signalingClient";
 import { ArrowLeftIcon, ChartIcon, ChevronUpIcon } from "@/components/icons";
 import { BsCoin } from "react-icons/bs";
-import { PartnerAdCustomizer, type AdForm } from "@/components/PartnerAdCustomizer";
+import { CUSTOMIZER_STARTING_POINT, PartnerAdCustomizer } from "@/components/PartnerAdCustomizer";
 import { partnerRewardPopupSize } from "@/components/PartnerRewardModal";
 import useNtPopups from "ntpopups";
 import {
@@ -30,7 +30,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { useVideoDurationLabel } from "@/lib/useVideoDuration";
 import { Popover } from "@/components/Tooltip";
 import { useT } from "@/lib/useI18n";
-import { formatLocale, translate } from "@/lib/i18n";
+import { formatLocale } from "@/lib/i18n";
 import {
   trackPartnerClick,
   trackPartnerClickReward,
@@ -39,6 +39,11 @@ import {
   type PartnerClickSpot,
 } from "@/lib/partnerExperiment";
 import { PartnerClickRewardHint, PartnerClickRewardPill } from "@/components/PartnerClickReward";
+import {
+  PARTNER_PITCH_POPUP_SIZE,
+  type PartnerPitchPopupData,
+  type PartnerPitchSource,
+} from "@/components/PartnerPitchModal";
 import { usePartnerCreative } from "@/lib/partnerSchedule";
 
 const STATS_DASHBOARD_URL = process.env.NEXT_PUBLIC_STATS_DASHBOARD_URL;
@@ -83,20 +88,6 @@ const SMALL_SCREEN_CARD_HEIGHT_FRACTION = 0.33;
 // column instead of the shared drawer.
 const WIDE_LAYOUT_QUERY = "(min-width: 1024px)";
 
-// Starting point handed to the customizer — generic placeholders (not a
-// copy of EXAMPLE_PARTNER's Twitter branding) so it reads as "your ad here"
-// rather than nudging everyone toward black-and-white.
-const CUSTOMIZER_STARTING_POINT: AdForm = {
-  get title() { return translate("partnerCard.yourBrandHere"); },
-  get description() { return translate("partnerCard.writeAShortCatchyDescriptionOf"); },
-  imageUrl: "",
-  get buttonLabel() { return translate("partnerCard.learnMore"); },
-  buttonUrl: "https://",
-  backgroundColor: "#111827",
-  textColor: "#f4f4f5",
-  buttonBackgroundColor: "#10b981",
-  buttonTextColor: "#ffffff",
-};
 
 // Docked at the bottom of the sidebar (participants/chat) column, not a
 // floating overlay — deliberately named "partner" everywhere (component,
@@ -687,7 +678,7 @@ export function PartnerCard({
             type="button"
             onClick={() => {
               trackEvent("partner_house_ad_from_real_ad");
-              setShowingHouseAd(true);
+              openPartnerPitch(openPopup, "real_ad");
             }}
             className="flex-1 rounded-lg bg-zinc-100 px-3 py-1.5 text-center text-xs font-semibold text-zinc-600 transition hover:bg-zinc-200 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
           >
@@ -994,6 +985,15 @@ export function PartnerCard({
   );
 }
 
+/** "Anuncie aqui também!" — the pitch popup (see PartnerPitchModal). */
+function openPartnerPitch(
+  openPopup: ReturnType<typeof useNtPopups>["openPopup"],
+  source: PartnerPitchSource
+) {
+  const data: PartnerPitchPopupData = { source };
+  openPopup("partner_pitch", { ...PARTNER_PITCH_POPUP_SIZE, data });
+}
+
 /** "Curious how many people are here?" — what the online counter opens. */
 function PeopleOnlineStatsPanel() {
   const t = useT();
@@ -1059,16 +1059,15 @@ function unclaimedPartnerPoints(partner: PartnerCardData): number {
 export function PartnerCardMinimized({
   partner,
   onRestore,
-  onAdvertise,
 }: {
   /** The ad being served, or null for none (the house ad). */
   partner: PartnerCardData | null;
   onRestore: () => void;
-  onAdvertise: () => void;
 }) {
   const t = useT();
   const peopleOnline = usePeopleOnline();
   const [statsOpen, setStatsOpen] = useState(false);
+  const { openPopup } = useNtPopups();
   usePartnerRewardStatus(partner?.id);
   // Points still on the table here. Said on the strip, glinting the way the
   // card's own "Resgatar" does, since folding the ad away is otherwise the
@@ -1100,7 +1099,7 @@ export function PartnerCardMinimized({
           type="button"
           onClick={() => {
             trackEvent("partner_house_ad_from_minimized");
-            onAdvertise();
+            openPartnerPitch(openPopup, "minimized");
           }}
           className="min-w-0 flex-1 truncate rounded-lg bg-zinc-100 px-3 py-1.5 text-center text-xs font-semibold text-zinc-600 transition hover:bg-zinc-200 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
         >

@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 import { PartnerCard, PartnerCardMinimized } from "@/components/PartnerCard";
 import { useAuth } from "@/lib/AuthContext";
 import { accountTierOf, tierAtLeast } from "@/lib/entitlements";
 import { usePartnerAd } from "@/lib/usePartnerAd";
-import { useT } from "@/lib/useI18n";
 
 // The ad square under a group's rooms — the same slot a room has under its
 // participant list (see WatchRoom, which this mirrors).
@@ -87,49 +86,20 @@ export function GroupPartnerSlot({
   /** What the rooms above it keep — their first five (see the shell). */
   reservedAbove?: number;
 }) {
-  const t = useT();
   const { account } = useAuth();
   const canDismiss = tierAtLeast(accountTierOf(account?.flags), "premium_max");
   const hidden = useGroupAdHidden();
-  // "Anuncie aqui você também!" pressed on the folded row: the card comes back
-  // on the house ad that pitch is about, whoever's turn it was — until its
-  // "Voltar", or until it is folded again.
-  const [pitch, setPitch] = useState(false);
-  // Not visible while folded, so a folded ad counts no impressions — nor while
-  // the house ad is standing in for it.
-  const { rawPartner, loaded } = usePartnerAd({ visible: !hidden && !pitch });
-  const dismiss = canDismiss
-    ? () => {
-        setPitch(false);
-        minimizeGroupAd();
-      }
-    : undefined;
+  // Not visible while folded, so a folded ad counts no impressions. "Anuncie
+  // aqui você também!" on the folded row opens its own popup (see
+  // PartnerPitchModal) and leaves the row folded.
+  const { rawPartner, loaded } = usePartnerAd({ visible: !hidden });
+  const dismiss = canDismiss ? minimizeGroupAd : undefined;
 
   if (hidden) {
     return (
       <PartnerCardMinimized
         partner={loaded ? rawPartner : null}
         onRestore={() => setGroupAdMinimized(false)}
-        onAdvertise={() => {
-          setPitch(true);
-          setGroupAdMinimized(false);
-        }}
-      />
-    );
-  }
-
-  if (pitch) {
-    // Keyed apart from the ordinary card, so it starts on the house ad and the
-    // ordinary one starts on the served ad again after "Voltar".
-    return (
-      <PartnerCard
-        key="pitch"
-        partner={rawPartner}
-        loaded={loaded}
-        reservedAbove={reservedAbove}
-        onDismiss={dismiss}
-        startWithHouseAd
-        onLeaveHouseAd={() => setPitch(false)}
       />
     );
   }
