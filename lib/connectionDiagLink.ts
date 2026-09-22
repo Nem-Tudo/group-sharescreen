@@ -195,8 +195,18 @@ class ConnectionDiagLink {
         },
       });
     };
-    this.responders.set(key, { expiresAt, timer: setInterval(() => void reply(), REPLY_EVERY_MS) });
-    void reply();
+    // One reply at a time: this runs on the broadcaster's machine, the one
+    // already busy encoding, where a slow getStats is most likely.
+    let busy = false;
+    const run = () => {
+      if (busy) return;
+      busy = true;
+      void reply().finally(() => {
+        busy = false;
+      });
+    };
+    this.responders.set(key, { expiresAt, timer: setInterval(run, REPLY_EVERY_MS) });
+    run();
   }
 
   private stopResponding(key: string) {

@@ -54,8 +54,18 @@ export function ViewerConnectionList() {
       }
       if (!cancelled) setRows(next);
     };
-    void tick();
-    const timer = setInterval(() => void tick(), POLL_MS);
+    // One tick at a time: a slow getStats must not have the next one start
+    // on top of it.
+    let busy = false;
+    const run = () => {
+      if (busy) return;
+      busy = true;
+      void tick().finally(() => {
+        busy = false;
+      });
+    };
+    run();
+    const timer = setInterval(run, POLL_MS);
     return () => {
       cancelled = true;
       clearInterval(timer);

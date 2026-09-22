@@ -88,6 +88,7 @@ class MediaStatsPump {
   private capacityListeners = new Set<(c: CapacitySample) => void>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private cursor = 0;
+  private passing = false;
   private lastCapacity: CapacitySample = {
     availableOutgoingKbps: 0,
     usedOutgoingKbps: 0,
@@ -139,7 +140,17 @@ class MediaStatsPump {
   private ensureRunning() {
     if (this.timer !== null) return;
     this.timer = setInterval(() => {
-      void this.pass();
+      // One pass at a time. A pass is a chain of sequential getStats awaits,
+      // and on a machine already short of CPU — the only machine where it is
+      // slow — it can outlast the interval. Started anyway, the next pass
+      // read the same senders concurrently, each overwriting the other's
+      // `entry.prev`, so the deltas the congestion controller runs on came out
+      // as garbage exactly when it most needed them right.
+      if (this.passing) return;
+      this.passing = true;
+      void this.pass().finally(() => {
+        this.passing = false;
+      });
     }, POLL_INTERVAL_MS);
   }
 

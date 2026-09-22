@@ -112,6 +112,7 @@ class ConnectionTelemetry {
   private timer: ReturnType<typeof setInterval> | null = null;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private cursor = 0;
+  private passing = false;
   private started = false;
 
   start() {
@@ -138,7 +139,18 @@ class ConnectionTelemetry {
       peerUserId: signalingClient.state.peers.find((p) => p.id === connection.peerId)?.userId ?? null,
       acc: createAccumulator(Date.now()),
     });
-    if (!this.timer) this.timer = setInterval(() => void this.pass(), POLL_MS);
+    if (!this.timer) {
+      this.timer = setInterval(() => {
+        // One pass at a time: a slow one (a busy main thread, eight
+        // connections read in sequence) must not have the next start on top
+        // of it and read the same counters twice.
+        if (this.passing) return;
+        this.passing = true;
+        void this.pass().finally(() => {
+          this.passing = false;
+        });
+      }, POLL_MS);
+    }
   }
 
   private async pass() {

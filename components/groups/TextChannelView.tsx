@@ -1907,6 +1907,7 @@ export const TextChannelView = memo(function TextChannelView({
                 <img
                   src={message.url}
                   alt="GIF"
+                  decoding="async"
                   onLoad={onMediaLoad}
                   className="block max-h-48 max-w-full rounded-lg object-contain"
                 />

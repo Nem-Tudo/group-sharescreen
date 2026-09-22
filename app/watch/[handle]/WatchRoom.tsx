@@ -15,9 +15,11 @@ import {
   type ReactElement,
   type ReactNode,
   type Ref,
+  type ComponentProps,
   type SetStateAction,
 } from "react";
 import { createPortal } from "react-dom";
+import { nativeVideoSourceFor } from "@/lib/nativeVideoCapture";
 import { openContextMenu } from "@/lib/contextMenu";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -31,7 +33,15 @@ import {
 } from "@/lib/signalingClient";
 import { useHasStoredName } from "@/lib/useSignaling";
 import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
-import { selectWatchRoom } from "@/lib/signalingSelectors";
+import {
+  selectChatMessageCount,
+  selectChatMessages,
+  selectMusic,
+  selectMusicSummary,
+  selectRoomSoundEffects,
+  selectTypingPeerIds,
+  selectWatchRoom,
+} from "@/lib/signalingSelectors";
 import { groupPath } from "@/lib/groupLinks";
 import { useGroupDetail } from "@/lib/useGroups";
 import { canManage } from "@/lib/groupPermissions";
@@ -1355,6 +1365,131 @@ const DOCK_TAB_ACTIVE = "room-accent";
 const DOCK_TAB_IDLE =
   "text-zinc-600 active:bg-zinc-100 dark:text-zinc-400 dark:active:bg-zinc-900";
 
+// ─── The parts of the room that change many times a minute ─────────────────
+//
+// The chat, who is typing and the music record are read here and not by
+// WatchRoom, which used to take all three in its one selector: every message,
+// every "digitando" toggle and every music heartbeat re-rendered the whole
+// room — thousands of lines, every tile's props, the participant list — to
+// change a single row of chat. Each of these subscribes to its own slice and
+// re-renders alone. See selectWatchRoom.
+
+const sendChatMessage = (text: string, replyTo?: Parameters<typeof signalingClient.sendChatMessage>[1]) =>
+  signalingClient.sendChatMessage(text, replyTo);
+const setChatTyping = (typing: boolean) => signalingClient.setTyping(typing);
+const NO_TYPING: string[] = [];
+
+type RoomChatProps = Omit<ComponentProps<typeof ChatPanel>, "messages" | "typingNames" | "onSend" | "onTypingChange">;
+
+/** ChatPanel fed from the store: the messages and who is typing. */
+function RoomChat(props: RoomChatProps) {
+  const messages = useSignalingSelector(selectChatMessages);
+  const typingPeerIds = useSignalingSelector(selectTypingPeerIds);
+  const peers = props.peers;
+  const typingNames = useMemo(
+    () =>
+      typingPeerIds.length === 0 || !peers
+        ? NO_TYPING
+        : peers.filter((p) => typingPeerIds.includes(p.id)).map((p) => p.name),
+    [peers, typingPeerIds]
+  );
+  return (
+    <ChatPanel
+      {...props}
+      messages={messages}
+      typingNames={typingNames}
+      onSend={sendChatMessage}
+      onTypingChange={setChatTyping}
+    />
+  );
+}
+
+/**
+ * The count on the phone's chat tab. "Read" means it was on screen when it
+ * arrived; the log the server hands over the moment we join counts as read
+ * too, or walking into any busy room would open on a badge nobody has any
+ * intention of scrolling back through.
+ *
+ * Adjusted during render rather than from an effect (see React's "you might
+ * not need an effect"): this is state derived from a value changing, and an
+ * effect would render the stale count first and only then correct it.
+ */
+function ChatUnreadBadge({ chatOnScreen }: { chatOnScreen: boolean }) {
+  const chatMessageCount = useSignalingSelector(selectChatMessageCount);
+  const [seenChatCount, setSeenChatCount] = useState<number | null>(null);
+  let nextSeenChatCount = seenChatCount;
+  if (chatMessageCount === 0) {
+    // Nothing has arrived yet (or the log was wiped) — leave the mark unset
+    // so the first batch to land is what gets treated as history.
+    nextSeenChatCount = null;
+  } else if (seenChatCount === null || chatOnScreen) {
+    nextSeenChatCount = chatMessageCount;
+  } else if (seenChatCount > chatMessageCount) {
+    nextSeenChatCount = chatMessageCount;
+  }
+  if (nextSeenChatCount !== seenChatCount) setSeenChatCount(nextSeenChatCount);
+  const unreadChatCount = Math.max(0, chatMessageCount - (nextSeenChatCount ?? chatMessageCount));
+  if (unreadChatCount <= 0) return null;
+  return (
+    <span className="absolute -right-2 -top-1.5 min-w-4 rounded-full bg-red-600 px-1 text-center text-[10px] font-bold leading-4 text-white">
+      {unreadChatCount > 9 ? "9+" : unreadChatCount}
+    </span>
+  );
+}
+
+/** Runs the room's join/leave/mention sounds off their own slice. */
+function RoomSoundEffects() {
+  const state = useSignalingSelector(selectRoomSoundEffects, shallow);
+  useRoomSoundEffects(state);
+  return null;
+}
+
+/** The room's music bar, fed the full music record (see selectMusicSummary). */
+function RoomMusicBar({
+  slot,
+  keepPlayerInPlace,
+  isRoomManager,
+  selfUserId,
+  peers,
+  onReplace,
+}: {
+  slot: HTMLElement | null;
+  keepPlayerInPlace: boolean;
+  isRoomManager: boolean;
+  selfUserId: string | null;
+  peers: PeerInfo[];
+  onReplace: () => void;
+}) {
+  const music = useSignalingSelector(selectMusic);
+  if (!music) return null;
+  const isMusicOwner = selfUserId !== null && music.addedById === selfUserId;
+  return (
+    <MusicBar
+      // A group room's bar goes to the strip under the group's header and
+      // its player out of the room altogether, so opening the voice room
+      // or moving to another of the group's rooms never restarts the
+      // song. An ordinary room's is drawn and played right here, as ever.
+      slot={slot}
+      keepPlayerInPlace={keepPlayerInPlace}
+      music={music}
+      // Transport follows the music's own control mode, and never the
+      // account check that gates *setting* it — this is playback, and a
+      // room's owner may well be a guest. Mirrors the server's rule in
+      // "music-state" exactly.
+      canControl={isRoomManager || music.controlMode === "anyone"}
+      isRoomManager={isRoomManager}
+      isMusicOwner={isMusicOwner}
+      selfUserId={selfUserId}
+      // Se quem pôs a música saiu, ninguém estava reancorando a posição
+      // nem reportando a fila virar de faixa — a sala ia se separando
+      // sozinha. Sem essa pessoa, quem pode controlar assume (ver
+      // MusicBar's isDriver).
+      musicOwnerPresent={isMusicOwner || peers.some((p) => p.userId && p.userId === music.addedById)}
+      onReplace={onReplace}
+    />
+  );
+}
+
 /**
  * What changes when this room is a group's voice room (see
  * components/groups/GroupAppShell). Absent for every /watch room, which is the
@@ -1369,7 +1504,22 @@ export type WatchRoomGroupMode = {
   onOpenNav: () => void;
 };
 
-export function WatchRoom({
+type WatchRoomProps = ComponentProps<typeof WatchRoomView>;
+
+// The sounds run beside the room rather than inside it, so the chat they
+// listen to does not re-render the room (see RoomSoundEffects) — and mounted
+// exactly when the room is, because they baseline on the first room-state
+// they see and would miss it if they came later.
+export function WatchRoom(props: WatchRoomProps) {
+  return (
+    <>
+      <RoomSoundEffects />
+      <WatchRoomView {...props} />
+    </>
+  );
+}
+
+function WatchRoomView({
   handle,
   viewThemeId = null,
   visible = true,
@@ -1436,7 +1586,7 @@ export function WatchRoom({
   // The room stripped down to the call itself. See the `dm` prop.
   const callLayout = Boolean(dm);
   const state = useSignalingSelector(selectWatchRoom, shallow);
-  useRoomSoundEffects(state);
+  const { hasMusic, musicPlaying } = useSignalingSelector(selectMusicSummary, shallow);
   // Paints the room. The room's own theme when it has one, this account's
   // otherwise — see lib/useRoomTheme, which is where that precedence lives.
   // It writes CSS variables onto the document, so nothing here has to be
@@ -2078,30 +2228,9 @@ export function WatchRoom({
 
   // Below lg the chat spends most of its time behind a closed sheet, so its
   // button in the bottom bar carries a count — without one, a room talking
-  // behind that sheet is completely silent. "Read" means it was on screen
-  // when it arrived; the log the server hands over the moment we join counts
-  // as read too, or walking into any busy room would open on a badge nobody
-  // has any intention of scrolling back through.
-  //
-  // Adjusted during render rather than from an effect (see React's "you
-  // might not need an effect"): this is state derived from a prop-like value
-  // changing, and an effect would render the stale count first and only then
-  // correct it.
-  const chatMessageCount = state.chatMessages.length;
+  // behind that sheet is completely silent. The count itself lives in
+  // ChatUnreadBadge, which is what re-renders when a message lands.
   const chatOnScreen = isWideLayout || mobilePanel === "chat";
-  const [seenChatCount, setSeenChatCount] = useState<number | null>(null);
-  let nextSeenChatCount = seenChatCount;
-  if (chatMessageCount === 0) {
-    // Nothing has arrived yet (or the log was wiped) — leave the mark unset
-    // so the first batch to land is what gets treated as history.
-    nextSeenChatCount = null;
-  } else if (seenChatCount === null || chatOnScreen) {
-    nextSeenChatCount = chatMessageCount;
-  } else if (seenChatCount > chatMessageCount) {
-    nextSeenChatCount = chatMessageCount;
-  }
-  if (nextSeenChatCount !== seenChatCount) setSeenChatCount(nextSeenChatCount);
-  const unreadChatCount = Math.max(0, chatMessageCount - (nextSeenChatCount ?? chatMessageCount));
   const previousNameRef = useRef(state.name);
 
   // Same hydration-flash guard as page.tsx: useAccountToken()/
@@ -2777,7 +2906,7 @@ export function WatchRoom({
     return {
       handle,
       people,
-      music: state.music ? { playing: state.music.playing } : null,
+      music: hasMusic ? { playing: musicPlaying } : null,
     };
   }, [
     joinedGroupRoom,
@@ -2785,7 +2914,8 @@ export function WatchRoom({
     state.selfUserId,
     state.name,
     state.peers,
-    state.music,
+    hasMusic,
+    musicPlaying,
     account?.avatarUrl,
     isMicOn,
     micsMuted,
@@ -3230,13 +3360,18 @@ export function WatchRoom({
     };
   }, []);
 
+  // One interval for the life of the room. It used to depend on state.peers,
+  // so every mic toggle or join rebuilt it — and in a busy room the 10 s
+  // sweep was reset before it ever fired. The live peer list is read from
+  // the store at sweep time instead.
   useEffect(() => {
     const timer = setInterval(() => {
       setActiveObsSignals((prev) => {
+        if (prev.size === 0) return prev;
         const now = Date.now();
         let changed = false;
         const next = new Map(prev);
-        const livePeerIds = new Set(state.peers.map((p) => p.id));
+        const livePeerIds = new Set(signalingClient.state.peers.map((p) => p.id));
         for (const [peerId, entry] of next) {
           if (!livePeerIds.has(peerId) || now - entry.lastSeen > 30000) {
             next.delete(peerId);
@@ -3247,7 +3382,7 @@ export function WatchRoom({
       });
     }, 10000);
     return () => clearInterval(timer);
-  }, [state.peers]);
+  }, []);
 
   const obsActiveTargets = useMemo(() => {
     const targets = new Set<string>();
@@ -3373,13 +3508,14 @@ export function WatchRoom({
         const activeSlot = LOCAL_MEDIA_SLOTS.find((s) => fileChannels[s]?.localStream);
         if (activeSlot !== undefined) {
           localMediaSources[activeSlot]?.togglePlay();
-        } else if (state.music) {
+        } else if (signalingClient.state.music) {
+          const music = signalingClient.state.music;
           signalingClient.setMusicState(
-            state.music.id,
-            !state.music.playing,
-            state.music.positionSeconds,
-            state.music.playbackRate,
-            state.music.playlistIndex
+            music.id,
+            !music.playing,
+            music.positionSeconds,
+            music.playbackRate,
+            music.playlistIndex
           );
         }
       },
@@ -3387,15 +3523,10 @@ export function WatchRoom({
         const activeSlot = LOCAL_MEDIA_SLOTS.find((s) => fileChannels[s]?.localStream);
         if (activeSlot !== undefined) {
           localMediaSources[activeSlot]?.next();
-        } else if (state.music?.playlistId) {
-          const nextIdx = (state.music.playlistIndex ?? 0) + 1;
-          signalingClient.setMusicState(
-            state.music.id,
-            state.music.playing,
-            0,
-            state.music.playbackRate,
-            nextIdx
-          );
+        } else if (signalingClient.state.music?.playlistId) {
+          const music = signalingClient.state.music;
+          const nextIdx = (music.playlistIndex ?? 0) + 1;
+          signalingClient.setMusicState(music.id, music.playing, 0, music.playbackRate, nextIdx);
         }
       },
       clipTile: () => {
@@ -3410,15 +3541,10 @@ export function WatchRoom({
         const activeSlot = LOCAL_MEDIA_SLOTS.find((s) => fileChannels[s]?.localStream);
         if (activeSlot !== undefined) {
           localMediaSources[activeSlot]?.previous();
-        } else if (state.music?.playlistId) {
-          const prevIdx = Math.max(0, (state.music.playlistIndex ?? 0) - 1);
-          signalingClient.setMusicState(
-            state.music.id,
-            state.music.playing,
-            0,
-            state.music.playbackRate,
-            prevIdx
-          );
+        } else if (signalingClient.state.music?.playlistId) {
+          const music = signalingClient.state.music;
+          const prevIdx = Math.max(0, (music.playlistIndex ?? 0) - 1);
+          signalingClient.setMusicState(music.id, music.playing, 0, music.playbackRate, prevIdx);
         }
       },
     },
@@ -4219,7 +4345,7 @@ export function WatchRoom({
     // client cannot stop another machine's playback, and taking a manager's
     // ability to put music on and turning it into "kick whatever anyone else
     // is playing" is not what this button is.
-    if (state.music) signalingClient.clearMusicSource();
+    if (hasMusic) signalingClient.clearMusicSource();
     startLocalMediaShare(slot);
   }
 
@@ -4325,7 +4451,7 @@ export function WatchRoom({
         localFilesSlot: myMusicSlot ?? freeLocalMediaSlot,
         hasAccount: Boolean(state.account),
         localFilesBlockedReason: videoSourceBlockedReason,
-        replacing: Boolean(state.music) || myMusicSlot !== null,
+        replacing: hasMusic || myMusicSlot !== null,
       },
     });
   }
@@ -4522,6 +4648,14 @@ export function WatchRoom({
           // screen, so releasing it would cost a black tile on the way back and
           // save nothing on the machine that matters.
           detachWhenHidden={false}
+          // ...except on the GPU capture path, where the preview is a decode
+          // of its own that nobody else needs (see NativeVideoSource
+          // .setPreviewActive): stopped while this tile is off screen, the
+          // window minimised, or the tile hidden.
+          onVisibilityChange={(visible) =>
+            nativeVideoSourceFor(localStream.getVideoTracks()[0])?.setPreviewActive(visible)
+          }
+          reportUnmountAsHidden
           label={translate("common.you")}
           accessibleLabel={translate("common.you")}
           badge={shareSource === "camera" ? translate("watch.watchRoom.camera") : "transmitindo"}
@@ -5906,7 +6040,7 @@ export function WatchRoom({
               className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:text-zinc-300 dark:hover:bg-zinc-900"
             >
               <MdMusicNote className="h-4 w-4 shrink-0 text-emerald-500" />
-              {state.music || myMusicSlot ? translate("common.changeTheRoomSMusic") : translate("common.playMusicInTheRoom")}
+              {hasMusic || myMusicSlot ? translate("common.changeTheRoomSMusic") : translate("common.playMusicInTheRoom")}
               <BetaMark />
             </button>
           </Tooltip>
@@ -6934,8 +7068,7 @@ export function WatchRoom({
   }
 
   const chatPanel = (
-    <ChatPanel
-        messages={state.chatMessages}
+    <RoomChat
         selfId={state.selfId}
         selfName={state.name}
         renderAuthorMenu={
@@ -6949,17 +7082,12 @@ export function WatchRoom({
         peers={visiblePeers}
         deviceCounts={deviceCounts}
         onOpenProfile={setProfileUserId}
-        onSend={(text, replyTo) => signalingClient.sendChatMessage(text, replyTo)}
         onSendGif={
           state.account && !gifBlockedReason ? (url, replyTo) => signalingClient.sendGif(url, replyTo) : undefined
         }
         onSendImages={
           !imageBlockedReason ? handleSendChatImages : undefined
         }
-        onTypingChange={(typing) => signalingClient.setTyping(typing)}
-        typingNames={visiblePeers
-          .filter((p) => state.typingPeerIds.includes(p.id))
-          .map((p) => p.name)}
         blockedMessage={state.chatBlockedMessage}
         sendDisabledReason={chatBlockedReason}
         gifDisabledReason={gifBlockedReason}
@@ -7396,7 +7524,7 @@ export function WatchRoom({
               <Tooltip
                 content={
                   musicBlockedReason ??
-                  (state.music || myMusicSlot
+                  (hasMusic || myMusicSlot
                     ? translate("common.changeTheRoomSMusic")
                     : translate("common.playMusicInTheRoom"))
                 }
@@ -7658,34 +7786,14 @@ export function WatchRoom({
         ? createPortal(localAndRemoteMusic, groupMusicSlot)
         : localAndRemoteMusic}
 
-      {state.music && (
-        <MusicBar
-          // A group room's bar goes to the strip under the group's header and
-          // its player out of the room altogether, so opening the voice room
-          // or moving to another of the group's rooms never restarts the
-          // song. An ordinary room's is drawn and played right here, as ever.
-          slot={groupMusicSlot}
-          keepPlayerInPlace={Boolean(group)}
-          music={state.music}
-          // Transport follows the music's own control mode, and never the
-          // account check that gates *setting* it — this is playback, and a
-          // room's owner may well be a guest. Mirrors the server's rule in
-          // "music-state" exactly.
-          canControl={isRoomManager || state.music.controlMode === "anyone"}
-          isRoomManager={isRoomManager}
-          isMusicOwner={state.selfUserId !== null && state.music.addedById === state.selfUserId}
-          selfUserId={state.selfUserId}
-          // Se quem pôs a música saiu, ninguém estava reancorando a posição
-          // nem reportando a fila virar de faixa — a sala ia se separando
-          // sozinha. Sem essa pessoa, quem pode controlar assume (ver
-          // MusicBar's isDriver).
-          musicOwnerPresent={
-            (state.selfUserId !== null && state.music.addedById === state.selfUserId) ||
-            state.peers.some((p) => p.userId && p.userId === state.music?.addedById)
-          }
-          onReplace={openAddMusicPopup}
-        />
-      )}
+      <RoomMusicBar
+        slot={groupMusicSlot}
+        keepPlayerInPlace={Boolean(group)}
+        isRoomManager={isRoomManager}
+        selfUserId={state.selfUserId}
+        peers={state.peers}
+        onReplace={openAddMusicPopup}
+      />
 
       {!state.account && !guestBannerDismissed && (
         <div className="flex shrink-0 items-center justify-between gap-3 bg-blue-50 px-3 py-1.5 text-xs text-blue-800 lg:px-4 lg:py-2 lg:text-sm dark:bg-blue-950/40 dark:text-blue-300">
@@ -8390,7 +8498,7 @@ export function WatchRoom({
                         setMobileExtraMenuOpen(false);
                       }}
                       disabled={!canManageMusic}
-                      aria-label={state.music || myMusicSlot ? translate("common.changeTheRoomSMusic") : translate("common.playMusicInTheRoom")}
+                      aria-label={hasMusic || myMusicSlot ? translate("common.changeTheRoomSMusic") : translate("common.playMusicInTheRoom")}
                       className="flex h-[4.75rem] flex-col items-center justify-center gap-1.5 rounded-xl border border-zinc-200 bg-white p-2 text-zinc-700 shadow-sm transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200"
                     >
                       <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600 dark:bg-emerald-950/70 dark:text-emerald-400">
@@ -8404,7 +8512,7 @@ export function WatchRoom({
                           <span className="text-[9px] font-bold leading-none"><BetaMark /></span>
                         </div>
                         <span className="text-[9px] font-medium leading-none text-zinc-400 dark:text-zinc-500 mt-0.5">
-                          {state.music || myMusicSlot ? translate("watch.watchRoom.playing") : translate("watch.watchRoom.stopped")}
+                          {hasMusic || myMusicSlot ? translate("watch.watchRoom.playing") : translate("watch.watchRoom.stopped")}
                         </span>
                       </div>
                     </button>
@@ -8714,11 +8822,7 @@ export function WatchRoom({
                   >
                     <span className="relative">
                       <MdOutlineChat className="h-5 w-5" />
-                      {unreadChatCount > 0 && (
-                        <span className="absolute -right-2 -top-1.5 min-w-4 rounded-full bg-red-600 px-1 text-center text-[10px] font-bold leading-4 text-white">
-                          {unreadChatCount > 9 ? "9+" : unreadChatCount}
-                        </span>
-                      )}
+                      <ChatUnreadBadge chatOnScreen={chatOnScreen} />
                     </span>
                     <span className="text-[10px] font-medium leading-none truncate max-w-full">{translate("common.chat")}</span>
                   </button>

@@ -121,6 +121,7 @@ export class RelayLink {
   private children = new Map<string, RelayChildState>();
   private quality = new PeerQualityRegistry(`relay:${(relaySeq += 1)}`);
   private stallTimer: ReturnType<typeof setInterval> | null = null;
+  private checkingStall = false;
   private lastBytes = 0;
   private lastMediaAt = 0;
   // The origin's own "O que você está compartilhando" pick — carried over
@@ -506,7 +507,13 @@ export class RelayLink {
     if (this.stallTimer || this.children.size === 0) return;
     this.lastMediaAt = Date.now();
     this.stallTimer = setInterval(() => {
-      void this.checkStall();
+      // One check at a time — at one a second, a slow getStats on a loaded
+      // machine would otherwise stack checks up faster than they finish.
+      if (this.checkingStall) return;
+      this.checkingStall = true;
+      void this.checkStall().finally(() => {
+        this.checkingStall = false;
+      });
     }, STALL_CHECK_MS);
   }
 
@@ -528,7 +535,11 @@ export class RelayLink {
 
     let bytes = 0;
     try {
-      const report = await this.sourcePc.getStats();
+      // Scoped to the incoming video track when there is one: the full
+      // report walks every transport, candidate pair and codec of the
+      // connection, every second, for the one counter read below.
+      const sourceTrack = this.stream.getVideoTracks()[0];
+      const report = await (sourceTrack ? this.sourcePc.getStats(sourceTrack) : this.sourcePc.getStats());
       report.forEach((r) => {
         const rec = r as unknown as Record<string, unknown>;
         if (r.type === "inbound-rtp" && rec.kind === "video") {

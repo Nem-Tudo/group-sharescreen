@@ -31,34 +31,68 @@ export interface NativeFrame extends NativeFrameMeta {
  * mismatched binary can cause — the caller ends the capture.
  */
 export class NativeFrameReader {
-  private buffer = new Uint8Array(0);
+  // The bytes not yet cut into frames, as the pipe delivered them. They used
+  // to be one buffer, rebuilt as leftover + chunk on every chunk — so a
+  // keyframe of a few megabytes arriving in 64 KB pipe reads was copied again
+  // on each of the dozens of reads it took, in the shell's main process, at
+  // the capture's frame rate. Now each byte is copied once, into its frame.
+  private chunks: Uint8Array[] = [];
+  /** Where the unread part of chunks[0] starts. */
+  private head = 0;
+  private total = 0;
+  private readonly header = new Uint8Array(FRAME_HEADER_BYTES);
+  private readonly headerView = new DataView(this.header.buffer);
 
   push(chunk: Uint8Array): NativeFrame[] {
-    const joined = new Uint8Array(this.buffer.length + chunk.length);
-    joined.set(this.buffer, 0);
-    joined.set(chunk, this.buffer.length);
-    const frames: NativeFrame[] = [];
-    let offset = 0;
-    const view = new DataView(joined.buffer, joined.byteOffset, joined.byteLength);
-    while (joined.length - offset >= FRAME_HEADER_BYTES) {
-      if (view.getUint32(offset, true) !== FRAME_MAGIC) throw new Error("native video: bad frame header");
-      const length = view.getUint32(offset + 4, true);
-      if (length > MAX_FRAME_BYTES) throw new Error("native video: frame too large");
-      if (joined.length - offset - FRAME_HEADER_BYTES < length) break;
-      const start = offset + FRAME_HEADER_BYTES;
-      frames.push({
-        key: (view.getUint32(offset + 8, true) & 1) === 1,
-        sequence: view.getUint32(offset + 12, true),
-        width: view.getUint16(offset + 16, true),
-        height: view.getUint16(offset + 18, true),
-        timeMs: view.getUint32(offset + 20, true),
-        // A copy, so the frame does not pin the whole joined buffer.
-        data: joined.slice(start, start + length),
-      });
-      offset = start + length;
+    if (chunk.length > 0) {
+      this.chunks.push(chunk);
+      this.total += chunk.length;
     }
-    this.buffer = joined.slice(offset);
+    const frames: NativeFrame[] = [];
+    const view = this.headerView;
+    while (this.total >= FRAME_HEADER_BYTES) {
+      this.copyOut(this.header, FRAME_HEADER_BYTES, false);
+      if (view.getUint32(0, true) !== FRAME_MAGIC) throw new Error("native video: bad frame header");
+      const length = view.getUint32(4, true);
+      if (length > MAX_FRAME_BYTES) throw new Error("native video: frame too large");
+      if (this.total - FRAME_HEADER_BYTES < length) break;
+      this.copyOut(this.header, FRAME_HEADER_BYTES, true);
+      // Its own buffer, so the frame does not pin the pipe's chunks.
+      const data = new Uint8Array(length);
+      this.copyOut(data, length, true);
+      frames.push({
+        key: (view.getUint32(8, true) & 1) === 1,
+        sequence: view.getUint32(12, true),
+        width: view.getUint16(16, true),
+        height: view.getUint16(18, true),
+        timeMs: view.getUint32(20, true),
+        data,
+      });
+    }
     return frames;
+  }
+
+  // Copies the next `count` bytes into `target`, and drops them from the
+  // queue when `consume` is set. Callers check `total` first.
+  private copyOut(target: Uint8Array, count: number, consume: boolean) {
+    let written = 0;
+    let index = 0;
+    let offset = this.head;
+    while (written < count) {
+      const chunk = this.chunks[index];
+      const take = Math.min(chunk.length - offset, count - written);
+      target.set(chunk.subarray(offset, offset + take), written);
+      written += take;
+      offset += take;
+      if (offset === chunk.length) {
+        index += 1;
+        offset = 0;
+      }
+    }
+    if (!consume) return;
+    if (index > 0) this.chunks.splice(0, index);
+    this.head = offset;
+    this.total -= count;
   }
 }
 

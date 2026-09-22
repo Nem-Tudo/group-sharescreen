@@ -313,6 +313,10 @@
       function render(data) {
         if (!data || !data.toast) return;
         const { toast: info, logo } = data;
+        // A window kept hidden since the last card starts over as a new one:
+        // with the leaving class dropped below, the card's own entrance
+        // animation runs again.
+        if (data.fresh) shownId = null;
         const replacing = shownId !== null;
         shownId = info.id;
         leaving = false;

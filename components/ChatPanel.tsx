@@ -1235,7 +1235,7 @@ export function ChatPanel({
                   className="mt-1 inline-block cursor-pointer rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 transition hover:opacity-90 text-left"
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={m.url} alt="GIF" className="block max-h-40 max-w-full rounded-md object-contain" />
+                  <img src={m.url} alt="GIF" decoding="async" className="block max-h-40 max-w-full rounded-md object-contain" />
                 </button>
               ) : (
                 <>

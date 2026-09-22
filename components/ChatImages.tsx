@@ -63,6 +63,7 @@ export function ChatImages({
           <img
             src={url}
             alt={alt}
+            decoding="async"
             onLoad={onLoad}
             draggable={false}
             className={`block h-auto w-auto min-h-12 min-w-12 max-w-full ${maxHeight} rounded-lg bg-black/5 object-contain dark:bg-white/5 ${

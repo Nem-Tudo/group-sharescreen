@@ -303,6 +303,11 @@ export interface ToastWindowData {
   toast: ToastInfo;
   /** The GoLive mark as a data URL — same reasoning as CallOverlayData.logo. */
   logo: string | null;
+  /**
+   * The window was hidden, kept from an earlier notification (see main's
+   * hideToastWindow): play the entrance, not the "replaced" nudge.
+   */
+  fresh?: boolean;
 }
 
 /** What happened to the notification on screen. */
