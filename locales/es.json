@@ -171,7 +171,7 @@
   "admin.accountFlagsPanel.none": "Ninguna flag activa",
   "admin.accountFlagsPanel.planFlags": "Flags de suscripción y planes",
   "admin.accountFlagsPanel.presetFlags": "Ejemplos / Conocidas",
-  "admin.accountFlagsPanel.proDoesNotAppearHereIt": "PRO no aparece aquí: se deriva de la suscripción activa, no se guarda en la cuenta.",
+  "admin.accountFlagsPanel.proDoesNotAppearHereIt": "PRO, PRO_MAX y PRO_ULTRA no aparecen aquí: se derivan de la suscripción activa, no se guardan en la cuenta.",
   "admin.accountFlagsPanel.statusFlags": "Flags de estado y verificación",
   "admin.accountFlagsPanel.systemFlags": "Flags de sistema y administración",
   "admin.accountFlagsPanel.youCannotTouchValue": "No puedes tocar {value}.",

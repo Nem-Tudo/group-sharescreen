@@ -66,16 +66,6 @@ const SYSTEM_FLAGS: KnownFlagItem[] = [
 
 const PLAN_FLAGS: KnownFlagItem[] = [
   {
-    flag: "PRO_MAX",
-    label: "Pro Max",
-    description: "Nível intermediário Pro (selo dourado e limites ampliados).",
-  },
-  {
-    flag: "PRO_ULTRA",
-    label: "Pro Ultra",
-    description: "Nível superior Pro (selo rubi e máxima fidelidade de transmissão).",
-  },
-  {
     flag: "GIFTER",
     label: "Gifter",
     description: "Concedida a usuários que presenteiam assinaturas na comunidade.",
