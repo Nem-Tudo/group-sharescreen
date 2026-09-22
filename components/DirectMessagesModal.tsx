@@ -61,6 +61,7 @@ import { EmojiSuggestions } from "@/components/EmojiSuggestions";
 import { Twemoji } from "@/components/Twemoji";
 import { QUICK_REACTIONS, ReactionPicker } from "@/components/groups/ReactionPicker";
 import { copyText } from "@/lib/clipboard";
+import { CopyMessageButton } from "@/components/CopyMessageButton";
 import { openContextMenu } from "@/lib/contextMenu";
 import { useMessageGestures } from "@/lib/messageGestures";
 import { useNotifyPrefs } from "@/lib/notifyPrefs";
@@ -614,6 +615,7 @@ const MessageBubble = memo(function MessageBubble({
     bubble.messageId ? (
       <span className={`flex shrink-0 items-center ${rows ? "" : "self-center"}`}>
         {canReact && reactionPicker("actions", className, <MdOutlineAddReaction className={rows ? "h-3.5 w-3.5" : "h-4 w-4"} />)}
+        {bubble.text && <CopyMessageButton text={bubble.text} className={className} />}
         <button
           type="button"
           aria-label={t("common.reply")}

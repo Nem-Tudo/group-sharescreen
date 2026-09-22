@@ -58,6 +58,7 @@ import { QUICK_REACTIONS, ReactionPicker } from "@/components/groups/ReactionPic
 import { ReactionsDialog } from "@/components/groups/ReactionsDialog";
 import { useOpenChannelSettings } from "@/components/groups/ChannelSettingsDialog";
 import { copyText } from "@/lib/clipboard";
+import { CopyMessageButton } from "@/components/CopyMessageButton";
 import { SwipeReplyHint } from "@/components/SwipeReplyHint";
 import { openContextMenu } from "@/lib/contextMenu";
 import { useMessageGestures, type MessageGestures } from "@/lib/messageGestures";
@@ -1654,6 +1655,12 @@ export const TextChannelView = memo(function TextChannelView({
     return (
       <span className="flex shrink-0 items-center">
         {can("addReactions") && reactionPicker(message, "actions", <MdOutlineAddReaction className="h-3.5 w-3.5" />)}
+        {message.text && (
+          <CopyMessageButton
+            text={plainTokens(message.text, (id) => personById.get(id)?.name, (id) => roomById.get(id)?.name)}
+            className={rowAction}
+          />
+        )}
         <button type="button" onClick={() => startReply(message)} aria-label={t("common.reply")} title={t("common.reply")} className={rowAction}>
           <MdReply className="h-3.5 w-3.5" />
         </button>
