@@ -132,6 +132,26 @@ export function verifiedBadge(flags: readonly string[] | undefined | null): Veri
 }
 
 /**
+ * The highest mark this account's *plan* affords, ignoring any BADGE_TONE_*
+ * downgrade it is currently wearing — mirrors the API's
+ * entitlements.ts#maxVerifiedTone.
+ *
+ * verifiedBadge above is deliberately not this: it reads the override too, so
+ * once somebody picks "blue" it starts answering "blue" — which is correct
+ * for drawing their name, but wrong for the settings picker deciding which
+ * options to offer. Asking verifiedBadge there shrank the choice down to just
+ * the one already picked, with no way back to ruby/gold: the ceiling has to
+ * come from the plan alone.
+ */
+export function maxVerifiedTone(flags: readonly string[] | undefined | null): VerifiedTone {
+  if (!flags) return null;
+  if (flags.includes("PRO_ULTRA")) return "ruby";
+  if (flags.includes("PRO_MAX")) return "gold";
+  if (flags.includes("VERIFIED") || flags.includes("PRO")) return "blue";
+  return null;
+}
+
+/**
  * Which tier an option needs and this account has not got, or null when it is
  * not locked at all.
  *

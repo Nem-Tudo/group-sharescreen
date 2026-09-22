@@ -27,7 +27,7 @@ import {
   type AvatarOptions,
   type UsernameChangeAllowance,
 } from "@/lib/accountApi";
-import { hasFeature, verifiedBadge } from "@/lib/entitlements";
+import { hasFeature, maxVerifiedTone, verifiedBadge } from "@/lib/entitlements";
 import { planIcon } from "@/components/planIcons";
 import { DEFAULT_SONG_VOLUME, ProfileSongPlayer } from "@/components/ProfileSongPlayer";
 import { parseYouTubeId } from "@/lib/profileSong";
@@ -953,7 +953,7 @@ function ProfileContent({
   // ruby for Pro Ultra. Only those two have anything to pick between; a Pro
   // (or free) account already wears the one mark it can, so there is nothing
   // to offer it here.
-  const entitledTone = verifiedBadge(authAccount?.flags ?? account.flags);
+  const entitledTone = maxVerifiedTone(authAccount?.flags ?? account.flags);
   const VERIFIED_TONE_OPTIONS: readonly ("ruby" | "gold" | "blue")[] =
     entitledTone === "ruby" ? ["ruby", "gold", "blue"] : entitledTone === "gold" ? ["gold", "blue"] : [];
   // What the badge next to the name draws: the pending choice while there is
@@ -1412,7 +1412,12 @@ function ProfileContent({
               }
             >
               <h1
-                className="flex items-center gap-1.5 truncate text-2xl font-semibold text-zinc-950 dark:text-zinc-50"
+                // Not truncated while the badge picker can show here: a
+                // dashed pill next to the name needs room to sit on its own
+                // line rather than being squeezed into an ellipsis with it.
+                className={`flex flex-wrap items-center gap-1.5 text-2xl font-semibold text-zinc-950 dark:text-zinc-50 ${
+                  isEditing && VERIFIED_TONE_OPTIONS.length > 0 ? "" : "truncate"
+                }`}
                 style={theme ? { color: theme.text, textShadow: theme.textShadow } : undefined}
               >
                 {/* The pending value, not the saved one: closing an editor
@@ -1432,7 +1437,7 @@ function ProfileContent({
                     placement="bottom-start"
                     tooltip={t("userProfileCard.verifiedBadgeTone")}
                     content={
-                      <div className="flex w-48 flex-col gap-0.5 p-1.5">
+                      <div className="flex w-48 flex-col gap-0.5 rounded-xl border border-zinc-200 bg-white p-1.5 shadow-lg dark:border-zinc-800 dark:bg-zinc-950">
                         <p className="px-2 pb-1 pt-0.5 text-[11px] text-zinc-400 dark:text-zinc-600">
                           {t("userProfileCard.verifiedBadgeToneHint")}
                         </p>
@@ -1479,10 +1484,14 @@ function ProfileContent({
                       type="button"
                       onClick={() => setVerifiedTonePickerOpen((open) => !open)}
                       aria-expanded={verifiedTonePickerOpen}
-                      aria-label={t("userProfileCard.verifiedBadgeTone")}
-                      className="shrink-0 cursor-pointer rounded-md p-0.5 text-zinc-400 opacity-70 transition hover:bg-zinc-200/70 hover:text-zinc-800 hover:opacity-100 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                      // Text and all, not just the pencil: a bare icon this
+                      // size sitting right after a 24px badge read as part of
+                      // the decoration rather than as something to press —
+                      // which is exactly why nobody found it.
+                      className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-full border border-dashed border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-500 transition hover:border-solid hover:border-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:border-zinc-600 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
                     >
-                      <MdEdit className="h-3.5 w-3.5" />
+                      <MdEdit className="h-3.5 w-3.5 shrink-0" />
+                      {t("userProfileCard.changeVerifiedBadge")}
                     </button>
                   </Popover>
                 )}
