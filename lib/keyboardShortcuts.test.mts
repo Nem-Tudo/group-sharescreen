@@ -9,7 +9,7 @@ import {
   type ShortcutAction,
 } from "./keyboardShortcuts";
 
-// 1. All 9 actions must exist in DEFAULT_SHORTCUTS and be empty strings by default
+// 1. Every action must exist in DEFAULT_SHORTCUTS and be empty strings by default
 const expectedActions: ShortcutAction[] = [
   "toggleDeafen",
   "toggleMute",
@@ -20,6 +20,7 @@ const expectedActions: ShortcutAction[] = [
   "previousMusic",
   "clipTile",
   "toggleRecordTile",
+  "pushToTalk",
 ];
 
 assert.equal(Object.keys(DEFAULT_SHORTCUTS).length, expectedActions.length);
@@ -27,14 +28,19 @@ for (const action of expectedActions) {
   assert.equal(DEFAULT_SHORTCUTS[action], "", `Default shortcut for ${action} must be empty`);
 }
 
-// 2. All 9 actions must have definitions with id, label, description, and category
+// 2. Every action must have definitions with id, label, description, and category
 assert.equal(SHORTCUT_DEFINITIONS.length, expectedActions.length);
 for (const def of SHORTCUT_DEFINITIONS) {
   assert.ok(expectedActions.includes(def.id));
   assert.ok(def.label.length > 0);
   assert.ok(def.description.length > 0);
   assert.ok(["audio", "video", "music", "clips"].includes(def.category));
-  if (def.category === "audio" || def.category === "clips") {
+  if (def.id === "pushToTalk") {
+    // The one audio exception: the website only sees the key while it has
+    // focus, and push to talk you have to look at the app to use is not one.
+    assert.equal(def.appOnly, true, "Push to talk must be app-only");
+    assert.equal(def.held, true, "Push to talk acts on the key being held");
+  } else if (def.category === "audio" || def.category === "clips") {
     // Clips/recording act on a tile, which exists on the web just the same.
     assert.equal(def.appOnly, false, "Audio and clips shortcuts must be available on web & app");
   } else {
