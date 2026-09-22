@@ -12,6 +12,8 @@ import {
   MdClose,
   MdLock,
   MdLockOpen,
+  MdAudiotrack,
+  MdCheck,
 } from "react-icons/md";
 import { Tooltip } from "@/components/Tooltip";
 import { VolumeSlider } from "@/components/VolumeSlider";
@@ -26,6 +28,12 @@ import { formatMusicTime } from "@/lib/musicSource";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
 import { usePageHidden } from "@/lib/pageHidden";
+import {
+  chooseAudioTrack,
+  queryAudioTracks,
+  useAudioTrackView,
+  type FileAudioTrack,
+} from "@/lib/fileAudioTracks";
 
 // The transport for a local file being played into the room, drawn inside its
 // own tile (see VideoTile's `transport` slot).
@@ -127,6 +135,12 @@ export function LocalMediaControls({
         setVolume(next);
         source.setLocalVolume(next);
       }}
+      // The room default, which is also what this person hears. Each viewer
+      // can pick another for themselves (see RemoteMediaControls).
+      audioTracks={state.audioTracks.length > 1 ? state.audioTracks : undefined}
+      audioTrack={state.audioTrack}
+      audioTrackLabel={t("localMediaControls.audioTrackRoomDefault")}
+      onAudioTrackChange={(index) => source.setAudioTrack(index)}
     />
   );
 }
@@ -179,6 +193,15 @@ export function RemoteMediaControls({
     signalingClient.sendSignal(peerId, { kind: "file-control", channel: file.channel, ...request });
   }
 
+  // The file's audio tracks, when it has several (experiment
+  // "file-audio-tracks" on the broadcaster's side). Asked again whenever the
+  // item changes; the broadcaster also pushes the list on its own when it
+  // changes, so this only covers arriving after that.
+  const trackView = useAudioTrackView(peerId, file.channel);
+  useEffect(() => {
+    queryAudioTracks(peerId, file.channel);
+  }, [peerId, file.channel, file.index, file.name]);
+
   return (
     <Transport
       title={file.name}
@@ -198,6 +221,14 @@ export function RemoteMediaControls({
       setListOpen={setListOpen}
       onAction={send}
       disabled={!canControl}
+      // Anyone may pick their own track, whoever holds the wheel: it changes
+      // what reaches this viewer and nobody else.
+      audioTracks={trackView && trackView.tracks.length > 1 ? trackView.tracks : undefined}
+      audioTrack={trackView?.selected ?? null}
+      defaultAudioTrack={trackView?.defaultIndex ?? null}
+      onAudioTrackChange={(index) =>
+        chooseAudioTrack(peerId, file.channel, index === trackView?.defaultIndex ? null : index)
+      }
     />
   );
 }
@@ -226,6 +257,11 @@ function Transport({
   onControlModeChange,
   volume,
   onVolumeChange,
+  audioTracks,
+  audioTrack = null,
+  defaultAudioTrack = null,
+  audioTrackLabel = translate("localMediaControls.audioTrack"),
+  onAudioTrackChange,
 }: {
   title: string;
   queue: string[] | null;
@@ -250,10 +286,17 @@ function Transport({
   onControlModeChange?: (next: "owner" | "anyone") => void;
   volume?: number;
   onVolumeChange?: (value: number) => void;
+  audioTracks?: FileAudioTrack[];
+  audioTrack?: number | null;
+  defaultAudioTrack?: number | null;
+  audioTrackLabel?: string;
+  onAudioTrackChange?: (index: number) => void;
 }) {
   const t = useT();
   const total = queue?.length ?? count ?? 1;
   const many = total > 1;
+  const [tracksOpen, setTracksOpen] = useState(false);
+  const showTracks = tracksOpen && audioTracks && onAudioTrackChange;
 
   return (
     <div className="flex w-full flex-col text-white">
@@ -275,6 +318,40 @@ function Transport({
                   {itemIndex + 1}
                 </span>
                 <span className="truncate">{name}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* The audio tracks, opening upwards like the queue above. A track the
+          browser cannot decode (AC3, DTS...) is listed, greyed, so it is clear
+          the file has it and why it is not on offer. */}
+      {showTracks && (
+        <ul className="mx-2 mb-1 max-h-40 overflow-y-auto rounded-lg bg-black/70 p-1 backdrop-blur-sm">
+          {audioTracks.map((track) => (
+            <li key={track.index}>
+              <button
+                type="button"
+                disabled={!track.supported}
+                onClick={() => {
+                  onAudioTrackChange(track.index);
+                  setTracksOpen(false);
+                }}
+                className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs transition ${
+                  track.supported ? "hover:bg-white/15" : "cursor-default opacity-45"
+                } ${track.index === audioTrack ? "font-semibold" : ""}`}
+              >
+                <span className="flex w-4 shrink-0 justify-center">
+                  {track.index === audioTrack && <MdCheck className="h-3.5 w-3.5" />}
+                </span>
+                <span className="truncate">{track.label}</span>
+                <span className="ml-auto shrink-0 text-[10px] opacity-70">
+                  {track.supported ? track.detail : `${track.detail} · ${t("localMediaControls.audioTrackUnsupported")}`}
+                  {track.supported && track.index === defaultAudioTrack
+                    ? ` · ${t("localMediaControls.audioTrackDefaultTag")}`
+                    : ""}
+                </span>
               </button>
             </li>
           ))}
@@ -370,6 +447,11 @@ function Transport({
           {queue && many && (
             <ControlButton label={t("localMediaControls.seeTheQueue")} onClick={() => setListOpen((open) => !open)}>
               <MdPlaylistPlay className="h-4 w-4" />
+            </ControlButton>
+          )}
+          {audioTracks && onAudioTrackChange && (
+            <ControlButton label={audioTrackLabel} onClick={() => setTracksOpen((open) => !open)}>
+              <MdAudiotrack className="h-4 w-4" />
             </ControlButton>
           )}
           {/* Only this device's speakers. The room hears the captured track,

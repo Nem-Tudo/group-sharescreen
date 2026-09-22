@@ -3,6 +3,17 @@
 import { readZipEntries, readZipEntryBlob, ZipError } from "./zipReader";
 import { translate } from "@/lib/i18n";
 import { formatLocale } from "@/lib/i18n";
+import { canDemux, openAudioDemuxer, type AudioDemuxer } from "./mediaDemux";
+import { MultiAudioEngine, probeTracks, type ProbedTrack } from "./multiAudioEngine";
+import {
+  describeTrack,
+  FILE_AUDIO_TRACKS_EVENTS,
+  publishAudioTracks,
+  registerAudioTrackOwner,
+  type AudioTrackOwner,
+  type FileAudioTrack,
+} from "./fileAudioTracks";
+import { trackFeatureEvent } from "./features";
 
 // Playing a file from your own disk into the room.
 //
@@ -41,7 +52,19 @@ export type LocalMediaItem = {
   // is broadcast just the same — the canvas below draws its name instead of a
   // black rectangle, so a room listening to an album still sees what is on.
   hasVideo: boolean;
+  // The file itself, for reading its audio tracks (see lib/mediaDemux). The
+  // element plays `url`; this is read lazily, a few bytes at a time.
+  blob: Blob;
 };
+
+// Experiment "file-audio-tracks" (see lib/fileAudioTracks), set by
+// useRoomMedia. Off: every file plays exactly as before, element audio only.
+let audioTracksEnabled = false;
+export function setLocalAudioTracksEnabled(value: boolean) {
+  if (audioTracksEnabled === value) return;
+  audioTracksEnabled = value;
+  for (const source of Object.values(localMediaSources)) source.audioTracksToggled();
+}
 
 type Listener = () => void;
 
@@ -115,7 +138,7 @@ function nextId(): string {
   return `local-${idCounter}`;
 }
 
-class LocalMediaSource {
+class LocalMediaSource implements AudioTrackOwner {
   private listeners = new Set<Listener>();
   private element: HTMLVideoElement | null = null;
   private queue: LocalMediaItem[] = [];
@@ -132,7 +155,171 @@ class LocalMediaSource {
   // someone else's transport show a real position for a file on this machine.
   private onAnnounce: (() => void) | null = null;
 
-  constructor(readonly slot: LocalMediaSlot) {}
+  constructor(readonly slot: LocalMediaSlot) {
+    registerAudioTrackOwner(this);
+  }
+
+  // ─── Audio tracks (experiment "file-audio-tracks") ─────────────────────
+  //
+  // A file with two or more audio tracks gets them decoded by
+  // MultiAudioEngine instead of by the element: each track has an output,
+  // every output feeds a stream destination of its own (the tracks viewers
+  // can be switched to, see lib/fileAudioTracks), and the room default's
+  // output also feeds the main destination and this person's speakers. The
+  // element's own audio is silenced meanwhile (elementGain), since it is
+  // either the same audio or, for an AC3 first track, nothing at all.
+  private audioTracks: FileAudioTrack[] = [];
+  private audioTrack: number | null = null;
+  private probed: { key: string; demuxer: AudioDemuxer; tracks: ProbedTrack[] } | null = null;
+  private probeToken = 0;
+  private engine: MultiAudioEngine | null = null;
+  private elementGain: GainNode | null = null;
+  private trackDestinations = new Map<number, MediaStreamAudioDestinationNode>();
+  private routedDefault: GainNode | null = null;
+
+  audioTrackOffer(): { key: string; tracks: FileAudioTrack[]; defaultIndex: number } | null {
+    if (!this.engine || !this.probed || this.audioTrack === null || this.audioTracks.length < 2) return null;
+    return { key: this.probed.key, tracks: this.audioTracks, defaultIndex: this.audioTrack };
+  }
+
+  outgoingAudioFor(index: number | null): MediaStreamTrack | null {
+    const main = this.audioDestination?.stream.getAudioTracks()[0] ?? null;
+    if (index === null || !this.engine || !this.engine.outputs.has(index)) return main;
+    return this.trackDestination(index)?.stream.getAudioTracks()[0] ?? main;
+  }
+
+  private trackDestination(index: number): MediaStreamAudioDestinationNode | null {
+    const context = this.audioContext;
+    if (!context) return null;
+    let destination = this.trackDestinations.get(index);
+    if (!destination) {
+      destination = context.createMediaStreamDestination();
+      this.trackDestinations.set(index, destination);
+    }
+    return destination;
+  }
+
+  /** Called when the experiment flag flips. */
+  audioTracksToggled() {
+    if (audioTracksEnabled) {
+      void this.probeCurrent();
+      return;
+    }
+    this.stopEngine();
+    this.probeToken += 1;
+    this.probed = null;
+    this.audioTracks = [];
+    this.audioTrack = null;
+    this.refresh();
+  }
+
+  // A different item is loaded: whatever was decoding for the last one goes.
+  private itemChanged() {
+    this.stopEngine();
+    this.probeToken += 1;
+    this.probed = null;
+    this.audioTracks = [];
+    this.audioTrack = null;
+    void this.probeCurrent();
+  }
+
+  private async probeCurrent() {
+    const item = this.current;
+    if (!audioTracksEnabled || !item || !canDemux(item.name) || this.probed?.key === item.id) return;
+    const token = ++this.probeToken;
+    const demuxer = await openAudioDemuxer(item.blob, item.name);
+    if (token !== this.probeToken || !demuxer || demuxer.tracks.length < 2) return;
+    const tracks = await probeTracks(demuxer.tracks);
+    if (token !== this.probeToken) return;
+    this.probed = { key: item.id, demuxer, tracks };
+    this.audioTracks = tracks.map((t) => describeTrack(t.info, t.supported));
+    const supported = tracks.filter((t) => t.supported);
+    const preferred = supported.find((t) => t.info.isDefault) ?? supported[0];
+    this.audioTrack = preferred ? preferred.info.index : null;
+    trackFeatureEvent(FILE_AUDIO_TRACKS_EVENTS.multiTrack, { value: tracks.length });
+    if (supported.length < tracks.length) trackFeatureEvent(FILE_AUDIO_TRACKS_EVENTS.unsupported);
+    this.maybeStartEngine();
+    this.refresh();
+  }
+
+  private maybeStartEngine() {
+    const probed = this.probed;
+    const context = this.audioContext;
+    const element = this.element;
+    if (this.engine || !probed || !context || !element || !this.elementGain) return;
+    if (probed.key !== this.current?.id || this.audioTrack === null) return;
+    const engine = new MultiAudioEngine(element, context, probed.demuxer, probed.tracks, (index) =>
+      this.trackFailed(index)
+    );
+    if (!engine.playable) {
+      engine.dispose();
+      return;
+    }
+    this.engine = engine;
+    this.elementGain.gain.value = 0;
+    for (const [index, out] of engine.outputs) {
+      const destination = this.trackDestination(index);
+      if (destination) out.connect(destination);
+    }
+    this.routeDefault();
+    publishAudioTracks(this.slot);
+  }
+
+  // The room default's output into the main destination and the speakers.
+  private routeDefault() {
+    const previous = this.routedDefault;
+    if (previous) {
+      try {
+        if (this.audioDestination) previous.disconnect(this.audioDestination);
+        if (this.monitorGain) previous.disconnect(this.monitorGain);
+      } catch {
+        // Already disconnected (its engine went away).
+      }
+    }
+    const out = this.audioTrack !== null ? this.engine?.outputs.get(this.audioTrack) : undefined;
+    this.routedDefault = out ?? null;
+    if (!out) return;
+    if (this.audioDestination) out.connect(this.audioDestination);
+    if (this.monitorGain) out.connect(this.monitorGain);
+  }
+
+  private stopEngine() {
+    const engine = this.engine;
+    if (!engine) return;
+    this.engine = null;
+    this.routedDefault = null;
+    engine.dispose();
+    if (this.elementGain) this.elementGain.gain.value = 1;
+    publishAudioTracks(this.slot);
+  }
+
+  // A track whose decoder gave up mid-way: listed as unsupported from now on,
+  // and if it was the default, the next one that works takes over.
+  private trackFailed(index: number) {
+    this.audioTracks = this.audioTracks.map((t) => (t.index === index ? { ...t, supported: false } : t));
+    if (this.audioTrack === index) {
+      const next = this.audioTracks.find((t) => t.supported && this.engine?.outputs.has(t.index));
+      this.audioTrack = next ? next.index : null;
+      if (next) this.routeDefault();
+      else {
+        this.stopEngine();
+        this.refresh();
+        return;
+      }
+    }
+    publishAudioTracks(this.slot);
+    this.refresh();
+  }
+
+  /** The room's default track, which is also the one this person hears. */
+  setAudioTrack(index: number) {
+    if (!this.engine?.outputs.has(index) || this.audioTrack === index) return;
+    this.audioTrack = index;
+    this.routeDefault();
+    trackFeatureEvent(FILE_AUDIO_TRACKS_EVENTS.defaultChange);
+    publishAudioTracks(this.slot);
+    this.refresh();
+  }
 
   // The broadcast plumbing. All of it exists to solve one problem: the
   // obvious approach — HTMLMediaElement.captureStream() — produces tracks
@@ -172,6 +359,8 @@ class LocalMediaSource {
     failed: string | null;
     mode: LocalMediaMode;
     controlMode: LocalMediaControlMode;
+    audioTracks: FileAudioTrack[];
+    audioTrack: number | null;
   } = {
     queue: [],
     index: 0,
@@ -181,6 +370,8 @@ class LocalMediaSource {
     failed: null,
     mode: "video",
     controlMode: "owner",
+    audioTracks: [],
+    audioTrack: null,
   };
 
   getSnapshot = () => this.snapshot;
@@ -195,6 +386,8 @@ class LocalMediaSource {
       failed: this.failed,
       mode: this.mode,
       controlMode: this.controlMode,
+      audioTracks: this.audioTracks,
+      audioTrack: this.audioTrack,
     };
     for (const listener of this.listeners) listener();
   }
@@ -295,12 +488,33 @@ class LocalMediaSource {
     return el;
   }
 
+  // The largest picture any viewer can be sent: the share's resolution dial
+  // (see setMaxSize). Nobody is ever served above it — the per-viewer tiers
+  // are capped by the same dial — so a canvas bigger than this was pure cost:
+  // a 4K film was redrawn at 4K every frame in this tab, then shrunk again by
+  // every viewer's encoder. That is most of what made a big file slow to get
+  // going and heavy to keep playing.
+  private maxWidth = Infinity;
+  private maxHeight = Infinity;
+
+  setMaxSize(width: number, height: number) {
+    if (this.maxWidth === width && this.maxHeight === height) return;
+    this.maxWidth = width;
+    this.maxHeight = height;
+    this.resizeCanvas();
+  }
+
   private resizeCanvas() {
     const el = this.element;
     const canvas = this.canvas;
     if (!el || !canvas) return;
-    const width = el.videoWidth || FALLBACK_WIDTH;
-    const height = el.videoHeight || FALLBACK_HEIGHT;
+    const sourceWidth = el.videoWidth || FALLBACK_WIDTH;
+    const sourceHeight = el.videoHeight || FALLBACK_HEIGHT;
+    // Fitted inside the box, aspect kept, never enlarged. Even numbers: an
+    // odd dimension costs the encoder a padded row or column.
+    const scale = Math.min(1, this.maxWidth / sourceWidth, this.maxHeight / sourceHeight);
+    const width = Math.max(2, Math.round((sourceWidth * scale) / 2) * 2);
+    const height = Math.max(2, Math.round((sourceHeight * scale) / 2) * 2);
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width;
       canvas.height = height;
@@ -392,8 +606,13 @@ class LocalMediaSource {
     const monitor = context.createGain();
     monitor.gain.value = 1;
     this.monitorGain = monitor;
-    sourceNode.connect(destination);
-    sourceNode.connect(monitor);
+    // The element's own audio, silenced while the audio-track engine plays
+    // the file's tracks instead (see maybeStartEngine).
+    const elementGain = context.createGain();
+    this.elementGain = elementGain;
+    sourceNode.connect(elementGain);
+    elementGain.connect(destination);
+    elementGain.connect(monitor);
     monitor.connect(context.destination);
     for (const track of destination.stream.getAudioTracks()) stream.addTrack(track);
 
@@ -413,6 +632,9 @@ class LocalMediaSource {
     }
 
     this.stream = stream;
+    // A multi-track file probed before the share started gets its engine
+    // now that there is a graph to play it into.
+    this.maybeStartEngine();
     return stream;
   }
 
@@ -437,6 +659,7 @@ class LocalMediaSource {
       el.src = items[0].url;
       el.load();
     }
+    this.itemChanged();
     this.refresh();
   }
 
@@ -449,6 +672,7 @@ class LocalMediaSource {
     this.duration = 0;
     el.src = this.queue[index].url;
     el.load();
+    this.itemChanged();
     this.announce();
     try {
       await el.play();
@@ -527,6 +751,12 @@ class LocalMediaSource {
   // again should not mean picking them again — but playback stops and the
   // whole broadcast graph is torn down, since its tracks went with the share.
   release() {
+    // Before the graph goes: its outputs are nodes of the context closed below.
+    // The probe result is kept — the same file on the next share needs no
+    // second reading of its headers.
+    this.stopEngine();
+    this.trackDestinations.clear();
+    this.elementGain = null;
     if (this.drawTimer) {
       clearInterval(this.drawTimer);
       this.drawTimer = null;
@@ -627,6 +857,7 @@ export async function buildLocalMediaQueue(files: File[]): Promise<LocalMediaIte
       name: relativeName(file),
       url: URL.createObjectURL(file),
       hasVideo: VIDEO_EXTENSIONS.includes(extensionOf(file.name)),
+      blob: file,
     });
   }
 
@@ -644,6 +875,7 @@ export async function buildLocalMediaQueue(files: File[]): Promise<LocalMediaIte
         name: entry.name,
         url: URL.createObjectURL(blob),
         hasVideo: VIDEO_EXTENSIONS.includes(extensionOf(entry.name)),
+        blob,
       });
     }
   }

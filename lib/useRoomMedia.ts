@@ -65,9 +65,11 @@ import {
 import {
   localMediaSources,
   LOCAL_MEDIA_SLOTS,
+  setLocalAudioTracksEnabled,
   type LocalMediaSlot,
   type LocalMediaAction,
 } from "./localMediaSource";
+import { FILE_AUDIO_TRACKS_FEATURE, startFileAudioTracks } from "./fileAudioTracks";
 import {
   androidDualCameraSupport,
   AndroidDualCameraError,
@@ -555,14 +557,18 @@ function useLocalFileChannel(
   fpsRef: { current: number }
 ) {
   const t = useT();
+  // The resolution dial caps the picture drawn for the room (see
+  // LocalMediaSource.setMaxSize), live, like it caps a screen share.
+  useEffect(() => {
+    localMediaSources[slot].setMaxSize(quality.width, quality.height);
+  }, [slot, quality.width, quality.height]);
   return useBroadcastChannel(
     slot,
     room,
     // Nothing to request from the OS and no permission prompt: the file is
     // already decoding in an element this page owns, because the picker filled
-    // this slot's queue before this ran. The resolution dials don't apply
-    // either — the stream is whatever the file is, and the per-viewer tiers
-    // still downscale it on the way out like any other channel.
+    // this slot's queue before this ran. The picture is the file's own size,
+    // held to the resolution dial (see the effect above).
     () => localMediaSources[slot].captureStream(fpsRef.current),
     // Whether the element can actually be captured is checked inside
     // captureStream, which is the only place that knows.
@@ -4175,6 +4181,18 @@ export function useRoomMedia(room: string) {
   // latency to conversation, which is far more noticeable than the same delay
   // on video.
   const anyFileActive = LOCAL_MEDIA_SLOTS.some((slot) => fileChannels[slot].active);
+
+  // Experiment "file-audio-tracks": every audio track of a local file, each
+  // viewer picking theirs (see lib/fileAudioTracks). An exposure once a file
+  // is actually being played. The signal handling runs for everyone — a
+  // viewer outside the experiment still gets to pick on a broadcaster inside.
+  const fileAudioTracks = useFeature(FILE_AUDIO_TRACKS_FEATURE, { track: anyFileActive });
+  useEffect(() => {
+    setLocalAudioTracksEnabled(fileAudioTracks.enabled);
+  }, [fileAudioTracks.enabled]);
+  useEffect(() => {
+    startFileAudioTracks();
+  }, []);
 
   // "Todos podem controlar", from the other side. A viewer's transport cannot
   // touch this machine's playback, so it asks: the request rides the ordinary

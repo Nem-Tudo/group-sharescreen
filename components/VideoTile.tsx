@@ -235,10 +235,9 @@ const VideoTileView = memo(function VideoTileView({
   onToggleMicsMuted?: () => void;
   // A strip of controls belonging to whatever is *inside* this tile, drawn
   // just above the name bar — today, the transport for a local file being
-  // played into the room (see LocalMediaControls). Unlike the button cluster
-  // in the corner, it stays visible without a hover: it is the only way to
-  // drive what is playing, and a control you have to go looking for is not
-  // one people find. Dropped in `compact`, where there is no room for it.
+  // played into the room (see LocalMediaControls). Revealed the same way as
+  // the button cluster in the corner (hover, or a tap on touch), so it does
+  // not sit over the picture. Dropped in `compact`, where there is no room.
   transport?: ReactNode;
   // Click in the middle of the picture to pause/resume, the way every video
   // player works. Only passed where there is something a click could pause —
@@ -984,7 +983,14 @@ const VideoTileView = memo(function VideoTileView({
         </div>
       )}
       {transport && !compact && (
-        <div className="absolute inset-x-0 bottom-0 z-10 bg-linear-to-t from-black/90 via-black/80 to-transparent pt-6">
+        // Shown and hidden exactly like the button cluster above: with a mouse,
+        // while it is over the tile (and, in fullscreen, while it keeps
+        // moving); on touch, always outside fullscreen and on a tap inside
+        // it. It used to stay up for good, sitting over the bottom of a film
+        // somebody was trying to watch — worst of all in fullscreen.
+        <div
+          className={`absolute inset-x-0 bottom-0 z-10 bg-linear-to-t from-black/90 via-black/80 to-transparent pt-6 transition-opacity ${overlayVisibilityClass}`}
+        >
           {transport}
         </div>
       )}
