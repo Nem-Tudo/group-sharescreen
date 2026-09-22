@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { ogImage } from "@/lib/seo";
 import { translate } from "@/lib/i18n";
+import { DiscordBotGate } from "./DiscordBotGate";
 import { DiscordBotContent, DESCRIPTION, SITE_URL } from "./DiscordBotContent";
 
 const TITLE = translate("discordBot.goliveBotForDiscordAnAutomatic");
@@ -42,5 +43,9 @@ export const metadata: Metadata = {
 };
 
 export default function Page() {
-  return <DiscordBotContent />;
+  return (
+    <DiscordBotGate>
+      <DiscordBotContent />
+    </DiscordBotGate>
+  );
 }

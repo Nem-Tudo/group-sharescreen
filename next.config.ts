@@ -208,11 +208,7 @@ const nextConfig: NextConfig = {
       { source: "/anuncio/:token", destination: "/ad/:token", permanent: true },
       { source: "/amigos", destination: "/friends", permanent: true },
       { source: "/termos", destination: "/terms", permanent: true },
-      {
-        source: "/bot",
-        destination: "https://discord.com/oauth2/authorize?client_id=1540460243270635600",
-        permanent: true,
-      },
+      // /bot is a page now (app/bot) — the hide-discord-bot experiment 404s it.
       {
         source: "/stats",
         destination: "https://stats.nemtudo.me/public-dashboards/9be4846ec8774ff5888baa7d33862ccc",

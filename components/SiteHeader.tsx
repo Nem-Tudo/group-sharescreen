@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { FaDiscord } from "react-icons/fa";
+import { useDiscordBotHidden } from "@/lib/discordBotHidden";
 import { MdMonitor, MdPalette } from "react-icons/md";
 import { AccountMenu } from "@/components/AccountMenu";
 import { NotificationInboxBell } from "@/components/NotificationInboxBell";
@@ -110,10 +111,11 @@ export function SiteHeader() {
   // already in hand — the Você screen drops the same row for the same reason
   // (see app/me). False until hydration, so the server render still has it.
   const appShell = useIsAppShell();
+  const { show: showBot } = useDiscordBotHidden(true);
 
   // Ahead of the app and the bot, where "Pro" has always sat.
   const secondary: SecondaryItem[] = [SECONDARY[0], proItem, ...SECONDARY.slice(1)].filter(
-    (item) => !(appShell && item.key === "app")
+    (item) => !(appShell && item.key === "app") && !(!showBot && item.key === "bot")
   );
 
   return (

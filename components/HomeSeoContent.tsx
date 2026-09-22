@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useT } from "@/lib/useI18n";
+import { useDiscordBotHidden } from "@/lib/discordBotHidden";
 
 /**
  * The part of the home page that exists for someone who has not arrived yet.
@@ -34,6 +35,7 @@ import { useT } from "@/lib/useI18n";
  */
 export function HomeSeoContent({ className = "" }: { className?: string }) {
   const t = useT();
+  const { show: showBot } = useDiscordBotHidden();
 
   const steps = [
     { title: t("homeSeo.step1Title"), body: t("homeSeo.step1Body") },
@@ -187,11 +189,13 @@ export function HomeSeoContent({ className = "" }: { className?: string }) {
               {t("homeSeo.linkApp")}
             </Link>
           </li>
-          <li>
-            <Link href="/discord-bot" className={linkClass}>
-              {t("homeSeo.linkDiscordBot")}
-            </Link>
-          </li>
+          {showBot && (
+            <li>
+              <Link href="/discord-bot" className={linkClass}>
+                {t("homeSeo.linkDiscordBot")}
+              </Link>
+            </li>
+          )}
           <li>
             <Link href="/pro" className={linkClass}>
               {t("homeSeo.linkPro")}

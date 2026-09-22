@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, type ComponentType, type FormEvent, type ReactNode } from "react";
 import { BsCoin } from "react-icons/bs";
 import { FaDiscord } from "react-icons/fa";
+import { useDiscordBotHidden } from "@/lib/discordBotHidden";
 import {
   MdAdminPanelSettings,
   MdAutoAwesome,
@@ -84,6 +85,7 @@ const secondaryButton =
 
 export function MeScreen() {
   const t = useT();
+  const { show: showBot } = useDiscordBotHidden();
   const state = useSignalingSelector(selectAccountMenu, shallow);
   const { account, points, logout } = useAuth();
   const pro = useProOffer();
@@ -310,7 +312,7 @@ export function MeScreen() {
         {/* The desktop app's page is about a program for a computer: worth
             finding from a phone's browser, pointless from inside the app. */}
         {!appShell && <Row href="/app" icon={MdMonitor} label={t("common.desktopApp")} />}
-        <Row href="/discord-bot" icon={FaDiscord} label={t("common.discordBot")} />
+        {showBot && <Row href="/discord-bot" icon={FaDiscord} label={t("common.discordBot")} />}
         <Row href="/terms" icon={MdDescription} label={t("common.termsOfUse")} />
       </Section>
 
