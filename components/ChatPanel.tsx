@@ -39,6 +39,7 @@ import { MessageAttachments } from "@/components/MessageAttachments";
 import { InviteEmbeds } from "@/components/groups/InviteEmbed";
 import { Markdown } from "@/components/Markdown";
 import { MessageEmbeds } from "@/components/MessageEmbeds";
+import { CopyMessageButton } from "@/components/CopyMessageButton";
 import { stripMarkdown } from "@/lib/markdown";
 import { ChatImages } from "@/components/ChatImages";
 import { attachmentsPreview } from "@/lib/chatAttachments";
@@ -1199,21 +1200,27 @@ export function ChatPanel({
                   </span>
                 </span>
               </div>
-              {canReply && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handlers.startReply(m);
-                  }}
-                  aria-label={t("chatPanel.replyToName", { name: m.name })}
-                  title={t("common.reply")}
+              <div className="flex shrink-0 items-center gap-0.5">
+                <CopyMessageButton
+                  text={m.text}
                   className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-400 opacity-100 transition hover:bg-zinc-200/70 hover:text-zinc-800 focus:opacity-100 active:scale-95 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 sm:group-focus-within:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-                >
-                  <MdReply className="h-3.5 w-3.5" />
-                  <span className="text-[11px] font-medium sm:hidden">{t("common.reply")}</span>
-                </button>
-              )}
+                />
+                {canReply && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handlers.startReply(m);
+                    }}
+                    aria-label={t("chatPanel.replyToName", { name: m.name })}
+                    title={t("common.reply")}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-400 opacity-100 transition hover:bg-zinc-200/70 hover:text-zinc-800 focus:opacity-100 active:scale-95 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 sm:group-focus-within:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                  >
+                    <MdReply className="h-3.5 w-3.5" />
+                    <span className="text-[11px] font-medium sm:hidden">{t("common.reply")}</span>
+                  </button>
+                )}
+              </div>
             </div>
           )}
           <div className={grouped ? "flex items-start justify-between gap-1.5" : ""}>
@@ -1243,7 +1250,7 @@ export function ChatPanel({
                       can be a caption with its pictures under it. Empty
                       text draws nothing rather than an empty line. */}
                   {m.text.trim() && (
-                    <div className="break-words text-zinc-800 dark:text-zinc-200">
+                    <div className="select-text break-words text-zinc-800 dark:text-zinc-200">
                       <Markdown
                         text={m.text}
                         compact
@@ -1285,20 +1292,28 @@ export function ChatPanel({
                 </>
               )}
             </div>
-            {grouped && canReply && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handlers.startReply(m);
-                }}
-                aria-label={t("chatPanel.replyToName", { name: m.name })}
-                title={t("common.reply")}
-                className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-400 opacity-100 transition hover:bg-zinc-200/70 hover:text-zinc-800 focus:opacity-100 active:scale-95 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 sm:group-focus-within:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-              >
-                <MdReply className="h-3.5 w-3.5" />
-                <span className="text-[11px] font-medium sm:hidden">{t("common.reply")}</span>
-              </button>
+            {grouped && (
+              <div className="flex shrink-0 items-center gap-0.5">
+                <CopyMessageButton
+                  text={m.text}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-400 opacity-100 transition hover:bg-zinc-200/70 hover:text-zinc-800 focus:opacity-100 active:scale-95 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 sm:group-focus-within:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                />
+                {canReply && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handlers.startReply(m);
+                    }}
+                    aria-label={t("chatPanel.replyToName", { name: m.name })}
+                    title={t("common.reply")}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-400 opacity-100 transition hover:bg-zinc-200/70 hover:text-zinc-800 focus:opacity-100 active:scale-95 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 sm:group-focus-within:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                  >
+                    <MdReply className="h-3.5 w-3.5" />
+                    <span className="text-[11px] font-medium sm:hidden">{t("common.reply")}</span>
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>
