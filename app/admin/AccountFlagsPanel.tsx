@@ -64,14 +64,6 @@ const SYSTEM_FLAGS: KnownFlagItem[] = [
   },
 ];
 
-const PLAN_FLAGS: KnownFlagItem[] = [
-  {
-    flag: "GIFTER",
-    label: "Gifter",
-    description: "Concedida a usuários que presenteiam assinaturas na comunidade.",
-  },
-];
-
 const STATUS_FLAGS: KnownFlagItem[] = [
   {
     flag: "VERIFIED",
@@ -81,6 +73,11 @@ const STATUS_FLAGS: KnownFlagItem[] = [
 ];
 
 const FEATURE_FLAGS: KnownFlagItem[] = [
+  {
+    flag: "GIFTER",
+    label: "Gifter",
+    description: "Concedida a usuários que presenteiam assinaturas na comunidade.",
+  },
   {
     flag: "THEME_BANNED",
     label: "Banido de Temas",
@@ -188,9 +185,10 @@ export function AccountFlagsPanel() {
     }
   }
 
-  // Add any custom badge flags from catalog
+  // Add any custom badge flags from catalog (excludes plan-derived badges,
+  // never stored on the account: PRO, PRO_MAX, PRO_ULTRA)
   for (const [f, item] of badgeMap.entries()) {
-    if (f !== "PRO" && !seenBadgeFlags.has(f)) {
+    if (f !== "PRO" && f !== "PRO_MAX" && f !== "PRO_ULTRA" && !seenBadgeFlags.has(f)) {
       seenBadgeFlags.add(f);
       selectableBadgeFlags.push(item);
     }
@@ -559,19 +557,7 @@ export function AccountFlagsPanel() {
                   )}
                 </div>
 
-                {/* 3. SEÇÃO DE FLAGS DE ASSINATURA E PLANOS */}
-                <div className="border-t border-zinc-100 pt-3 dark:border-zinc-800/60">
-                  <div className="mb-2">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
-                      {t("admin.accountFlagsPanel.planFlags")}
-                    </h3>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {PLAN_FLAGS.map((item) => renderPresetButton(item))}
-                  </div>
-                </div>
-
-                {/* 4. SEÇÃO DE FLAGS DE STATUS E VERIFICAÇÃO */}
+                {/* 3. SEÇÃO DE FLAGS DE STATUS E VERIFICAÇÃO */}
                 <div className="border-t border-zinc-100 pt-3 dark:border-zinc-800/60">
                   <div className="mb-2">
                     <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
@@ -583,7 +569,7 @@ export function AccountFlagsPanel() {
                   </div>
                 </div>
 
-                {/* 5. SEÇÃO DE FLAGS DE RECURSOS E MODERAÇÃO */}
+                {/* 4. SEÇÃO DE FLAGS DE RECURSOS E MODERAÇÃO */}
                 <div className="border-t border-zinc-100 pt-3 dark:border-zinc-800/60">
                   <div className="mb-2">
                     <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
@@ -595,7 +581,7 @@ export function AccountFlagsPanel() {
                   </div>
                 </div>
 
-                {/* 6. ADICIONAR FLAG PERSONALIZADA / ALEATÓRIA */}
+                {/* 5. ADICIONAR FLAG PERSONALIZADA / ALEATÓRIA */}
                 <div className="border-t border-zinc-100 pt-3 dark:border-zinc-800/60">
                   <label
                     htmlFor="custom-flag-input"
@@ -634,7 +620,7 @@ export function AccountFlagsPanel() {
                   </div>
                 </div>
 
-                {/* 7. EDIÇÃO MANUAL (CSV) */}
+                {/* 6. EDIÇÃO MANUAL (CSV) */}
                 <div className="border-t border-zinc-100 pt-3 dark:border-zinc-800/60">
                   <label
                     htmlFor="flags-value"
