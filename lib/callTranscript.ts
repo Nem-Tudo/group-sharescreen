@@ -60,7 +60,7 @@ export const DEFAULT_TRANSCRIPT_SETTINGS: TranscriptSettings = {
   includeMyVoice: true,
   includeScreenAudio: false,
   separateFiles: false,
-  timestamps: "relative",
+  timestamps: "clock",
   formats: { srt: false, vtt: false, json: false, md: false },
   mergeLines: true,
   vocabulary: "",

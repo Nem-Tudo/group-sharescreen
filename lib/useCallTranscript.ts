@@ -22,6 +22,11 @@ import { downloadBlob } from "./useCallRecording";
 // that recording's zip, under transcripts/.
 
 export const CALL_TRANSCRIPT_FEATURE = "room-call-transcript";
+// Transcription without Pro Max, for whoever is in this one: the button shows
+// up for them (even outside the experiment above), nothing says "Pro Max",
+// and the /pro page stops listing it. The API decides it from the same
+// rollout (see its transcribeRoutes.ts), with a smaller daily budget.
+export const CALL_TRANSCRIPT_FREE_FEATURE = "room-call-transcript-free";
 
 // Every name has to be listed in the feature's "site events" to count.
 export const CALL_TRANSCRIPT_EVENTS = {

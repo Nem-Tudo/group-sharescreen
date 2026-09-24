@@ -3,7 +3,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import Tippy from "@tippyjs/react";
-import { MdClose, MdFiberManualRecord, MdMic, MdScreenShare, MdStop, MdVideocam } from "react-icons/md";
+import { MdClose, MdFiberManualRecord, MdHelpOutline, MdMic, MdScreenShare, MdStop, MdVideocam } from "react-icons/md";
+import { Tooltip } from "@/components/Tooltip";
 import { BetaMark } from "@/components/BetaMark";
 import { markFeatureUsed } from "@/components/NewBadge";
 import { formatDuration } from "@/components/RecordingModal";
@@ -266,8 +267,10 @@ export function CallRecordingModal({
   recording: ReturnType<typeof useCallRecording>;
   // "Transcrever também" — only for those in the transcript experiment.
   transcript?: {
-    // Pro Max.
+    // Pro Max, or the free experiment.
     allowed: boolean;
+    // Through the free experiment: nothing says "Pro Max".
+    free?: boolean;
     // A transcript already going on its own: the recording takes its text.
     running: boolean;
     start: () => void;
@@ -456,7 +459,24 @@ export function CallRecordingModal({
           {transcript && (
             <Switch
               label={t("callRecording.transcribe")}
-              extra={<ProMaxChip />}
+              extra={
+                <>
+                  {/* What a transcript is, on hover — the word alone is not
+                      one everybody knows. */}
+                  <Tooltip content={t("callRecording.transcribeWhat")} placement="top">
+                    <span
+                      role="img"
+                      aria-label={t("callRecording.transcribeWhat")}
+                      tabIndex={0}
+                      onClick={(e) => e.stopPropagation()}
+                      className="inline-flex cursor-help text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+                    >
+                      <MdHelpOutline className="h-4 w-4" />
+                    </span>
+                  </Tooltip>
+                  {!transcript.free && <ProMaxChip />}
+                </>
+              }
               hint={
                 <>
                   {!transcript.allowed

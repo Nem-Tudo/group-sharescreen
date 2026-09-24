@@ -207,10 +207,11 @@ import { trackFeatureEvent, useFeature } from "@/lib/features";
 import type { CallSource } from "@/lib/callRecording";
 import { CALL_RECORDING_FEATURE, trackCallRecordingOpen, useCallRecording } from "@/lib/useCallRecording";
 import { CallRecordButton, CallRecordingModal } from "@/components/CallRecordingModal";
-import { LiveCaptions, TranscriptModal } from "@/components/TranscriptModal";
+import { LiveCaptions, TranscriptButton, TranscriptModal } from "@/components/TranscriptModal";
 import {
   CALL_TRANSCRIPT_EVENTS,
   CALL_TRANSCRIPT_FEATURE,
+  CALL_TRANSCRIPT_FREE_FEATURE,
   trackTranscript,
   useCallTranscript,
 } from "@/lib/useCallTranscript";
@@ -2003,7 +2004,16 @@ function WatchRoomView({
   // "Transcrição" (lib/useCallTranscript): its button is in "⋯", so its tip
   // joins that menu's queue below. Exposure counted here, once per room.
   const callTranscriptFeature = useFeature(CALL_TRANSCRIPT_FEATURE, { track: true });
-  const callTranscriptTip = useTileExperimentTip("callTranscript", callTranscriptFeature.enabled);
+  // Transcription without Pro Max (lib/useCallTranscript). Counted here too:
+  // for these people the button is where it shows up.
+  const callTranscriptFree = useFeature(CALL_TRANSCRIPT_FREE_FEATURE, { track: true }).enabled;
+  // From lg up the button is in the account card and the tip sits on it;
+  // below that the button is in "⋯", so the tip joins that menu's queue.
+  const isWideLayoutForTip = useMediaQuery(LG_BREAKPOINT_QUERY);
+  const callTranscriptTip = useTileExperimentTip(
+    "callTranscript",
+    callTranscriptFeature.enabled || callTranscriptFree,
+  );
   // How *we* asked the room to show each of our own transmissions, by
   // broadcast channel ("screen", "camera", "screen2", "file1", ...). Kept
   // here rather than in the tile because the server forgets it on every join
@@ -2047,7 +2057,7 @@ function WatchRoomView({
       ? { ...recordingTip, text: "watch.watchRoom.recordingModeTip" }
       : orientationTip.show
         ? { ...orientationTip, text: "watch.watchRoom.orientationTip" }
-        : callTranscriptTip.show
+        : callTranscriptTip.show && !isWideLayoutForTip
           ? { ...callTranscriptTip, text: "watch.watchRoom.callTranscriptTip" }
           : null;
   // Picks which shell that panel gets: a popover anchored to the button from
@@ -3783,7 +3793,7 @@ function WatchRoomView({
   // into the recording's zip, under transcripts/). Pro Max, which the API is
   // what enforces; this only decides what to offer.
   const callTranscript = useCallTranscript(callSources);
-  const canTranscribe = hasFeature("call_transcript", account?.features ?? []);
+  const canTranscribe = hasFeature("call_transcript", account?.features ?? []) || (callTranscriptFree && Boolean(account));
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const openTranscript = () => {
     if (callTranscript.status === "idle") {
@@ -3791,7 +3801,8 @@ function WatchRoomView({
     }
     setTranscriptOpen(true);
   };
-  const showTranscript = callTranscriptFeature.enabled || callTranscript.status !== "idle";
+  const showTranscript =
+    callTranscriptFeature.enabled || callTranscriptFree || callTranscript.status !== "idle";
   const callRecording = useCallRecording(
     callSources,
     {
@@ -6122,9 +6133,10 @@ function WatchRoomView({
       )}
 
       {/* "Transcrição" (lib/useCallTranscript): its own modal, like the
-          shortcuts above. Shown to the experiment — and to whoever is
+          shortcuts above. Below lg only — from lg up it is a button in the
+          account card. Shown to the experiment, and to whoever is
           transcribing if it is switched off under them, so "parar" stays. */}
-      {showTranscript && (
+      {showTranscript && !isWideLayout && (
         <button
           type="button"
           onClick={() => {
@@ -6144,6 +6156,23 @@ function WatchRoomView({
             <NewBadge id={CALL_TRANSCRIPT_FEATURE} />
           )}
         </button>
+      )}
+
+      {/* "Modo Streamer", which used to be a button in the account card
+          (desktop). Below lg the pull-up menu already has it as a tile. */}
+      {isWideLayout && canUseStreamerMode && (
+        <MenuToggleRow
+          label={translate("common.streamerMode")}
+          active={streamerMode}
+          onToggle={toggleStreamerMode}
+          activeIcon={<ObsSourceIcon className="h-4 w-4" />}
+          inactiveIcon={<ObsSourceIcon className="h-4 w-4" />}
+          hint={
+            streamerMode
+              ? translate("roomAccountCard.streamerModeOnRoomCodeHidden")
+              : translate("roomAccountCard.turnOnStreamerModeHidesThe")
+          }
+        />
       )}
 
       <div className="my-2 border-t border-zinc-200 dark:border-zinc-800" />
@@ -7274,12 +7303,10 @@ function WatchRoomView({
       <RoomAccountCard
         onCreateAccount={() => setAccountModal("create")}
         onOpenProfile={setProfileUserId}
-        canUseStreamerMode={canUseStreamerMode}
-        streamerMode={streamerMode}
-        onToggleStreamerMode={toggleStreamerMode}
-        callRecordButton={
-          showCallRecording ? (
+        actions={[
+          showCallRecording && (
             <CallRecordButton
+              key="record"
               variant="card"
               status={callRecording.status}
               startedAt={callRecording.startedAt}
@@ -7287,8 +7314,19 @@ function WatchRoomView({
               badge={<NewBadge id={CALL_RECORDING_FEATURE} />}
               tip={callRecordingTip}
             />
-          ) : undefined
-        }
+          ),
+          // Where "Modo Streamer" was (it is in "⋯" now).
+          showTranscript && (
+            <TranscriptButton
+              key="transcript"
+              status={callTranscript.status}
+              startedAt={callTranscript.startedAt}
+              onClick={openTranscript}
+              badge={<NewBadge id={CALL_TRANSCRIPT_FEATURE} />}
+              tip={callTranscriptTip}
+            />
+          ),
+        ].filter(Boolean)}
       />
     </>
   );
@@ -9095,6 +9133,7 @@ function WatchRoomView({
           showTranscript
             ? {
                 allowed: canTranscribe,
+                free: callTranscriptFree,
                 running: callTranscript.status !== "idle",
                 start: () => void callTranscript.start("recording"),
                 openSettings: () => {
@@ -9111,6 +9150,7 @@ function WatchRoomView({
         sources={callSources}
         transcript={callTranscript}
         allowed={canTranscribe}
+        free={callTranscriptFree}
       />
       {callTranscript.status === "running" && callTranscript.settings.liveCaptions && (
         <LiveCaptions entries={callTranscript.entries} translated={callTranscript.settings.translateTo !== "none"} />

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import Tippy from "@tippyjs/react";
 import Link from "next/link";
 import { MdClose, MdContentCopy, MdLock, MdStop, MdSubtitles } from "react-icons/md";
 import { BetaMark } from "@/components/BetaMark";
@@ -117,13 +118,16 @@ export function TranscriptModal({
   sources,
   transcript,
   allowed,
+  free = false,
 }: {
   open: boolean;
   onClose: () => void;
   sources: CallSource[];
   transcript: CallTranscriptState;
-  // Pro Max (the "call_transcript" entitlement).
+  // Pro Max (the "call_transcript" entitlement), or the free experiment.
   allowed: boolean;
+  // Through the free experiment: nothing says "Pro Max".
+  free?: boolean;
 }) {
   const t = useT();
   const [now, setNow] = useState(() => Date.now());
@@ -202,7 +206,16 @@ export function TranscriptModal({
   );
 
   let body: ReactNode;
-  if (!allowed) {
+  if (!allowed && free) {
+    // Free for them, but it still needs an account (the API's budget is per
+    // account) — a guest is told that, not sold a plan.
+    body = (
+      <div className="flex flex-col items-center gap-3 px-2 py-8 text-center">
+        <MdLock className="h-8 w-8 text-zinc-400" />
+        <p className="text-sm text-zinc-600 dark:text-zinc-300">{t("callTranscript.errorAccount")}</p>
+      </div>
+    );
+  } else if (!allowed) {
     body = (
       <div className="flex flex-col items-center gap-3 px-2 py-6 text-center">
         <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-100 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400">
@@ -439,7 +452,7 @@ export function TranscriptModal({
             <span className="text-[10px] font-bold leading-none">
               <BetaMark />
             </span>
-            <ProMaxChip />
+            {!free && <ProMaxChip />}
           </span>
           <button
             type="button"
@@ -567,5 +580,97 @@ export function LiveCaptions({ entries, translated }: { entries: TranscriptEntry
         ))}
       </div>
     </div>
+  );
+}
+
+/**
+ * "Transcrição" in the account card (desktop), beside "Gravar chamada" —
+ * quiet while idle, solid violet while it runs. Below lg it is a row in the
+ * room's "⋯" menu instead.
+ */
+export function TranscriptButton({
+  status,
+  startedAt,
+  onClick,
+  badge,
+  tip,
+}: {
+  status: CallTranscriptState["status"];
+  startedAt: number | null;
+  onClick: () => void;
+  badge?: ReactNode;
+  // The blue "novo" tip (see useTileExperimentTip), pinned over this button.
+  tip?: { show: boolean; dismiss: () => void; clicked: () => void };
+}) {
+  const t = useT();
+  const [now, setNow] = useState(() => Date.now());
+  const live = status !== "idle";
+  useEffect(() => {
+    if (status !== "running") return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [status]);
+  const text =
+    status === "running"
+      ? formatDuration(startedAt ? now - startedAt : 0)
+      : status === "finishing"
+        ? t("callRecording.exporting")
+        : status === "starting"
+          ? t("callRecording.starting")
+          : t("callTranscript.title");
+  return (
+    <Tippy
+      visible={Boolean(tip?.show)}
+      placement="top"
+      interactive
+      theme="golive-panel"
+      appendTo={() => document.body}
+      content={
+        <span
+          role="status"
+          className="relative block w-60 rounded-lg bg-blue-600 px-3 py-2 text-left text-xs font-medium text-white shadow-lg"
+        >
+          <span className="absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
+          <span className="flex items-start gap-2">
+            <span className="flex-1">{t("watch.watchRoom.callTranscriptTip")}</span>
+            <button
+              type="button"
+              onClick={tip?.dismiss}
+              aria-label={t("watch.watchRoom.clipsModeTipDismiss")}
+              className="-m-1 rounded p-1 leading-none text-white/80 hover:text-white"
+            >
+              ✕
+            </button>
+          </span>
+        </span>
+      }
+    >
+      <span className="flex w-full min-w-0">
+        <button
+          type="button"
+          onClick={() => {
+            if (tip?.show) tip.clicked();
+            onClick();
+          }}
+          aria-label={t("callTranscript.title")}
+          className={`flex w-full min-w-0 items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition [@media(max-height:52rem)]:py-1.5 ${
+            live
+              ? "border-violet-600 bg-violet-600 text-white shadow-sm shadow-violet-500/25 hover:bg-violet-700"
+              : "border-zinc-200 bg-zinc-50 text-violet-600 hover:border-violet-300 hover:bg-violet-50 dark:border-zinc-800 dark:bg-zinc-900/70 dark:text-violet-400 dark:hover:border-violet-800 dark:hover:bg-violet-950/40"
+          }`}
+        >
+          {live ? (
+            <span className="relative flex h-2 w-2 shrink-0">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-white" />
+            </span>
+          ) : (
+            <MdSubtitles className="h-4 w-4 shrink-0" />
+          )}
+          <span className="truncate tabular-nums">{text}</span>
+          {!live && badge}
+        </button>
+      </span>
+    </Tippy>
   );
 }

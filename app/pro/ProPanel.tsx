@@ -49,6 +49,7 @@ import {
 } from "@/lib/premiumApi";
 import { useT } from "@/lib/useI18n";
 import { trackFeatureEvent, useFeature } from "@/lib/features";
+import { CALL_TRANSCRIPT_FREE_FEATURE } from "@/lib/useCallTranscript";
 import { PlanComparison, PRO_COMPARE_BUY_TOP, PRO_COMPARE_FEATURE, type ComparisonRow } from "./PlanComparison";
 import { translate } from "@/lib/i18n";
 import { formatLocale } from "@/lib/i18n";
@@ -322,6 +323,8 @@ export function ProPanel({
   // see them (see lib/groupAura and lib/customEmoji).
   const auraPerk = useFeature(GROUP_AURA_FEATURE, { track: false }).enabled;
   const emojiPerk = useFeature(CUSTOM_EMOJI_FEATURE, { track: false }).enabled;
+  // Free for this person (see lib/useCallTranscript): not something to sell them.
+  const transcriptFree = useFeature(CALL_TRANSCRIPT_FREE_FEATURE, { track: false }).enabled;
   const compareLayout = compare.enabled && plans.length > 1;
   // The "buy-top" treatment: the price and checkout card above the table.
   const buyOnTop = compare.variant === PRO_COMPARE_BUY_TOP;
@@ -482,8 +485,10 @@ export function ProPanel({
   // after them moved when you switched plans, and the points rows moved most
   // of all. A single order means a benefit sits at the same height on every
   // card, which is what makes two cards comparable at a glance.
-  const sellableFeatures = (Object.keys(FEATURE_LABELS) as Feature[]).filter((feature) =>
-    plans.some((entry) => entry.features.includes(feature))
+  const sellableFeatures = (Object.keys(FEATURE_LABELS) as Feature[]).filter(
+    (feature) =>
+      plans.some((entry) => entry.features.includes(feature)) &&
+      !(feature === "call_transcript" && transcriptFree)
   );
 
   // Where the points rows sit: directly under this benefit, on every plan.

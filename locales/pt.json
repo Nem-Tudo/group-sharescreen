@@ -4209,5 +4209,6 @@
   "callTranscript.fileParticipants": "Participantes",
   "watch.watchRoom.callBeingTranscribedBy": "A chamada está sendo transcrita por {names}",
   "watch.watchRoom.callTranscriptTip": "Novo: transcreva a chamada — o texto de tudo que foi falado, com tradução e resumo por IA.",
-  "pro.proPanel.transcribeYourCalls": "Transcrição das chamadas, com tradução e resumo por IA"
+  "pro.proPanel.transcribeYourCalls": "Transcrição das chamadas, com tradução e resumo por IA",
+  "callRecording.transcribeWhat": "Transcrição é o texto de tudo que foi falado na chamada, com o nome de quem falou e o horário de cada fala. Dá para traduzir, gerar um resumo com IA e baixar como legenda (SRT/VTT)."
 }

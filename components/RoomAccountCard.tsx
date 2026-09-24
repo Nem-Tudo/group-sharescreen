@@ -10,7 +10,6 @@ import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
 import { selectAccountName } from "@/lib/signalingSelectors";
 import { trackEvent } from "@/lib/analytics";
 import { Tooltip } from "@/components/Tooltip";
-import { ObsSourceIcon } from "@/components/icons";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { BetaMark } from "@/components/BetaMark";
 import { DEFAULT_AVATAR_PATH } from "@/components/UserAvatar";
@@ -42,22 +41,15 @@ import { avatarShapeClass } from "@/lib/avatarShape";
 export function RoomAccountCard({
   onCreateAccount,
   onOpenProfile,
-  canUseStreamerMode,
-  streamerMode,
-  onToggleStreamerMode,
-  callRecordButton,
+  actions,
 }: {
   onCreateAccount: () => void;
   // Open your own profile in the room's dialog. Absent where there is no
   // dialog to open it in, which keeps the new-tab link as the fallback rather
   // than making the card unclickable.
   onOpenProfile?: (userId: string) => void;
-  canUseStreamerMode?: boolean;
-  streamerMode?: boolean;
-  onToggleStreamerMode?: () => void;
-  // "Gravar chamada" (see components/CallRecordingModal): to the left of
-  // "Modo Streamer", half the row each. Alone it takes the whole row.
-  callRecordButton?: ReactNode;
+  // Buttons in one row under the points, half the width each when two.
+  actions?: ReactNode[];
 }) {
   const t = useT();
   const state = useSignalingSelector(selectAccountName, shallow);
@@ -218,58 +210,17 @@ export function RoomAccountCard({
         </Tooltip>
       </div>
 
-      {/* Streamer Mode button for room managers with an account, with "Gravar
-          chamada" to its left when that is on. */}
-      {((canUseStreamerMode && onToggleStreamerMode) || callRecordButton) && (
-      <div className="mt-2 flex gap-2 [@media(max-height:52rem)]:mt-1.5">
-      {callRecordButton && <div className="flex min-w-0 flex-1 basis-0">{callRecordButton}</div>}
-      {canUseStreamerMode && onToggleStreamerMode && (
-        <Tooltip
-          content={
-            streamerMode
-              ? t("roomAccountCard.streamerModeOnRoomCodeHidden")
-              : t("roomAccountCard.turnOnStreamerModeHidesThe")
-          }
-          placement="top"
-          wrapperClassName="flex min-w-0 flex-1 basis-0"
-        >
-          <button
-            type="button"
-            onClick={onToggleStreamerMode}
-            aria-label={streamerMode ? t("roomAccountCard.turnOffStreamerMode") : t("roomAccountCard.turnOnStreamerMode")}
-            className={`flex w-full min-w-0 items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs font-medium transition [@media(max-height:52rem)]:py-1.5 ${
-              streamerMode
-                ? "border-purple-500 bg-purple-600 text-white shadow-sm shadow-purple-500/25 hover:bg-purple-700"
-                : "border-zinc-200 bg-zinc-50 text-zinc-700 hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700 dark:border-zinc-800 dark:bg-zinc-900/70 dark:text-zinc-300 dark:hover:border-purple-700 dark:hover:bg-purple-950/40 dark:hover:text-purple-300"
-            }`}
-          >
-            <div className="flex min-w-0 items-center gap-2">
-              <ObsSourceIcon className="h-4 w-4 shrink-0" />
-              <span className="truncate font-semibold">{t("common.streamerMode")}</span>
+      {/* The room's call tools ("Gravar chamada", "Transcrição"), side by
+          side, equal widths. "Modo Streamer" used to sit here; it is in the
+          room's "⋯" menu now. */}
+      {actions && actions.length > 0 && (
+        <div className="mt-2 flex gap-2 [@media(max-height:52rem)]:mt-1.5">
+          {actions.map((action, i) => (
+            <div key={i} className="flex min-w-0 flex-1 basis-0">
+              {action}
             </div>
-            <div className="flex shrink-0 items-center gap-1.5">
-              {/* At half width the word would push the name out; the dot
-                  still says it is on. */}
-              <span
-                className={`${callRecordButton ? "hidden" : ""} rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
-                  streamerMode
-                    ? "bg-white/20 text-white"
-                    : "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
-                }`}
-              >
-                {streamerMode ? t("roomAccountCard.active") : t("common.off")}
-              </span>
-              {streamerMode && (
-                <span className="relative flex h-2 w-2 shrink-0">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-white" />
-                </span>
-              )}
-            </div>
-          </button>
-        </Tooltip>
-      )}
-      </div>
+          ))}
+        </div>
       )}
 
       {/* Guests only. The offer belongs next to the thing it protects — the

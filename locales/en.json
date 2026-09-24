@@ -4209,5 +4209,6 @@
   "callTranscript.fileParticipants": "Participants",
   "watch.watchRoom.callBeingTranscribedBy": "The call is being transcribed by {names}",
   "watch.watchRoom.callTranscriptTip": "New: transcribe the call — the text of everything said, with translation and an AI summary.",
-  "pro.proPanel.transcribeYourCalls": "Call transcripts, with translation and an AI summary"
+  "pro.proPanel.transcribeYourCalls": "Call transcripts, with translation and an AI summary",
+  "callRecording.transcribeWhat": "A transcript is the text of everything said in the call, with who said it and when. It can be translated, summarised by AI and downloaded as subtitles (SRT/VTT)."
 }
