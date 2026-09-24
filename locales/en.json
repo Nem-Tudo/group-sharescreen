@@ -4197,7 +4197,7 @@
   "callTranscript.upsellText": "Everything said in the call, as text, with who said it.",
   "callTranscript.upsellItem1": "Automatic translation into 19 languages",
   "callTranscript.upsellItem2": "AI summary of the call",
-  "callTranscript.upsellItem3": "Live captions and SRT/VTT files",
+  "callTranscript.upsellItem3": "Subtitle files (SRT/VTT) for the recording's video",
   "callTranscript.upsellItem4": "Together with the call recording, in the same ZIP",
   "callTranscript.upsellButton": "See Pro Max",
   "callTranscript.fileTitle": "Call transcript",
@@ -4210,5 +4210,6 @@
   "watch.watchRoom.callBeingTranscribedBy": "The call is being transcribed by {names}",
   "watch.watchRoom.callTranscriptTip": "New: transcribe the call — the text of everything said, with translation and an AI summary.",
   "pro.proPanel.transcribeYourCalls": "Call transcripts, with translation and an AI summary",
-  "callRecording.transcribeWhat": "A transcript is the text of everything said in the call, with who said it and when. It can be translated, summarised by AI and downloaded as subtitles (SRT/VTT)."
+  "callRecording.transcribeWhat": "A transcript is the text of everything said in the call, with who said it and when. It can be translated, summarised by AI and downloaded as subtitles (SRT/VTT).",
+  "callTranscript.comingSoon": "Coming soon"
 }

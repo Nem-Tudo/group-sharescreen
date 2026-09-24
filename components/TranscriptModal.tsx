@@ -10,10 +10,12 @@ import { markFeatureUsed } from "@/components/NewBadge";
 import { formatDuration } from "@/components/RecordingModal";
 import type { CallSource } from "@/lib/callRecording";
 import { TRANSCRIPT_LANGUAGES, type TranscriptEntry, type TranscriptSettings } from "@/lib/callTranscript";
+import { useFeature } from "@/lib/features";
 import { formatLocale } from "@/lib/i18n";
 import { openProModal } from "@/lib/proModal";
 import { transcriptText } from "@/lib/transcriptExport";
 import {
+  CALL_TRANSCRIPT_CAPTIONS_FEATURE,
   CALL_TRANSCRIPT_EVENTS,
   CALL_TRANSCRIPT_FEATURE,
   trackTranscript,
@@ -378,12 +380,9 @@ export function TranscriptModal({
             onChange={(summary) => setSettings({ summary })}
             onColor="bg-violet-600"
           />
-          <Switch
-            label={t("callTranscript.liveCaptions")}
-            hint={t("callTranscript.liveCaptionsHint")}
+          <CaptionsSwitch
             checked={settings.liveCaptions}
             onChange={(liveCaptions) => setSettings({ liveCaptions })}
-            onColor="bg-violet-600"
           />
           <div className="px-2 py-2">
             <label className="text-sm font-medium text-zinc-800 dark:text-zinc-200" htmlFor="transcript-vocabulary">
@@ -537,6 +536,39 @@ export function TranscriptModal({
       </div>
     </div>,
     document.body,
+  );
+}
+
+// "Legendas ao vivo", behind its own experiment. Its own component so the
+// exposure is counted when the switch is actually on screen.
+function CaptionsSwitch({ checked, onChange }: { checked: boolean; onChange: (next: boolean) => void }) {
+  const t = useT();
+  const available = useFeature(CALL_TRANSCRIPT_CAPTIONS_FEATURE, { track: true }).enabled;
+  if (!available) {
+    return (
+      <Switch
+        label={t("callTranscript.liveCaptions")}
+        hint={t("callTranscript.liveCaptionsHint")}
+        extra={
+          <span className="rounded bg-zinc-200 px-1.5 py-0.5 text-[10px] font-bold uppercase leading-none text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+            {t("callTranscript.comingSoon")}
+          </span>
+        }
+        checked={false}
+        disabled
+        onChange={() => {}}
+        onColor="bg-violet-600"
+      />
+    );
+  }
+  return (
+    <Switch
+      label={t("callTranscript.liveCaptions")}
+      hint={t("callTranscript.liveCaptionsHint")}
+      checked={checked}
+      onChange={onChange}
+      onColor="bg-violet-600"
+    />
   );
 }
 

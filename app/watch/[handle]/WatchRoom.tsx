@@ -209,6 +209,7 @@ import { CALL_RECORDING_FEATURE, trackCallRecordingOpen, useCallRecording } from
 import { CallRecordButton, CallRecordingModal } from "@/components/CallRecordingModal";
 import { LiveCaptions, TranscriptButton, TranscriptModal } from "@/components/TranscriptModal";
 import {
+  CALL_TRANSCRIPT_CAPTIONS_FEATURE,
   CALL_TRANSCRIPT_EVENTS,
   CALL_TRANSCRIPT_FEATURE,
   CALL_TRANSCRIPT_FREE_FEATURE,
@@ -3792,7 +3793,10 @@ function WatchRoomView({
   // "Transcrição": on its own from "⋯", or with the recording (its text goes
   // into the recording's zip, under transcripts/). Pro Max, which the API is
   // what enforces; this only decides what to offer.
-  const callTranscript = useCallTranscript(callSources);
+  // "Legendas ao vivo" has its own experiment; exposure is counted on the
+  // switch in the modal, not here.
+  const callTranscriptCaptions = useFeature(CALL_TRANSCRIPT_CAPTIONS_FEATURE, { track: false }).enabled;
+  const callTranscript = useCallTranscript(callSources, { captionsAllowed: callTranscriptCaptions });
   const canTranscribe = hasFeature("call_transcript", account?.features ?? []) || (callTranscriptFree && Boolean(account));
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const openTranscript = () => {
@@ -9152,7 +9156,7 @@ function WatchRoomView({
         allowed={canTranscribe}
         free={callTranscriptFree}
       />
-      {callTranscript.status === "running" && callTranscript.settings.liveCaptions && (
+      {callTranscriptCaptions && callTranscript.status === "running" && callTranscript.settings.liveCaptions && (
         <LiveCaptions entries={callTranscript.entries} translated={callTranscript.settings.translateTo !== "none"} />
       )}
 

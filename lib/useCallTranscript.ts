@@ -27,6 +27,9 @@ export const CALL_TRANSCRIPT_FEATURE = "room-call-transcript";
 // and the /pro page stops listing it. The API decides it from the same
 // rollout (see its transcribeRoutes.ts), with a smaller daily budget.
 export const CALL_TRANSCRIPT_FREE_FEATURE = "room-call-transcript-free";
+// "Legendas ao vivo" is only offered to this one; everybody else sees the
+// switch locked with "em breve", and a setting saved as on is ignored.
+export const CALL_TRANSCRIPT_CAPTIONS_FEATURE = "room-call-transcript-captions";
 
 // Every name has to be listed in the feature's "site events" to count.
 export const CALL_TRANSCRIPT_EVENTS = {
@@ -94,7 +97,8 @@ async function makeSummary(
   return result.value.summary || null;
 }
 
-export function useCallTranscript(sources: CallSource[]) {
+export function useCallTranscript(sources: CallSource[], options: { captionsAllowed?: boolean } = {}) {
+  const captionsAllowed = options.captionsAllowed ?? false;
   const transcriberRef = useRef<CallTranscriber | null>(null);
   const sourcesRef = useRef(sources);
   const [settings, setSettingsState] = useState<TranscriptSettings>(() =>
@@ -173,7 +177,7 @@ export function useCallTranscript(sources: CallSource[]) {
   const start = useCallback(
     async (by: TranscriptOwner) => {
       if (transcriberRef.current) return;
-      const session = settings;
+      const session = captionsAllowed ? settings : { ...settings, liveCaptions: false };
       sessionSettingsRef.current = session;
       const transcriber = new CallTranscriber(session, {
         onEntries: (list) => {
@@ -215,7 +219,7 @@ export function useCallTranscript(sources: CallSource[]) {
         trackTranscript(CALL_TRANSCRIPT_EVENTS.failed);
       }
     },
-    [settings],
+    [settings, captionsAllowed],
   );
 
   const finish = useCallback(async (): Promise<{ entries: TranscriptEntry[]; origin: number; end: number } | null> => {

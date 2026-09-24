@@ -4197,7 +4197,7 @@
   "callTranscript.upsellText": "Tudo o que foi falado na chamada, em texto, com o nome de quem falou.",
   "callTranscript.upsellItem1": "Tradução automática para 19 idiomas",
   "callTranscript.upsellItem2": "Resumo da chamada com IA",
-  "callTranscript.upsellItem3": "Legendas ao vivo e arquivos SRT/VTT",
+  "callTranscript.upsellItem3": "Arquivos de legenda (SRT/VTT) para o vídeo da gravação",
   "callTranscript.upsellItem4": "Junto com a gravação da chamada, no mesmo ZIP",
   "callTranscript.upsellButton": "Conhecer o Pro Max",
   "callTranscript.fileTitle": "Transcrição da chamada",
@@ -4210,5 +4210,6 @@
   "watch.watchRoom.callBeingTranscribedBy": "A chamada está sendo transcrita por {names}",
   "watch.watchRoom.callTranscriptTip": "Novo: transcreva a chamada — o texto de tudo que foi falado, com tradução e resumo por IA.",
   "pro.proPanel.transcribeYourCalls": "Transcrição das chamadas, com tradução e resumo por IA",
-  "callRecording.transcribeWhat": "Transcrição é o texto de tudo que foi falado na chamada, com o nome de quem falou e o horário de cada fala. Dá para traduzir, gerar um resumo com IA e baixar como legenda (SRT/VTT)."
+  "callRecording.transcribeWhat": "Transcrição é o texto de tudo que foi falado na chamada, com o nome de quem falou e o horário de cada fala. Dá para traduzir, gerar um resumo com IA e baixar como legenda (SRT/VTT).",
+  "callTranscript.comingSoon": "Em breve"
 }
