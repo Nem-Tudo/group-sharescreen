@@ -167,7 +167,11 @@ export function CallRecordButton({
             : "border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200"
         }`}
       >
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-red-600 text-white">
+        <div
+          className={`flex h-9 w-9 items-center justify-center rounded-lg ${
+            live ? "bg-red-600 text-white" : "bg-red-100 text-red-600 dark:bg-red-950/70 dark:text-red-400"
+          }`}
+        >
           {live ? dot : <MdFiberManualRecord className="h-5 w-5" />}
         </div>
         <div className="flex items-center gap-1">
@@ -183,7 +187,13 @@ export function CallRecordButton({
       type="button"
       onClick={onClick}
       aria-label={t("callRecording.title")}
-      className="flex w-full min-w-0 items-center justify-center gap-2 rounded-lg border border-red-600 bg-red-600 px-3 py-2 text-xs font-semibold text-white shadow-sm shadow-red-500/25 transition hover:bg-red-700 [@media(max-height:52rem)]:py-1.5"
+      // Quiet like "Modo Streamer" beside it while idle — red only in the dot
+      // and the words. Solid red is kept for when it is actually recording.
+      className={`flex w-full min-w-0 items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition [@media(max-height:52rem)]:py-1.5 ${
+        live
+          ? "border-red-600 bg-red-600 text-white shadow-sm shadow-red-500/25 hover:bg-red-700"
+          : "border-zinc-200 bg-zinc-50 text-red-600 hover:border-red-300 hover:bg-red-50 dark:border-zinc-800 dark:bg-zinc-900/70 dark:text-red-400 dark:hover:border-red-800 dark:hover:bg-red-950/40"
+      }`}
     >
       {dot ?? <MdFiberManualRecord className="h-4 w-4 shrink-0" />}
       <span className="truncate tabular-nums">{text}</span>
