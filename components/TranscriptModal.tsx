@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import Tippy from "@tippyjs/react";
-import Link from "next/link";
 import { MdClose, MdContentCopy, MdLock, MdStop, MdSubtitles } from "react-icons/md";
 import { BetaMark } from "@/components/BetaMark";
 import { Switch } from "@/components/CallRecordingModal";
@@ -12,6 +11,7 @@ import { formatDuration } from "@/components/RecordingModal";
 import type { CallSource } from "@/lib/callRecording";
 import { TRANSCRIPT_LANGUAGES, type TranscriptEntry, type TranscriptSettings } from "@/lib/callTranscript";
 import { formatLocale } from "@/lib/i18n";
+import { openProModal } from "@/lib/proModal";
 import { transcriptText } from "@/lib/transcriptExport";
 import {
   CALL_TRANSCRIPT_EVENTS,
@@ -229,14 +229,19 @@ export function TranscriptModal({
           <li>• {t("callTranscript.upsellItem3")}</li>
           <li>• {t("callTranscript.upsellItem4")}</li>
         </ul>
-        <Link
-          href="/pro"
-          target="_blank"
-          onClick={() => trackTranscript(CALL_TRANSCRIPT_EVENTS.upsellClick)}
+        {/* The room's Pro popup, on the Pro Max card: a link would leave the
+            call to read a price (see lib/proModal). */}
+        <button
+          type="button"
+          onClick={() => {
+            trackTranscript(CALL_TRANSCRIPT_EVENTS.upsellClick);
+            onClose();
+            openProModal("premium_max");
+          }}
           className="mt-2 rounded-lg bg-gradient-to-r from-amber-400 to-yellow-500 px-5 py-2.5 text-sm font-bold text-amber-950 shadow transition hover:brightness-105"
         >
           {t("callTranscript.upsellButton")}
-        </Link>
+        </button>
       </div>
     );
   } else if (status === "finishing") {
