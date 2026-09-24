@@ -37,7 +37,7 @@
 //
 // Nothing is uploaded. The files live as Blobs until they are downloaded.
 
-import type { AudioCodec, AudioSampleSource, CanvasSource, Output, VideoCodec } from "mediabunny";
+import type { AudioCodec, AudioSampleSource, CanvasSource, Output, StreamTargetChunk, VideoCodec } from "mediabunny";
 import { ensureSharedAudioContextRunning, getSharedAudioContext } from "./audioContext";
 
 type Mediabunny = typeof import("mediabunny");
@@ -157,7 +157,7 @@ class BlobSink {
 
   target(lib: Mediabunny) {
     return new lib.StreamTarget(
-      new WritableStream<{ type: "write"; data: Uint8Array; position: number }>({
+      new WritableStream<StreamTargetChunk>({
         write: (chunk) => this.write(new Uint8Array(chunk.data), chunk.position),
       }),
       { chunked: true, chunkSize: 4 * 1024 * 1024 },
@@ -220,10 +220,7 @@ class AudioWriter {
     const format = container === "mp3" ? new lib.Mp3OutputFormat() : new lib.Mp4OutputFormat({ fastStart: false });
     this.output = new lib.Output({ format, target: this.sink.target(lib) });
     this.source = new lib.AudioSampleSource({ codec, bitrate: container === "mp3" ? 160_000 : 128_000 });
-    this.output.addAudioTrack(
-      this.source,
-      { name: trackName } as unknown as Parameters<Output["addAudioTrack"]>[1],
-    );
+    this.output.addAudioTrack(this.source, { name: trackName });
     this.chain = this.output.start().catch(() => {
       this.failed = true;
     });
@@ -1063,7 +1060,7 @@ export class CallRecorder {
         const track = await input.getPrimaryAudioTrack();
         if (!track?.codec) continue;
         const source = new lib.EncodedAudioPacketSource(track.codec);
-        output.addAudioTrack(source, { name: stem.name } as unknown as Parameters<Output["addAudioTrack"]>[1]);
+        output.addAudioTrack(source, { name: stem.name });
         const config = await track.getDecoderConfig();
         pumps.push(async () => {
           let first = true;
