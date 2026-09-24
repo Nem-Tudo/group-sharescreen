@@ -203,7 +203,10 @@ import { Tooltip, Popover } from "@/components/Tooltip";
 import { ThemeSegmented } from "@/components/ThemeToggle";
 import { MenuToggleRow } from "@/components/MenuToggleRow";
 import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
-import { trackFeatureEvent } from "@/lib/features";
+import { trackFeatureEvent, useFeature } from "@/lib/features";
+import type { CallSource } from "@/lib/callRecording";
+import { CALL_RECORDING_FEATURE, trackCallRecordingOpen, useCallRecording } from "@/lib/useCallRecording";
+import { CallRecordButton, CallRecordingModal } from "@/components/CallRecordingModal";
 import Tippy from "@tippyjs/react";
 import { setTileExperimentMode, useTileExperiment, useTileExperimentTip } from "@/lib/clipsMode";
 import {
@@ -3694,6 +3697,91 @@ function WatchRoomView({
   // Closed in this visit — the browser's memory of it is read where the card is.
   const [roomToGroupClosed, setRoomToGroupClosed] = useState(false);
 
+  // "Gravar chamada" (see lib/callRecording): every voice and transmission in
+  // the room, ours included (the modal decides whether ours go in). Built
+  // from the streams, not the tiles, so a tile hidden by hyperfocus or a
+  // collapsed grid is still recorded as long as its stream is arriving.
+  const callRecordingFeature = useFeature(CALL_RECORDING_FEATURE, { track: true });
+  const [callRecordingOpen, setCallRecordingOpen] = useState(false);
+  const callSources = useMemo<CallSource[]>(() => {
+    const list: CallSource[] = [];
+    const selfName = state.name ?? translate("common.you");
+    const add = (kind: CallSource["kind"], key: string, ownerId: string, stream: MediaStream | null | undefined, audioOnly = false) => {
+      if (!stream) return;
+      const self = ownerId === SELF_TILE_OWNER;
+      const peer = self ? null : peersById.get(ownerId);
+      if (!self && !peer) return;
+      list.push({
+        id: `${key}:${ownerId}`,
+        kind,
+        ownerId,
+        name: peer ? withDeviceSuffix(peer.name, peer.userId, peer.device, deviceCounts) : selfName,
+        self,
+        stream,
+        // Music is sound: its "video" is a black rectangle nobody wants a file of.
+        audioOnly,
+      });
+    };
+    add("voice", "voice", SELF_TILE_OWNER, localMicStream);
+    for (const [peerId, stream] of Object.entries(remoteMicStreams)) {
+      // Silenced by the room: nobody hears them, so neither does the file.
+      if (!isPeerSilenced(peersById.get(peerId))) add("voice", "voice", peerId, stream);
+    }
+    add(shareSource === "camera" ? "camera" : "screen", "screen", SELF_TILE_OWNER, localStream);
+    add("camera", "camera", SELF_TILE_OWNER, localCameraStream);
+    add("camera", "camera2", SELF_TILE_OWNER, dualCamera.localStream);
+    for (const [peerId, stream] of Object.entries(remoteStreams)) add("screen", "screen", peerId, stream);
+    for (const [peerId, stream] of Object.entries(remoteCameraStreams)) add("camera", "camera", peerId, stream);
+    for (const [peerId, stream] of Object.entries(dualCamera.remoteStreams)) add("camera", "camera2", peerId, stream);
+    for (const slot of EXTRA_SCREEN_SLOTS) {
+      add("screen", `screen-${slot}`, SELF_TILE_OWNER, extraScreens[slot].localStream);
+      for (const [peerId, stream] of Object.entries(extraScreens[slot].remoteStreams)) {
+        add("screen", `screen-${slot}`, peerId, stream);
+      }
+    }
+    for (const slot of LOCAL_MEDIA_SLOTS) {
+      add("file", `file-${slot}`, SELF_TILE_OWNER, fileChannels[slot].localStream, localMediaSnapshots[slot].mode === "music");
+      for (const [peerId, stream] of Object.entries(fileChannels[slot].remoteStreams)) {
+        const music = peersById.get(peerId)?.files?.find((f) => f.channel === slot)?.mode === "music";
+        add("file", `file-${slot}`, peerId, stream, music);
+      }
+    }
+    return list;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- isPeerSilenced reads state.peers, already covered by peersById
+  }, [
+    state.name,
+    peersById,
+    deviceCounts,
+    localMicStream,
+    remoteMicStreams,
+    shareSource,
+    localStream,
+    localCameraStream,
+    dualCamera.localStream,
+    dualCamera.remoteStreams,
+    remoteStreams,
+    remoteCameraStreams,
+    extraScreens,
+    fileChannels,
+    localMediaSnapshots,
+  ]);
+  const callRecording = useCallRecording(callSources, {
+    call: translate("callRecording.fileCall"),
+    audio: translate("callRecording.fileAudio"),
+    voice: translate("callRecording.fileVoice"),
+    screen: translate("callRecording.fileScreen"),
+    camera: translate("callRecording.fileCamera"),
+    file: translate("callRecording.fileVideo"),
+  });
+  const openCallRecording = () => {
+    if (callRecording.status === "idle") trackCallRecordingOpen();
+    setMobileExtraMenuOpen(false);
+    setCallRecordingOpen(true);
+  };
+  // Available to the experiment's people — and to anyone already mid-recording
+  // if the feature is switched off under them, so "parar" never disappears.
+  const showCallRecording = callRecordingFeature.enabled || callRecording.status !== "idle";
+
   if (!validHandle) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4 text-center">
@@ -7119,6 +7207,17 @@ function WatchRoomView({
         canUseStreamerMode={canUseStreamerMode}
         streamerMode={streamerMode}
         onToggleStreamerMode={toggleStreamerMode}
+        callRecordButton={
+          showCallRecording ? (
+            <CallRecordButton
+              variant="card"
+              status={callRecording.status}
+              startedAt={callRecording.startedAt}
+              onClick={openCallRecording}
+              badge={<NewBadge id={CALL_RECORDING_FEATURE} />}
+            />
+          ) : undefined
+        }
       />
     </>
   );
@@ -7769,11 +7868,16 @@ function WatchRoomView({
         >
           <span className="h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-red-600" />
           <span className="min-w-0 truncate">
-            {translate("watch.watchRoom.beingRecordedBy", {
+            {translate(
+              recordingNotices.some((n) => n.channels.includes("call"))
+                ? "watch.watchRoom.callBeingRecordedBy"
+                : "watch.watchRoom.beingRecordedBy",
+              {
               names: recordingNotices
                 .map((n) => n.name ?? state.peers.find((p) => p.id === n.from)?.name ?? translate("common.someone2"))
                 .join(", "),
-            })}
+              }
+            )}
           </span>
         </div>
       )}
@@ -8471,10 +8575,10 @@ function WatchRoomView({
                 </div>
               </button>
 
-              {/* O Menu Expandido: [fonte de video] [musica] [stream] */}
+              {/* O Menu Expandido: [fonte de video] [musica] [gravar chamada] [stream] */}
               {mobileExtraMenuOpen && (
                 <div className="border-b border-zinc-200 bg-zinc-50/90 px-3 py-2.5 backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-900/90 transition-all">
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className={`grid gap-2 ${showCallRecording ? "grid-cols-4" : "grid-cols-3"}`}>
                     {/* [fonte de video] */}
                     <button
                       type="button"
@@ -8528,6 +8632,16 @@ function WatchRoomView({
                         </span>
                       </div>
                     </button>
+
+                    {/* [gravar chamada] — à esquerda do Stream, como no cartão do desktop */}
+                    {showCallRecording && (
+                      <CallRecordButton
+                        variant="tile"
+                        status={callRecording.status}
+                        startedAt={callRecording.startedAt}
+                        onClick={openCallRecording}
+                      />
+                    )}
 
                     {/* [stream] */}
                     <button
@@ -8898,6 +9012,12 @@ function WatchRoomView({
       />
 
       <StreamerModeModal open={streamerModeIntroOpen} onClose={() => setStreamerModeIntroOpen(false)} />
+      <CallRecordingModal
+        open={callRecordingOpen}
+        onClose={() => setCallRecordingOpen(false)}
+        sources={callSources}
+        recording={callRecording}
+      />
 
       <ObsBrowserSourceModal
         open={Boolean(obsModalUrl)}

@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import Link from "next/link";
 import useNtPopups from "ntpopups";
 import { BsCoin, BsShop } from "react-icons/bs";
@@ -44,6 +45,7 @@ export function RoomAccountCard({
   canUseStreamerMode,
   streamerMode,
   onToggleStreamerMode,
+  callRecordButton,
 }: {
   onCreateAccount: () => void;
   // Open your own profile in the room's dialog. Absent where there is no
@@ -53,6 +55,9 @@ export function RoomAccountCard({
   canUseStreamerMode?: boolean;
   streamerMode?: boolean;
   onToggleStreamerMode?: () => void;
+  // "Gravar chamada" (see components/CallRecordingModal): to the left of
+  // "Modo Streamer", half the row each. Alone it takes the whole row.
+  callRecordButton?: ReactNode;
 }) {
   const t = useT();
   const state = useSignalingSelector(selectAccountName, shallow);
@@ -213,7 +218,11 @@ export function RoomAccountCard({
         </Tooltip>
       </div>
 
-      {/* Streamer Mode button for room managers with an account */}
+      {/* Streamer Mode button for room managers with an account, with "Gravar
+          chamada" to its left when that is on. */}
+      {((canUseStreamerMode && onToggleStreamerMode) || callRecordButton) && (
+      <div className="mt-2 flex gap-2 [@media(max-height:52rem)]:mt-1.5">
+      {callRecordButton && <div className="flex min-w-0 flex-1 basis-0">{callRecordButton}</div>}
       {canUseStreamerMode && onToggleStreamerMode && (
         <Tooltip
           content={
@@ -222,24 +231,27 @@ export function RoomAccountCard({
               : t("roomAccountCard.turnOnStreamerModeHidesThe")
           }
           placement="top"
+          wrapperClassName="flex min-w-0 flex-1 basis-0"
         >
           <button
             type="button"
             onClick={onToggleStreamerMode}
             aria-label={streamerMode ? t("roomAccountCard.turnOffStreamerMode") : t("roomAccountCard.turnOnStreamerMode")}
-            className={`mt-2 flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs font-medium transition [@media(max-height:52rem)]:mt-1.5 [@media(max-height:52rem)]:py-1.5 ${
+            className={`flex w-full min-w-0 items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs font-medium transition [@media(max-height:52rem)]:py-1.5 ${
               streamerMode
                 ? "border-purple-500 bg-purple-600 text-white shadow-sm shadow-purple-500/25 hover:bg-purple-700"
                 : "border-zinc-200 bg-zinc-50 text-zinc-700 hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700 dark:border-zinc-800 dark:bg-zinc-900/70 dark:text-zinc-300 dark:hover:border-purple-700 dark:hover:bg-purple-950/40 dark:hover:text-purple-300"
             }`}
           >
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 items-center gap-2">
               <ObsSourceIcon className="h-4 w-4 shrink-0" />
-              <span className="font-semibold">{t("common.streamerMode")}</span>
+              <span className="truncate font-semibold">{t("common.streamerMode")}</span>
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex shrink-0 items-center gap-1.5">
+              {/* At half width the word would push the name out; the dot
+                  still says it is on. */}
               <span
-                className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                className={`${callRecordButton ? "hidden" : ""} rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
                   streamerMode
                     ? "bg-white/20 text-white"
                     : "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
@@ -256,6 +268,8 @@ export function RoomAccountCard({
             </div>
           </button>
         </Tooltip>
+      )}
+      </div>
       )}
 
       {/* Guests only. The offer belongs next to the thing it protects — the

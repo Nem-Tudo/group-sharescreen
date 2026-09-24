@@ -3,6 +3,7 @@
 import { getAccountToken } from "./accountApi";
 import type { PremiumState } from "./accountApi";
 import { getSignalingHttpBase } from "./roomsApi";
+import { gaClientHeaders } from "./analytics";
 import { translate } from "@/lib/i18n";
 
 // The subscription's client half. None of these calls decides anything: the
@@ -111,7 +112,7 @@ export type PremiumPlan = {
 
 function authHeaders(): Record<string, string> {
   const token = getAccountToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  return token ? { Authorization: `Bearer ${token}`, ...gaClientHeaders() } : {};
 }
 
 /** The plan on offer. Public — no account needed to read a price tag. */

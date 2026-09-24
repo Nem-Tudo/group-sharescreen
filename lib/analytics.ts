@@ -50,6 +50,32 @@ export function trackEvent(name: string, data?: Record<string, unknown>) {
   w.gtag?.("event", gaEventName(name), gaParams(data));
 }
 
+// Revenue is not a client event: GA4 builds it from `purchase`, which the API
+// sends itself once the payment is approved (sharescreen-api's gaPurchase.ts)
+// — the browser is rarely on the site when a Pix or a renewal clears. What the
+// API needs from here is who the buyer is to GA, so the purchase lands in
+// their session: the client id from the `_ga` cookie ("GA1.1.<id>.<ts>") and
+// the session id from `_ga_<container>` ("GS1.1.<sid>.…" or "GS2.1.s<sid>$…").
+// Sent as headers on the premium requests; empty when GA is not loaded.
+function readCookie(pattern: RegExp): string | null {
+  if (typeof document === "undefined") return null;
+  for (const part of document.cookie.split(";")) {
+    const [rawName, ...rest] = part.trim().split("=");
+    if (pattern.test(rawName)) return decodeURIComponent(rest.join("="));
+  }
+  return null;
+}
+
+export function gaClientHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const ga = readCookie(/^_ga$/)?.match(/^GA\d\.\d+\.(\d+\.\d+)$/);
+  if (!ga) return headers;
+  headers["X-GA-Client-Id"] = ga[1];
+  const session = readCookie(/^_ga_[A-Z0-9]+$/)?.match(/^GS\d\.\d+\.s?(\d+)/);
+  if (session) headers["X-GA-Session-Id"] = session[1];
+  return headers;
+}
+
 // Where a desktop-app download was started from. Four surfaces offer it and
 // they answer different questions — the home page is discovery, the room
 // banner is someone already using the site, the floating prompt is the nudge,
