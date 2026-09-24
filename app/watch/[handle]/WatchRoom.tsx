@@ -7880,6 +7880,18 @@ function WatchRoomView({
           )}
         </p>
       )}
+      {/* Firefox never offers screen/tab audio in its picker and drops the
+          track without saying so, so the share above is silent however it
+          was started. Red because, unlike the amber notice, nothing the
+          person does in this browser will fix it — the app is the way out. */}
+      {mounted && localStream && !isDesktopApp() && /Firefox\//.test(navigator.userAgent) && (
+        <p className="bg-red-50 px-4 py-2 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">
+          {translate("watch.watchRoom.firefoxNoScreenAudio")}{" "}
+          <Link href="/app" target="_blank" className="font-semibold underline underline-offset-2">
+            {translate("watch.watchRoom.firefoxNoScreenAudioDownload")}
+          </Link>
+        </p>
+      )}
       {micError && (
         <p className="bg-red-50 px-4 py-2 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">
           {micError}

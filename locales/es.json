@@ -3771,6 +3771,8 @@
   "watch.watchRoom.systemAudioCouldNotBeCaptured": "No se pudo capturar el audio del sistema. La transmisión continúa, pero sin sonido.",
   "watch.watchRoom.systemAudioPermissionBlocked": "El sonido no se está enviando: el micrófono de GoLive está bloqueado en Android. Permítelo en Permisos → Micrófono y vuelve a transmitir.",
   "watch.watchRoom.systemAudioPermissionDenied": "El sonido no se está enviando porque se denegó el permiso de audio. GoLive lo volverá a pedir en la próxima transmisión.",
+  "watch.watchRoom.firefoxNoScreenAudio": "Firefox no permite transmitir el sonido de la pantalla: tu transmisión va sin audio. Para transmitir la pantalla con sonido, usa la app de GoLive u otro navegador.",
+  "watch.watchRoom.firefoxNoScreenAudioDownload": "Descargar la app",
   "watch.watchRoom.openAppSettings": "Abrir ajustes",
   "pro.compare.title": "Lo que obtienes",
   "pro.compare.pricingAndFeatures": "Precios y funciones",
