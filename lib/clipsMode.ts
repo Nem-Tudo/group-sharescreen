@@ -18,7 +18,8 @@ export type TileExperiment =
   | "dualCamera"
   | "pushToTalk"
   | "musicQueue"
-  | "orientation";
+  | "orientation"
+  | "callRecording";
 
 // `defaultOn`: the switch starts on for whoever never touched it.
 const CONFIG: Record<
@@ -71,6 +72,16 @@ const CONFIG: Record<
     tipKey: "sharescreen:orientationTipSeen",
     defaultOn: true,
   },
+  // "Gravar chamada" (ver lib/callRecording). Está aqui só pela dica azul de
+  // "novo" (useTileExperimentTip): não tem interruptor — o botão já é o
+  // interruptor, e nada roda até a pessoa clicar em começar. Por isso
+  // `defaultOn` e um `modeKey` que ninguém escreve.
+  callRecording: {
+    feature: "room-call-recording",
+    modeKey: "sharescreen:callRecordingMode",
+    tipKey: "sharescreen:callRecordingTipSeen",
+    defaultOn: true,
+  },
   musicQueue: {
     feature: "room-music-queue",
     modeKey: "sharescreen:musicQueueMode",
@@ -114,6 +125,12 @@ export const TILE_EXPERIMENT_EVENTS = {
   orientation: {
     modeOn: "orientation_mode_on",
     modeOff: "orientation_mode_off",
+  },
+  // Sem interruptor (ver CONFIG): estes dois nunca são enviados. Os eventos
+  // de verdade estão em CALL_RECORDING_EVENTS (lib/useCallRecording).
+  callRecording: {
+    modeOn: "call_recording_mode_on",
+    modeOff: "call_recording_mode_off",
   },
   musicQueue: {
     // Nomes de "modo" aqui são a aba, não a ordem aleatória: o interruptor

@@ -565,6 +565,10 @@ type AudioFeed = {
   ownerId: string;
   kind: CallSourceKind;
   stream: MediaStream | null;
+  // The audio tracks the node was built from: a source node keeps reading
+  // the tracks it was created with, so a track swapped inside the same
+  // stream (a new mic, system audio added to a share) needs a new node.
+  tracks: string;
   node: MediaStreamAudioSourceNode | null;
   gain: GainNode;
   analyser: AnalyserNode;
@@ -626,6 +630,10 @@ export class CallRecorder {
   private stopped = false;
   private startedAt = 0;
   private pending: CallSource[] = [];
+  // The last list the room handed over, re-read every second (see tick):
+  // tracks come and go inside a stream without the room noticing a change.
+  private latest: CallSource[] = [];
+  private ticks = 0;
   private ready = false;
 
   constructor(
@@ -752,6 +760,7 @@ export class CallRecorder {
       this.pending = sources;
       return;
     }
+    this.latest = sources;
     const seenAudio = new Set<string>();
     const seenVideo = new Set<string>();
     for (const source of sources) {
@@ -775,6 +784,7 @@ export class CallRecorder {
         feed.node?.disconnect();
         feed.node = null;
         feed.stream = null;
+        feed.tracks = "";
       }
     }
   }
@@ -812,6 +822,7 @@ export class CallRecorder {
         ownerId: source.ownerId,
         kind: source.kind,
         stream: null,
+        tracks: "",
         node: null,
         gain,
         analyser,
@@ -823,9 +834,15 @@ export class CallRecorder {
       this.audio.set(source.id, feed);
     }
     feed.present = true;
-    if (feed.stream === source.stream) return;
+    const tracks = source.stream
+      .getAudioTracks()
+      .filter((t) => t.readyState === "live")
+      .map((t) => t.id)
+      .join(",");
+    if (feed.stream === source.stream && feed.tracks === tracks) return;
     feed.node?.disconnect();
     feed.stream = source.stream;
+    feed.tracks = tracks;
     try {
       feed.node = this.ctx.createMediaStreamSource(source.stream);
       feed.node.connect(feed.gain);
@@ -842,6 +859,7 @@ export class CallRecorder {
 
   private tick() {
     if (this.stopped) return;
+    if (++this.ticks % FPS === 0) this.update(this.latest);
     const time = this.now();
     if (this.composite) this.composite.writer.frame(time, 1 / FPS, () => this.drawComposite());
     for (const capture of this.captures.values()) capture.tick(time);

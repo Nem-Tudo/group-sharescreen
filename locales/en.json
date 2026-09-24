@@ -4131,5 +4131,6 @@
   "callRecording.fileScreen": "Screen",
   "callRecording.fileCamera": "Camera",
   "callRecording.fileVideo": "Video",
-  "watch.watchRoom.callBeingRecordedBy": "The call is being recorded by {names}"
+  "watch.watchRoom.callBeingRecordedBy": "The call is being recorded by {names}",
+  "watch.watchRoom.callRecordingTip": "New: record the whole call — every voice and screen — as one video or as separate files."
 }

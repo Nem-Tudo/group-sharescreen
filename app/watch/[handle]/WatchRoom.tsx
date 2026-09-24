@@ -3781,6 +3781,10 @@ function WatchRoomView({
   // Available to the experiment's people — and to anyone already mid-recording
   // if the feature is switched off under them, so "parar" never disappears.
   const showCallRecording = callRecordingFeature.enabled || callRecording.status !== "idle";
+  // The blue "novo" tip, on the button itself (not on "⋯", so it is not in
+  // the newFeatureTip chain). Only one of the two buttons exists at a time:
+  // the card's from lg up, the pull-up menu's tile below it.
+  const callRecordingTip = useTileExperimentTip("callRecording", callRecordingFeature.enabled);
 
   if (!validHandle) {
     return (
@@ -7215,6 +7219,7 @@ function WatchRoomView({
               startedAt={callRecording.startedAt}
               onClick={openCallRecording}
               badge={<NewBadge id={CALL_RECORDING_FEATURE} />}
+              tip={callRecordingTip}
             />
           ) : undefined
         }
@@ -8640,6 +8645,7 @@ function WatchRoomView({
                         status={callRecording.status}
                         startedAt={callRecording.startedAt}
                         onClick={openCallRecording}
+                        tip={callRecordingTip}
                       />
                     )}
 

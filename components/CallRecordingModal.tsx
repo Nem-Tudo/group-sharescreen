@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import Tippy from "@tippyjs/react";
 import { MdClose, MdFiberManualRecord, MdMic, MdScreenShare, MdStop, MdVideocam } from "react-icons/md";
 import { BetaMark } from "@/components/BetaMark";
 import { markFeatureUsed } from "@/components/NewBadge";
@@ -126,14 +127,21 @@ export function CallRecordButton({
   startedAt,
   onClick,
   badge,
+  tip,
 }: {
   variant: "card" | "tile";
   status: ReturnType<typeof useCallRecording>["status"];
   startedAt: number | null;
   onClick: () => void;
   badge?: ReactNode;
+  // The blue "novo" tip (see useTileExperimentTip), pinned over this button.
+  tip?: { show: boolean; dismiss: () => void; clicked: () => void };
 }) {
   const t = useT();
+  const open = () => {
+    if (tip?.show) tip.clicked();
+    onClick();
+  };
   const [now, setNow] = useState(() => Date.now());
   const live = status === "recording" || status === "starting" || status === "finishing";
   useEffect(() => {
@@ -156,13 +164,46 @@ export function CallRecordButton({
     </span>
   ) : null;
 
+  const withTip = (button: ReactNode) => (
+    <Tippy
+      visible={Boolean(tip?.show)}
+      placement="top"
+      interactive
+      theme="golive-panel"
+      appendTo={() => document.body}
+      content={
+        <span
+          role="status"
+          className="relative block w-60 rounded-lg bg-blue-600 px-3 py-2 text-left text-xs font-medium text-white shadow-lg"
+        >
+          <span className="absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
+          <span className="flex items-start gap-2">
+            <span className="flex-1">{t("watch.watchRoom.callRecordingTip")}</span>
+            <button
+              type="button"
+              onClick={tip?.dismiss}
+              aria-label={t("watch.watchRoom.clipsModeTipDismiss")}
+              className="-m-1 rounded p-1 leading-none text-white/80 hover:text-white"
+            >
+              ✕
+            </button>
+          </span>
+        </span>
+      }
+    >
+      {/* Tippy needs an element that holds a ref; the wrapper also keeps the
+          button's own width rules working inside the card's half. */}
+      <span className="flex w-full min-w-0">{button}</span>
+    </Tippy>
+  );
+
   if (variant === "tile") {
-    return (
+    return withTip(
       <button
         type="button"
-        onClick={onClick}
+        onClick={open}
         aria-label={t("callRecording.title")}
-        className={`flex h-[4.75rem] flex-col items-center justify-center gap-1.5 rounded-xl border p-2 shadow-sm transition active:scale-95 ${
+        className={`flex h-[4.75rem] w-full flex-col items-center justify-center gap-1.5 rounded-xl border p-2 shadow-sm transition active:scale-95 ${
           live
             ? "border-red-500/60 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300"
             : "border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200"
@@ -179,14 +220,14 @@ export function CallRecordButton({
           <span className="text-center text-[11px] font-semibold leading-tight tabular-nums">{text}</span>
           {!live && badge}
         </div>
-      </button>
+      </button>,
     );
   }
 
-  return (
+  return withTip(
     <button
       type="button"
-      onClick={onClick}
+      onClick={open}
       aria-label={t("callRecording.title")}
       // Quiet like "Modo Streamer" beside it while idle — red only in the dot
       // and the words. Solid red is kept for when it is actually recording.
@@ -199,7 +240,7 @@ export function CallRecordButton({
       {dot ?? <MdFiberManualRecord className="h-4 w-4 shrink-0" />}
       <span className="truncate tabular-nums">{text}</span>
       {!live && badge}
-    </button>
+    </button>,
   );
 }
 

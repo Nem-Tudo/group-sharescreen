@@ -4131,5 +4131,6 @@
   "callRecording.fileScreen": "Pantalla",
   "callRecording.fileCamera": "Cámara",
   "callRecording.fileVideo": "Video",
-  "watch.watchRoom.callBeingRecordedBy": "La llamada está siendo grabada por {names}"
+  "watch.watchRoom.callBeingRecordedBy": "La llamada está siendo grabada por {names}",
+  "watch.watchRoom.callRecordingTip": "Nuevo: graba la llamada entera — todas las voces y pantallas — en un video o en archivos separados."
 }
