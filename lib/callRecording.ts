@@ -65,6 +65,9 @@ export type CallRecordingSettings = {
   includeMyVoice: boolean;
   includeMyScreen: boolean;
   output: CallExport;
+  // Also a transcript (Pro Max — see lib/useCallTranscript), into the zip's
+  // transcripts/ folder.
+  transcribe?: boolean;
 };
 
 // Words that end up in file names, in the viewer's language.
@@ -130,8 +133,9 @@ function loadMp3(lib: Mediabunny): Promise<void> {
   return mp3Ready;
 }
 
+// Shared with lib/callTranscript, which reads the same worklet.
 const workletContexts = new WeakMap<AudioContext, Promise<void>>();
-function loadWorklet(ctx: AudioContext): Promise<void> {
+export function loadWorklet(ctx: AudioContext): Promise<void> {
   let promise = workletContexts.get(ctx);
   if (!promise) {
     promise = ctx.audioWorklet.addModule(WORKLET_URL).catch((err: unknown) => {
@@ -963,7 +967,13 @@ export class CallRecorder {
   }
 
   /** Closes every file and puts together what was asked for. */
-  async stop(onProgress?: (fraction: number) => void): Promise<CallRecordingResult | null> {
+  // `extras` are files that go with the recording (the transcript's, named
+  // "transcripts/…"): in the zip beside recordings/, or handed over one by
+  // one after the video when there is no zip.
+  async stop(
+    onProgress?: (fraction: number) => void,
+    extras?: Promise<{ name: string; blob: Blob }[]>,
+  ): Promise<CallRecordingResult | null> {
     if (this.stopped) return null;
     this.stopped = true;
     this.ticker?.terminate();
@@ -1027,24 +1037,38 @@ export class CallRecorder {
 
     const stamp = new Date(this.startedAt).toISOString().slice(0, 16).replace(/[T:]/g, "-");
     const base = `${this.labels.call} ${stamp}`;
+    const extraFiles = (await extras?.catch(() => [])) ?? [];
+    // Outside a zip there are no folders: "transcripts/Transcrição.txt" is
+    // downloaded as "Transcrição.txt".
+    const loose = (files: { name: string; blob: Blob }[]) =>
+      files.map((f) => ({ name: f.name.split("/").pop() || f.name, blob: f.blob }));
 
     if (this.settings.output === "video") {
       onProgress?.(1);
-      return roomVideo ? { blob: roomVideo, fileName: `${base}.mp4`, durationMs } : null;
+      if (!roomVideo) return null;
+      return {
+        blob: roomVideo,
+        fileName: `${base}.mp4`,
+        durationMs,
+        ...(extraFiles.length ? { looseFiles: loose(extraFiles) } : {}),
+      };
     }
 
+    // Everything recorded under recordings/, whatever else comes along.
     const files: { name: string; blob: Blob }[] = [];
     if (roomVideo) files.push({ name: this.uniqueName(this.labels.call, "mp4"), blob: roomVideo });
     files.push(...videoFiles);
     for (const mp3 of mp3s) if (mp3.blob) files.push({ name: mp3.fileName, blob: mp3.blob });
     if (!files.length) return null;
+    const packed = [...files.map((f) => ({ name: `recordings/${f.name}`, blob: f.blob })), ...extraFiles];
     const { buildZip, ZipTooLargeError } = await import("./zipStore");
     try {
-      const zip = await buildZip(files, (f) => onProgress?.(0.7 + f * 0.3));
+      const zip = await buildZip(packed, (f) => onProgress?.(0.7 + f * 0.3));
       return { blob: zip, fileName: `${base}.zip`, durationMs };
     } catch (err) {
       if (err instanceof ZipTooLargeError) {
-        return { blob: files[0].blob, fileName: files[0].name, durationMs, looseFiles: files.slice(1) };
+        const all = loose(packed);
+        return { blob: all[0].blob, fileName: all[0].name, durationMs, looseFiles: all.slice(1) };
       }
       throw err;
     }

@@ -7,6 +7,7 @@ import { MdClose, MdFiberManualRecord, MdMic, MdScreenShare, MdStop, MdVideocam 
 import { BetaMark } from "@/components/BetaMark";
 import { markFeatureUsed } from "@/components/NewBadge";
 import { formatDuration } from "@/components/RecordingModal";
+import { ProMaxChip } from "@/components/TranscriptModal";
 import type { CallExport, CallRecordingSettings, CallSource } from "@/lib/callRecording";
 import { CALL_RECORDING_FEATURE, useCallRecording } from "@/lib/useCallRecording";
 import { useT } from "@/lib/useI18n";
@@ -40,18 +41,23 @@ function writeSettings(settings: CallRecordingSettings) {
   }
 }
 
-function Switch({
+export function Switch({
   label,
   hint,
   checked,
   disabled,
   onChange,
+  onColor = "bg-red-600",
+  extra,
 }: {
   label: string;
-  hint?: string;
+  hint?: ReactNode;
   checked: boolean;
   disabled?: boolean;
   onChange: (next: boolean) => void;
+  onColor?: string;
+  // Beside the label (a "Pro Max" chip).
+  extra?: ReactNode;
 }) {
   return (
     <button
@@ -63,11 +69,14 @@ function Switch({
       className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-zinc-900"
     >
       <span className="flex min-w-0 flex-col">
-        <span className="text-sm font-medium text-zinc-800 dark:text-zinc-200">{label}</span>
+        <span className="flex items-center gap-1.5 text-sm font-medium text-zinc-800 dark:text-zinc-200">
+          {label}
+          {extra}
+        </span>
         {hint && <span className="text-xs text-zinc-500 dark:text-zinc-400">{hint}</span>}
       </span>
       <span
-        className={`relative h-5 w-9 shrink-0 rounded-full transition ${checked ? "bg-red-600" : "bg-zinc-300 dark:bg-zinc-700"}`}
+        className={`relative h-5 w-9 shrink-0 rounded-full transition ${checked ? onColor : "bg-zinc-300 dark:bg-zinc-700"}`}
       >
         <span
           className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${checked ? "left-[1.125rem]" : "left-0.5"}`}
@@ -249,11 +258,21 @@ export function CallRecordingModal({
   onClose,
   sources,
   recording,
+  transcript,
 }: {
   open: boolean;
   onClose: () => void;
   sources: CallSource[];
   recording: ReturnType<typeof useCallRecording>;
+  // "Transcrever também" — only for those in the transcript experiment.
+  transcript?: {
+    // Pro Max.
+    allowed: boolean;
+    // A transcript already going on its own: the recording takes its text.
+    running: boolean;
+    start: () => void;
+    openSettings: () => void;
+  };
 }) {
   const t = useT();
   // Mounted with the room and closed, so reading storage here is client-only
@@ -310,6 +329,7 @@ export function CallRecordingModal({
     markFeatureUsed(CALL_RECORDING_FEATURE);
     setConfirmDiscard(false);
     void recording.start(settings, volumes);
+    if (settings.transcribe && transcript?.allowed && !transcript.running) transcript.start();
   };
 
   const volumesBlock = (
@@ -433,6 +453,44 @@ export function CallRecordingModal({
             checked={settings.includeMyScreen}
             onChange={(v) => update({ includeMyScreen: v })}
           />
+          {transcript && (
+            <Switch
+              label={t("callRecording.transcribe")}
+              extra={<ProMaxChip />}
+              hint={
+                <>
+                  {!transcript.allowed
+                    ? t("callRecording.transcribeLocked")
+                    : transcript.running
+                      ? t("callRecording.transcribeRunning")
+                      : settings.output === "video"
+                        ? t("callRecording.transcribeVideoHint")
+                        : t("callRecording.transcribeZipHint")}{" "}
+                  <span
+                    role="link"
+                    tabIndex={0}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      transcript.openSettings();
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.stopPropagation();
+                        transcript.openSettings();
+                      }
+                    }}
+                    className="cursor-pointer font-semibold text-violet-600 hover:underline dark:text-violet-400"
+                  >
+                    {transcript.allowed ? t("callRecording.transcribeSettings") : t("callTranscript.upsellButton")}
+                  </span>
+                </>
+              }
+              checked={Boolean(settings.transcribe) && transcript.allowed}
+              // Locked, the switch leads to what unlocks it instead.
+              onChange={(v) => (transcript.allowed ? update({ transcribe: v }) : transcript.openSettings())}
+              onColor="bg-violet-600"
+            />
+          )}
         </div>
 
         {volumesBlock}
@@ -476,7 +534,15 @@ export function CallRecordingModal({
 
         {status !== "finishing" && (
           <div className="flex flex-col gap-2 border-t border-zinc-100 px-5 py-3 dark:border-zinc-800">
-            {!busy && <p className="text-xs text-zinc-500">{t("callRecording.everyoneIsTold")}</p>}
+            {!busy && (
+              <p className="text-xs text-zinc-500">
+                {/* The recording never leaves the browser; the transcript's
+                    speech does go to Groq, and saying otherwise would be a lie. */}
+                {settings.transcribe && transcript?.allowed
+                  ? t("callTranscript.everyoneIsTold")
+                  : t("callRecording.everyoneIsTold")}
+              </p>
+            )}
             {busy ? (
               <div className="flex gap-2">
                 {confirmDiscard ? (

@@ -207,6 +207,13 @@ import { trackFeatureEvent, useFeature } from "@/lib/features";
 import type { CallSource } from "@/lib/callRecording";
 import { CALL_RECORDING_FEATURE, trackCallRecordingOpen, useCallRecording } from "@/lib/useCallRecording";
 import { CallRecordButton, CallRecordingModal } from "@/components/CallRecordingModal";
+import { LiveCaptions, TranscriptModal } from "@/components/TranscriptModal";
+import {
+  CALL_TRANSCRIPT_EVENTS,
+  CALL_TRANSCRIPT_FEATURE,
+  trackTranscript,
+  useCallTranscript,
+} from "@/lib/useCallTranscript";
 import Tippy from "@tippyjs/react";
 import { setTileExperimentMode, useTileExperiment, useTileExperimentTip } from "@/lib/clipsMode";
 import {
@@ -259,6 +266,7 @@ import {
   MdChevronRight,
   MdAdd,
   MdClose,
+  MdSubtitles,
 } from "react-icons/md";
 import { BsGearFill, BsCoin } from "react-icons/bs";
 import {
@@ -1992,6 +2000,10 @@ function WatchRoomView({
   // corner. Tracked here, where its switch is, rather than in every tile.
   const orientationMode = useTileExperiment("orientation", { track: true });
   const orientationTip = useTileExperimentTip("orientation", orientationMode.available);
+  // "Transcrição" (lib/useCallTranscript): its button is in "⋯", so its tip
+  // joins that menu's queue below. Exposure counted here, once per room.
+  const callTranscriptFeature = useFeature(CALL_TRANSCRIPT_FEATURE, { track: true });
+  const callTranscriptTip = useTileExperimentTip("callTranscript", callTranscriptFeature.enabled);
   // How *we* asked the room to show each of our own transmissions, by
   // broadcast channel ("screen", "camera", "screen2", "file1", ...). Kept
   // here rather than in the tile because the server forgets it on every join
@@ -2035,7 +2047,9 @@ function WatchRoomView({
       ? { ...recordingTip, text: "watch.watchRoom.recordingModeTip" }
       : orientationTip.show
         ? { ...orientationTip, text: "watch.watchRoom.orientationTip" }
-        : null;
+        : callTranscriptTip.show
+          ? { ...callTranscriptTip, text: "watch.watchRoom.callTranscriptTip" }
+          : null;
   // Picks which shell that panel gets: a popover anchored to the button from
   // sm up, the bottom sheet below it (see menuItems further down). Reports
   // false until the first client paint, so the sheet is what a phone gets
@@ -3765,14 +3779,41 @@ function WatchRoomView({
     fileChannels,
     localMediaSnapshots,
   ]);
-  const callRecording = useCallRecording(callSources, {
-    call: translate("callRecording.fileCall"),
-    audio: translate("callRecording.fileAudio"),
-    voice: translate("callRecording.fileVoice"),
-    screen: translate("callRecording.fileScreen"),
-    camera: translate("callRecording.fileCamera"),
-    file: translate("callRecording.fileVideo"),
-  });
+  // "Transcrição": on its own from "⋯", or with the recording (its text goes
+  // into the recording's zip, under transcripts/). Pro Max, which the API is
+  // what enforces; this only decides what to offer.
+  const callTranscript = useCallTranscript(callSources);
+  const canTranscribe = hasFeature("call_transcript", account?.features ?? []);
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const openTranscript = () => {
+    if (callTranscript.status === "idle") {
+      trackTranscript(canTranscribe ? CALL_TRANSCRIPT_EVENTS.open : CALL_TRANSCRIPT_EVENTS.upsell);
+    }
+    setTranscriptOpen(true);
+  };
+  const showTranscript = callTranscriptFeature.enabled || callTranscript.status !== "idle";
+  const callRecording = useCallRecording(
+    callSources,
+    {
+      call: translate("callRecording.fileCall"),
+      audio: translate("callRecording.fileAudio"),
+      voice: translate("callRecording.fileVoice"),
+      screen: translate("callRecording.fileScreen"),
+      camera: translate("callRecording.fileCamera"),
+      file: translate("callRecording.fileVideo"),
+    },
+    {
+      extras: (origin, end) =>
+        callTranscript.status !== "idle" ? callTranscript.filesForRecording(origin, end) : Promise.resolve([]),
+    },
+  );
+  // A recording thrown away takes the transcript that started with it along.
+  const recordingIdle = callRecording.status === "idle";
+  const discardRecordingTranscript = callTranscript.owner === "recording" && callTranscript.status === "running";
+  const discardTranscript = callTranscript.discard;
+  useEffect(() => {
+    if (recordingIdle && discardRecordingTranscript) discardTranscript();
+  }, [recordingIdle, discardRecordingTranscript, discardTranscript]);
   const openCallRecording = () => {
     if (callRecording.status === "idle") trackCallRecordingOpen();
     setMobileExtraMenuOpen(false);
@@ -6080,6 +6121,31 @@ function WatchRoomView({
         </button>
       )}
 
+      {/* "Transcrição" (lib/useCallTranscript): its own modal, like the
+          shortcuts above. Shown to the experiment — and to whoever is
+          transcribing if it is switched off under them, so "parar" stays. */}
+      {showTranscript && (
+        <button
+          type="button"
+          onClick={() => {
+            closeMenu();
+            openTranscript();
+          }}
+          className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900"
+        >
+          <MdSubtitles className="h-4 w-4 shrink-0 text-violet-500" />
+          <span className="flex-1">{translate("callTranscript.title")}</span>
+          {callTranscript.status !== "idle" ? (
+            <span className="flex items-center gap-1 text-xs font-semibold text-violet-600 dark:text-violet-400">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-violet-600" />
+              {translate("callTranscript.running")}
+            </span>
+          ) : (
+            <NewBadge id={CALL_TRANSCRIPT_FEATURE} />
+          )}
+        </button>
+      )}
+
       <div className="my-2 border-t border-zinc-200 dark:border-zinc-800" />
 
       {/* Above the toggles rather than among them: it is the only setting in
@@ -7876,7 +7942,9 @@ function WatchRoomView({
             {translate(
               recordingNotices.some((n) => n.channels.includes("call"))
                 ? "watch.watchRoom.callBeingRecordedBy"
-                : "watch.watchRoom.beingRecordedBy",
+                : recordingNotices.every((n) => n.channels.every((c) => c === "transcript"))
+                  ? "watch.watchRoom.callBeingTranscribedBy"
+                  : "watch.watchRoom.beingRecordedBy",
               {
               names: recordingNotices
                 .map((n) => n.name ?? state.peers.find((p) => p.id === n.from)?.name ?? translate("common.someone2"))
@@ -9023,7 +9091,30 @@ function WatchRoomView({
         onClose={() => setCallRecordingOpen(false)}
         sources={callSources}
         recording={callRecording}
+        transcript={
+          showTranscript
+            ? {
+                allowed: canTranscribe,
+                running: callTranscript.status !== "idle",
+                start: () => void callTranscript.start("recording"),
+                openSettings: () => {
+                  setCallRecordingOpen(false);
+                  openTranscript();
+                },
+              }
+            : undefined
+        }
       />
+      <TranscriptModal
+        open={transcriptOpen}
+        onClose={() => setTranscriptOpen(false)}
+        sources={callSources}
+        transcript={callTranscript}
+        allowed={canTranscribe}
+      />
+      {callTranscript.status === "running" && callTranscript.settings.liveCaptions && (
+        <LiveCaptions entries={callTranscript.entries} translated={callTranscript.settings.translateTo !== "none"} />
+      )}
 
       <ObsBrowserSourceModal
         open={Boolean(obsModalUrl)}

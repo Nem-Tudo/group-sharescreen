@@ -66,8 +66,21 @@ function downloadResult(result: CallRecordingResult) {
   track(CALL_RECORDING_EVENTS.download, result.durationMs / 1000);
 }
 
-export function useCallRecording(sources: CallSource[], labels: CallRecordingLabels) {
+// Files that go with a recording (the transcript's), asked for when it stops
+// with its start and end on Date.now()'s clock.
+export type RecordingExtras = (origin: number, end: number) => Promise<{ name: string; blob: Blob }[]>;
+
+export function useCallRecording(
+  sources: CallSource[],
+  labels: CallRecordingLabels,
+  options: { extras?: RecordingExtras } = {},
+) {
   const recorderRef = useRef<CallRecorder | null>(null);
+  const extrasRef = useRef(options.extras);
+  useEffect(() => {
+    extrasRef.current = options.extras;
+  });
+  const startedWallRef = useRef(0);
   const sourcesRef = useRef(sources);
   const [status, setStatus] = useState<CallRecordingStatus>("idle");
   const [startedAt, setStartedAt] = useState<number | null>(null);
@@ -110,7 +123,8 @@ export function useCallRecording(sources: CallSource[], labels: CallRecordingLab
       try {
         await recorder.start(sourcesRef.current);
         if (recorderRef.current !== recorder) return;
-        setStartedAt(Date.now());
+        startedWallRef.current = Date.now();
+        setStartedAt(startedWallRef.current);
         setStatus("recording");
         track(CALL_RECORDING_EVENTS.start, sourcesRef.current.length);
         track(
@@ -139,7 +153,8 @@ export function useCallRecording(sources: CallSource[], labels: CallRecordingLab
     setProgress(0);
     track(CALL_RECORDING_EVENTS.stop, recorder.elapsedMs() / 1000);
     try {
-      const done = await recorder.stop(setProgress);
+      const extras = extrasRef.current?.(startedWallRef.current, Date.now());
+      const done = await recorder.stop(setProgress, extras);
       if (done) {
         setResult(done);
         downloadResult(done);
@@ -190,8 +205,9 @@ export function useCallRecording(sources: CallSource[], labels: CallRecordingLab
       for (const stopNotice of noticesRef.current.values()) stopNotice();
       noticesRef.current.clear();
       if (!recorder) return;
+      const extras = extrasRef.current?.(startedWallRef.current, Date.now());
       void recorder
-        .stop()
+        .stop(undefined, extras)
         .then((done) => {
           if (done) downloadResult(done);
         })

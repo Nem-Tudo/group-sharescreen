@@ -19,7 +19,8 @@ export type TileExperiment =
   | "pushToTalk"
   | "musicQueue"
   | "orientation"
-  | "callRecording";
+  | "callRecording"
+  | "callTranscript";
 
 // `defaultOn`: the switch starts on for whoever never touched it.
 const CONFIG: Record<
@@ -82,6 +83,14 @@ const CONFIG: Record<
     tipKey: "sharescreen:callRecordingTipSeen",
     defaultOn: true,
   },
+  // "Transcrição" (ver lib/useCallTranscript). Como o callRecording: aqui só
+  // pela dica azul, que fica no "⋯" (é lá que o botão está).
+  callTranscript: {
+    feature: "room-call-transcript",
+    modeKey: "sharescreen:callTranscriptMode",
+    tipKey: "sharescreen:callTranscriptTipSeen",
+    defaultOn: true,
+  },
   musicQueue: {
     feature: "room-music-queue",
     modeKey: "sharescreen:musicQueueMode",
@@ -131,6 +140,10 @@ export const TILE_EXPERIMENT_EVENTS = {
   callRecording: {
     modeOn: "call_recording_mode_on",
     modeOff: "call_recording_mode_off",
+  },
+  callTranscript: {
+    modeOn: "transcript_mode_on",
+    modeOff: "transcript_mode_off",
   },
   musicQueue: {
     // Nomes de "modo" aqui são a aba, não a ordem aleatória: o interruptor
