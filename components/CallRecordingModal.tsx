@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { MdClose, MdFiberManualRecord, MdMic, MdScreenShare, MdStop, MdVideocam } from "react-icons/md";
+import { BetaMark } from "@/components/BetaMark";
 import { markFeatureUsed } from "@/components/NewBadge";
 import { formatDuration } from "@/components/RecordingModal";
 import type { CallExport, CallRecordingSettings, CallSource } from "@/lib/callRecording";
@@ -416,6 +417,9 @@ export function CallRecordingModal({
               <MdFiberManualRecord className="h-5 w-5" />
             </span>
             {t("callRecording.title")}
+            <span className="text-[10px] font-bold leading-none">
+              <BetaMark />
+            </span>
           </span>
           <button
             type="button"
