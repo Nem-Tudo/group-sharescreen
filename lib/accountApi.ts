@@ -142,6 +142,14 @@ export type PremiumState = {
    */
   scheduledUpgradeRef?: string | null;
   scheduledUpgradePlan?: string | null;
+  /**
+   * A higher plan still running on top of `plan` until `carriedUntil` — what
+   * subscribing to a lower plan while a higher one was live leaves behind (see
+   * the API's /premium/subscribe). `plan` is what is billed; this is what the
+   * person has until that date.
+   */
+  carriedPlan?: string | null;
+  carriedUntil?: number | null;
   updatedAt: number;
 };
 

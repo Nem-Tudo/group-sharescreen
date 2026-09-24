@@ -23,6 +23,7 @@ import type { BillingCycle } from "@/lib/premiumApi";
 import { useAuth } from "@/lib/AuthContext";
 import { AccountModal, type AccountModalMode } from "@/components/AccountModal";
 import { PixChargeModal } from "@/components/PixChargeModal";
+import { DeferredDowngradeModal } from "@/components/DeferredDowngradeModal";
 import useNtPopups from "ntpopups";
 import { isIosDevice, isStandaloneDisplay } from "@/lib/browserEnv";
 import { getDesktopBridge } from "@/lib/desktop";
@@ -35,6 +36,7 @@ import {
   fetchPremiumPlans,
   fetchPremiumStatus,
   fetchUpgradeQuote,
+  isCarriedPlanLive,
   isPremiumActive,
   startPixPayment,
   startPremiumCheckout,
@@ -449,12 +451,24 @@ export function ProPanel({
 
   // Whether the plan on screen is a genuine step up from the one this account
   // already has time left on. Never true for a downgrade or a same-tier
-  // switch — those already take effect at the next renewal without a charge,
-  // through the ordinary "assinar"/"pix" buttons below, and topping them up
-  // would be charging for nothing.
+  // switch — topping those up would be charging for nothing.
+  // A higher plan still running on top of the subscription — see
+  // PremiumState.carriedPlan. What the person *has* is that one until the date.
+  const carryLive = isCarriedPlanLive(premium);
+  const effectivePlanId = carryLive ? premium!.carriedPlan! : premium?.plan;
   const canUpgrade = Boolean(
-    active && !activeHere && premium && plan && tierAbove(planTierOf(plan.id), planTierOf(premium.plan))
+    active && !activeHere && effectivePlanId && plan && tierAbove(planTierOf(plan.id), planTierOf(effectivePlanId))
   );
+  // The plan on screen is *below* the one still running. Sold by card only,
+  // and deferred: charged today, starting when the higher plan ends (see the
+  // API's /premium/subscribe and DeferredDowngradeModal). Not while a carried
+  // plan is already running — the API refuses a second deferral.
+  const lowerThanCurrent = Boolean(
+    active && effectivePlanId && plan && tierAbove(planTierOf(effectivePlanId), planTierOf(plan.id))
+  );
+  const planTitleOf = (id: string | null | undefined) => plans.find((entry) => entry.id === id)?.title ?? id ?? "";
+  const currentPlanTitle = planTitleOf(effectivePlanId);
+  const [deferredOpen, setDeferredOpen] = useState(false);
   /** The upgrade charge on screen has not been paid yet. */
   const upgradePending = Boolean(upgradePix) && premium?.lastPaymentId !== upgradePix?.paymentId;
   /** The money for the upgrade charge on screen has landed. */
@@ -1471,7 +1485,14 @@ export function ProPanel({
                 // period already paid for.
                 <div className="flex flex-col gap-3">
                   <p className="text-sm text-zinc-700 dark:text-zinc-300">
-                    {t("pro.proPanel.activeSubscriptionRenewsOnValue", { value: periodEndLabel(premium!.currentPeriodEnd) })}
+                    {carryLive
+                      ? t("pro.proPanel.carriedPlanInfo", {
+                          carried: currentPlanTitle,
+                          until: periodEndLabel(premium!.carriedUntil!),
+                          plan: plan.title,
+                          next: periodEndLabel(premium!.currentPeriodEnd),
+                        })
+                      : t("pro.proPanel.activeSubscriptionRenewsOnValue", { value: periodEndLabel(premium!.currentPeriodEnd) })}
                   </p>
                   {/* A page of its own, which asks for a fresh sign-in before
                       anything else — see app/pro/cancelar. A plain link, so it
@@ -1487,6 +1508,18 @@ export function ProPanel({
                     {t("pro.proPanel.cancelSubscription")}
                   </Link>
                 </div>
+              ) : carryLive && !activeHere && !canUpgrade ? (
+                // A lower plan already bought and waiting for the carried one
+                // to end: nothing on the carried plan's page or below it is for
+                // sale until then — the API refuses a second deferral.
+                <p className="text-sm text-zinc-700 dark:text-zinc-300">
+                  {t("pro.proPanel.carriedPlanInfo", {
+                    carried: currentPlanTitle,
+                    until: periodEndLabel(premium!.carriedUntil!),
+                    plan: planTitleOf(premium!.plan),
+                    next: periodEndLabel(premium!.currentPeriodEnd),
+                  })}
+                </p>
               ) : !plan.available ? (
                 <p className="text-sm text-zinc-500 dark:text-zinc-400">
                   {t("pro.proPanel.subscriptionsAreUnavailableAtTheMoment")}
@@ -1732,6 +1765,7 @@ export function ProPanel({
                   {!checkoutUrl &&
                     !pixPending &&
                     !liveCardSub &&
+                    !lowerThanCurrent &&
                     pixOffered &&
                     pixSurchargePercent > 0 && (
                       <PixSurchargeNotice
@@ -1741,6 +1775,18 @@ export function ProPanel({
                         yearly={cycle === "yearly"}
                       />
                     )}
+                  {/* A lower plan than the one running: sold, but only by card
+                      and starting when the higher one ends. Said here in one
+                      line, and in full in the dialog the button opens. */}
+                  {lowerThanCurrent && !checkoutUrl && !pixPending && (
+                    <p className="text-sm text-zinc-700 dark:text-zinc-300">
+                      {t("pro.proPanel.lowerPlanDeferredHint", {
+                        current: currentPlanTitle,
+                        date: periodEndLabel(premium!.currentPeriodEnd),
+                        plan: plan.title,
+                      })}
+                    </p>
+                  )}
                   {!checkoutUrl && !pixPending && (
                     <div className="flex flex-wrap gap-2">
                       {/* Offered on every plan, with no "cancel first". The
@@ -1752,7 +1798,7 @@ export function ProPanel({
                           leaves the current plan exactly as it was. */}
                       <button
                         type="button"
-                        onClick={handleSubscribe}
+                        onClick={lowerThanCurrent ? () => setDeferredOpen(true) : handleSubscribe}
                         disabled={busy || (needsEmail && !email.trim()) || (needsTaxId && !taxId.trim())}
                         className="rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
                       >
@@ -1773,7 +1819,7 @@ export function ProPanel({
                           a subscription, and a disabled Pix button would be
                           a worse version of that — it would still advertise
                           the option this is measuring the absence of. */}
-                      {pixOffered && (
+                      {pixOffered && !lowerThanCurrent && (
                       <button
                         type="button"
                         onClick={handlePix}
@@ -1792,7 +1838,7 @@ export function ProPanel({
                   )}
                   {/* What "trocar" actually does, said before the money
                       moves rather than discovered after it. */}
-                  {active && !activeHere && !checkoutUrl && !pixPending && (
+                  {active && !activeHere && !lowerThanCurrent && !checkoutUrl && !pixPending && (
                     <p className="text-xs text-zinc-500 dark:text-zinc-400">
                       {t("pro.proPanel.onCompletionThisPlanReplacesThe")}
                     </p>
@@ -1843,6 +1889,27 @@ export function ProPanel({
           state — and that is this panel, which is what reacts to the account
           appearing. */}
       <AccountModal mode={accountModal} onModeChange={setAccountModal} />
+
+      {plan && premium && (
+        <DeferredDowngradeModal
+          open={deferredOpen && lowerThanCurrent}
+          currentTitle={currentPlanTitle}
+          newTitle={plan.title}
+          priceLabel={`${pricing?.priceLabel ?? plan.priceLabel}${cycle === "yearly" ? "/ano" : t("pro.proPanel.month2")}`}
+          yearly={cycle === "yearly"}
+          currentEndLabel={periodEndLabel(premium.currentPeriodEnd)}
+          nextChargeLabel={periodEndLabel(premium.currentPeriodEnd + (pricing?.periodDays ?? 30) * 86_400_000)}
+          replacesCardSubscription={liveCardSub}
+          busy={busy}
+          onConfirm={() => {
+            // Closed before the checkout opens: the click is still the user
+            // gesture handleSubscribe needs for its placeholder tab.
+            setDeferredOpen(false);
+            void handleSubscribe();
+          }}
+          onClose={() => setDeferredOpen(false)}
+        />
+      )}
 
       {/* Top level for the same reason, plus one of its own: a Pix charge can
           be created from either branch above — a first purchase and a renewal

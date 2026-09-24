@@ -210,11 +210,14 @@ export async function startPremiumCheckout(
       checkoutUrl?: string;
       error?: string;
       needsEmail?: boolean;
+      lowerPlan?: boolean;
     };
     if (!res.ok || !data.checkoutUrl) {
       return {
         ok: false,
-        error: data.error ?? translate("premiumApi.couldNotStartThePayment"),
+        error: data.lowerPlan
+          ? translate("premiumApi.lowerPlanWhileHigherActive")
+          : data.error ?? translate("premiumApi.couldNotStartThePayment"),
         needsEmail: data.needsEmail,
       };
     }
@@ -298,11 +301,14 @@ export async function startPixPayment(
       error?: string;
       needsEmail?: boolean;
       needsTaxId?: boolean;
+      lowerPlan?: boolean;
     };
     if (!res.ok || !data.paymentId) {
       return {
         ok: false,
-        error: data.error ?? translate("premiumApi.couldNotGenerateThePix"),
+        error: data.lowerPlan
+          ? translate("premiumApi.lowerPlanWhileHigherActive")
+          : data.error ?? translate("premiumApi.couldNotGenerateThePix"),
         needsEmail: data.needsEmail,
         needsTaxId: data.needsTaxId,
       };
@@ -613,11 +619,14 @@ export async function startUpgradePix(
       error?: string;
       needsEmail?: boolean;
       needsTaxId?: boolean;
+      lowerPlan?: boolean;
     };
     if (!res.ok || !data.paymentId) {
       return {
         ok: false,
-        error: data.error ?? translate("premiumApi.couldNotGenerateThePix"),
+        error: data.lowerPlan
+          ? translate("premiumApi.lowerPlanWhileHigherActive")
+          : data.error ?? translate("premiumApi.couldNotGenerateThePix"),
         needsEmail: data.needsEmail,
         needsTaxId: data.needsTaxId,
       };
@@ -653,11 +662,14 @@ export async function startUpgradeSchedule(
       checkoutUrl?: string;
       error?: string;
       needsEmail?: boolean;
+      lowerPlan?: boolean;
     };
     if (!res.ok || !data.checkoutUrl) {
       return {
         ok: false,
-        error: data.error ?? translate("premiumApi.couldNotStartThePayment"),
+        error: data.lowerPlan
+          ? translate("premiumApi.lowerPlanWhileHigherActive")
+          : data.error ?? translate("premiumApi.couldNotStartThePayment"),
         needsEmail: data.needsEmail,
       };
     }
@@ -771,6 +783,14 @@ export async function cancelPremium(
   } catch {
     return { ok: false, error: translate("common.noConnectionToTheServer") };
   }
+}
+
+/**
+ * Whether a higher plan is still running on top of the subscription — see
+ * PremiumState.carriedPlan. Mirrors the API's accountStore.carriedPlanLive.
+ */
+export function isCarriedPlanLive(premium: PremiumState | null | undefined): boolean {
+  return Boolean(premium?.carriedPlan && (premium.carriedUntil ?? 0) > Date.now());
 }
 
 /** Whether a subscription is paying right now, for the account page's copy. */
