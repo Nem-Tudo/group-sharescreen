@@ -4208,5 +4208,6 @@
   "callTranscript.fileDuration": "Duration",
   "callTranscript.fileParticipants": "Participants",
   "watch.watchRoom.callBeingTranscribedBy": "The call is being transcribed by {names}",
-  "watch.watchRoom.callTranscriptTip": "New: transcribe the call — the text of everything said, with translation and an AI summary."
+  "watch.watchRoom.callTranscriptTip": "New: transcribe the call — the text of everything said, with translation and an AI summary.",
+  "pro.proPanel.transcribeYourCalls": "Call transcripts, with translation and an AI summary"
 }
