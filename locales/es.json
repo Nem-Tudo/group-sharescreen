@@ -4211,5 +4211,8 @@
   "watch.watchRoom.callTranscriptTip": "Nuevo: transcribe la llamada — el texto de todo lo que se dijo, con traducción y resumen por IA.",
   "pro.proPanel.transcribeYourCalls": "Transcripción de las llamadas, con traducción y resumen por IA",
   "callRecording.transcribeWhat": "La transcripción es el texto de todo lo que se dijo en la llamada, con quién lo dijo y cuándo. Se puede traducir, resumir con IA y descargar como subtítulos (SRT/VTT).",
-  "callTranscript.comingSoon": "Próximamente"
+  "callTranscript.comingSoon": "Próximamente",
+  "callTranscript.alreadyTitle": "Alguien ya está transcribiendo",
+  "callTranscript.alreadyText": "{names} ya está transcribiendo esta llamada. Si transcribes también, la misma conversación se transcribe dos veces y gasta tu límite diario. Puedes pedirle el archivo a quien ya está transcribiendo.",
+  "callTranscript.alreadyContinue": "Transcribir de todos modos"
 }

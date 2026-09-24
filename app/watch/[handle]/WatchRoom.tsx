@@ -3796,7 +3796,23 @@ function WatchRoomView({
   // "Legendas ao vivo" has its own experiment; exposure is counted on the
   // switch in the modal, not here.
   const callTranscriptCaptions = useFeature(CALL_TRANSCRIPT_CAPTIONS_FEATURE, { track: false }).enabled;
-  const callTranscript = useCallTranscript(callSources, { captionsAllowed: callTranscriptCaptions });
+  const transcriptPeerIds = useMemo(
+    () => state.peers.map((p) => p.id).filter((id) => id !== state.selfId),
+    [state.peers, state.selfId],
+  );
+  const callTranscript = useCallTranscript(callSources, {
+    captionsAllowed: callTranscriptCaptions,
+    roomPeerIds: transcriptPeerIds,
+  });
+  // Who else is transcribing this call right now — "Fulano já está
+  // transcrevendo" before a second, duplicate transcript is started.
+  const othersTranscribing = useMemo(
+    () =>
+      recordingNotices
+        .filter((n) => n.channels.includes("transcript"))
+        .map((n) => n.name ?? state.peers.find((p) => p.id === n.from)?.name ?? translate("common.someone2")),
+    [recordingNotices, state.peers],
+  );
   const canTranscribe = hasFeature("call_transcript", account?.features ?? []) || (callTranscriptFree && Boolean(account));
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const openTranscript = () => {
@@ -9155,6 +9171,7 @@ function WatchRoomView({
         transcript={callTranscript}
         allowed={canTranscribe}
         free={callTranscriptFree}
+        othersTranscribing={othersTranscribing}
       />
       {callTranscriptCaptions && callTranscript.status === "running" && callTranscript.settings.liveCaptions && (
         <LiveCaptions entries={callTranscript.entries} translated={callTranscript.settings.translateTo !== "none"} />

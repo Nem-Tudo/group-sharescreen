@@ -4211,5 +4211,8 @@
   "watch.watchRoom.callTranscriptTip": "New: transcribe the call — the text of everything said, with translation and an AI summary.",
   "pro.proPanel.transcribeYourCalls": "Call transcripts, with translation and an AI summary",
   "callRecording.transcribeWhat": "A transcript is the text of everything said in the call, with who said it and when. It can be translated, summarised by AI and downloaded as subtitles (SRT/VTT).",
-  "callTranscript.comingSoon": "Coming soon"
+  "callTranscript.comingSoon": "Coming soon",
+  "callTranscript.alreadyTitle": "Someone is already transcribing",
+  "callTranscript.alreadyText": "{names} is already transcribing this call. If you transcribe too, the same conversation is transcribed twice and uses your daily limit. You can ask whoever is transcribing for the file.",
+  "callTranscript.alreadyContinue": "Transcribe anyway"
 }

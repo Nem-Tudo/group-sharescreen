@@ -47,6 +47,10 @@ export const CALL_TRANSCRIPT_EVENTS = {
   ignorePerson: "transcript_ignore_person",
   dailyLimit: "transcript_daily_limit",
   failed: "transcript_failed",
+  // Warned that somebody else is already transcribing the call.
+  duplicateWarning: "transcript_duplicate_warning",
+  // …and started anyway.
+  duplicateStart: "transcript_duplicate_start",
 } as const;
 
 export function trackTranscript(name: string, value?: number) {
@@ -97,8 +101,18 @@ async function makeSummary(
   return result.value.summary || null;
 }
 
-export function useCallTranscript(sources: CallSource[], options: { captionsAllowed?: boolean } = {}) {
+export function useCallTranscript(
+  sources: CallSource[],
+  options: {
+    captionsAllowed?: boolean;
+    // Everybody else in the room (connection ids): they are told too, not
+    // only whoever is talking — that is how somebody about to start a second
+    // transcript learns one is already running (see TranscriptModal).
+    roomPeerIds?: string[];
+  } = {},
+) {
   const captionsAllowed = options.captionsAllowed ?? false;
+  const roomPeerIds = options.roomPeerIds ?? [];
   const transcriberRef = useRef<CallTranscriber | null>(null);
   const sourcesRef = useRef(sources);
   const [settings, setSettingsState] = useState<TranscriptSettings>(() =>
@@ -149,15 +163,17 @@ export function useCallTranscript(sources: CallSource[], options: { captionsAllo
 
   // Everybody whose voice is being turned into text is told, like a recording.
   const active = status === "running" || status === "starting";
+  // Those being transcribed first, then the rest of the room, up to the cap.
   const owners = active
     ? [
-        ...new Set(
-          sources
+        ...new Set([
+          ...sources
             .filter((s) => !s.self && !ignored.has(s.ownerId) && (s.kind === "voice" || settings.includeScreenAudio))
-            .map((s) => s.ownerId),
-        ),
+            .map((s) => s.ownerId)
+            .sort(),
+          ...[...roomPeerIds].sort(),
+        ]),
       ]
-        .sort()
         .slice(0, MAX_NOTIFIED)
         .join(",")
     : "";
