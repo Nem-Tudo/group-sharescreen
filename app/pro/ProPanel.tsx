@@ -674,6 +674,20 @@ export function ProPanel({
       t("pro.proPanel.customEmojis", { count })
     );
 
+  // Picking which mark to wear (blue/gold, and ruby on Ultra — see the account
+  // settings' verified-badge picker). Not a feature: the API derives it from
+  // the plan rung, so it is decided here the same way.
+  const choosesBadge = (entry: PremiumPlan) => tierAtLeast(planTierOf(entry.id), "premium_max");
+  const badgeChoiceRow = (entry: PremiumPlan) =>
+    choosesBadge(entry) ? (
+      <li key="badge-choice" className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+        <MdCheck className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-500" />
+        {t("pro.proPanel.chooseVerifiedBadge")}
+      </li>
+    ) : (
+      missingRow("badge-choice", t("pro.proPanel.chooseVerifiedBadge"))
+    );
+
   /** The whole list, in order, with the points and the upload limit slotted in at their anchor. */
   /**
    * The same benefits as featureRows, one row per benefit with a cell per
@@ -770,6 +784,14 @@ export function ProPanel({
           }),
         });
       }
+      if (feature === "verified_badge") {
+        rows.push({
+          key: "badge-choice",
+          label: t("pro.proPanel.chooseVerifiedBadge"),
+          priority: -1,
+          cells: plans.map(choosesBadge),
+        });
+      }
       if (feature === POINTS_AFTER) rows.push(...extras());
     }
     if (!sellableFeatures.includes(POINTS_AFTER)) rows.push(...extras());
@@ -781,12 +803,16 @@ export function ProPanel({
     const rows: ReactNode[] = [];
     for (const feature of sellableFeatures) {
       rows.push(featureRow(feature, entry.features.includes(feature), entry));
+      // Right under "seja verificado", which it qualifies.
+      if (feature === "verified_badge") rows.push(badgeChoiceRow(entry));
       if (feature === POINTS_AFTER) rows.push(...pointsRows(entry), uploadRow(entry));
     }
     // No plan sells the anchor benefit — these still have to appear.
     if (!sellableFeatures.includes(POINTS_AFTER)) rows.push(...pointsRows(entry), uploadRow(entry));
-    // With the broadcast perks, right under the first one (verified heads the list).
-    rows.splice(Math.min(1, rows.length), 0, screensRow(entry));
+    // With the broadcast perks, right under the first one (verified and its
+    // badge choice head the list).
+    const afterVerified = sellableFeatures[0] === "verified_badge" ? 2 : 1;
+    rows.splice(Math.min(afterVerified, rows.length), 0, screensRow(entry));
     // The group perks close the list.
     rows.push(auraRow(entry), emojiRow(entry));
     return rows;

@@ -3898,6 +3898,7 @@
   "pro.proPanel.aurasToGive": "{count} Aura para impulsionar um grupo",
   "pro.proPanel.aurasToGiveUltra": "{count} Auras para impulsionar grupos (até 2 no mesmo)",
   "pro.proPanel.customEmojis": "Até {count} emojis personalizados seus, para usar em qualquer lugar",
+  "pro.proPanel.chooseVerifiedBadge": "Escolha qual selo de verificado usar",
   "pro.compare.auras": "Auras para impulsionar grupos",
   "pro.compare.customEmojis": "Emojis personalizados da conta",
   "customEmoji.meHint": "Até {limit} emojis seus, para usar em qualquer lugar",
