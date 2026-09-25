@@ -16,7 +16,14 @@
 // its currentTime is the truth; this schedules decoded audio against an
 // AudioContext timeline anchored to it, and re-anchors whenever the two drift
 // apart, the element pauses, stalls, seeks or changes speed.
+//
+// AC3 and E-AC3 — the usual audio of a film in .mkv — are not in any
+// browser's WebCodecs. Those tracks are decoded in software instead: FFmpeg's
+// decoder built to WASM (@mediabunny/ac3), driven through mediabunny, which
+// also reads the file for them (AudioBufferSink). Loaded only when a file has
+// such a track: it is a megabyte nobody else should download.
 
+import type { AudioBufferSink, WrappedAudioBuffer } from "mediabunny";
 import type { AudioDemuxer, AudioTrackInfo } from "./mediaDemux";
 
 // How far ahead of the playhead decoded audio is handed to WebAudio, and how
@@ -39,21 +46,73 @@ const START_LEAD_S = 0.06;
 type Decoded = { startUs: number; endUs: number; buffer: AudioBuffer };
 type Scheduled = { source: AudioBufferSourceNode; item: Decoded };
 
-class TrackPlayer {
-  decoder: AudioDecoder;
+// The codecs decoded in software when WebCodecs refuses them (see
+// mediaDemux/codecs for the strings).
+const SOFTWARE_CODECS = ["ac-3", "ec-3"];
+
+type Mediabunny = typeof import("mediabunny");
+let softwareLib: Promise<Mediabunny | null> | null = null;
+
+/** mediabunny with the AC3/E-AC3 decoder registered, or null when it cannot load. */
+function loadSoftwareDecoder(): Promise<Mediabunny | null> {
+  softwareLib ??= (async () => {
+    const lib = await import("mediabunny");
+    const { registerAc3Decoder } = await import("@mediabunny/ac3");
+    registerAc3Decoder();
+    return lib;
+  })().catch(() => {
+    softwareLib = null;
+    return null;
+  });
+  return softwareLib;
+}
+
+/** What both kinds of player share: decoded audio waiting, and what is playing of it. */
+abstract class BasePlayer {
   queue: Decoded[] = [];
   scheduled: Scheduled[] = [];
-  expectedUs: number | null = null;
+  /** How far into the file decoded audio (or input to the decoder) reaches. */
   lastInputUs = 0;
   failed = false;
 
   constructor(
     readonly info: AudioTrackInfo,
+    readonly out: GainNode
+  ) {}
+
+  /** Stops what is scheduled; puts it back in the queue when `keep`. */
+  stopScheduled(keep: boolean) {
+    const back: Decoded[] = [];
+    for (const entry of this.scheduled) {
+      entry.source.onended = null;
+      try {
+        entry.source.stop();
+      } catch {
+        // Never started, or already over.
+      }
+      entry.source.disconnect();
+      if (keep) back.push(entry.item);
+    }
+    this.scheduled = [];
+    if (back.length > 0) this.queue = [...back, ...this.queue].sort((a, b) => a.startUs - b.startUs);
+  }
+
+  abstract close(): void;
+}
+
+/** A track decoded by WebCodecs, fed packets from lib/mediaDemux. */
+class TrackPlayer extends BasePlayer {
+  decoder: AudioDecoder;
+  expectedUs: number | null = null;
+
+  constructor(
+    info: AudioTrackInfo,
     readonly config: AudioDecoderConfig,
-    readonly out: GainNode,
+    out: GainNode,
     private readonly context: AudioContext,
     private readonly onFailed: () => void
   ) {
+    super(info, out);
     this.decoder = this.makeDecoder();
   }
 
@@ -103,23 +162,6 @@ class TrackPlayer {
     }
   }
 
-  /** Stops what is scheduled; puts it back in the queue when `keep`. */
-  stopScheduled(keep: boolean) {
-    const back: Decoded[] = [];
-    for (const entry of this.scheduled) {
-      entry.source.onended = null;
-      try {
-        entry.source.stop();
-      } catch {
-        // Never started, or already over.
-      }
-      entry.source.disconnect();
-      if (keep) back.push(entry.item);
-    }
-    this.scheduled = [];
-    if (back.length > 0) this.queue = [...back, ...this.queue].sort((a, b) => a.startUs - b.startUs);
-  }
-
   /** Everything decoded or in flight is thrown away (a seek). */
   flush() {
     this.stopScheduled(false);
@@ -147,13 +189,97 @@ class TrackPlayer {
   }
 }
 
-export type ProbedTrack = { info: AudioTrackInfo; supported: boolean; config: AudioDecoderConfig | null };
+/**
+ * A track decoded in software (AC3/E-AC3). It reads the file on its own,
+ * through mediabunny, rather than taking packets from lib/mediaDemux: the
+ * decoder is only reachable that way. Kept DECODE_AHEAD_S ahead of the
+ * playhead, and restarted from the new position on a seek.
+ */
+class SoftwareTrackPlayer extends BasePlayer {
+  private iterator: AsyncGenerator<WrappedAudioBuffer, void, unknown> | null = null;
+  private startS = 0;
+  private gen = 0;
+  private pulling = false;
+  private done = false;
+
+  constructor(
+    info: AudioTrackInfo,
+    out: GainNode,
+    private readonly sink: Promise<AudioBufferSink | null>,
+    private readonly playhead: () => number,
+    private readonly onFailed: () => void
+  ) {
+    super(info, out);
+  }
+
+  restart(seconds: number) {
+    this.gen += 1;
+    this.stopScheduled(false);
+    this.queue = [];
+    this.lastInputUs = 0;
+    this.startS = seconds;
+    this.done = false;
+    this.pulling = false;
+    const iterator = this.iterator;
+    this.iterator = null;
+    if (iterator) void iterator.return(undefined).catch(() => {});
+  }
+
+  async pull() {
+    if (this.pulling || this.done || this.failed) return;
+    this.pulling = true;
+    const gen = this.gen;
+    try {
+      if (!this.iterator) {
+        const sink = await this.sink;
+        if (gen !== this.gen) return;
+        if (!sink) throw new Error("no sink");
+        this.iterator = sink.buffers(this.startS);
+      }
+      const iterator = this.iterator;
+      while (this.lastInputUs / 1e6 - this.playhead() < DECODE_AHEAD_S) {
+        const next = await iterator.next();
+        if (gen !== this.gen) return;
+        if (next.done) {
+          this.done = true;
+          return;
+        }
+        const { buffer, timestamp, duration } = next.value;
+        const startUs = timestamp * 1e6;
+        const endUs = (timestamp + duration) * 1e6;
+        this.queue.push({ startUs, endUs, buffer });
+        this.lastInputUs = endUs;
+      }
+    } catch {
+      if (gen !== this.gen) return;
+      this.failed = true;
+      this.onFailed();
+    } finally {
+      if (gen === this.gen) this.pulling = false;
+    }
+  }
+
+  close() {
+    this.restart(0);
+    this.done = true;
+    this.out.disconnect();
+  }
+}
+
+export type ProbedTrack = {
+  info: AudioTrackInfo;
+  supported: boolean;
+  /** Set for a track WebCodecs decodes. */
+  config: AudioDecoderConfig | null;
+  /** A track decoded in software (AC3/E-AC3) instead. */
+  software?: boolean;
+};
 
 /** Which of a file's audio tracks this browser can decode, and with what. */
 export async function probeTracks(tracks: AudioTrackInfo[]): Promise<ProbedTrack[]> {
   const out: ProbedTrack[] = [];
   for (const info of tracks) {
-    if (!info.codec || info.unreadable || typeof AudioDecoder === "undefined") {
+    if (!info.codec || info.unreadable) {
       out.push({ info, supported: false, config: null });
       continue;
     }
@@ -163,21 +289,37 @@ export async function probeTracks(tracks: AudioTrackInfo[]): Promise<ProbedTrack
       numberOfChannels: info.channels || 2,
       ...(info.description ? { description: info.description } : {}),
     };
-    try {
-      const result = await AudioDecoder.isConfigSupported(config);
-      out.push({ info, supported: Boolean(result.supported), config: result.supported ? config : null });
-    } catch {
-      out.push({ info, supported: false, config: null });
+    let supported = false;
+    if (typeof AudioDecoder !== "undefined") {
+      try {
+        supported = Boolean((await AudioDecoder.isConfigSupported(config)).supported);
+      } catch {
+        // Unsupported, as far as this is concerned.
+      }
     }
+    if (supported) out.push({ info, supported: true, config });
+    else if (SOFTWARE_CODECS.includes(info.codec) && (await loadSoftwareDecoder()))
+      out.push({ info, supported: true, config: null, software: true });
+    else out.push({ info, supported: false, config: null });
   }
   return out;
+}
+
+/** Whether a track needs the software decoder — which the <video> element cannot play either. */
+export function needsSoftwareDecode(info: AudioTrackInfo): boolean {
+  return info.codec !== null && SOFTWARE_CODECS.includes(info.codec);
 }
 
 export class MultiAudioEngine {
   /** By track index: the output of every track that decodes. */
   readonly outputs = new Map<number, GainNode>();
-  private players: TrackPlayer[] = [];
+  private players: BasePlayer[] = [];
+  // WebCodecs players, by container track id: the ones the demuxer feeds.
   private byId = new Map<number, TrackPlayer>();
+  private decoders: TrackPlayer[] = [];
+  private software: SoftwareTrackPlayer[] = [];
+  // mediabunny's reading of the file, for the software tracks; null without any.
+  private input: Promise<import("mediabunny").Input | null> | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
   private anchorMedia = 0;
@@ -193,20 +335,29 @@ export class MultiAudioEngine {
     private readonly element: HTMLVideoElement,
     private readonly context: AudioContext,
     private readonly demuxer: AudioDemuxer,
+    blob: Blob,
     tracks: ProbedTrack[],
     private readonly onTrackFailed: (index: number) => void
   ) {
     for (const probed of tracks) {
-      if (!probed.supported || !probed.config) continue;
+      if (!probed.supported || (!probed.config && !probed.software)) continue;
       const out = context.createGain();
       // Several channels (5.1) fold down to the stereo every destination is.
       out.channelCount = 2;
       out.channelCountMode = "explicit";
       out.channelInterpretation = "speakers";
       const index = probed.info.index;
-      const player = new TrackPlayer(probed.info, probed.config, out, context, () => this.onTrackFailed(index));
-      this.players.push(player);
-      this.byId.set(probed.info.id, player);
+      const failed = () => this.onTrackFailed(index);
+      if (probed.config) {
+        const player = new TrackPlayer(probed.info, probed.config, out, context, failed);
+        this.players.push(player);
+        this.decoders.push(player);
+        this.byId.set(probed.info.id, player);
+      } else {
+        const player = new SoftwareTrackPlayer(probed.info, out, this.sinkFor(blob, probed.info), () => element.currentTime, failed);
+        this.players.push(player);
+        this.software.push(player);
+      }
       this.outputs.set(index, out);
     }
 
@@ -259,9 +410,22 @@ export class MultiAudioEngine {
     this.seq += 1;
     this.feeding = false;
     this.ended = false;
-    for (const player of this.players) player.flush();
+    for (const player of this.decoders) player.flush();
+    for (const player of this.software) player.restart(seconds);
     this.seekDone = this.demuxer.seek(seconds).catch(() => {});
     if (this.running) this.reanchor();
+  }
+
+  // The mediabunny sink for one software track, matched by its position among
+  // the file's audio tracks (mediabunny's `number` counts from 1).
+  private async sinkFor(blob: Blob, info: AudioTrackInfo): Promise<AudioBufferSink | null> {
+    const lib = await loadSoftwareDecoder();
+    if (!lib || this.disposed) return null;
+    this.input ??= Promise.resolve(new lib.Input({ source: new lib.BlobSource(blob), formats: lib.ALL_FORMATS }));
+    const input = await this.input;
+    if (!input || this.disposed) return null;
+    const track = (await input.getAudioTracks()).find((t) => t.number === info.index + 1);
+    return track ? new lib.AudioBufferSink(track) : null;
   }
 
   private tick() {
@@ -302,8 +466,11 @@ export class MultiAudioEngine {
   }
 
   private async feed() {
-    if (this.feeding || this.ended || this.disposed) return;
-    const live = this.players.filter((p) => !p.failed);
+    if (this.disposed) return;
+    // Software tracks read the file themselves, each at its own pace.
+    for (const player of this.software) void player.pull();
+    if (this.feeding || this.ended) return;
+    const live = this.decoders.filter((p) => !p.failed);
     if (live.length === 0) return;
     const media = this.element.currentTime;
     const aheads = live.map((p) => p.lastInputUs / 1e6 - media);
@@ -336,7 +503,10 @@ export class MultiAudioEngine {
     this.detach();
     for (const player of this.players) player.close();
     this.players = [];
+    this.decoders = [];
+    this.software = [];
     this.byId.clear();
     this.outputs.clear();
+    void this.input?.then((input) => input?.dispose()).catch(() => {});
   }
 }

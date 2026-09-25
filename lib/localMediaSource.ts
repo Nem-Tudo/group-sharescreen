@@ -4,7 +4,7 @@ import { readZipEntries, readZipEntryBlob, ZipError } from "./zipReader";
 import { translate } from "@/lib/i18n";
 import { formatLocale } from "@/lib/i18n";
 import { canDemux, openAudioDemuxer, type AudioDemuxer } from "./mediaDemux";
-import { MultiAudioEngine, probeTracks, type ProbedTrack } from "./multiAudioEngine";
+import { MultiAudioEngine, needsSoftwareDecode, probeTracks, type ProbedTrack } from "./multiAudioEngine";
 import {
   describeTrack,
   FILE_AUDIO_TRACKS_EVENTS,
@@ -228,16 +228,23 @@ class LocalMediaSource implements AudioTrackOwner {
     if (!audioTracksEnabled || !item || !canDemux(item.name) || this.probed?.key === item.id) return;
     const token = ++this.probeToken;
     const demuxer = await openAudioDemuxer(item.blob, item.name);
-    if (token !== this.probeToken || !demuxer || demuxer.tracks.length < 2) return;
+    if (token !== this.probeToken || !demuxer || demuxer.tracks.length === 0) return;
+    // One track is the element's business — unless it is AC3/E-AC3, which the
+    // element plays as silence; then the engine decodes it in software.
+    const single = demuxer.tracks.length === 1;
+    if (single && !needsSoftwareDecode(demuxer.tracks[0])) return;
     const tracks = await probeTracks(demuxer.tracks);
     if (token !== this.probeToken) return;
+    if (single && !tracks[0].supported) return;
     this.probed = { key: item.id, demuxer, tracks };
     this.audioTracks = tracks.map((t) => describeTrack(t.info, t.supported));
     const supported = tracks.filter((t) => t.supported);
     const preferred = supported.find((t) => t.info.isDefault) ?? supported[0];
     this.audioTrack = preferred ? preferred.info.index : null;
-    trackFeatureEvent(FILE_AUDIO_TRACKS_EVENTS.multiTrack, { value: tracks.length });
+    if (!single) trackFeatureEvent(FILE_AUDIO_TRACKS_EVENTS.multiTrack, { value: tracks.length });
     if (supported.length < tracks.length) trackFeatureEvent(FILE_AUDIO_TRACKS_EVENTS.unsupported);
+    const software = tracks.filter((t) => t.software).length;
+    if (software > 0) trackFeatureEvent(FILE_AUDIO_TRACKS_EVENTS.softwareDecode, { value: software });
     this.maybeStartEngine();
     this.refresh();
   }
@@ -248,7 +255,9 @@ class LocalMediaSource implements AudioTrackOwner {
     const element = this.element;
     if (this.engine || !probed || !context || !element || !this.elementGain) return;
     if (probed.key !== this.current?.id || this.audioTrack === null) return;
-    const engine = new MultiAudioEngine(element, context, probed.demuxer, probed.tracks, (index) =>
+    const blob = this.current?.blob;
+    if (!blob) return;
+    const engine = new MultiAudioEngine(element, context, probed.demuxer, blob, probed.tracks, (index) =>
       this.trackFailed(index)
     );
     if (!engine.playable) {

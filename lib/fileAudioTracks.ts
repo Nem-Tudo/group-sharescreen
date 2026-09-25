@@ -37,6 +37,8 @@ export const FILE_AUDIO_TRACKS_EVENTS = {
   viewerChoice: "file_audio_viewer_choice",
   /** A file whose tracks include one this browser cannot decode. */
   unsupported: "file_audio_unsupported",
+  /** A file with AC3/E-AC3 tracks decoded in software (value: how many). */
+  softwareDecode: "file_audio_software_decode",
 } as const;
 
 /** What a track picker shows. */
