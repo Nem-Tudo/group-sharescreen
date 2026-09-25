@@ -23,7 +23,7 @@
 
 import { ensureSharedAudioContextRunning, getSharedAudioContext } from "./audioContext";
 import { loadWorklet, type CallSource, type CallSourceKind } from "./callRecording";
-import { transcribeAudio, translateLines, type TranscriptApiError } from "./transcriptApi";
+import { transcribeAudio, type TranscriptApiError } from "./transcriptApi";
 
 export type TranscriptTimestamps = "relative" | "clock" | "none";
 
@@ -109,16 +109,6 @@ export type TranscriberError = Extract<
   "account-required" | "pro-max-required" | "not-configured" | "daily-limit"
 > | "unsupported";
 
-type Callbacks = {
-  onEntries: (entries: TranscriptEntry[]) => void;
-  onPending: (pending: number) => void;
-  // A reason every further request would fail the same way: the session
-  // stops sending (it keeps what it has).
-  onFatal: (error: TranscriberError) => void;
-  // Pieces that could not be transcribed after retrying.
-  onLost: (count: number) => void;
-};
-
 const RATE = 16_000;
 const FRAME = 320; // 20 ms
 const PREROLL_FRAMES = 15; // 300 ms kept from before the voice started
@@ -126,14 +116,14 @@ const END_SILENCE_FRAMES = 40; // 800 ms of quiet ends an utterance
 const KEEP_TAIL_FRAMES = 10; // …of which 200 ms are kept
 const MAX_UTTERANCE_FRAMES = 1_250; // 25 s: longer is cut and goes on
 const MIN_VOICED_FRAMES = 12; // under 240 ms of voice is a click, not a word
+const LIVE_END_SILENCE_FRAMES = 18; // 360 ms in real-time mode
+const LIVE_MAX_UTTERANCE_FRAMES = 400; // 8 s in real-time mode
 const BATCH_TARGET_S = 12;
 const BATCH_MAX_S = 30;
 const BATCH_WAIT_MS = 6_000; // the longest a finished utterance waits for company
 const BATCH_GAP_S = 0.5;
 const CONCURRENCY = 3;
 const MAX_ATTEMPTS = 3;
-const TRANSLATE_EVERY_MS = 1_500;
-const TRANSLATE_BATCH = 20;
 
 // What Whisper writes over silence and noise, learned from subtitles of
 // videos: never somebody in a call.
@@ -215,6 +205,9 @@ export class Segmenter {
   private active: { data: Float32Array; t: number }[] | null = null;
   private voiced = 0;
   private silentRun = 0;
+  // Real-time mode (live captions, translation): a shorter pause ends a
+  // sentence and a monologue is cut more often, so text arrives sooner.
+  live = false;
 
   constructor(
     inputRate: number,
@@ -281,9 +274,9 @@ export class Segmenter {
     } else {
       this.silentRun++;
     }
-    if (this.silentRun >= END_SILENCE_FRAMES) {
+    if (this.silentRun >= (this.live ? LIVE_END_SILENCE_FRAMES : END_SILENCE_FRAMES)) {
       this.finish(this.silentRun - KEEP_TAIL_FRAMES);
-    } else if (this.active.length >= MAX_UTTERANCE_FRAMES) {
+    } else if (this.active.length >= (this.live ? LIVE_MAX_UTTERANCE_FRAMES : MAX_UTTERANCE_FRAMES)) {
       // Still talking: cut here and go straight on into the next one.
       this.finish(0);
       this.active = [];
@@ -322,41 +315,69 @@ type Voice = {
 
 type Job = { meta: Meta; pieces: { start: number; offset: number; seconds: number }[]; wav: Blob; attempts: number };
 
+export type TranscriberOptions = {
+  // "auto" or a language code (see TRANSCRIPT_LANGUAGES).
+  language: string;
+  // Names and words to spell right.
+  vocabulary: string;
+  // Real-time: every sentence is sent the moment it ends, instead of waiting
+  // a few seconds for company (cheaper, but seconds later).
+  live: boolean;
+};
+
+export type TranscriberCallbacks = {
+  // One line, as soon as it is known — with the language Whisper heard.
+  onEntry: (entry: TranscriptEntry, language: string | null) => void;
+  onPending: (pending: number) => void;
+  // A reason every further request would fail the same way: nothing more is
+  // sent.
+  onFatal: (error: TranscriberError) => void;
+  // Pieces that could not be transcribed after retrying.
+  onLost: (count: number) => void;
+};
+
+/**
+ * Turns the voices it is told to (see setFilter) into lines of text. Owned
+ * by lib/liveTranscriptShare, which decides which voices this browser is the
+ * one to transcribe for the whole room.
+ */
 export class CallTranscriber {
   private ctx!: AudioContext;
   private t0 = 0;
   private wallStart = 0;
   private keepAlive!: GainNode;
   private voices = new Map<string, Voice>();
-  private entries: TranscriptEntry[] = [];
   private nextId = 1;
   private queue: Job[] = [];
   private running = 0;
   private idleWaiters: (() => void)[] = [];
-  private toTranslate: TranscriptEntry[] = [];
-  private translating: Promise<void> | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
-  private translateTimer: ReturnType<typeof setInterval> | null = null;
-  private emitQueued = false;
   private stopped = false;
   private fatal = false;
   private ready = false;
   private latest: CallSource[] = [];
-  private ignored = new Set<string>();
+  private filter: (source: CallSource) => boolean = () => false;
   private lost = 0;
   private names = new Map<string, string>();
 
   constructor(
-    private settings: TranscriptSettings,
-    private callbacks: Callbacks,
+    private options: TranscriberOptions,
+    private callbacks: TranscriberCallbacks,
   ) {}
 
   get startedAtWall(): number {
     return this.wallStart;
   }
 
-  async start(sources: CallSource[], ignored: Iterable<string>): Promise<void> {
-    this.ignored = new Set(ignored);
+  get pending(): number {
+    return this.queue.length + this.running;
+  }
+
+  get failed(): boolean {
+    return this.fatal;
+  }
+
+  async start(sources: CallSource[]): Promise<void> {
     this.latest = sources;
     if (typeof AudioWorkletNode === "undefined") throw new Error("unsupported");
     const ctx = getSharedAudioContext();
@@ -373,24 +394,27 @@ export class CallTranscriber {
     this.ready = true;
     this.update(this.latest);
     this.timer = setInterval(() => this.tick(), 1_000);
-    if (this.settings.translateTo !== "none") {
-      this.translateTimer = setInterval(() => void this.translate(), TRANSLATE_EVERY_MS);
+  }
+
+  configure(options: Partial<TranscriberOptions>) {
+    const wasLive = this.options.live;
+    this.options = { ...this.options, ...options };
+    if (this.options.live !== wasLive) {
+      for (const voice of this.voices.values()) {
+        voice.segmenter.live = this.options.live;
+        if (this.options.live) this.flushBatch(voice);
+      }
     }
+  }
+
+  /** Which of the room's sources this browser transcribes. */
+  setFilter(filter: (source: CallSource) => boolean) {
+    this.filter = filter;
+    this.update(this.latest);
   }
 
   private wall(ctxTime: number): number {
     return Math.round(this.wallStart + (ctxTime - this.t0) * 1000);
-  }
-
-  private included(source: CallSource): boolean {
-    if (this.ignored.has(source.ownerId)) return false;
-    if (source.kind === "voice") return !source.self || this.settings.includeMyVoice;
-    return this.settings.includeScreenAudio;
-  }
-
-  setIgnored(ignored: Iterable<string>) {
-    this.ignored = new Set(ignored);
-    this.update(this.latest);
   }
 
   /** The room's transmissions right now; call on every change. */
@@ -400,7 +424,7 @@ export class CallTranscriber {
     const seen = new Set<string>();
     for (const source of sources) {
       this.names.set(source.ownerId, source.name);
-      if (!this.included(source)) continue;
+      if (this.fatal || !this.filter(source)) continue;
       const tracks = source.stream
         .getAudioTracks()
         .filter((t) => t.readyState === "live")
@@ -451,6 +475,7 @@ export class CallTranscriber {
       oldestEnd: 0,
     };
     voice.segmenter = new Segmenter(this.ctx.sampleRate, (u) => this.onUtterance(voice, u));
+    voice.segmenter.live = this.options.live;
     worklet.port.onmessage = (event: MessageEvent) => {
       const data = event.data as { time?: number; left?: Float32Array; right?: Float32Array };
       if (data.left && data.right && typeof data.time === "number") voice.segmenter.push(data.time, data.left, data.right);
@@ -473,7 +498,7 @@ export class CallTranscriber {
     if (!voice.batch.length) voice.oldestEnd = Date.now();
     voice.batch.push(utterance);
     voice.batchSeconds += seconds + (voice.batch.length > 1 ? BATCH_GAP_S : 0);
-    if (voice.batchSeconds >= BATCH_TARGET_S) this.flushBatch(voice);
+    if (this.options.live || voice.batchSeconds >= BATCH_TARGET_S) this.flushBatch(voice);
   }
 
   private tick() {
@@ -505,40 +530,41 @@ export class CallTranscriber {
 
   private prompt(): string {
     const names = [...new Set(this.names.values())].slice(0, 20).join(", ");
-    const parts = [this.settings.vocabulary.trim(), names].filter(Boolean);
+    const parts = [this.options.vocabulary.trim(), names].filter(Boolean);
     return parts.join(". ").slice(0, 600);
   }
 
+  private settle() {
+    if (this.running || this.queue.length) return;
+    const waiters = this.idleWaiters;
+    this.idleWaiters = [];
+    waiters.forEach((w) => w());
+  }
+
   private pump() {
-    this.callbacks.onPending(this.queue.length + this.running);
-    while (this.running < CONCURRENCY && this.queue.length && !this.fatal) {
-      const job = this.queue.shift()!;
+    if (this.fatal) this.queue = [];
+    this.callbacks.onPending(this.pending);
+    // Real-time work goes first: the newest sentence is the one somebody is
+    // waiting to read.
+    while (this.running < CONCURRENCY && this.queue.length) {
+      const job = this.options.live ? this.queue.pop()! : this.queue.shift()!;
       this.running++;
       void this.run(job).finally(() => {
         this.running--;
         this.pump();
-        if (!this.running && !this.queue.length) {
-          const waiters = this.idleWaiters;
-          this.idleWaiters = [];
-          waiters.forEach((w) => w());
-        }
+        this.settle();
       });
     }
-    if (this.fatal && !this.running) {
-      this.queue = [];
-      const waiters = this.idleWaiters;
-      this.idleWaiters = [];
-      waiters.forEach((w) => w());
-    }
+    this.settle();
   }
 
   private async run(job: Job): Promise<void> {
-    const language = this.settings.language === "auto" ? null : this.settings.language;
+    const language = this.options.language === "auto" ? null : this.options.language;
     for (;;) {
       job.attempts++;
       const result = await transcribeAudio(job.wav, language, this.prompt());
       if (result.ok) {
-        this.addSegments(job, result.value.segments);
+        this.addSegments(job, result.value.segments, result.value.language);
         return;
       }
       const error = result.error;
@@ -548,11 +574,13 @@ export class CallTranscriber {
         error === "not-configured" ||
         error === "daily-limit"
       ) {
-        this.fatal = true;
-        this.callbacks.onFatal(error);
+        if (!this.fatal) {
+          this.fatal = true;
+          this.callbacks.onFatal(error);
+        }
         return;
       }
-      if (error === "bad-audio" || job.attempts >= MAX_ATTEMPTS) {
+      if (error === "bad-audio" || job.attempts >= MAX_ATTEMPTS || this.stopped) {
         this.lost++;
         this.callbacks.onLost(this.lost);
         return;
@@ -562,16 +590,16 @@ export class CallTranscriber {
     }
   }
 
-  private addSegments(job: Job, segments: { start: number; end: number; text: string }[]) {
+  private addSegments(job: Job, segments: { start: number; end: number; text: string }[], language: string | null) {
     for (const segment of segments) {
       if (isHallucination(segment.text)) continue;
       // Which utterance of the batch this segment starts in, and so where on
       // the call's clock it really was.
       let piece = job.pieces[0];
       for (const p of job.pieces) if (p.offset <= segment.start + 0.05) piece = p;
-      const into = Math.max(0, segment.start - piece.offset);
+      const into = Math.min(Math.max(0, segment.start - piece.offset), piece.seconds);
       const length = Math.max(0.3, segment.end - segment.start);
-      const start = piece.start + Math.min(into, piece.seconds);
+      const start = piece.start + into;
       const entry: TranscriptEntry = {
         id: this.nextId++,
         sourceId: job.meta.sourceId,
@@ -580,56 +608,18 @@ export class CallTranscriber {
         self: job.meta.self,
         kind: job.meta.kind,
         at: this.wall(start),
-        end: this.wall(start + Math.min(length, piece.seconds - Math.min(into, piece.seconds) + 0.5)),
+        end: this.wall(start + Math.min(length, piece.seconds - into + 0.5)),
         text: segment.text,
       };
-      this.entries.push(entry);
-      if (this.settings.translateTo !== "none") this.toTranslate.push(entry);
+      this.callbacks.onEntry(entry, language);
     }
-    this.entries.sort((a, b) => a.at - b.at || a.id - b.id);
-    this.emit();
   }
 
-  private translate(): Promise<void> {
-    if (this.translating) return this.translating;
-    if (!this.toTranslate.length || this.fatal) return Promise.resolve();
-    const batch = this.toTranslate.splice(0, TRANSLATE_BATCH);
-    this.translating = (async () => {
-      const result = await translateLines(
-        batch.map((e) => e.text),
-        this.settings.translateTo,
-      );
-      if (result.ok) {
-        batch.forEach((entry, i) => {
-          const text = result.value.texts[i]?.trim();
-          if (text) entry.translation = text;
-        });
-        this.emit();
-      } else if (result.error === "daily-limit" || result.error === "pro-max-required") {
-        // Translation stops; the transcript itself goes on.
-        this.toTranslate = [];
-      }
-    })().finally(() => {
-      this.translating = null;
-    });
-    return this.translating;
-  }
-
-  private emit() {
-    if (this.emitQueued) return;
-    this.emitQueued = true;
-    queueMicrotask(() => {
-      this.emitQueued = false;
-      this.callbacks.onEntries([...this.entries]);
-    });
-  }
-
-  /** Everything said so far, including what is still on its way back. */
-  async stop(timeoutMs = 60_000): Promise<TranscriptEntry[]> {
-    if (this.stopped) return [...this.entries];
+  /** Finishes what is already on its way, then stops. */
+  async stop(timeoutMs = 60_000): Promise<void> {
+    if (this.stopped) return;
     this.stopped = true;
     if (this.timer) clearInterval(this.timer);
-    if (this.translateTimer) clearInterval(this.translateTimer);
     if (this.ready) {
       for (const voice of this.voices.values()) this.removeVoice(voice);
       this.voices.clear();
@@ -640,21 +630,11 @@ export class CallTranscriber {
       else this.idleWaiters.push(resolve);
     });
     await Promise.race([idle, new Promise((r) => setTimeout(r, timeoutMs))]);
-    if (this.settings.translateTo !== "none") {
-      for (let i = 0; i < 20 && this.toTranslate.length && !this.fatal; i++) {
-        await Promise.race([this.translate(), new Promise((r) => setTimeout(r, 20_000))]);
-      }
-    }
-    return [...this.entries];
   }
 
   /** Stops at once, keeping nothing that was still on its way. */
   cancel() {
     this.fatal = true;
     void this.stop(0);
-  }
-
-  entriesSoFar(): TranscriptEntry[] {
-    return [...this.entries];
   }
 }

@@ -50,6 +50,7 @@ import {
 import { useT } from "@/lib/useI18n";
 import { trackFeatureEvent, useFeature } from "@/lib/features";
 import { CALL_TRANSCRIPT_FREE_FEATURE } from "@/lib/useCallTranscript";
+import { LIVE_TRANSLATION_FREE_FEATURE } from "@/lib/useLiveTranslation";
 import { PlanComparison, PRO_COMPARE_BUY_TOP, PRO_COMPARE_FEATURE, type ComparisonRow } from "./PlanComparison";
 import { translate } from "@/lib/i18n";
 import { formatLocale } from "@/lib/i18n";
@@ -109,6 +110,7 @@ const FEATURE_LABELS: Partial<Record<Feature, string>> = {
   get room_theme_gradient() { return translate("pro.proPanel.useAGradientInYourThemes"); },
   get clip_no_watermark() { return translate("pro.proPanel.clipWithoutWatermark"); },
   get call_transcript() { return translate("pro.proPanel.transcribeYourCalls"); },
+  get live_translation() { return translate("pro.proPanel.liveTranslation"); },
 };
 
 // The perks about the broadcast itself — what GoLive is for — which the
@@ -325,6 +327,7 @@ export function ProPanel({
   const emojiPerk = useFeature(CUSTOM_EMOJI_FEATURE, { track: false }).enabled;
   // Free for this person (see lib/useCallTranscript): not something to sell them.
   const transcriptFree = useFeature(CALL_TRANSCRIPT_FREE_FEATURE, { track: false }).enabled;
+  const translationFree = useFeature(LIVE_TRANSLATION_FREE_FEATURE, { track: false }).enabled;
   const compareLayout = compare.enabled && plans.length > 1;
   // The "buy-top" treatment: the price and checkout card above the table.
   const buyOnTop = compare.variant === PRO_COMPARE_BUY_TOP;
@@ -488,7 +491,8 @@ export function ProPanel({
   const sellableFeatures = (Object.keys(FEATURE_LABELS) as Feature[]).filter(
     (feature) =>
       plans.some((entry) => entry.features.includes(feature)) &&
-      !(feature === "call_transcript" && transcriptFree)
+      !(feature === "call_transcript" && transcriptFree) &&
+      !(feature === "live_translation" && translationFree)
   );
 
   // Where the points rows sit: directly under this benefit, on every plan.

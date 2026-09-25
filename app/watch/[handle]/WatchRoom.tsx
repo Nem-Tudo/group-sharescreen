@@ -208,6 +208,15 @@ import type { CallSource } from "@/lib/callRecording";
 import { CALL_RECORDING_FEATURE, trackCallRecordingOpen, useCallRecording } from "@/lib/useCallRecording";
 import { CallRecordButton, CallRecordingModal } from "@/components/CallRecordingModal";
 import { LiveCaptions, TranscriptButton, TranscriptModal } from "@/components/TranscriptModal";
+import { LiveTranslationModal, TranslationCaptions } from "@/components/LiveTranslationModal";
+import { liveTranscriptHub } from "@/lib/liveTranscriptShare";
+import {
+  LIVE_TRANSLATION_EVENTS,
+  LIVE_TRANSLATION_FEATURE,
+  LIVE_TRANSLATION_FREE_FEATURE,
+  trackTranslation,
+  useLiveTranslation,
+} from "@/lib/useLiveTranslation";
 import {
   CALL_TRANSCRIPT_CAPTIONS_FEATURE,
   CALL_TRANSCRIPT_EVENTS,
@@ -269,6 +278,7 @@ import {
   MdAdd,
   MdClose,
   MdSubtitles,
+  MdTranslate,
 } from "react-icons/md";
 import { BsGearFill, BsCoin } from "react-icons/bs";
 import {
@@ -3804,6 +3814,33 @@ function WatchRoomView({
     captionsAllowed: callTranscriptCaptions,
     roomPeerIds: transcriptPeerIds,
   });
+  // The room's shared live transcript (lib/liveTranscriptShare) sees every
+  // change to the room: whose voice is where, who is here, who we are.
+  useEffect(() => {
+    liveTranscriptHub.setRoom({
+      sources: callSources,
+      selfId: state.selfId,
+      selfName: state.name ?? "",
+      peers: new Map(state.peers.map((p) => [p.id, p.name])),
+    });
+  }, [callSources, state.selfId, state.name, state.peers]);
+
+  // "Tradução ao vivo" (lib/useLiveTranslation): Pro Max or its own free
+  // experiment; shown to the experiment below, in "⋯".
+  const liveTranslationFeature = useFeature(LIVE_TRANSLATION_FEATURE, { track: true });
+  const liveTranslationFree = useFeature(LIVE_TRANSLATION_FREE_FEATURE, { track: true }).enabled;
+  const liveTranslation = useLiveTranslation({ roomPeerIds: transcriptPeerIds, sources: callSources });
+  const canTranslate = hasFeature("live_translation", account?.features ?? []) || (liveTranslationFree && Boolean(account));
+  const showLiveTranslation =
+    liveTranslationFeature.enabled || liveTranslationFree || liveTranslation.status !== "idle";
+  const [liveTranslationOpen, setLiveTranslationOpen] = useState(false);
+  const openLiveTranslation = () => {
+    if (liveTranslation.status === "idle") {
+      trackTranslation(canTranslate ? LIVE_TRANSLATION_EVENTS.open : LIVE_TRANSLATION_EVENTS.upsell);
+    }
+    setLiveTranslationOpen(true);
+  };
+
   // Who else is transcribing this call right now — "Fulano já está
   // transcrevendo" before a second, duplicate transcript is started.
   const othersTranscribing = useMemo(
@@ -6178,6 +6215,29 @@ function WatchRoomView({
         </button>
       )}
 
+      {/* "Tradução ao vivo" (lib/useLiveTranslation), on every layout. */}
+      {showLiveTranslation && (
+        <button
+          type="button"
+          onClick={() => {
+            closeMenu();
+            openLiveTranslation();
+          }}
+          className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900"
+        >
+          <MdTranslate className="h-4 w-4 shrink-0 text-sky-500" />
+          <span className="flex-1">{translate("liveTranslation.title")}</span>
+          {liveTranslation.status !== "idle" ? (
+            <span className="flex items-center gap-1 text-xs font-semibold text-sky-600 dark:text-sky-400">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-sky-600" />
+              {translate("liveTranslation.on")}
+            </span>
+          ) : (
+            <NewBadge id={LIVE_TRANSLATION_FEATURE} />
+          )}
+        </button>
+      )}
+
       {/* "Modo Streamer", which used to be a button in the account card
           (desktop). Below lg the pull-up menu already has it as a tile. */}
       {isWideLayout && canUseStreamerMode && (
@@ -8002,7 +8062,9 @@ function WatchRoomView({
                 ? "watch.watchRoom.callBeingRecordedBy"
                 : recordingNotices.every((n) => n.channels.every((c) => c === "transcript"))
                   ? "watch.watchRoom.callBeingTranscribedBy"
-                  : "watch.watchRoom.beingRecordedBy",
+                  : recordingNotices.every((n) => n.channels.every((c) => c === "transcript" || c === "translation"))
+                    ? "watch.watchRoom.callBeingTranslatedBy"
+                    : "watch.watchRoom.beingRecordedBy",
               {
               names: recordingNotices
                 .map((n) => n.name ?? state.peers.find((p) => p.id === n.from)?.name ?? translate("common.someone2"))
@@ -8155,7 +8217,11 @@ function WatchRoomView({
             // A silenced person is not played even if their client ignores
             // the room and keeps sending — see the server's "room-silence".
             muted={micsMuted || mutedPeerIds.has(peerId) || isPeerSilenced(peersById.get(peerId))}
-            volume={peerVolumes[volumeKey] ?? 1}
+            // Turned down while "Tradução ao vivo" reads this person aloud.
+            volume={
+              (peerVolumes[volumeKey] ?? 1) *
+              (liveTranslation.duck?.ownerId === peerId ? liveTranslation.duck.volume : 1)
+            }
             sinkId={speakerDeviceId}
           />
         );
@@ -9173,6 +9239,17 @@ function WatchRoomView({
         free={callTranscriptFree}
         othersTranscribing={othersTranscribing}
       />
+      <LiveTranslationModal
+        open={liveTranslationOpen}
+        onClose={() => setLiveTranslationOpen(false)}
+        sources={callSources}
+        translation={liveTranslation}
+        allowed={canTranslate}
+        free={liveTranslationFree}
+      />
+      {liveTranslation.status === "running" && liveTranslation.settings.captions && (
+        <TranslationCaptions lines={liveTranslation.lines} showOriginal={liveTranslation.settings.showOriginal} />
+      )}
       {callTranscriptCaptions && callTranscript.status === "running" && callTranscript.settings.liveCaptions && (
         <LiveCaptions entries={callTranscript.entries} translated={callTranscript.settings.translateTo !== "none"} />
       )}

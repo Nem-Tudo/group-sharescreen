@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CallSource } from "./callRecording";
 import {
-  CallTranscriber,
   DEFAULT_TRANSCRIPT_SETTINGS,
   type TranscriberError,
   type TranscriptEntry,
@@ -15,6 +14,18 @@ import { announceRecording } from "./recordingNotice";
 import { summarizeTranscript } from "./transcriptApi";
 import { buildTranscriptFiles, transcriptText, type TranscriptFile } from "./transcriptExport";
 import { downloadBlob } from "./useCallRecording";
+import { LineTranslator } from "./lineTranslator";
+import { liveTranscriptHub, type ConsumerSubject } from "./liveTranscriptShare";
+
+// Lines of other browsers' voices can still be on their way when we stop.
+const REMOTE_GRACE_MS = 2_500;
+
+type Session = {
+  handle: ReturnType<typeof liveTranscriptHub.register>;
+  translator: LineTranslator | null;
+  entries: TranscriptEntry[];
+  startedAt: number;
+};
 
 // "Transcrição" (see lib/callTranscript.ts), as the room uses it: one session
 // at a time, started on its own from the "⋯" menu or together with "Gravar
@@ -47,10 +58,6 @@ export const CALL_TRANSCRIPT_EVENTS = {
   ignorePerson: "transcript_ignore_person",
   dailyLimit: "transcript_daily_limit",
   failed: "transcript_failed",
-  // Warned that somebody else is already transcribing the call.
-  duplicateWarning: "transcript_duplicate_warning",
-  // …and started anyway.
-  duplicateStart: "transcript_duplicate_start",
 } as const;
 
 export function trackTranscript(name: string, value?: number) {
@@ -113,8 +120,7 @@ export function useCallTranscript(
 ) {
   const captionsAllowed = options.captionsAllowed ?? false;
   const roomPeerIds = options.roomPeerIds ?? [];
-  const transcriberRef = useRef<CallTranscriber | null>(null);
-  const sourcesRef = useRef(sources);
+  const sessionRef = useRef<Session | null>(null);
   const [settings, setSettingsState] = useState<TranscriptSettings>(() =>
     typeof window === "undefined" ? DEFAULT_TRANSCRIPT_SETTINGS : readSettings(),
   );
@@ -133,8 +139,8 @@ export function useCallTranscript(
   const sessionSettingsRef = useRef<TranscriptSettings>(settings);
 
   useEffect(() => {
-    sourcesRef.current = sources;
-    transcriberRef.current?.update(sources);
+    // The room's sources reach the shared hub from WatchRoom (setRoom).
+    void sources;
   }, [sources]);
 
   const setSettings = useCallback((patch: Partial<TranscriptSettings>) => {
@@ -157,7 +163,8 @@ export function useCallTranscript(
       trackTranscript(CALL_TRANSCRIPT_EVENTS.ignorePerson);
     }
     ignoredRef.current = next;
-    transcriberRef.current?.setIgnored(next);
+    // The consumer's `wants` reads the ref; the hub just needs to look again.
+    sessionRef.current?.handle.update({});
     setIgnored(next);
   }, []);
 
@@ -192,16 +199,47 @@ export function useCallTranscript(
 
   const start = useCallback(
     async (by: TranscriptOwner) => {
-      if (transcriberRef.current) return;
+      if (sessionRef.current) return;
       const session = captionsAllowed ? settings : { ...settings, liveCaptions: false };
       sessionSettingsRef.current = session;
-      const transcriber = new CallTranscriber(session, {
-        onEntries: (list) => {
-          if (transcriberRef.current === transcriber) setEntries(list);
+      const entries: TranscriptEntry[] = [];
+      let emitQueued = false;
+      const emit = () => {
+        if (emitQueued) return;
+        emitQueued = true;
+        queueMicrotask(() => {
+          emitQueued = false;
+          if (sessionRef.current?.entries === entries) setEntries([...entries]);
+        });
+      };
+      const translator =
+        session.translateTo !== "none"
+          ? new LineTranslator(session.translateTo, (id, text) => {
+              const entry = entries.find((e) => e.id === id);
+              if (entry) {
+                entry.translation = text;
+                emit();
+              }
+            })
+          : null;
+      const wants = (subject: ConsumerSubject) => {
+        if (ignoredRef.current.has(subject.ownerId)) return false;
+        if (subject.kind === "voice") return !subject.self || session.includeMyVoice;
+        return session.includeScreenAudio;
+      };
+      const handle = liveTranscriptHub.register({
+        wants,
+        live: session.liveCaptions,
+        language: session.language,
+        vocabulary: session.vocabulary,
+        onLine: (line) => {
+          const entry: TranscriptEntry = { ...line };
+          entries.push(entry);
+          entries.sort((a, b) => a.at - b.at || a.id - b.id);
+          translator?.add(entry.id, entry.text);
+          emit();
         },
-        onPending: (n) => {
-          if (transcriberRef.current === transcriber) setPending(n);
-        },
+        onPending: (n) => setPending(n),
         onLost: (n) => setLost(n),
         onFatal: (reason) => {
           setError(reason);
@@ -209,44 +247,36 @@ export function useCallTranscript(
           else trackTranscript(CALL_TRANSCRIPT_EVENTS.failed);
         },
       });
-      transcriberRef.current = transcriber;
+      const startedAtWall = Date.now();
+      sessionRef.current = { handle, translator, entries, startedAt: startedAtWall };
       setOwner(by);
-      setStatus("starting");
       setError(null);
       setEntries([]);
       setPending(0);
       setLost(0);
       setLastFiles(null);
-      try {
-        await transcriber.start(sourcesRef.current, ignoredRef.current);
-        if (transcriberRef.current !== transcriber) return;
-        setStartedAt(transcriber.startedAtWall);
-        setStatus("running");
-        trackTranscript(by === "recording" ? CALL_TRANSCRIPT_EVENTS.startWithRecording : CALL_TRANSCRIPT_EVENTS.start);
-        if (session.translateTo !== "none") trackTranscript(CALL_TRANSCRIPT_EVENTS.translate);
-        if (session.separateFiles) trackTranscript(CALL_TRANSCRIPT_EVENTS.separateFiles);
-        if (session.liveCaptions) trackTranscript(CALL_TRANSCRIPT_EVENTS.liveCaptions);
-      } catch {
-        transcriber.cancel();
-        if (transcriberRef.current === transcriber) transcriberRef.current = null;
-        setStatus("idle");
-        setOwner(null);
-        setError("unsupported");
-        trackTranscript(CALL_TRANSCRIPT_EVENTS.failed);
-      }
+      setStartedAt(startedAtWall);
+      setStatus("running");
+      trackTranscript(by === "recording" ? CALL_TRANSCRIPT_EVENTS.startWithRecording : CALL_TRANSCRIPT_EVENTS.start);
+      if (session.translateTo !== "none") trackTranscript(CALL_TRANSCRIPT_EVENTS.translate);
+      if (session.separateFiles) trackTranscript(CALL_TRANSCRIPT_EVENTS.separateFiles);
+      if (session.liveCaptions) trackTranscript(CALL_TRANSCRIPT_EVENTS.liveCaptions);
     },
     [settings, captionsAllowed],
   );
 
   const finish = useCallback(async (): Promise<{ entries: TranscriptEntry[]; origin: number; end: number } | null> => {
-    const transcriber = transcriberRef.current;
-    if (!transcriber) return null;
+    const session = sessionRef.current;
+    if (!session) return null;
     const end = Date.now();
-    const origin = transcriber.startedAtWall || end;
+    const origin = session.startedAt;
     setStatus("finishing");
     trackTranscript(CALL_TRANSCRIPT_EVENTS.stop, (end - origin) / 60_000);
-    const list = await transcriber.stop();
-    transcriberRef.current = null;
+    // Our own voices' last lines, and a moment for the room's.
+    await Promise.all([session.handle.unregister(), new Promise((r) => setTimeout(r, REMOTE_GRACE_MS))]);
+    await session.translator?.drain();
+    sessionRef.current = null;
+    const list = [...session.entries];
     setEntries(list);
     setPending(0);
     setStatus("idle");
@@ -274,15 +304,15 @@ export function useCallTranscript(
    */
   const filesForRecording = useCallback(
     async (origin: number, end: number): Promise<TranscriptFile[]> => {
-      const transcriber = transcriberRef.current;
-      if (!transcriber) return [];
+      const current = sessionRef.current;
+      if (!current) return [];
       const session = sessionSettingsRef.current;
       let list: TranscriptEntry[];
       if (owner === "recording") {
         const done = await finish();
         list = done?.entries ?? [];
       } else {
-        list = transcriber.entriesSoFar();
+        list = [...current.entries];
       }
       if (!list.length) return [];
       const summary = await makeSummary(list, session, origin, end);
@@ -293,10 +323,11 @@ export function useCallTranscript(
   );
 
   const discard = useCallback(() => {
-    const transcriber = transcriberRef.current;
-    if (!transcriber) return;
-    transcriberRef.current = null;
-    transcriber.cancel();
+    const session = sessionRef.current;
+    if (!session) return;
+    sessionRef.current = null;
+    session.translator?.stop();
+    void session.handle.unregister();
     setStatus("idle");
     setOwner(null);
     setStartedAt(null);
@@ -320,7 +351,7 @@ export function useCallTranscript(
     () => () => {
       for (const stopNotice of noticesRef.current.values()) stopNotice();
       noticesRef.current.clear();
-      if (transcriberRef.current) void stopRef.current();
+      if (sessionRef.current) void stopRef.current();
     },
     [],
   );

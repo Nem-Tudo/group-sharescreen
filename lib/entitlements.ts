@@ -45,7 +45,8 @@ export type Feature =
   | "force_relay"
   | "uncapped_relay"
   | "clip_no_watermark"
-  | "call_transcript";
+  | "call_transcript"
+  | "live_translation";
 
 export type FeatureTier = "free" | "account" | "premium" | "premium_max" | "pro_ultra";
 
@@ -73,6 +74,7 @@ export const FEATURE_TIERS: Record<Feature, FeatureTier> = {
   uncapped_relay: "pro_ultra",
   clip_no_watermark: "premium_max",
   call_transcript: "premium_max",
+  live_translation: "premium_max",
 };
 
 /**

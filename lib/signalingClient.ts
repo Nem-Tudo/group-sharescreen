@@ -859,6 +859,22 @@ type SignalListener = (from: string, data: Record<string, unknown>) => void;
 export type RecordingNotice = { from: string; name: string | null; channel: string; on: boolean };
 type RecordingNoticeListener = (notice: RecordingNotice) => void;
 
+// The room's shared live transcript — see lib/liveTranscriptShare.
+export type LiveTranscriptMessage =
+  | { kind: "status"; from: string; candidates: string[]; on: boolean; live: boolean }
+  | {
+      kind: "line";
+      from: string;
+      speaker: string;
+      source: string;
+      lineId: string;
+      text: string;
+      lang: string | null;
+      ageMs: number;
+      durMs: number;
+    };
+type LiveTranscriptListener = (message: LiveTranscriptMessage) => void;
+
 /**
  * A group nudge from the server (see the API's groupRoutes.ts), or the
  * synthetic "group-resync" this client fires after reconnecting. Left loose on
@@ -1180,6 +1196,7 @@ class SignalingClient {
   private notifyScheduled = false;
   private signalListeners = new Set<SignalListener>();
   private recordingNoticeListeners = new Set<RecordingNoticeListener>();
+  private liveTranscriptListeners = new Set<LiveTranscriptListener>();
   private roomJoinedListeners = new Set<Listener>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
@@ -1321,6 +1338,28 @@ class SignalingClient {
 
   sendRecordingNotice(to: string, channel: string, on: boolean) {
     this.rawSend({ type: "recording-notice", to, channel, on });
+  }
+
+  /** The room's shared live transcript — see lib/liveTranscriptShare. */
+  onLiveTranscript(cb: LiveTranscriptListener) {
+    this.liveTranscriptListeners.add(cb);
+    return () => this.liveTranscriptListeners.delete(cb);
+  }
+
+  sendLiveTranscriptStatus(candidates: string[], on: boolean, live: boolean) {
+    this.rawSend({ type: "live-transcript", kind: "status", candidates, on, live });
+  }
+
+  sendLiveTranscriptLine(line: {
+    speaker: string;
+    source: string;
+    lineId: string;
+    text: string;
+    lang: string | null;
+    ageMs: number;
+    durMs: number;
+  }) {
+    this.rawSend({ type: "live-transcript", kind: "line", ...line });
   }
 
   onSignal(cb: SignalListener) {
@@ -2268,6 +2307,34 @@ class SignalingClient {
           on: Boolean(msg.on),
         };
         if (notice.from) this.recordingNoticeListeners.forEach((l) => l(notice));
+        break;
+      }
+      case "live-transcript": {
+        const from = String(msg.from ?? "");
+        if (!from) break;
+        let message: LiveTranscriptMessage | null = null;
+        if (msg.kind === "status") {
+          message = {
+            kind: "status",
+            from,
+            candidates: Array.isArray(msg.candidates) ? msg.candidates.map(String) : [],
+            on: msg.on !== false,
+            live: msg.live === true,
+          };
+        } else if (msg.kind === "line" && typeof msg.text === "string") {
+          message = {
+            kind: "line",
+            from,
+            speaker: String(msg.speaker ?? ""),
+            source: String(msg.source ?? ""),
+            lineId: String(msg.lineId ?? ""),
+            text: msg.text,
+            lang: typeof msg.lang === "string" ? msg.lang : null,
+            ageMs: Number(msg.ageMs) || 0,
+            durMs: Number(msg.durMs) || 0,
+          };
+        }
+        if (message) this.liveTranscriptListeners.forEach((l) => l(message));
         break;
       }
       case "signal":
