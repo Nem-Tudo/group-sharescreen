@@ -4174,7 +4174,7 @@
   "callTranscript.vocabularyHint": "Ajuda a escrever certo nomes, marcas e termos técnicos. Os nomes de quem está na sala já entram sozinhos.",
   "callTranscript.files": "Arquivos",
   "callTranscript.filesHint": "O .txt sempre vem. Marque os formatos extras (SRT e VTT servem de legenda para o vídeo da gravação).",
-  "callTranscript.everyoneIsTold": "Quem for transcrito vê um aviso. Os trechos de fala vão para a Groq virar texto e não são guardados; o texto fica só neste navegador até você baixar.",
+  "callTranscript.everyoneIsTold": "Quem for transcrito vê um aviso. O texto fica só neste navegador até você baixar.",
   "callTranscript.waitingForSpeech": "Esperando alguém falar…",
   "callTranscript.conversation": "Conversa",
   "callTranscript.copy": "Copiar",
