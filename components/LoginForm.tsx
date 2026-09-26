@@ -123,6 +123,10 @@ export function LoginForm({
 
   return (
     <div className="mt-8 flex flex-col gap-3">
+      {/* On top, so a scrolling dialog shows them without scrolling; outside
+          the <form> because the username step this can lead to is a form of
+          its own. Renders nothing when no provider is configured. */}
+      <OAuthButtons onSuccess={onSuccess} onTicket={onTicket ?? setOAuthTicket} dividerPosition="below" />
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
         <label htmlFor="login-username" className={labelClass}>
           {t("common.username")}
@@ -169,10 +173,6 @@ export function LoginForm({
           </button>
         )}
       </form>
-      {/* Outside the <form>: the username step this can lead to is a form
-          of its own, and forms can't nest. Renders nothing when no provider
-          is configured. */}
-      <OAuthButtons onSuccess={onSuccess} onTicket={onTicket ?? setOAuthTicket} />
     </div>
   );
 }

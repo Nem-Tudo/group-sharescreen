@@ -50,6 +50,9 @@ export function OAuthButtons({
   // Shown above the buttons; omitted where the surrounding form already
   // makes the context obvious.
   dividerLabel = translate("common.or"),
+  // "below" when the buttons sit above a form, so the divider separates
+  // them from the fields that follow.
+  dividerPosition = "above",
 }: {
   // Called for a plain login — the session already exists by then.
   onSuccess?: () => void;
@@ -58,6 +61,7 @@ export function OAuthButtons({
   // of whatever form it was displaying.
   onTicket: (ticket: Extract<OAuthResult, { kind: "ticket" }>) => void;
   dividerLabel?: string | null;
+  dividerPosition?: "above" | "below";
 }) {
   const t = useT();
   const { refresh } = useAuth();
@@ -103,17 +107,19 @@ export function OAuthButtons({
   // render nothing, so the form never flashes an empty divider.
   if (!providers || providers.length === 0) return null;
 
+  const divider = dividerLabel && (
+    <div className="flex items-center gap-3">
+      <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
+      <span className="text-xs font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+        {dividerLabel}
+      </span>
+      <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
+    </div>
+  );
+
   return (
     <div className="flex flex-col gap-3">
-      {dividerLabel && (
-        <div className="flex items-center gap-3">
-          <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
-          <span className="text-xs font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
-            {dividerLabel}
-          </span>
-          <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
-        </div>
-      )}
+      {dividerPosition === "above" && divider}
       {providers.map((provider) => {
         const style = PROVIDER_STYLE[provider.id];
         return (
@@ -130,6 +136,7 @@ export function OAuthButtons({
         );
       })}
       {error && <p className="text-sm text-red-500">{error}</p>}
+      {dividerPosition === "below" && divider}
     </div>
   );
 }

@@ -178,6 +178,11 @@ export function CreateAccountForm({
 
   return (
     <div className="mt-8 flex flex-col gap-3">
+      {/* On top, so a scrolling dialog shows them without scrolling; outside
+          the <form> because the username step this can turn into is itself a
+          form. Renders nothing when the API has no provider configured —
+          social signup ends in an account too, so onSuccess is the same. */}
+      <OAuthButtons onSuccess={onSuccess} onTicket={setOAuthTicket} dividerPosition="below" />
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
         <label htmlFor="create-username" className={labelClass}>
           {t("common.username")}
@@ -272,12 +277,6 @@ export function CreateAccountForm({
           </button>
         )}
       </form>
-      {/* Outside the <form> on purpose: the username step this can turn
-          into is itself a form, and forms can't nest. Renders nothing at all
-          when the API has no provider configured — social signup lands in
-          the same place as the password one (an account either way), so
-          onSuccess is the same callback. */}
-      <OAuthButtons onSuccess={onSuccess} onTicket={setOAuthTicket} />
     </div>
   );
 }
