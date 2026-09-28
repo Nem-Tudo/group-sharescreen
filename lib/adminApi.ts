@@ -843,6 +843,23 @@ export async function setAccountFlags(userId: string, flags: string[]): Promise<
   return data.account.flags;
 }
 
+/**
+ * Renames somebody's username and returns the one the server saved (a bot's
+ * keeps its "_bot" suffix). Admin-only rules: down to 1 character, no weekly
+ * limit — see the API's changeAccountUsername.
+ */
+export async function setAccountUsername(userId: string, username: string): Promise<string> {
+  const data = await adminFetch<{ account: { id: string; username: string } }>(
+    `/admin/accounts/${encodeURIComponent(userId)}/username`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username }),
+    }
+  );
+  return data.account.username;
+}
+
 // ─── Groups ──────────────────────────────────────────────────────────────
 
 /** A group as the admin panel sees it — see the API's adminGroup. */

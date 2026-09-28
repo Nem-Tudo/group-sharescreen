@@ -11,6 +11,7 @@ import { GrantPremiumPanel } from "./GrantPremiumPanel";
 import { GiftPanel } from "./GiftPanel";
 import { CancellationsPanel } from "./CancellationsPanel";
 import { AccountFlagsPanel } from "./AccountFlagsPanel";
+import { AccountUsernamePanel } from "./AccountUsernamePanel";
 import { BadgesAdminPanel } from "./BadgesAdminPanel";
 import { AccountPointsPanel } from "./AccountPointsPanel";
 import { AutoFlagsPanel } from "./AutoFlagsPanel";
@@ -100,6 +101,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
         <AccountFlagsPanel />
         {/* Next to the flags: most badges are given by one. */}
         <BadgesAdminPanel />
+        <AccountUsernamePanel />
         <AccountPointsPanel />
         <AutoFlagsPanel />
       </Group>
