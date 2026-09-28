@@ -2366,6 +2366,9 @@ function WatchRoomView({
     ad: activePartnerAd,
     rawPartner: rawActivePartner,
     loaded: partnerLoaded,
+    // A Pro subscriber who turned partner ads off, or only wants the ones
+    // with points left (see lib/partnerAdsMode): then no slot is drawn at all.
+    hidden: partnerAdHidden,
     // Told when it is off screen, so it stops counting impressions for an ad
     // nobody can see and defers its rotation to a minute it owns.
     // In a group on a wide screen the room draws no ad at all — the group's
@@ -2501,7 +2504,8 @@ function WatchRoomView({
       // Only allow collapsing when there is at least one media
       if (!hasAnyMedia && !prev) return prev;
       const next = !prev;
-      if (next) {
+      // An ad that was not drawn (see partnerAdHidden) was not minimized either.
+      if (next && !partnerAdHidden) {
         if (rawActivePartner?.id) {
           signalingClient.reportPartnerMinimize(rawActivePartner.id);
         }
@@ -2513,7 +2517,7 @@ function WatchRoomView({
       trackEvent("left_sidebar_toggle", { collapsed: next });
       return next;
     });
-  }, [hasAnyMedia, rawActivePartner, activePartnerAd]);
+  }, [hasAnyMedia, rawActivePartner, activePartnerAd, partnerAdHidden]);
 
   const toggleRightSidebar = useCallback(() => {
     setRightSidebarCollapsed((prev) => {
@@ -5626,7 +5630,8 @@ function WatchRoomView({
     // A call is a pane inside a conversation, not a page: there is no room in
     // it for an advertisement, and the conversation's page carries its own.
     !callLayout &&
-    !(group && groupAdHidden)
+    !(group && groupAdHidden) &&
+    !partnerAdHidden
   ) {
     const adId = "sponsored-partner-tile";
     tiles.push({
@@ -5807,7 +5812,7 @@ function WatchRoomView({
   // previews are hidden (that pane has no buttons to sit under). Never for
   // Pro or above: a subscriber keeps the ad in the sidebar, out of the way.
   const partnerOnStage =
-    partnerExperimentOn && !tierAtLeast(accountTierOf(account?.flags), "premium") && nothingToShow && !callLayout && !group && !(ownPreviewHidden && hasOwnPreview);
+    partnerExperimentOn && !partnerAdHidden && !tierAtLeast(accountTierOf(account?.flags), "premium") && nothingToShow && !callLayout && !group && !(ownPreviewHidden && hasOwnPreview);
 
   // Right-click on the video pane: bring our own previews back, or hide them
   // again. Not over a control (its own click is what that is for), and only
@@ -8317,7 +8322,7 @@ function WatchRoomView({
                   beside up to five status icons. */}
               <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-2">{participantsList}</div>
             </div>
-            {!partnerOnStage && <PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />}
+            {!partnerOnStage && !partnerAdHidden && <PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />}
           </aside>
         )}
 
@@ -8695,7 +8700,7 @@ function WatchRoomView({
                 Below lg the room is a fixed-height shell, which makes this
                 band the one slot on the site that costs somebody video area
                 rather than page. */}
-            {!callLayout && !partnerOnStage && <PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />}
+            {!callLayout && !partnerOnStage && !partnerAdHidden && <PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />}
 
             {mobilePanel && (
               <section

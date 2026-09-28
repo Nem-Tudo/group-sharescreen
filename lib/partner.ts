@@ -153,10 +153,22 @@ export function partnerWideImage(partner: {
 
 export async function fetchPartner(
   signal?: AbortSignal,
-  currentId?: string | null
+  currentId?: string | null,
+  /** Only ads this identity can still collect points from (see lib/partnerAdsMode). */
+  rewardsOnly = false
 ): Promise<PartnerCardData | null> {
-  const query = currentId ? `?current=${encodeURIComponent(currentId)}` : "";
-  const res = await fetch(`${getSignalingHttpBase()}/partner${query}`, { signal });
+  const params = new URLSearchParams();
+  if (currentId) params.set("current", currentId);
+  if (rewardsOnly) params.set("rewards", "unclaimed");
+  const search = params.toString();
+  const query = search ? `?${search}` : "";
+  // The token only when it matters: it is what tells the API whose claims to
+  // leave out, and the plain roll is the same for everybody.
+  const token = rewardsOnly ? getAccountToken() : null;
+  const res = await fetch(`${getSignalingHttpBase()}/partner${query}`, {
+    signal,
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
   if (!res.ok) throw new Error(translate("partner.couldNotLoadPartnerStatusStatus", { status: res.status }));
   const data = (await res.json()) as { partner: PartnerCardData | null };
   return data.partner;

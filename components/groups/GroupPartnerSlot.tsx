@@ -92,8 +92,12 @@ export function GroupPartnerSlot({
   // Not visible while folded, so a folded ad counts no impressions. "Anuncie
   // aqui você também!" on the folded row opens its own popup (see
   // PartnerPitchModal) and leaves the row folded.
-  const { rawPartner, loaded } = usePartnerAd({ visible: !hidden });
+  const { rawPartner, loaded, hidden: optedOut } = usePartnerAd({ visible: !hidden });
   const dismiss = canDismiss ? minimizeGroupAd : undefined;
+
+  // A Pro subscriber who turned partner ads off (see lib/partnerAdsMode):
+  // nothing at all, not even the folded strip — the rooms take the column.
+  if (optedOut) return null;
 
   if (hidden) {
     return (

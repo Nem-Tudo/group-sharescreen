@@ -9,6 +9,7 @@ import {
   MdAdminPanelSettings,
   MdAutoAwesome,
   MdArrowBack,
+  MdCampaign,
   MdChatBubbleOutline,
   MdChevronRight,
   MdDescription,
@@ -58,7 +59,15 @@ import { PlanLink, PlanRing, planRowClass } from "@/components/UserProfileCard";
 import { WIDE_POPUP_SIZE } from "@/components/groups/dialogKit";
 import { accountTierOf } from "@/lib/entitlements";
 import { ACCOUNT_EMOJI_LIMITS, CUSTOM_EMOJI_BADGE, CUSTOM_EMOJI_FEATURE } from "@/lib/customEmoji";
-import { useFeature } from "@/lib/features";
+import { trackFeatureEvent, useFeature } from "@/lib/features";
+import { markFeatureUsed } from "@/components/NewBadge";
+import {
+  PARTNER_ADS_MODE_BADGE,
+  PARTNER_ADS_MODE_EVENTS,
+  PARTNER_ADS_MODE_FEATURE,
+  PARTNER_ADS_MODES,
+  type PartnerAdsMode,
+} from "@/lib/partnerAdsMode";
 import {
   NOTIFICATION_SETTINGS_BADGE,
   NOTIFICATION_SETTINGS_FEATURE,
@@ -277,6 +286,8 @@ export function MeScreen() {
 
       {account && !account.bot && <MyEmojisSetting flags={account.flags} />}
 
+      {account && !account.bot && <PartnerAdsSetting features={account.features} />}
+
       {account && (
         // Its own collapsible block, padding included — see AccountConnections.
         // AuthorizedApps sits in the same card and hides itself when this
@@ -432,6 +443,101 @@ function MyEmojisSetting({ flags }: { flags: readonly string[] }) {
           </button>
         </div>
         {locked && <PlanLink tier="proMax" className="self-start text-xs text-zinc-500 dark:text-zinc-400" />}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Which partner ads this account is shown (see lib/partnerAdsMode) — every
+ * one, only the ones that still pay it points, or none. A Pro setting: below
+ * Pro it is shown locked, like the emojis above, with the way to the plan.
+ * Saved on the account at once, so there is no save button; only inside the
+ * experiment, whose exposure is counted here, the one place it is offered.
+ */
+function PartnerAdsSetting({ features }: { features: readonly string[] | undefined }) {
+  const t = useT();
+  const { account, updateProfile } = useAuth();
+  const { enabled } = useFeature(PARTNER_ADS_MODE_FEATURE, { track: true });
+  // The choice just made, until the account comes back with it.
+  const [pending, setPending] = useState<PartnerAdsMode | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  if (!enabled) return null;
+  const locked = !features?.includes("no_ads");
+  const current = pending ?? account?.partnerAdsMode ?? "always";
+
+  async function choose(mode: PartnerAdsMode) {
+    if (locked || mode === current) return;
+    setPending(mode);
+    setError(null);
+    markFeatureUsed(PARTNER_ADS_MODE_BADGE);
+    trackFeatureEvent(PARTNER_ADS_MODE_EVENTS[mode], { feature: PARTNER_ADS_MODE_FEATURE });
+    try {
+      await updateProfile({ partnerAdsMode: mode });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("partnerAds.couldNotSave"));
+    } finally {
+      setPending(null);
+    }
+  }
+
+  const labels: Record<PartnerAdsMode, { title: string; hint: string }> = {
+    never: { title: t("partnerAds.never"), hint: t("partnerAds.neverHint") },
+    rewards: { title: t("partnerAds.rewards"), hint: t("partnerAds.rewardsHint") },
+    always: { title: t("partnerAds.always"), hint: t("partnerAds.alwaysHint") },
+  };
+
+  return (
+    <section className={`${card} p-4`}>
+      <div className={planRowClass(locked, "flex flex-col gap-3")}>
+        <PlanRing tier="pro" locked={locked} />
+        <div className="flex items-center gap-3">
+          <MdCampaign className="h-5 w-5 shrink-0 text-sky-500" />
+          <div className="min-w-0 flex-1">
+            <p className="flex items-center gap-1.5 text-[15px] font-medium text-zinc-800 dark:text-zinc-200">
+              {t("partnerAds.title")}
+              <NewBadge id={PARTNER_ADS_MODE_BADGE} />
+            </p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">{t("partnerAds.hint")}</p>
+          </div>
+        </div>
+        <div role="radiogroup" aria-label={t("partnerAds.title")} className="flex flex-col gap-1.5">
+          {PARTNER_ADS_MODES.map((mode) => {
+            const selected = current === mode;
+            return (
+              <button
+                key={mode}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                disabled={locked || pending !== null}
+                onClick={() => void choose(mode)}
+                className={`flex w-full cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 text-left transition disabled:cursor-not-allowed ${
+                  selected
+                    ? "border-sky-500 bg-sky-50 dark:border-sky-500/70 dark:bg-sky-500/10"
+                    : "border-zinc-200 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900"
+                } ${locked ? "opacity-50" : ""}`}
+              >
+                <span
+                  aria-hidden
+                  className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 ${
+                    selected ? "border-sky-500" : "border-zinc-300 dark:border-zinc-600"
+                  }`}
+                >
+                  {selected && <span className="h-2 w-2 rounded-full bg-sky-500" />}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium text-zinc-900 dark:text-zinc-100">{labels[mode].title}</span>
+                  <span className="mt-0.5 block text-xs leading-snug text-zinc-500 dark:text-zinc-400">
+                    {labels[mode].hint}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        {error && <p className="text-xs text-red-500">{error}</p>}
+        {locked && <PlanLink tier="pro" className="self-start text-xs text-zinc-500 dark:text-zinc-400" />}
       </div>
     </section>
   );

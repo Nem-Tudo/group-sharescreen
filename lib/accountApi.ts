@@ -35,6 +35,12 @@ export type Account = {
    * (see lib/entitlements.ts's verifiedBadge), never from this field.
    */
   verifiedTone?: "blue" | "gold" | "ruby" | null;
+  /**
+   * Which partner ads this account is shown — a Pro setting, see
+   * lib/partnerAdsMode.ts. The API sends "always" whenever the plan does not
+   * carry no_ads; absent on an older API, read the same.
+   */
+  partnerAdsMode?: "always" | "rewards" | "never";
   // Public profile page content (see app/user/[id]/page.tsx and lib/
   // userProfile.ts) — DB-edited only, unlike points above.
   bio?: string | null;
@@ -513,6 +519,8 @@ export type UpdateProfileInput = {
   equippedProfileColor?: string | null;
   /** Null clears the choice (back to the highest mark the plan affords); absent leaves it alone. */
   verifiedTone?: "blue" | "gold" | "ruby" | null;
+  /** Which partner ads to show (Pro); absent leaves it alone. See lib/partnerAdsMode.ts. */
+  partnerAdsMode?: "always" | "rewards" | "never";
 };
 
 export async function updateProfile(input: UpdateProfileInput): Promise<Account> {

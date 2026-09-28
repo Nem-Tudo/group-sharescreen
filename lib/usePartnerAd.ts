@@ -7,9 +7,11 @@ import { signalingClient } from "./signalingClient";
 import {
   fetchPartner,
   FALLBACK_PARTNER,
+  usePartnerRewardStatus,
   type PartnerCardData,
 } from "./partner";
 import { trackPartnerImpression, trackPartnerSessionView, usePartnerExperiment } from "./partnerExperiment";
+import { hasUnclaimedPartnerReward, usePartnerAdsMode } from "./partnerAdsMode";
 import { usePartnerCreative } from "./partnerSchedule";
 import { isPageHidden, onPageHiddenChange } from "./pageHidden";
 
@@ -25,30 +27,42 @@ const ROTATE_INTERVAL_MS = 3 * 60 * 1000;
  * the ad: an impression, and spending a serve on a
  * rotation. Both are already withheld from a hidden *tab*; a hidden *slot* is
  * the same fact arriving a level down, so it goes through the same gates.
+ *
+ * `hidden` is a Pro subscriber's own choice (see lib/partnerAdsMode): no ads,
+ * or only the ones with points still in them for this account. A hidden slot
+ * is not drawn at all — not even the house ad — and counts nothing.
  */
 export function usePartnerAd({ visible = true }: { visible?: boolean } = {}) {
   const signalingState = useSignalingSelector(selectPartnerPush, shallow);
-  // The click-through experiment's exposure: counted here, where a slot is on
-  // screen, for both sides — its events below are what it compares.
-  usePartnerExperiment({ track: visible });
+  const mode = usePartnerAdsMode();
   const [partner, setPartner] = useState<PartnerCardData | null>(null);
-  const [loaded, setLoaded] = useState(false);
+  const [fetched, setFetched] = useState(false);
 
   const applyServedPartner = useCallback((next: PartnerCardData | null) => {
     setPartner(next);
-    setLoaded(true);
+    setFetched(true);
   }, []);
+
+  // What to ask the API for. Not knowing the choice yet is asked as "all",
+  // which is what almost everybody turns out to want; the rare "rewards" asks
+  // again once it is known.
+  const fetchKind = mode === "never" ? "none" : mode === "rewards" ? "rewards" : "all";
+  const fetchKindRef = useRef(fetchKind);
+  useEffect(() => {
+    fetchKindRef.current = fetchKind;
+  }, [fetchKind]);
 
   // Initial HTTP fetch
   useEffect(() => {
+    if (fetchKind === "none") return;
     const controller = new AbortController();
-    fetchPartner(controller.signal)
+    fetchPartner(controller.signal, null, fetchKind === "rewards")
       .then(applyServedPartner)
       .catch(() => {
         applyServedPartner(null);
       });
     return () => controller.abort();
-  }, [applyServedPartner]);
+  }, [applyServedPartner, fetchKind]);
 
   // Rotation timer
   const currentIdRef = useRef<string | null>(null);
@@ -58,7 +72,8 @@ export function usePartnerAd({ visible = true }: { visible?: boolean } = {}) {
 
   const rotate = useCallback(
     (signal: AbortSignal) => {
-      fetchPartner(signal, currentIdRef.current)
+      if (fetchKindRef.current === "none") return;
+      fetchPartner(signal, currentIdRef.current, fetchKindRef.current === "rewards")
         .then(applyServedPartner)
         .catch(() => {
           // Keep whatever is currently on screen
@@ -66,6 +81,31 @@ export function usePartnerAd({ visible = true }: { visible?: boolean } = {}) {
     },
     [applyServedPartner]
   );
+
+  // "Only the ones that pay points": the ad on screen is shown for as long as
+  // it has some left for this account. Once collected it goes, and the next
+  // one is asked for right away rather than at the next rotation — once per
+  // ad, so an answer that is somehow the same ad again cannot loop.
+  usePartnerRewardStatus(mode === "rewards" ? partner?.id : null);
+  const unclaimed = mode === "rewards" && hasUnclaimedPartnerReward(partner);
+  const hidden = mode === "never" || (mode === "rewards" && fetched && !unclaimed);
+  const loaded = fetched && mode !== null;
+  // What an impression needs: a slot on screen, with an ad drawn in it.
+  const shown = visible && loaded && !hidden;
+  // The click-through experiment's exposure: counted here, where a slot is on
+  // screen, for both sides — its events below are what it compares.
+  usePartnerExperiment({ track: shown });
+
+  const refetchedForRef = useRef<string | null>(null);
+  const partnerId = partner?.id ?? null;
+  useEffect(() => {
+    if (mode !== "rewards" || !partnerId || unclaimed) return;
+    if (refetchedForRef.current === partnerId) return;
+    refetchedForRef.current = partnerId;
+    const controller = new AbortController();
+    rotate(controller.signal);
+    return () => controller.abort();
+  }, [mode, partnerId, unclaimed, rotate]);
 
   // Read by the timer below rather than listed as a dependency: rebuilding the
   // interval every time the slot changes hands would restart its countdown
@@ -140,11 +180,11 @@ export function usePartnerAd({ visible = true }: { visible?: boolean } = {}) {
     function maybeReport() {
       if (isPageHidden()) return;
       // Nothing is owed for an ad the slot is not currently showing. Not a
-      // lost count either: `visible` is a dependency, so this effect runs
+      // lost count either: `shown` is a dependency, so this effect runs
       // again when the card comes back and reports then — the dedupe below is
       // by the served object's identity, so the same serve is still counted
       // exactly once however many times this re-runs.
-      if (!visible) return;
+      if (!shown) return;
       if (!reportedSessionIds.current.has(id!)) {
         reportedSessionIds.current.add(id!);
         signalingClient.reportPartnerSessionView(id!);
@@ -157,7 +197,7 @@ export function usePartnerAd({ visible = true }: { visible?: boolean } = {}) {
     }
     maybeReport();
     return onPageHiddenChange(maybeReport);
-  }, [partner, visible]);
+  }, [partner, shown]);
 
   // The ad as the clock has it: an ad with dayparts (see lib/partnerSchedule)
   // is a different card at 12:00 than at 20:00, and this is the one place the
@@ -173,5 +213,6 @@ export function usePartnerAd({ visible = true }: { visible?: boolean } = {}) {
     rawPartner: scheduled,
     loaded,
     isFallback,
+    hidden,
   };
 }

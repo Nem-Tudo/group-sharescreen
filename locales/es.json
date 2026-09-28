@@ -4251,5 +4251,14 @@
   "liveTranslation.errorDailyLimit": "Llegaste al límite de traducción de hoy.",
   "callTranscript.alreadyShared": "{names} también está transcribiendo esta llamada. Las frases se comparten entre ustedes, así que no cuesta el doble.",
   "pro.proPanel.liveTranslation": "Traducción en vivo en las llamadas, con subtítulos y voz",
-  "watch.watchRoom.callBeingTranslatedBy": "La llamada está siendo traducida por {names}"
+  "watch.watchRoom.callBeingTranslatedBy": "La llamada está siendo traducida por {names}",
+  "partnerAds.title": "Anuncios de socios",
+  "partnerAds.hint": "Elige qué anuncios de socios ves, en salas y grupos.",
+  "partnerAds.never": "Nunca mostrar",
+  "partnerAds.neverHint": "Ningún anuncio de socios, en ningún lugar.",
+  "partnerAds.rewards": "Mostrar solo los nuevos que dan puntos",
+  "partnerAds.rewardsHint": "Solo anuncios con puntos que todavía no reclamaste.",
+  "partnerAds.always": "Mostrar siempre",
+  "partnerAds.alwaysHint": "Todos los anuncios de socios, como ahora.",
+  "partnerAds.couldNotSave": "No se pudo guardar tu elección. Inténtalo de nuevo."
 }
