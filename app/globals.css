@@ -1345,3 +1345,26 @@ html[data-app-shell] body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* A points-shop name that slides (see lib/nameStyle's "shimmer:" values): the
+   gradient is drawn at twice the text's width and walked across it. The
+   gradient repeats its first color at the end, so the loop has no seam. */
+@keyframes name-fx-shimmer {
+  from {
+    background-position: 0% 50%;
+  }
+  to {
+    background-position: -200% 50%;
+  }
+}
+
+.name-fx-shimmer {
+  animation: name-fx-shimmer 4s linear infinite;
+}
+
+/* Still the same colors, just not moving. */
+@media (prefers-reduced-motion: reduce) {
+  .name-fx-shimmer {
+    animation: none;
+  }
+}

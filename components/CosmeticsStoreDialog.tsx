@@ -15,6 +15,9 @@ import {
   type CosmeticProductType,
 } from "@/lib/cosmetics";
 import { trackEvent } from "@/lib/analytics";
+import { trackFeatureEvent, useFeature } from "@/lib/features";
+import { POINTS_SHOP_EVENTS, POINTS_SHOP_FEATURE } from "@/lib/pointsShop";
+import { PointsShopDialog } from "@/components/PointsShopDialog";
 import { useT } from "@/lib/useI18n";
 import { formatLocale } from "@/lib/i18n";
 
@@ -22,7 +25,16 @@ export type CosmeticsStorePopupData = Record<string, never>;
 
 // The cosmetics store — an ntpopups popup, registered as "cosmetics_store" in
 // NtPopups.tsx, opened from RoomAccountCard's shop button or user profile.
+//
+// Two stores behind the one popup while the redesign is an experiment (see
+// lib/pointsShop): inside it, PointsShopDialog; outside, the list below.
+// Counted as an exposure here, where the store is opened, for both sides.
 export function CosmeticsStoreDialog({ closePopup }: { closePopup: (hasAction?: boolean) => void }) {
+  const { enabled } = useFeature(POINTS_SHOP_FEATURE, { track: true });
+  return enabled ? <PointsShopDialog closePopup={closePopup} /> : <ClassicCosmeticsStore closePopup={closePopup} />;
+}
+
+function ClassicCosmeticsStore({ closePopup }: { closePopup: (hasAction?: boolean) => void }) {
   const t = useT();
   const { account, points, refresh } = useAuth();
   const state = useSignalingSelector(selectNameSlice, shallow);
@@ -71,6 +83,7 @@ export function CosmeticsStoreDialog({ closePopup }: { closePopup: (hasAction?: 
       if (result.equippedNameColor !== undefined) setEquippedNameColor(result.equippedNameColor);
       if (result.equippedProfileColor !== undefined) setEquippedProfileColor(result.equippedProfileColor);
       trackEvent("cosmetic_purchased", { productId: product.id });
+      trackFeatureEvent(POINTS_SHOP_EVENTS.purchase, { feature: POINTS_SHOP_FEATURE, value: product.price });
       await refresh();
       announceToRoom();
     } catch (err) {
@@ -91,6 +104,7 @@ export function CosmeticsStoreDialog({ closePopup }: { closePopup: (hasAction?: 
       } else {
         setEquippedProfileColor(result.equippedProfileColor ?? null);
       }
+      trackFeatureEvent(POINTS_SHOP_EVENTS.equip, { feature: POINTS_SHOP_FEATURE });
       await refresh();
       announceToRoom();
     } catch (err) {
@@ -100,7 +114,10 @@ export function CosmeticsStoreDialog({ closePopup }: { closePopup: (hasAction?: 
     }
   }
 
-  const currentProducts = catalog?.filter((p) => p.type === activeTab) ?? [];
+  // Only the plain colors: everything on a shelf of its own (gradient and
+  // animated names, patterned banners) belongs to the new store, which is
+  // the one that knows how to draw it — see PointsShopDialog.
+  const currentProducts = catalog?.filter((p) => p.type === activeTab && !p.collection) ?? [];
   const currentEquipped = activeTab === "name_color" ? equippedNameColor : equippedProfileColor;
 
   return (

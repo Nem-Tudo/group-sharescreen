@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import useNtPopups from "ntpopups";
+import { nameStyleOf } from "@/lib/nameStyle";
 import { BsCoin, BsShop } from "react-icons/bs";
 import { MdLogin, MdPalette } from "react-icons/md";
 import { useAuth } from "@/lib/AuthContext";
@@ -91,8 +92,8 @@ export function RoomAccountCard({
     <div className="flex min-w-0 flex-col">
       <span className="flex min-w-0 items-center gap-1">
         <span
-          className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100"
-          style={account?.equippedNameColor ? { color: account.equippedNameColor } : undefined}
+          className={`truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100 ${nameStyleOf(account?.equippedNameColor).className ?? ""}`}
+          style={nameStyleOf(account?.equippedNameColor).style}
         >
           {state.name}
         </span>

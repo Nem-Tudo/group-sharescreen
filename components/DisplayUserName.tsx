@@ -5,6 +5,7 @@ import { BotTag } from "./BotTag";
 import { WebhookTag } from "./WebhookTag";
 import { AuraMark } from "./groups/AuraMark";
 import { translate } from "@/lib/i18n";
+import { nameStyleOf } from "@/lib/nameStyle";
 
 // Single place that renders a person's display name — every "name" shown
 // anywhere in the app (participant list, video tile labels, chat messages,
@@ -38,7 +39,8 @@ export function DisplayUserName({
   // A group webhook's message — gets the WEBHOOK tag, see components/WebhookTag.
   webhook?: boolean;
   // Cosmetics-store name color (see PeerInfo.nameColor / lib/cosmetics.ts) —
-  // a hex value applied to the name text itself. Undefined/null for no
+  // a color, or one of the store's special names (gradient, glow, animated;
+  // see lib/nameStyle), applied to the name text itself. Undefined/null for no
   // color equipped, which leaves the name at whatever color its container
   // already set (e.g. ParticipantRow's speaking-state color).
   color?: string | null;
@@ -52,9 +54,10 @@ export function DisplayUserName({
   aura?: number;
   className?: string;
 }) {
+  const nameStyle = nameStyleOf(color);
   return (
     <span className={className} style={{ display: "flex" }}>
-      <span style={color ? { color } : undefined}>{name}</span>
+      <span style={nameStyle.style} className={nameStyle.className}>{name}</span>
       {/* One shared component decides which mark, so this and the profile
           page cannot disagree about what somebody bought — see
           components/VerifiedBadge. `true` from a caller that only has a

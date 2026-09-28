@@ -16,6 +16,12 @@ export type CosmeticProduct = {
   label: string;
   price: number;
   value: string;
+  /**
+   * The store shelf it sits on — "gradient", "effect", "pattern"..., absent for
+   * the plain colors (see the API's CosmeticProductDoc.collection). A name
+   * item with one is drawn by lib/nameStyle, not as a plain color.
+   */
+  collection?: string;
 };
 
 export type CosmeticsCatalogResponse = {

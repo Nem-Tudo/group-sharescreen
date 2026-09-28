@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { MdCheck, MdClose, MdGroups, MdOpenInNew, MdRefresh, MdSearch, MdSmartToy } from "react-icons/md";
 import { BotTag } from "@/components/BotTag";
+import { nameStyleOf } from "@/lib/nameStyle";
 import { Tooltip } from "@/components/Tooltip";
 import { UserAvatar } from "@/components/UserAvatar";
 import { UserProfileCard } from "@/components/UserProfileCard";
@@ -592,8 +593,8 @@ function BotCard({
         <button type="button" onClick={onOpenProfile} className="min-w-0 cursor-pointer text-left">
           <span className="flex min-w-0 items-center gap-1.5">
             <span
-              className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100"
-              style={bot.nameColor ? { color: bot.nameColor } : undefined}
+              className={`truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100 ${nameStyleOf(bot.nameColor).className ?? ""}`}
+              style={nameStyleOf(bot.nameColor).style}
             >
               {bot.displayName}
             </span>

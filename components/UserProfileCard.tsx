@@ -55,6 +55,7 @@ import { ImageCropDialog, type ImageCropKind } from "@/components/ImageCropDialo
 import { ProfileGroupCard } from "@/components/groups/ProfileGroupCard";
 import { fetchMyGroups, type GroupSummary } from "@/lib/groupsApi";
 import useNtPopups from "ntpopups";
+import { nameStyleOf } from "@/lib/nameStyle";
 import { UserBadges } from "@/components/UserBadges";
 import { useOpenPro } from "@/lib/proModal";
 import { useI18n } from "@/lib/useI18n";
@@ -1423,9 +1424,8 @@ function ProfileContent({
                 {/* The pending value, not the saved one: closing an editor
                         has to leave the card showing what saving would give. */}
                 <span
-                  style={
-                    account.equippedNameColor ? { color: account.equippedNameColor } : undefined
-                  }
+                  style={nameStyleOf(account.equippedNameColor).style}
+                  className={nameStyleOf(account.equippedNameColor).className}
                 >
                   {isEditing ? editDisplayName : account.displayName}
                 </span>
