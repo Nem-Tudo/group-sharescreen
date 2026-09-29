@@ -9314,11 +9314,19 @@ function WatchRoomView({
       {/* A protected room: covered until the window is confirmed out of
           captures, and signed with the viewer's name once it is — the
           answer to the one capture no software can stop, a phone. */}
-      {roomProtected && visible && roomProtection === "on" && (
-        <div className="pointer-events-none fixed inset-0 z-[60]">
-          <ViewerWatermark label={state.account?.username ? `@${state.account.username}` : (state.name ?? "")} />
-        </div>
-      )}
+      {/* Portalled to the body: inside the room's own tree, a transformed or
+          clipped ancestor would pin "fixed" to itself and cover only part of
+          the room. Over everything, and never in the way of a click. */}
+      {roomProtected &&
+        state.roomCaptureWatermark &&
+        visible &&
+        roomProtection === "on" &&
+        createPortal(
+          <div className="pointer-events-none fixed inset-0 z-[900]">
+            <ViewerWatermark label={state.account?.username ? `@${state.account.username}` : (state.name ?? "")} />
+          </div>,
+          document.body
+        )}
       {roomProtected && visible && roomProtection !== "on" && (
         <div className="fixed inset-0 z-[950] flex items-center justify-center bg-zinc-950 px-6 text-center text-sm text-zinc-300">
           {roomProtection === "failed" ? (

@@ -91,12 +91,15 @@ export function uploadAttachment(
     signal,
     maxMb = null,
     viewOnce = false,
+    watermark = true,
   }: {
     onProgress?: (fraction: number) => void;
     signal?: AbortSignal;
     maxMb?: number | null;
     /** Sent as a view-once file — see lib/viewOnceApi.ts. */
     viewOnce?: boolean;
+    /** For a view-once file: the viewer's name drawn over it. */
+    watermark?: boolean;
   } = {}
 ): Promise<UploadResult> {
   const token = uploadAuthToken();
@@ -105,6 +108,7 @@ export function uploadAttachment(
   return new Promise((resolve) => {
     const query = new URLSearchParams({ name: file.name, type: file.type || "application/octet-stream", for: target });
     if (viewOnce) query.set("viewOnce", "1");
+    if (viewOnce && !watermark) query.set("watermark", "0");
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${getSignalingHttpBase()}/uploads?${query.toString()}`);
     xhr.setRequestHeader("Authorization", `Bearer ${token}`);

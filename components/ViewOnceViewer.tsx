@@ -24,7 +24,7 @@ import { useT } from "@/lib/useI18n";
 
 type Phase =
   | { kind: "loading" }
-  | { kind: "ready"; url: string; type: string }
+  | { kind: "ready"; url: string; type: string; watermark: boolean }
   | { kind: "error"; reason: Exclude<ViewOnceOpenResult, { ok: true }>["reason"] | "protection" };
 
 export function ViewOnceViewer({
@@ -57,7 +57,7 @@ export function ViewOnceViewer({
       }
       const url = URL.createObjectURL(result.blob);
       urlRef.current = url;
-      setLoaded({ kind: "ready", url, type: result.blob.type });
+      setLoaded({ kind: "ready", url, type: result.blob.type, watermark: result.watermark });
     });
   }, [attachment.viewOnce, onOpened, protection]);
 
@@ -156,7 +156,7 @@ export function ViewOnceViewer({
             // eslint-disable-next-line @next/next/no-img-element -- an in-memory Blob; next/image cannot take one
             <img src={phase.url} alt="" draggable={false} className="max-h-[88vh] max-w-[92vw] object-contain" />
           )}
-          <ViewerWatermark label={account ? `@${account.username}` : ""} />
+          {phase.watermark && <ViewerWatermark label={account ? `@${account.username}` : ""} />}
         </div>
       )}
     </div>,

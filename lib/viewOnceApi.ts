@@ -20,7 +20,6 @@ export function isViewOnceFile(file: { type: string }): boolean {
   return /^(image|video|audio)\//.test(file.type);
 }
 
-export const VIEW_ONCE_ACCEPT = "image/*,video/*,audio/*";
 
 export interface ViewOnceStatus {
   /** Still openable by somebody who has not opened it (it expires after 14 days). */
@@ -46,8 +45,24 @@ export async function getViewOnceStatus(id: string): Promise<ViewOnceStatus | nu
   }
 }
 
+/** The sender turning the viewer's-name watermark on or off. Sender only, enforced by the API. */
+export async function setViewOnceWatermark(id: string, watermark: boolean): Promise<boolean> {
+  const token = getAccountToken();
+  if (!token) return false;
+  try {
+    const res = await fetch(`${getSignalingHttpBase()}/view-once/${encodeURIComponent(id)}/settings`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ watermark }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export type ViewOnceOpenResult =
-  | { ok: true; blob: Blob }
+  | { ok: true; blob: Blob; watermark: boolean }
   | {
       ok: false;
       reason: "signed-out" | "app-only" | "viewed" | "expired" | "own" | "failed";
@@ -69,7 +84,11 @@ export async function openViewOnce(id: string): Promise<ViewOnceOpenResult> {
     if (res.ok) {
       const type = res.headers.get("Content-Type") ?? "application/octet-stream";
       const bytes = await res.arrayBuffer();
-      return { ok: true, blob: new Blob([bytes], { type }) };
+      return {
+        ok: true,
+        blob: new Blob([bytes], { type }),
+        watermark: res.headers.get("X-View-Once-Watermark") !== "0",
+      };
     }
     const data = (await res.json().catch(() => null)) as { error?: string } | null;
     if (res.status === 401) return { ok: false, reason: "signed-out" };

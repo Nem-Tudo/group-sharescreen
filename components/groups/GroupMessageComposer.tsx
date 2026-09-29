@@ -14,7 +14,7 @@ import {
 } from "react";
 import { MdCheck, MdClose, MdEdit, MdGif, MdGroups, MdSend, MdTune, MdVolumeUp } from "react-icons/md";
 import { AttachMenu, splitPicked } from "@/components/AttachMenu";
-import { AttachmentTray } from "@/components/AttachmentTray";
+import { AttachmentTray, dataUrlToFile, ImageViewOnceButton } from "@/components/AttachmentTray";
 import { EmojiPickerButton } from "@/components/EmojiPicker";
 import { useCustomEmojiEnabled, type EmojiPlace } from "@/lib/customEmoji";
 import { EmojiSuggestions } from "@/components/EmojiSuggestions";
@@ -1200,6 +1200,12 @@ export function GroupMessageComposer({
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={image.dataUrl} alt={t("common.attachment")} className="h-full w-full object-cover" />
+              <ImageViewOnceButton
+                onClick={() => {
+                  setImages(images.filter((_, i) => i !== index));
+                  void dataUrlToFile(image.dataUrl, "imagem").then((file) => uploads.add([file], { viewOnce: true }));
+                }}
+              />
               <button
                 type="button"
                 onClick={() => setImages(images.filter((_, i) => i !== index))}
@@ -1212,7 +1218,15 @@ export function GroupMessageComposer({
           ))}
         </div>
       )}
-      {!editing && <AttachmentTray items={uploads.items} onRemove={uploads.remove} className="mb-1.5" />}
+      {!editing && (
+        <AttachmentTray
+          items={uploads.items}
+          onRemove={uploads.remove}
+          uploads={uploads}
+          onRestoreImage={(file) => void addImages([file])}
+          className="mb-1.5"
+        />
+      )}
 
       <div className="flex items-end gap-1.5">
         {/* An edit changes the words only: nothing to attach, and a GIF
@@ -1221,7 +1235,6 @@ export function GroupMessageComposer({
           <AttachMenu
             onImages={(files) => void addImages(files)}
             onFiles={addAnything}
-            onViewOnce={(files) => void uploads.add(files, { viewOnce: true })}
             onOpen={() => void uploads.refreshLimit()}
             limitMb={uploads.limit?.maxMb}
             disabled={disabled}

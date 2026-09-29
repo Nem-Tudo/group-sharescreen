@@ -768,6 +768,8 @@ export type SignalingState = {
   // recorders there (see lib/captureProtection.ts and the server's
   // "room-capture-protection").
   roomCaptureProtected: boolean;
+  // Whether that room draws each viewer's name over itself (the manager's choice).
+  roomCaptureWatermark: boolean;
   // Who a manager turned the mic off for (see the server's "room-silence"),
   // by stable user id. Public, like a muted mic: everybody's client shows it
   // in red and stops playing them, and ours keeps our mic off while we're in it.
@@ -960,6 +962,7 @@ const initialState: SignalingState = {
   roomBans: [],
   roomMemberLimit: null,
   roomCaptureProtected: false,
+  roomCaptureWatermark: true,
   roomSilenced: [],
   roomRemoval: null,
   roomPermissions: { ...DEFAULT_ROOM_PERMISSIONS },
@@ -1819,6 +1822,7 @@ class SignalingClient {
           roomAdmins: parseRoomAdmins(msg.admins),
           roomMemberLimit: typeof msg.memberLimit === "number" ? msg.memberLimit : null,
           roomCaptureProtected: msg.captureProtected === true,
+          roomCaptureWatermark: msg.captureWatermark !== false,
           roomSilenced: parseRoomSilenced(msg.silenced),
           // A fresh join is a fresh answer to "was I thrown out", and the
           // answer is no — we are in.
@@ -2060,6 +2064,7 @@ class SignalingClient {
           roomAdmins: parseRoomAdmins(msg.admins),
           roomMemberLimit: typeof msg.memberLimit === "number" ? msg.memberLimit : null,
           roomCaptureProtected: msg.captureProtected === true,
+          roomCaptureWatermark: msg.captureWatermark !== false,
           roomSilenced: parseRoomSilenced(msg.silenced),
           roomPermissions: parseRoomPermissions(msg.permissions),
           roomLocation: parseRoomLocation(msg.location),
@@ -3337,6 +3342,7 @@ class SignalingClient {
       roomBans: [],
       roomMemberLimit: null,
       roomCaptureProtected: false,
+      roomCaptureWatermark: true,
       roomSilenced: [],
       roomPermissions: { ...DEFAULT_ROOM_PERMISSIONS },
       myRoomPermissions: null,
@@ -3468,8 +3474,8 @@ class SignalingClient {
 
   // Owner/admins only, and only from the desktop app — both enforced
   // server-side (see its "room-capture-protection").
-  setRoomCaptureProtection(enabled: boolean) {
-    this.rawSend({ type: "room-capture-protection", enabled });
+  setRoomCaptureProtection(settings: { enabled?: boolean; watermark?: boolean }) {
+    this.rawSend({ type: "room-capture-protection", ...settings });
   }
 
   setVideoSourceControlMode(id: string, controlMode: "owner" | "anyone") {

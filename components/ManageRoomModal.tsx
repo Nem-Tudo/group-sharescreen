@@ -19,7 +19,10 @@ import {
   MdPalette,
   MdOutlineMap,
   MdLockOutline,
+  MdBrandingWatermark,
+  MdOutlineBrandingWatermark,
 } from "react-icons/md";
+import { MenuToggleRow } from "@/components/MenuToggleRow";
 import { captureProtectionLevel } from "@/lib/captureProtection";
 import {
   signalingClient,
@@ -623,7 +626,7 @@ export function ManageRoomModal({
       )}
 
       {view === "protection" && (
-        <ProtectionView enabled={state.roomCaptureProtected} />
+        <ProtectionView enabled={state.roomCaptureProtected} watermark={state.roomCaptureWatermark} />
       )}
 
       {view === "bans" && (
@@ -718,7 +721,7 @@ export function ManageRoomModal({
 // screenshots and screen recorders blocked there. Switched from the app only —
 // the server refuses it from anywhere else, since turning it on from a browser
 // would throw the person switching it out of their own room.
-function ProtectionView({ enabled }: { enabled: boolean }) {
+function ProtectionView({ enabled, watermark }: { enabled: boolean; watermark: boolean }) {
   const t = useT();
   const level = captureProtectionLevel();
   const canSwitch = level === "full" || level === "partial";
@@ -734,13 +737,22 @@ function ProtectionView({ enabled }: { enabled: boolean }) {
       <button
         type="button"
         disabled={!canSwitch}
-        onClick={() => signalingClient.setRoomCaptureProtection(!enabled)}
+        onClick={() => signalingClient.setRoomCaptureProtection({ enabled: !enabled })}
         className={`rounded-lg px-3 py-2 text-sm font-medium text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${
           enabled ? "bg-zinc-600 hover:bg-zinc-700" : "bg-violet-600 hover:bg-violet-700"
         }`}
       >
         {enabled ? t("protectedRoom.turnOff") : t("protectedRoom.turnOn")}
       </button>
+      <MenuToggleRow
+        label={t("protectedRoom.watermark")}
+        hint={t("protectedRoom.watermarkHint")}
+        active={watermark}
+        disabled={!canSwitch}
+        onToggle={() => signalingClient.setRoomCaptureProtection({ watermark: !watermark })}
+        activeIcon={<MdBrandingWatermark className="h-4 w-4 text-violet-500" aria-hidden />}
+        inactiveIcon={<MdOutlineBrandingWatermark className="h-4 w-4 opacity-60" aria-hidden />}
+      />
       {!canSwitch && (
         <p className="text-[11px] leading-relaxed text-amber-600 dark:text-amber-400">{t("protectedRoom.onlyFromApp")}</p>
       )}
