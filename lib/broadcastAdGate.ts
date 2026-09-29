@@ -49,6 +49,15 @@ export const AD_GATE_EVENTS = {
   waitConfirmed: "ad_gate_wait_confirmed",
   /** A long ad left behind at the minute mark; value = seconds watched. */
   skipped: "ad_gate_skipped",
+  /**
+   * The popup was actually in front of them; value = seconds between the pause
+   * and the tab becoming visible (0 when it already was). Somebody streaming a
+   * game is looking at the game, so this is how long a pause goes unnoticed —
+   * the part of every pause the ad itself has nothing to do with.
+   */
+  seen: "ad_gate_seen",
+  /** ...and it was visible the moment the pause began. */
+  seenInstant: "ad_gate_seen.instant",
 } as const;
 
 /**
@@ -77,7 +86,12 @@ export const MAX_GATE_SECONDS = 30;
 export const NO_AD_WAIT_SECONDS = MAX_GATE_SECONDS;
 
 export function trackAdGate(event: string, value?: number) {
-  trackFeatureEvent(event, value ? { value: Math.max(1, Math.round(value)) } : {});
+  // Counted for this feature only: these say nothing about whatever other
+  // experiment the person happens to be in.
+  trackFeatureEvent(event, {
+    feature: BROADCAST_AD_GATE_FEATURE,
+    ...(value ? { value: Math.max(1, Math.round(value)) } : {}),
+  });
 }
 
 /** What the server says when it pauses a broadcast. */

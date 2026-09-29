@@ -114,6 +114,23 @@ export function BroadcastAdGateModal({
     playBroadcastPausedSound();
   }, []);
 
+  // When the popup was first actually on screen (see AD_GATE_EVENTS.seen).
+  useEffect(() => {
+    const openedAt = Date.now();
+    if (document.visibilityState === "visible") {
+      trackAdGate(AD_GATE_EVENTS.seen);
+      trackAdGate(AD_GATE_EVENTS.seenInstant);
+      return;
+    }
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      document.removeEventListener("visibilitychange", onVisible);
+      trackAdGate(AD_GATE_EVENTS.seen, (Date.now() - openedAt) / 1000);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
+
   // They became Pro while this was open (the button below leads straight
   // there). Nothing for them to watch any more, so the gate clears itself —
   // asking somebody who has just paid to also sit through the ad would be the
