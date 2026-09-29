@@ -1086,6 +1086,11 @@ function createWindow(initialUrl: string = APP_URL) {
     if (new URL(url).origin === APP_ORIGIN) return;
     event.preventDefault();
     if (/^https?:$/.test(safeProtocol(url))) void shell.openExternal(url);
+    // /bot exists only to redirect to Discord. With that redirect sent to
+    // the browser, the window was left parked on /bot, and every later load
+    // of it (reopening the app, a reload, resuming after an update) opened
+    // the Discord invite again. Step back off it.
+    leaveRedirectPage();
   });
 
   // The ring is the page's to end (callRinging with null), and a page that
@@ -1115,6 +1120,22 @@ function createWindow(initialUrl: string = APP_URL) {
   });
 
   void mainWindow.loadURL(initialUrl);
+}
+
+const REDIRECT_ONLY_PATHS = new Set(["/bot"]);
+
+function leaveRedirectPage() {
+  const contents = mainWindow?.webContents;
+  if (!contents) return;
+  let current: URL;
+  try {
+    current = new URL(contents.getURL());
+  } catch {
+    return;
+  }
+  if (current.origin !== APP_ORIGIN || !REDIRECT_ONLY_PATHS.has(current.pathname.replace(/\/+$/, ""))) return;
+  if (contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack();
+  else void contents.loadURL(APP_URL);
 }
 
 // Only our own site is retried; anything else falls back to the home page.
