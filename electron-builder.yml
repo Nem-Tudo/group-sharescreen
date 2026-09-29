@@ -46,6 +46,17 @@ publish:
 # well under one for the shell itself — none of which is ever loaded, since
 # esbuild bundles the four entrypoints and `electron` comes from the
 # runtime (see electron/build.mjs).
+#
+# The same reasoning is why npmRebuild is off. By default electron-builder
+# recompiles every native dependency against Electron's headers before
+# packaging, and that step needs a working node-gyp + Python + C++ toolchain on
+# every build machine — the macOS runner's Python no longer has distutils, so
+# it fails outright. None of it is needed: sharp never ships (excluded below),
+# and uiohook-napi is an N-API module whose prebuilt binary is ABI-stable
+# across Node and Electron versions, copied as-is via extraResources and only
+# ever loaded on Windows (see electron/inputHook.ts).
+npmRebuild: false
+
 files:
   - electron/dist/**/*
   - electron/picker.html
