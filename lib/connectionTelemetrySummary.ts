@@ -55,6 +55,8 @@ export interface SessionAccumulator {
   remoteType: string;
   protocol: string | null;
   relayProtocol: string | null;
+  /** The TURN server our end last relayed through, as the browser names it. */
+  relayUrl: string | null;
   codec: string | null;
   implementation: string | null;
   hardware: boolean | null;
@@ -63,6 +65,10 @@ export interface SessionAccumulator {
   heightCount: number;
   kbpsSum: number;
   kbpsCount: number;
+  targetKbpsSum: number;
+  targetKbpsCount: number;
+  availableKbpsSum: number;
+  availableKbpsCount: number;
   rttSum: number;
   rttCount: number;
   maxLoss: number;
@@ -89,6 +95,7 @@ export function createAccumulator(startedAt: number): SessionAccumulator {
     remoteType: "unknown",
     protocol: null,
     relayProtocol: null,
+    relayUrl: null,
     codec: null,
     implementation: null,
     hardware: null,
@@ -97,6 +104,10 @@ export function createAccumulator(startedAt: number): SessionAccumulator {
     heightCount: 0,
     kbpsSum: 0,
     kbpsCount: 0,
+    targetKbpsSum: 0,
+    targetKbpsCount: 0,
+    availableKbpsSum: 0,
+    availableKbpsCount: 0,
     rttSum: 0,
     rttCount: 0,
     maxLoss: 0,
@@ -118,6 +129,7 @@ export function addSnapshot(acc: SessionAccumulator, snapshot: PcSnapshot): Sess
     acc.remoteType = route.remoteType;
     acc.protocol = route.protocol;
     acc.relayProtocol = route.relayProtocol ?? acc.relayProtocol;
+    acc.relayUrl = route.relayUrl ?? acc.relayUrl;
   }
   if (route.rttMs != null) {
     acc.rttSum += route.rttMs;
@@ -144,6 +156,14 @@ export function addSnapshot(acc: SessionAccumulator, snapshot: PcSnapshot): Sess
       acc.kbpsCount += 1;
     }
     if (send) {
+      if (send.targetKbps != null && send.targetKbps > 0) {
+        acc.targetKbpsSum += send.targetKbps;
+        acc.targetKbpsCount += 1;
+      }
+      if (route.availableOutgoingKbps != null && route.availableOutgoingKbps > 0) {
+        acc.availableKbpsSum += route.availableOutgoingKbps;
+        acc.availableKbpsCount += 1;
+      }
       acc.cpuLimitedSeconds += send.cpuLimitedShare * intervalSeconds;
       acc.bandwidthLimitedSeconds += send.bandwidthLimitedShare * intervalSeconds;
       acc.maxLoss = Math.max(acc.maxLoss, send.remoteLoss);
@@ -178,6 +198,10 @@ export interface SessionSummary {
   fpsP10: number | null;
   heightAvg: number | null;
   kbpsAvg: number | null;
+  /** Send only: what the encoder was asked for, on average (see SendVideoStats.targetKbps). */
+  targetKbpsAvg: number | null;
+  /** Send only: the browser's estimate of what the path carries, on average. */
+  availableKbpsAvg: number | null;
   rttAvgMs: number | null;
   lossMax: number;
   cpuLimitedShare: number | null;
@@ -200,6 +224,15 @@ export const CAUSE_PRESENCE = 0.25;
 // slideshow of something that is moving (a still screen also shows low fps,
 // but carries almost no bits).
 const BAD_FREEZE_SHARE = 0.02;
+// A screen share freezes by nature. The capture stops producing frames the
+// moment nothing on screen changes, and the first gap after motion stops is
+// counted by the browser as a freeze — so a perfectly healthy screen share
+// logs one every few seconds of reading. The reports showed it: screen
+// sessions on direct links with no loss at all averaged ~100 freezes, and at
+// 2% the rule called 92% of all sessions bad, which made it useless. For a
+// screen only freezing a tenth of the time is worth a flag; the slideshow and
+// drop rules below are what catch a screen that is actually struggling.
+const BAD_FREEZE_SHARE_SCREEN = 0.1;
 const BAD_DROP_SHARE = 0.1;
 const SLIDESHOW_FPS = 10;
 const SLIDESHOW_MIN_KBPS = 300;
@@ -219,7 +252,9 @@ function round(value: number, digits = 0): number {
 export function summarize(
   acc: SessionAccumulator,
   endedAt: number,
-  direction: "send" | "recv"
+  direction: "send" | "recv",
+  /** The media channel; screen shares get their own freeze bar (see BAD_FREEZE_SHARE_SCREEN). */
+  channel?: string
 ): SessionSummary {
   const measured = acc.kbpsCount;
   const causes = (Object.entries(acc.causeCounts) as [CauseId, number][])
@@ -240,7 +275,10 @@ export function summarize(
   const bad =
     causes.some((id) => HIGH_CAUSES.has(id)) ||
     (causes.includes("network-loss") && acc.maxLoss >= 0.08) ||
-    (direction === "recv" && (freezeShare >= BAD_FREEZE_SHARE || dropShare >= BAD_DROP_SHARE || slideshow));
+    (direction === "recv" &&
+      (freezeShare >= (channel?.startsWith("screen") ? BAD_FREEZE_SHARE_SCREEN : BAD_FREEZE_SHARE) ||
+        dropShare >= BAD_DROP_SHARE ||
+        slideshow));
 
   const routeKind: RouteKind = acc.routeKinds.length ? acc.routeKinds[acc.routeKinds.length - 1] : "unknown";
 
@@ -260,6 +298,12 @@ export function summarize(
     fpsP10,
     heightAvg: acc.heightCount ? Math.round(acc.heightSum / acc.heightCount) : null,
     kbpsAvg: kbpsAvg === null ? null : Math.round(kbpsAvg),
+    targetKbpsAvg:
+      direction === "send" && acc.targetKbpsCount ? Math.round(acc.targetKbpsSum / acc.targetKbpsCount) : null,
+    availableKbpsAvg:
+      direction === "send" && acc.availableKbpsCount
+        ? Math.round(acc.availableKbpsSum / acc.availableKbpsCount)
+        : null,
     rttAvgMs: acc.rttCount ? Math.round(acc.rttSum / acc.rttCount) : null,
     lossMax: round(acc.maxLoss, 2),
     cpuLimitedShare: direction === "send" && seconds > 0 ? round(acc.cpuLimitedSeconds / seconds, 2) : null,

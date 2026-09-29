@@ -40,6 +40,10 @@ import {
   getStoredShareProfile,
   getStoredShareResolution,
 } from "./mediaPreferences";
+import { turnProvider } from "./iceConfig";
+import { trackFeatureEvent } from "./features";
+import { defaultShareProfile, getScreenCodecVariant, isH264Hardware, SCREEN_CODEC_FEATURE } from "./screenCodec";
+import { getOwnTurnVariant, OWN_TURN_EVENTS, OWN_TURN_FEATURE } from "./ownTurn";
 
 const ENABLED = process.env.NEXT_PUBLIC_QUALITY_TELEMETRY_ENABLED !== "false";
 
@@ -73,13 +77,48 @@ export interface ConnectionQualityReport extends SessionSummary {
   startedAt: number;
   endedBy: "close" | "pagehide";
   forceRelay: boolean;
-  settings: { resolution: string; fps: number; bitrate: string; profile: string } | null;
+  /** Whose TURN server our end relayed through, when it did. */
+  turnProvider: "own" | "cloudflare" | null;
+  /** Our side of the transport experiments, "screen-codec=auto;own-turn=tcp", or null for control in both. */
+  experiments: string | null;
+  /** Whether this browser encodes H264 in hardware, when it has said (see lib/screenCodec). */
+  h264Hardware: boolean | null;
+  settings: ShareSettings | null;
   device: {
     cores: number | null;
     memoryGb: number | null;
     browser: string;
     app: "web" | "desktop" | "android";
   };
+}
+
+export interface ShareSettings {
+  resolution: string;
+  fps: number;
+  bitrate: string;
+  profile: string;
+}
+
+// The screen share's dials as useRoomMedia is actually running them. The
+// stored values alone were not enough: they are only written when somebody
+// moves a dial, so a person who never opened the picker was reported with
+// whatever default this file guessed — "text" for the profile, when the real
+// default had become "balanced". Every analysis by profile was split on that
+// mislabel. Null until useRoomMedia says (the stored values stand in).
+let liveShareSettings: ShareSettings | null = null;
+
+/** The screen share's dials as they are really set. Called by useRoomMedia. */
+export function setTelemetryShareSettings(settings: ShareSettings | null) {
+  liveShareSettings = settings;
+}
+
+function experimentsTag(): string | null {
+  const parts: string[] = [];
+  const codec = getScreenCodecVariant();
+  if (codec) parts.push(`${SCREEN_CODEC_FEATURE}=${codec}`);
+  const turn = getOwnTurnVariant();
+  if (turn) parts.push(`${OWN_TURN_FEATURE}=${turn}`);
+  return parts.length > 0 ? parts.join(";") : null;
 }
 
 interface Session {
@@ -193,9 +232,13 @@ class ConnectionTelemetry {
 
   private buildReport(session: Session, endedBy: "close" | "pagehide"): ConnectionQualityReport | null {
     const { connection, acc } = session;
-    const summary = summarize(acc, Date.now(), connection.direction);
+    const summary = summarize(acc, Date.now(), connection.direction, connection.channel);
     // Too short to be a stream, or never measured over an interval at all.
     if (summary.durationS < MIN_SESSION_S || summary.kbpsAvg === null) return null;
+    const provider = acc.relayUrl ? turnProvider(acc.relayUrl) : null;
+    // Counted before the sampling below, since every relayed session matters
+    // to experiment "own-turn" and not only the ones that get reported.
+    this.countOwnTurn(summary, provider);
     if (!summary.bad && Math.random() >= QUALITY_SAMPLE_RATE) return null;
 
     const ownShare = connection.direction === "send" && !connection.viaRelay;
@@ -214,15 +257,19 @@ class ConnectionTelemetry {
       startedAt: acc.startedAt,
       endedBy,
       forceRelay: getEffectiveForceRelayIce(),
-      // The dials as they stand now. Stored rather than threaded through,
-      // since they only change from the picker, which writes them here.
+      turnProvider: provider,
+      experiments: experimentsTag(),
+      h264Hardware: isH264Hardware(),
+      // The dials as they stand now — see setTelemetryShareSettings. The
+      // stored values only until useRoomMedia has said, with the defaults it
+      // really uses.
       settings: ownShare
-        ? {
+        ? (liveShareSettings ?? {
             resolution: getStoredShareResolution() ?? "1080p",
             fps: getStoredShareFps() ?? 30,
             bitrate: getStoredShareBitrate() ?? "high",
-            profile: getStoredShareProfile() ?? "text",
-          }
+            profile: getStoredShareProfile() ?? defaultShareProfile(),
+          })
         : null,
       device: {
         cores: nav?.hardwareConcurrency || null,
@@ -231,6 +278,22 @@ class ConnectionTelemetry {
         app: isMobileApp() ? "android" : isDesktopApp() ? "desktop" : "web",
       },
     };
+  }
+
+  // Experiment "own-turn" (see lib/ownTurn): one set of events per video
+  // session whose own end relayed through the VPS. Relayed on the other end
+  // only is not counted — nothing this side's variant does reaches it.
+  private countOwnTurn(summary: SessionSummary, provider: "own" | "cloudflare" | null) {
+    const ours = summary.routeKind === "relay-local" || summary.routeKind === "relay-both";
+    if (!ours || provider === "cloudflare") return;
+    const feature = OWN_TURN_FEATURE;
+    trackFeatureEvent(OWN_TURN_EVENTS.session, { feature, value: 1 });
+    if (summary.fpsAvg !== null) trackFeatureEvent(OWN_TURN_EVENTS.fps, { feature, value: Math.round(summary.fpsAvg) });
+    if (summary.kbpsAvg !== null) trackFeatureEvent(OWN_TURN_EVENTS.kbps, { feature, value: summary.kbpsAvg });
+    if (summary.fpsAvg !== null && summary.fpsAvg < 10 && (summary.kbpsAvg ?? 0) >= 300) {
+      trackFeatureEvent(OWN_TURN_EVENTS.lowFps, { feature });
+    }
+    if (summary.lossMax >= 0.15) trackFeatureEvent(OWN_TURN_EVENTS.loss, { feature });
   }
 
   private scheduleFlush() {

@@ -72,6 +72,14 @@ export interface SendVideoStats {
   remoteLoss: number;
   nackPerSecond: number;
   pliPerSecond: number;
+  /**
+   * What the encoder is being asked to produce, kbps — the browser's
+   * bandwidth estimate after our own caps. Set beside `kbps` (what it did
+   * produce) and the route's availableOutgoingKbps, it is what tells a link
+   * that is short from an encoder that is holding itself back. Null where the
+   * browser does not report it.
+   */
+  targetKbps?: number | null;
 }
 
 export interface RecvVideoStats {
@@ -312,6 +320,7 @@ export function readPcStats(
       remoteLoss: round2(num(remoteInbound?.fractionLost)),
       nackPerSecond: round2(perSecond(d("nackCount"), seconds)),
       pliPerSecond: round2(perSecond(d("pliCount"), seconds)),
+      targetKbps: num(outbound.targetBitrate) > 0 ? Math.round(num(outbound.targetBitrate) / 1000) : null,
     };
     // A sender-side pc usually has no selected-pair RTT in Firefox; the
     // receiver's own report of it is the next best thing.

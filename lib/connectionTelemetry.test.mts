@@ -70,12 +70,17 @@ function snap(over: Partial<PcSnapshot>, at: number): PcSnapshot {
 }
 
 /** A session of `count` 10-second samples built by `make(i)`. */
-function session(direction: "send" | "recv", count: number, make: (i: number) => Partial<PcSnapshot>) {
+function session(
+  direction: "send" | "recv",
+  count: number,
+  make: (i: number) => Partial<PcSnapshot>,
+  channel?: string
+) {
   const acc = createAccumulator(0);
   // The first sample never has an interval (see readPcStats).
   addSnapshot(acc, snap({ ...make(0), intervalSeconds: 0 }, 0));
   for (let i = 1; i <= count; i += 1) addSnapshot(acc, snap(make(i), i * 10_000));
-  return summarize(acc, (count + 1) * 10_000, direction);
+  return summarize(acc, (count + 1) * 10_000, direction, channel);
 }
 
 // A healthy viewer session: not bad, and averages what it was given.
@@ -126,6 +131,31 @@ function session(direction: "send" | "recv", count: number, make: (i: number) =>
   const s = session("recv", 30, (i) => ({ recv: recv(i % 10 === 0 ? { freezes: 1, freezeSeconds: 3 } : {}) }));
   assert.equal(s.freezes, 3);
   assert.equal(s.bad, true);
+}
+
+// A screen share freezes by nature (every stop in motion counts as one), so
+// the same 3% of the time frozen is not bad there — and 10% still is.
+{
+  const s = session(
+    "recv",
+    30,
+    (i) => ({ recv: recv(i % 10 === 0 ? { freezes: 1, freezeSeconds: 3 } : {}) }),
+    "screen"
+  );
+  assert.equal(s.bad, false);
+  const worse = session("recv", 30, () => ({ recv: recv({ freezes: 1, freezeSeconds: 1 }) }), "screen");
+  assert.equal(worse.bad, true);
+}
+
+// A sender's target and available bitrate are averaged; a viewer's are not reported.
+{
+  const s = session("send", 6, () => ({
+    route: route({ availableOutgoingKbps: 5000 }),
+    send: send({ targetKbps: 2000 }),
+  }));
+  assert.equal(s.targetKbpsAvg, 2000);
+  assert.equal(s.availableKbpsAvg, 5000);
+  assert.equal(session("recv", 6, () => ({ recv: recv() })).targetKbpsAvg, null);
 }
 
 // A slideshow of moving content: low fps while still carrying real bitrate.

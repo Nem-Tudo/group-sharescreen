@@ -221,8 +221,11 @@ class MediaStatsPump {
           frameWidth = (rec.frameWidth as number) ?? 0;
           frameHeight = (rec.frameHeight as number) ?? 0;
         } else if (r.type === "candidate-pair" && rec.state === "succeeded") {
-          const avail = (rec.availableOutgoingBitrate as number) ?? 0;
-          if (avail > bestAvailable) bestAvailable = avail / 1000;
+          // In kbps before comparing: the report is in bps and bestAvailable
+          // is not, so comparing the raw value let whichever pair came last
+          // win instead of the best one.
+          const availKbps = ((rec.availableOutgoingBitrate as number) ?? 0) / 1000;
+          if (availKbps > bestAvailable) bestAvailable = availKbps;
         }
       });
 

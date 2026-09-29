@@ -19,6 +19,7 @@
 // time the answer can change.
 
 import type { QualityTier } from "./videoQuality";
+import { turnProvider, type TurnProvider } from "./iceConfig";
 
 /** The highest tier a relayed connection is sent at. */
 export const RELAY_ROUTE_CAP: QualityTier = "1080p60";
@@ -28,15 +29,30 @@ export const RELAY_ROUTE_MAX_KBPS = 4000;
 
 type StatRecord = Record<string, unknown> & { type?: string };
 
+/** Our side's relay on one connection: whether there is one, and whose server. */
+export interface RelayRoute {
+  via: boolean;
+  /** Null when not relayed, or when the browser does not name the server. */
+  provider: TurnProvider | null;
+}
+
 /**
  * Whether the selected candidate pair in `records` (a getStats report's
  * values) has our side relaying through a TURN server.
+ */
+export function relayedViaTurn(records: Iterable<StatRecord>): boolean {
+  return relayRouteOf(records).via;
+}
+
+/**
+ * Our side's relay on the selected candidate pair in `records` (a getStats
+ * report's values).
  *
  * The pair is found the same way connectionDiagnostics does it: the
  * transport's pointer first, Firefox's `selected` flag next, the nominated
  * succeeded pair last.
  */
-export function relayedViaTurn(records: Iterable<StatRecord>): boolean {
+export function relayRouteOf(records: Iterable<StatRecord>): RelayRoute {
   const all = [...records];
   const byId = new Map<string, StatRecord>();
   for (const rec of all) if (typeof rec.id === "string") byId.set(rec.id, rec);
@@ -50,22 +66,27 @@ export function relayedViaTurn(records: Iterable<StatRecord>): boolean {
   pair ??=
     all.find((r) => r.type === "candidate-pair" && r.selected === true) ??
     all.find((r) => r.type === "candidate-pair" && r.nominated === true && r.state === "succeeded");
-  if (!pair || typeof pair.localCandidateId !== "string") return false;
+  if (!pair || typeof pair.localCandidateId !== "string") return { via: false, provider: null };
 
   const local = byId.get(pair.localCandidateId);
-  return local?.candidateType === "relay";
+  if (local?.candidateType !== "relay") return { via: false, provider: null };
+  return { via: true, provider: turnProvider(typeof local.url === "string" ? local.url : null) };
 }
 
 /**
  * Calls `onChange` whenever this connection starts or stops being relayed
- * through a TURN server on our side. Silent until the first time it is. Returns
- * a function that stops watching.
+ * through a TURN server on our side, or moves to another TURN network. Silent
+ * until the first time it is relayed. Returns a function that stops watching.
  *
  * Needs no cleanup when the connection is closed: it holds no timer, only
  * listeners on the connection itself, which go with it.
  */
-export function watchTurnRelay(pc: RTCPeerConnection, onChange: (via: boolean) => void): () => void {
+export function watchTurnRelay(
+  pc: RTCPeerConnection,
+  onChange: (via: boolean, provider: TurnProvider | null) => void
+): () => void {
   let current = false;
+  let currentProvider: TurnProvider | null = null;
   let stopped = false;
   let checking = false;
   let again = false;
@@ -82,10 +103,11 @@ export function watchTurnRelay(pc: RTCPeerConnection, onChange: (via: boolean) =
     checking = true;
     try {
       const report = await pc.getStats();
-      const via = relayedViaTurn(report.values() as Iterable<StatRecord>);
-      if (!stopped && via !== current) {
+      const { via, provider } = relayRouteOf(report.values() as Iterable<StatRecord>);
+      if (!stopped && (via !== current || provider !== currentProvider)) {
         current = via;
-        onChange(via);
+        currentProvider = provider;
+        onChange(via, provider);
       }
     } catch {
       // A connection closing under us. Nothing to report.

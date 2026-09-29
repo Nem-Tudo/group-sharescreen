@@ -86,13 +86,15 @@ import {
 import {
   PeerQualityRegistry,
   contentHintForDegradation,
+  refreshRelayCaps,
   setRelayCapExempt,
   type DegradationMode,
 } from "./peerQualityController";
 import { qualityNegotiator, type QualityChannel } from "./qualityNegotiation";
 import { connectionRegistry } from "./connectionRegistry";
 import { connectionDiagLink } from "./connectionDiagLink";
-import { startConnectionTelemetry } from "./connectionTelemetry";
+import { setTelemetryShareSettings, startConnectionTelemetry } from "./connectionTelemetry";
+import { OWN_TURN_FEATURE, setOwnTurnVariant } from "./ownTurn";
 import { useMeshCapacity, useMeshTopology, type PeerCapacity } from "./useMeshTopology";
 import { RelayManager, RELAY_ENABLED, type RelayChild } from "./relayLink";
 import {
@@ -113,6 +115,8 @@ import { getDesktopBridge } from "./desktop";
 import { trackFeatureEvent, useFeature } from "./features";
 import { GPU_SURVEY_FEATURE, noteGpuShareStarted } from "./gpuShareSurvey";
 import { setStreamPerfEnabled, STREAM_PERF_EVENTS, STREAM_PERF_FEATURE } from "./streamPerf";
+import { SCREEN_CODEC_EVENTS, SCREEN_CODEC_FEATURE, setScreenCodecVariant } from "./screenCodec";
+import { isHardwareImplementation } from "./connectionDiagnostics";
 import {
   HIDDEN_WINDOWS_EVENTS,
   HIDDEN_WINDOWS_FEATURE,
@@ -188,6 +192,9 @@ type SignalData = {
   // Present only on "route".
   // Named for when only Cloudflare's relay was capped; now means any TURN relay.
   cloudflare?: boolean;
+  // Present only on "route": whose TURN server that relay is, where known —
+  // experiment "own-turn" caps the VPS alone (see lib/ownTurn).
+  turnProvider?: "cloudflare" | "own" | null;
   sdp?: RTCSessionDescriptionInit;
   // Set on an offer that renegotiates an *existing* connection with fresh ICE
   // credentials rather than opening a new session (see openSendPC's
@@ -677,6 +684,11 @@ function contentHintFor(
 //   screen_share_low_fps         on stop, below 60% of the frame rate asked for
 //   screen_share_cpu_limited     on stop, when the encoder spent over a fifth
 //                                of the share limited by the CPU
+//   screen_share_bw_limited      ...the same, limited by "bandwidth" — which on
+//                                a software H264 is mostly its own quality
+//                                scaler cutting frames, not the link
+//   screen_codec_*               on stop, the codec it ran on and whether the
+//                                encoder was hardware (see lib/screenCodec)
 //   screen_share_peer_failures   on stop; value = viewer connections that failed
 //   screen_share_quality_change  on stop; value = dials moved mid-share
 //   native_video_start           the helper took over
@@ -697,6 +709,7 @@ export const SCREEN_SHARE_STATS = {
   fps: "screen_share_fps",
   lowFps: "screen_share_low_fps",
   cpuLimited: "screen_share_cpu_limited",
+  bandwidthLimited: "screen_share_bw_limited",
   peerFailures: "screen_share_peer_failures",
   qualityChange: "screen_share_quality_change",
   nativeStart: "native_video_start",
@@ -734,6 +747,10 @@ interface ShareStats {
   seconds: number;
   samples: number;
   cpuSamples: number;
+  bandwidthSamples: number;
+  /** The codec and encoder of the last sample, for the end-of-share events. */
+  codec: string | null;
+  hardware: boolean | null;
   sampling: boolean;
   timer: ReturnType<typeof setInterval>;
   last: { framesSent: number; at: number } | null;
@@ -756,6 +773,9 @@ function startShareStats(quality: QualityPreset | null): ShareStats {
     seconds: 0,
     samples: 0,
     cpuSamples: 0,
+    bandwidthSamples: 0,
+    codec: null,
+    hardware: null,
     last: null,
     sampling: false,
     timer: setInterval(() => {
@@ -787,13 +807,26 @@ async function sampleShare(stats: ShareStats) {
     const report = await video.pc.getStats();
     let framesSent: number | null = null;
     let limitation: string | null = null;
+    let codecId: string | null = null;
+    let encoder: string | null = null;
+    let powerEfficient: boolean | null = null;
     report.forEach((entry) => {
       if (entry.type !== "outbound-rtp" || (entry as RTCOutboundRtpStreamStats).kind !== "video") return;
-      const outbound = entry as RTCOutboundRtpStreamStats & { qualityLimitationReason?: string };
+      const outbound = entry as RTCOutboundRtpStreamStats & {
+        qualityLimitationReason?: string;
+        encoderImplementation?: string;
+        powerEfficientEncoder?: boolean;
+      };
       framesSent = outbound.framesSent ?? null;
       limitation = outbound.qualityLimitationReason ?? null;
+      codecId = outbound.codecId ?? null;
+      encoder = outbound.encoderImplementation ?? null;
+      powerEfficient = typeof outbound.powerEfficientEncoder === "boolean" ? outbound.powerEfficientEncoder : null;
     });
     if (framesSent === null) return;
+    const mime = codecId ? (report.get(codecId) as { mimeType?: string } | undefined)?.mimeType : undefined;
+    if (mime) stats.codec = mime.replace(/^video\//i, "");
+    if (encoder || powerEfficient !== null) stats.hardware = isHardwareImplementation(encoder, powerEfficient);
     const at = performance.now();
     const previous = stats.last;
     stats.last = { framesSent, at };
@@ -804,6 +837,7 @@ async function sampleShare(stats: ShareStats) {
     stats.seconds += (at - previous.at) / 1000;
     stats.samples += 1;
     if (limitation === "cpu") stats.cpuSamples += 1;
+    if (limitation === "bandwidth") stats.bandwidthSamples += 1;
   } catch {
     stats.last = null;
   }
@@ -825,6 +859,12 @@ function reportShareEnd(stats: ShareStats) {
     trackFeatureEvent(SCREEN_SHARE_STATS.fps, { value: Math.round(fps) });
     if (fps < stats.targetFps * 0.6) trackFeatureEvent(SCREEN_SHARE_STATS.lowFps, { value: Math.round(fps) });
     if (stats.cpuSamples / stats.samples > 0.2) trackFeatureEvent(SCREEN_SHARE_STATS.cpuLimited);
+    if (stats.bandwidthSamples / stats.samples > 0.2) trackFeatureEvent(SCREEN_SHARE_STATS.bandwidthLimited);
+    const codec = stats.codec?.toUpperCase();
+    trackFeatureEvent(
+      codec === "VP9" ? SCREEN_CODEC_EVENTS.vp9 : codec === "H264" ? SCREEN_CODEC_EVENTS.h264 : SCREEN_CODEC_EVENTS.other
+    );
+    if (stats.hardware) trackFeatureEvent(SCREEN_CODEC_EVENTS.hardware);
   }
 }
 
@@ -1565,6 +1605,11 @@ function useBroadcastChannel(
       // never makes connectionState reach "failed" at all, so nothing else
       // would ever retry it) and after an ICE restart, which can equally well
       // go nowhere and must not be waited on forever.
+      //
+      // Whether an ICE restart is in flight on this pc: from the moment its
+      // offer is on its way until the link is back or this timeout gives up on
+      // it. See recover() for why that window has to be known.
+      let restartPending = false;
       const armConnectTimeout = (ms: number) => {
         const previous = connectTimeouts.current.get(peerId);
         if (previous) clearTimeout(previous);
@@ -1572,6 +1617,10 @@ function useBroadcastChannel(
           peerId,
           setTimeout(() => {
             connectTimeouts.current.delete(peerId);
+            // Given up on, whatever the outcome below. Left set, a restart
+            // that never took on a pc our side still calls "connected" (the
+            // asymmetric failure) would swallow every later request forever.
+            restartPending = false;
             if (sendPCs.current.get(peerId) === pc && pc.connectionState !== "connected") {
               closeSendPC(peerId);
               scheduleSendRetry(peerId);
@@ -1607,6 +1656,7 @@ function useBroadcastChannel(
         } catch {
           return false;
         }
+        restartPending = true;
         pc.createOffer({ iceRestart: true })
           .then(async (offer) => {
             if (sendPCs.current.get(peerId) !== pc) return;
@@ -1641,12 +1691,23 @@ function useBroadcastChannel(
       // falls through to a rebuild instead of restarting in a loop.
       let iceRestartTried = false;
       sendIceRestarters.current.set(peerId, () => {
+        // Already restarting: that is the repair being asked for. Answering
+        // false here meant a rebuild, which tore down the restart mid-flight.
+        if (restartPending) return true;
         if (iceRestartTried) return false;
         iceRestartTried = true;
         return restartSendIce();
       });
       const recover = () => {
         if (sendPCs.current.get(peerId) !== pc) return;
+        // Both ends notice a dead link at about the same moment — our own
+        // "disconnected" timer here, their "reconnect-request" through the
+        // restarter above — and whichever came second used to find the
+        // restart already spent and rebuild the connection, throwing away the
+        // restart the first one had just started. So a drop of more than a few
+        // seconds almost never got the cheap repair. A restart in flight has
+        // its own timeout (armConnectTimeout), which rebuilds if it fails.
+        if (restartPending) return;
         if (shareStatsRef.current) shareStatsRef.current.peerFailures += 1;
         if (!iceRestartTried) {
           iceRestartTried = true;
@@ -1684,6 +1745,7 @@ function useBroadcastChannel(
           // fresh blip and deserves the fast first retry again.
           sendRetryAttempts.current.delete(peerId);
           iceRestartTried = false;
+          restartPending = false;
         }
       };
       armConnectTimeout(CONNECT_TIMEOUT_MS);
@@ -1974,8 +2036,8 @@ function useBroadcastChannel(
     // switching appeared to do nothing until the whole share was stopped and
     // started again.
     //
-    // So renegotiate — but only when the switch actually crossed between the
-    // two orderings (text ↔ everything else, see videoCodecOrder), so that
+    // So renegotiate — but only when the switch actually changed which codec
+    // goes first (see videoCodecOrder), so that
     // moving a dial the codec does not care about, or going balanced →
     // motion, costs nothing. Closing and reopening is a path this hook
     // already runs on every relay handover, and the viewer side handles the
@@ -1988,7 +2050,7 @@ function useBroadcastChannel(
     // caveat applies to them, spelled out on RelayLink.setChildren, and
     // tearing down a whole subtree from here would cost far more than it
     // buys.
-    const codecOrder = videoCodecOrder(videoQuality.degradation);
+    const codecOrder = videoCodecOrder(videoQuality.degradation, true);
     if (codecOrderRef.current !== null && codecOrderRef.current !== codecOrder) {
       const peerIds = [...sendPCs.current.keys()];
       for (const peerId of peerIds) closeSendPC(peerId);
@@ -2116,7 +2178,7 @@ function useBroadcastChannel(
       appliedConstraints.current = preset
         ? { width: preset.width, height: preset.height, frameRate: preset.frameRate }
         : null;
-      codecOrderRef.current = videoCodecOrder(degradationModeRef.current);
+      codecOrderRef.current = videoCodecOrder(degradationModeRef.current, true);
       lastDegradationRef.current = degradationModeRef.current;
       sourceRef.current = requestedSource;
       setLocalStream(stream);
@@ -2343,8 +2405,14 @@ function useBroadcastChannel(
         // us, and they are the one who decides what is encoded — so say so.
         // To the peer sending (a relay, for relayed traffic), not the origin.
         // No cleanup needed: see watchTurnRelay.
-        watchTurnRelay(pc, (via) => {
-          signalingClient.sendSignal(peerId, { channel, role: "viewer", kind: "route", cloudflare: via });
+        watchTurnRelay(pc, (via, provider) => {
+          signalingClient.sendSignal(peerId, {
+            channel,
+            role: "viewer",
+            kind: "route",
+            cloudflare: via,
+            turnProvider: provider,
+          });
         });
       }
       setRecvConnectionStates((prev) => ({ ...prev, [originId]: pc.connectionState }));
@@ -2729,8 +2797,10 @@ function useBroadcastChannel(
           // for them — see lib/turnRoute.ts. Either registry: they are our
           // own viewer, or a child of a relay we are running.
           const via = data.cloudflare === true;
-          qualityRegistry.current.setRemoteRelayRoute(from, via);
-          relays.current.findByChild(from)?.setRemoteRelayRoute(from, via);
+          const provider =
+            data.turnProvider === "cloudflare" || data.turnProvider === "own" ? data.turnProvider : null;
+          qualityRegistry.current.setRemoteRelayRoute(from, via, provider);
+          relays.current.findByChild(from)?.setRemoteRelayRoute(from, via, provider);
         } else if (data.kind === "stop") {
           // This peer (as a viewer of OUR stream) asked us to stop sending —
           // free the upload-side connection and remember not to reopen it on
@@ -3290,9 +3360,32 @@ export function useRoomMedia(room: string) {
   // continuously instead of pinning one axis, and it's not clamped to 30fps
   // the way "text" is. Anyone who actually wants sharp, static text still has
   // "Texto/código" one click away in the same picker.
-  const [shareProfile, setShareProfileState] = useState<DegradationMode>(() =>
-    restoredSetting(getStoredShareProfile(), SHARE_PROFILE_OPTIONS, "balanced")
-  );
+  //
+  // Only the default: experiment "screen-codec" (see lib/screenCodec) tries
+  // "text" as the default again, because the reports since this became
+  // "balanced" say the H264 it brings is a software encode on most machines,
+  // and a worse one for screen content than the VP9 it replaced. Held apart
+  // from the person's own pick so that the experiment can move the default
+  // after the page has rendered, while a pick always wins.
+  const [pickedShareProfile, setPickedShareProfile] = useState<DegradationMode | null>(() => {
+    const stored = getStoredShareProfile();
+    return SHARE_PROFILE_OPTIONS.find((opt) => opt.value === stored)?.value ?? null;
+  });
+  const screenCodecFeature = useFeature(SCREEN_CODEC_FEATURE, { track: false });
+  useEffect(() => {
+    setScreenCodecVariant(screenCodecFeature.variant);
+  }, [screenCodecFeature.variant]);
+  const shareProfile: DegradationMode =
+    pickedShareProfile ?? (screenCodecFeature.variant === "text" ? "text" : "balanced");
+
+  // Experiment "own-turn" (see lib/ownTurn): shapes connections as they open
+  // (iceConfigFor) and the relay caps already applied, so decided here; the
+  // exposure is counted further down, next to screen-codec's.
+  const ownTurnFeature = useFeature(OWN_TURN_FEATURE, { track: false });
+  useEffect(() => {
+    setOwnTurnVariant(ownTurnFeature.variant);
+    refreshRelayCaps();
+  }, [ownTurnFeature.variant]);
   const shareResolutionRef = useRef(shareResolution);
   const shareFpsRef = useRef(shareFps);
   // Whether the *next* share should carry system audio. A ref and not state,
@@ -3314,7 +3407,6 @@ export function useRoomMedia(room: string) {
   const [systemAudioUnavailable, setSystemAudioUnavailable] = useState<SystemAudioUnavailableReason | null>(null);
   const shareBitrateRef = useRef(shareBitrate);
   const smartQualityEnabledRef = useRef(smartQualityEnabled);
-  const shareProfileRef = useRef(shareProfile);
 
   const setShareResolution = useCallback((value: ShareResolution) => {
     shareResolutionRef.current = value;
@@ -3345,8 +3437,7 @@ export function useRoomMedia(room: string) {
     trackEvent(value ? "smart_quality_on" : "smart_quality_off");
   }, []);
   const setShareProfile = useCallback((value: DegradationMode) => {
-    shareProfileRef.current = value;
-    setShareProfileState(value);
+    setPickedShareProfile(value);
     setStoredShareProfile(value);
     // Above 30fps only makes sense once the encoder is allowed to give frame
     // rate some weight, which "text" alone does not — picking it while asking
@@ -3381,6 +3472,17 @@ export function useRoomMedia(room: string) {
   // means a person joining or leaving no longer perturbs anyone's quality at
   // all — the per-viewer requests handle that, and they only move the one
   // viewer whose tile actually changed.
+  // What the telemetry reports as this share's dials — see
+  // setTelemetryShareSettings for why not the stored values.
+  useEffect(() => {
+    setTelemetryShareSettings({
+      resolution: shareResolution,
+      fps: shareFps,
+      bitrate: shareBitrate,
+      profile: shareProfile,
+    });
+  }, [shareResolution, shareFps, shareBitrate, shareProfile]);
+
   const screenQualityPreset = useMemo<QualityPreset>(() => {
     const dims = RESOLUTION_DIMENSIONS[shareResolution];
     return {
@@ -4313,6 +4415,16 @@ export function useRoomMedia(room: string) {
     cameraActive,
     fileActive,
   ]);
+
+  // Experiment "screen-codec" (see lib/screenCodec). Decided further up, where
+  // the default profile needs it; this second read only counts the exposure,
+  // once a screen share is running.
+  useFeature(SCREEN_CODEC_FEATURE, { track: screen.active });
+  // Likewise "own-turn": exposed once there is screen video going either way,
+  // the only time its relay transport and cap can matter.
+  useFeature(OWN_TURN_FEATURE, {
+    track: screen.active || Object.keys(screen.remoteStreams).length > 0,
+  });
 
   // Experiment "stream-perf" (see lib/streamPerf). An exposure only once a
   // screen share is running, which is the only time it changes anything.

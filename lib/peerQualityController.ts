@@ -40,6 +40,8 @@ import {
   type QualityTier,
 } from "./videoQuality";
 import { RELAY_ROUTE_CAP, RELAY_ROUTE_MAX_KBPS, watchTurnRelay } from "./turnRoute";
+import type { TurnProvider } from "./iceConfig";
+import { OWN_TURN_LEAN_KBPS, OWN_TURN_LEAN_TIER, ownTurnLeanCap } from "./ownTurn";
 
 // What the broadcaster says they are sharing, which decides how the encoder
 // spends a shortage — of bits, of CPU, or both.
@@ -129,6 +131,11 @@ export function setRelayCapExempt(exempt: boolean) {
   for (const c of liveControllers) c.refreshRouteCap();
 }
 
+/** Re-applies every live relay cap — experiment "own-turn" changed (see lib/ownTurn). */
+export function refreshRelayCaps() {
+  for (const c of liveControllers) c.refreshRouteCap();
+}
+
 export class PeerQualityController {
   private congestion = initialCongestionState();
   private appliedKbps = 0;
@@ -155,6 +162,10 @@ export class PeerQualityController {
   // lib/turnRoute.ts.
   private relayLocal = false;
   private relayRemote = false;
+  // Whose TURN server each end relays through, where known. Only matters to
+  // experiment "own-turn"'s lean cap, which is for the VPS alone.
+  private providerLocal: TurnProvider | null = null;
+  private providerRemote: TurnProvider | null = null;
 
   constructor(
     readonly peerId: string,
@@ -189,13 +200,16 @@ export class PeerQualityController {
    * Marks this connection as relayed, or no longer relayed, through
    * a TURN server on one side. See lib/turnRoute.ts.
    */
-  setRelayRoute(side: "local" | "remote", via: boolean) {
+  setRelayRoute(side: "local" | "remote", via: boolean, provider: TurnProvider | null = null) {
+    const known = via ? provider : null;
     if (side === "local") {
-      if (this.relayLocal === via) return;
+      if (this.relayLocal === via && this.providerLocal === known) return;
       this.relayLocal = via;
+      this.providerLocal = known;
     } else {
-      if (this.relayRemote === via) return;
+      if (this.relayRemote === via && this.providerRemote === known) return;
       this.relayRemote = via;
+      this.providerRemote = known;
     }
     mediaStats.setTier(this.statsKey, this.sentTier());
     this.apply();
@@ -213,11 +227,24 @@ export class PeerQualityController {
     return (this.relayLocal || this.relayRemote) && !relayCapExempt;
   }
 
+  // Experiment "own-turn"'s tighter cap: some end relays through our own VPS.
+  // An end that relays without naming its server (an older client, a browser
+  // that leaves the candidate's url out) counts as the VPS — it is the one
+  // every client has, and the one this protects.
+  private leanCapped(): boolean {
+    if (!this.routeCapped() || !ownTurnLeanCap()) return false;
+    return (
+      (this.relayLocal && this.providerLocal !== "cloudflare") ||
+      (this.relayRemote && this.providerRemote !== "cloudflare")
+    );
+  }
+
   // What is actually encoded: the assigned tier, capped while the connection
   // is relayed through TURN. Only this send path sees the cap — getTier
   // still answers the assigned tier, so the planner, the dials and everything
   // on screen carry on as if the connection were direct.
   private sentTier(): QualityTier {
+    if (this.leanCapped()) return capTier(this.tier, OWN_TURN_LEAN_TIER);
     return this.routeCapped()
       ? capTier(this.tier, RELAY_ROUTE_CAP)
       : this.tier;
@@ -275,7 +302,10 @@ export class PeerQualityController {
     const tier = this.sentTier();
     const tierKbps = tierSpec(tier).baseKbps;
     const ceilingKbps = this.routeCapped()
-      ? Math.min(encoderCeilingKbps(tier, this.bitrateCeilingKbps), RELAY_ROUTE_MAX_KBPS)
+      ? Math.min(
+          encoderCeilingKbps(tier, this.bitrateCeilingKbps),
+          this.leanCapped() ? OWN_TURN_LEAN_KBPS : RELAY_ROUTE_MAX_KBPS
+        )
       : encoderCeilingKbps(tier, this.bitrateCeilingKbps);
     const targetKbps = congestedBitrateKbps(ceilingKbps, this.congestion.ratio);
     const tierScale = scaleFactorFor(tier, this.captureHeight);
@@ -458,7 +488,7 @@ export class PeerQualityRegistry {
     // see — see setRemoteRelayRoute.
     this.routeWatches.set(
       peerId,
-      watchTurnRelay(pc, (via) => controller.setRelayRoute("local", via))
+      watchTurnRelay(pc, (via, provider) => controller.setRelayRoute("local", via, provider))
     );
     this.start();
     return controller;
@@ -474,8 +504,8 @@ export class PeerQualityRegistry {
    * there is no connection to them: the report is about one connection, and
    * a new one is checked and reported afresh.
    */
-  setRemoteRelayRoute(peerId: string, via: boolean) {
-    this.controllers.get(peerId)?.setRelayRoute("remote", via);
+  setRemoteRelayRoute(peerId: string, via: boolean, provider: TurnProvider | null = null) {
+    this.controllers.get(peerId)?.setRelayRoute("remote", via, provider);
   }
 
   remove(peerId: string) {

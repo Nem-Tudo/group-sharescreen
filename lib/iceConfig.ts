@@ -15,11 +15,24 @@ const TURN_URLS = parseTurnUrls(process.env.NEXT_PUBLIC_TURN_URLS || "");
 const TURN_USERNAME = process.env.NEXT_PUBLIC_TURN_USERNAME || "";
 const TURN_CREDENTIAL = process.env.NEXT_PUBLIC_TURN_CREDENTIAL || "";
 
+import { ownTurnTcpOnly } from "./ownTurn";
+
 const STUN_SERVER: RTCIceServer = { urls: "stun:stun.l.google.com:19302" };
 
-// Our own TURN server on the VPS, from the build's environment.
+// Our own TURN server on the VPS, from the build's environment. Only the
+// fallback: once the API hands out short-lived credentials for it (see
+// ownDynamicServers below), those are used instead.
 const STATIC_TURN_SERVERS: RTCIceServer[] =
   TURN_URLS.length > 0 ? [{ urls: TURN_URLS, username: TURN_USERNAME, credential: TURN_CREDENTIAL }] : [];
+
+// The VPS again, with credentials the API minted (coturn's "TURN REST API":
+// an HMAC of an expiry time, see the API's ownTurn.ts). Replaces the static
+// entry above when present, which is what makes it possible to retire the
+// password that sits in the public bundle — anyone who reads it can use the
+// VPS as a free relay, and every byte they push is bandwidth our own
+// relayed calls then do not get. Empty until the API answers, and for good
+// on a deployment that has not configured it.
+let ownDynamicServers: RTCIceServer[] = [];
 
 // Whether the build itself carries a TURN server. See isTurnConfigured for the
 // question the UI actually needs answered, which also counts Cloudflare's.
@@ -40,6 +53,33 @@ const listeners = new Set<() => void>();
 export function setDynamicIceServers(servers: RTCIceServer[]) {
   dynamicServers = servers;
   listeners.forEach((listener) => listener());
+}
+
+/** Replaces the VPS entry with API-minted credentials. See lib/iceServers.ts. */
+export function setOwnIceServers(servers: RTCIceServer[]) {
+  ownDynamicServers = servers;
+  listeners.forEach((listener) => listener());
+}
+
+function urlsOf(server: RTCIceServer): string[] {
+  return Array.isArray(server.urls) ? server.urls : [server.urls];
+}
+
+/** The VPS entries in use: the API's when it has sent any, the build's otherwise. */
+function ownServers(): RTCIceServer[] {
+  return ownDynamicServers.length > 0 ? ownDynamicServers : STATIC_TURN_SERVERS;
+}
+
+/**
+ * The VPS entries restricted to TCP (experiment "own-turn", see lib/ownTurn):
+ * `?transport=tcp` and `turns:` URLs only. An entry left with nothing is left
+ * as it was — a relay over UDP beats no relay at all.
+ */
+export function tcpOnlyServers(servers: RTCIceServer[]): RTCIceServer[] {
+  return servers.map((server) => {
+    const tcp = urlsOf(server).filter((url) => /^turns:/i.test(url) || /[?&]transport=tcp(?:&|$)/i.test(url));
+    return tcp.length > 0 ? { ...server, urls: tcp } : server;
+  });
 }
 
 /** For useSyncExternalStore: told whenever isTurnConfigured may have changed. */
@@ -91,6 +131,7 @@ export function turnProvider(url: string | null | undefined): TurnProvider | nul
   if (!host) return null;
   if (isCloudflareTurnUrl(url) || /(^|\.)cloudflare\.com$/.test(host)) return "cloudflare";
   if (TURN_URLS.some((own) => turnHost(own) === host)) return "own";
+  if (ownDynamicServers.some((server) => urlsOf(server).some((u) => turnHost(u) === host))) return "own";
   return null;
 }
 
@@ -103,7 +144,7 @@ export function turnProvider(url: string | null | undefined): TurnProvider | nul
  * establish at all, so the UI must disable that toggle when this is false.
  */
 export function isTurnConfigured(): boolean {
-  return TURN_CONFIGURED || dynamicServers.length > 0;
+  return TURN_CONFIGURED || dynamicServers.length > 0 || ownDynamicServers.length > 0;
 }
 
 /**
@@ -124,8 +165,9 @@ export function isTurnConfigured(): boolean {
  * exactly what "hide my IP from other participants" needs.
  */
 export function iceConfigFor(forceRelay: boolean): RTCConfiguration {
+  const own = ownTurnTcpOnly() ? tcpOnlyServers(ownServers()) : ownServers();
   const config: RTCConfiguration = {
-    iceServers: [STUN_SERVER, ...dynamicServers, ...STATIC_TURN_SERVERS],
+    iceServers: [STUN_SERVER, ...dynamicServers, ...own],
   };
   if (forceRelay && isTurnConfigured()) config.iceTransportPolicy = "relay";
   return config;

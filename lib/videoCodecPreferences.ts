@@ -5,6 +5,7 @@
 // made the relay's import of it circular.
 import type { DegradationMode } from "./peerQualityController";
 import { shouldAvoidSoftwareVp9, STREAM_PERF_EVENTS } from "./streamPerf";
+import { plannedFirstCodec } from "./screenCodec";
 import { trackFeatureEvent } from "./features";
 
 // Codec preference. VP9 first for text-heavy screen content (its screen
@@ -25,47 +26,53 @@ import { trackFeatureEvent } from "./features";
 // broadcaster encoding several streams at once lives or dies on whether the
 // GPU can take that work off the main thread.
 
-// Which of the two orderings a profile takes. Only "text" gets the VP9-first
-// branch; "balanced" deliberately shares the motion ordering, since it is
-// asking to hold quality *and* frame rate and a software VP9 encode is
-// precisely what makes holding both impossible on ordinary hardware.
+// Which codec goes first. By profile, "text" gets VP9 and everything else
+// H264 — "balanced" shares the motion ordering since it asks to hold quality
+// *and* frame rate. For our own share two experiments can overrule that on
+// what the machine's encoders actually are: "screen-codec" (see
+// lib/screenCodec) and "stream-perf" (see lib/streamPerf). A relay's
+// re-encodes keep the profile's ordering.
 //
 // Exported because a codec preference is the one part of a profile that
 // cannot be changed on a connection that is already negotiated, so a
-// mid-share profile switch has to know whether the switch actually crossed
-// between the two orderings before it decides to renegotiate anything (see
+// mid-share profile switch has to know whether the switch actually changed
+// which codec goes first before it decides to renegotiate anything (see
 // useRoomMedia). Asking this module rather than re-deriving the split is what
 // keeps the two from drifting apart.
-export type VideoCodecOrder = "text" | "motion";
+export type VideoCodecOrder = "vp9" | "h264";
 
-export function videoCodecOrder(mode: DegradationMode): VideoCodecOrder {
-  return mode === "text" ? "text" : "motion";
+export function videoCodecOrder(mode: DegradationMode, ownShare = false): VideoCodecOrder {
+  if (ownShare) {
+    const planned = plannedFirstCodec(mode);
+    if (planned) return planned;
+    if (mode === "text" && shouldAvoidSoftwareVp9()) return "h264";
+  }
+  return mode === "text" ? "vp9" : "h264";
 }
 
 // Counted once per page: the event says "this broadcaster's text profile ran
 // on H264 because VP9 was software", not how many connections that took.
 let codecFallbackCounted = false;
 
-// `ownShare`: a broadcaster's own connections, where experiment
-// "stream-perf" may move a software VP9 out of first place (see
-// lib/streamPerf). A relay's re-encodes keep the plain ordering.
+// `ownShare`: a broadcaster's own connections — see videoCodecOrder.
 export function applyVideoCodecPreferences(transceiver: RTCRtpTransceiver, mode: DegradationMode, ownShare = false) {
   if (typeof RTCRtpSender.getCapabilities !== "function") return;
   const capabilities = RTCRtpSender.getCapabilities("video");
   if (!capabilities?.codecs) return;
-  const textOrder = videoCodecOrder(mode) === "text";
-  // VP9 still second, ahead of AV1: its screen-content mode is the reason the
-  // text profile wanted it, and it stays the fallback for a peer without H264.
-  const avoidVp9 = textOrder && ownShare && shouldAvoidSoftwareVp9();
-  if (avoidVp9 && !codecFallbackCounted) {
+  const first = videoCodecOrder(mode, ownShare);
+  if (ownShare && mode === "text" && first === "h264" && shouldAvoidSoftwareVp9() && !codecFallbackCounted) {
     codecFallbackCounted = true;
     trackFeatureEvent(STREAM_PERF_EVENTS.codecFallback);
   }
-  const order = avoidVp9
-    ? ["video/H264", "video/VP9", "video/AV1", "video/VP8"]
-    : textOrder
+  // Moved off VP9 by an experiment, VP9 stays second, ahead of AV1: its
+  // screen-content mode is the reason "text" wanted it, and it is the
+  // fallback for a peer without H264.
+  const order =
+    first === "vp9"
       ? ["video/VP9", "video/AV1", "video/H264", "video/VP8"]
-      : ["video/H264", "video/AV1", "video/VP9", "video/VP8"];
+      : mode === "text"
+        ? ["video/H264", "video/VP9", "video/AV1", "video/VP8"]
+        : ["video/H264", "video/AV1", "video/VP9", "video/VP8"];
   const sorted = [...capabilities.codecs].sort((a, b) => {
     const ia = order.indexOf(a.mimeType);
     const ib = order.indexOf(b.mimeType);

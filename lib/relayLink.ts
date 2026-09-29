@@ -21,7 +21,7 @@
 // capped at 3. It is not the normal shape of a room and must never become it.
 
 import { signalingClient } from "./signalingClient";
-import { iceConfigFor } from "./iceConfig";
+import { iceConfigFor, type TurnProvider } from "./iceConfig";
 import {
   PeerQualityRegistry,
   contentHintForDegradation,
@@ -195,6 +195,8 @@ export class RelayLink {
 
     // See CHILD_CONNECT_TIMEOUT_MS. Called after this.children.set below, so
     // there is always an entry to hang the timer on.
+    // Whether a restart is in flight — see restartIce.
+    let restartPending = false;
     const armConnectTimeout = (ms: number) => {
       const entry = this.children.get(peerId);
       if (!entry || entry.pc !== pc) return;
@@ -203,6 +205,7 @@ export class RelayLink {
         const current = this.children.get(peerId);
         if (!current || current.pc !== pc) return;
         current.connectTimer = null;
+        restartPending = false;
         if (pc.connectionState === "connected") return;
         // Hand them back rather than retrying here. We have already spent this
         // handover's budget and evidently cannot reach them; the root can, and
@@ -217,8 +220,13 @@ export class RelayLink {
     // plus a fresh re-encode out of a machine that is already spending itself
     // on everyone else's behalf, and this connection's quality controller has
     // learned their link the same way the root's has.
+    //
+    // True while one is already in flight, as the root's does: our own
+    // "failed" and the child's "reconnect-request" arrive for the same drop,
+    // and the second one finding the restart spent used to rebuild over it.
     let iceRestartTried = false;
     const restartIce = () => {
+      if (restartPending) return true;
       if (iceRestartTried) return false;
       if (pc.connectionState === "closed" || pc.signalingState !== "stable") return false;
       iceRestartTried = true;
@@ -227,6 +235,7 @@ export class RelayLink {
       } catch {
         return false;
       }
+      restartPending = true;
       pc.createOffer({ iceRestart: true })
         .then(async (offer) => {
           if (this.children.get(peerId)?.pc !== pc) return;
@@ -320,6 +329,7 @@ export class RelayLink {
         this.closeChild(peerId);
       } else if (pc.connectionState === "connected") {
         iceRestartTried = false;
+        restartPending = false;
         const entry = this.children.get(peerId);
         if (entry?.connectTimer) {
           clearTimeout(entry.connectTimer);
@@ -495,8 +505,8 @@ export class RelayLink {
   }
 
   /** The child's end of our connection to them is relayed through TURN — see lib/turnRoute.ts. */
-  setRemoteRelayRoute(peerId: string, via: boolean) {
-    this.quality.setRemoteRelayRoute(peerId, via);
+  setRemoteRelayRoute(peerId: string, via: boolean, provider: TurnProvider | null = null) {
+    this.quality.setRemoteRelayRoute(peerId, via, provider);
   }
 
   // Watches the *incoming* stream. A relay whose own source died is worse

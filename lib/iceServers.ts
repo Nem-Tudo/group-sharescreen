@@ -1,4 +1,4 @@
-import { setDynamicIceServers } from "./iceConfig";
+import { setDynamicIceServers, setOwnIceServers } from "./iceConfig";
 import { getSignalingHttpBase } from "./roomsApi";
 
 // Fetches Cloudflare's TURN servers from the API (see the API's
@@ -23,6 +23,8 @@ const REQUEST_TIMEOUT_MS = 8_000;
 
 let started = false;
 let timer: ReturnType<typeof setTimeout> | null = null;
+// When the VPS credentials (see readOwn) need asking for again, or null.
+let ownRefreshAt: number | null = null;
 
 function isUsableServer(value: unknown): value is RTCIceServer {
   if (!value || typeof value !== "object") return false;
@@ -37,7 +39,23 @@ function isUsableServer(value: unknown): value is RTCIceServer {
 
 function schedule(ms: number) {
   if (timer) clearTimeout(timer);
-  timer = setTimeout(() => void load(), Math.max(60_000, ms));
+  // Whichever of the two sets runs out first decides.
+  const wait = ownRefreshAt !== null ? Math.min(ms, ownRefreshAt - Date.now()) : ms;
+  timer = setTimeout(() => void load(), Math.max(60_000, wait));
+}
+
+// The VPS with short-lived credentials (see the API's ownTurn.ts), sent
+// alongside Cloudflare's whatever the Cloudflare switch says. An answer
+// without it leaves whatever this page has — the build's own entry until the
+// first one arrives — exactly as it is.
+function readOwn(value: unknown) {
+  if (!value || typeof value !== "object") return;
+  const own = value as { iceServers?: unknown; expiresAt?: unknown };
+  const servers = Array.isArray(own.iceServers) ? own.iceServers.filter(isUsableServer) : [];
+  const expiresAt = typeof own.expiresAt === "number" ? own.expiresAt : null;
+  if (servers.length === 0 || expiresAt === null || expiresAt <= Date.now()) return;
+  setOwnIceServers(servers);
+  ownRefreshAt = expiresAt - API_MIN_REMAINING_MS + REFRESH_SLACK_MS;
 }
 
 async function load() {
@@ -50,7 +68,13 @@ async function load() {
       signal: controller.signal,
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const body = (await res.json()) as { iceServers?: unknown; expiresAt?: unknown; disabled?: unknown };
+    const body = (await res.json()) as {
+      iceServers?: unknown;
+      expiresAt?: unknown;
+      disabled?: unknown;
+      own?: unknown;
+    };
+    readOwn(body.own);
     // The admin switched Cloudflare's TURN off. Unlike every other empty
     // answer, this one means "stop using what you have" — see the API's GET
     // /ice-servers. Connections opened from here on go without it.

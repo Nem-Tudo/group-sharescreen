@@ -81,4 +81,32 @@ assert.equal(cfOnly.turnProvider("turn:turn.cloudflare.com:443?transport=tcp"), 
 const nothingLoaded = await loadModule(undefined, "nothing");
 assert.equal(nothingLoaded.turnProvider("turn:turn.cloudflare.com:3478"), "cloudflare");
 
+// The VPS with API-minted credentials (see iceServers.ts) replaces the
+// build's own entry, and is still recognised as ours.
+const withOwn = await loadModule("turn:vps.example.com:3478", "own");
+const minted = {
+  urls: ["turn:vps.example.com:3478?transport=udp", "turn:vps.example.com:3478?transport=tcp"],
+  username: "1790600400:golive",
+  credential: "x",
+};
+withOwn.setOwnIceServers([minted]);
+assert.deepEqual(withOwn.iceConfigFor(false).iceServers.slice(1), [minted]);
+assert.equal(withOwn.turnProvider("turn:vps.example.com:3478?transport=tcp"), "own");
+
+// Experiment "own-turn"'s TCP variants keep only TCP/TLS URLs of the VPS, and
+// leave an entry that has none as it was rather than dropping the relay.
+assert.deepEqual(withOwn.tcpOnlyServers([minted])[0].urls, ["turn:vps.example.com:3478?transport=tcp"]);
+assert.deepEqual(
+  withOwn.tcpOnlyServers([{ urls: ["turn:a:3478?transport=udp", "turns:a:443?transport=tcp"] }])[0].urls,
+  ["turns:a:443?transport=tcp"]
+);
+assert.deepEqual(withOwn.tcpOnlyServers([{ urls: "turn:a:3478" }])[0].urls, "turn:a:3478");
+const { setOwnTurnVariant } = await import("./ownTurn.ts");
+setOwnTurnVariant("tcp");
+assert.deepEqual(allUrls(withOwn.iceConfigFor(false)), [
+  "stun:stun.l.google.com:19302",
+  "turn:vps.example.com:3478?transport=tcp",
+]);
+setOwnTurnVariant(null);
+
 console.log("iceConfig: ok");
