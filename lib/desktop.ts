@@ -221,6 +221,18 @@ export interface DesktopBridge {
   onPushToTalk?(callback: (held: boolean) => void): () => void;
 
   /**
+   * Keeping the window out of screenshots and screen recorders, for protected
+   * rooms and view-once files — see lib/captureProtection.ts, the only thing
+   * that should touch this. "full" on Windows; "partial" on macOS, where
+   * ScreenCaptureKit no longer honours it. Absent on Linux, on the Android
+   * shell and on a desktop shell older than the feature.
+   */
+  captureProtection?: {
+    level: "full" | "partial";
+    set(on: boolean): Promise<boolean>;
+  };
+
+  /**
    * System audio capture with GoLive's own output excluded — the thing that
    * stops a screen share from carrying the room's voices back to the room.
    * See lib/desktopSystemAudio.ts, which is the only thing that should touch

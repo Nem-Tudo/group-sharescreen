@@ -1605,6 +1605,7 @@ export function ChatPanel({
             <AttachMenu
               onImages={(files) => void attachFiles(files)}
               onFiles={attachAnything}
+              onViewOnce={(files) => void uploads.add(files, { viewOnce: true })}
               onOpen={() => void uploads.refreshLimit()}
               limitMb={uploads.limit?.maxMb}
               disabled={!canAttach}

@@ -740,7 +740,7 @@ export type SignalingState = {
   //   "generic" — everything else (a code-less private handle, a rate limit,
   //               or an unrecognised reason from a newer/older server):
   //               retry, home and support, but no misleading rename box.
-  joinErrorKind: "name" | "full" | "banned" | "captcha" | "device-limit" | "obs-unauthorized" | "streamer-mode-disabled" | "rate-limited" | "generic" | null;
+  joinErrorKind: "name" | "full" | "banned" | "captcha" | "device-limit" | "obs-unauthorized" | "streamer-mode-disabled" | "rate-limited" | "app-only" | "generic" | null;
   // There used to be a `captchaChallenge` pair here, driving a modal this
   // client opened when the server said the invisible check had refused the
   // join but a challenge was available. Turnstile owns that step now: it
@@ -764,6 +764,10 @@ export type SignalingState = {
   // (see the server's join gate). Public, unlike roomBans — a room being full
   // is not a secret, and it is what lets the UI say so.
   roomMemberLimit: number | null;
+  // A protected room: desktop app only, kept out of screenshots and
+  // recorders there (see lib/captureProtection.ts and the server's
+  // "room-capture-protection").
+  roomCaptureProtected: boolean;
   // Who a manager turned the mic off for (see the server's "room-silence"),
   // by stable user id. Public, like a muted mic: everybody's client shows it
   // in red and stops playing them, and ours keeps our mic off while we're in it.
@@ -955,6 +959,7 @@ const initialState: SignalingState = {
   roomAdmins: [],
   roomBans: [],
   roomMemberLimit: null,
+  roomCaptureProtected: false,
   roomSilenced: [],
   roomRemoval: null,
   roomPermissions: { ...DEFAULT_ROOM_PERMISSIONS },
@@ -1768,7 +1773,13 @@ class SignalingClient {
                       ? "streamer-mode-disabled"
                       : reason === "rate-limited"
                         ? "rate-limited"
-                        : "generic";
+                        : reason === "app-only"
+                          ? "app-only"
+                          : "generic";
+        // A protected room refuses on the way in, and also throws out whoever
+        // is already inside from somewhere it can't protect the moment it is
+        // switched on — in which case this arrives while we are in the room.
+        if (kind === "app-only") this.setState({ room: null, peers: [] });
         this.setState({
           joinError: (msg.message as string) ?? translate("signalingClient.couldNotJoinThisRoom"),
           joinErrorKind: kind,
@@ -1807,6 +1818,7 @@ class SignalingClient {
           roomOwnerId: typeof msg.ownerId === "string" ? msg.ownerId : null,
           roomAdmins: parseRoomAdmins(msg.admins),
           roomMemberLimit: typeof msg.memberLimit === "number" ? msg.memberLimit : null,
+          roomCaptureProtected: msg.captureProtected === true,
           roomSilenced: parseRoomSilenced(msg.silenced),
           // A fresh join is a fresh answer to "was I thrown out", and the
           // answer is no — we are in.
@@ -2047,6 +2059,7 @@ class SignalingClient {
           roomOwnerId: typeof msg.ownerId === "string" ? msg.ownerId : this.state.roomOwnerId,
           roomAdmins: parseRoomAdmins(msg.admins),
           roomMemberLimit: typeof msg.memberLimit === "number" ? msg.memberLimit : null,
+          roomCaptureProtected: msg.captureProtected === true,
           roomSilenced: parseRoomSilenced(msg.silenced),
           roomPermissions: parseRoomPermissions(msg.permissions),
           roomLocation: parseRoomLocation(msg.location),
@@ -3323,6 +3336,7 @@ class SignalingClient {
       roomAdmins: [],
       roomBans: [],
       roomMemberLimit: null,
+      roomCaptureProtected: false,
       roomSilenced: [],
       roomPermissions: { ...DEFAULT_ROOM_PERMISSIONS },
       myRoomPermissions: null,
@@ -3450,6 +3464,12 @@ class SignalingClient {
   // value is clamped there too (see normalizeMemberLimit).
   setRoomMemberLimit(limit: number | null) {
     this.rawSend({ type: "room-member-limit", limit });
+  }
+
+  // Owner/admins only, and only from the desktop app — both enforced
+  // server-side (see its "room-capture-protection").
+  setRoomCaptureProtection(enabled: boolean) {
+    this.rawSend({ type: "room-capture-protection", enabled });
   }
 
   setVideoSourceControlMode(id: string, controlMode: "owner" | "anyone") {

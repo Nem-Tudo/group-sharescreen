@@ -1221,6 +1221,7 @@ export function GroupMessageComposer({
           <AttachMenu
             onImages={(files) => void addImages(files)}
             onFiles={addAnything}
+            onViewOnce={(files) => void uploads.add(files, { viewOnce: true })}
             onOpen={() => void uploads.refreshLimit()}
             limitMb={uploads.limit?.maxMb}
             disabled={disabled}

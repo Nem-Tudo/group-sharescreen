@@ -49,6 +49,14 @@ export function AttachmentTray({
             ) : (
               <AttachmentKindIcon kind={item.kind} className="h-5 w-5 shrink-0 text-zinc-500" />
             )}
+            {item.viewOnce && (
+              <span
+                title={t("viewOnce.title")}
+                className="absolute left-1 top-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-blue-600 text-[9px] font-bold text-white"
+              >
+                1
+              </span>
+            )}
             <div className="min-w-0 flex-1 pr-4">
               <p className="truncate text-xs font-medium text-zinc-800 dark:text-zinc-200">{item.name}</p>
               <p className={`truncate text-[11px] ${failed ? "text-red-600 dark:text-red-400" : "text-zinc-500"}`}>

@@ -9,6 +9,7 @@ import {
 } from "./chatAttachments";
 import { getUploadLimit, isBlockedFile, uploadAttachment, type UploadLimit, type UploadTarget } from "./uploadApi";
 import { translate } from "@/lib/i18n";
+import { isViewOnceFile, VIEW_ONCE_MAX_MB } from "./viewOnceApi";
 
 // The files waiting in a composer: each one starts uploading the moment it is
 // picked, so by the time the message is written the file is usually already
@@ -27,6 +28,8 @@ export interface PendingAttachment {
   attachment?: ChatAttachment;
   /** The receipt the message carries — see the API's chatAttachments.ts. */
   token?: string;
+  /** Going out as a view-once file (see lib/viewOnceApi.ts). */
+  viewOnce?: boolean;
 }
 
 // The API lets one person run three uploads at once; two leaves room for a
@@ -68,7 +71,8 @@ export function useAttachmentUploads(target: UploadTarget) {
       patch(item.id, { status: "uploading" });
       void uploadAttachment(file, target, {
         signal: controller.signal,
-        maxMb: limit?.maxMb ?? null,
+        maxMb: item.viewOnce ? VIEW_ONCE_MAX_MB : (limit?.maxMb ?? null),
+        viewOnce: item.viewOnce,
         onProgress: (progress) => patch(item.id, { progress }),
       }).then((result) => {
         controllers.current.delete(item.id);
@@ -96,7 +100,7 @@ export function useAttachmentUploads(target: UploadTarget) {
   }, []);
 
   const add = useCallback(
-    async (picked: File[]) => {
+    async (picked: File[], { viewOnce = false }: { viewOnce?: boolean } = {}) => {
       if (picked.length === 0) return;
       setError(null);
       const current = await refreshLimit();
@@ -123,6 +127,14 @@ export function useAttachmentUploads(target: UploadTarget) {
           setError(translate("attachments.fileTooLarge", { mb: current.maxMb }));
           continue;
         }
+        if (viewOnce && !isViewOnceFile(file)) {
+          setError(translate("viewOnce.typeNotAllowed"));
+          continue;
+        }
+        if (viewOnce && file.size > VIEW_ONCE_MAX_MB * 1024 * 1024) {
+          setError(translate("attachments.fileTooLarge", { mb: VIEW_ONCE_MAX_MB }));
+          continue;
+        }
         if (file.size < current.minBytes) {
           setError(translate("attachments.fileTooSmall"));
           continue;
@@ -136,6 +148,7 @@ export function useAttachmentUploads(target: UploadTarget) {
           kind: attachmentKindOf(file.type),
           progress: 0,
           status: "queued",
+          ...(viewOnce ? { viewOnce: true } : {}),
         });
       }
       if (added.length === 0) return;

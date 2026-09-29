@@ -2,6 +2,7 @@
 
 import { MdDownload } from "react-icons/md";
 import { AttachmentKindIcon } from "@/components/AttachmentTray";
+import { ViewOnceCard } from "@/components/ViewOnceCard";
 import { fileExtension, formatBytes, type ChatAttachment } from "@/lib/chatAttachments";
 import { useT } from "@/lib/useI18n";
 
@@ -29,6 +30,10 @@ export function MessageAttachments({
   return (
     <div className={`mt-1 flex flex-col gap-1.5 ${className}`}>
       {attachments.map((attachment) => {
+        // Never a link or a player: its URL is ciphertext (see lib/viewOnceApi).
+        if (attachment.viewOnce) {
+          return <ViewOnceCard key={attachment.url} attachment={{ ...attachment, viewOnce: attachment.viewOnce }} />;
+        }
         const meta = (
           <a
             href={attachment.url}

@@ -40,6 +40,7 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import {
+  CAPTURE_PROTECTION_ARG,
   IPC,
   NATIVE_VIDEO_ARG,
   SYSTEM_AUDIO_ARG,
@@ -143,6 +144,45 @@ if (MAC_LOOPBACK_SUPPORTED) {
 /** Whether a share on this machine can carry system audio at all. */
 function systemAudioSupported(): boolean {
   return process.platform === "win32" || process.platform === "linux" || MAC_LOOPBACK_SUPPORTED;
+}
+
+// ---------------------------------------------------------------------------
+// Capture protection
+//
+// Protected rooms and view-once files ask for the window to be kept out of
+// screenshots and screen recorders (see the site's lib/captureProtection.ts).
+// setContentProtection is the OS's own switch for that, the one streaming and
+// banking apps use:
+//
+//   Windows  SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE) — the window is
+//            left out of Print Screen, the Snipping Tool, OBS (window *and*
+//            display capture), Discord, Teams, the Game Bar. Windows before
+//            10 2004 get WDA_MONITOR, which paints it black instead. "full".
+//   macOS    NSWindowSharingNone. Honoured by the older capture APIs, but
+//            ScreenCaptureKit (macOS 15's screenshots, and most recorders
+//            since) no longer respects it. "partial": the site says so.
+//   Linux    Nothing. No bridge at all, and the site keeps protected content
+//            closed there.
+//
+// None of it stops a phone pointed at the screen, a capture card, or somebody
+// patching the app — the site's watermark is the answer to the first.
+
+function captureProtectionLevel(): "full" | "partial" | null {
+  if (process.platform === "win32") return "full";
+  if (process.platform === "darwin") return "partial";
+  return null;
+}
+
+let captureProtected = false;
+
+function setCaptureProtection(on: boolean): boolean {
+  if (!captureProtectionLevel() || !mainWindow || mainWindow.isDestroyed()) return false;
+  mainWindow.setContentProtection(on);
+  captureProtected = on;
+  // DevTools would be a way around all of it — the media element's source is
+  // one click away in there — so they stay shut while anything is protected.
+  if (on && mainWindow.webContents.isDevToolsOpened()) mainWindow.webContents.closeDevTools();
+  return true;
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -1002,6 +1042,7 @@ function createWindow(initialUrl: string = APP_URL) {
         `${VERSION_ARG}${app.getVersion()}`,
         ...(isSystemAudioExclusionSupported() ? [SYSTEM_AUDIO_ARG] : []),
         ...(isNativeVideoAvailable() ? [NATIVE_VIDEO_ARG] : []),
+        ...(captureProtectionLevel() ? [`${CAPTURE_PROTECTION_ARG}${captureProtectionLevel()}`] : []),
       ],
       // No gesture needed for sound, like the Android app (Capacitor turns off
       // mediaPlaybackRequiresUserGesture). A room opened straight from a link
@@ -1098,6 +1139,12 @@ function createWindow(initialUrl: string = APP_URL) {
   mainWindow.webContents.on("did-start-navigation", (details) => {
     if (!details.isMainFrame || details.isSameDocument) return;
     if (ringingCall) setCallRinging(null);
+    // A page that reloads or leaves never says it is done being protected;
+    // the one that loads next asks again for whatever it shows.
+    if (captureProtected) setCaptureProtection(false);
+  });
+  mainWindow.webContents.on("devtools-opened", () => {
+    if (captureProtected) mainWindow?.webContents.closeDevTools();
   });
   mainWindow.webContents.on("render-process-gone", () => {
     if (ringingCall) setCallRinging(null);
@@ -2003,6 +2050,11 @@ if (!gotLock) {
       if (shortcuts && typeof shortcuts === "object") {
         updateGlobalShortcuts(shortcuts as Record<string, string>);
       }
+    });
+
+    ipcMain.handle(IPC.captureProtectionSet, (event, on: unknown) => {
+      if (!mainWindow || event.sender !== mainWindow.webContents) return false;
+      return setCaptureProtection(on === true);
     });
 
     ipcMain.on(IPC.pushToTalkSet, (_event, accelerator) => {

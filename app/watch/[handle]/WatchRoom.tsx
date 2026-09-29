@@ -323,6 +323,9 @@ import { MobileSheet } from "@/components/MobileSheet";
 import { canShareNatively, haptic, shareLink } from "@/lib/nativeApp";
 import { useBackHandler } from "@/lib/useBackHandler";
 import { translate } from "@/lib/i18n";
+import { captureProtectionLevel, setProtectedRoomActive, useCaptureProtection } from "@/lib/captureProtection";
+import { ViewerWatermark } from "@/components/ViewerWatermark";
+import { DownloadAppButton } from "@/components/DownloadAppButton";
 
 // Mirrors server/signaling.ts's HANDLE_RE — must match exactly, or a name
 // this lets through but the server rejects lands the user in a dead room
@@ -1610,6 +1613,16 @@ function WatchRoomView({
   const callLayout = Boolean(dm);
   const state = useSignalingSelector(selectWatchRoom, shallow);
   const { hasMusic, musicPlaying } = useSignalingSelector(selectMusicSummary, shallow);
+  // A protected room (see lib/captureProtection.ts): the window is kept out
+  // of screenshots and recorders for as long as we are in it, and nothing of
+  // the room is drawn until the OS has confirmed that. The server only lets
+  // the desktop app in, so a browser never gets this far.
+  const roomProtected = state.roomCaptureProtected && Boolean(state.room);
+  const roomProtection = useCaptureProtection(roomProtected);
+  useEffect(() => {
+    setProtectedRoomActive(roomProtected);
+    return () => setProtectedRoomActive(false);
+  }, [roomProtected]);
   // Paints the room. The room's own theme when it has one, this account's
   // otherwise — see lib/useRoomTheme, which is where that precedence lives.
   // It writes CSS variables onto the document, so nothing here has to be
@@ -3477,7 +3490,8 @@ function WatchRoomView({
   }, [streamerMode]);
 
   const canUseStreamerMode = Boolean(isRoomManager && state.account);
-  const canUseObsSource = Boolean(canUseStreamerMode && streamerMode);
+  // Never in a protected room: an OBS source is a capture by design.
+  const canUseObsSource = Boolean(canUseStreamerMode && streamerMode) && !roomProtected;
 
   useEffect(() => {
     if (state.room) {
@@ -3893,7 +3907,15 @@ function WatchRoomView({
   };
   // Available to the experiment's people — and to anyone already mid-recording
   // if the feature is switched off under them, so "parar" never disappears.
-  const showCallRecording = callRecordingFeature.enabled || callRecording.status !== "idle";
+  const showCallRecording = (callRecordingFeature.enabled || callRecording.status !== "idle") && !roomProtected;
+  // A recording already running when the room is switched to protected is
+  // thrown away rather than finished: finishing it would hand over a file of
+  // exactly what the switch was turned on to keep.
+  const recordingActive = callRecording.status !== "idle";
+  const discardRecording = callRecording.discard;
+  useEffect(() => {
+    if (roomProtected && recordingActive) discardRecording();
+  }, [roomProtected, recordingActive, discardRecording]);
   // The blue "novo" tip, on the button itself (not on "⋯", so it is not in
   // the newFeatureTip chain). Only one of the two buttons exists at a time:
   // the card's from lg up, the pull-up menu's tile below it.
@@ -4094,6 +4116,8 @@ function WatchRoomView({
             ? { icon: "\u{1F6D1}", title: translate("watch.watchRoom.youHaveBeenBannedFromThis2"), retry: false }
             : kind === "captcha"
               ? { icon: "\u{1F6E1}\uFE0F", title: translate("watch.watchRoom.securityCheck"), retry: true }
+              : kind === "app-only"
+                ? { icon: "🔒", title: translate("protectedRoom.title"), retry: false }
               : kind === "device-limit"
                 ? // Retryable on purpose, unlike a ban: the fix is on another
                   // screen the person can go and close, and coming back here
@@ -4114,7 +4138,24 @@ function WatchRoomView({
           <h1 className="mt-4 text-xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
             {failure.title}
           </h1>
-          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{state.joinError}</p>
+          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+            {kind === "app-only"
+              ? captureProtectionLevel() === "browser"
+                ? translate("protectedRoom.joinFromApp")
+                : translate("protectedRoom.systemNotSupported")
+              : state.joinError}
+          </p>
+          {kind === "app-only" && captureProtectionLevel() === "browser" && (
+            <div className="mt-6 flex flex-col gap-2">
+              <a
+                href={`golive://watch/${encodeURIComponent(handle)}`}
+                className="rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+              >
+                {translate("protectedRoom.openInApp")}
+              </a>
+              <DownloadAppButton source="room-gate" />
+            </div>
+          )}
 
           {/* Only where changing the name is the actual fix. Everywhere else a
               name field would be the same misdirection the old screen gave
@@ -7577,7 +7618,7 @@ function WatchRoomView({
           Mounted even
           with nothing to show for a moment, so a closed box stays closed and a
           browser picture-in-picture opened from it is not torn down. */}
-      {!visible && (
+      {!visible && !roomProtected && (
         <DockedPip
           sources={dockedPipSources}
           focusedId={activeHyperfocusId ?? (isFocusMode ? spotlightId : null)}
@@ -9269,6 +9310,32 @@ function WatchRoomView({
         open={mobileScreenShareModalOpen}
         onClose={() => setMobileScreenShareModalOpen(false)}
       />
+
+      {/* A protected room: covered until the window is confirmed out of
+          captures, and signed with the viewer's name once it is — the
+          answer to the one capture no software can stop, a phone. */}
+      {roomProtected && visible && roomProtection === "on" && (
+        <div className="pointer-events-none fixed inset-0 z-[60]">
+          <ViewerWatermark label={state.account?.username ? `@${state.account.username}` : (state.name ?? "")} />
+        </div>
+      )}
+      {roomProtected && visible && roomProtection !== "on" && (
+        <div className="fixed inset-0 z-[950] flex items-center justify-center bg-zinc-950 px-6 text-center text-sm text-zinc-300">
+          {roomProtection === "failed" ? (
+            <div className="flex max-w-sm flex-col items-center gap-4">
+              <p>{translate("protectedRoom.systemNotSupported")}</p>
+              <Link
+                href="/"
+                className="rounded-lg border border-zinc-700 px-4 py-2 font-medium text-zinc-200 transition hover:bg-zinc-900"
+              >
+                {translate("common.home")}
+              </Link>
+            </div>
+          ) : (
+            <span className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+          )}
+        </div>
+      )}
     </div>
   );
 }

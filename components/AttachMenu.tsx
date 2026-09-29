@@ -1,10 +1,18 @@
 "use client";
 
 import { useRef, useState, type ChangeEvent, type ReactNode } from "react";
-import { MdAdd, MdAttachFile, MdCameraAlt, MdOutlineImage, MdOutlineVideoLibrary } from "react-icons/md";
+import {
+  MdAdd,
+  MdAttachFile,
+  MdCameraAlt,
+  MdOutlineImage,
+  MdOutlineVideoLibrary,
+  MdOutlineVisibility,
+} from "react-icons/md";
 import { CameraCaptureModal } from "@/components/CameraCaptureModal";
 import { Popover } from "@/components/Tooltip";
 import { CHAT_IMAGE_ACCEPT } from "@/lib/chatImage";
+import { VIEW_ONCE_ACCEPT } from "@/lib/viewOnceApi";
 import { useT } from "@/lib/useI18n";
 
 // The "+" beside a message box: a picture from disk, one taken right now with
@@ -20,6 +28,7 @@ import { useT } from "@/lib/useI18n";
 export function AttachMenu({
   onImages,
   onFiles,
+  onViewOnce,
   allowImages = true,
   allowFiles = true,
   disabled = false,
@@ -32,6 +41,11 @@ export function AttachMenu({
 }: {
   onImages: (files: File[]) => void;
   onFiles: (files: File[]) => void;
+  /**
+   * A picture, GIF, video or song to go out as view-once (see
+   * lib/viewOnceApi). The item is only offered where a caller passes this.
+   */
+  onViewOnce?: (files: File[]) => void;
   allowImages?: boolean;
   allowFiles?: boolean;
   disabled?: boolean;
@@ -52,6 +66,7 @@ export function AttachMenu({
   const imageRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const viewOnceRef = useRef<HTMLInputElement>(null);
 
   function picked(handler: (files: File[]) => void) {
     return (e: ChangeEvent<HTMLInputElement>) => {
@@ -76,6 +91,9 @@ export function AttachMenu({
       <input ref={imageRef} type="file" accept={CHAT_IMAGE_ACCEPT} multiple hidden onChange={picked(onImages)} />
       <input ref={videoRef} type="file" accept="video/*" multiple hidden onChange={picked(onFiles)} />
       <input ref={fileRef} type="file" multiple hidden onChange={picked(onFiles)} />
+      {onViewOnce && (
+        <input ref={viewOnceRef} type="file" accept={VIEW_ONCE_ACCEPT} multiple hidden onChange={picked(onViewOnce)} />
+      )}
       <Popover
         open={open}
         onClose={() => setOpen(false)}
@@ -112,6 +130,15 @@ export function AttachMenu({
                     {limit && <span className="text-[11px] text-zinc-400">{limit}</span>}
                   </span>
                 </button>
+                {onViewOnce && (
+                  <button type="button" className={item} onClick={() => choose(() => viewOnceRef.current?.click())}>
+                    <MdOutlineVisibility className="h-5 w-5 shrink-0" aria-hidden />
+                    <span className="flex min-w-0 flex-col">
+                      {t("viewOnce.menuItem")}
+                      <span className="text-[11px] text-zinc-400">{t("viewOnce.menuHint")}</span>
+                    </span>
+                  </button>
+                )}
               </>
             )}
           </div>

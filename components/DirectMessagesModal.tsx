@@ -3425,6 +3425,7 @@ export function DirectMessagesModal({
               void handleFiles(list.files);
             }}
             onFiles={handleAnyFiles}
+            onViewOnce={(files) => void uploads.add(files, { viewOnce: true })}
             onOpen={() => void uploads.refreshLimit()}
             limitMb={uploads.limit?.maxMb}
             buttonClassName={iconButton}

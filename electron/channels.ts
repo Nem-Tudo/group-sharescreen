@@ -236,6 +236,12 @@ export const IPC = {
    * fires: it is a key whose *held* state the site follows.
    */
   pushToTalkSet: "golive:ptt:set",
+  /**
+   * renderer -> main: keep the main window out of screenshots and screen
+   * recorders (true), or stop (false). Answers whether the OS took it. See
+   * the site's lib/captureProtection.ts, which counts who is asking.
+   */
+  captureProtectionSet: "golive:capture-protection:set",
   /** main -> renderer: the push-to-talk key went down (true) or came up (false). */
   pushToTalkState: "golive:ptt:state",
   /**
@@ -355,6 +361,13 @@ export const SYSTEM_AUDIO_ARG = "--golive-system-audio-exclusion";
 // nativeVideo.ts). Whether the machine can actually run it is a separate
 // question, answered by the probe.
 export const NATIVE_VIDEO_ARG = "--golive-native-video";
+
+/**
+ * How well this machine can keep the window out of captures: "full" or
+ * "partial" (see captureProtectionLevel in main.ts). Absent where it cannot
+ * at all, and then the preload exposes no captureProtection bridge.
+ */
+export const CAPTURE_PROTECTION_ARG = "--golive-capture-protection=";
 
 export interface NativeVideoStartOptions {
   maxWidth: number;
