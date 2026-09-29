@@ -1101,6 +1101,8 @@ export interface AdminGift {
   days: number;
   planId: string;
   planTitle: string;
+  /** Free trial on a Stripe subscription instead of plain days. */
+  trialOnly?: boolean;
 }
 
 /**
@@ -1121,12 +1123,13 @@ export async function createAdminGift(
   planId: string,
   days: number,
   expiresAt: number | null = null,
-  access: AdminGiftAccess = {}
+  access: AdminGiftAccess = {},
+  trialOnly = false
 ): Promise<AdminGift> {
   return adminFetch<AdminGift>("/admin/premium/gift", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ planId, days, expiresAt, ...access }),
+    body: JSON.stringify({ planId, days, expiresAt, ...access, trialOnly }),
   });
 }
 

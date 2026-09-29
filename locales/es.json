@@ -1,4 +1,11 @@
 {
+  "admin.giftPanel.trialOnly": "Solo período gratis",
+  "admin.giftPanel.trialOnlyHint": "Quien lo canjee registra la tarjeta en Stripe y se suscribe al plan (mensual). Los días del regalo son gratis; después empieza el cobro. Entre 2 y 730 días.",
+  "admin.giftPanel.trialBadge": "período gratis",
+  "giftClaimDialog.trialDays": "{value} días gratis",
+  "giftClaimDialog.trialExplain": "Registra una tarjeta para empezar. No se cobra nada los primeros {value} días; después, {price}/mes. Cancela cuando quieras.",
+  "giftClaimDialog.startTrial": "Registrar tarjeta y empezar",
+  "giftClaimDialog.trialHasPlan": "Ya tienes un plan activo. El período gratis es solo para cuentas sin plan.",
   "userProfileCard.copyId": "Copiar ID",
   "userProfileCard.idCopied": "ID copiado",
   "admin.badgesPanel.updated": "Insignia actualizada.",

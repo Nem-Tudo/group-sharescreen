@@ -1127,6 +1127,11 @@ function createWindow(initialUrl: string = APP_URL) {
     if (new URL(url).origin === APP_ORIGIN) return;
     event.preventDefault();
     if (/^https?:$/.test(safeProtocol(url))) void shell.openExternal(url);
+    // /bot exists only to redirect to Discord. With that redirect sent to
+    // the browser, the window was left parked on /bot, and every later load
+    // of it (reopening the app, a reload, resuming after an update) opened
+    // the Discord invite again. Step back off it.
+    leaveRedirectPage();
   });
 
   // The ring is the page's to end (callRinging with null), and a page that
@@ -1150,7 +1155,79 @@ function createWindow(initialUrl: string = APP_URL) {
     if (ringingCall) setCallRinging(null);
   });
 
+  // A site that does not load (offline, DNS, server down) used to leave a bare
+  // grey window with nothing to click. Swap in a local page that says so and
+  // offers a retry. -3 is ERR_ABORTED: a navigation that was replaced by
+  // another one, not a failure.
+  mainWindow.webContents.on("did-fail-load", (_event, errorCode, _desc, validatedURL, isMainFrame) => {
+    if (!isMainFrame || errorCode === -3) return;
+    if (validatedURL.startsWith("data:")) return;
+    const retryUrl = safeRetryUrl(validatedURL);
+    void mainWindow?.loadURL(loadErrorPage(retryUrl, errorCode));
+  });
+
   void mainWindow.loadURL(initialUrl);
+}
+
+const REDIRECT_ONLY_PATHS = new Set(["/bot"]);
+
+function leaveRedirectPage() {
+  const contents = mainWindow?.webContents;
+  if (!contents) return;
+  let current: URL;
+  try {
+    current = new URL(contents.getURL());
+  } catch {
+    return;
+  }
+  if (current.origin !== APP_ORIGIN || !REDIRECT_ONLY_PATHS.has(current.pathname.replace(/\/+$/, ""))) return;
+  if (contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack();
+  else void contents.loadURL(APP_URL);
+}
+
+// Only our own site is retried; anything else falls back to the home page.
+function safeRetryUrl(url: string): string {
+  try {
+    if (new URL(url).origin === APP_ORIGIN) return url;
+  } catch {}
+  return APP_URL;
+}
+
+function loadErrorPage(retryUrl: string, errorCode: number): string {
+  const lang = app.getLocale().toLowerCase();
+  const t = lang.startsWith("pt")
+    ? { title: "Não foi possível conectar", body: "Não conseguimos carregar o GoLive. Verifique sua conexão com a internet e tente de novo.", retry: "Recarregar", code: "Código do erro" }
+    : lang.startsWith("es")
+      ? { title: "No se pudo conectar", body: "No pudimos cargar GoLive. Revisa tu conexión a internet e inténtalo de nuevo.", retry: "Recargar", code: "Código de error" }
+      : { title: "Couldn't connect", body: "We couldn't load GoLive. Check your internet connection and try again.", retry: "Reload", code: "Error code" };
+  const logo = overlayLogo();
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>GoLive</title>
+<style>
+html,body{height:100%;margin:0}
+body{background:#101014;color:#e8e8ee;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;align-items:center;justify-content:center;user-select:none}
+.box{text-align:center;max-width:380px;padding:24px}
+.art{position:relative;width:120px;height:120px;margin:0 auto 24px}
+.art svg{width:120px;height:120px}
+.art img{position:absolute;right:-4px;bottom:-4px;width:40px;height:40px;border-radius:10px;box-shadow:0 0 0 4px #101014}
+h1{font-size:20px;margin:0 0 8px}
+p{color:#9a9aa8;font-size:14px;line-height:1.5;margin:0 0 24px}
+button{background:#5865f2;color:#fff;border:0;border-radius:8px;padding:10px 28px;font-size:14px;font-weight:600;cursor:pointer}
+button:hover{background:#4752c4}
+button:disabled{opacity:.6;cursor:default}
+small{display:block;margin-top:20px;color:#5c5c68;font-size:11px}
+</style></head><body><div class="box">
+<div class="art"><svg viewBox="0 0 24 24" fill="none" stroke="#6b6b7b" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8.8a15 15 0 0 1 4.2-2.6"/><path d="M10 5.1A15 15 0 0 1 22 8.8"/><path d="M5 12.5a10 10 0 0 1 5.2-2.9"/><path d="M15.5 10.2A10 10 0 0 1 19 12.5"/><path d="M8.5 16.1a5 5 0 0 1 7 0"/><circle cx="12" cy="19.5" r="0.6" fill="#6b6b7b"/><path d="M3 3l18 18" stroke="#ed4245"/></svg>${logo ? `<img src="${logo}" alt="">` : ""}</div>
+<h1>${t.title}</h1><p>${t.body}</p>
+<button id="r">${t.retry}</button>
+<small>${t.code}: ${errorCode}</small>
+</div><script>
+const url=${JSON.stringify(retryUrl)};
+const b=document.getElementById("r");
+function go(){b.disabled=true;location.href=url;}
+b.onclick=go;
+addEventListener("online",go);
+</script></body></html>`;
+  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 }
 
 // ---------------------------------------------------------------------------

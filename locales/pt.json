@@ -1,4 +1,11 @@
 {
+  "admin.giftPanel.trialOnly": "Apenas período grátis",
+  "admin.giftPanel.trialOnlyHint": "Quem resgatar cadastra o cartão na Stripe e assina o plano (mensal). Os dias do gift são grátis; depois começa a cobrança. Entre 2 e 730 dias.",
+  "admin.giftPanel.trialBadge": "período grátis",
+  "giftClaimDialog.trialDays": "{value} dias grátis",
+  "giftClaimDialog.trialExplain": "Cadastre um cartão para começar. Nada é cobrado nos primeiros {value} dias; depois, {price}/mês. Cancele quando quiser.",
+  "giftClaimDialog.startTrial": "Cadastrar cartão e começar",
+  "giftClaimDialog.trialHasPlan": "Você já tem um plano ativo. O período grátis é só para quem não tem plano.",
   "userProfileCard.copyId": "Copiar ID",
   "userProfileCard.idCopied": "ID copiado",
   "admin.badgesPanel.updated": "Badge atualizada.",

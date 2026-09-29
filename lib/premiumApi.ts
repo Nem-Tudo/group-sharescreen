@@ -483,6 +483,11 @@ export type GiftCodeInfo = {
   days: number;
   createdAt: number;
   from: GiftSender | null;
+  /** A free trial: redeeming opens a Stripe checkout, billed after `days`. */
+  trialOnly?: boolean;
+  /** What the card is charged monthly once the trial ends. */
+  trialPriceCents?: number;
+  currency?: string;
 };
 
 /**
@@ -523,10 +528,12 @@ export type RedeemFailure =
   | "card_subscription"
   | "account_required"
   | "not_allowed"
+  | "has_plan"
   | "unknown";
 
 export type RedeemGiftResult =
-  | { ok: true; planId: string; days: number; currentPeriodEnd: number }
+  | { ok: true; checkoutUrl: string }
+  | { ok: true; checkoutUrl?: undefined; planId: string; days: number; currentPeriodEnd: number }
   | { ok: false; error: string; reason: RedeemFailure };
 
 /** Puts a code's days onto the account that is logged in right now. */
@@ -541,6 +548,7 @@ export async function redeemGiftCode(code: string): Promise<RedeemGiftResult> {
       planId?: string;
       days?: number;
       currentPeriodEnd?: number;
+      checkoutUrl?: string;
       error?: string;
       reason?: RedeemFailure;
     };
@@ -551,6 +559,7 @@ export async function redeemGiftCode(code: string): Promise<RedeemGiftResult> {
         reason: data.reason ?? "unknown",
       };
     }
+    if (data.checkoutUrl) return { ok: true, checkoutUrl: data.checkoutUrl };
     return {
       ok: true,
       planId: data.planId ?? "",

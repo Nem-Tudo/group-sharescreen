@@ -75,6 +75,7 @@ function GiftRow({ gift }: { gift: AdminGift }) {
     <li className="flex flex-col gap-1.5 rounded-lg border border-zinc-200 p-2.5 dark:border-zinc-800">
       <span className="text-xs text-zinc-500 dark:text-zinc-400">
         {gift.planTitle} · {tc("common.dayCount", gift.days)}
+        {gift.trialOnly ? ` · ${t("admin.giftPanel.trialBadge")}` : ""}
       </span>
       <div className="flex items-center gap-2">
         {/* Selectable and wrapped rather than truncated: if the clipboard is
@@ -118,6 +119,8 @@ export function GiftPanel() {
   // Usernames, free text: who alone may redeem, and who may not.
   const [allowed, setAllowed] = useState("");
   const [blocked, setBlocked] = useState("");
+  // Free trial: the redeemer registers a card at Stripe and is billed after.
+  const [trialOnly, setTrialOnly] = useState(false);
   // Bumped after each new gift so the full list below picks it up.
   const [listKey, setListKey] = useState(0);
 
@@ -158,7 +161,7 @@ export function GiftPanel() {
       const gift = await createAdminGift(planId, days, fromDateInput(expiry), {
         allowedUsernames: parseUsernameList(allowed),
         blockedUsernames: parseUsernameList(blocked),
-      });
+      }, trialOnly);
       setMinted((current) => [gift, ...current]);
       setListKey((k) => k + 1);
     } catch (err) {
@@ -268,6 +271,21 @@ export function GiftPanel() {
           />
         </div>
       </div>
+
+      <label className="mt-3 flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+        <input
+          type="checkbox"
+          checked={trialOnly}
+          onChange={(e) => setTrialOnly(e.target.checked)}
+          className="mt-0.5"
+        />
+        <span>
+          {t("admin.giftPanel.trialOnly")}
+          <span className="block text-xs text-zinc-500 dark:text-zinc-400">
+            {t("admin.giftPanel.trialOnlyHint")}
+          </span>
+        </span>
+      </label>
 
       <div className="mt-3 max-w-xs">
         <label
