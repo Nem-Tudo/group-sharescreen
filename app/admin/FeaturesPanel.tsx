@@ -8,6 +8,7 @@ import {
   deleteFeature,
   fetchFeatureStats,
   fetchFeatures,
+  fetchPremiumCohorts,
   resetFeatureStats,
   searchAdminAccounts,
   updateFeature,
@@ -18,6 +19,9 @@ import {
   type FeatureStats,
   type FeatureTarget,
   type FeatureWrite,
+  type PremiumCellCohort,
+  type PremiumCohorts,
+  type PremiumMethodCohort,
 } from "@/lib/adminApi";
 import { getLocalFeatureOverrides, setLocalFeatureOverride } from "@/lib/features";
 import { useT } from "@/lib/useI18n";
@@ -1370,7 +1374,7 @@ function EventTable({
 // the selector *is* the analysis — a combination that only wins at one month
 // is a combination that sold Pix.
 //
-// Two things it deliberately does not do:
+// By default ("mandatos vivos") it does two things deliberately *not*:
 //
 //   - It does not project Pix. A live mandate charging again is a fact about
 //     an arrangement that exists; a Pix buyer returning is a hope. The hope
@@ -1379,6 +1383,15 @@ function EventTable({
 //     nobody has cancelled, so the twelve-month figure is an upper bound for
 //     every cell alike. It is comparable between cells, which is all the
 //     ranking needs, and it is not a forecast.
+//
+// Once the per-person ledger (the API's premiumLedger.ts) has buyers old
+// enough to have renewed or come back, the second mode ("retenção
+// observada") does both — at the rates actually seen, per cell when a cell
+// has enough of its own and pooled otherwise. That is the view the "sem Pix"
+// decision is made in: it trades buyers for recurring money, and only the
+// two rates say which side of the trade wins. Every projection carries a 95%
+// interval from the squared first sales, and the "Conf. R$" column tests the
+// money gap to the leader rather than the conversion gap.
 //
 // **The fourth digit is the broadcast ad gate** (see the API's
 // broadcastAdGate.ts): the popup that stops a long broadcast until an ad is
@@ -1420,14 +1433,43 @@ const COMBO_HORIZONS = [1, 3, 6, 12];
 /** The least "viu o preço" a cell needs before its rate is worth reading. */
 const COMBO_MIN_SEEN = 200;
 
+/**
+ * The least matured first buyers (per method) a cell needs before its own
+ * renewal / come-back rate is used; below it, the rate over every cell is.
+ * A rate out of eight people swings by 12 points per person.
+ */
+const COHORT_MIN_MATURED = 15;
+
+/** The squared sales are only a sample once this many of them exist. */
+const COMBO_MIN_SQ = 10;
+
+/** The plan every other plan is "bigger than" (the API's PREMIUM_PLAN_ID). */
+const COMBO_BASE_PLAN = "premium";
+
 interface ComboCell {
   seen: number;
   checkout: number;
+  /** Checkouts opened per method, people — the card leak is sub checkouts that never paid. */
+  checkoutPix: number;
+  checkoutSub: number;
   purchases: number;
   /** First purchases, by method — the choice the rollouts shape. */
   firstPix: number;
   firstSub: number;
   first: number;
+  /** The same first purchases as sales (not people) and as money. */
+  firstPixCount: number;
+  firstSubCount: number;
+  firstPixCents: number;
+  firstSubCents: number;
+  /** Σ value² of those sales, and how many of them had one recorded. */
+  sqPix: number;
+  sqSub: number;
+  sqPixCount: number;
+  sqSubCount: number;
+  /** First purchases of a year, and of a plan above the base one. */
+  yearly: number;
+  upperPlan: number;
   repeat: number;
   renewals: number;
   grossCents: number;
@@ -1438,14 +1480,60 @@ interface ComboCell {
   days: number;
   cancels: number;
   cancelDays: number;
+  /** Mandates over for any reason (pro_cancel is the voluntary part). */
+  ended: number;
+  endedDays: number;
+  /** Card charges refused on a mandate, and cards refused by Stripe anywhere. */
+  refused: number;
+  declined: number;
 }
 
 function emptyComboCell(): ComboCell {
   return {
-    seen: 0, checkout: 0, purchases: 0, firstPix: 0, firstSub: 0, first: 0,
-    repeat: 0, renewals: 0, grossCents: 0, netCents: 0, mandates: 0,
-    mrrCents: 0, days: 0, cancels: 0, cancelDays: 0,
+    seen: 0, checkout: 0, checkoutPix: 0, checkoutSub: 0, purchases: 0, firstPix: 0, firstSub: 0,
+    first: 0, firstPixCount: 0, firstSubCount: 0, firstPixCents: 0, firstSubCents: 0, sqPix: 0,
+    sqSub: 0, sqPixCount: 0, sqSubCount: 0, yearly: 0, upperPlan: 0, repeat: 0, renewals: 0,
+    grossCents: 0, netCents: 0, mandates: 0, mrrCents: 0, days: 0, cancels: 0, cancelDays: 0,
+    ended: 0, endedDays: 0, refused: 0, declined: 0,
   };
+}
+
+/** 1 + x + x² + … + x^(h−1): what one sale is worth over h cycles at a keep rate of x. */
+function geometric(x: number, cycles: number): number {
+  if (cycles <= 0) return 0;
+  if (Math.abs(1 - x) < 1e-9) return cycles;
+  return (1 - x ** cycles) / (1 - x);
+}
+
+/** A cell's cohort with the two ad-gate sides added together (or one picked). */
+function emptyMethodCohort(): PremiumMethodCohort {
+  return { buyers: 0, matured: 0, kept: 0, ended: 0, toSub: 0, firstCents: 0, ltvCents: 0 };
+}
+
+function emptyCellCohort(combo: string): PremiumCellCohort {
+  return {
+    combo, buyers: 0, ltvCents: 0, ltvSq: 0, pix: emptyMethodCohort(), sub: emptyMethodCohort(),
+    refusedFirst: 0, refusedRenewal: 0,
+  };
+}
+
+function addCellCohort(into: PremiumCellCohort, from: PremiumCellCohort): PremiumCellCohort {
+  into.buyers += from.buyers;
+  into.ltvCents += from.ltvCents;
+  into.ltvSq += from.ltvSq;
+  into.refusedFirst += from.refusedFirst;
+  into.refusedRenewal += from.refusedRenewal;
+  for (const side of ["pix", "sub"] as const) {
+    for (const key of Object.keys(into[side]) as (keyof PremiumMethodCohort)[]) {
+      into[side][key] += from[side][key];
+    }
+  }
+  return into;
+}
+
+/** A keep rate, or null when too few people are old enough to have one. */
+function keepRate(side: PremiumMethodCohort): number | null {
+  return side.matured >= COHORT_MIN_MATURED ? side.kept / side.matured : null;
 }
 
 /** Adds every figure of `from` into `into`. */
@@ -1461,6 +1549,14 @@ function PremiumComboTable({ stats }: { stats: FeatureStats }) {
   const [horizon, setHorizon] = useState(3);
   /** Which side of the ad gate to read: both folded together, or one alone. */
   const [adSide, setAdSide] = useState<"all" | "out" | "gated">("all");
+  /**
+   * How the future is counted. "live": the mandates alive today, at full
+   * value for the whole horizon, and no Pix ever again — a ceiling. "retention":
+   * every first sale followed at the rate its buyers were actually seen to
+   * renew (subscriptions) or come back (Pix) — an estimate, available once
+   * the ledger has buyers old enough to have a rate.
+   */
+  const [projMode, setProjMode] = useState<"live" | "retention">("live");
 
   const sides = useMemo(() => {
     const map = new Map<string, ComboSides>();
@@ -1488,19 +1584,80 @@ function PremiumComboTable({ stats }: { stats: FeatureStats }) {
       // where every occurrence is its own event.
       if (name === "pro_price_seen") cell.seen += unique;
       else if (name === "pro_checkout") cell.checkout += unique;
+      else if (name === "pro_checkout_pix") cell.checkoutPix += unique;
+      else if (name === "pro_checkout_subscription") cell.checkoutSub += unique;
       else if (name === "pro_purchase") { cell.purchases += count; cell.grossCents += value; }
       else if (name === "pro_first_purchase") cell.first += unique;
-      else if (name === "pro_first_purchase_pix") cell.firstPix += unique;
-      else if (name === "pro_first_purchase_subscription") cell.firstSub += unique;
+      else if (name === "pro_first_purchase_pix") {
+        cell.firstPix += unique; cell.firstPixCount += count; cell.firstPixCents += value;
+      } else if (name === "pro_first_purchase_subscription") {
+        cell.firstSub += unique; cell.firstSubCount += count; cell.firstSubCents += value;
+      }
+      else if (name === "pro_sq_first_pix") { cell.sqPix += value; cell.sqPixCount += count; }
+      else if (name === "pro_sq_first_subscription") { cell.sqSub += value; cell.sqSubCount += count; }
+      else if (name === "pro_first_yearly") cell.yearly += unique;
+      else if (name.startsWith("pro_first_plan_")) {
+        if (name !== `pro_first_plan_${COMBO_BASE_PLAN}`) cell.upperPlan += unique;
+      }
       else if (name === "pro_repeat_purchase") cell.repeat += count;
       else if (name === "pro_renewal") cell.renewals += count;
       else if (name === "pro_net_revenue") cell.netCents += value;
       else if (name === "pro_mrr_add") { cell.mandates += count; cell.mrrCents += value; }
       else if (name === "pro_days_sold") cell.days += value;
       else if (name === "pro_cancel") { cell.cancels += count; cell.cancelDays += value; }
+      else if (name === "pro_sub_ended") { cell.ended += count; cell.endedDays += value; }
+      else if (name === "pro_sub_refused_first" || name === "pro_sub_refused_renewal") cell.refused += count;
+      else if (name === "pro_card_declined") cell.declined += count;
     }
     return map;
   }, [stats.events]);
+
+  // The per-person ledger (see the API's premiumLedger.ts): who renewed and
+  // who came back, which no counter above can say. Loaded once per panel —
+  // it is a few hundred rows, and it changes on the scale of days.
+  const [cohorts, setCohorts] = useState<PremiumCohorts | null>(null);
+  const [cohortError, setCohortError] = useState(false);
+  const hasCombos = sides.size > 0;
+  useEffect(() => {
+    if (!hasCombos) return;
+    let alive = true;
+    fetchPremiumCohorts()
+      .then((data) => alive && setCohorts(data))
+      .catch(() => alive && setCohortError(true));
+    return () => {
+      alive = false;
+    };
+  }, [hasCombos]);
+
+  /** Cohorts by cell (without the ad digit), on the side of the gate being read. */
+  const cohortByCombo = useMemo(() => {
+    const map = new Map<string, PremiumCellCohort>();
+    for (const row of cohorts?.cells ?? []) {
+      const match = /^(t[0-2]p[01]s[01])(?:a([01]))?$/.exec(row.combo);
+      if (!match) continue;
+      const [, combo, adDigit] = match;
+      if (adSide === "out" && adDigit === "1") continue;
+      if (adSide === "gated" && adDigit !== "1") continue;
+      map.set(combo, addCellCohort(map.get(combo) ?? emptyCellCohort(combo), row));
+    }
+    return map;
+  }, [cohorts, adSide]);
+
+  /** Every cell's cohort together — the fallback rate for cells too young to have their own. */
+  const pooledCohort = useMemo(() => {
+    const total = emptyCellCohort("all");
+    for (const row of cohortByCombo.values()) addCellCohort(total, row);
+    return total;
+  }, [cohortByCombo]);
+  const pooledSubRate = keepRate(pooledCohort.sub);
+  const pooledPixRate = keepRate(pooledCohort.pix);
+  // Both, because the whole comparison is one against the other: projecting
+  // subscriptions at their real churn while Pix is assumed never to return
+  // (or the reverse) would hand the ranking to whichever side has data.
+  const retentionReady = pooledSubRate !== null && pooledPixRate !== null;
+  // Only once a cohort is old enough to have a rate; until then there is
+  // nothing to project with, and the live-mandates view is all there is.
+  const mode = projMode === "retention" && retentionReady ? "retention" : "live";
 
   const cells = useMemo(() => {
     return [...sides.entries()].map(([combo, side]) => {
@@ -1551,15 +1708,58 @@ function PremiumComboTable({ stats }: { stats: FeatureStats }) {
   // selector is the analysis, and a row that changes place when it moves is
   // the finding.
   const ranked = useMemo(() => {
-    const projected = cells.map((entry) => ({
-      ...entry,
-      projected:
-        entry.cashPerPerson === null
-          ? null
-          : entry.cashPerPerson + (entry.mrrPerPerson ?? 0) * horizon,
-    }));
+    const projected = cells.map((entry) => {
+      const { cell } = entry;
+      const cohort = cohortByCombo.get(entry.combo) ?? null;
+      // This cell's own rate when it has enough matured buyers to have one,
+      // every cell's together otherwise — marked, so a row ranked on the
+      // pooled rate is not read as having earned it.
+      const ownSub = cohort ? keepRate(cohort.sub) : null;
+      const ownPix = cohort ? keepRate(cohort.pix) : null;
+      const subRate = ownSub ?? pooledSubRate;
+      const pixRate = ownPix ?? pooledPixRate;
+      // What one first sale of each method is worth over the horizon, in
+      // units of that sale. The horizon is months *beyond* the first, the
+      // same as the live view's "caixa + mensal × horizonte".
+      const cycles = horizon + 1;
+      const pixMult = mode === "retention" ? geometric(pixRate ?? 0, cycles) : 1;
+      const subMult = mode === "retention" ? geometric(subRate ?? 0, cycles) : cycles;
+      const fromFirsts = cell.seen
+        ? (cell.firstPixCents * pixMult + cell.firstSubCents * subMult) / cell.seen
+        : null;
+      const value =
+        mode === "retention"
+          ? fromFirsts
+          : entry.cashPerPerson === null
+            ? null
+            : entry.cashPerPerson + (entry.mrrPerPerson ?? 0) * horizon;
+
+      // The error bar: the spread of what one person who saw the price is
+      // worth (zero for most, a sale for some), from the squared sales. Only
+      // the sales that have a square recorded are a sample of it — rows
+      // older than the field have none — so the sum is scaled up to every
+      // sale, and left out entirely until there are enough of them.
+      const scaled = (sq: number, sqCount: number, sales: number) =>
+        sales === 0 ? 0 : sqCount >= COMBO_MIN_SQ ? sq * (sales / sqCount) : null;
+      const sqPix = scaled(cell.sqPix, cell.sqPixCount, cell.firstPixCount);
+      const sqSub = scaled(cell.sqSub, cell.sqSubCount, cell.firstSubCount);
+      let se: number | null = null;
+      if (sqPix !== null && sqSub !== null && cell.seen >= 30 && fromFirsts !== null) {
+        const meanSq = (sqPix * pixMult ** 2 + sqSub * subMult ** 2) / cell.seen;
+        se = Math.sqrt(Math.max(0, meanSq - fromFirsts ** 2) / cell.seen);
+      }
+      return {
+        ...entry,
+        cohort,
+        subRate,
+        pixRate,
+        ownRates: ownSub !== null && ownPix !== null,
+        projected: value,
+        se,
+      };
+    });
     return projected.sort((a, b) => (b.projected ?? -1) - (a.projected ?? -1));
-  }, [cells, horizon]);
+  }, [cells, horizon, mode, cohortByCombo, pooledSubRate, pooledPixRate]);
 
   if (ranked.length === 0) return null;
 
@@ -1611,13 +1811,31 @@ function PremiumComboTable({ stats }: { stats: FeatureStats }) {
           <option value="out">{t("admin.features.comboAdOut")}</option>
           <option value="gated">{t("admin.features.comboAdIn")}</option>
         </select>
+        <select
+          value={mode}
+          onChange={(e) => setProjMode(e.target.value as "live" | "retention")}
+          className={`${inputClass} w-auto py-1 text-xs`}
+        >
+          <option value="live">{t("admin.features.comboModeLive")}</option>
+          <option value="retention" disabled={!retentionReady}>
+            {retentionReady ? t("admin.features.comboModeRetention") : t("admin.features.comboModeRetentionWaiting")}
+          </option>
+        </select>
       </div>
       <p className="mt-1 text-[11px] text-zinc-500">{t("admin.features.comboHint", { min: COMBO_MIN_SEEN })}</p>
+      <p className="mt-1 text-[11px] text-zinc-500">
+        {mode === "retention"
+          ? t("admin.features.comboModeRetentionHint", {
+              sub: pooledSubRate === null ? "—" : `${Math.round(pooledSubRate * 100)}%`,
+              pix: pooledPixRate === null ? "—" : `${Math.round(pooledPixRate * 100)}%`,
+            })
+          : t("admin.features.comboModeLiveHint")}
+      </p>
       {best && (
         <p className="mt-2 rounded-md bg-amber-500/10 px-2 py-1 text-[11px] text-amber-700 dark:text-amber-300">
           {t("admin.features.comboBest", {
             combo: label(best.combo),
-            value: money(best.projected ?? 0),
+            value: money(best.projected ?? 0) + (best.se ? ` ± ${money(1.96 * best.se)}` : ""),
             count: horizon,
           })}
         </p>
@@ -1631,25 +1849,38 @@ function PremiumComboTable({ stats }: { stats: FeatureStats }) {
             {head("admin.features.comboCheckout")}
             {head("admin.features.comboConversion")}
             {head("admin.features.comboSubShare", t("admin.features.comboSubShareHint"))}
+            {head("admin.features.comboCardPaid", t("admin.features.comboCardPaidHint"))}
             {head("admin.features.comboMandates")}
             {head("admin.features.comboCancels")}
+            {head("admin.features.comboEnded", t("admin.features.comboEndedHint"))}
             {head("admin.features.comboRepeat", t("admin.features.comboRepeatHint"))}
             {head("admin.features.comboCash", t("admin.features.comboCashHint"))}
             {head("admin.features.comboMrr", t("admin.features.comboMrrHint"))}
-            {head("admin.features.comboProjected", t("admin.features.comboProjectedHint"))}
+            {head(
+              "admin.features.comboProjected",
+              t(mode === "retention" ? "admin.features.comboProjectedRetentionHint" : "admin.features.comboProjectedHint")
+            )}
             {head("admin.features.confidence", t("admin.features.comboConfidenceHint"))}
+            {head("admin.features.comboMoneyConfidence", t("admin.features.comboMoneyConfidenceHint"))}
           </tr>
         </thead>
         <tbody>
-          {ranked.map(({ combo, cell, adShare, cashPerPerson, mrrPerPerson, projected }) => {
+          {ranked.map(({ combo, cell, adShare, cashPerPerson, mrrPerPerson, projected, se, ownRates }) => {
             const thin = cell.seen < COMBO_MIN_SEEN;
             const gap = best && projected !== null && best.projected ? projected / best.projected - 1 : null;
-            // On the first-purchase rate, which is a proportion — the
-            // projection is money and has no z-test. It answers the question
-            // that actually stops somebody acting too early: could this cell
-            // be selling at the same rate as the leader by luck alone.
+            // On the first-purchase rate, which is a proportion. It answers
+            // the question that actually stops somebody acting too early:
+            // could this cell be selling at the same rate as the leader by
+            // luck alone.
             const conf =
               best && best.combo !== combo ? confidence(cell.first, cell.seen, best.cell.first, best.cell.seen) : null;
+            // And the same question on the money: the projection's gap to the
+            // leader against both error bars. The one that decides — a cell
+            // can sell to fewer people and still earn more.
+            const moneyConf =
+              best && best.combo !== combo && se && best.se && projected !== null && best.projected !== null
+                ? 2 * normalCdf(Math.abs(best.projected - projected) / Math.sqrt(se ** 2 + best.se ** 2)) - 1
+                : null;
             const firsts = cell.firstPix + cell.firstSub;
             // The split fell unevenly here. Not fatal and not a bug — it is
             // what a small sample does — but the gate moves buying hard
@@ -1685,6 +1916,7 @@ function PremiumComboTable({ stats }: { stats: FeatureStats }) {
                 <td className="py-1 pr-3 text-right">{pct(cell.checkout, cell.seen)}</td>
                 <td className="py-1 pr-3 text-right">{pct(cell.first, cell.seen, 2)}</td>
                 <td className="py-1 pr-3 text-right font-semibold">{pct(cell.firstSub, firsts)}</td>
+                <td className="py-1 pr-3 text-right">{cell.checkoutSub ? pct(cell.firstSub, cell.checkoutSub, 0) : "—"}</td>
                 <td className="py-1 pr-3 text-right">{number(cell.mandates)}</td>
                 <td className="py-1 pr-3 text-right">
                   {number(cell.cancels)}
@@ -1694,21 +1926,46 @@ function PremiumComboTable({ stats }: { stats: FeatureStats }) {
                     </span>
                   )}
                 </td>
+                <td className="py-1 pr-3 text-right">
+                  {cell.ended ? number(cell.ended) : "—"}
+                  {cell.ended > 0 && (
+                    <span className="ml-1 text-[10px] font-normal text-zinc-400">
+                      {Math.round(cell.endedDays / cell.ended)}d
+                    </span>
+                  )}
+                </td>
                 <td className="py-1 pr-3 text-right">{cell.repeat ? number(cell.repeat) : "—"}</td>
                 <td className="py-1 pr-3 text-right">{cashPerPerson === null ? "—" : money(cashPerPerson)}</td>
                 <td className="py-1 pr-3 text-right">{mrrPerPerson ? money(mrrPerPerson) : "—"}</td>
                 <td className="py-1 pr-3 text-right font-semibold">
                   {projected === null ? "—" : money(projected)}
+                  {se !== null && se > 0 && (
+                    <span className="ml-1 text-[10px] font-normal text-zinc-400">± {money(1.96 * se)}</span>
+                  )}
                   {gap !== null && gap < 0 && !thin && (
                     <span className="ml-1 text-[10px] font-normal text-red-500">{(gap * 100).toFixed(0)}%</span>
                   )}
+                  {mode === "retention" && !ownRates && (
+                    <span className="ml-1 text-[10px] font-normal text-zinc-400" title={t("admin.features.comboPooledRate")}>
+                      *
+                    </span>
+                  )}
                 </td>
-                <td className="py-1 text-right">
+                <td className="py-1 pr-3 text-right">
                   {conf === null ? (
                     "—"
                   ) : (
                     <span className={conf >= 0.95 ? "font-semibold text-emerald-600 dark:text-emerald-400" : "text-zinc-500"}>
                       {(conf * 100).toFixed(0)}%
+                    </span>
+                  )}
+                </td>
+                <td className="py-1 text-right">
+                  {moneyConf === null ? (
+                    "—"
+                  ) : (
+                    <span className={moneyConf >= 0.95 ? "font-semibold text-emerald-600 dark:text-emerald-400" : "text-zinc-500"}>
+                      {(moneyConf * 100).toFixed(0)}%
                     </span>
                   )}
                 </td>
@@ -1730,21 +1987,127 @@ function PremiumComboTable({ stats }: { stats: FeatureStats }) {
               {head("admin.features.comboRevenue")}
               {head("admin.features.comboNet", t("admin.features.comboNetHint"))}
               {head("admin.features.comboDays")}
+              {head("admin.features.comboTicket", t("admin.features.comboTicketHint"))}
+              {head("admin.features.comboYearly")}
+              {head("admin.features.comboUpperPlan")}
+              {head("admin.features.comboRefused", t("admin.features.comboRefusedHint"))}
+              {head("admin.features.comboDeclined", t("admin.features.comboDeclinedHint"))}
             </tr>
           </thead>
           <tbody>
-            {ranked.map(({ combo, cell }) => (
-              <tr key={combo} className="border-t border-zinc-100 dark:border-zinc-900">
-                <td className="py-1 pr-3 font-mono text-[10px] text-zinc-400">{combo}</td>
-                <td className="py-1 pr-3 text-right">{number(cell.purchases)}</td>
-                <td className="py-1 pr-3 text-right">{number(cell.renewals)}</td>
-                <td className="py-1 pr-3 text-right">{money(cell.grossCents)}</td>
-                <td className="py-1 pr-3 text-right">{cell.netCents ? money(cell.netCents) : "—"}</td>
-                <td className="py-1 pr-3 text-right">{cell.seen ? (cell.days / cell.seen).toFixed(1) : "—"}</td>
-              </tr>
-            ))}
+            {ranked.map(({ combo, cell }) => {
+              const firstSales = cell.firstPixCount + cell.firstSubCount;
+              return (
+                <tr key={combo} className="border-t border-zinc-100 dark:border-zinc-900">
+                  <td className="py-1 pr-3 font-mono text-[10px] text-zinc-400">{combo}</td>
+                  <td className="py-1 pr-3 text-right">{number(cell.purchases)}</td>
+                  <td className="py-1 pr-3 text-right">{number(cell.renewals)}</td>
+                  <td className="py-1 pr-3 text-right">{money(cell.grossCents)}</td>
+                  <td className="py-1 pr-3 text-right">{cell.netCents ? money(cell.netCents) : "—"}</td>
+                  <td className="py-1 pr-3 text-right">{cell.seen ? (cell.days / cell.seen).toFixed(1) : "—"}</td>
+                  <td className="py-1 pr-3 text-right">
+                    {firstSales ? money((cell.firstPixCents + cell.firstSubCents) / firstSales) : "—"}
+                  </td>
+                  <td className="py-1 pr-3 text-right">{cell.yearly ? pct(cell.yearly, cell.first) : "—"}</td>
+                  <td className="py-1 pr-3 text-right">{cell.upperPlan ? pct(cell.upperPlan, cell.first) : "—"}</td>
+                  <td className="py-1 pr-3 text-right">{cell.refused ? number(cell.refused) : "—"}</td>
+                  <td className="py-1 pr-3 text-right">{cell.declined ? number(cell.declined) : "—"}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
+      </details>
+
+      {/* The cohorts: the people behind the counters, followed since their
+          first purchase. This is where "does sem Pix pay" gets its answer —
+          the two rates in it are the only unknowns in that trade. */}
+      <details className="mt-2" open>
+        <summary className="cursor-pointer text-[11px] font-semibold text-zinc-600 dark:text-zinc-400">
+          {t("admin.features.cohortTitle")}
+        </summary>
+        {cohortError ? (
+          <p className="mt-2 text-[11px] text-red-500">{t("admin.features.cohortError")}</p>
+        ) : !cohorts ? (
+          <p className="mt-2 text-[11px] text-zinc-500">…</p>
+        ) : (
+          <>
+            <p className="mt-1 text-[11px] text-zinc-500">
+              {t("admin.features.cohortHint", {
+                since: cohorts.firstAt ? new Date(cohorts.firstAt).toLocaleDateString(formatLocale()) : "—",
+                grace: cohorts.subGraceDays,
+                window: cohorts.pixWindowDays,
+                min: COHORT_MIN_MATURED,
+              })}
+            </p>
+            <table className="mt-2 w-full min-w-[60rem] text-xs tabular-nums">
+              <thead>
+                <tr className="text-left text-zinc-500">
+                  <th className="py-1 pr-3 font-medium">{t("admin.features.comboCell")}</th>
+                  {head("admin.features.cohortPixBuyers")}
+                  {head("admin.features.cohortPixBack", t("admin.features.cohortPixBackHint"))}
+                  {head("admin.features.cohortPixToSub")}
+                  {head("admin.features.cohortSubBuyers")}
+                  {head("admin.features.cohortSubRenewed", t("admin.features.cohortSubRenewedHint"))}
+                  {head("admin.features.cohortSubEnded", t("admin.features.cohortSubEndedHint"))}
+                  {head("admin.features.cohortLtv", t("admin.features.cohortLtvHint"))}
+                  {head("admin.features.cohortRefused")}
+                </tr>
+              </thead>
+              <tbody>
+                {[...[...cohortByCombo.values()].sort((a, b) => a.combo.localeCompare(b.combo)), pooledCohort].map((row) => {
+                  const rate = (side: PremiumMethodCohort) =>
+                    side.matured ? (
+                      <>
+                        <span className={side.matured < COHORT_MIN_MATURED ? "text-zinc-400" : "font-semibold"}>
+                          {pct(side.kept, side.matured, 0)}
+                        </span>
+                        <span className="ml-1 text-[10px] text-zinc-400">
+                          {side.kept}/{side.matured}
+                        </span>
+                      </>
+                    ) : (
+                      "—"
+                    );
+                  const ltv = row.buyers ? row.ltvCents / row.buyers : null;
+                  const ltvSe =
+                    row.buyers >= 10 && ltv !== null
+                      ? Math.sqrt(Math.max(0, row.ltvSq / row.buyers - ltv ** 2) / row.buyers)
+                      : null;
+                  const pooled = row.combo === "all";
+                  return (
+                    <tr
+                      key={row.combo}
+                      className={`border-t border-zinc-100 dark:border-zinc-900 ${pooled ? "font-semibold" : ""}`}
+                    >
+                      <td className="py-1 pr-3">
+                        {pooled ? t("admin.features.cohortAll") : label(row.combo)}
+                        {!pooled && <span className="ml-2 font-mono text-[10px] text-zinc-400">{row.combo}</span>}
+                      </td>
+                      <td className="py-1 pr-3 text-right">{row.pix.buyers ? number(row.pix.buyers) : "—"}</td>
+                      <td className="py-1 pr-3 text-right">{rate(row.pix)}</td>
+                      <td className="py-1 pr-3 text-right">{row.pix.toSub ? number(row.pix.toSub) : "—"}</td>
+                      <td className="py-1 pr-3 text-right">{row.sub.buyers ? number(row.sub.buyers) : "—"}</td>
+                      <td className="py-1 pr-3 text-right">{rate(row.sub)}</td>
+                      <td className="py-1 pr-3 text-right">
+                        {row.sub.buyers ? pct(row.sub.ended, row.sub.buyers, 0) : "—"}
+                      </td>
+                      <td className="py-1 pr-3 text-right">
+                        {ltv === null ? "—" : money(ltv)}
+                        {ltvSe !== null && ltvSe > 0 && (
+                          <span className="ml-1 text-[10px] font-normal text-zinc-400">± {money(1.96 * ltvSe)}</span>
+                        )}
+                      </td>
+                      <td className="py-1 pr-3 text-right">
+                        {row.refusedFirst || row.refusedRenewal ? `${row.refusedFirst} · ${row.refusedRenewal}` : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </>
+        )}
       </details>
     </div>
   );

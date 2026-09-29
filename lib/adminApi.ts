@@ -1211,6 +1211,45 @@ export async function fetchCancellations(
   return adminFetch(`/admin/premium/cancellations?limit=${limit}`);
 }
 
+/** One payment method's side of a cell's cohort. See the API's premiumLedger. */
+export interface PremiumMethodCohort {
+  buyers: number;
+  /** Old enough to have renewed (or come back) by now. */
+  matured: number;
+  /** Of the matured, paid for the next stretch. */
+  kept: number;
+  ended: number;
+  /** Pix only: came back as a subscription. */
+  toSub: number;
+  firstCents: number;
+  ltvCents: number;
+}
+
+/** The first buyers of one combination cell, followed since. */
+export interface PremiumCellCohort {
+  combo: string;
+  buyers: number;
+  ltvCents: number;
+  ltvSq: number;
+  pix: PremiumMethodCohort;
+  sub: PremiumMethodCohort;
+  refusedFirst: number;
+  refusedRenewal: number;
+}
+
+export interface PremiumCohorts {
+  now: number;
+  subGraceDays: number;
+  pixWindowDays: number;
+  /** The oldest row read — how far back the ledger actually reaches. */
+  firstAt: number | null;
+  cells: PremiumCellCohort[];
+}
+
+export async function fetchPremiumCohorts(days = 365): Promise<PremiumCohorts> {
+  return adminFetch(`/admin/premium/cohorts?days=${days}`);
+}
+
 // ─── Registro de ações ────────────────────────────────────────────────────
 
 export interface AdminLogEntry {
