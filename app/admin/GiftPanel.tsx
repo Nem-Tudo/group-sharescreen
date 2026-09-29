@@ -7,7 +7,7 @@ import {
   type AdminGift,
   type AdminPlanOption,
 } from "@/lib/adminApi";
-import { downloadGiftCard } from "@/lib/giftCardImage";
+import { downloadGiftCard, downloadGiftCardsPdf } from "@/lib/giftCardImage";
 import { useI18n } from "@/lib/useI18n";
 
 // Minting a gift link nobody paid for.
@@ -110,6 +110,20 @@ export function GiftPanel() {
   const [error, setError] = useState<string | null>(null);
   // Newest first: the one just made is the one being copied.
   const [minted, setMinted] = useState<AdminGift[]>([]);
+  const [buildingPdf, setBuildingPdf] = useState(false);
+
+  // Every card made this visit, 8 to a landscape A4 (see giftCardImage).
+  // Oldest first, so the sheet reads in the order they were made.
+  async function downloadAllPdf() {
+    setBuildingPdf(true);
+    try {
+      await downloadGiftCardsPdf([...minted].reverse());
+    } catch {
+      setError(t("admin.giftPanel.couldNotBuildPdf"));
+    } finally {
+      setBuildingPdf(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -228,9 +242,19 @@ export function GiftPanel() {
 
       {minted.length > 0 && (
         <div className="mt-4 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-          <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
-            {t("admin.giftPanel.generatedNowCopyThemBeforeLeaving")}
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+              {t("admin.giftPanel.generatedNowCopyThemBeforeLeaving")}
+            </p>
+            <button
+              type="button"
+              onClick={() => void downloadAllPdf()}
+              disabled={buildingPdf}
+              className="shrink-0 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+            >
+              {buildingPdf ? t("admin.giftPanel.buildingPdf") : t("admin.giftPanel.downloadAllPdf")}
+            </button>
+          </div>
           <ul className="mt-2 flex flex-col gap-2">
             {minted.map((gift) => (
               <GiftRow key={gift.giftId} gift={gift} />

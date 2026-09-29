@@ -4299,5 +4299,8 @@
   "giftClaimDialog.tryAnotherCode": "Probar otro código",
   "redeem.title": "Canjear regalo",
   "redeem.description": "Escribe el código de un regalo de GoLive para canjearlo.",
-  "admin.giftPanel.downloadImage": "Descargar imagen"
+  "admin.giftPanel.downloadImage": "Descargar imagen",
+  "admin.giftPanel.downloadAllPdf": "Descargar todos (PDF A4)",
+  "admin.giftPanel.buildingPdf": "Armando PDF…",
+  "admin.giftPanel.couldNotBuildPdf": "No se pudo armar el PDF."
 }

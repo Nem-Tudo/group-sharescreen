@@ -4299,5 +4299,8 @@
   "giftClaimDialog.tryAnotherCode": "Tentar outro código",
   "redeem.title": "Resgatar presente",
   "redeem.description": "Digite o código de um presente do GoLive para resgatá-lo.",
-  "admin.giftPanel.downloadImage": "Baixar imagem"
+  "admin.giftPanel.downloadImage": "Baixar imagem",
+  "admin.giftPanel.downloadAllPdf": "Baixar todos (PDF A4)",
+  "admin.giftPanel.buildingPdf": "Montando PDF…",
+  "admin.giftPanel.couldNotBuildPdf": "Não foi possível montar o PDF."
 }

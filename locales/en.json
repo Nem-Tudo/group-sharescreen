@@ -4299,5 +4299,8 @@
   "giftClaimDialog.tryAnotherCode": "Try another code",
   "redeem.title": "Redeem gift",
   "redeem.description": "Enter a GoLive gift code to redeem it.",
-  "admin.giftPanel.downloadImage": "Download image"
+  "admin.giftPanel.downloadImage": "Download image",
+  "admin.giftPanel.downloadAllPdf": "Download all (A4 PDF)",
+  "admin.giftPanel.buildingPdf": "Building PDF…",
+  "admin.giftPanel.couldNotBuildPdf": "Could not build the PDF."
 }
