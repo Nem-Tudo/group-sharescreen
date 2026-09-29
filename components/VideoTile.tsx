@@ -70,6 +70,7 @@ import {
   refreshAndroidPipSupport,
 } from "@/lib/androidPictureInPicture";
 import { useT } from "@/lib/useI18n";
+import { useProtectedRoom } from "@/lib/captureProtection";
 import { isPageHidden, onPageHiddenChange } from "@/lib/pageHidden";
 
 function noopSubscribe() {
@@ -443,7 +444,10 @@ const VideoTileView = memo(function VideoTileView({
   // needs the page stripped to this tile before the window floats, which only
   // the screen holding the layout can do — hence the callback rather than
   // something this component could carry out itself.
-  const pipSupported = browserPipSupported || (androidPipSupported && Boolean(onNativePip));
+  // Never in a protected room: the floating window is a window of its own,
+  // outside the capture protection (see lib/captureProtection.ts).
+  const protectedRoom = useProtectedRoom();
+  const pipSupported = !protectedRoom && (browserPipSupported || (androidPipSupported && Boolean(onNativePip)));
 
   // Pinch to zoom, only once the tile owns the whole screen. A phone looking
   // at somebody's shared 1440p desktop is reading text at a tenth of its

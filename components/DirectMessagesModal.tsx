@@ -50,7 +50,7 @@ import { InviteEmbeds } from "@/components/groups/InviteEmbed";
 import { LinkPreviewCard } from "@/components/LinkPreviewCard";
 import { Popover, Tooltip } from "@/components/Tooltip";
 import { AttachMenu, splitPicked } from "@/components/AttachMenu";
-import { AttachmentTray } from "@/components/AttachmentTray";
+import { AttachmentTray, dataUrlToFile, ImageViewOnceButton } from "@/components/AttachmentTray";
 import { MessageAttachments } from "@/components/MessageAttachments";
 import { ChatImages } from "@/components/ChatImages";
 import { attachmentsPreview, type ChatAttachment } from "@/lib/chatAttachments";
@@ -3369,6 +3369,16 @@ export function DirectMessagesModal({
             <span key={`${index}:${dataUrl.slice(-24)}`} className="relative">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={dataUrl} alt={t("common.attachment")} className="h-14 w-14 rounded-lg object-cover" />
+              <ImageViewOnceButton
+                onClick={() => {
+                  const to = activeId;
+                  if (!to) return;
+                  setAttachments({ userId: to, value: attached.filter((_, i) => i !== index) });
+                  if (filesFor !== to) uploads.clear();
+                  setFilesFor(to);
+                  void dataUrlToFile(dataUrl, "imagem").then((file) => uploads.add([file], { viewOnce: true }));
+                }}
+              />
               <button
                 type="button"
                 onClick={() =>
@@ -3392,6 +3402,12 @@ export function DirectMessagesModal({
         <AttachmentTray
           items={filesHere}
           onRemove={uploads.remove}
+          uploads={uploads}
+          onRestoreImage={(file) => {
+            const list = new DataTransfer();
+            list.items.add(file);
+            void handleFiles(list.files);
+          }}
           className="shrink-0 border-t border-zinc-200 px-3 py-2 dark:border-zinc-800"
         />
       )}

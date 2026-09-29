@@ -18,7 +18,12 @@ import {
   MdOutlineImage,
   MdPalette,
   MdOutlineMap,
+  MdLockOutline,
+  MdBrandingWatermark,
+  MdOutlineBrandingWatermark,
 } from "react-icons/md";
+import { MenuToggleRow } from "@/components/MenuToggleRow";
+import { captureProtectionLevel } from "@/lib/captureProtection";
 import {
   signalingClient,
   isObsPeer,
@@ -67,7 +72,7 @@ const PERMISSION_ROWS: {
   { key: "theme", get label() { return translate("manageRoomModal.allowProMaxMembersToChange"); }, icon: MdPalette },
 ];
 
-type View = "menu" | "admins" | "permissions" | "location" | "bans" | "limit";
+type View = "menu" | "admins" | "permissions" | "location" | "bans" | "limit" | "protection";
 
 // Rounded for display only — the full precision is what gets sent. Six
 // decimals is roughly a tenth of a metre, far past anything a click on a
@@ -182,13 +187,15 @@ export function ManageRoomModal({
           ? t("manageRoomModal.participantLimit")
           : view === "bans"
             ? t("common.bans")
+            : view === "protection"
+              ? t("protectedRoom.title")
             : view === "location"
               ? celebrating
                 ? t("manageRoomModal.youCreatedAPublicRoom")
                 : canEditLocation
                   ? t("manageRoomModal.setAPlaceInTheWorld")
                   : t("manageRoomModal.theRoomSPlaceInThe")
-              : t("common.manageRoom");
+                : t("common.manageRoom");
 
 
   return (
@@ -264,6 +271,20 @@ export function ManageRoomModal({
             </span>
             <span className="flex items-center gap-1 text-xs font-normal text-zinc-500 dark:text-zinc-400">
               {state.roomMemberLimit ?? "sem limite"}
+              <MdChevronRight className="h-4 w-4 shrink-0 opacity-50" />
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setView("protection")}
+            className="flex items-center justify-between gap-2 rounded-lg border border-zinc-300 px-3 py-2.5 text-left text-sm font-medium transition hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
+          >
+            <span className="flex items-center gap-2">
+              <MdLockOutline className="h-4 w-4 shrink-0 text-violet-500" />
+              {t("protectedRoom.title")}
+            </span>
+            <span className="flex items-center gap-1 text-xs font-normal text-zinc-500 dark:text-zinc-400">
+              {state.roomCaptureProtected ? t("protectedRoom.on") : t("protectedRoom.off")}
               <MdChevronRight className="h-4 w-4 shrink-0 opacity-50" />
             </span>
           </button>
@@ -604,6 +625,10 @@ export function ManageRoomModal({
         </div>
       )}
 
+      {view === "protection" && (
+        <ProtectionView enabled={state.roomCaptureProtected} watermark={state.roomCaptureWatermark} />
+      )}
+
       {view === "bans" && (
         <div className="flex flex-col gap-2">
           <p className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
@@ -687,6 +712,52 @@ export function ManageRoomModal({
             })}
           </ul>
         </div>
+      )}
+    </div>
+  );
+}
+
+// A protected room (see lib/captureProtection.ts): desktop app only, with
+// screenshots and screen recorders blocked there. Switched from the app only —
+// the server refuses it from anywhere else, since turning it on from a browser
+// would throw the person switching it out of their own room.
+function ProtectionView({ enabled, watermark }: { enabled: boolean; watermark: boolean }) {
+  const t = useT();
+  const level = captureProtectionLevel();
+  const canSwitch = level === "full" || level === "partial";
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">{t("protectedRoom.explanation")}</p>
+      <ul className="flex list-disc flex-col gap-1 pl-4 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+        <li>{t("protectedRoom.pointAppOnly")}</li>
+        <li>{t("protectedRoom.pointBlocked")}</li>
+        <li>{t("protectedRoom.pointMac")}</li>
+        <li>{t("protectedRoom.pointLimits")}</li>
+      </ul>
+      <button
+        type="button"
+        disabled={!canSwitch}
+        onClick={() => signalingClient.setRoomCaptureProtection({ enabled: !enabled })}
+        className={`rounded-lg px-3 py-2 text-sm font-medium text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${
+          enabled ? "bg-zinc-600 hover:bg-zinc-700" : "bg-violet-600 hover:bg-violet-700"
+        }`}
+      >
+        {enabled ? t("protectedRoom.turnOff") : t("protectedRoom.turnOn")}
+      </button>
+      <MenuToggleRow
+        label={t("protectedRoom.watermark")}
+        hint={t("protectedRoom.watermarkHint")}
+        active={watermark}
+        disabled={!canSwitch}
+        onToggle={() => signalingClient.setRoomCaptureProtection({ watermark: !watermark })}
+        activeIcon={<MdBrandingWatermark className="h-4 w-4 text-violet-500" aria-hidden />}
+        inactiveIcon={<MdOutlineBrandingWatermark className="h-4 w-4 opacity-60" aria-hidden />}
+      />
+      {!canSwitch && (
+        <p className="text-[11px] leading-relaxed text-amber-600 dark:text-amber-400">{t("protectedRoom.onlyFromApp")}</p>
+      )}
+      {!enabled && canSwitch && (
+        <p className="text-[11px] leading-relaxed text-zinc-400 dark:text-zinc-500">{t("protectedRoom.turnOnKicks")}</p>
       )}
     </div>
   );

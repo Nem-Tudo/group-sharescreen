@@ -70,6 +70,7 @@ export type UploadResult =
   | { ok: false; error: string; aborted?: boolean };
 
 function errorFor(status: number, serverError: string | undefined, maxMb: number | null): string {
+  if (status === 401 && serverError?.includes("view-once")) return translate("viewOnce.signInToSend");
   if (status === 401) return translate("attachments.signInToSendFiles");
   if (status === 413) {
     return maxMb ? translate("attachments.fileTooLarge", { mb: maxMb }) : translate("attachments.couldNotSendTheFile");
@@ -78,6 +79,7 @@ function errorFor(status: number, serverError: string | undefined, maxMb: number
   if (status === 503) return translate("attachments.filesUnavailable");
   if (status === 400 && serverError?.includes("cannot be sent")) return translate("attachments.fileTypeNotAllowed");
   if (status === 400 && serverError?.includes("too small")) return translate("attachments.fileTooSmall");
+  if (status === 400 && serverError?.includes("view-once")) return translate("viewOnce.typeNotAllowed");
   return translate("attachments.couldNotSendTheFile");
 }
 
@@ -88,13 +90,25 @@ export function uploadAttachment(
     onProgress,
     signal,
     maxMb = null,
-  }: { onProgress?: (fraction: number) => void; signal?: AbortSignal; maxMb?: number | null } = {}
+    viewOnce = false,
+    watermark = true,
+  }: {
+    onProgress?: (fraction: number) => void;
+    signal?: AbortSignal;
+    maxMb?: number | null;
+    /** Sent as a view-once file — see lib/viewOnceApi.ts. */
+    viewOnce?: boolean;
+    /** For a view-once file: the viewer's name drawn over it. */
+    watermark?: boolean;
+  } = {}
 ): Promise<UploadResult> {
   const token = uploadAuthToken();
   if (!token) return Promise.resolve({ ok: false, error: translate("attachments.signInToSendFiles") });
 
   return new Promise((resolve) => {
     const query = new URLSearchParams({ name: file.name, type: file.type || "application/octet-stream", for: target });
+    if (viewOnce) query.set("viewOnce", "1");
+    if (viewOnce && !watermark) query.set("watermark", "0");
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${getSignalingHttpBase()}/uploads?${query.toString()}`);
     xhr.setRequestHeader("Authorization", `Bearer ${token}`);

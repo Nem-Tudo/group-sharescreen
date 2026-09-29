@@ -2,6 +2,7 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import { trackFeatureEvent, useFeature } from "./features";
+import { useProtectedRoom } from "./captureProtection";
 
 // The tile experiments switched on from the room's "Mais opções":
 //   - "Modo clipes": the clip-the-last-30s button (see lib/clipBuffer);
@@ -237,7 +238,10 @@ export function useTileExperiment(experiment: TileExperiment, options: { track?:
     },
     () => false
   );
-  return { available, on, active: available && on };
+  // Clips and recordings save the room to disk — the one thing a protected
+  // room exists to prevent (see lib/captureProtection.ts).
+  const blocked = useProtectedRoom() && (experiment === "clips" || experiment === "recording");
+  return { available, on, active: available && on && !blocked };
 }
 
 /**

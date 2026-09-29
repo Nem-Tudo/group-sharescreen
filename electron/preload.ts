@@ -10,7 +10,14 @@
 // website's side of this contract is typed.
 
 import { contextBridge, ipcRenderer } from "electron";
-import { IPC, NATIVE_VIDEO_ARG, SYSTEM_AUDIO_ARG, SYSTEM_AUDIO_FORMAT, VERSION_ARG } from "./channels";
+import {
+  CAPTURE_PROTECTION_ARG,
+  IPC,
+  NATIVE_VIDEO_ARG,
+  SYSTEM_AUDIO_ARG,
+  SYSTEM_AUDIO_FORMAT,
+  VERSION_ARG,
+} from "./channels";
 
 // A sandboxed preload cannot reach `app.getVersion()` — it has no main-process
 // APIs at all — and `process.env` set in main is not propagated here either.
@@ -20,6 +27,14 @@ function readVersion(): string {
   const arg = process.argv.find((a) => a.startsWith(VERSION_ARG));
   return arg ? arg.slice(VERSION_ARG.length) : "0.0.0";
 }
+
+function readCaptureProtection(): "full" | "partial" | null {
+  const arg = process.argv.find((a) => a.startsWith(CAPTURE_PROTECTION_ARG));
+  const level = arg?.slice(CAPTURE_PROTECTION_ARG.length);
+  return level === "full" || level === "partial" ? level : null;
+}
+
+const captureProtectionLevel = readCaptureProtection();
 
 contextBridge.exposeInMainWorld("golive", {
   appVersion: readVersion(),
@@ -253,6 +268,18 @@ contextBridge.exposeInMainWorld("golive", {
       ipcRenderer.off(IPC.pushToTalkState, listener);
     };
   },
+
+  // Keeping the window out of screenshots and screen recorders, for protected
+  // rooms and view-once files (see the site's lib/captureProtection.ts).
+  // Undefined where the OS offers no way to do it, which is the site's check.
+  captureProtection: captureProtectionLevel
+    ? {
+        level: captureProtectionLevel,
+        set(on: unknown): Promise<boolean> {
+          return ipcRenderer.invoke(IPC.captureProtectionSet, on === true) as Promise<boolean>;
+        },
+      }
+    : undefined,
 
   onGlobalShortcut(callback: unknown): () => void {
     if (typeof callback !== "function") return () => {};

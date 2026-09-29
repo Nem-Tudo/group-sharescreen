@@ -104,7 +104,7 @@ export const selectAnnouncement = pickFields(["announcement", "announcementLive"
 export const selectNameSlice = pickFields(["name"]);
 
 // The room settings dialog.
-export const selectManageRoom = pickFields(["peers", "room", "roomAdmins", "roomBans", "roomLocation", "roomMemberLimit", "roomOwnerId", "roomPermissions", "selfUserId"]);
+export const selectManageRoom = pickFields(["peers", "room", "roomAdmins", "roomBans", "roomLocation", "roomMemberLimit", "roomCaptureProtected", "roomCaptureWatermark", "roomOwnerId", "roomPermissions", "selfUserId"]);
 
 // A partner ad pushed by the server (PartnerCard, usePartnerAd).
 export const selectPartnerPush = pickFields(["partner", "partnerSeq"]);
@@ -149,4 +149,4 @@ export const selectRoomSoundEffects = pickFields(["chatMessages", "name", "peers
 // re-rendered the entire room. They are read by the small components that
 // actually show them (RoomChat, ChatUnreadBadge, RoomMusicBar,
 // RoomSoundEffects in WatchRoom), and the room itself by selectMusicSummary.
-export const selectWatchRoom = pickFields(["account", "name", "selfUserId", "peers", "status", "selfId", "roomMemberLimit", "nameError", "room", "videoSources", "roomOwnerId", "roomRemoval", "roomPermissions", "guestBroadcastLimit", "roomLocation", "roomDescription", "roomCategory", "roomAdmins", "permissionDenied", "roomTheme", "roomCreated", "joinError", "deviceConflict", "bannedReason", "selfDevice", "roomConverted", "permissionDeniedSeq", "myRoomPermissions", "joinErrorKind", "guestBroadcastLimitSeq", "chatBlockedMessage", "roomSilenced", "broadcastAdGate"]);
+export const selectWatchRoom = pickFields(["account", "name", "selfUserId", "peers", "status", "selfId", "roomMemberLimit", "roomCaptureProtected", "roomCaptureWatermark", "nameError", "room", "videoSources", "roomOwnerId", "roomRemoval", "roomPermissions", "guestBroadcastLimit", "roomLocation", "roomDescription", "roomCategory", "roomAdmins", "permissionDenied", "roomTheme", "roomCreated", "joinError", "deviceConflict", "bannedReason", "selfDevice", "roomConverted", "permissionDeniedSeq", "myRoomPermissions", "joinErrorKind", "guestBroadcastLimitSeq", "chatBlockedMessage", "roomSilenced", "broadcastAdGate"]);

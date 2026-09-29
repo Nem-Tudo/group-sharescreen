@@ -15,6 +15,11 @@ export interface ChatAttachment {
   size: number;
   type: string;
   kind: AttachmentKind;
+  /**
+   * A view-once file's id (see lib/viewOnceApi.ts). `url` is then ciphertext
+   * only the API can open, so it is never linked or played.
+   */
+  viewOnce?: string;
 }
 
 /** Mirrors the API's CHAT_ATTACHMENT_MAX_PER_MESSAGE. */
@@ -41,6 +46,7 @@ export function parseAttachments(raw: unknown): ChatAttachment[] | undefined {
       size: typeof value.size === "number" && value.size > 0 ? value.size : 0,
       type,
       kind: value.kind === "video" || value.kind === "audio" || value.kind === "file" ? value.kind : attachmentKindOf(type),
+      ...(typeof value.viewOnce === "string" && /^[a-f0-9]{32}$/.test(value.viewOnce) ? { viewOnce: value.viewOnce } : {}),
     });
   }
   return out.length > 0 ? out : undefined;
@@ -70,6 +76,9 @@ export function fileExtension(name: string): string {
 export function attachmentsPreview(attachments: ChatAttachment[] | undefined): string {
   if (!attachments || attachments.length === 0) return "";
   const [first] = attachments;
+  // What a view-once file is called stays with the file: its card says only
+  // what kind of thing it is, and so does this.
+  if (first.viewOnce) return `👁 ${first.kind === "video" ? "🎬" : first.kind === "audio" ? "🎵" : "🖼"}`;
   const more = attachments.length > 1 ? ` +${attachments.length - 1}` : "";
   return `📎 ${first.name}${more}`;
 }

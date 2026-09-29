@@ -9,6 +9,7 @@ import {
 } from "./chatAttachments";
 import { getUploadLimit, isBlockedFile, uploadAttachment, type UploadLimit, type UploadTarget } from "./uploadApi";
 import { translate } from "@/lib/i18n";
+import { isViewOnceFile, setViewOnceWatermark, VIEW_ONCE_MAX_MB } from "./viewOnceApi";
 
 // The files waiting in a composer: each one starts uploading the moment it is
 // picked, so by the time the message is written the file is usually already
@@ -27,6 +28,18 @@ export interface PendingAttachment {
   attachment?: ChatAttachment;
   /** The receipt the message carries — see the API's chatAttachments.ts. */
   token?: string;
+  /** The MIME type the file was picked with. */
+  type?: string;
+  /** Going out as a view-once file (see lib/viewOnceApi.ts). */
+  viewOnce?: boolean;
+  /**
+   * For a view-once file: whether the viewer's name is drawn over it. The
+   * sender's call, on by default, and changeable after the upload (see
+   * setViewOnceWatermark in lib/viewOnceApi).
+   */
+  watermark?: boolean;
+  /** A picture's own pixels, for the tray card — an object URL, revoked with the item. */
+  previewUrl?: string;
 }
 
 // The API lets one person run three uploads at once; two leaves room for a
@@ -68,15 +81,28 @@ export function useAttachmentUploads(target: UploadTarget) {
       patch(item.id, { status: "uploading" });
       void uploadAttachment(file, target, {
         signal: controller.signal,
-        maxMb: limit?.maxMb ?? null,
+        maxMb: item.viewOnce ? VIEW_ONCE_MAX_MB : (limit?.maxMb ?? null),
+        viewOnce: item.viewOnce,
+        watermark: item.watermark !== false,
         onProgress: (progress) => patch(item.id, { progress }),
       }).then((result) => {
+        // Replaced by a newer upload of the same item (view-once switched
+        // while this one ran): that one reports, not this.
+        if (controllers.current.get(item.id) !== controller) return;
         controllers.current.delete(item.id);
-        files.current.delete(item.id);
+        // The File stays until the item goes: switching view-once on or off
+        // afterwards uploads it again.
         // Removed while it was running: nothing left to update.
-        if (!itemsRef.current.some((entry) => entry.id === item.id)) return;
+        const current = itemsRef.current.find((entry) => entry.id === item.id);
+        if (!current) return;
         if (result.ok) {
           patch(item.id, { status: "done", progress: 1, attachment: result.attachment, token: result.token });
+          // Switched off while the upload was on its way — the upload itself
+          // went out with whatever the item said when it started.
+          const viewOnceId = result.attachment.viewOnce;
+          if (viewOnceId && current.watermark === false && item.watermark !== false) {
+            void setViewOnceWatermark(viewOnceId, false);
+          }
         } else if (!result.aborted) {
           patch(item.id, { status: "error", error: result.error });
         }
@@ -96,7 +122,7 @@ export function useAttachmentUploads(target: UploadTarget) {
   }, []);
 
   const add = useCallback(
-    async (picked: File[]) => {
+    async (picked: File[], { viewOnce = false }: { viewOnce?: boolean } = {}) => {
       if (picked.length === 0) return;
       setError(null);
       const current = await refreshLimit();
@@ -123,6 +149,14 @@ export function useAttachmentUploads(target: UploadTarget) {
           setError(translate("attachments.fileTooLarge", { mb: current.maxMb }));
           continue;
         }
+        if (viewOnce && !isViewOnceFile(file)) {
+          setError(translate("viewOnce.typeNotAllowed"));
+          continue;
+        }
+        if (viewOnce && file.size > VIEW_ONCE_MAX_MB * 1024 * 1024) {
+          setError(translate("attachments.fileTooLarge", { mb: VIEW_ONCE_MAX_MB }));
+          continue;
+        }
         if (file.size < current.minBytes) {
           setError(translate("attachments.fileTooSmall"));
           continue;
@@ -134,8 +168,12 @@ export function useAttachmentUploads(target: UploadTarget) {
           name: file.name,
           size: file.size,
           kind: attachmentKindOf(file.type),
+          type: file.type,
           progress: 0,
           status: "queued",
+          watermark: true,
+          ...(viewOnce ? { viewOnce: true } : {}),
+          ...(file.type.startsWith("image/") ? { previewUrl: URL.createObjectURL(file) } : {}),
         });
       }
       if (added.length === 0) return;
@@ -151,11 +189,79 @@ export function useAttachmentUploads(target: UploadTarget) {
       controllers.current.get(id)?.abort();
       controllers.current.delete(id);
       files.current.delete(id);
-      update((list) => list.filter((item) => item.id !== id));
+      update((list) =>
+        list.filter((item) => {
+          if (item.id === id && item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+          return item.id !== id;
+        })
+      );
       setError(null);
       pump();
     },
     [pump, update]
+  );
+
+  /**
+   * Takes a file out of the tray and hands it back — for a picture switched
+   * off view-once, which goes back to the composer's own picture tray.
+   */
+  const take = useCallback(
+    (id: number): File | null => {
+      const file = files.current.get(id) ?? null;
+      remove(id);
+      return file;
+    },
+    [remove]
+  );
+
+  /** Whether this item's file is still here to be uploaded again. */
+  const canReupload = useCallback((id: number) => files.current.has(id), []);
+
+  /**
+   * Switches a file to view-once or back. Uploads it again, since the two go
+   * to the CDN differently (a view-once file is encrypted on the way — see
+   * the API's uploadRoutes.ts), and whatever was already uploaded is dropped.
+   */
+  const setViewOnce = useCallback(
+    (id: number, on: boolean) => {
+      const file = files.current.get(id);
+      const item = itemsRef.current.find((entry) => entry.id === id);
+      if (!file || !item || Boolean(item.viewOnce) === on) return;
+      if (on && !isViewOnceFile(file)) {
+        setError(translate("viewOnce.typeNotAllowed"));
+        return;
+      }
+      if (on && file.size > VIEW_ONCE_MAX_MB * 1024 * 1024) {
+        setError(translate("attachments.fileTooLarge", { mb: VIEW_ONCE_MAX_MB }));
+        return;
+      }
+      setError(null);
+      controllers.current.get(id)?.abort();
+      controllers.current.delete(id);
+      patch(id, {
+        viewOnce: on,
+        status: "queued",
+        progress: 0,
+        error: undefined,
+        attachment: undefined,
+        token: undefined,
+      });
+      pump();
+    },
+    [patch, pump]
+  );
+
+  /** The sender's watermark switch for a view-once file. */
+  const setWatermark = useCallback(
+    (id: number, on: boolean) => {
+      const item = itemsRef.current.find((entry) => entry.id === id);
+      if (!item) return;
+      patch(id, { watermark: on });
+      // Already uploaded: the setting lives with the file on the server.
+      const viewOnceId = item.attachment?.viewOnce;
+      if (viewOnceId) void setViewOnceWatermark(viewOnceId, on);
+    },
+    [patch]
   );
 
   /**
@@ -172,7 +278,8 @@ export function useAttachmentUploads(target: UploadTarget) {
       const usable = saved.filter((item) => item.status === "done" && item.token && item.attachment);
       if (usable.length === 0) return;
       seq.current = usable.reduce((max, item) => Math.max(max, item.id), seq.current);
-      update(() => usable.slice(0, CHAT_ATTACHMENT_MAX_PER_MESSAGE));
+      // A saved preview URL died with the page that made it.
+      update(() => usable.slice(0, CHAT_ATTACHMENT_MAX_PER_MESSAGE).map((item) => ({ ...item, previewUrl: undefined })));
     },
     [update]
   );
@@ -182,7 +289,10 @@ export function useAttachmentUploads(target: UploadTarget) {
     for (const controller of controllers.current.values()) controller.abort();
     controllers.current.clear();
     files.current.clear();
-    update(() => []);
+    update((list) => {
+      for (const item of list) if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+      return [];
+    });
     setError(null);
   }, [update]);
 
@@ -202,6 +312,10 @@ export function useAttachmentUploads(target: UploadTarget) {
     items,
     add,
     remove,
+    take,
+    canReupload,
+    setViewOnce,
+    setWatermark,
     restore,
     clear,
     error,

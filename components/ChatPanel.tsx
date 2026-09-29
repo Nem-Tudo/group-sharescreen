@@ -34,7 +34,7 @@ import { MdClose, MdReply } from "react-icons/md";
 import { LuPanelRightClose } from "react-icons/lu";
 import { ChatImageModal, type ChatImagePreviewState } from "@/components/ChatImageModal";
 import { AttachMenu, splitPicked } from "@/components/AttachMenu";
-import { AttachmentTray } from "@/components/AttachmentTray";
+import { AttachmentTray, dataUrlToFile, ImageViewOnceButton } from "@/components/AttachmentTray";
 import { MessageAttachments } from "@/components/MessageAttachments";
 import { InviteEmbeds } from "@/components/groups/InviteEmbed";
 import { Markdown } from "@/components/Markdown";
@@ -1582,6 +1582,17 @@ export function ChatPanel({
                       />
                     </span>
                   )}
+                  {attachment.dataUrl && (
+                    <ImageViewOnceButton
+                      disabled={sendingImages}
+                      onClick={() => {
+                        const { dataUrl, name } = attachment;
+                        if (!dataUrl) return;
+                        removeAttachment(attachment.id);
+                        void dataUrlToFile(dataUrl, name).then((file) => uploads.add([file], { viewOnce: true }));
+                      }}
+                    />
+                  )}
                   <button
                     type="button"
                     onClick={() => removeAttachment(attachment.id)}
@@ -1600,7 +1611,13 @@ export function ChatPanel({
               </span>
             </div>
           )}
-          <AttachmentTray items={uploads.items} onRemove={uploads.remove} disabled={sendingImages} />
+          <AttachmentTray
+            items={uploads.items}
+            onRemove={uploads.remove}
+            uploads={uploads}
+            onRestoreImage={(file) => void attachFiles([file])}
+            disabled={sendingImages}
+          />
           <div className="flex items-end gap-2">
             <AttachMenu
               onImages={(files) => void attachFiles(files)}
