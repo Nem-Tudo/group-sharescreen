@@ -1111,12 +1111,68 @@ export interface AdminGift {
  * cannot serve: a prize or a giveaway, where who ends up with it is decided
  * after the fact, possibly by somebody who has no account yet.
  */
-export async function createAdminGift(planId: string, days: number): Promise<AdminGift> {
+/** Who may redeem an admin gift, by username. Empty `allowed` = anybody. */
+export interface AdminGiftAccess {
+  allowedUsernames?: string[];
+  blockedUsernames?: string[];
+}
+
+export async function createAdminGift(
+  planId: string,
+  days: number,
+  expiresAt: number | null = null,
+  access: AdminGiftAccess = {}
+): Promise<AdminGift> {
   return adminFetch<AdminGift>("/admin/premium/gift", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ planId, days }),
+    body: JSON.stringify({ planId, days, expiresAt, ...access }),
   });
+}
+
+/** One admin gift as the list shows it. "expired" is derived by the API. */
+export interface AdminGiftRow extends AdminGift {
+  status: "paid" | "delivered" | "revoked" | "expired";
+  createdAt: number;
+  expiresAt: number | null;
+  revokedAt: number | null;
+  deliveredAt: number | null;
+  from: { username: string; displayName: string } | null;
+  to: { username: string; displayName: string } | null;
+  /** Usernames. Empty `allowed` means anybody not in `blocked`. */
+  allowed: string[];
+  blocked: string[];
+}
+
+/** Every gift minted from the admin panel, newest first. */
+export async function fetchAdminGifts(): Promise<AdminGiftRow[]> {
+  const data = await adminFetch<{ gifts: AdminGiftRow[] }>("/admin/premium/gifts");
+  return data.gifts;
+}
+
+/** Takes back an admin gift nobody has redeemed. */
+export async function revokeAdminGift(giftId: string): Promise<void> {
+  await adminFetch(`/admin/premium/gift/${encodeURIComponent(giftId)}/revoke`, { method: "POST" });
+}
+
+/**
+ * Changes an unredeemed admin gift. Only the fields passed change:
+ * `expiresAt` (null clears it) and the allow/block lists.
+ */
+export async function updateAdminGift(
+  giftId: string,
+  patch: { expiresAt?: number | null } & AdminGiftAccess
+): Promise<void> {
+  await adminFetch(`/admin/premium/gift/${encodeURIComponent(giftId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+}
+
+/** "@ana, bia joao" → ["ana", "bia", "joao"]. */
+export function parseUsernameList(text: string): string[] {
+  return [...new Set(text.split(/[\s,;]+/).map((u) => u.trim().replace(/^@/, "")).filter(Boolean))];
 }
 
 // ─── Cancelamentos ────────────────────────────────────────────────────────

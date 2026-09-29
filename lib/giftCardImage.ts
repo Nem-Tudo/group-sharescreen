@@ -30,23 +30,15 @@ function escapeXml(text: string): string {
 }
 
 /**
- * The code, laid into the box (x 60–682.5, y 680–810 in the card's units).
- * A full 24-character code is six groups, which only fit at a legible size
- * as two lines of three.
+ * The code, laid into the box (x 60–682.5, y 680–810 in the card's units),
+ * on one line. A full 24-character code grouped by four is 29 characters,
+ * so the size is worked out from the length to keep it inside the box.
  */
 function codeMarkup(code: string): string {
-  const groups = groupGiftCode(code).split(" ");
-  const lines = groups.length > 3
-    ? [groups.slice(0, Math.ceil(groups.length / 2)), groups.slice(Math.ceil(groups.length / 2))]
-    : [groups];
-  const size = lines.length > 1 ? 34 : 44;
-  const firstY = lines.length > 1 ? 755 : 778;
-  return lines
-    .map(
-      (line, i) =>
-        `<text x="371.25" y="${firstY + i * 40}" font-family="Consolas, 'Courier New', monospace" font-size="${size}" font-weight="700" letter-spacing="2" fill="#18181b">${escapeXml(line.join(" "))}</text>`
-    )
-    .join("\n    ");
+  const text = groupGiftCode(code);
+  // A monospace glyph is ~0.6em wide; 560 units leaves a margin either side.
+  const size = Math.min(44, Math.floor(560 / Math.max(1, text.length) / 0.6));
+  return `<text x="371.25" y="776" font-family="Consolas, 'Courier New', monospace" font-size="${size}" font-weight="700" fill="#18181b">${escapeXml(text)}</text>`;
 }
 
 export async function giftCardSvg(planId: string, code: string): Promise<string> {

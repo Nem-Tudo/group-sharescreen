@@ -3,12 +3,14 @@
 import { useEffect, useState } from "react";
 import {
   createAdminGift,
+  parseUsernameList,
   fetchAdminPlans,
   type AdminGift,
   type AdminPlanOption,
 } from "@/lib/adminApi";
 import { downloadGiftCard, downloadGiftCardsPdf } from "@/lib/giftCardImage";
 import { useI18n } from "@/lib/useI18n";
+import { fromDateInput, GiftListPanel } from "./GiftListPanel";
 
 // Minting a gift link nobody paid for.
 //
@@ -111,6 +113,13 @@ export function GiftPanel() {
   // Newest first: the one just made is the one being copied.
   const [minted, setMinted] = useState<AdminGift[]>([]);
   const [buildingPdf, setBuildingPdf] = useState(false);
+  // Optional: the day the code stops working, empty for never.
+  const [expiry, setExpiry] = useState("");
+  // Usernames, free text: who alone may redeem, and who may not.
+  const [allowed, setAllowed] = useState("");
+  const [blocked, setBlocked] = useState("");
+  // Bumped after each new gift so the full list below picks it up.
+  const [listKey, setListKey] = useState(0);
 
   // Every card made this visit, 8 to a landscape A4 (see giftCardImage).
   // Oldest first, so the sheet reads in the order they were made.
@@ -146,8 +155,12 @@ export function GiftPanel() {
     setBusy(true);
     setError(null);
     try {
-      const gift = await createAdminGift(planId, days);
+      const gift = await createAdminGift(planId, days, fromDateInput(expiry), {
+        allowedUsernames: parseUsernameList(allowed),
+        blockedUsernames: parseUsernameList(blocked),
+      });
       setMinted((current) => [gift, ...current]);
+      setListKey((k) => k + 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("admin.giftPanel.couldNotGenerate"));
     } finally {
@@ -159,6 +172,7 @@ export function GiftPanel() {
     "w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50";
 
   return (
+    <>
     <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
       <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">{t("admin.giftPanel.generateGift")}</h2>
       <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
@@ -228,6 +242,49 @@ export function GiftPanel() {
         </div>
       </div>
 
+      <div className="mt-3 flex flex-wrap gap-3">
+        <div className="min-w-40 flex-1">
+          <label htmlFor="gift-allowed" className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
+            {t("admin.giftList.allowedLabel")}
+          </label>
+          <input
+            id="gift-allowed"
+            value={allowed}
+            onChange={(e) => setAllowed(e.target.value)}
+            placeholder={t("admin.giftList.usernamesPlaceholder")}
+            className={inputClass}
+          />
+        </div>
+        <div className="min-w-40 flex-1">
+          <label htmlFor="gift-blocked" className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
+            {t("admin.giftList.blockedLabel")}
+          </label>
+          <input
+            id="gift-blocked"
+            value={blocked}
+            onChange={(e) => setBlocked(e.target.value)}
+            placeholder={t("admin.giftList.usernamesPlaceholder")}
+            className={inputClass}
+          />
+        </div>
+      </div>
+
+      <div className="mt-3 max-w-xs">
+        <label
+          htmlFor="gift-expiry"
+          className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400"
+        >
+          {t("admin.giftList.expiresOnOptional")}
+        </label>
+        <input
+          id="gift-expiry"
+          type="date"
+          value={expiry}
+          onChange={(e) => setExpiry(e.target.value)}
+          className={inputClass}
+        />
+      </div>
+
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <button
           type="button"
@@ -263,5 +320,7 @@ export function GiftPanel() {
         </div>
       )}
     </div>
+    <GiftListPanel refreshKey={listKey} />
+    </>
   );
 }

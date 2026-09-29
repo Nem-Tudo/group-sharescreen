@@ -522,6 +522,7 @@ export type RedeemFailure =
   | "higher_plan"
   | "card_subscription"
   | "account_required"
+  | "not_allowed"
   | "unknown";
 
 export type RedeemGiftResult =

@@ -394,7 +394,7 @@ export function GiftClaimDialog({
                   role="alert"
                   className="mt-3 text-center text-sm text-red-600 dark:text-red-400"
                 >
-                  {error}
+                  {failure === "not_allowed" ? t("giftClaimDialog.notAllowed") : error}
                   {failure === "card_subscription" && (
                     <span className="mt-1 block text-xs text-zinc-500 dark:text-zinc-400">
                       {t("giftClaimDialog.cancelTheCardSubscriptionAndCome")}
