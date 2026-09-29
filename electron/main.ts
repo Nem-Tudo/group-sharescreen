@@ -64,6 +64,7 @@ import {
 // bundles into the main process without dragging the app in with it.
 import { desktopOAuthNonce } from "../lib/desktop";
 import { initAutoUpdater } from "./updater";
+import { createInputHook } from "./inputHook";
 import {
   applyFirstRunDefaults,
   getBackgroundSettings,
@@ -2029,10 +2030,34 @@ if (!gotLock) {
     });
   });
 
+  // Follows the shortcuts system-wide without taking them from other apps —
+  // see electron/inputHook.ts. Whatever it cannot follow on this machine
+  // still goes through globalShortcut below, as it always did.
+  const inputHook = createInputHook({
+    onAction: (action) => mainWindow?.webContents.send(IPC.shortcutsTriggered, action),
+    onPushToTalk: (held) => {
+      // Real key-up from the hook, so none of the repeat-inference below.
+      if (held) {
+        if (pttReleaseTimer) clearTimeout(pttReleaseTimer);
+        pttReleaseTimer = null;
+      }
+      sendPushToTalk(held);
+    },
+    appFocused: () => Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused()),
+  });
+
   function updateGlobalShortcuts(shortcuts: Record<string, string>) {
     globalShortcut.unregisterAll();
+    const hooked: Record<string, string> = {};
     for (const [action, accelerator] of Object.entries(shortcuts)) {
       if (!accelerator) continue;
+      if (inputHook.canHandle(accelerator)) {
+        hooked[action] = accelerator;
+        continue;
+      }
+      // A mouse button is not an accelerator; without the hook it is only
+      // followed by the page, while GoLive has focus.
+      if (/(^|\+)Mouse\d+$/i.test(accelerator)) continue;
       try {
         globalShortcut.register(accelerator, () => {
           mainWindow?.webContents.send(IPC.shortcutsTriggered, action);
@@ -2041,6 +2066,7 @@ if (!gotLock) {
         // Ignore accelerators not supported by OS
       }
     }
+    inputHook.setActions(hooked);
     // unregisterAll above took push-to-talk's key down with everybody else's,
     // so it is put back here — the site sets the two independently and must
     // not have one of them silently clear the other.
@@ -2100,7 +2126,16 @@ if (!gotLock) {
   }
 
   function registerPushToTalk() {
-    if (!pttAccelerator) return;
+    if (!pttAccelerator) {
+      inputHook.setPushToTalk("");
+      return;
+    }
+    if (inputHook.canHandle(pttAccelerator)) {
+      inputHook.setPushToTalk(pttAccelerator);
+      return;
+    }
+    inputHook.setPushToTalk("");
+    if (/(^|\+)Mouse\d+$/i.test(pttAccelerator)) return;
     try {
       globalShortcut.register(pttAccelerator, onPushToTalkPressed);
     } catch {
@@ -2136,6 +2171,7 @@ if (!gotLock) {
     stopSystemAudioCapture();
     stopNativeVideo();
     releasePushToTalk();
+    inputHook.stop();
     globalShortcut.unregisterAll();
   });
 

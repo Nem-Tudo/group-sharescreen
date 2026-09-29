@@ -1,8 +1,12 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { MdClose, MdKeyboard } from "react-icons/md";
-import { eventToShortcutString } from "@/lib/keyboardShortcuts";
+import { MdClose, MdKeyboard, MdMouse } from "react-icons/md";
+import {
+  eventToShortcutString,
+  isMouseShortcut,
+  mouseEventToShortcutString,
+} from "@/lib/keyboardShortcuts";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
 
@@ -72,6 +76,25 @@ export function ShortcutRecorder({
     }
 
     function handleClickOutside(e: MouseEvent) {
+      // Any button but a plain left/right click is recorded as the shortcut.
+      const mouseCombo = mouseEventToShortcutString(e);
+      if (mouseCombo) {
+        e.preventDefault();
+        e.stopPropagation();
+        // The side buttons navigate back/forward on release; swallow it.
+        const button = e.button;
+        const swallowUp = (up: MouseEvent) => {
+          if (up.button !== button) return;
+          up.preventDefault();
+          up.stopPropagation();
+          window.removeEventListener("mouseup", swallowUp, true);
+        };
+        window.addEventListener("mouseup", swallowUp, true);
+        onChange(mouseCombo);
+        setIsRecording(false);
+        setHeldModifiers([]);
+        return;
+      }
       if (buttonRef.current && !buttonRef.current.contains(e.target as Node)) {
         setIsRecording(false);
         setHeldModifiers([]);
@@ -113,7 +136,11 @@ export function ShortcutRecorder({
         }`}
       >
         <span className="flex items-center gap-1.5 truncate">
-          <MdKeyboard className="h-3.5 w-3.5 shrink-0 opacity-70" />
+          {value && !isRecording && isMouseShortcut(value) ? (
+            <MdMouse className="h-3.5 w-3.5 shrink-0 opacity-70" />
+          ) : (
+            <MdKeyboard className="h-3.5 w-3.5 shrink-0 opacity-70" />
+          )}
           {isRecording ? (
             <span className="animate-pulse font-semibold">
               {heldModifiers.length > 0

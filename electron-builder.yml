@@ -95,6 +95,18 @@ win:
       filter:
         - golive-audiocap.exe
         - golive-videocap.exe
+    # The system-wide shortcut hook (see electron/inputHook.ts). Copied as
+    # real files for the same reason as the helpers above — a native .node
+    # cannot load from inside app.asar — and laid out as a node_modules tree
+    # so uiohook-napi's own require("node-gyp-build") resolves.
+    - from: node_modules/uiohook-napi
+      to: node_modules/uiohook-napi
+      filter:
+        - package.json
+        - dist/**/*
+        - prebuilds/win32-x64/**/*
+    - from: node_modules/node-gyp-build
+      to: node_modules/node-gyp-build
   # Unsigned builds trip SmartScreen. Set CSC_LINK/CSC_KEY_PASSWORD in CI to
   # sign; electron-builder picks them up without further config here.
   signtoolOptions:

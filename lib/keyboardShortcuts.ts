@@ -280,7 +280,38 @@ export function eventToShortcutString(e: KeyboardEvent): string | null {
 }
 
 /**
+ * Converts a mouse button press into a shortcut string like "Mouse4" or
+ * "Ctrl+Mouse1". Buttons are numbered from 1 (left, right, middle, then the
+ * side buttons). Plain left and right clicks return null: they are how the
+ * app itself is used, and binding one would take over every click.
+ */
+export function mouseEventToShortcutString(e: MouseEvent): string | null {
+  const parts: string[] = [];
+  if (e.ctrlKey) parts.push("Ctrl");
+  if (e.altKey) parts.push("Alt");
+  if (e.shiftKey) parts.push("Shift");
+  if (e.metaKey) parts.push("Meta");
+  if ((e.button === 0 || e.button === 2) && parts.length === 0) return null;
+  parts.push(`Mouse${e.button + 1}`);
+  return parts.join("+");
+}
+
+/** Whether a stored combo is a mouse button rather than a key. */
+export function isMouseShortcut(combo: string): boolean {
+  return /(^|\+)Mouse\d+$/i.test(combo);
+}
+
+/** Checks if a mouse event matches a configured shortcut string. */
+export function matchesMouseShortcut(e: MouseEvent, combo: string): boolean {
+  if (!combo || !isMouseShortcut(combo)) return false;
+  const current = mouseEventToShortcutString(e);
+  return current !== null && current.toLowerCase() === combo.toLowerCase();
+}
+
+/**
  * Converts formatted shortcut like "Ctrl+Shift+M" to Electron Accelerator format.
+ * Mouse buttons pass through as "Mouse4" — not a real accelerator, but the
+ * shell's input hook follows them (see electron/inputHook.ts).
  */
 export function shortcutToElectronAccelerator(combo: string): string {
   if (!combo) return "";
@@ -434,9 +465,41 @@ export function useGlobalShortcutListener({
       }
     }
 
+    // Mouse buttons bound as shortcuts. The side buttons also mean back and
+    // forward to the browser, which acts on the button coming *up* — so a
+    // bound button has its release swallowed too, or pressing "mute" on the
+    // mouse would leave the room.
+    const swallowed = new Set<number>();
+
+    function handleMouseDown(e: MouseEvent) {
+      for (const [actionKey, combo] of Object.entries(shortcuts)) {
+        if (!combo || !isMouseShortcut(combo)) continue;
+        const action = actionKey as ShortcutAction;
+        if (!isDesktop && SHORTCUT_DEFINITIONS.find((d) => d.id === action)?.appOnly) {
+          continue;
+        }
+        const handler = handlers[action];
+        if (!handler) continue;
+        if (matchesMouseShortcut(e, combo)) {
+          handler();
+          e.preventDefault();
+          swallowed.add(e.button);
+          break;
+        }
+      }
+    }
+
+    function handleMouseUp(e: MouseEvent) {
+      if (swallowed.delete(e.button)) e.preventDefault();
+    }
+
     window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("mousedown", handleMouseDown);
+    window.addEventListener("mouseup", handleMouseUp);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("mousedown", handleMouseDown);
+      window.removeEventListener("mouseup", handleMouseUp);
     };
   }, [shortcuts, handlers, enabled]);
 }

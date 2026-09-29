@@ -39,5 +39,9 @@ await build({
   sourcemap: true,
   // Provided by the runtime, never bundled — pulling Electron's own module
   // into the output would produce a file that cannot load at all.
-  external: ["electron"],
+  //
+  // uiohook-napi is a native module: its .node binary cannot be bundled, so
+  // it is required at runtime — from node_modules in development and from
+  // the copy electron-builder.yml ships in resources/ when packaged.
+  external: ["electron", "uiohook-napi"],
 });

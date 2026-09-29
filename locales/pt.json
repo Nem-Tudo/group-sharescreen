@@ -2784,7 +2784,7 @@
   "shortcutQuickPopover.shortcut": "Atalho:",
   "shortcutQuickPopover.thisShortcutCanOnlyBeSet": "Este atalho só pode ser configurado e utilizado no aplicativo GoLive. Clique para baixar.",
   "shortcutQuickPopover.useAnAccountToSetUp": "Utilize uma conta para configurar atalhos de teclado.",
-  "shortcutRecorder.pressTheKeys": "Pressione as teclas...",
+  "shortcutRecorder.pressTheKeys": "Pressione teclas ou um botão do mouse...",
   "shortcutRecorder.removeShortcut": "Remover atalho",
   "signalingClient.broadcastAccessBlockedByVerification": "Acesso de transmissão bloqueado por verificação.",
   "signalingClient.couldNotJoinThisRoom": "Não foi possível entrar nesta sala.",

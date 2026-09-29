@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getDesktopBridge, isDesktopApp } from "./desktop";
 import {
   shortcutToElectronAccelerator,
+  isMouseShortcut,
+  matchesMouseShortcut,
   matchesShortcut,
   useShortcuts,
 } from "./keyboardShortcuts";
@@ -132,12 +134,30 @@ export function usePushToTalk(): PushToTalkState {
     function onBlur() {
       setDomHeld(false);
     }
+    // A mouse button as the key, while the page has focus (the shell's input
+    // hook follows it everywhere else). The release is swallowed like
+    // the press, so a side button does not also navigate back or forward.
+    function onMouseDown(event: MouseEvent) {
+      if (!matchesMouseShortcut(event, combo)) return;
+      event.preventDefault();
+      setDomHeld(true);
+    }
+    function onMouseUp(event: MouseEvent) {
+      if (isMouseShortcut(combo) && `Mouse${event.button + 1}` === combo.split("+").pop()) {
+        event.preventDefault();
+      }
+      setDomHeld(false);
+    }
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("mouseup", onMouseUp);
     window.addEventListener("blur", onBlur);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("mouseup", onMouseUp);
       window.removeEventListener("blur", onBlur);
       setDomHeld(false);
     };

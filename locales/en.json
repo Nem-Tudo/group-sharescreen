@@ -2784,7 +2784,7 @@
   "shortcutQuickPopover.shortcut": "Shortcut:",
   "shortcutQuickPopover.thisShortcutCanOnlyBeSet": "This shortcut can only be set up and used in the GoLive app. Click to download.",
   "shortcutQuickPopover.useAnAccountToSetUp": "Use an account to set up keyboard shortcuts.",
-  "shortcutRecorder.pressTheKeys": "Press the keys...",
+  "shortcutRecorder.pressTheKeys": "Press keys or a mouse button...",
   "shortcutRecorder.removeShortcut": "Remove shortcut",
   "signalingClient.broadcastAccessBlockedByVerification": "Broadcast access blocked by verification.",
   "signalingClient.couldNotJoinThisRoom": "Could not join this room.",
