@@ -38,6 +38,7 @@ import {
 } from "electron";
 import path from "node:path";
 import fs from "node:fs";
+import os from "node:os";
 import {
   IPC,
   NATIVE_VIDEO_ARG,
@@ -122,6 +123,27 @@ const APP_USER_MODEL_ID = "me.nemtudo.golive";
 // the renderer forever. Generous, because the flow legitimately involves
 // typing a password and possibly a 2FA code in another application.
 const OAUTH_TIMEOUT_MS = 5 * 60_000;
+
+// System audio on macOS. Chromium can capture it through ScreenCaptureKit on
+// macOS 13 (Darwin 22) and later, but only behind feature flags — Electron's
+// own docs still call "loopback" Windows-only. The flags must be set before
+// the app is ready. What this captures is *everything* the Mac plays,
+// GoLive's own room audio included: there is no per-app choice here and the
+// room will hear its own voices back (the Windows helper exists to avoid
+// exactly that; see systemAudio.ts).
+const MAC_LOOPBACK_SUPPORTED =
+  process.platform === "darwin" && Number(os.release().split(".")[0]) >= 22;
+if (MAC_LOOPBACK_SUPPORTED) {
+  app.commandLine.appendSwitch(
+    "enable-features",
+    "MacLoopbackAudioForScreenShare,MacSckSystemAudioLoopbackOverride"
+  );
+}
+
+/** Whether a share on this machine can carry system audio at all. */
+function systemAudioSupported(): boolean {
+  return process.platform === "win32" || process.platform === "linux" || MAC_LOOPBACK_SUPPORTED;
+}
 
 let mainWindow: BrowserWindow | null = null;
 // The tray icon, and the flag that tells a real quit apart from the window
@@ -374,10 +396,10 @@ async function pickSource(parent: BrowserWindow | null): Promise<PickResult> {
     selectedId: matchSavedSourceIn(sources)?.id ?? null,
     sources: payload,
     audio: {
-      // Electron's loopback capture is a Windows capability; on macOS and
-      // Linux there is no system audio to offer at all (see the handler
-      // below), so the row is not drawn rather than drawn and inert.
-      supported: process.platform === "win32" || process.platform === "linux",
+      // Windows, Linux, and macOS 13+ (see MAC_LOOPBACK_SUPPORTED). Elsewhere
+      // there is no system audio to offer at all, so the row is not drawn
+      // rather than drawn and inert.
+      supported: systemAudioSupported(),
       // Leaving individual applications out needs the native helper. Without
       // it the only honest choice is all of the sound or none of it.
       perApp: isSystemAudioExclusionSupported(),
@@ -683,7 +705,7 @@ function installDisplayMediaHandler() {
         // properly.
         const loopback =
           request.audioRequested &&
-          (process.platform === "win32" || process.platform === "linux") &&
+          systemAudioSupported() &&
           !isSystemAudioCapturing() &&
           getSystemAudioSettings().enabled;
         return loopback ? { video, audio: "loopback" } : { video };

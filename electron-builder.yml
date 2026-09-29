@@ -156,6 +156,9 @@ mac:
     NSCameraUsageDescription: O GoLive usa a câmera para você transmitir vídeo na sala.
     NSMicrophoneUsageDescription: O GoLive usa o microfone para você falar na sala.
     NSScreenCaptureUsageDescription: O GoLive captura sua tela para compartilhá-la com a sala.
+    # The system audio that goes with a screen share (macOS 13+, see
+    # MAC_LOOPBACK_SUPPORTED in electron/main.ts).
+    NSAudioCaptureUsageDescription: O GoLive capta o som do computador para transmiti-lo junto com a tela.
 
 linux:
   icon: electron/build/icon.png
