@@ -64,12 +64,13 @@ export function GiftClaimHost() {
   useEffect(() => {
     const query = new URLSearchParams(window.location.search);
     const found = query.get(PARAM) ?? query.get(LEGACY_PARAM);
-    if (!found) return;
+    // An empty ?gift= comes from /redeem: open the dialog asking for the code.
+    if (found === null) return;
     // Folded to match the alphabet codes are minted in (see the API's
     // premiumGiftStore), so a link retyped in lower case still opens a
     // present.
     const code = found.trim().toUpperCase();
-    if (!code || openedRef.current.has(code)) return;
+    if (openedRef.current.has(code)) return;
     openedRef.current.add(code);
 
     void openPopup("gift_claim", {
@@ -91,6 +92,9 @@ export function GiftClaimHost() {
             // to re-render — the popup is already gone — and pushing an entry
             // would put the present back one press of "voltar" away.
             window.history.replaceState(null, "", url.toString());
+            // The typed-code dialog has no present of its own to remember;
+            // coming back to /redeem later should open it again.
+            if (!code) openedRef.current.delete(code);
           } catch {
             // A URL the browser will not let us rewrite costs the tidy
             // address bar and nothing else.

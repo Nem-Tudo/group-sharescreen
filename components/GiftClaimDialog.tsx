@@ -57,13 +57,17 @@ function periodEndLabel(timestamp: number): string {
 }
 
 type ClaimState =
+  | { kind: "entry" }
   | { kind: "loading" }
   | { kind: "missing" }
   | { kind: "ready"; gift: GiftCodeInfo }
   | { kind: "done"; gift: GiftCodeInfo; until: number };
 
 export type GiftClaimPopupData = {
-  /** The share code off the link. See app/gift/[code]/page.tsx. */
+  /**
+   * The share code off the link. See app/gift/[code]/page.tsx. Empty when
+   * the dialog was opened from /redeem, where the person types it in.
+   */
   code: string;
 };
 
@@ -75,15 +79,23 @@ export function GiftClaimDialog({
   data?: GiftClaimPopupData;
 }) {
   const t = useT();
-  const code = data?.code ?? "";
+  // Typed in (from /redeem) or off the link. Once a typed code is submitted
+  // it becomes the same thing a link's code is, and the rest of the dialog
+  // does not know the difference.
+  const manual = !data?.code;
+  const [code, setCode] = useState(data?.code ?? "");
+  const [draft, setDraft] = useState("");
   const { account, loading: resolvingAccount, refresh } = useAuth();
-  const [state, setState] = useState<ClaimState>({ kind: "loading" });
+  const [state, setState] = useState<ClaimState>(
+    data?.code ? { kind: "loading" } : { kind: "entry" }
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [failure, setFailure] = useState<RedeemFailure | null>(null);
   const [accountModal, setAccountModal] = useState<AccountModalMode | null>(null);
 
   useEffect(() => {
+    if (!code) return;
     const controller = new AbortController();
     void fetchGiftByCode(code, controller.signal).then((gift) => {
       if (controller.signal.aborted) return;
@@ -91,6 +103,16 @@ export function GiftClaimDialog({
     });
     return () => controller.abort();
   }, [code]);
+
+  const submitDraft = () => {
+    // Folded like GiftClaimHost folds ?gift=, and a pasted link is accepted
+    // too: people paste what they were sent, and what they were sent is the
+    // whole /gift/<code> address.
+    const typed = draft.trim().replace(/^.*\/gift\//i, "").replace(/[/?#].*$/, "").toUpperCase();
+    if (!typed) return;
+    setState({ kind: "loading" });
+    setCode(typed);
+  };
 
   const gift = state.kind === "ready" || state.kind === "done" ? state.gift : null;
   const mark = planIcon(gift?.planIconId);
@@ -145,7 +167,42 @@ export function GiftClaimDialog({
           <MdClose className="h-4 w-4" />
         </button>
 
-        {state.kind === "missing" ? (
+        {state.kind === "entry" ? (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              submitDraft();
+            }}
+            className="flex flex-col items-center gap-3 px-6 py-10 text-center"
+          >
+            <span className="flex h-14 w-14 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-900">
+              <MdCardGiftcard className="h-7 w-7 text-zinc-500 dark:text-zinc-400" />
+            </span>
+            <p className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+              {t("giftClaimDialog.redeemAGiftCode")}
+            </p>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+              {t("giftClaimDialog.enterTheCodeYouReceived")}
+            </p>
+            <input
+              autoFocus
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder={t("giftClaimDialog.codePlaceholder")}
+              aria-label={t("giftClaimDialog.codePlaceholder")}
+              autoComplete="off"
+              spellCheck={false}
+              className="mt-1 w-full rounded-xl border border-zinc-300 bg-white px-4 py-3 text-center font-mono text-base uppercase tracking-widest text-zinc-900 outline-none transition placeholder:normal-case placeholder:tracking-normal placeholder:text-zinc-400 focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:border-zinc-400"
+            />
+            <button
+              type="submit"
+              disabled={!draft.trim()}
+              className="w-full rounded-xl bg-zinc-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+            >
+              {t("common.continue")}
+            </button>
+          </form>
+        ) : state.kind === "missing" ? (
           <div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
             <span className="flex h-14 w-14 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-900">
               <MdCardGiftcard className="h-7 w-7 text-zinc-400" />
@@ -156,6 +213,18 @@ export function GiftClaimDialog({
             <p className="text-sm text-zinc-500 dark:text-zinc-400">
               {t("giftClaimDialog.theCodeDoesNotExistOr")}
             </p>
+            {manual && (
+              <button
+                type="button"
+                onClick={() => {
+                  setCode("");
+                  setState({ kind: "entry" });
+                }}
+                className="mt-1 rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+              >
+                {t("giftClaimDialog.tryAnotherCode")}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => closePopup(false)}

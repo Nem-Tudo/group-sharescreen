@@ -4292,5 +4292,11 @@
   "pointsShop.confirmBuy": "Confirmar (te quedan {left})",
   "pointsShop.missingPoints": "Faltan {missing} puntos",
   "pointsShop.nothingOwnedYet": "Todavía no tienes artículos aquí.",
-  "pointsShop.nothingHere": "Nada a la venta aquí por ahora."
+  "pointsShop.nothingHere": "Nada a la venta aquí por ahora.",
+  "giftClaimDialog.redeemAGiftCode": "Canjear un regalo",
+  "giftClaimDialog.enterTheCodeYouReceived": "Escribe el código del regalo que recibiste.",
+  "giftClaimDialog.codePlaceholder": "Código del regalo",
+  "giftClaimDialog.tryAnotherCode": "Probar otro código",
+  "redeem.title": "Canjear regalo",
+  "redeem.description": "Escribe el código de un regalo de GoLive para canjearlo."
 }

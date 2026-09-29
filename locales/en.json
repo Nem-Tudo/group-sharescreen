@@ -4292,5 +4292,11 @@
   "pointsShop.confirmBuy": "Confirm ({left} left)",
   "pointsShop.missingPoints": "{missing} points to go",
   "pointsShop.nothingOwnedYet": "You don't have any items here yet.",
-  "pointsShop.nothingHere": "Nothing for sale here yet."
+  "pointsShop.nothingHere": "Nothing for sale here yet.",
+  "giftClaimDialog.redeemAGiftCode": "Redeem a gift",
+  "giftClaimDialog.enterTheCodeYouReceived": "Enter the gift code you received.",
+  "giftClaimDialog.codePlaceholder": "Gift code",
+  "giftClaimDialog.tryAnotherCode": "Try another code",
+  "redeem.title": "Redeem gift",
+  "redeem.description": "Enter a GoLive gift code to redeem it."
 }
