@@ -7,6 +7,7 @@ import {
   type AdminGift,
   type AdminPlanOption,
 } from "@/lib/adminApi";
+import { downloadGiftCard } from "@/lib/giftCardImage";
 import { useI18n } from "@/lib/useI18n";
 
 // Minting a gift link nobody paid for.
@@ -42,6 +43,20 @@ function giftLink(code: string): string {
 function GiftRow({ gift }: { gift: AdminGift }) {
   const { t, tc } = useI18n();
   const [copied, setCopied] = useState(false);
+  const [drawing, setDrawing] = useState(false);
+
+  // The printable card (public/gift-cards), with this code in its box.
+  async function downloadImage() {
+    setDrawing(true);
+    try {
+      await downloadGiftCard(gift.planId, gift.code);
+    } catch {
+      // Nothing to recover: the link above still works, and trying again is
+      // the same button.
+    } finally {
+      setDrawing(false);
+    }
+  }
 
   async function copy() {
     try {
@@ -72,6 +87,14 @@ function GiftRow({ gift }: { gift: AdminGift }) {
           className="shrink-0 rounded-lg bg-zinc-950 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
         >
           {copied ? t("common.copied") : t("common.copy")}
+        </button>
+        <button
+          type="button"
+          onClick={() => void downloadImage()}
+          disabled={drawing}
+          className="shrink-0 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+        >
+          {t("admin.giftPanel.downloadImage")}
         </button>
       </div>
     </li>

@@ -4298,5 +4298,6 @@
   "giftClaimDialog.codePlaceholder": "Código del regalo",
   "giftClaimDialog.tryAnotherCode": "Probar otro código",
   "redeem.title": "Canjear regalo",
-  "redeem.description": "Escribe el código de un regalo de GoLive para canjearlo."
+  "redeem.description": "Escribe el código de un regalo de GoLive para canjearlo.",
+  "admin.giftPanel.downloadImage": "Descargar imagen"
 }

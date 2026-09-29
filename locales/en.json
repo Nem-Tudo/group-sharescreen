@@ -4298,5 +4298,6 @@
   "giftClaimDialog.codePlaceholder": "Gift code",
   "giftClaimDialog.tryAnotherCode": "Try another code",
   "redeem.title": "Redeem gift",
-  "redeem.description": "Enter a GoLive gift code to redeem it."
+  "redeem.description": "Enter a GoLive gift code to redeem it.",
+  "admin.giftPanel.downloadImage": "Download image"
 }

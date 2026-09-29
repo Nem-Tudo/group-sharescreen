@@ -4298,5 +4298,6 @@
   "giftClaimDialog.codePlaceholder": "Código do presente",
   "giftClaimDialog.tryAnotherCode": "Tentar outro código",
   "redeem.title": "Resgatar presente",
-  "redeem.description": "Digite o código de um presente do GoLive para resgatá-lo."
+  "redeem.description": "Digite o código de um presente do GoLive para resgatá-lo.",
+  "admin.giftPanel.downloadImage": "Baixar imagem"
 }

@@ -107,8 +107,9 @@ export function GiftClaimDialog({
   const submitDraft = () => {
     // Folded like GiftClaimHost folds ?gift=, and a pasted link is accepted
     // too: people paste what they were sent, and what they were sent is the
-    // whole /gift/<code> address.
-    const typed = draft.trim().replace(/^.*\/gift\//i, "").replace(/[/?#].*$/, "").toUpperCase();
+    // whole /gift/<code> address. Spaces go too: the printed card shows the
+    // code in groups of four.
+    const typed = draft.trim().replace(/^.*\/gift\//i, "").replace(/[/?#].*$/, "").replace(/[\s-]+/g, "").toUpperCase();
     if (!typed) return;
     setState({ kind: "loading" });
     setCode(typed);
