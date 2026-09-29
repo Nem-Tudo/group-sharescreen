@@ -85,6 +85,7 @@ function GiftListRow({ gift, onChanged }: { gift: AdminGiftRow; onChanged: () =>
         </span>
         <span className="font-medium text-zinc-700 dark:text-zinc-300">
           {gift.planTitle} · {tc("common.dayCount", gift.days)}
+          {gift.trialOnly ? ` · ${t("admin.giftPanel.trialBadge")}` : ""}
         </span>
         <span className="text-zinc-500 dark:text-zinc-400">
           {t("admin.giftList.createdOn", { value: formatDate(gift.createdAt) })}

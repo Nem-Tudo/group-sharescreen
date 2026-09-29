@@ -133,15 +133,19 @@ export function GiftClaimDialog({
     setError(null);
     setFailure(null);
     const outcome = await redeemGiftCode(gift.code);
-    if (outcome.ok) {
+    if (!outcome.ok) {
+      setError(outcome.error);
+      setFailure(outcome.reason);
+    } else if (outcome.checkoutUrl !== undefined) {
+      // Trial: the card is registered at Stripe, which brings them back to /pro.
+      window.location.href = outcome.checkoutUrl;
+      return;
+    } else {
       setState({ kind: "done", gift, until: outcome.currentPeriodEnd });
       // The account is what actually changed. Until it is re-read, every
       // Pro-only control on screen is still locked behind a plan this person
       // now has.
       refresh();
-    } else {
-      setError(outcome.error);
-      setFailure(outcome.reason);
     }
     setBusy(false);
   }, [gift, busy, refresh]);
@@ -262,9 +266,22 @@ export function GiftClaimDialog({
 
               <p className="mt-2 text-center">
                 <span className="inline-flex items-center rounded-full bg-zinc-100 px-3 py-1 text-sm font-medium text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
-                  {gift.days} dias de acesso
+                  {gift.trialOnly
+                    ? t("giftClaimDialog.trialDays", { value: gift.days })
+                    : `${gift.days} dias de acesso`}
                 </span>
               </p>
+              {gift.trialOnly && state.kind !== "done" && (
+                <p className="mt-2 text-center text-xs text-zinc-500 dark:text-zinc-400">
+                  {t("giftClaimDialog.trialExplain", {
+                    value: gift.days,
+                    price: new Intl.NumberFormat(undefined, {
+                      style: "currency",
+                      currency: gift.currency || "BRL",
+                    }).format((gift.trialPriceCents ?? 0) / 100),
+                  })}
+                </p>
+              )}
 
               {/* Who it is from. The face and the name exactly as they are
                   drawn everywhere else on the site — the colour they bought
@@ -374,7 +391,11 @@ export function GiftClaimDialog({
                     disabled={busy || resolvingAccount}
                     className={`w-full rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-sm transition disabled:opacity-60 ${PLAN_TONE_BUTTON[tone]}`}
                   >
-                    {busy ? t("giftClaimDialog.redeeming") : t("giftClaimDialog.redeemGift")}
+                    {busy
+                      ? t("giftClaimDialog.redeeming")
+                      : gift.trialOnly
+                        ? t("giftClaimDialog.startTrial")
+                        : t("giftClaimDialog.redeemGift")}
                   </button>
                   {/* Quiet, and it should be: it is the answer nobody is
                       hoping for, and giving it equal weight would turn a
@@ -394,7 +415,11 @@ export function GiftClaimDialog({
                   role="alert"
                   className="mt-3 text-center text-sm text-red-600 dark:text-red-400"
                 >
-                  {failure === "not_allowed" ? t("giftClaimDialog.notAllowed") : error}
+                  {failure === "not_allowed"
+                    ? t("giftClaimDialog.notAllowed")
+                    : failure === "has_plan"
+                      ? t("giftClaimDialog.trialHasPlan")
+                      : error}
                   {failure === "card_subscription" && (
                     <span className="mt-1 block text-xs text-zinc-500 dark:text-zinc-400">
                       {t("giftClaimDialog.cancelTheCardSubscriptionAndCome")}

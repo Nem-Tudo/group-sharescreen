@@ -1,4 +1,11 @@
 {
+  "admin.giftPanel.trialOnly": "Free trial only",
+  "admin.giftPanel.trialOnlyHint": "Whoever redeems registers a card at Stripe and subscribes to the plan (monthly). The gift's days are free; billing starts after. Between 2 and 730 days.",
+  "admin.giftPanel.trialBadge": "free trial",
+  "giftClaimDialog.trialDays": "{value} days free",
+  "giftClaimDialog.trialExplain": "Add a card to start. Nothing is charged for the first {value} days; then {price}/month. Cancel anytime.",
+  "giftClaimDialog.startTrial": "Add card and start",
+  "giftClaimDialog.trialHasPlan": "You already have an active plan. The free trial is only for accounts without one.",
   "userProfileCard.copyId": "Copy ID",
   "userProfileCard.idCopied": "ID copied",
   "admin.badgesPanel.updated": "Badge updated.",
