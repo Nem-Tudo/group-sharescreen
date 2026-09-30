@@ -110,6 +110,7 @@ import { isTurnConfigured, subscribeIceServers, TURN_CONFIGURED } from "@/lib/ic
 import { useMediaDevices, type MediaDeviceOption } from "@/lib/useMediaDevices";
 import {
   getStoredMicsMuted,
+  getStoredMicOn,
   setStoredMicsMuted,
   getStoredPeerVolumes,
   setStoredPeerVolume,
@@ -1810,7 +1811,7 @@ function WatchRoomView({
   // What the mic was doing when the room was deafened, so undeafening can put
   // it back exactly there. Deafening with the mic already closed has nothing
   // to restore, which is the whole of the "fica apenas deafen" case.
-  const micBeforeDeafenRef = useRef(false);
+  const micBeforeDeafenRef = useRef(micsMuted && getStoredMicOn());
   // Set to the value a deafen/undeafen is about to move the mic to, so the
   // mic's own sound below stays quiet for that one change. Without it,
   // deafening plays two sounds at once — the deafen chime and the mic-off
