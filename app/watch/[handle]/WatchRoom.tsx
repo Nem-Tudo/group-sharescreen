@@ -159,6 +159,13 @@ import { InviteToRoomModal } from "@/components/InviteToRoomModal";
 import { prewarmCaptcha } from "@/lib/turnstile";
 import { RoomAccountCard } from "@/components/RoomAccountCard";
 import { openProModal } from "@/lib/proModal";
+import { MEDIA_KINDS, roomTools, useRoomToolsSelector, type RoomToolsState } from "@/lib/roomTools";
+import { RoomToolsPanel, type ToolPerson } from "@/components/roomTools/RoomToolsPanel";
+import { AnnotateDock, RoomToolsViewer } from "@/components/roomTools/AnnotationLayer";
+import { ToolMediaTileById } from "@/components/roomTools/ToolMediaTile";
+import { ChatToolsStrip, PollCreateDialog } from "@/components/roomTools/ChatToolsStrip";
+import { HandsQueue, RaiseHandButton } from "@/components/roomTools/HandRaise";
+import { MdBackHand, MdHandyman, MdPoll } from "react-icons/md";
 import { VideoSourceTile } from "@/components/VideoSourceTile";
 import {
   videoSourceVolumeKey,
@@ -1310,7 +1317,7 @@ function SwitchRoomFields({
 // "screen-extra" tiles are the extra screens of "Várias telas" (see
 // lib/multiScreen.ts), addressed by `${slot}:${ownerId}` like the files.
 // "camera2" is the phone's second lens (front and rear at once).
-type TileKind = "screen" | "camera" | "camera2" | "file" | "video-source" | "screen-extra";
+type TileKind = "screen" | "camera" | "camera2" | "file" | "video-source" | "screen-extra" | "tool";
 const SELF_TILE_OWNER = "self";
 
 function tileId(kind: TileKind, ownerId: string): string {
@@ -1341,7 +1348,8 @@ function parseTileId(id: string): { kind: TileKind; ownerId: string } | null {
     kind !== "camera" &&
     kind !== "camera2" &&
     kind !== "video-source" &&
-    kind !== "screen-extra"
+    kind !== "screen-extra" &&
+    kind !== "tool"
   ) {
     return null;
   }
@@ -1532,6 +1540,20 @@ export type WatchRoomGroupMode = {
 
 type WatchRoomProps = ComponentProps<typeof WatchRoomView>;
 
+// The two slices of the room's tools the room itself reads (see
+// lib/roomTools) — narrow, so a stroke on the whiteboard does not redraw it.
+const selectToolSpeakers = (s: RoomToolsState) => s.speakers;
+const selectToolHands = (s: RoomToolsState) => s.hands;
+const selectToolsPanelOpen = (s: RoomToolsState) => s.panelOpen;
+const selectToolCount = (s: RoomToolsState) => s.tools.filter((t) => t.kind !== "reactions").length;
+// The tools that are tiles in the grid, as one string so it keeps its identity
+// while only their contents change.
+const selectMediaToolKey = (s: RoomToolsState) =>
+  s.tools
+    .filter((t) => MEDIA_KINDS.includes(t.kind))
+    .map((t) => t.id)
+    .join(",");
+
 // The sounds run beside the room rather than inside it, so the chat they
 // listen to does not re-render the room (see RoomSoundEffects) — and mounted
 // exactly when the room is, because they baseline on the first room-state
@@ -1613,6 +1635,16 @@ function WatchRoomView({
   const callLayout = Boolean(dm);
   const state = useSignalingSelector(selectWatchRoom, shallow);
   const { hasMusic, musicPlaying } = useSignalingSelector(selectMusicSummary, shallow);
+  // The room's tools and raised hands (see lib/roomTools).
+  const toolSpeakers = useRoomToolsSelector(selectToolSpeakers);
+  const toolHands = useRoomToolsSelector(selectToolHands);
+  const toolsPanelOpen = useRoomToolsSelector(selectToolsPanelOpen);
+  const toolCount = useRoomToolsSelector(selectToolCount);
+  const mediaToolKey = useRoomToolsSelector(selectMediaToolKey);
+  const mediaToolIds = useMemo(() => (mediaToolKey ? mediaToolKey.split(",") : []), [mediaToolKey]);
+  // A manager answered our raised hand: we may speak even with the room's
+  // microphones off (the server's canUseRoomPermission says the same).
+  const selfIsSpeaker = Boolean(state.selfUserId && toolSpeakers.includes(state.selfUserId));
   // A protected room (see lib/captureProtection.ts): the window is kept out
   // of screenshots and recorders for as long as we are in it, and nothing of
   // the room is drawn until the OS has confirmed that. The server only lets
@@ -1986,6 +2018,8 @@ function WatchRoomView({
   // and the tile is replaced by the same "you left this" placeholder a
   // stopped transmission gets, so there's a way back in.
   const [leftVideoSourceIds, setLeftVideoSourceIds] = useState<Set<string>>(new Set());
+  // The room's tool tiles this viewer stepped out of (see ToolMediaTile).
+  const [leftToolIds, setLeftToolIds] = useState<Set<string>>(new Set());
   // Consolidates every header control except the mic toggle and the
   // share/camera transmission buttons into one "more options" panel — see
   // the header below. Those sub-toggles (renaming/switching/qualityOpen)
@@ -3023,6 +3057,7 @@ function WatchRoomView({
   function isTileGone(id: string): boolean {
     const target = parseTileId(id);
     if (!target) return true;
+    if (target.kind === "tool") return !mediaToolIds.includes(target.ownerId);
     if (target.kind === "video-source") {
       return !state.videoSources.some((v) => v.id === target.ownerId);
     }
@@ -3090,7 +3125,8 @@ function WatchRoomView({
   // the room's (@everyone's) do not. Never the theme, which is the room's.
   const myPermissions = state.myRoomPermissions;
   function canUseRoomPermission(key: RoomPermissionKey): boolean {
-    const own = key !== "theme" && myPermissions ? myPermissions[key] : state.roomPermissions[key];
+    if (key === "mic" && selfIsSpeaker) return true;
+    const own = key !== "theme" && key !== "tools" && myPermissions ? myPermissions[key] : state.roomPermissions[key];
     return own || isRoomManager;
   }
   // Repainting the room is two questions at once, and they are kept apart
@@ -3099,6 +3135,42 @@ function WatchRoomView({
   // never subject to, like every other one). The server checks both again —
   // see its "room-theme-set".
   const hasThemePlan = hasFeature("room_theme_set", account?.features ?? []);
+  // Opening a tool is Pro Ultra (the server checks it again — see its
+  // roomTools.ts); using one somebody opened is whatever that tool allows.
+  const accountFeatures = account?.features ?? GUEST_FEATURES;
+  const raisedHandIds = useMemo(() => new Set(toolHands.map((h) => h.id)), [toolHands]);
+  const selfHandRaised = Boolean(state.selfUserId && raisedHandIds.has(state.selfUserId));
+  // Everybody else here, once per person — for "pessoas escolhidas".
+  const toolPeople = useMemo<ToolPerson[]>(() => {
+    const seen = new Map<string, string>();
+    for (const peer of state.peers) {
+      if (peer.userId && peer.userId !== state.selfUserId && !seen.has(peer.userId)) seen.set(peer.userId, peer.name);
+    }
+    return [...seen].map(([userId, name]) => ({ userId, name }));
+  }, [state.peers, state.selfUserId]);
+  const nameOfUser = useCallback(
+    (userId: string) =>
+      userId === state.selfUserId
+        ? state.name
+        : (state.peers.find((p) => p.userId === userId)?.name ?? null),
+    [state.peers, state.selfUserId, state.name]
+  );
+  // Opening and closing tools — the managers, or everybody when the room says so.
+  const canOpenRoomTools = canUseRoomPermission("tools");
+  const toolsViewer = useMemo(
+    () => ({ selfUserId: state.selfUserId, isManager: isRoomManager, canOpenTools: canOpenRoomTools }),
+    [state.selfUserId, isRoomManager, canOpenRoomTools]
+  );
+  // Whether the room's microphones are off for ordinary members — what makes
+  // answering a raised hand mean "you may speak".
+  const micsLockedForMembers = !state.roomPermissions.mic;
+  // A raised hand is a request to speak, so it is only offered where speaking
+  // takes one: the room (or our roles) keeps microphones to its managers.
+  // With microphones open again the button (and every raised hand) is hidden,
+  // not cleared: closing them again brings back the hands that were up.
+  const canRaiseHand =
+    !isRoomManager &&
+    !(myPermissions ? myPermissions.mic : state.roomPermissions.mic);
 
   // The premium button — which of its three offers, decided in one place with
   // the group bar's copy (see components/RoomProOffer).
@@ -3183,7 +3255,7 @@ function WatchRoomView({
     // A manager silencing us closes it the same way — see selfSilenced.
     if (isMicOn && (selfSilenced || !canUseRoomPermission("mic"))) toggleMicDevice();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMicOn, isRoomManager, state.roomPermissions.mic, myPermissions?.mic, selfSilenced]);
+  }, [isMicOn, isRoomManager, state.roomPermissions.mic, myPermissions?.mic, selfSilenced, selfIsSpeaker]);
 
   // "Você criou uma sala pública!" — opened by itself, once, for whoever's
   // join brought the room into existence (see the server's "room-state"
@@ -3920,6 +3992,16 @@ function WatchRoomView({
   // the newFeatureTip chain). Only one of the two buttons exists at a time:
   // the card's from lg up, the pull-up menu's tile below it.
   const callRecordingTip = useTileExperimentTip("callRecording", callRecordingFeature.enabled);
+
+  // The tools store hears whether what is in focus is something you can
+  // write on (a screen, a camera, a file — not a tool's own tile or a
+  // YouTube-style source): on a phone the screen notes work only there (see
+  // AnnotateDock). Up here, before the early returns, so the hook runs on
+  // every render.
+  useEffect(() => {
+    const focusedKind = parseTileId(hyperfocusId ?? spotlightId ?? "")?.kind;
+    roomTools.setStageFocused(Boolean(focusedKind && focusedKind !== "tool" && focusedKind !== "video-source"));
+  }, [spotlightId, hyperfocusId]);
 
   if (!validHandle) {
     return (
@@ -4888,6 +4970,7 @@ function WatchRoomView({
       render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
         <VideoTile
           tileId={id}
+          mediaKey={state.selfId ? `screen:${state.selfId}` : undefined}
           stream={localStream}
           beingRecorded={recordedChannels.has("screen")}
           // Our own capture keeps running whether or not this preview is on
@@ -4943,6 +5026,7 @@ function WatchRoomView({
       render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
         <VideoTile
           tileId={id}
+          mediaKey={state.selfId ? `camera2:${state.selfId}` : undefined}
           stream={stream}
           detachWhenHidden={false}
           label={label}
@@ -4986,6 +5070,7 @@ function WatchRoomView({
       render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
         <VideoTile
           tileId={id}
+          mediaKey={state.selfId ? `screen-extra:${slot}:${state.selfId}` : undefined}
           stream={stream}
           detachWhenHidden={false}
           label={label}
@@ -5035,6 +5120,7 @@ function WatchRoomView({
       render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
         <VideoTile
           tileId={id}
+          mediaKey={state.selfId ? `camera:${state.selfId}` : undefined}
           stream={localCameraStream}
           mirrored={mirrorOwnCamera}
           orientation={myOrientations["camera"] ?? null}
@@ -5089,6 +5175,7 @@ function WatchRoomView({
       render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
         <VideoTile
           tileId={id}
+          mediaKey={state.selfId ? `file:${slot}:${state.selfId}` : undefined}
           stream={stream}
           beingRecorded={recordedChannels.has(slot)}
           label={name}
@@ -5143,6 +5230,7 @@ function WatchRoomView({
       render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
         <VideoTile
           tileId={id}
+          mediaKey={`file:${slot}:${peerId}`}
           stream={stream}
           label={shared?.name ?? `arquivo de ${peer?.name ?? translate("common.someone2")}`}
           accessibleLabel={shared?.name ?? translate("common.file")}
@@ -5223,6 +5311,7 @@ function WatchRoomView({
       render: (fill) => (
         <VideoSourceTile
           source={videoSource}
+          mediaKey={`video-source:${videoSource.id}`}
           volume={transmissionVolumes[volumeKey] ?? transmissionVolumes[adderVolumeKey] ?? 1}
           onVolumeChange={(volume) => setVideoSourceVolume(volumeKey, adderVolumeKey, volume)}
           // Whoever added it drives — or, if they set it to "anyone" when
@@ -5286,6 +5375,54 @@ function WatchRoomView({
     });
   }
 
+  // The room's whiteboard, notepad and code editor (see components/roomTools)
+  // — media like a YouTube video: a grid slot, focus and hyperfocus, and a
+  // placeholder for whoever stepped out of one. Each tile reads its own tool
+  // from the tools store, so a stroke redraws that tile and not the room.
+  for (const toolId of mediaToolIds) {
+    const id = tileId("tool", toolId);
+    if (hyperfocusTarget && activeHyperfocusId !== id) continue;
+    if (leftToolIds.has(toolId)) {
+      if (activeHyperfocusId) continue;
+      tiles.push({
+        id,
+        render: (fill) => (
+          <StoppedPeerTile
+            label={translate("roomTools.steppedOut")}
+            fill={fill}
+            onResume={() =>
+              setLeftToolIds((prev) => {
+                const next = new Set(prev);
+                next.delete(toolId);
+                return next;
+              })
+            }
+          />
+        ),
+      });
+      continue;
+    }
+    tiles.push({
+      id,
+      render: (fill, compact) => (
+        <ToolMediaTileById
+          toolId={toolId}
+          selfUserId={state.selfUserId}
+          isManager={isRoomManager}
+          fill={fill}
+          compact={compact}
+          onFocus={() => toggleSpotlight(id)}
+          isSpotlighted={spotlightId === id}
+          onHyperfocus={() => toggleHyperfocus(id)}
+          isHyperfocused={activeHyperfocusId === id}
+          // On a phone a tool works only in focus — see ToolMediaTile.
+          interactive={isWideLayout || spotlightId === id || activeHyperfocusId === id}
+          onLeave={() => setLeftToolIds((prev) => new Set(prev).add(toolId))}
+        />
+      ),
+    });
+  }
+
   // Screen and camera each keep their own dial and their own mute per person
   // (`screen:<id>`, `camera:<id>`), remembered until changed. Both used to share the bare id,
   // so turning somebody's camera down also turned their screen down; that
@@ -5299,6 +5436,7 @@ function WatchRoomView({
       render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
         <VideoTile
           tileId={id}
+          mediaKey={`screen:${peerId}`}
           stream={stream}
           label={
             <DisplayUserName
@@ -5352,6 +5490,7 @@ function WatchRoomView({
       render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
         <VideoTile
           tileId={id}
+          mediaKey={`camera2:${peerId}`}
           stream={stream}
           label={
             <span className="inline-flex items-center gap-1">
@@ -5406,6 +5545,7 @@ function WatchRoomView({
       render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
         <VideoTile
           tileId={id}
+          mediaKey={`screen-extra:${slot}:${peerId}`}
           stream={stream}
           label={
             <span className="inline-flex items-center gap-1">
@@ -5458,6 +5598,7 @@ function WatchRoomView({
       render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
         <VideoTile
           tileId={id}
+          mediaKey={`camera:${peerId}`}
           stream={stream}
           label={
             <DisplayUserName
@@ -7123,6 +7264,7 @@ function WatchRoomView({
         isAdmin={isRoomAdmin}
         isApp={mounted && isDesktopApp() && !isMobileApp()}
         isMobileApp={mounted && isMobileApp()}
+        handRaised={micsLockedForMembers && selfHandRaised}
         // Your own row is you, looking at it — the only question left is which
         // client, and this tab already knows without asking the server.
         presence={{
@@ -7173,6 +7315,7 @@ function WatchRoomView({
             isAdmin={p.userId ? adminIds.has(p.userId) : false}
             isApp={p.app}
             isMobileApp={p.mobileApp}
+            handRaised={micsLockedForMembers && Boolean(p.userId && raisedHandIds.has(p.userId))}
             presence={peerPresence(p)}
             verified={verifiedBadge(p?.flags)}
             bot={p.bot}
@@ -7382,6 +7525,19 @@ function WatchRoomView({
 
   const chatPanel = (
     <RoomChat
+        topSlot={<ChatToolsStrip />}
+        attachExtras={
+          canOpenRoomTools
+            ? [
+                {
+                  key: "poll",
+                  icon: <MdPoll />,
+                  label: translate("roomTools.poll.new"),
+                  onClick: () => roomTools.openPollDialog(true),
+                },
+              ]
+            : undefined
+        }
         selfId={state.selfId}
         selfName={state.name}
         renderAuthorMenu={
@@ -7580,6 +7736,7 @@ function WatchRoomView({
   const groupMusicSlot = group ? musicSlot : null;
 
   return (
+    <RoomToolsViewer.Provider value={toolsViewer}>
     <div
       // Marks this page as an app shell for globals.css, which is what pins
       // it to the viewport actually on screen below lg — see the
@@ -7875,6 +8032,31 @@ function WatchRoomView({
                   <span data-header-label className="hidden 2xl:inline"><BetaMark /></span>
                 </button>
               </Tooltip>
+
+              {/* "Ferramentas": the shared whiteboard, notepad, notes over a
+                  shared screen, polls, reactions, code editor and task list
+                  (see components/roomTools). Same family as the two buttons
+                  before it — something brought in for the whole room — and
+                  shown to everyone: members use what the managers opened. */}
+              <Tooltip content={translate("roomTools.title")} wrapperClassName="flex">
+                <button
+                  type="button"
+                  onClick={() => roomTools.togglePanel()}
+                  aria-pressed={toolsPanelOpen}
+                  aria-label={translate("roomTools.title")}
+                  className="relative flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700"
+                >
+                  <MdHandyman className="h-5 w-5 shrink-0" />
+                  <span data-header-label className="hidden 2xl:inline"><BetaMark /></span>
+                  {toolCount > 0 && (
+                    <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-white px-1 text-[10px] font-bold text-emerald-700 ring-1 ring-emerald-600">
+                      {toolCount}
+                    </span>
+                  )}
+                </button>
+              </Tooltip>
+
+              {canRaiseHand && <RaiseHandButton selfUserId={state.selfUserId} />}
               </>,
               "flex items-center gap-1.5",
               translate("watch.watchRoom.callDockGap0375rem")
@@ -8368,6 +8550,18 @@ function WatchRoomView({
         )}
 
         <main className="relative flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-2 lg:p-0">
+          {/* The tools panel sits on the stage, not over the whole page: the
+              chat and the participants stay where they are (see RoomToolsPanel). */}
+          {state.room && (
+            <RoomToolsPanel
+              selfUserId={state.selfUserId}
+              isManager={isRoomManager}
+              canOpenTools={canOpenRoomTools}
+              features={accountFeatures}
+              people={toolPeople}
+              onShowTile={(toolId) => setSpotlightId(tileId("tool", toolId))}
+            />
+          )}
           {/* Floating expand buttons when sidebars are collapsed on wide screens */}
           {/* In a group, what comes back is the group's rail and rooms column. */}
           {isWideLayout && leftSidebarCollapsed && !callLayout && (
@@ -8876,6 +9070,57 @@ function WatchRoomView({
                       </div>
                     </button>
 
+                    {/* [ferramentas] — see components/roomTools */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        roomTools.openPanel(true);
+                        setMobileExtraMenuOpen(false);
+                      }}
+                      aria-label={translate("roomTools.title")}
+                      className="flex h-[4.75rem] flex-col items-center justify-center gap-1.5 rounded-xl border border-zinc-200 bg-white p-2 text-zinc-700 shadow-sm transition active:scale-95 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200"
+                    >
+                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600 dark:bg-emerald-950/70 dark:text-emerald-400">
+                        <MdHandyman className="h-5 w-5" />
+                      </div>
+                      <div className="flex flex-col items-center">
+                        <div className="flex items-center gap-1">
+                          <span className="text-center text-[11px] font-semibold leading-tight">
+                            {translate("roomTools.titleShort")}
+                          </span>
+                          <span className="text-[9px] font-bold leading-none"><BetaMark /></span>
+                        </div>
+                        <span className="text-[9px] font-medium leading-none text-zinc-400 dark:text-zinc-500 mt-0.5">
+                          {translate("roomTools.openCount", { count: toolCount })}
+                        </span>
+                      </div>
+                    </button>
+
+                    {/* [levantar a mão] */}
+                    {canRaiseHand && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        roomTools.raiseHand(!selfHandRaised);
+                        setMobileExtraMenuOpen(false);
+                      }}
+                      aria-pressed={selfHandRaised}
+                      aria-label={selfHandRaised ? translate("roomTools.hands.lower") : translate("roomTools.hands.raise")}
+                      className={`flex h-[4.75rem] flex-col items-center justify-center gap-1.5 rounded-xl border p-2 shadow-sm transition active:scale-95 ${
+                        selfHandRaised
+                          ? "border-amber-400 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-950/60 dark:text-amber-200"
+                          : "border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200"
+                      }`}
+                    >
+                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-100 text-amber-600 dark:bg-amber-950/70 dark:text-amber-400">
+                        <MdBackHand className="h-5 w-5" />
+                      </div>
+                      <span className="text-center text-[11px] font-semibold leading-tight">
+                        {selfHandRaised ? translate("roomTools.hands.lower") : translate("roomTools.hands.raise")}
+                      </span>
+                    </button>
+                    )}
+
                     {/* [gravar chamada] — à esquerda do Stream, como no cartão do desktop */}
                     {showCallRecording && (
                       <CallRecordButton
@@ -9344,6 +9589,18 @@ function WatchRoomView({
           )}
         </div>
       )}
+      {/* The room's tools (see components/roomTools): the panel, the
+          "Nova enquete" dialog and, for its managers, the
+          queue of raised hands. Only on the room's own page — a docked
+          call is a call on somebody else's page. */}
+      {visible && state.room && (
+        <>
+          <PollCreateDialog people={toolPeople} />
+          <AnnotateDock />
+          <HandsQueue isManager={isRoomManager} micsLocked={micsLockedForMembers} nameOf={nameOfUser} />
+        </>
+      )}
     </div>
+    </RoomToolsViewer.Provider>
   );
 }

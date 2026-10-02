@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type ComponentProps,
   type ClipboardEvent as ReactClipboardEvent,
   type FormEvent,
   type KeyboardEvent,
@@ -199,7 +200,13 @@ export function ChatPanel({
   onCollapse,
   onRequestAccount,
   roomHandle = null,
+  topSlot,
+  attachExtras,
 }: {
+  /** Drawn between the header and the log — the room's polls and task progress (see ChatToolsStrip). */
+  topSlot?: ReactNode;
+  /** More entries for the "+" menu besides attachments (see AttachMenu's extraItems). */
+  attachExtras?: ComponentProps<typeof AttachMenu>["extraItems"];
   /** The room's handle — which custom emoji may go in (a group voice room's by the group's rules). */
   roomHandle?: string | null;
   messages: ChatMessage[];
@@ -1392,6 +1399,8 @@ export function ChatPanel({
         </div>
       </div>
 
+      {topSlot}
+
       {/* `relative` so the "jump to the newest" pill below can hang over the
           bottom of the log without taking a row of it. */}
       <div className="relative flex min-h-0 flex-1 flex-col">
@@ -1624,7 +1633,12 @@ export function ChatPanel({
               onFiles={attachAnything}
               onOpen={() => void uploads.refreshLimit()}
               limitMb={uploads.limit?.maxMb}
-              disabled={!canAttach}
+              // With something besides attachments in it, the menu opens even
+              // where attaching is not allowed — showing only those.
+              disabled={!canAttach && !attachExtras?.length}
+              allowImages={canAttach}
+              allowFiles={canAttach}
+              extraItems={attachExtras}
               wrapperClassName="inline-flex shrink-0"
               tooltip={
                 !onSendImages
@@ -1635,7 +1649,7 @@ export function ChatPanel({
               }
               iconClassName="h-5 w-5"
               buttonClassName={`inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border transition disabled:cursor-not-allowed ${
-                canAttach
+                canAttach || attachExtras?.length
                   ? "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
                   : "border-zinc-200 opacity-50 text-zinc-400 dark:border-zinc-800 dark:text-zinc-600"
               }`}

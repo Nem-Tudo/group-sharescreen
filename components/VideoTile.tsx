@@ -72,6 +72,8 @@ import {
 import { useT } from "@/lib/useI18n";
 import { useProtectedRoom } from "@/lib/captureProtection";
 import { isPageHidden, onPageHiddenChange } from "@/lib/pageHidden";
+import { AnnotateButton, AnnotationLayer } from "@/components/roomTools/AnnotationLayer";
+import { ReactionButton, ReactionFloats } from "@/components/roomTools/ReactionLayer";
 
 function noopSubscribe() {
   return () => { };
@@ -137,6 +139,7 @@ const VideoTileView = memo(function VideoTileView({
   orientation,
   onOrientationChange,
   tileId,
+  mediaKey,
   className = "",
 }: {
   stream: MediaStream;
@@ -283,6 +286,9 @@ const VideoTileView = memo(function VideoTileView({
   // The room's id for this tile (see WatchRoom's RoomTile), under which the
   // clip/record keyboard shortcuts reach it (see lib/tileCommands).
   tileId?: string;
+  // The same for everybody in the room ("screen:<connection>"…) — which
+  // media the screen notes and reactions are aimed at. Absent: neither.
+  mediaKey?: string;
 }) {
   const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -331,6 +337,8 @@ const VideoTileView = memo(function VideoTileView({
   // is big enough for zooming into it to mean anything — on the stage, in
   // hyperfocus, or in fullscreen — and only for a pointer: a touchscreen
   // already pinches, and a second way in would just cover the video.
+  // The room tools' buttons go to the bottom bar in focus, on a phone too.
+  const toolButtonsBelow = isSpotlighted || isHyperfocused || isFullscreen;
   const canZoom = !compact && orientationMode.active && (isFullscreen || isSpotlighted || isHyperfocused);
   const canClip = clippable && clipsMode.active && clipSupported();
   const canRecord = clippable && recordingMode.active && clipSupported();
@@ -908,6 +916,8 @@ const VideoTileView = memo(function VideoTileView({
           onTogglePlay && !isFullscreen ? "cursor-pointer" : ""
         }`}
       />
+      {mediaKey && <AnnotationLayer annotationKey={mediaKey} videoRef={videoRef} focused={isSpotlighted || isHyperfocused || isFullscreen} />}
+      {mediaKey && <ReactionFloats mediaKey={mediaKey} />}
       {isVideoLoading && (
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="h-10 w-10 animate-spin rounded-full border-4 border-white/20 border-t-white/80" />
@@ -999,7 +1009,7 @@ const VideoTileView = memo(function VideoTileView({
         </div>
       )}
       <div
-        className={`absolute inset-x-0 flex items-center justify-between gap-2 bg-linear-to-t from-black/85 to-transparent transition-opacity ${
+        className={`absolute inset-x-0 z-20 flex items-center justify-between gap-2 bg-linear-to-t from-black/85 to-transparent transition-opacity ${
           // Pushed up out of the transport's way when there is one, rather
           // than the two overlapping at the bottom edge.
           // Clears the transport's own height — a 28px row inside 8px of
@@ -1037,6 +1047,16 @@ const VideoTileView = memo(function VideoTileView({
             <span className="hidden sm:inline">{t("videoTile.broadcastActive")}</span>
           </span>
         )}
+        {/* Reactions always in the bottom bar; annotating there on a computer,
+            and on a phone once the tile is in focus (or hyperfocus, fullscreen). */}
+        {mediaKey && !compact && (
+          <span className="ml-auto flex items-center gap-1.5">
+            <span className={toolButtonsBelow ? "flex" : "hidden lg:flex"}>
+              <AnnotateButton mediaKey={mediaKey} focused={isSpotlighted || isHyperfocused || isFullscreen} />
+            </span>
+            <ReactionButton mediaKey={mediaKey} direction="up" />
+          </span>
+        )}
       </div>
       {/* Outside fullscreen: hidden until hovered, so a busy grid isn't
           wall-to-wall buttons — but always shown on a touch device, which
@@ -1051,11 +1071,18 @@ const VideoTileView = memo(function VideoTileView({
         // these buttons is reachable at that size, and all of them cover the
         // picture the window exists to show.
         data-tile-controls
-        className={`absolute top-2 flex flex-wrap items-center justify-end gap-2 transition-opacity ${
+        className={`absolute top-2 z-20 flex flex-wrap items-center justify-end gap-2 transition-opacity ${
           overlayRightOffset ? "right-[50px]" : "right-2"
         } ${compact ? "hidden" : ""} ${overlayVisibilityClass}`}
         style={overlayRightOffset ? { right: "50px" } : undefined}
       >
+        {/* The room tools' buttons up here on a phone; from lg they sit in the
+            bottom bar instead (see below). */}
+        {mediaKey && !toolButtonsBelow && (
+          <span className="flex items-center gap-2 lg:hidden">
+            <AnnotateButton mediaKey={mediaKey} focused={isSpotlighted || isHyperfocused || isFullscreen} />
+          </span>
+        )}
         {isFullscreen && onToggleMic && (
           <Tooltip content={isMicOn ? t("common.turnOffMicrophone") : t("common.turnOnMicrophone")}>
             <button

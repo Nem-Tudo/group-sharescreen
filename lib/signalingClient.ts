@@ -252,7 +252,8 @@ export type RoomPermissionKey =
   | "chat"
   | "gif"
   | "image"
-  | "theme";
+  | "theme"
+  | "tools";
 
 export type RoomPermissions = Record<RoomPermissionKey, boolean>;
 
@@ -268,6 +269,8 @@ export const DEFAULT_ROOM_PERMISSIONS: RoomPermissions = {
   gif: true,
   image: true,
   theme: true,
+  // Off out of the box, like the server's: only managers open/close tools.
+  tools: false,
 };
 
 /**
@@ -1338,6 +1341,23 @@ class SignalingClient {
 
   getSnapshot = () => this.state;
 
+  // Every message off the socket, before the switch below handles it — how
+  // a feature with a store of its own (see lib/roomTools.ts) hears its
+  // messages without this class growing a field and a case for each.
+  private messageListeners = new Set<(msg: Record<string, unknown>) => void>();
+
+  onMessage(cb: (msg: Record<string, unknown>) => void) {
+    this.messageListeners.add(cb);
+    return () => {
+      this.messageListeners.delete(cb);
+    };
+  }
+
+  /** Sends a message as is — for those same stores. Dropped while disconnected. */
+  sendMessage(msg: Record<string, unknown>) {
+    this.rawSend(msg);
+  }
+
   /** "Fulano está gravando a sua transmissão" — see lib/recordingNotice. */
   onRecordingNotice(cb: RecordingNoticeListener) {
     this.recordingNoticeListeners.add(cb);
@@ -1600,6 +1620,13 @@ class SignalingClient {
   }
 
   private handleMessage(msg: Record<string, unknown>) {
+    for (const listener of this.messageListeners) {
+      try {
+        listener(msg);
+      } catch (err) {
+        console.error("[signaling] message listener failed:", err);
+      }
+    }
     switch (msg.type) {
       case "welcome":
         this.setState({ selfId: msg.id as string });

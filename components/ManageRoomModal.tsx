@@ -16,6 +16,7 @@ import {
   MdOutlineChat,
   MdGif,
   MdOutlineImage,
+  MdBuild,
   MdPalette,
   MdOutlineMap,
   MdLockOutline,
@@ -70,6 +71,7 @@ const PERMISSION_ROWS: {
   // report that it "does nothing" — for everybody without the plan, it never
   // did.
   { key: "theme", get label() { return translate("manageRoomModal.allowProMaxMembersToChange"); }, icon: MdPalette },
+  { key: "tools", get label() { return translate("manageRoomModal.allowEveryoneToOpenTools"); }, icon: MdBuild },
 ];
 
 type View = "menu" | "admins" | "permissions" | "location" | "bans" | "limit" | "protection";

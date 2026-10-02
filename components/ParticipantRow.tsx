@@ -16,6 +16,7 @@ import {
   MdOutlineDesktopWindows,
   MdOutlineOndemandVideo,
   MdOutlineSmartphone,
+  MdBackHand,
 } from "react-icons/md";
 import { FaCrown } from "react-icons/fa";
 import { DisplayUserName } from "./DisplayUserName";
@@ -56,6 +57,7 @@ export const ParticipantRow = memo(function ParticipantRow({
   isAdmin = false,
   isApp = false,
   isMobileApp = false,
+  handRaised = false,
   presence = { state: "online" },
   menuOpen = false,
   menuContent = null,
@@ -135,6 +137,8 @@ export const ParticipantRow = memo(function ParticipantRow({
   // derives both from one platform value), but written as one branch so a
   // client that somehow received both shows one icon rather than two.
   isMobileApp?: boolean;
+  // A raised hand (see components/roomTools/HandRaise) — shown by the name.
+  handRaised?: boolean;
   // Right click opens the room's actions for this person (see
   // MemberActionsModal). Omitted where there are none to offer — for yourself,
   // and for anyone when this viewer does not run the room — so the browser's
@@ -284,6 +288,13 @@ export const ParticipantRow = memo(function ParticipantRow({
               </span>
             </Tooltip>
           )
+        )}
+        {handRaised && (
+          <Tooltip content={t("roomTools.hands.raisedBy", { name })}>
+            <span className="flex shrink-0 items-center self-center">
+              <MdBackHand className="h-3.5 w-3.5 text-amber-500" />
+            </span>
+          </Tooltip>
         )}
         {isApp ? (
           <Tooltip content={t("participantRow.nameIsUsingTheGoliveApp", { name })}>

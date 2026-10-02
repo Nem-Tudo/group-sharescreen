@@ -30,7 +30,7 @@ import { getDesktopBridge } from "@/lib/desktop";
 import { MULTI_SCREEN_LIMITS } from "@/lib/multiScreen";
 import { AURAS_PER_PLAN, GROUP_AURA_FEATURE } from "@/lib/groupAura";
 import { ACCOUNT_EMOJI_LIMITS, CUSTOM_EMOJI_FEATURE } from "@/lib/customEmoji";
-import { accountTierOf, planTierOf, tierAbove, tierAtLeast, type Feature } from "@/lib/entitlements";
+import { FEATURE_TIERS, accountTierOf, planTierOf, tierAbove, tierAtLeast, type Feature } from "@/lib/entitlements";
 import { PUBLISHED_THEME_LIMITS } from "@/lib/roomThemes";
 import {
   fetchPremiumPlans,
@@ -111,6 +111,10 @@ const FEATURE_LABELS: Partial<Record<Feature, string>> = {
   get clip_no_watermark() { return translate("pro.proPanel.clipWithoutWatermark"); },
   get call_transcript() { return translate("pro.proPanel.transcribeYourCalls"); },
   get live_translation() { return translate("pro.proPanel.liveTranslation"); },
+  // The room's tools, one row per rung (see lib/roomTools.ts's TOOL_FEATURES).
+  get room_tools_tasks() { return translate("pro.proPanel.roomToolsTasks"); },
+  get room_tools_text() { return translate("pro.proPanel.roomToolsText"); },
+  get room_tools_draw() { return translate("pro.proPanel.roomToolsDraw"); },
 };
 
 // The perks about the broadcast itself — what GoLive is for — which the
@@ -773,6 +777,8 @@ export function ProPanel({
           label,
           // "Seja verificado" heads the benefits, above even the broadcast ones.
           priority: feature === "verified_badge" ? -1 : BROADCAST_FEATURES.has(feature) ? 0 : 1,
+          // A free perk is ticked under "Sem plano" too.
+          ...(FEATURE_TIERS[feature] === "free" ? { free: true } : {}),
           cells: plans.map((entry) => {
             const included = entry.features.includes(feature);
             // The one perk that differs by a number between paying rungs.

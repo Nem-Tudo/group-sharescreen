@@ -1368,3 +1368,26 @@ html[data-app-shell] body {
     animation: none;
   }
 }
+
+/* A reaction sent over one of the room's media (see
+   components/roomTools/ReactionLayer): rises over that tile, sways, fades. */
+@keyframes golive-reaction-rise {
+  0% {
+    bottom: 4%;
+    transform: translateX(-50%) scale(0.6);
+    opacity: 0;
+  }
+  12% {
+    transform: translateX(-50%) scale(1.15);
+    opacity: 1;
+  }
+  55% {
+    transform: translateX(calc(-50% + 10px)) scale(1);
+    opacity: 1;
+  }
+  100% {
+    bottom: 82%;
+    transform: translateX(calc(-50% - 8px)) scale(0.9);
+    opacity: 0;
+  }
+}

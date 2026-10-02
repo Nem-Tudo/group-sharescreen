@@ -46,7 +46,11 @@ export type Feature =
   | "uncapped_relay"
   | "clip_no_watermark"
   | "call_transcript"
-  | "live_translation";
+  | "live_translation"
+  | "room_tools_basic"
+  | "room_tools_tasks"
+  | "room_tools_text"
+  | "room_tools_draw";
 
 export type FeatureTier = "free" | "account" | "premium" | "premium_max" | "pro_ultra";
 
@@ -75,6 +79,10 @@ export const FEATURE_TIERS: Record<Feature, FeatureTier> = {
   clip_no_watermark: "premium_max",
   call_transcript: "premium_max",
   live_translation: "premium_max",
+  room_tools_basic: "free",
+  room_tools_tasks: "premium",
+  room_tools_text: "premium_max",
+  room_tools_draw: "pro_ultra",
 };
 
 /**

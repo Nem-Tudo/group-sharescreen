@@ -29,6 +29,7 @@ export function AttachMenu({
   buttonClassName,
   iconClassName = "h-5 w-5",
   wrapperClassName,
+  extraItems = [],
 }: {
   onImages: (files: File[]) => void;
   onFiles: (files: File[]) => void;
@@ -43,6 +44,8 @@ export function AttachMenu({
   buttonClassName: string;
   iconClassName?: string;
   wrapperClassName?: string;
+  /** More things the "+" makes besides attachments — the room's poll, say. */
+  extraItems?: { key: string; icon: ReactNode; label: string; onClick: () => void }[];
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -114,6 +117,17 @@ export function AttachMenu({
                 </button>
               </>
             )}
+            {extraItems.length > 0 && (allowImages || allowFiles) && (
+              <div className="my-1 border-t border-zinc-200 dark:border-zinc-800" />
+            )}
+            {extraItems.map((extra) => (
+              <button key={extra.key} type="button" className={item} onClick={() => choose(extra.onClick)}>
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center text-lg" aria-hidden>
+                  {extra.icon}
+                </span>
+                {extra.label}
+              </button>
+            ))}
           </div>
         }
       >

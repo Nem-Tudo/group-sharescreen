@@ -14,6 +14,7 @@ import {
 } from "@/lib/youtubePlayer";
 import { signalingClient } from "@/lib/signalingClient";
 import { BetaMark } from "./BetaMark";
+import { ReactionButton, ReactionFloats } from "@/components/roomTools/ReactionLayer";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
 
@@ -309,6 +310,7 @@ export function VideoSourceTile({
   onObsSource,
   isObsActive = false,
   onRequestAccount,
+  mediaKey,
 }: {
   source: VideoSource;
   // Whether this viewer's play/pause/seek is one the room follows — true for
@@ -329,6 +331,9 @@ export function VideoSourceTile({
   // consulted for the owner's own toggle below.
   canRestrictControl?: boolean;
   onRequestAccount?: () => void;
+  // The same for everybody in the room ("video-source:<id>") — what reactions
+  // sent over this video are aimed at (see components/roomTools/ReactionLayer).
+  mediaKey?: string;
   onStateChange: (
     playing: boolean,
     positionSeconds: number,
@@ -1036,6 +1041,7 @@ export function VideoSourceTile({
               </button>
             </Tooltip>
           )}
+          {mediaKey && <ReactionButton mediaKey={mediaKey} />}
           {onFocus && (
             <Tooltip content={isSpotlighted ? t("common.removeHighlight") : t("videoSourceTile.focusOnThisVideo")}>
               <button
@@ -1159,6 +1165,7 @@ export function VideoSourceTile({
         // VideoTile's `object-contain` video does.
         className="relative min-h-0 w-full flex-1 bg-black"
       >
+        {mediaKey && <ReactionFloats mediaKey={mediaKey} />}
         {/* The API replaces this node with its iframe, so the sizing has to
             come from the parent (see the width/height above too). */}
         <div className="absolute inset-0 [&>iframe]:h-full [&>iframe]:w-full">
