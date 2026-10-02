@@ -868,8 +868,8 @@
   "app.downloadPanel.allFiles": "Todos os arquivos",
   "app.downloadPanel.downloadFor": "Baixar para",
   "app.downloadPanel.itUpdatesItselfSoThereIs": "Ele se atualiza sozinho, então não há nada pra baixar aqui.",
-  "app.downloadPanel.onMobileGoliveWorksRightIn": "No celular o GoLive funciona direto no navegador, sem instalar nada — e dá pra adicionar à tela de início como um aplicativo. Guarde esta página pra quando estiver no PC.",
-  "app.downloadPanel.theAppIsForComputers": "O app é para computador",
+  "app.downloadPanel.onMobileGoliveWorksRightIn": "O app para computador é para Windows, macOS e Linux. No Android, baixe o app na Google Play (ainda não há versão para iOS) — ou use o GoLive direto no navegador. Guarde esta página pra quando estiver no PC.",
+  "app.downloadPanel.theAppIsForComputers": "No celular",
   "app.downloadPanel.youAreAlreadyUsingTheApp": "Você já está usando o app",
   "app.downloadTheGoliveDesktopAppWindows": "Baixar o app do GoLive para PC — Windows, macOS e Linux",
   "app.eachViewerGetsTheQualityTheir": "Cada espectador recebe a qualidade que o tile dele realmente usa, em vez de todo mundo receber 1080p pra caber numa miniatura. É o que faz uma sala grande caber numa máquina comum.",
@@ -3707,8 +3707,8 @@
   "mobileScreenShareModal.title": "Transmissão no Celular",
   "mobileScreenShareModal.appOnly": "Para transmitir a tela pelo celular, é necessário usar o aplicativo do GoLive.",
   "mobileScreenShareModal.browserLimitation": "O compartilhamento de tela não é suportado pelo navegador do celular.",
-  "mobileScreenShareModal.betaNotice": "Aplicativo em fase BETA",
-  "mobileScreenShareModal.discordInstructions": "O aplicativo para celular está atualmente em fase BETA fechada. Para baixar o aplicativo e testar, abra um ticket no nosso Discord solicitando acesso.",
+  "mobileScreenShareModal.betaNotice": "Apenas para Android",
+  "mobileScreenShareModal.discordInstructions": "Baixe o aplicativo do GoLive na Google Play. Por enquanto o app está disponível apenas para Android — ainda não temos versão para iOS.",
   "mobileScreenShareModal.openTicketOnDiscord": "Abrir Ticket no Discord",
   "mobileScreenShareModal.understood": "Entendi",
   "layout.seoTitle": "Transmitir Tela Online em Grupo, Grátis e Sem Instalar | GoLive",
@@ -4560,5 +4560,8 @@
   "roomTools.confirmClose": "Sim, fechar",
   "roomTools.closeToolQuestion": "Fechar para todos? O conteúdo será perdido.",
   "roomTools.openTool": "Abrir",
-  "roomTools.annotate.turnOff": "Desativar ferramenta"
+  "roomTools.annotate.turnOff": "Desativar ferramenta",
+  "mobileScreenShareModal.downloadOnGooglePlay": "Baixar na Google Play",
+  "app.downloadPanel.android": "Android",
+  "app.downloadPanel.androidOnly": "O app para celular está disponível apenas para Android, na Google Play. Ainda não temos versão para iOS."
 }

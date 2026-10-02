@@ -2,12 +2,12 @@
 
 import { useEffect } from "react";
 import { MdClose } from "react-icons/md";
-import { FaDiscord } from "react-icons/fa";
+import { FaGooglePlay } from "react-icons/fa";
 import { ScreenIcon } from "@/components/icons";
 import { BetaMark } from "@/components/BetaMark";
 import { useT } from "@/lib/useI18n";
 
-const DISCORD_INVITE_URL = "https://discord.gg/nemtudo";
+const GOOGLE_PLAY_URL = "https://play.google.com/store/apps/details?id=me.nemtudo.golive";
 
 export function MobileScreenShareModal({
   open,
@@ -83,13 +83,13 @@ export function MobileScreenShareModal({
           {/* Action buttons */}
           <div className="mt-5 flex flex-col gap-2.5">
             <a
-              href={DISCORD_INVITE_URL}
+              href={GOOGLE_PLAY_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#5865F2] px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#4752C4] active:scale-[0.98]"
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 active:scale-[0.98]"
             >
-              <FaDiscord className="h-5 w-5" />
-              <span>{t("mobileScreenShareModal.openTicketOnDiscord")}</span>
+              <FaGooglePlay className="h-5 w-5" />
+              <span>{t("mobileScreenShareModal.downloadOnGooglePlay")}</span>
             </a>
 
             <button

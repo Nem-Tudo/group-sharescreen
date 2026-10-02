@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { FaApple, FaLinux, FaWindows } from "react-icons/fa";
+import { FaApple, FaGooglePlay, FaLinux, FaWindows } from "react-icons/fa";
 import { MdCheckCircle, MdDownload, MdPhoneAndroid } from "react-icons/md";
 import { isDesktopApp } from "@/lib/desktop";
 import { detectDownloadPlatform, type DownloadPlatform } from "@/lib/downloadTargets";
@@ -36,6 +36,8 @@ const PLATFORMS: {
   { id: "mac", name: "macOS", file: ".dmg", Icon: FaApple },
   { id: "linux", get name() { return translate("common.linux"); }, file: ".AppImage", Icon: FaLinux },
 ];
+
+const GOOGLE_PLAY_URL = "https://play.google.com/store/apps/details?id=me.nemtudo.golive";
 
 // "unknown" is a phone or anything with no build; null is "not resolved yet",
 // which is also what the server renders — navigator does not exist there.
@@ -128,6 +130,23 @@ export function DownloadPanel() {
           <MdDownload className="h-4 w-4 shrink-0" />
           {t("app.downloadPanel.allFiles")}
         </a>
+      </div>
+
+      {/* Mobile app: Android only for now, there is no iOS build yet. */}
+      <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+        <a
+          href={GOOGLE_PLAY_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+        >
+          <FaGooglePlay className="h-4 w-4 shrink-0" />
+          {t("app.downloadPanel.android")}
+          <span className="text-xs font-normal text-emerald-100">Google Play</span>
+        </a>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          {t("app.downloadPanel.androidOnly")}
+        </p>
       </div>
     </div>
   );

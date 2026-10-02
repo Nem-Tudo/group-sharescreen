@@ -868,8 +868,8 @@
   "app.downloadPanel.allFiles": "All files",
   "app.downloadPanel.downloadFor": "Download for",
   "app.downloadPanel.itUpdatesItselfSoThereIs": "It updates itself, so there is nothing to download here.",
-  "app.downloadPanel.onMobileGoliveWorksRightIn": "On mobile GoLive works right in the browser, with nothing to install — and you can add it to your home screen like an app. Keep this page for when you are at a computer.",
-  "app.downloadPanel.theAppIsForComputers": "The app is for computers",
+  "app.downloadPanel.onMobileGoliveWorksRightIn": "The desktop app is for Windows, macOS and Linux. On Android, get the app on Google Play (no iOS version yet) — or use GoLive right in the browser. Keep this page for when you are at a computer.",
+  "app.downloadPanel.theAppIsForComputers": "On mobile",
   "app.downloadPanel.youAreAlreadyUsingTheApp": "You are already using the app",
   "app.downloadTheGoliveDesktopAppWindows": "Download the GoLive desktop app — Windows, macOS and Linux",
   "app.eachViewerGetsTheQualityTheir": "Each viewer gets the quality their tile actually uses, instead of everyone getting 1080p to fit in a thumbnail. It is what makes a big room fit on an ordinary machine.",
@@ -3707,8 +3707,8 @@
   "mobileScreenShareModal.title": "Mobile Screen Sharing",
   "mobileScreenShareModal.appOnly": "To share your screen on mobile, you need to use the GoLive app.",
   "mobileScreenShareModal.browserLimitation": "Screen sharing is not supported by mobile browsers.",
-  "mobileScreenShareModal.betaNotice": "App is in BETA",
-  "mobileScreenShareModal.discordInstructions": "The mobile app is currently in closed BETA. To download the app and test it, open a ticket on our Discord requesting access.",
+  "mobileScreenShareModal.betaNotice": "Android only",
+  "mobileScreenShareModal.discordInstructions": "Download the GoLive app on Google Play. For now the app is available for Android only — there is no iOS version yet.",
   "mobileScreenShareModal.openTicketOnDiscord": "Open Ticket on Discord",
   "mobileScreenShareModal.understood": "Got it",
   "layout.seoTitle": "Share Your Screen Online With a Group, Free | GoLive",
@@ -4560,5 +4560,8 @@
   "roomTools.confirmClose": "Yes, close",
   "roomTools.closeToolQuestion": "Close for everyone? Its content will be lost.",
   "roomTools.openTool": "Open",
-  "roomTools.annotate.turnOff": "Turn tool off"
+  "roomTools.annotate.turnOff": "Turn tool off",
+  "mobileScreenShareModal.downloadOnGooglePlay": "Get it on Google Play",
+  "app.downloadPanel.android": "Android",
+  "app.downloadPanel.androidOnly": "The mobile app is available for Android only, on Google Play. There is no iOS version yet."
 }
