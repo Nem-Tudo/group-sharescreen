@@ -4544,7 +4544,7 @@
   "roomTools.tasks.cannotTick": "Você não pode concluir esta tarefa",
   "pro.proPanel.roomToolsBasic": "Enquetes e reações nas chamadas (grátis para todos)",
   "pro.proPanel.roomToolsTasks": "Lista de tarefas compartilhada nas chamadas",
-  "pro.proPanel.roomToolsText": "Bloco de notas e editor de código compartilhados nas chamadas",
+  "pro.proPanel.roomToolsText": "Editor de código compartilhado nas chamadas",
   "pro.proPanel.roomToolsDraw": "Lousa compartilhada e anotações sobre a tela",
   "roomTools.annotate.drawHere": "Desenhar nesta tela",
   "roomTools.annotate.stopHere": "Parar de desenhar nesta tela",

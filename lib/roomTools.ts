@@ -80,7 +80,7 @@ export const TOOL_FEATURES: Record<ToolKind, Feature> = {
   poll: "room_tools_basic",
   reactions: "room_tools_basic",
   tasks: "room_tools_tasks",
-  notepad: "room_tools_text",
+  notepad: "room_tools_basic",
   code: "room_tools_text",
   whiteboard: "room_tools_draw",
   annotate: "room_tools_draw",

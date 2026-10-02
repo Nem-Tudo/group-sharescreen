@@ -4544,7 +4544,7 @@
   "roomTools.tasks.cannotTick": "You can't complete this task",
   "pro.proPanel.roomToolsBasic": "Polls and reactions in calls (free for everyone)",
   "pro.proPanel.roomToolsTasks": "Shared task list in calls",
-  "pro.proPanel.roomToolsText": "Shared notepad and code editor in calls",
+  "pro.proPanel.roomToolsText": "Shared code editor in calls",
   "pro.proPanel.roomToolsDraw": "Shared whiteboard and notes over the screen",
   "roomTools.annotate.drawHere": "Draw on this screen",
   "roomTools.annotate.stopHere": "Stop drawing on this screen",
