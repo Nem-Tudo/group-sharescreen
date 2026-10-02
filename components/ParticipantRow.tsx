@@ -17,6 +17,7 @@ import {
   MdOutlineOndemandVideo,
   MdOutlineSmartphone,
   MdBackHand,
+  MdHandyman,
 } from "react-icons/md";
 import { FaCrown } from "react-icons/fa";
 import { DisplayUserName } from "./DisplayUserName";
@@ -58,6 +59,7 @@ export const ParticipantRow = memo(function ParticipantRow({
   isApp = false,
   isMobileApp = false,
   handRaised = false,
+  tools,
   presence = { state: "online" },
   menuOpen = false,
   menuContent = null,
@@ -139,6 +141,9 @@ export const ParticipantRow = memo(function ParticipantRow({
   isMobileApp?: boolean;
   // A raised hand (see components/roomTools/HandRaise) — shown by the name.
   handRaised?: boolean;
+  // The room tools this person opened that are still open (see
+  // components/roomTools) — an icon by the name, the tools in its tooltip.
+  tools?: readonly string[];
   // Right click opens the room's actions for this person (see
   // MemberActionsModal). Omitted where there are none to offer — for yourself,
   // and for anyone when this viewer does not run the room — so the browser's
@@ -288,6 +293,18 @@ export const ParticipantRow = memo(function ParticipantRow({
               </span>
             </Tooltip>
           )
+        )}
+        {tools && tools.length > 0 && (
+          <Tooltip
+            content={t("roomTools.usingTools", {
+              name,
+              tools: tools.map((kind) => t(`roomTools.kind.${kind}`)).join(", "),
+            })}
+          >
+            <span className="flex shrink-0 items-center self-center">
+              <MdHandyman className="h-3.5 w-3.5 text-emerald-500" />
+            </span>
+          </Tooltip>
         )}
         {handRaised && (
           <Tooltip content={t("roomTools.hands.raisedBy", { name })}>

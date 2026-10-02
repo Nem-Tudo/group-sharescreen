@@ -37,11 +37,17 @@ export function ViewerConnectionList() {
     let cancelled = false;
     const tick = async () => {
       const names = new Map(signalingClient.state.peers.map((p) => [p.id, p.name]));
+      // A site moderator watching the room receives the share like anybody
+      // else, but is invisible to it — the list must not give them away.
+      const moderators = new Set(
+        signalingClient.state.peers.filter((p) => p.role === "moderator").map((p) => p.id)
+      );
       const next: Row[] = [];
       // Sequential, like the stats pump: these contend for the main thread of
       // the machine doing all the encoding.
       for (const entry of connectionRegistry.list()) {
         if (entry.direction !== "send" || entry.originId !== null) continue;
+        if (moderators.has(entry.peerId)) continue;
         const snapshot = await sample(entry.pc);
         if (cancelled) return;
         if (!snapshot) continue;

@@ -166,6 +166,7 @@ import {
   roomTools,
   useRoomToolsSelector,
   type RoomToolsState,
+  type ToolKind,
 } from "@/lib/roomTools";
 import { RoomToolsPanel, type ToolPerson } from "@/components/roomTools/RoomToolsPanel";
 import { AnnotateDock, RoomToolsViewer } from "@/components/roomTools/AnnotationLayer";
@@ -1551,6 +1552,14 @@ type WatchRoomProps = ComponentProps<typeof WatchRoomView>;
 // lib/roomTools) — narrow, so a stroke on the whiteboard does not redraw it.
 const selectToolSpeakers = (s: RoomToolsState) => s.speakers;
 const selectToolHands = (s: RoomToolsState) => s.hands;
+// Who opened which of the open tools, as one string ("userId|kind,…") so it
+// keeps its identity while only the tools' contents change. Reactions are
+// nobody's: every room has them.
+const selectToolOpeners = (s: RoomToolsState) =>
+  s.tools
+    .filter((t) => t.kind !== "reactions" && t.createdById)
+    .map((t) => `${t.createdById}|${t.kind}`)
+    .join(",");
 const selectToolsPanelOpen = (s: RoomToolsState) => s.panelOpen;
 const selectToolCount = (s: RoomToolsState) => s.tools.filter((t) => t.kind !== "reactions").length;
 // The tools that are tiles in the grid, as one string so it keeps its identity
@@ -1645,6 +1654,20 @@ function WatchRoomView({
   // The room's tools and raised hands (see lib/roomTools).
   const toolSpeakers = useRoomToolsSelector(selectToolSpeakers);
   const toolHands = useRoomToolsSelector(selectToolHands);
+  const toolOpenersKey = useRoomToolsSelector(selectToolOpeners);
+  // The kinds of tool each person has open in the room — the icon by their
+  // name in the participant list.
+  const toolsByUser = useMemo(() => {
+    const map = new Map<string, ToolKind[]>();
+    if (!toolOpenersKey) return map;
+    for (const entry of toolOpenersKey.split(",")) {
+      const [userId, kind] = entry.split("|") as [string, ToolKind];
+      const list = map.get(userId);
+      if (!list) map.set(userId, [kind]);
+      else if (!list.includes(kind)) list.push(kind);
+    }
+    return map;
+  }, [toolOpenersKey]);
   const toolsPanelOpen = useRoomToolsSelector(selectToolsPanelOpen);
   const toolCount = useRoomToolsSelector(selectToolCount);
   const mediaToolKey = useRoomToolsSelector(selectMediaToolKey);
@@ -7286,6 +7309,7 @@ function WatchRoomView({
         isApp={mounted && isDesktopApp() && !isMobileApp()}
         isMobileApp={mounted && isMobileApp()}
         handRaised={micsLockedForMembers && selfHandRaised}
+        tools={state.selfUserId ? toolsByUser.get(state.selfUserId) : undefined}
         // Your own row is you, looking at it — the only question left is which
         // client, and this tab already knows without asking the server.
         presence={{
@@ -7337,6 +7361,7 @@ function WatchRoomView({
             isApp={p.app}
             isMobileApp={p.mobileApp}
             handRaised={micsLockedForMembers && Boolean(p.userId && raisedHandIds.has(p.userId))}
+            tools={p.userId ? toolsByUser.get(p.userId) : undefined}
             presence={peerPresence(p)}
             verified={verifiedBadge(p?.flags)}
             bot={p.bot}

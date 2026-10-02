@@ -4498,6 +4498,7 @@
   "roomTools.hands.raise": "Raise hand",
   "roomTools.hands.lower": "Lower hand",
   "roomTools.hands.raisedBy": "{name} raised their hand",
+  "roomTools.usingTools": "{name} is running: {tools}",
   "roomTools.hands.title": "Raised hands ({count})",
   "roomTools.hands.lockedHint": "The room mics are locked: allowing lets only that person speak.",
   "roomTools.hands.grant": "Allow to speak",
