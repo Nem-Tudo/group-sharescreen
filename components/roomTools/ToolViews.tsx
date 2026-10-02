@@ -42,11 +42,12 @@ function download(name: string, blob: Blob) {
 
 export function WhiteboardView({ tool, selfUserId, isManager, canUse }: ToolViewProps & { tool: DrawTool }) {
   const t = useT();
-  const { pen, optimistic } = useRoomTools();
+  const { pen, optimistic, live } = useRoomTools();
   const strokes = useMemo(
     () => [...tool.strokes, ...Object.values(optimistic).filter((s) => s.toolId === tool.id)],
     [tool.strokes, optimistic, tool.id]
   );
+  const liveStrokes = useMemo(() => Object.values(live).filter((s) => s.toolId === tool.id), [live, tool.id]);
   const mine = tool.strokes.filter((s) => s.by === selfUserId);
 
   function exportPng() {
@@ -99,6 +100,8 @@ export function WhiteboardView({ tool, selfUserId, isManager, canUse }: ToolView
               canDraw={canUse}
               pen={pen}
               onStroke={(stroke) => roomTools.addStroke(tool.id, stroke, selfUserId)}
+              onLive={(stroke) => roomTools.drawLive(tool.id, stroke)}
+              liveStrokes={liveStrokes}
               onErase={(ids) => roomTools.removeStrokes(tool.id, ids)}
             />
           </div>

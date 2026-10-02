@@ -26,6 +26,8 @@ import {
   type TaskRules,
   type ToolAccess,
   type ToolKind,
+  ROOM_TOOLS_EVENTS,
+  trackRoomToolsEvent,
 } from "@/lib/roomTools";
 import { openProModal } from "@/lib/proModal";
 import { useT } from "@/lib/useI18n";
@@ -49,6 +51,7 @@ export function RoomToolsPanel({
   isManager,
   canOpenTools,
   features,
+  toolsFree = false,
   people,
   onShowTile,
 }: {
@@ -58,6 +61,9 @@ export function RoomToolsPanel({
   // The account's plan features — what opening each kind takes (the server
   // checks it again).
   features: readonly string[];
+  // The "room-tools-free" experiment: every kind opens without a plan, and
+  // none shows one (see lib/roomTools's ROOM_TOOLS_FREE_FEATURE).
+  toolsFree?: boolean;
   // Everybody else in the room, for "pessoas escolhidas".
   people: ToolPerson[];
   // Puts a media tool's tile in the spotlight.
@@ -114,6 +120,7 @@ export function RoomToolsPanel({
         isManager={isManager}
         canOpenTools={canOpenTools}
         features={features}
+        toolsFree={toolsFree}
         selfUserId={selfUserId}
         onPick={(kind) => setCreating(kind)}
         onOpen={(tool) => {
@@ -225,6 +232,7 @@ function ToolsHome({
   isManager,
   canOpenTools,
   features,
+  toolsFree,
   selfUserId,
   onPick,
   onOpen,
@@ -234,6 +242,7 @@ function ToolsHome({
   isManager: boolean;
   canOpenTools: boolean;
   features: readonly string[];
+  toolsFree: boolean;
   selfUserId: string | null;
   onPick: (kind: ToolKind) => void;
   onOpen: (tool: RoomTool) => void;
@@ -276,7 +285,7 @@ function ToolsHome({
           <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{t("roomTools.new")}</h3>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {PANEL_KINDS.map((kind) => {
-              const allowed = canOpenKind(kind, features);
+              const allowed = toolsFree || canOpenKind(kind, features);
               const plan = planForKind(kind);
               const isTaken = taken.has(kind);
               return (
@@ -284,7 +293,15 @@ function ToolsHome({
                   key={kind}
                   type="button"
                   disabled={isTaken}
-                  onClick={() => (allowed ? onPick(kind) : openProModal(plan))}
+                  onClick={() => {
+                    if (allowed) {
+                      onPick(kind);
+                      return;
+                    }
+                    trackRoomToolsEvent(ROOM_TOOLS_EVENTS.lockedClick);
+                    trackRoomToolsEvent(`${ROOM_TOOLS_EVENTS.lockedClick}.${kind}`);
+                    openProModal(plan);
+                  }}
                   title={isTaken ? t("roomTools.alreadyOpen") : undefined}
                   className="flex flex-col items-start gap-1 rounded-lg border border-zinc-200 p-2.5 text-left transition hover:border-emerald-500 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-800"
                 >
@@ -294,7 +311,7 @@ function ToolsHome({
                     {!allowed && <MdLock className="h-3.5 w-3.5 text-zinc-400" />}
                   </span>
                   <span className="text-[11px] leading-snug text-zinc-500">{t(`roomTools.kindHint.${kind}`)}</span>
-                  {plan && (
+                  {plan && !toolsFree && (
                     <span
                       className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
                         allowed ? "bg-emerald-600/10 text-emerald-700 dark:text-emerald-400" : "bg-rose-600/10 text-rose-600"
@@ -316,6 +333,8 @@ function ToolsHome({
             <input
               type="checkbox"
               checked={Boolean(reactions)}
+              // Turning them off is the room's managers' — nobody opened them.
+              disabled={Boolean(reactions) && !isManager}
               onChange={() => (reactions ? roomTools.close(reactions.id) : roomTools.create("reactions"))}
               className="h-4 w-4 accent-emerald-600"
             />

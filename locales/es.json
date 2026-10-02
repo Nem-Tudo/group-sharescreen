@@ -4186,6 +4186,7 @@
   "callRecording.fileVideo": "Video",
   "watch.watchRoom.callBeingRecordedBy": "La llamada está siendo grabada por {names}",
   "watch.watchRoom.callRecordingTip": "Nuevo: graba la llamada entera — todas las voces y pantallas — en un video o en archivos separados.",
+  "watch.watchRoom.roomToolsTip": "Nuevo: Herramientas en la llamada — pizarra, bloc de notas, editor de código, tareas, encuestas y anotar sobre la pantalla compartida, ¡todo junto con la sala!",
   "callRecording.transcribe": "Transcribir también",
   "callRecording.transcribeLocked": "Función de Pro Max: el texto de todo lo que se dijo junto con la grabación.",
   "callRecording.transcribeRunning": "La transcripción que ya está en marcha va también en el archivo.",

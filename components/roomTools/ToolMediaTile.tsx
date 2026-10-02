@@ -65,6 +65,9 @@ export function ToolMediaTile({
   const [pseudoFullscreen, setPseudoFullscreen] = useState(false);
   const isFullscreen = nativeFullscreen || pseudoFullscreen;
   const canUse = canUseTool(tool, selfUserId, isManager);
+  // A manager closes any tool; anybody else only one they opened (the server
+  // says the same — see its "tool-close").
+  const canClose = canOpenTools && (isManager || (selfUserId !== null && tool.createdById === selfUserId));
   const mediaKey = toolMediaKey(tool.id);
 
   useEffect(() => {
@@ -204,7 +207,7 @@ export function ToolMediaTile({
               {isFullscreen ? <FullscreenExitIcon className="h-4 w-4" /> : <FullscreenIcon className="h-4 w-4" />}
             </button>
           </Tooltip>
-          {canOpenTools && confirmClose ? (
+          {canClose && confirmClose ? (
             // Closing it ends it for everybody, and what was drawn or written
             // goes with it — so it asks first.
             <span className="flex items-center gap-1 pl-1">
@@ -224,7 +227,7 @@ export function ToolMediaTile({
                 {t("roomTools.cancel")}
               </button>
             </span>
-          ) : canOpenTools ? (
+          ) : canClose ? (
             <Tooltip content={t("roomTools.closeTool")}>
               <button type="button" onClick={() => setConfirmClose(true)} aria-label={t("roomTools.closeTool")} className={button}>
                 <MdClose className="h-4 w-4" style={{ color: "red" }} />

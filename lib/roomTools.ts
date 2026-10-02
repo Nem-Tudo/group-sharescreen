@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import { FEATURE_TIERS, hasFeature, type Feature } from "./entitlements";
+import { trackFeatureEvent } from "./features";
 import { signalingClient } from "./signalingClient";
 import type { TextOp } from "./textOt";
 import { TextSyncClient } from "./textSync";
@@ -26,6 +27,46 @@ import { TextSyncClient } from "./textSync";
 export type ToolKind = "whiteboard" | "notepad" | "annotate" | "poll" | "reactions" | "code" | "tasks";
 export type ToolAccess = "everyone" | "managers" | "selected";
 export type StrokeShape = "pen" | "highlighter" | "line" | "arrow" | "rect" | "ellipse" | "text";
+
+// The experiments (admin panel, "Features"): `room-tools` shows the ways in —
+// the "Ferramentas" button, raising a hand, "Nova enquete" in the chat's "+",
+// the room's "everyone may open tools" switch. What somebody else already
+// opened shows up for everybody either way, so a room where only some are in
+// the experiment still works. `room-tools-free` opens every kind without a
+// plan (the API checks the same rollout — see its roomToolAllowed), and shows
+// the ways in too; the /pro page keeps listing them as perks.
+export const ROOM_TOOLS_FEATURE = "room-tools";
+export const ROOM_TOOLS_FREE_FEATURE = "room-tools-free";
+
+// Usage stats — each name counts only where it is in the feature's "site
+// events". The per-kind ones are `${name}.${kind}`.
+export const ROOM_TOOLS_EVENTS = {
+  panelOpen: "room_tools_panel_open",
+  create: "room_tools_create",
+  lockedClick: "room_tools_locked_click",
+  // Once per tool per page: somebody drew on it / typed in it.
+  draw: "room_tools_draw",
+  type: "room_tools_type",
+  pollVote: "room_tools_poll_vote",
+  taskAdd: "room_tools_task_add",
+  taskDone: "room_tools_task_done",
+  reaction: "room_tools_reaction",
+  handRaise: "room_tools_hand_raise",
+  handGrant: "room_tools_hand_grant",
+} as const;
+
+export function trackRoomToolsEvent(name: string) {
+  trackFeatureEvent(name, { room: signalingClient.getSnapshot().room });
+}
+
+const usedToolIds = new Set<string>();
+function trackFirstUse(toolId: string, name: string) {
+  if (usedToolIds.has(toolId)) return;
+  usedToolIds.add(toolId);
+  const kind = state.tools.find((t) => t.id === toolId)?.kind;
+  trackRoomToolsEvent(name);
+  if (kind) trackRoomToolsEvent(`${name}.${kind}`);
+}
 
 /** What the tools panel offers to open, in order. Polls open from the chat's "+". */
 export const PANEL_KINDS: ToolKind[] = ["whiteboard", "notepad", "code", "tasks", "annotate"];
@@ -164,6 +205,8 @@ export type ReactionsTool = ToolBase & { kind: "reactions" };
 export type RoomTool = DrawTool | TextTool | PollTool | TasksTool | ReactionsTool;
 
 export type RaisedHand = { id: string; name: string; at: number };
+/** Somebody else's stroke while they are still drawing it (see "tool-stroke-live"). */
+export type LiveStroke = Omit<Stroke, "id" | "by"> & { toolId: string; by: string; at: number };
 export type FloatingReaction = { key: string; emoji: string; name: string; x: number; target: string };
 
 export type RoomToolsState = {
@@ -175,6 +218,10 @@ export type RoomToolsState = {
   // back (matched on clientId) — so a line appears under the pen, not a
   // round trip later.
   optimistic: Record<string, Stroke & { toolId: string }>;
+  // Strokes other people are drawing right now, by `${by}:${liveId}` — gone
+  // when the finished stroke arrives (its clientId is the liveId), when they
+  // lift the pen without one, or after a few quiet seconds.
+  live: Record<string, LiveStroke>;
   // Local view state — nobody else's business.
   panelOpen: boolean;
   activeToolId: string | null;
@@ -196,6 +243,7 @@ const EMPTY: RoomToolsState = {
   speakers: [],
   reactions: [],
   optimistic: {},
+  live: {},
   panelOpen: false,
   activeToolId: null,
   annotateOff: [],
@@ -296,6 +344,69 @@ export function onRemoteTextOp(toolId: string, cb: (op: TextOp) => void) {
   };
 }
 
+// --- Strokes being drawn ----------------------------------------------------
+
+function dropLive(key: string) {
+  if (!state.live[key]) return;
+  const live = { ...state.live };
+  delete live[key];
+  setState({ live });
+}
+
+// Somebody whose connection dropped mid-stroke never sends the end of it.
+const LIVE_STALE_MS = 4_000;
+let liveSweep: ReturnType<typeof setTimeout> | null = null;
+function scheduleLiveSweep() {
+  if (liveSweep) return;
+  liveSweep = setTimeout(() => {
+    liveSweep = null;
+    const now = Date.now();
+    const entries = Object.entries(state.live);
+    const fresh = entries.filter(([, l]) => now - l.at < LIVE_STALE_MS);
+    if (fresh.length !== entries.length) setState({ live: Object.fromEntries(fresh) });
+    if (fresh.length > 0) scheduleLiveSweep();
+  }, LIVE_STALE_MS / 2);
+}
+
+// Ours, going out: at most one message per LIVE_SEND_MS per tool, a freehand
+// line only the points drawn since the last one.
+const LIVE_SEND_MS = 60;
+const LIVE_MAX_VALUES = 600;
+type OutgoingLive = {
+  liveId: string;
+  stroke: Omit<Stroke, "id" | "by">;
+  sent: number;
+  lastAt: number;
+  timer: ReturnType<typeof setTimeout> | null;
+};
+const outgoingLive = new Map<string, OutgoingLive>();
+
+function flushLive(toolId: string) {
+  const entry = outgoingLive.get(toolId);
+  if (!entry) return;
+  entry.timer = null;
+  entry.lastAt = Date.now();
+  const { stroke } = entry;
+  const freehand = stroke.shape === "pen" || stroke.shape === "highlighter";
+  const offset = freehand && entry.sent <= stroke.points.length ? entry.sent : 0;
+  const points = stroke.points.slice(offset, offset + LIVE_MAX_VALUES);
+  if (freehand && points.length === 0) return;
+  entry.sent = offset + points.length;
+  send({
+    type: "tool-stroke-live",
+    id: toolId,
+    liveId: entry.liveId,
+    shape: stroke.shape,
+    color: stroke.color,
+    width: stroke.width,
+    offset,
+    points,
+    ...(stroke.target ? { target: stroke.target } : {}),
+  });
+  // More drawn than one message carries: the rest goes next time.
+  if (freehand && entry.sent < stroke.points.length) entry.timer = setTimeout(() => flushLive(toolId), LIVE_SEND_MS);
+}
+
 // --- Incoming --------------------------------------------------------------
 
 let reactionCounter = 0;
@@ -358,6 +469,8 @@ function handleMessage(msg: Record<string, unknown>) {
       // poll is in the chat it was opened from.
       if (isNew && awaitingCreate === tool.kind && tool.createdById === signalingClient.getSnapshot().selfUserId) {
         awaitingCreate = null;
+        trackRoomToolsEvent(ROOM_TOOLS_EVENTS.create);
+        trackRoomToolsEvent(`${ROOM_TOOLS_EVENTS.create}.${tool.kind}`);
         if (MEDIA_KINDS.includes(tool.kind)) setState({ panelOpen: false, activeToolId: null });
         else if (tool.kind !== "poll" && tool.kind !== "reactions") setState({ activeToolId: tool.id });
       }
@@ -367,24 +480,83 @@ function handleMessage(msg: Record<string, unknown>) {
       const id = msg.id as string;
       textSync.delete(id);
       setState({
+        live: Object.fromEntries(Object.entries(state.live).filter(([, l]) => l.toolId !== id)),
         tools: state.tools.filter((t) => t.id !== id),
         activeToolId: state.activeToolId === id ? null : state.activeToolId,
         annotateOff: state.tools.some((t) => t.kind === "annotate" && t.id !== id) ? state.annotateOff : [],
       });
       break;
     }
+    case "tool-meta": {
+      // Who may use a tool, its name, a code editor's language — the rest of
+      // the tool (a whiteboard's strokes, a notepad's text) stays as it is.
+      const id = msg.id as string;
+      const tool = state.tools.find((t) => t.id === id);
+      if (!tool) break;
+      const next = { ...tool } as RoomTool;
+      if (typeof msg.title === "string") next.title = msg.title;
+      if (msg.access === "everyone" || msg.access === "managers" || msg.access === "selected") next.access = msg.access;
+      if (Array.isArray(msg.allowed)) next.allowed = msg.allowed as string[];
+      if (typeof msg.language === "string" && next.kind === "code") next.language = msg.language;
+      replaceTool(next);
+      break;
+    }
     case "tool-stroke": {
       const stroke = msg.stroke as Stroke | undefined;
       if (!stroke) break;
-      if (typeof msg.clientId === "string" && state.optimistic[msg.clientId]) {
+      const clientId = typeof msg.clientId === "string" ? msg.clientId : null;
+      if (clientId && state.optimistic[clientId]) {
         const optimistic = { ...state.optimistic };
-        delete optimistic[msg.clientId];
+        delete optimistic[clientId];
         setState({ optimistic });
       }
-      updateTool(msg.id as string, ["whiteboard", "annotate"], (tool) => ({
-        ...tool,
-        strokes: [...tool.strokes, stroke].slice(-3000),
-      }));
+      if (clientId) dropLive(`${stroke.by}:${clientId}`);
+      // How many of the oldest made room for it on the server (see its
+      // addStroke): the same ones go here.
+      const trimmed = typeof msg.trimmed === "number" && msg.trimmed > 0 ? msg.trimmed : 0;
+      updateTool(msg.id as string, ["whiteboard", "annotate"], (tool) =>
+        tool.strokes.some((s) => s.id === stroke.id)
+          ? tool
+          : { ...tool, strokes: [...tool.strokes, stroke].slice(trimmed).slice(-3000) }
+      );
+      break;
+    }
+    case "tool-stroke-live": {
+      const by = typeof msg.by === "string" ? msg.by : "";
+      const liveId = typeof msg.liveId === "string" ? msg.liveId : "";
+      const toolId = msg.id as string;
+      if (!by || !liveId || !state.tools.some((t) => t.id === toolId)) break;
+      const key = `${by}:${liveId}`;
+      if (msg.end === true) {
+        dropLive(key);
+        break;
+      }
+      const points = Array.isArray(msg.points) ? (msg.points as number[]) : [];
+      const offset = typeof msg.offset === "number" ? msg.offset : 0;
+      const previous = state.live[key];
+      // A freehand line arrives a piece at a time; a piece that does not
+      // follow on from what is here waits for the next whole one rather than
+      // drawing a jump.
+      let merged: number[];
+      if (offset === 0) merged = points;
+      else if (previous && previous.points.length === offset) merged = [...previous.points, ...points];
+      else break;
+      setState({
+        live: {
+          ...state.live,
+          [key]: {
+            toolId,
+            by,
+            shape: msg.shape as StrokeShape,
+            color: typeof msg.color === "string" ? msg.color : "#ef4444",
+            width: typeof msg.width === "number" ? msg.width : 3,
+            points: merged,
+            ...(typeof msg.target === "string" ? { target: msg.target } : {}),
+            at: Date.now(),
+          },
+        },
+      });
+      scheduleLiveSweep();
       break;
     }
     case "tool-strokes-removed": {
@@ -460,9 +632,11 @@ function send(msg: Record<string, unknown>) {
 
 export const roomTools = {
   openPanel(open = true) {
+    if (open && !state.panelOpen) trackRoomToolsEvent(ROOM_TOOLS_EVENTS.panelOpen);
     setState({ panelOpen: open });
   },
   togglePanel() {
+    if (!state.panelOpen) trackRoomToolsEvent(ROOM_TOOLS_EVENTS.panelOpen);
     setState({ panelOpen: !state.panelOpen });
   },
   select(id: string | null) {
@@ -513,8 +687,36 @@ export const roomTools = {
     send({ type: "tool-access", id, access, allowed, ...(title !== undefined ? { title } : {}) });
   },
 
+  /**
+   * The stroke being drawn right now, as it grows — or null when the pen came
+   * up without one. The finished stroke (addStroke) carries the same id, which
+   * is what takes this one off everybody else's screen.
+   */
+  drawLive(toolId: string, stroke: Omit<Stroke, "id" | "by"> | null) {
+    const entry = outgoingLive.get(toolId);
+    if (!stroke) {
+      if (!entry) return;
+      if (entry.timer) clearTimeout(entry.timer);
+      outgoingLive.delete(toolId);
+      if (entry.lastAt > 0) send({ type: "tool-stroke-live", id: toolId, liveId: entry.liveId, end: true });
+      return;
+    }
+    const current: OutgoingLive =
+      entry ?? { liveId: `s${Date.now().toString(36)}${++strokeCounter}`, stroke, sent: 0, lastAt: 0, timer: null };
+    current.stroke = stroke;
+    outgoingLive.set(toolId, current);
+    if (current.timer) return;
+    const wait = LIVE_SEND_MS - (Date.now() - current.lastAt);
+    if (wait <= 0) flushLive(toolId);
+    else current.timer = setTimeout(() => flushLive(toolId), wait);
+  },
+
   addStroke(toolId: string, stroke: Omit<Stroke, "id" | "by">, selfUserId: string | null) {
-    const clientId = `s${Date.now().toString(36)}${++strokeCounter}`;
+    // The id the live copy went out under, when there was one.
+    const live = outgoingLive.get(toolId);
+    if (live?.timer) clearTimeout(live.timer);
+    outgoingLive.delete(toolId);
+    const clientId = live?.liveId ?? `s${Date.now().toString(36)}${++strokeCounter}`;
     setState({
       optimistic: { ...state.optimistic, [clientId]: { ...stroke, id: clientId, by: selfUserId ?? "", toolId } },
     });
@@ -527,6 +729,7 @@ export const roomTools = {
       setState({ optimistic });
     }, 8000);
     send({ type: "tool-stroke", id: toolId, stroke, clientId });
+    trackFirstUse(toolId, ROOM_TOOLS_EVENTS.draw);
   },
   removeStrokes(toolId: string, strokeIds: string[]) {
     if (strokeIds.length > 0) send({ type: "tool-strokes-remove", id: toolId, strokeIds });
@@ -542,6 +745,7 @@ export const roomTools = {
     if (!tool || !sync || (tool.kind !== "notepad" && tool.kind !== "code")) return;
     sync.edit(next);
     replaceTool({ ...tool, text: sync.text });
+    trackFirstUse(toolId, ROOM_TOOLS_EVENTS.type);
   },
   setLanguage(toolId: string, language: string) {
     send({ type: "tool-code-language", id: toolId, language });
@@ -549,6 +753,7 @@ export const roomTools = {
 
   vote(toolId: string, optionIds: string[]) {
     send({ type: "tool-poll-vote", id: toolId, optionIds });
+    trackRoomToolsEvent(ROOM_TOOLS_EVENTS.pollVote);
   },
   // Ends it for good: it leaves the chat, its result posted there if asked.
   closePoll(toolId: string) {
@@ -559,8 +764,12 @@ export const roomTools = {
 
   addTask(toolId: string, task: { text: string; assigneeId?: string | null; priority?: TaskPriority; due?: string | null }) {
     send({ type: "tool-task", id: toolId, action: "add", ...task });
+    trackRoomToolsEvent(ROOM_TOOLS_EVENTS.taskAdd);
   },
   toggleTask(toolId: string, itemId: string) {
+    // Only ticking it counts, not unticking.
+    const tool = state.tools.find((t): t is TasksTool => t.id === toolId && t.kind === "tasks");
+    if (tool?.items.some((item) => item.id === itemId && !item.done)) trackRoomToolsEvent(ROOM_TOOLS_EVENTS.taskDone);
     send({ type: "tool-task", id: toolId, action: "toggle", itemId });
   },
   editTask(
@@ -583,6 +792,7 @@ export const roomTools = {
   /** A reaction over one of the room's media (`target` — see toolMediaKey and the tiles' mediaKey). */
   react(toolId: string, emoji: string, target: string) {
     send({ type: "tool-reaction", id: toolId, emoji, target });
+    trackRoomToolsEvent(ROOM_TOOLS_EVENTS.reaction);
   },
 
   /** Opens the panel on one tool — what the chat's task bubble does. */
@@ -591,9 +801,11 @@ export const roomTools = {
   },
   raiseHand(raised: boolean) {
     send({ type: "hand-raise", raised });
+    if (raised) trackRoomToolsEvent(ROOM_TOOLS_EVENTS.handRaise);
   },
   grantSpeaker(userId: string) {
     send({ type: "hand-grant", userId });
+    trackRoomToolsEvent(ROOM_TOOLS_EVENTS.handGrant);
   },
   revokeSpeaker(userId: string) {
     send({ type: "hand-revoke", userId });

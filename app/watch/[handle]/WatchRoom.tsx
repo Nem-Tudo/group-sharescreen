@@ -159,7 +159,14 @@ import { InviteToRoomModal } from "@/components/InviteToRoomModal";
 import { prewarmCaptcha } from "@/lib/turnstile";
 import { RoomAccountCard } from "@/components/RoomAccountCard";
 import { openProModal } from "@/lib/proModal";
-import { MEDIA_KINDS, roomTools, useRoomToolsSelector, type RoomToolsState } from "@/lib/roomTools";
+import {
+  MEDIA_KINDS,
+  ROOM_TOOLS_FEATURE,
+  ROOM_TOOLS_FREE_FEATURE,
+  roomTools,
+  useRoomToolsSelector,
+  type RoomToolsState,
+} from "@/lib/roomTools";
 import { RoomToolsPanel, type ToolPerson } from "@/components/roomTools/RoomToolsPanel";
 import { AnnotateDock, RoomToolsViewer } from "@/components/roomTools/AnnotationLayer";
 import { ToolMediaTileById } from "@/components/roomTools/ToolMediaTile";
@@ -3135,9 +3142,22 @@ function WatchRoomView({
   // never subject to, like every other one). The server checks both again —
   // see its "room-theme-set".
   const hasThemePlan = hasFeature("room_theme_set", account?.features ?? []);
-  // Opening a tool is Pro Ultra (the server checks it again — see its
+  // Opening a tool takes its kind's plan (the server checks it again — see its
   // roomTools.ts); using one somebody opened is whatever that tool allows.
   const accountFeatures = account?.features ?? GUEST_FEATURES;
+  // The tools are an experiment (see lib/roomTools's ROOM_TOOLS_FEATURE): out
+  // of it nobody gets a way to open one, but what somebody in it opened still
+  // shows up — the button too, to reach it. "room-tools-free" opens every kind
+  // without a plan; accounts only, which is what the API checks.
+  const roomToolsFeature = useFeature(ROOM_TOOLS_FEATURE, { room: handle, track: true });
+  const roomToolsFreeFeature = useFeature(ROOM_TOOLS_FREE_FEATURE, { track: true });
+  const roomToolsFree = Boolean(account) && roomToolsFreeFeature.enabled;
+  const roomToolsAvailable = roomToolsFeature.enabled || roomToolsFree;
+  const showRoomToolsButton = roomToolsAvailable || toolCount > 0;
+  // The blue "novo" tip on the header's "Ferramentas" button — a computer's
+  // header only: on a phone the button lives inside the extras menu, which
+  // carries the "NOVO" badge instead.
+  const roomToolsTip = useTileExperimentTip("roomTools", roomToolsAvailable && isWideLayout);
   const raisedHandIds = useMemo(() => new Set(toolHands.map((h) => h.id)), [toolHands]);
   const selfHandRaised = Boolean(state.selfUserId && raisedHandIds.has(state.selfUserId));
   // Everybody else here, once per person — for "pessoas escolhidas".
@@ -3156,7 +3176,7 @@ function WatchRoomView({
     [state.peers, state.selfUserId, state.name]
   );
   // Opening and closing tools — the managers, or everybody when the room says so.
-  const canOpenRoomTools = canUseRoomPermission("tools");
+  const canOpenRoomTools = roomToolsAvailable && canUseRoomPermission("tools");
   const toolsViewer = useMemo(
     () => ({ selfUserId: state.selfUserId, isManager: isRoomManager, canOpenTools: canOpenRoomTools }),
     [state.selfUserId, isRoomManager, canOpenRoomTools]
@@ -3169,6 +3189,7 @@ function WatchRoomView({
   // With microphones open again the button (and every raised hand) is hidden,
   // not cleared: closing them again brings back the hands that were up.
   const canRaiseHand =
+    roomToolsAvailable &&
     !isRoomManager &&
     !(myPermissions ? myPermissions.mic : state.roomPermissions.mic);
 
@@ -8038,10 +8059,42 @@ function WatchRoomView({
                   (see components/roomTools). Same family as the two buttons
                   before it — something brought in for the whole room — and
                   shown to everyone: members use what the managers opened. */}
+              {showRoomToolsButton && (
+              <Tippy
+                visible={roomToolsTip.show}
+                placement="bottom"
+                interactive
+                theme="golive-panel"
+                appendTo={() => document.body}
+                content={
+                  <span
+                    role="status"
+                    className="relative block w-60 rounded-lg bg-blue-600 px-3 py-2 text-left text-xs font-medium text-white shadow-lg"
+                  >
+                    <span className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
+                    <span className="flex items-start gap-2">
+                      <span className="flex-1">{translate("watch.watchRoom.roomToolsTip")}</span>
+                      <button
+                        type="button"
+                        onClick={roomToolsTip.dismiss}
+                        aria-label={translate("watch.watchRoom.clipsModeTipDismiss")}
+                        className="-m-1 rounded p-1 leading-none text-white/80 hover:text-white"
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  </span>
+                }
+              >
+              <span className="flex">
               <Tooltip content={translate("roomTools.title")} wrapperClassName="flex">
                 <button
                   type="button"
-                  onClick={() => roomTools.togglePanel()}
+                  onClick={() => {
+                    if (roomToolsTip.show) roomToolsTip.clicked();
+                    markFeatureUsed(ROOM_TOOLS_FEATURE);
+                    roomTools.togglePanel();
+                  }}
                   aria-pressed={toolsPanelOpen}
                   aria-label={translate("roomTools.title")}
                   className="relative flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700"
@@ -8055,6 +8108,9 @@ function WatchRoomView({
                   )}
                 </button>
               </Tooltip>
+              </span>
+              </Tippy>
+              )}
 
               {canRaiseHand && <RaiseHandButton selfUserId={state.selfUserId} />}
               </>,
@@ -8558,6 +8614,7 @@ function WatchRoomView({
               isManager={isRoomManager}
               canOpenTools={canOpenRoomTools}
               features={accountFeatures}
+              toolsFree={roomToolsFree}
               people={toolPeople}
               onShowTile={(toolId) => setSpotlightId(tileId("tool", toolId))}
             />
@@ -9071,9 +9128,11 @@ function WatchRoomView({
                     </button>
 
                     {/* [ferramentas] — see components/roomTools */}
+                    {showRoomToolsButton && (
                     <button
                       type="button"
                       onClick={() => {
+                        markFeatureUsed(ROOM_TOOLS_FEATURE);
                         roomTools.openPanel(true);
                         setMobileExtraMenuOpen(false);
                       }}
@@ -9089,12 +9148,14 @@ function WatchRoomView({
                             {translate("roomTools.titleShort")}
                           </span>
                           <span className="text-[9px] font-bold leading-none"><BetaMark /></span>
+                          <NewBadge id={ROOM_TOOLS_FEATURE} />
                         </div>
                         <span className="text-[9px] font-medium leading-none text-zinc-400 dark:text-zinc-500 mt-0.5">
                           {translate("roomTools.openCount", { count: toolCount })}
                         </span>
                       </div>
                     </button>
+                    )}
 
                     {/* [levantar a mão] */}
                     {canRaiseHand && (

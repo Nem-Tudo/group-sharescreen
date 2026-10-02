@@ -53,7 +53,7 @@ export function AnnotationLayer({
   focused?: boolean;
 }) {
   const wide = useMediaQuery(LG_BREAKPOINT_QUERY);
-  const { tools, annotateOff, pen, optimistic } = useRoomTools();
+  const { tools, annotateOff, pen, optimistic, live } = useRoomTools();
   const { selfUserId, isManager } = useContext(RoomToolsViewer);
   const tool = tools.find((t): t is DrawTool => t.kind === "annotate");
   const [, setVideoSize] = useState(0);
@@ -75,6 +75,10 @@ export function AnnotationLayer({
     const own = Object.values(optimistic).filter((s) => s.toolId === tool.id && s.target === annotationKey);
     return [...tool.strokes.filter((s) => s.target === annotationKey), ...own];
   }, [tool, optimistic, annotationKey]);
+  const liveStrokes = useMemo(
+    () => (tool ? Object.values(live).filter((s) => s.toolId === tool.id && s.target === annotationKey) : []),
+    [tool, live, annotationKey]
+  );
 
   const contentRect = useCallback((w: number, h: number) => containRect(videoRef.current, w, h), [videoRef]);
 
@@ -83,7 +87,7 @@ export function AnnotationLayer({
   // viewer lifted it here (see AnnotateButton).
   const canDraw =
     (wide || focused) && !annotateOff.includes(annotationKey) && canUseTool(tool, selfUserId, isManager);
-  if (!canDraw && strokes.length === 0) return null;
+  if (!canDraw && strokes.length === 0 && liveStrokes.length === 0) return null;
   return (
     <div
       className={`absolute inset-0 z-[15] ${canDraw ? "" : "pointer-events-none"}`}
@@ -98,6 +102,8 @@ export function AnnotationLayer({
         pen={pen}
         contentRect={contentRect}
         onStroke={(stroke) => roomTools.addStroke(tool.id, { ...stroke, target: annotationKey }, selfUserId)}
+        onLive={(stroke) => roomTools.drawLive(tool.id, stroke && { ...stroke, target: annotationKey })}
+        liveStrokes={liveStrokes}
         onErase={(ids) => roomTools.removeStrokes(tool.id, ids)}
       />
     </div>

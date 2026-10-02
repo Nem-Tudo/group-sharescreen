@@ -44,6 +44,8 @@ import Link from "next/link";
 import { hasVerifiedBadge, verifiedBadge } from "@/lib/entitlements";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
+import { useFeature } from "@/lib/features";
+import { ROOM_TOOLS_FEATURE, ROOM_TOOLS_FREE_FEATURE } from "@/lib/roomTools";
 
 // The room-level switches, in the order they're shown. Each label is phrased
 // as what it *permits*, so it reads true when the toggle is on — and the note
@@ -141,6 +143,11 @@ export function ManageRoomModal({
   const { markers } = usePublicRoomMarkers({ excludeHandle: state.room ?? undefined });
 
   const isOwner = Boolean(state.selfUserId && state.roomOwnerId === state.selfUserId);
+  // "Todos podem abrir ferramentas" only where the room's tools are offered
+  // (see lib/roomTools's ROOM_TOOLS_FEATURE).
+  const roomToolsFeature = useFeature(ROOM_TOOLS_FEATURE, { room: state.room, track: false });
+  const roomToolsFree = useFeature(ROOM_TOOLS_FREE_FEATURE, { track: false });
+  const roomToolsOffered = roomToolsFeature.enabled || roomToolsFree.enabled;
   // A group's voice room takes its admins and its bans from the group (see the
   // API's syncGroupRoomManagers), so both screens are the group's to show —
   // see components/groups. Every other room is unaffected.
@@ -668,7 +675,7 @@ export function ManageRoomModal({
             {t("manageRoomModal.whenYouTurnAnOptionOff")}
           </p>
           <ul className="flex flex-col gap-1">
-            {PERMISSION_ROWS.map(({ key, label, icon: Icon }) => {
+            {PERMISSION_ROWS.filter(({ key }) => key !== "tools" || roomToolsOffered).map(({ key, label, icon: Icon }) => {
               const allowed = state.roomPermissions[key];
               return (
                 <li key={key}>

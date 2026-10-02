@@ -18,6 +18,8 @@ export function DrawingSurface({
   canDraw,
   pen,
   onStroke,
+  onLive,
+  liveStrokes,
   onErase,
   contentRect,
   board = false,
@@ -27,6 +29,11 @@ export function DrawingSurface({
   canDraw: boolean;
   pen: { color: string; width: number; tool: StrokeShape | "eraser" };
   onStroke: (stroke: NewStroke) => void;
+  // The stroke as it is being drawn, for the rest of the room to watch — and
+  // null when the pen came up without one.
+  onLive?: (stroke: NewStroke | null) => void;
+  // Other people's strokes while they draw them.
+  liveStrokes?: Omit<Stroke, "id" | "by">[];
   onErase: (ids: string[]) => void;
   // Where, inside this box, the surface is (in CSS pixels). The whole box by default.
   contentRect?: (width: number, height: number) => Rect;
@@ -72,11 +79,12 @@ export function DrawingSurface({
     for (const stroke of strokes) {
       if (!erasing.has(stroke.id)) drawStroke(ctx, stroke, rect);
     }
+    for (const stroke of liveStrokes ?? []) drawStroke(ctx, stroke, rect);
     const live = drawing.current;
     if (live && pen.tool !== "eraser" && pen.tool !== "text") {
       drawStroke(ctx, { shape: pen.tool, color: pen.color, width: pen.width, points: live.points }, rect);
     }
-  }, [size, strokes, erasing, pen, rectOf]);
+  }, [size, strokes, liveStrokes, erasing, pen, rectOf]);
 
   useEffect(() => {
     redraw();
@@ -128,6 +136,9 @@ export function DrawingSurface({
     }
     if (pen.tool === "pen" || pen.tool === "highlighter") live.points.push(x, y);
     else live.points = [live.points[0], live.points[1], x, y];
+    if (pen.tool !== "text") {
+      onLive?.({ shape: pen.tool, color: pen.color, width: pen.width, points: live.points.slice(0, 3000) });
+    }
     redraw();
   }
 
@@ -145,7 +156,10 @@ export function DrawingSurface({
     if (pen.tool === "text") return;
     const points = pen.tool === "pen" || pen.tool === "highlighter" ? thinPoints(live.points) : live.points;
     // A shape needs two corners; a tap with the line tool is nothing.
-    if (pen.tool !== "pen" && pen.tool !== "highlighter" && points.length < 4) return;
+    if (pen.tool !== "pen" && pen.tool !== "highlighter" && points.length < 4) {
+      onLive?.(null);
+      return;
+    }
     onStroke({ shape: pen.tool, color: pen.color, width: pen.width, points: points.slice(0, 3000) });
     setTick((t) => t + 1);
   }

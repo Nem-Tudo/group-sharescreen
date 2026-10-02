@@ -21,7 +21,8 @@ export type TileExperiment =
   | "musicQueue"
   | "orientation"
   | "callRecording"
-  | "callTranscript";
+  | "callTranscript"
+  | "roomTools";
 
 // `defaultOn`: the switch starts on for whoever never touched it.
 const CONFIG: Record<
@@ -92,6 +93,15 @@ const CONFIG: Record<
     tipKey: "sharescreen:callTranscriptTipSeen",
     defaultOn: true,
   },
+  // "Ferramentas" (ver lib/roomTools). Como o callRecording: aqui só pela dica
+  // azul, que fica no próprio botão "Ferramentas" do cabeçalho — sem
+  // interruptor, o botão já é a entrada.
+  roomTools: {
+    feature: "room-tools",
+    modeKey: "sharescreen:roomToolsMode",
+    tipKey: "sharescreen:roomToolsTipSeen",
+    defaultOn: true,
+  },
   musicQueue: {
     feature: "room-music-queue",
     modeKey: "sharescreen:musicQueueMode",
@@ -145,6 +155,12 @@ export const TILE_EXPERIMENT_EVENTS = {
   callTranscript: {
     modeOn: "transcript_mode_on",
     modeOff: "transcript_mode_off",
+  },
+  // Sem interruptor, como o callRecording: nunca enviados. As estatísticas das
+  // ferramentas estão em lib/roomTools (ROOM_TOOLS_EVENTS).
+  roomTools: {
+    modeOn: "room_tools_mode_on",
+    modeOff: "room_tools_mode_off",
   },
   musicQueue: {
     // Nomes de "modo" aqui são a aba, não a ordem aleatória: o interruptor
