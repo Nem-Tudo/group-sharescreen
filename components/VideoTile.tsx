@@ -73,6 +73,8 @@ import { useT } from "@/lib/useI18n";
 import { useProtectedRoom } from "@/lib/captureProtection";
 import { isPageHidden, onPageHiddenChange } from "@/lib/pageHidden";
 import { AnnotateButton, AnnotationLayer } from "@/components/roomTools/AnnotationLayer";
+import { annotatedVideoDrawer, openCanvasPip } from "@/components/roomTools/canvasPip";
+import { useRoomToolsSelector, type RoomToolsState } from "@/lib/roomTools";
 import { ReactionButton, ReactionFloats } from "@/components/roomTools/ReactionLayer";
 
 function noopSubscribe() {
@@ -307,6 +309,14 @@ const VideoTileView = memo(function VideoTileView({
   // the mouse moving instead — see the idle timer below.
   const [fullscreenMouseActive, setFullscreenMouseActive] = useState(true);
   const [isPiP, setIsPiP] = useState(false);
+  // While the room's screen notes are open, the browser's video PiP would
+  // leave them behind — so the picture goes to a PiP of the page's own (a
+  // browser window where there is Document PiP, a floating box otherwise),
+  // with the notes drawn over it. Only to watch.
+  const annotating = useRoomToolsSelector(selectAnnotating);
+  const [notesPip, setNotesPip] = useState(false);
+  const closeNotesPipRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => closeNotesPipRef.current?.(), []);
   const [statsOpen, setStatsOpen] = useState(false);
   const clipBufferRef = useRef<ClipBuffer | null>(null);
   const [clipping, setClipping] = useState(false);
@@ -516,7 +526,7 @@ const VideoTileView = memo(function VideoTileView({
   // the observers cannot see — PiP survives the page being backgrounded, and
   // that is the whole point of it. Detaching either would blank the one thing
   // actually being watched.
-  const visible = (onScreen && pageVisible) || isPiP || isFullscreen;
+  const visible = (onScreen && pageVisible) || isPiP || notesPip || isFullscreen;
 
   // The clip buffer runs only for a tile that is on screen. It is several
   // MediaRecorders at once, re-encoding the stream (about 4 encoders and
@@ -757,6 +767,23 @@ const VideoTileView = memo(function VideoTileView({
           : 16 / 9;
       onNativePip(ratio);
       return;
+    }
+    if (closeNotesPipRef.current) {
+      closeNotesPipRef.current();
+      return;
+    }
+    // The video's own PiP would leave the notes behind: the picture is drawn
+    // with the notes over it, and that is what floats (see canvasPip).
+    if (mediaKey && annotating && videoRef.current && !document.pictureInPictureElement) {
+      const close = await openCanvasPip(annotatedVideoDrawer(videoRef.current, mediaKey), {
+        onClose: () => {
+          closeNotesPipRef.current = null;
+          setNotesPip(false);
+        },
+      });
+      closeNotesPipRef.current = close;
+      setNotesPip(close !== null);
+      if (close) return;
     }
     if (!videoRef.current) return;
     try {
@@ -1294,14 +1321,14 @@ const VideoTileView = memo(function VideoTileView({
           </Popover>
         )}
         {pipSupported && (
-          <Tooltip content={isPiP ? t("videoTile.exitPictureInPicture") : t("videoTile.pictureInPicture")}>
+          <Tooltip content={isPiP || notesPip ? t("videoTile.exitPictureInPicture") : t("videoTile.pictureInPicture")}>
             <button
               type="button"
               onClick={togglePiP}
-              aria-label={isPiP ? t("videoTile.exitPictureInPicture") : t("videoTile.pictureInPicture")}
+              aria-label={isPiP || notesPip ? t("videoTile.exitPictureInPicture") : t("videoTile.pictureInPicture")}
               className="rounded-full bg-black/60 p-2 text-white hover:bg-black/80 active:bg-black/80"
             >
-              {isPiP ? <PipExitIcon className="h-5 w-5" /> : <PipIcon className="h-5 w-5" />}
+              {isPiP || notesPip ? <PipExitIcon className="h-5 w-5" /> : <PipIcon className="h-5 w-5" />}
             </button>
           </Tooltip>
         )}
@@ -1706,3 +1733,5 @@ export function ResumingPeerTile({ fill = false }: { fill?: boolean }) {
     </PlaceholderTile>
   );
 }
+
+const selectAnnotating = (s: RoomToolsState) => s.tools.some((t) => t.kind === "annotate");

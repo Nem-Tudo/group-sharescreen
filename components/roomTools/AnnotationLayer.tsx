@@ -110,6 +110,81 @@ export function AnnotationLayer({
   );
 }
 
+/**
+ * The screen notes over a picture, only to watch — for the
+ * picture-in-pictures (components/DockedPip, components/roomTools/ToolPip),
+ * which show a copy of a tile's picture. The pen stays in the room.
+ */
+export function AnnotationOverlay({
+  annotationKey,
+  videoRef,
+}: {
+  annotationKey: string;
+  videoRef: RefObject<HTMLVideoElement | null>;
+}) {
+  const { tools, pen, optimistic, live } = useRoomTools();
+  const tool = tools.find((t): t is DrawTool => t.kind === "annotate");
+  const [, setVideoSize] = useState(0);
+
+  // Where the picture is inside the element changes with its shape, which is
+  // only known once a frame has arrived.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const bump = () => setVideoSize((n) => n + 1);
+    video.addEventListener("resize", bump);
+    video.addEventListener("loadedmetadata", bump);
+    return () => {
+      video.removeEventListener("resize", bump);
+      video.removeEventListener("loadedmetadata", bump);
+    };
+  }, [videoRef]);
+
+  const strokes = useMemo(() => {
+    if (!tool) return [];
+    const own = Object.values(optimistic).filter((s) => s.toolId === tool.id && s.target === annotationKey);
+    return [...tool.strokes.filter((s) => s.target === annotationKey), ...own];
+  }, [tool, optimistic, annotationKey]);
+  const liveStrokes = useMemo(
+    () => (tool ? Object.values(live).filter((s) => s.toolId === tool.id && s.target === annotationKey) : []),
+    [tool, live, annotationKey]
+  );
+  const contentRect = useCallback((w: number, h: number) => containRect(videoRef.current, w, h), [videoRef]);
+
+  if (!tool || (strokes.length === 0 && liveStrokes.length === 0)) return null;
+  return (
+    <div className="pointer-events-none absolute inset-0 z-[5]">
+      <DrawingSurface
+        strokes={strokes}
+        canDraw={false}
+        pen={pen}
+        contentRect={contentRect}
+        onStroke={() => {}}
+        onLive={() => {}}
+        liveStrokes={liveStrokes}
+        onErase={() => {}}
+      />
+    </div>
+  );
+}
+
+/** A copy of a tile's picture with the screen notes over it. */
+export function AnnotatedPipVideo({ stream, annotationKey }: { stream: MediaStream; annotationKey: string }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video && video.srcObject !== stream) video.srcObject = stream;
+  }, [stream]);
+
+  return (
+    <div className="absolute inset-0 bg-black">
+      <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-contain" />
+      <AnnotationOverlay annotationKey={annotationKey} videoRef={videoRef} />
+    </div>
+  );
+}
+
 const selectAnnotateTool = (s: RoomToolsState) =>
   s.tools.find((t): t is DrawTool => t.kind === "annotate") ?? null;
 const selectAnnotateOff = (s: RoomToolsState) => s.annotateOff;

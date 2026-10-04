@@ -3,6 +3,10 @@
 import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { MdClose, MdMovie, MdScreenShare, MdVideocam } from "react-icons/md";
+import { AnnotationOverlay } from "@/components/roomTools/AnnotationLayer";
+import { ToolPipView } from "@/components/roomTools/ToolPip";
+import { annotatedVideoDrawer, openCanvasPip, toolDrawer } from "@/components/roomTools/canvasPip";
+import { useRoomToolsSelector, type RoomToolsState } from "@/lib/roomTools";
 import { PipIcon } from "@/components/icons";
 import { Tooltip } from "@/components/Tooltip";
 import { callPathFor, useCallSession } from "@/lib/callSession";
@@ -29,8 +33,13 @@ import { useT } from "@/lib/useI18n";
 export interface DockedPipSource {
   /** The room's tile id — what "Focar" and "Hiperfoco" name. */
   id: string;
-  stream: MediaStream;
+  /** The picture — null for a tool (whiteboard, notepad, code), which is drawn instead. */
+  stream: MediaStream | null;
   label: ReactNode;
+  /** A room tool to show instead of a stream (see components/roomTools). */
+  toolId?: string;
+  /** The tile's key for the room's screen notes, drawn over the picture. */
+  annotationKey?: string;
   /**
    * Whose it is: a peer connection id, or null for this viewer's own — which
    * is also what puts it last.
@@ -93,13 +102,15 @@ function clampOffset(
  */
 // The kind half of a room tile id (see WatchRoom's tileId), as a sort order.
 function kindRank(id: string): number {
-  if (id.startsWith("screen:")) return 0;
+  if (id.startsWith("screen:") || id.startsWith("screen-extra:")) return 0;
   if (id.startsWith("file:")) return 1;
+  if (id.startsWith("tool:")) return 3;
   return 2;
 }
 
 function KindIcon({ id, className }: { id: string; className: string }) {
-  if (id.startsWith("screen:")) return <MdScreenShare className={className} />;
+  if (id.startsWith("tool:")) return null;
+  if (id.startsWith("screen:") || id.startsWith("screen-extra:")) return <MdScreenShare className={className} />;
   if (id.startsWith("file:")) return <MdMovie className={className} />;
   return <MdVideocam className={className} />;
 }
@@ -326,6 +337,16 @@ export function DockedPip({
   // everywhere else, and then everything else going out.
   const listed = [...sources].sort((a, b) => kindRank(a.id) - kindRank(b.id));
   const stream = source?.stream ?? null;
+  const toolId = source?.toolId ?? null;
+  const annotationKey = source?.annotationKey ?? null;
+  const annotating = useRoomToolsSelector(selectAnnotating);
+  // What the video's own picture-in-picture cannot carry — a tool, or a
+  // screen with notes over it — goes there drawn on a canvas (see
+  // roomTools/canvasPip).
+  const [canvasPip, setCanvasPip] = useState(false);
+  const closeCanvasPipRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => closeCanvasPipRef.current?.(), []);
+  const needsCanvasPip = Boolean(toolId || (annotationKey && annotating));
 
   useEffect(() => {
     const video = videoRef.current;
@@ -383,8 +404,34 @@ export function DockedPip({
 
   if (typeof document === "undefined") return null;
 
-  const hidden = !source || nativePip;
+  const hidden = !source || nativePip || canvasPip;
   const nativePipSupported = Boolean(document.pictureInPictureEnabled);
+  const canPip = nativePipSupported && (stream !== null || toolId !== null);
+
+  async function openPip() {
+    if (!source) return;
+    if (needsCanvasPip) {
+      const video = videoRef.current;
+      const draw = toolId ? toolDrawer(toolId) : video && annotationKey ? annotatedVideoDrawer(video, annotationKey) : null;
+      if (!draw) return;
+      const close = await openCanvasPip(draw, {
+        onClose: () => {
+          closeCanvasPipRef.current = null;
+          setCanvasPip(false);
+        },
+      });
+      closeCanvasPipRef.current = close;
+      setCanvasPip(close !== null);
+      return;
+    }
+    void videoRef.current?.requestPictureInPicture().catch(() => {});
+  }
+
+  function backToCall() {
+    if (!session) return;
+    if (source) onOpen(source.id);
+    navigation.push(callPathFor(session));
+  }
 
   return createPortal(
     <div
@@ -434,17 +481,31 @@ export function DockedPip({
               suppressClickRef.current = false;
               return;
             }
-            if (!session) return;
             // Whatever was being watched here is what the room opens on.
-            if (source) onOpen(source.id);
-            navigation.push(callPathFor(session));
+            backToCall();
           }}
           title={t("common.backToTheCall")}
           // A drag started on the picture must not turn into the browser
           // dragging the video element out as a file.
           draggable={false}
-          className="h-full w-full object-contain"
+          className={`h-full w-full object-contain ${toolId ? "invisible" : ""}`}
         />
+        {annotationKey && !toolId && <AnnotationOverlay annotationKey={annotationKey} videoRef={videoRef} />}
+        {toolId && (
+          <div
+            className="absolute inset-0 cursor-pointer"
+            title={t("common.backToTheCall")}
+            onClick={() => {
+              if (suppressClickRef.current) {
+                suppressClickRef.current = false;
+                return;
+              }
+              backToCall();
+            }}
+          >
+            <ToolPipView toolId={toolId} />
+          </div>
+        )}
         {/* Whose it is — until the pointer is over the box, when the list
             below takes its place and says the same thing among the rest. */}
         <div
@@ -486,11 +547,11 @@ export function DockedPip({
           </div>
         )}
         <div className="absolute right-1 top-1 flex gap-1 transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100">
-          {nativePipSupported && (
+          {canPip && (
             <Tooltip content={t("videoTile.pictureInPicture")}>
               <button
                 type="button"
-                onClick={() => void videoRef.current?.requestPictureInPicture().catch(() => {})}
+                onClick={() => void openPip()}
                 aria-label={t("videoTile.pictureInPicture")}
                 className="cursor-pointer rounded-full bg-black/60 p-1.5 text-white hover:bg-black/80"
               >
@@ -514,3 +575,5 @@ export function DockedPip({
     document.body
   );
 }
+
+const selectAnnotating = (s: RoomToolsState) => s.tools.some((t) => t.kind === "annotate");

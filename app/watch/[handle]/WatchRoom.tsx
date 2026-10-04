@@ -171,6 +171,7 @@ import {
 import { RoomToolsPanel, type ToolPerson } from "@/components/roomTools/RoomToolsPanel";
 import { AnnotateDock, RoomToolsViewer } from "@/components/roomTools/AnnotationLayer";
 import { ToolMediaTileById } from "@/components/roomTools/ToolMediaTile";
+import { ToolPipLabel } from "@/components/roomTools/ToolPip";
 import { ChatToolsStrip, PollCreateDialog } from "@/components/roomTools/ChatToolsStrip";
 import { HandsQueue, RaiseHandButton } from "@/components/roomTools/HandRaise";
 import { MdBackHand, MdHandyman, MdPoll } from "react-icons/md";
@@ -5933,7 +5934,28 @@ function WatchRoomView({
       const label = p.name;
       const screen = remoteStreams[p.id];
       if (screen) {
-        dockedPipSources.push({ id: tileId("screen", p.id), stream: screen, label, peerId: p.id, micStream, channel: "screen" });
+        dockedPipSources.push({
+          id: tileId("screen", p.id),
+          stream: screen,
+          label,
+          peerId: p.id,
+          micStream,
+          channel: "screen",
+          annotationKey: `screen:${p.id}`,
+        });
+      }
+      // Their other screens ("Várias telas"), each one an option of its own.
+      for (const { slot, peerId, stream } of remoteExtraScreenEntries) {
+        if (peerId !== p.id) continue;
+        dockedPipSources.push({
+          id: tileId("screen-extra", `${slot}:${p.id}`),
+          stream,
+          label: `${label} (${EXTRA_SCREEN_SLOTS.indexOf(slot) + 2})`,
+          peerId: p.id,
+          micStream,
+          channel: slot,
+          annotationKey: `screen-extra:${slot}:${p.id}`,
+        });
       }
       for (const { slot, peerId, stream, shared } of remoteFileEntries) {
         if (peerId !== p.id) continue;
@@ -5944,25 +5966,102 @@ function WatchRoomView({
           peerId: p.id,
           micStream,
           channel: slot,
+          annotationKey: `file:${slot}:${p.id}`,
         });
       }
       const camera = remoteCameraStreams[p.id];
       if (camera) {
-        dockedPipSources.push({ id: tileId("camera", p.id), stream: camera, label, peerId: p.id, micStream, channel: "camera" });
+        dockedPipSources.push({
+          id: tileId("camera", p.id),
+          stream: camera,
+          label,
+          peerId: p.id,
+          micStream,
+          channel: "camera",
+          annotationKey: `camera:${p.id}`,
+        });
+      }
+      const camera2 = dualCamera.remoteStreams[p.id];
+      if (camera2) {
+        dockedPipSources.push({
+          id: tileId("camera2", p.id),
+          stream: camera2,
+          label: `${label} (${translate("watch.watchRoom.secondCamera")})`,
+          peerId: p.id,
+          micStream,
+          channel: "camera2",
+          annotationKey: `camera2:${p.id}`,
+        });
       }
     }
     const you = translate("common.you");
     if (isSharing && localStream) {
-      dockedPipSources.push({ id: tileId("screen", SELF_TILE_OWNER), stream: localStream, label: you, peerId: null, micStream: null });
+      dockedPipSources.push({
+        id: tileId("screen", SELF_TILE_OWNER),
+        stream: localStream,
+        label: you,
+        peerId: null,
+        micStream: null,
+        annotationKey: state.selfId ? `screen:${state.selfId}` : undefined,
+      });
+    }
+    for (const slot of EXTRA_SCREEN_SLOTS) {
+      const stream = extraScreens[slot].localStream;
+      if (!stream) continue;
+      dockedPipSources.push({
+        id: tileId("screen-extra", `${slot}:${SELF_TILE_OWNER}`),
+        stream,
+        label: `${you} (${EXTRA_SCREEN_SLOTS.indexOf(slot) + 2})`,
+        peerId: null,
+        micStream: null,
+        annotationKey: state.selfId ? `screen-extra:${slot}:${state.selfId}` : undefined,
+      });
     }
     for (const slot of localFileSlots) {
       const stream = fileChannels[slot].localStream;
       if (stream) {
-        dockedPipSources.push({ id: tileId("file", `${slot}:${SELF_TILE_OWNER}`), stream, label: you, peerId: null, micStream: null });
+        dockedPipSources.push({
+          id: tileId("file", `${slot}:${SELF_TILE_OWNER}`),
+          stream,
+          label: you,
+          peerId: null,
+          micStream: null,
+          annotationKey: state.selfId ? `file:${slot}:${state.selfId}` : undefined,
+        });
       }
     }
     if (localCameraStream) {
-      dockedPipSources.push({ id: tileId("camera", SELF_TILE_OWNER), stream: localCameraStream, label: you, peerId: null, micStream: null });
+      dockedPipSources.push({
+        id: tileId("camera", SELF_TILE_OWNER),
+        stream: localCameraStream,
+        label: you,
+        peerId: null,
+        micStream: null,
+        annotationKey: state.selfId ? `camera:${state.selfId}` : undefined,
+      });
+    }
+    if (dualCamera.localStream) {
+      dockedPipSources.push({
+        id: tileId("camera2", SELF_TILE_OWNER),
+        stream: dualCamera.localStream,
+        label: `${you} (${translate("watch.watchRoom.secondCamera")})`,
+        peerId: null,
+        micStream: null,
+        annotationKey: state.selfId ? `camera2:${state.selfId}` : undefined,
+      });
+    }
+    // The room's whiteboard, notepad and code editor — last in the list, and
+    // only to watch from here.
+    for (const toolId of mediaToolIds) {
+      if (leftToolIds.has(toolId)) continue;
+      dockedPipSources.push({
+        id: tileId("tool", toolId),
+        stream: null,
+        toolId,
+        label: <ToolPipLabel toolId={toolId} iconClassName="shrink-0 text-emerald-400" />,
+        peerId: null,
+        micStream: null,
+      });
     }
   }
 

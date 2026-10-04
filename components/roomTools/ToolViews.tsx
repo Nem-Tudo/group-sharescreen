@@ -166,7 +166,7 @@ export function TextToolView({ tool, canUse }: ToolViewProps & { tool: TextTool 
     () =>
       onRemoteTextOp(tool.id, (op) => {
         const area = areaRef.current;
-        if (!area || document.activeElement !== area) return;
+        if (!area || area.ownerDocument.activeElement !== area) return;
         caret.current = [transformIndex(op, area.selectionStart), transformIndex(op, area.selectionEnd)];
       }),
     [tool.id]
