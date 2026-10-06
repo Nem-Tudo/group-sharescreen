@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Stroke, StrokeShape } from "@/lib/roomTools";
-import { drawStroke, hitsStroke, thinPoints, type Rect } from "./strokes";
+import { drawStroke, hitsStroke, onImageLoaded, thinPoints, type Rect } from "./strokes";
 
 // A canvas everybody's strokes are drawn on, and — for whoever may — drawn
 // into. The shared whiteboard is one of these on a white board; the notes over
@@ -89,6 +89,8 @@ export function DrawingSurface({
   useEffect(() => {
     redraw();
   });
+  // A pasted picture that finished decoding after the board was drawn.
+  useEffect(() => onImageLoaded(() => setTick((t) => t + 1)), []);
 
   function toPoint(event: React.PointerEvent): [number, number] {
     const box = boxRef.current!.getBoundingClientRect();

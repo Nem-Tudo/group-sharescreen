@@ -9,6 +9,79 @@ export type Rect = { x: number; y: number; w: number; h: number };
 
 export const BOARD_WIDTH = 1000;
 
+// --- Pasted pictures -----------------------------------------------------------
+//
+// A picture on the board is a data URL (see the API's MAX_IMAGE_SRC). Each is
+// decoded once and kept; whatever is drawing a board hears when one has
+// finished decoding, to draw it again with the picture in.
+
+const images = new Map<string, HTMLImageElement>();
+const imageListeners = new Set<() => void>();
+
+function imageFor(src: string): HTMLImageElement | null {
+  let image = images.get(src);
+  if (!image) {
+    if (typeof Image === "undefined") return null;
+    image = new Image();
+    image.onload = () => imageListeners.forEach((listener) => listener());
+    image.src = src;
+    images.set(src, image);
+  }
+  return image.complete && image.naturalWidth > 0 ? image : null;
+}
+
+/** Calls `listener` whenever a pasted picture becomes ready to draw. */
+export function onImageLoaded(listener: () => void): () => void {
+  imageListeners.add(listener);
+  return () => {
+    imageListeners.delete(listener);
+  };
+}
+
+/** Pictures larger than a message can carry are shrunk — and re-encoded — until they fit. */
+export const MAX_IMAGE_SRC = 56_000;
+
+/**
+ * A picture (a pasted or picked file) as a data URL small enough for the
+ * board, with its size — or null when it cannot be made to fit.
+ */
+export async function shrinkImage(file: Blob): Promise<{ src: string; width: number; height: number } | null> {
+  const url = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = url;
+    });
+    let side = 1024;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const scale = Math.min(1, side / Math.max(image.naturalWidth, image.naturalHeight));
+      const width = Math.max(1, Math.round(image.naturalWidth * scale));
+      const height = Math.max(1, Math.round(image.naturalHeight * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
+      // JPEG has no transparency: a transparent picture goes on the board's white.
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(image, 0, 0, width, height);
+      for (const quality of [0.8, 0.65, 0.5]) {
+        const src = canvas.toDataURL("image/jpeg", quality);
+        if (src.length <= MAX_IMAGE_SRC) return { src, width, height };
+      }
+      side = Math.round(side * 0.75);
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 export function drawStroke(ctx: CanvasRenderingContext2D, stroke: Omit<Stroke, "id" | "by">, rect: Rect) {
   const { points } = stroke;
   if (points.length < 2) return;
@@ -64,6 +137,22 @@ export function drawStroke(ctx: CanvasRenderingContext2D, stroke: Omit<Stroke, "
       ctx.stroke();
       break;
     }
+    case "image": {
+      const image = stroke.src ? imageFor(stroke.src) : null;
+      const x = Math.min(px(0), px(last));
+      const y = Math.min(py(0), py(last));
+      const w = Math.abs(px(last) - px(0));
+      const h = Math.abs(py(last) - py(0));
+      if (image) {
+        ctx.drawImage(image, x, y, w, h);
+      } else {
+        // Still decoding: where it will be.
+        ctx.globalAlpha = 0.15;
+        ctx.fillStyle = "#71717a";
+        ctx.fillRect(x, y, w, h);
+      }
+      break;
+    }
     case "text": {
       const size = Math.max(10, (14 + stroke.width * 3) * scale);
       ctx.font = `600 ${size}px system-ui, sans-serif`;
@@ -117,6 +206,10 @@ export function hitsStroke(stroke: Stroke, x: number, y: number, tolerance: numb
       const width = Math.max(...lines.map((l) => l.length)) * size * 0.6;
       const height = lines.length * size * 1.2 * aspect;
       return x >= p[0] - tolerance && x <= p[0] + width + tolerance && y >= p[1] - tolerance && y <= p[1] + height + tolerance;
+    }
+    case "image": {
+      const [x1, y1, x2, y2] = [p[0], p[1], p[last], p[last + 1]];
+      return x >= Math.min(x1, x2) && x <= Math.max(x1, x2) && y >= Math.min(y1, y2) && y <= Math.max(y1, y2);
     }
     case "line":
     case "arrow":

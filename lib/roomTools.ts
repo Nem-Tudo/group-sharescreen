@@ -6,6 +6,7 @@ import { trackFeatureEvent } from "./features";
 import { signalingClient } from "./signalingClient";
 import type { TextOp } from "./textOt";
 import { TextSyncClient } from "./textSync";
+import { applySheetChange, changeIsIdempotent, type SheetChange, type SheetData } from "./sheet";
 
 // The room's "Ferramentas" — the client's half of the API's roomTools.ts,
 // which explains the model: one shared record per room, managers open and
@@ -14,8 +15,8 @@ import { TextSyncClient } from "./textSync";
 // everybody's.
 //
 // Where each kind lives on screen:
-//   - the whiteboard, notepad and code editor are media: a tile in the room's
-//     grid, like a shared screen (see ToolMediaTile);
+//   - the whiteboard, notepad, code editor, spreadsheet and document are
+//     media: a tile in the room's grid, like a shared screen (see ToolMediaTile);
 //   - polls and the task list live in the chat (see ChatToolsStrip);
 //   - reactions are a button on every media tile (see ReactionLayer);
 //   - screen notes are drawn over the shared screens themselves.
@@ -24,9 +25,9 @@ import { TextSyncClient } from "./textSync";
 // stroke or a keystroke in the notepad arrives many times a second, and none
 // of that is any business of the sixty other things that state carries.
 
-export type ToolKind = "whiteboard" | "notepad" | "annotate" | "poll" | "reactions" | "code" | "tasks";
+export type ToolKind = "whiteboard" | "notepad" | "annotate" | "poll" | "reactions" | "code" | "tasks" | "sheet" | "doc";
 export type ToolAccess = "everyone" | "managers" | "selected";
-export type StrokeShape = "pen" | "highlighter" | "line" | "arrow" | "rect" | "ellipse" | "text";
+export type StrokeShape = "pen" | "highlighter" | "line" | "arrow" | "rect" | "ellipse" | "text" | "image";
 
 // The experiments (admin panel, "Features"): `room-tools` shows the ways in —
 // the "Ferramentas" button, raising a hand, "Nova enquete" in the chat's "+",
@@ -37,6 +38,9 @@ export type StrokeShape = "pen" | "highlighter" | "line" | "arrow" | "rect" | "e
 // the ways in too; the /pro page keeps listing them as perks.
 export const ROOM_TOOLS_FEATURE = "room-tools";
 export const ROOM_TOOLS_FREE_FEATURE = "room-tools-free";
+// The spreadsheet and the document: in the tools panel only for whoever is in
+// this experiment. One somebody else opened shows up for everybody.
+export const ROOM_TOOLS_OFFICE_FEATURE = "room-tools-office";
 
 // Usage stats — each name counts only where it is in the feature's "site
 // events". The per-kind ones are `${name}.${kind}`.
@@ -53,6 +57,10 @@ export const ROOM_TOOLS_EVENTS = {
   reaction: "room_tools_reaction",
   handRaise: "room_tools_hand_raise",
   handGrant: "room_tools_hand_grant",
+  // A picture pasted on a whiteboard, and a spreadsheet or document taken out
+  // of the room as a file.
+  imagePaste: "room_tools_image_paste",
+  export: "room_tools_export",
 } as const;
 
 export function trackRoomToolsEvent(name: string) {
@@ -69,9 +77,16 @@ function trackFirstUse(toolId: string, name: string) {
 }
 
 /** What the tools panel offers to open, in order. Polls open from the chat's "+". */
-export const PANEL_KINDS: ToolKind[] = ["whiteboard", "notepad", "code", "tasks", "annotate"];
+export const PANEL_KINDS: ToolKind[] = ["whiteboard", "notepad", "code", "sheet", "doc", "tasks", "annotate"];
+/** The panel's kinds that only the office experiment shows (see ROOM_TOOLS_OFFICE_FEATURE). */
+export const OFFICE_KINDS: ToolKind[] = ["sheet", "doc"];
 /** The kinds that are a tile in the room's grid. */
-export const MEDIA_KINDS: ToolKind[] = ["whiteboard", "notepad", "code"];
+export const MEDIA_KINDS: ToolKind[] = ["whiteboard", "notepad", "code", "sheet", "doc"];
+/** The kinds edited as one shared text (see lib/textSync.ts). A document's text is its HTML. */
+export const TEXT_KINDS: ToolKind[] = ["notepad", "code", "doc"];
+function isTextTool(tool: RoomTool): tool is TextTool {
+  return TEXT_KINDS.includes(tool.kind);
+}
 /** Kinds a room has at most one of (the server enforces it too). */
 export const SINGLE_KINDS: ToolKind[] = ["reactions", "annotate", "tasks"];
 
@@ -84,6 +99,8 @@ export const TOOL_FEATURES: Record<ToolKind, Feature> = {
   code: "room_tools_text",
   whiteboard: "room_tools_draw",
   annotate: "room_tools_draw",
+  sheet: "room_tools_text",
+  doc: "room_tools_text",
 };
 
 /** Whether an account with `features` may open a tool of this kind. The free kinds need nothing. */
@@ -131,6 +148,8 @@ export type Stroke = {
   width: number;
   points: number[];
   text?: string;
+  // A pasted picture: its data URL, between the two corners in `points`.
+  src?: string;
   target?: string;
 };
 
@@ -145,7 +164,8 @@ type ToolBase = {
 };
 
 export type DrawTool = ToolBase & { kind: "whiteboard" | "annotate"; strokes: Stroke[] };
-export type TextTool = ToolBase & { kind: "notepad" | "code"; text: string; version: number; language: string };
+export type TextTool = ToolBase & { kind: "notepad" | "code" | "doc"; text: string; version: number; language: string };
+export type SheetTool = ToolBase & SheetData & { kind: "sheet" };
 export type PollTool = ToolBase & {
   kind: "poll";
   question: string;
@@ -202,7 +222,7 @@ export function taskProgress(tool: TasksTool): number {
   return Math.round((tool.items.filter((i) => i.done).length / tool.items.length) * 100);
 }
 export type ReactionsTool = ToolBase & { kind: "reactions" };
-export type RoomTool = DrawTool | TextTool | PollTool | TasksTool | ReactionsTool;
+export type RoomTool = DrawTool | TextTool | PollTool | TasksTool | ReactionsTool | SheetTool;
 
 export type RaisedHand = { id: string; name: string; at: number };
 /** Somebody else's stroke while they are still drawing it (see "tool-stroke-live"). */
@@ -222,6 +242,10 @@ export type RoomToolsState = {
   // when the finished stroke arrives (its clientId is the liveId), when they
   // lift the pen without one, or after a few quiet seconds.
   live: Record<string, LiveStroke>;
+  // The stroke this viewer is drawing right now, by tool — for what shows the
+  // board somewhere else at the same time (the picture-in-pictures), which
+  // would otherwise only see it once the pen comes up.
+  ownLive: Record<string, LiveStroke>;
   // Local view state — nobody else's business.
   panelOpen: boolean;
   activeToolId: string | null;
@@ -244,6 +268,7 @@ const EMPTY: RoomToolsState = {
   reactions: [],
   optimistic: {},
   live: {},
+  ownLive: {},
   panelOpen: false,
   activeToolId: null,
   annotateOff: [],
@@ -312,7 +337,7 @@ function updateTool<K extends RoomTool["kind"]>(
 
 // --- Text sync ---------------------------------------------------------------
 //
-// One TextSyncClient per notepad/code editor (see lib/textSync.ts). The tool's
+// One TextSyncClient per notepad/code editor/document (see lib/textSync.ts). The tool's
 // `text` in this store is always that client's local text.
 
 const textSync = new Map<string, TextSyncClient>();
@@ -407,6 +432,17 @@ function flushLive(toolId: string) {
   if (freehand && entry.sent < stroke.points.length) entry.timer = setTimeout(() => flushLive(toolId), LIVE_SEND_MS);
 }
 
+function setOwnLive(toolId: string, stroke: Omit<Stroke, "id" | "by"> | null) {
+  if (!stroke) {
+    if (!state.ownLive[toolId]) return;
+    const ownLive = { ...state.ownLive };
+    delete ownLive[toolId];
+    setState({ ownLive });
+    return;
+  }
+  setState({ ownLive: { ...state.ownLive, [toolId]: { ...stroke, toolId, by: "", at: Date.now() } } });
+}
+
 // --- Incoming --------------------------------------------------------------
 
 let reactionCounter = 0;
@@ -434,7 +470,7 @@ function handleMessage(msg: Record<string, unknown>) {
       const tools = Array.isArray(msg.tools) ? (msg.tools as RoomTool[]) : [];
       textSync.clear();
       for (const tool of tools) {
-        if (tool.kind === "notepad" || tool.kind === "code") startSync(tool);
+        if (isTextTool(tool)) startSync(tool);
       }
       setState({
         tools,
@@ -449,7 +485,7 @@ function handleMessage(msg: Record<string, unknown>) {
       const tool = msg.tool as RoomTool | undefined;
       if (!tool?.id) break;
       const isNew = !state.tools.some((t) => t.id === tool.id);
-      if (tool.kind === "notepad" || tool.kind === "code") {
+      if (isTextTool(tool)) {
         const sync = textSync.get(tool.id);
         if (!sync) {
           startSync(tool);
@@ -559,6 +595,16 @@ function handleMessage(msg: Record<string, unknown>) {
       scheduleLiveSweep();
       break;
     }
+    case "tool-stroke-moved": {
+      const strokeId = msg.strokeId as string;
+      const points = Array.isArray(msg.points) ? (msg.points as number[]) : null;
+      if (!points) break;
+      updateTool(msg.id as string, ["whiteboard", "annotate"], (tool) => ({
+        ...tool,
+        strokes: tool.strokes.map((s) => (s.id === strokeId ? { ...s, points } : s)),
+      }));
+      break;
+    }
     case "tool-strokes-removed": {
       const ids = new Set(Array.isArray(msg.strokeIds) ? (msg.strokeIds as string[]) : []);
       updateTool(msg.id as string, ["whiteboard", "annotate"], (tool) => ({
@@ -571,7 +617,7 @@ function handleMessage(msg: Record<string, unknown>) {
       const id = msg.id as string;
       const sync = textSync.get(id);
       const tool = state.tools.find((t) => t.id === id);
-      if (!sync || !tool || (tool.kind !== "notepad" && tool.kind !== "code")) break;
+      if (!sync || !tool || !isTextTool(tool)) break;
       const result = sync.receive(msg.op as TextOp, msg.version as number, typeof msg.opId === "string" ? msg.opId : null);
       if (result === "out of step") {
         // Missed one — start over from the server's text.
@@ -580,6 +626,12 @@ function handleMessage(msg: Record<string, unknown>) {
       }
       replaceTool({ ...tool, text: sync.text, version: sync.version });
       if (result) for (const listener of remoteTextListeners.get(id) ?? []) listener(result);
+      break;
+    }
+    case "tool-sheet": {
+      const change = msg.change as SheetChange | undefined;
+      if (!change) break;
+      updateTool(msg.id as string, ["sheet"], (tool) => applySheetChange(tool, change));
       break;
     }
     case "tool-reaction": {
@@ -694,6 +746,7 @@ export const roomTools = {
    */
   drawLive(toolId: string, stroke: Omit<Stroke, "id" | "by"> | null) {
     const entry = outgoingLive.get(toolId);
+    setOwnLive(toolId, stroke);
     if (!stroke) {
       if (!entry) return;
       if (entry.timer) clearTimeout(entry.timer);
@@ -716,6 +769,7 @@ export const roomTools = {
     const live = outgoingLive.get(toolId);
     if (live?.timer) clearTimeout(live.timer);
     outgoingLive.delete(toolId);
+    setOwnLive(toolId, null);
     const clientId = live?.liveId ?? `s${Date.now().toString(36)}${++strokeCounter}`;
     setState({
       optimistic: { ...state.optimistic, [clientId]: { ...stroke, id: clientId, by: selfUserId ?? "", toolId } },
@@ -731,6 +785,17 @@ export const roomTools = {
     send({ type: "tool-stroke", id: toolId, stroke, clientId });
     trackFirstUse(toolId, ROOM_TOOLS_EVENTS.draw);
   },
+  /**
+   * A pasted picture or text put somewhere else (or a picture resized), in
+   * place — it keeps its order among the strokes. Shown at once.
+   */
+  moveStroke(toolId: string, strokeId: string, points: number[]) {
+    updateTool(toolId, ["whiteboard", "annotate"], (tool) => ({
+      ...tool,
+      strokes: tool.strokes.map((s) => (s.id === strokeId ? { ...s, points } : s)),
+    }));
+    send({ type: "tool-stroke-move", id: toolId, strokeId, points });
+  },
   removeStrokes(toolId: string, strokeIds: string[]) {
     if (strokeIds.length > 0) send({ type: "tool-strokes-remove", id: toolId, strokeIds });
   },
@@ -742,9 +807,19 @@ export const roomTools = {
   editText(toolId: string, next: string) {
     const tool = state.tools.find((t) => t.id === toolId);
     const sync = textSync.get(toolId);
-    if (!tool || !sync || (tool.kind !== "notepad" && tool.kind !== "code")) return;
+    if (!tool || !sync || !isTextTool(tool)) return;
     sync.edit(next);
     replaceTool({ ...tool, text: sync.text });
+    trackFirstUse(toolId, ROOM_TOOLS_EVENTS.type);
+  },
+  /**
+   * A change to a spreadsheet. Shown at once when applying it again changes
+   * nothing (a value, a style); a row or column in or out waits for the
+   * server, which puts everybody's in the same order.
+   */
+  editSheet(toolId: string, change: SheetChange) {
+    if (changeIsIdempotent(change)) updateTool(toolId, ["sheet"], (tool) => applySheetChange(tool, change));
+    send({ type: "tool-sheet", id: toolId, change });
     trackFirstUse(toolId, ROOM_TOOLS_EVENTS.type);
   },
   setLanguage(toolId: string, language: string) {

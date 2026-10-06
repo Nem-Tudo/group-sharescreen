@@ -15,7 +15,9 @@ import {
   CODE_LANGUAGES,
   DEFAULT_TASK_RULES,
   MEDIA_KINDS,
+  OFFICE_KINDS,
   PANEL_KINDS,
+  ROOM_TOOLS_OFFICE_FEATURE,
   SINGLE_KINDS,
   canOpenKind,
   canUseTool,
@@ -30,6 +32,8 @@ import {
   trackRoomToolsEvent,
 } from "@/lib/roomTools";
 import { openProModal } from "@/lib/proModal";
+import { useFeature } from "@/lib/features";
+import { signalingClient } from "@/lib/signalingClient";
 import { useT } from "@/lib/useI18n";
 import { TOOL_ICONS } from "./toolIcons";
 import { AnnotateView, PollView, TasksView } from "./ToolViews";
@@ -248,6 +252,12 @@ function ToolsHome({
   onOpen: (tool: RoomTool) => void;
 }) {
   const t = useT();
+  // The spreadsheet and the document are offered only inside their experiment.
+  const office = useFeature(ROOM_TOOLS_OFFICE_FEATURE, {
+    room: signalingClient.getSnapshot().room ?? undefined,
+    track: canOpenTools,
+  }).enabled;
+  const panelKinds = office ? PANEL_KINDS : PANEL_KINDS.filter((kind) => !OFFICE_KINDS.includes(kind));
   const taken = new Set(allTools.filter((tool) => SINGLE_KINDS.includes(tool.kind)).map((tool) => tool.kind));
   const reactions = allTools.find((tool) => tool.kind === "reactions");
   return (
@@ -284,7 +294,7 @@ function ToolsHome({
         <div className="flex flex-col gap-2">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{t("roomTools.new")}</h3>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {PANEL_KINDS.map((kind) => {
+            {panelKinds.map((kind) => {
               const allowed = toolsFree || canOpenKind(kind, features);
               const plan = planForKind(kind);
               const isTaken = taken.has(kind);

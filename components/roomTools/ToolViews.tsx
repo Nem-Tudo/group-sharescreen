@@ -1,11 +1,26 @@
 "use client";
 
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { MdAdd, MdCheck, MdClose, MdDeleteSweep, MdEvent, MdFileDownload, MdSettings, MdTune, MdUndo } from "react-icons/md";
+import {
+  MdAdd,
+  MdCheck,
+  MdClose,
+  MdContentPaste,
+  MdDeleteSweep,
+  MdEvent,
+  MdFileDownload,
+  MdImage,
+  MdOpenWith,
+  MdSettings,
+  MdTune,
+  MdUndo,
+} from "react-icons/md";
 import {
   CODE_LANGUAGES,
+  ROOM_TOOLS_EVENTS,
   onRemoteTextOp,
   roomTools,
+  trackRoomToolsEvent,
   useRoomTools,
   type DrawTool,
   type PollTool,
@@ -21,8 +36,9 @@ import { transformIndex } from "@/lib/textSync";
 import { highlightCode, type CodeTokenType } from "@/lib/codeHighlight";
 import { useT } from "@/lib/useI18n";
 import { DrawingSurface } from "./DrawingSurface";
+import { PasteMoveLayer } from "./PasteMoveLayer";
 import { PenToolbar } from "./PenToolbar";
-import { drawStroke } from "./strokes";
+import { drawStroke, shrinkImage } from "./strokes";
 
 export type ToolViewProps = { selfUserId: string | null; isManager: boolean; canUse: boolean };
 
@@ -43,12 +59,104 @@ function download(name: string, blob: Blob) {
 export function WhiteboardView({ tool, selfUserId, isManager, canUse }: ToolViewProps & { tool: DrawTool }) {
   const t = useT();
   const { pen, optimistic, live } = useRoomTools();
+  // Moving pasted pictures and text (see PasteMoveLayer): the one being
+  // dragged is drawn where it is going, in its own place among the strokes.
+  const [moving, setMoving] = useState(false);
+  const [movePreview, setMovePreview] = useState<{ id: string; points: number[] } | null>(null);
   const strokes = useMemo(
-    () => [...tool.strokes, ...Object.values(optimistic).filter((s) => s.toolId === tool.id)],
-    [tool.strokes, optimistic, tool.id]
+    () =>
+      [...tool.strokes, ...Object.values(optimistic).filter((s) => s.toolId === tool.id)].map((s) =>
+        movePreview?.id === s.id ? { ...s, points: movePreview.points } : s
+      ),
+    [tool.strokes, optimistic, tool.id, movePreview]
   );
   const liveStrokes = useMemo(() => Object.values(live).filter((s) => s.toolId === tool.id), [live, tool.id]);
   const mine = tool.strokes.filter((s) => s.by === selfUserId);
+  const boardRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  function say(text: string) {
+    setNotice(text);
+    window.setTimeout(() => setNotice((current) => (current === text ? null : current)), 4000);
+  }
+
+  // A picture, in the middle of the board — a little further along each time,
+  // so a second one does not land exactly on the first. At most half the
+  // board across and most of it down, in its own proportions.
+  async function placeImage(file: Blob) {
+    const shrunk = await shrinkImage(file);
+    if (!shrunk) {
+      say(t("roomTools.imageTooBig"));
+      return;
+    }
+    const boardAspect = 16 / 9;
+    const aspect = shrunk.width / shrunk.height;
+    let w = 0.5;
+    let h = (w * boardAspect) / aspect;
+    if (h > 0.7) {
+      h = 0.7;
+      w = (h * aspect) / boardAspect;
+    }
+    const nudge = (tool.strokes.filter((s) => s.shape === "image").length % 5) * 0.03;
+    const x = 0.5 - w / 2 + nudge;
+    const y = 0.5 - h / 2 + nudge;
+    roomTools.addStroke(
+      tool.id,
+      { shape: "image", color: "#000000", width: 1, points: [x, y, x + w, y + h], src: shrunk.src },
+      selfUserId
+    );
+    trackRoomToolsEvent(ROOM_TOOLS_EVENTS.imagePaste);
+  }
+
+  // Text pasted on the board is written on it, in the pen's color.
+  function placeText(text: string) {
+    const clean = text.trim().slice(0, 500);
+    if (!clean) return;
+    roomTools.addStroke(tool.id, { shape: "text", color: pen.color, width: pen.width, points: [0.3, 0.4], text: clean }, selfUserId);
+  }
+
+  function onPaste(event: React.ClipboardEvent) {
+    if (!canUse) return;
+    const files = [...event.clipboardData.items].filter((item) => item.type.startsWith("image/"));
+    if (files.length > 0) {
+      event.preventDefault();
+      for (const item of files) {
+        const file = item.getAsFile();
+        if (file) void placeImage(file);
+      }
+      return;
+    }
+    const text = event.clipboardData.getData("text/plain");
+    if (text) {
+      event.preventDefault();
+      placeText(text);
+    }
+  }
+
+  // The "Colar" button: what the clipboard holds, where the browser lets the
+  // page read it (it asks first); the keyboard's Ctrl+V works everywhere.
+  async function pasteFromClipboard() {
+    try {
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        const type = item.types.find((kind) => kind.startsWith("image/"));
+        if (type) {
+          await placeImage(await item.getType(type));
+          return;
+        }
+      }
+      for (const item of items) {
+        if (item.types.includes("text/plain")) {
+          placeText(await (await item.getType("text/plain")).text());
+          return;
+        }
+      }
+      say(t("roomTools.clipboardEmpty"));
+    } catch {
+      say(t("roomTools.clipboardBlocked"));
+    }
+  }
 
   function exportPng() {
     const canvas = document.createElement("canvas");
@@ -86,18 +194,78 @@ export function WhiteboardView({ tool, selfUserId, isManager, canUse }: ToolView
               >
                 <MdDeleteSweep className="h-4 w-4" />
               </button>
+              <span className="mx-1 h-6 w-px bg-zinc-300 dark:bg-zinc-700" />
+              <button type="button" className={smallButton} onClick={() => void pasteFromClipboard()} title={t("roomTools.paste")}>
+                <MdContentPaste className="h-4 w-4" />
+              </button>
+              <button type="button" className={smallButton} onClick={() => fileRef.current?.click()} title={t("roomTools.addImage")}>
+                <MdImage className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                className={`${smallButton} ${moving ? "bg-emerald-600 text-white hover:bg-emerald-700 dark:text-white dark:hover:bg-emerald-700" : ""}`}
+                onClick={() => setMoving((v) => !v)}
+                aria-pressed={moving}
+                title={t("roomTools.movePasted")}
+              >
+                <MdOpenWith className="h-4 w-4" />
+              </button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void placeImage(file);
+                  e.target.value = "";
+                }}
+              />
             </>
           }
         />
       )}
-      <div className="relative min-h-0 flex-1">
+      <div
+        ref={boardRef}
+        // Focusable, so Ctrl+V pastes here: a press on the board takes the
+        // focus (the canvas itself keeps it from the browser).
+        tabIndex={canUse ? 0 : undefined}
+        onPointerDownCapture={() => canUse && boardRef.current?.focus({ preventScroll: true })}
+        onPaste={onPaste}
+        onDragOver={(e) => {
+          if (canUse && [...e.dataTransfer.items].some((item) => item.type.startsWith("image/"))) e.preventDefault();
+        }}
+        onDrop={(e) => {
+          if (!canUse) return;
+          const files = [...e.dataTransfer.files].filter((file) => file.type.startsWith("image/"));
+          if (files.length === 0) return;
+          e.preventDefault();
+          files.slice(0, 5).forEach((file) => void placeImage(file));
+        }}
+        className="relative min-h-0 flex-1 outline-none"
+      >
+        {notice && (
+          <div className="pointer-events-none absolute left-1/2 top-2 z-20 -translate-x-1/2 rounded-full bg-zinc-900/90 px-3 py-1 text-xs text-white">
+            {notice}
+          </div>
+        )}
         {/* A 16:9 board as big as the panel allows, either way round. */}
         <div className="absolute inset-0 flex items-center justify-center" style={{ containerType: "size" }}>
-          <div style={{ width: "min(100cqw, calc(100cqh * 16 / 9))", aspectRatio: "16 / 9" }}>
+          <div className="relative" style={{ width: "min(100cqw, calc(100cqh * 16 / 9))", aspectRatio: "16 / 9" }}>
+            {canUse && moving && (
+              <PasteMoveLayer
+                strokes={strokes}
+                onPreview={setMovePreview}
+                onMove={(stroke, points) => {
+                  roomTools.moveStroke(tool.id, stroke.id, points);
+                  setMovePreview(null);
+                }}
+              />
+            )}
             <DrawingSurface
               board
               strokes={strokes}
-              canDraw={canUse}
+              canDraw={canUse && !moving}
               pen={pen}
               onStroke={(stroke) => roomTools.addStroke(tool.id, stroke, selfUserId)}
               onLive={(stroke) => roomTools.drawLive(tool.id, stroke)}
@@ -108,7 +276,7 @@ export function WhiteboardView({ tool, selfUserId, isManager, canUse }: ToolView
         </div>
       </div>
       <div className="hidden items-center justify-between text-xs text-zinc-500 sm:flex">
-        <span>{canUse ? t("roomTools.whiteboardHint") : t("roomTools.viewOnly")}</span>
+        <span>{canUse ? `${t("roomTools.whiteboardHint")} ${t("roomTools.pasteHint")}` : t("roomTools.viewOnly")}</span>
         <button type="button" className={smallButton} onClick={exportPng}>
           <MdFileDownload className="h-4 w-4" />
           PNG

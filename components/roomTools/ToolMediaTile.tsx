@@ -12,6 +12,7 @@ import {
   toolMediaKey,
   useRoomToolsSelector,
   type DrawTool,
+  type SheetTool,
   type RoomToolsState,
   type TextTool,
 } from "@/lib/roomTools";
@@ -19,6 +20,8 @@ import { useT } from "@/lib/useI18n";
 import { RoomToolsViewer } from "./AnnotationLayer";
 import { ReactionButton, ReactionFloats } from "./ReactionLayer";
 import { TOOL_ICONS } from "./toolIcons";
+import { DocView } from "./DocView";
+import { SheetView } from "./SheetView";
 import { TextToolView, WhiteboardView } from "./ToolViews";
 import { openCanvasPip, toolDrawer, useCanvasPipSupported } from "./canvasPip";
 
@@ -41,7 +44,7 @@ export function ToolMediaTile({
   onLeave,
   interactive = true,
 }: {
-  tool: DrawTool | TextTool;
+  tool: DrawTool | TextTool | SheetTool;
   selfUserId: string | null;
   isManager: boolean;
   fill?: boolean;
@@ -281,7 +284,11 @@ export function ToolMediaTile({
         </span>
       </div>
       <div className="relative min-h-0 flex-1 bg-white p-1.5 sm:p-2 dark:bg-zinc-900">
-        {tool.kind === "notepad" || tool.kind === "code" ? (
+        {tool.kind === "sheet" ? (
+          <SheetView tool={tool} canUse={canUse} />
+        ) : tool.kind === "doc" ? (
+          <DocView tool={tool} canUse={canUse} />
+        ) : tool.kind === "notepad" || tool.kind === "code" ? (
           <TextToolView tool={tool as TextTool} selfUserId={selfUserId} isManager={isManager} canUse={canUse} />
         ) : (
           <WhiteboardView tool={tool as DrawTool} selfUserId={selfUserId} isManager={isManager} canUse={canUse} />
@@ -303,7 +310,7 @@ export function ToolMediaTileById({
 }: Omit<Parameters<typeof ToolMediaTile>[0], "tool"> & { toolId: string }) {
   const select = useCallback(
     (s: RoomToolsState) =>
-      s.tools.find((t): t is DrawTool | TextTool => t.id === toolId && MEDIA_KINDS.includes(t.kind)) ?? null,
+      s.tools.find((t): t is DrawTool | TextTool | SheetTool => t.id === toolId && MEDIA_KINDS.includes(t.kind)) ?? null,
     [toolId]
   );
   const tool = useRoomToolsSelector(select);

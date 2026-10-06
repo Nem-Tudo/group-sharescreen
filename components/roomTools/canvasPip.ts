@@ -1,7 +1,8 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { getRoomToolsState, type DrawTool, type Stroke, type TextTool } from "@/lib/roomTools";
+import { getRoomToolsState, type DrawTool, type SheetTool, type Stroke, type TextTool } from "@/lib/roomTools";
+import { DEFAULT_COL_WIDTH, cellKey, colName, displayValue, evaluateSheet, isFormulaError } from "@/lib/sheet";
 import { highlightCode, type CodeTokenType } from "@/lib/codeHighlight";
 import { drawStroke, type Rect } from "./strokes";
 
@@ -143,13 +144,15 @@ function palette(): Palette {
 }
 
 function strokesOf(toolId: string, target?: string): Omit<Stroke, "id" | "by">[] {
-  const { tools, optimistic, live } = getRoomToolsState();
+  const { tools, optimistic, live, ownLive } = getRoomToolsState();
   const tool = tools.find((t) => t.id === toolId) as DrawTool | undefined;
   const matches = (s: { toolId: string; target?: string }) => s.toolId === toolId && (target === undefined || s.target === target);
   return [
     ...(tool?.strokes ?? []).filter((s) => target === undefined || s.target === target),
     ...Object.values(optimistic).filter(matches),
     ...Object.values(live).filter(matches),
+    // What this viewer is drawing right now, before the pen comes up.
+    ...Object.values(ownLive).filter(matches),
   ];
 }
 
@@ -223,7 +226,142 @@ function drawCode(ctx: CanvasRenderingContext2D, text: string, language: string,
   });
 }
 
-/** Draws a room tool (whiteboard, notepad, code editor) as it is now. */
+type DocBlock = { text: string; size: number; bold: boolean; prefix: string };
+
+/** A document's HTML as blocks of text: headings bigger, list items bulleted. */
+function docBlocks(html: string): DocBlock[] {
+  if (typeof DOMParser === "undefined") return [];
+  const body = new DOMParser().parseFromString(`<body>${html}</body>`, "text/html").body;
+  const blocks: DocBlock[] = [];
+  const sizes: Record<string, number> = { H1: 40, H2: 33, H3: 28 };
+  function walk(node: Element, ordered: number[] | null) {
+    for (const child of [...node.children]) {
+      const tag = child.tagName;
+      if (tag === "UL" || tag === "OL") {
+        walk(child, tag === "OL" ? [0] : null);
+      } else if (tag === "LI") {
+        const prefix = ordered ? `${++ordered[0]}. ` : "• ";
+        blocks.push({ text: child.textContent ?? "", size: 24, bold: false, prefix });
+      } else if (tag === "TABLE") {
+        for (const row of child.querySelectorAll("tr")) {
+          const cells = [...row.children].map((cell) => (cell.textContent ?? "").trim());
+          blocks.push({ text: cells.join("  |  "), size: 22, bold: false, prefix: "" });
+        }
+      } else if (["P", "DIV", "H1", "H2", "H3", "BLOCKQUOTE", "PRE"].includes(tag)) {
+        if (child.querySelector("p, div, ul, ol, table, h1, h2, h3")) walk(child, null);
+        else blocks.push({ text: child.textContent ?? "", size: sizes[tag] ?? 24, bold: tag in sizes, prefix: tag === "BLOCKQUOTE" ? "│ " : "" });
+      } else if (tag === "HR") {
+        blocks.push({ text: "────────────", size: 20, bold: false, prefix: "" });
+      }
+    }
+  }
+  walk(body, null);
+  // Text straight in the body (no paragraph round it) is one block.
+  if (blocks.length === 0 && body.textContent) blocks.push({ text: body.textContent, size: 24, bold: false, prefix: "" });
+  return blocks;
+}
+
+function drawDoc(ctx: CanvasRenderingContext2D, html: string, width: number, height: number, colors: Palette) {
+  const pad = 32;
+  ctx.textBaseline = "top";
+  const lines: { text: string; size: number; bold: boolean }[] = [];
+  for (const block of docBlocks(html)) {
+    ctx.font = `${block.bold ? "700 " : ""}${block.size}px system-ui, -apple-system, "Segoe UI", sans-serif`;
+    let line = block.prefix;
+    for (const word of block.text.split(/(\s+)/)) {
+      if (line.trim() && ctx.measureText(line + word).width > width - 2 * pad) {
+        lines.push({ text: line, size: block.size, bold: block.bold });
+        line = word.trimStart();
+      } else {
+        line += word;
+      }
+    }
+    lines.push({ text: line, size: block.size, bold: block.bold });
+  }
+  // The end of it, which is where people are writing, when it does not fit.
+  let used = 0;
+  let first = lines.length;
+  while (first > 0 && used + lines[first - 1].size * 1.5 <= height - 2 * pad) used += lines[--first].size * 1.5;
+  let y = pad;
+  ctx.fillStyle = colors.text;
+  for (const line of lines.slice(first)) {
+    ctx.font = `${line.bold ? "700 " : ""}${line.size}px system-ui, -apple-system, "Segoe UI", sans-serif`;
+    ctx.fillText(line.text, pad, y);
+    y += line.size * 1.5;
+  }
+}
+
+function drawSheet(ctx: CanvasRenderingContext2D, sheet: SheetTool, width: number, height: number, colors: Palette) {
+  const values = evaluateSheet(sheet);
+  const rowHeight = 34;
+  const headerWidth = 48;
+  const scale = 1.25;
+  const grid = colors === LIGHT ? "#d4d4d8" : "#3f3f46";
+  const header = colors === LIGHT ? "#f4f4f5" : "#27272a";
+  const muted = colors === LIGHT ? "#71717a" : "#a1a1aa";
+  ctx.textBaseline = "middle";
+  // The columns that fit, from A.
+  const xs: number[] = [headerWidth];
+  for (let c = 0; c < sheet.cols && xs[xs.length - 1] < width; c++) {
+    xs.push(xs[xs.length - 1] + (sheet.colWidths[c] ?? DEFAULT_COL_WIDTH) * scale);
+  }
+  const cols = xs.length - 1;
+  const rows = Math.min(sheet.rows, Math.floor((height - rowHeight) / rowHeight));
+  // Headers.
+  ctx.fillStyle = header;
+  ctx.fillRect(0, 0, width, rowHeight);
+  ctx.fillRect(0, 0, headerWidth, height);
+  ctx.font = `600 18px system-ui, sans-serif`;
+  ctx.fillStyle = muted;
+  ctx.textAlign = "center";
+  for (let c = 0; c < cols; c++) ctx.fillText(colName(c), (xs[c] + xs[c + 1]) / 2, rowHeight / 2);
+  for (let r = 0; r < rows; r++) ctx.fillText(String(r + 1), headerWidth / 2, rowHeight * (r + 1.5));
+  // Cells.
+  for (let r = 0; r < rows; r++) {
+    const y = rowHeight * (r + 1);
+    for (let c = 0; c < cols; c++) {
+      const key = cellKey(r, c);
+      const cell = sheet.cells[key];
+      const x = xs[c];
+      const w = xs[c + 1] - x;
+      if (cell?.bg) {
+        ctx.fillStyle = cell.bg;
+        ctx.fillRect(x, y, w, rowHeight);
+      }
+      const value = values.get(key);
+      const text = displayValue(value);
+      if (!text) continue;
+      const align = cell?.align ?? (typeof value === "number" ? "right" : "left");
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x, y, w, rowHeight);
+      ctx.clip();
+      ctx.font = `${cell?.i ? "italic " : ""}${cell?.b ? "700 " : ""}19px system-ui, sans-serif`;
+      ctx.fillStyle = isFormulaError(value) ? "#dc2626" : (cell?.color ?? colors.text);
+      ctx.textAlign = align;
+      ctx.fillText(text, align === "left" ? x + 6 : align === "right" ? x + w - 6 : x + w / 2, y + rowHeight / 2);
+      ctx.restore();
+    }
+  }
+  // Lines.
+  ctx.strokeStyle = grid;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let r = 0; r <= rows + 1; r++) {
+    ctx.moveTo(0, rowHeight * r + 0.5);
+    ctx.lineTo(xs[cols], rowHeight * r + 0.5);
+  }
+  for (let c = 0; c <= cols; c++) {
+    ctx.moveTo(xs[c] + 0.5, 0);
+    ctx.lineTo(xs[c] + 0.5, rowHeight * (rows + 1));
+  }
+  ctx.moveTo(0.5, 0);
+  ctx.lineTo(0.5, rowHeight * (rows + 1));
+  ctx.stroke();
+  ctx.textAlign = "left";
+}
+
+/** Draws a room tool (whiteboard, notepad, code editor, spreadsheet, document) as it is now. */
 export function toolDrawer(toolId: string): Draw {
   return (ctx, width, height) => {
     const tool = getRoomToolsState().tools.find((t) => t.id === toolId);
@@ -233,7 +371,9 @@ export function toolDrawer(toolId: string): Draw {
     ctx.fillStyle = colors.background;
     ctx.fillRect(0, 0, width, height);
     if (!tool) return;
-    if (tool.kind === "notepad") drawWrappedText(ctx, (tool as TextTool).text, width, height, colors);
+    if (tool.kind === "sheet") drawSheet(ctx, tool as SheetTool, width, height, colors);
+    else if (tool.kind === "doc") drawDoc(ctx, (tool as TextTool).text, width, height, colors);
+    else if (tool.kind === "notepad") drawWrappedText(ctx, (tool as TextTool).text, width, height, colors);
     else if (tool.kind === "code") drawCode(ctx, (tool as TextTool).text, (tool as TextTool).language, width, height, colors);
     else for (const stroke of strokesOf(toolId)) drawStroke(ctx, stroke, { x: 0, y: 0, w: width, h: height });
   };
