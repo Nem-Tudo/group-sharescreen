@@ -10,6 +10,8 @@ import {
   MdFormatColorFill,
   MdFormatColorText,
   MdFormatItalic,
+  MdRedo,
+  MdUndo,
 } from "react-icons/md";
 import { ROOM_TOOLS_EVENTS, roomTools, trackRoomToolsEvent, type SheetTool } from "@/lib/roomTools";
 import {
@@ -107,6 +109,41 @@ export function SheetView({ tool, canUse }: { tool: SheetTool; canUse: boolean }
     if (canUse) roomTools.editSheet(tool.id, c);
   }
 
+  // Ctrl+Z / Ctrl+Y for what this person typed, pasted, cut or cleared. Each
+  // step remembers the block's raw values before and after, so undoing is just
+  // writing the old block back.
+  type Step = { r: number; c: number; before: string[][]; after: string[][] };
+  const undoStack = useRef<Step[]>([]);
+  const redoStack = useRef<Step[]>([]);
+  // The stacks are refs; this re-renders the undo/redo buttons when they change.
+  const [, setHistoryTick] = useState(0);
+
+  function rawBlock(r0: number, c0: number, rows: number, cols: number): string[][] {
+    return Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => tool.cells[cellKey(r0 + r, c0 + c)]?.v ?? ""));
+  }
+
+  function writeBlock(r0: number, c0: number, after: string[][]) {
+    if (!canUse || !after.length) return;
+    const before = rawBlock(r0, c0, after.length, Math.max(...after.map((l) => l.length)));
+    if (after.every((line, r) => line.every((v, c) => v === before[r][c]))) return;
+    undoStack.current.push({ r: r0, c: c0, before, after });
+    if (undoStack.current.length > 100) undoStack.current.shift();
+    redoStack.current = [];
+    setHistoryTick((n) => n + 1);
+    change({ op: "fill", cell: cellKey(r0, c0), values: after });
+  }
+
+  function replay(from: typeof undoStack, to: typeof undoStack, undo: boolean) {
+    const step = from.current.pop();
+    if (!step) return;
+    to.current.push(step);
+    setHistoryTick((n) => n + 1);
+    const block = undo ? step.before : step.after;
+    change({ op: "fill", cell: cellKey(step.r, step.c), values: block });
+    setAnchor({ r: step.r, c: step.c });
+    setFocus({ r: Math.min(tool.rows - 1, step.r + block.length - 1), c: Math.min(tool.cols - 1, step.c + block[0].length - 1) });
+  }
+
   function select(pos: Pos, extend = false) {
     const clamped = { r: Math.max(0, Math.min(tool.rows - 1, pos.r)), c: Math.max(0, Math.min(tool.cols - 1, pos.c)) };
     setFocus(clamped);
@@ -134,9 +171,11 @@ export function SheetView({ tool, canUse }: { tool: SheetTool; canUse: boolean }
     }, 0);
   }
 
+  const committed = useRef<object | null>(null);
   function commitEdit(move: Pos | null) {
-    if (!editing) return;
-    change({ op: "set", cell: cellKey(editing.pos.r, editing.pos.c), v: editing.value });
+    if (!editing || committed.current === editing) return;
+    committed.current = editing;
+    writeBlock(editing.pos.r, editing.pos.c, [[editing.value]]);
     setEditing(null);
     if (move) select({ r: editing.pos.r + move.r, c: editing.pos.c + move.c });
     gridRef.current?.focus({ preventScroll: true });
@@ -155,8 +194,7 @@ export function SheetView({ tool, canUse }: { tool: SheetTool; canUse: boolean }
   const focusCell = tool.cells[cellKey(focus.r, focus.c)];
 
   function clearSelection() {
-    const values = Array.from({ length: bottom - top + 1 }, () => Array.from({ length: right - left + 1 }, () => ""));
-    change({ op: "fill", cell: cellKey(top, left), values });
+    writeBlock(top, left, Array.from({ length: bottom - top + 1 }, () => Array.from({ length: right - left + 1 }, () => "")));
   }
 
   function onGridKeyDown(e: KeyboardEvent<HTMLDivElement>) {
@@ -167,6 +205,7 @@ export function SheetView({ tool, canUse }: { tool: SheetTool; canUse: boolean }
       select({ r: focus.r + dr, c: focus.c + dc }, e.shiftKey);
     };
     const mod = e.ctrlKey || e.metaKey;
+    const letter = e.code.startsWith("Key") ? e.code.slice(3).toLowerCase() : e.key.toLowerCase();
     switch (e.key) {
       case "ArrowUp":
         return move(-1, 0);
@@ -198,6 +237,20 @@ export function SheetView({ tool, canUse }: { tool: SheetTool; canUse: boolean }
       e.preventDefault();
       return style({ i: !focusCell?.i });
     }
+    if (mod && letter === "z" && !e.shiftKey) {
+      e.preventDefault();
+      return replay(undoStack, redoStack, true);
+    }
+    if (mod && (letter === "y" || (letter === "z" && e.shiftKey))) {
+      e.preventDefault();
+      return replay(redoStack, undoStack, false);
+    }
+    if (mod && letter === "x") {
+      e.preventDefault();
+      void navigator.clipboard?.writeText(selectionText()).catch(() => {});
+      if (canUse) clearSelection();
+      return;
+    }
     if (mod && e.key.toLowerCase() === "a") {
       e.preventDefault();
       setAnchor({ r: 0, c: 0 });
@@ -211,20 +264,24 @@ export function SheetView({ tool, canUse }: { tool: SheetTool; canUse: boolean }
     }
   }
 
-  function onCopy(e: React.ClipboardEvent) {
-    if (editing) return;
-    e.preventDefault();
+  function selectionText(): string {
     const lines: string[] = [];
     for (let r = top; r <= bottom; r++) {
       const fields: string[] = [];
       for (let c = left; c <= right; c++) fields.push(displayValue(values.get(cellKey(r, c))));
       lines.push(fields.join("\t"));
     }
-    e.clipboardData.setData("text/plain", lines.join("\n"));
+    return lines.join("\n");
   }
 
-  function onPaste(e: React.ClipboardEvent) {
-    if (editing || !canUse) return;
+  function onCopy(e: ClipboardEvent) {
+    if (!e.clipboardData) return;
+    e.preventDefault();
+    e.clipboardData.setData("text/plain", selectionText());
+  }
+
+  function onPaste(e: ClipboardEvent) {
+    if (!canUse || !e.clipboardData) return;
     const text = e.clipboardData.getData("text/plain");
     if (!text) return;
     e.preventDefault();
@@ -234,14 +291,37 @@ export function SheetView({ tool, canUse }: { tool: SheetTool; canUse: boolean }
     // A single value pasted on a selection fills all of it.
     if (grid.length === 1 && grid[0].length === 1 && (bottom > top || right > left)) {
       const value = grid[0][0];
-      const block = Array.from({ length: bottom - top + 1 }, () => Array.from({ length: right - left + 1 }, () => value));
-      change({ op: "fill", cell: cellKey(top, left), values: block });
+      writeBlock(top, left, Array.from({ length: bottom - top + 1 }, () => Array.from({ length: right - left + 1 }, () => value)));
       return;
     }
-    change({ op: "fill", cell: cellKey(top, left), values: grid });
+    const width = Math.max(...grid.map((l) => l.length));
+    writeBlock(top, left, grid.map((line) => [...line, ...Array<string>(width - line.length).fill("")]));
     setAnchor({ r: top, c: left });
     setFocus({ r: Math.min(tool.rows - 1, top + grid.length - 1), c: Math.min(tool.cols - 1, left + Math.max(...grid.map((l) => l.length)) - 1) });
   }
+
+  // A focused div that is not editable never receives copy/cut/paste: with no
+  // text selected the browser fires them on <body>. So they are caught on the
+  // document and handled only while the grid itself has the focus.
+  // (The grid's own document: it may be in a picture-in-picture window.)
+  const clipboardHandlers = useRef({ onCopy, onPaste });
+  clipboardHandlers.current = { onCopy, onPaste };
+  useEffect(() => {
+    const doc = gridRef.current?.ownerDocument;
+    if (!doc) return;
+    const on = (kind: "onCopy" | "onPaste") => (e: ClipboardEvent) => {
+      if (doc.activeElement !== gridRef.current) return;
+      clipboardHandlers.current[kind](e);
+    };
+    const copy = on("onCopy");
+    const paste = on("onPaste");
+    doc.addEventListener("copy", copy);
+    doc.addEventListener("paste", paste);
+    return () => {
+      doc.removeEventListener("copy", copy);
+      doc.removeEventListener("paste", paste);
+    };
+  }, []);
 
   function cellAt(e: PointerEvent<HTMLDivElement>): Pos | null {
     const grid = gridRef.current;
@@ -270,6 +350,13 @@ export function SheetView({ tool, canUse }: { tool: SheetTool; canUse: boolean }
     <div className="flex h-full min-h-0 flex-col gap-1.5">
       {canUse && (
         <div className="flex shrink-0 flex-wrap items-center gap-0.5">
+          <button type="button" className={toolbarButton} onClick={() => replay(undoStack, redoStack, true)} disabled={!undoStack.current.length} title={`${t("roomTools.undo")} (Ctrl+Z)`}>
+            <MdUndo className="h-4 w-4" />
+          </button>
+          <button type="button" className={toolbarButton} onClick={() => replay(redoStack, undoStack, false)} disabled={!redoStack.current.length} title={`${t("roomTools.doc.redo")} (Ctrl+Y)`}>
+            <MdRedo className="h-4 w-4" />
+          </button>
+          <span className="mx-1 h-5 w-px bg-zinc-300 dark:bg-zinc-700" />
           <button type="button" className={`${toolbarButton} ${focusCell?.b ? "bg-zinc-200 dark:bg-zinc-800" : ""}`} onClick={() => style({ b: !focusCell?.b })} title={t("roomTools.sheet.bold")}>
             <MdFormatBold className="h-4 w-4" />
           </button>
@@ -373,8 +460,6 @@ export function SheetView({ tool, canUse }: { tool: SheetTool; canUse: boolean }
         ref={gridRef}
         tabIndex={0}
         onKeyDown={onGridKeyDown}
-        onCopy={onCopy}
-        onPaste={onPaste}
         onScroll={(e) => setScroll({ top: e.currentTarget.scrollTop, height: e.currentTarget.clientHeight })}
         onPointerDown={(e) => {
           if (e.button !== 0 || (e.target as HTMLElement).closest("[data-col-resize], input")) return;
@@ -455,7 +540,7 @@ export function SheetView({ tool, canUse }: { tool: SheetTool; canUse: boolean }
                   return (
                     <div
                       key={c}
-                      className={`relative shrink-0 overflow-hidden whitespace-nowrap border-b border-r border-zinc-200 px-1.5 leading-[26px] dark:border-zinc-800 ${
+                      className={`relative shrink-0 overflow-hidden whitespace-nowrap border-b border-r border-zinc-200 px-1.5 leading-[26px] dark:border-zinc-600 ${
                         isFormulaError(value) ? "text-red-600" : "text-zinc-800 dark:text-zinc-100"
                       }`}
                       style={{
