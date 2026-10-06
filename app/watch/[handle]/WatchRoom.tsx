@@ -158,6 +158,8 @@ import { UserProfileDialog } from "@/components/UserProfileDialog";
 import { InviteToRoomModal } from "@/components/InviteToRoomModal";
 import { prewarmCaptcha } from "@/lib/turnstile";
 import { RoomAccountCard } from "@/components/RoomAccountCard";
+import { SoundboardVolumeRow } from "@/components/SoundboardVolumeRow";
+import { useRoomSoundboardSession } from "@/lib/soundboard";
 import { openProModal } from "@/lib/proModal";
 import {
   MEDIA_KINDS,
@@ -1857,6 +1859,16 @@ function WatchRoomView({
   useEffect(() => {
     micsMutedRef.current = micsMuted;
   }, [micsMuted]);
+
+  // The soundboard has its own persistent WebRTC audio track. It follows the
+  // room and the listener's deafen/force-TURN choices, but never the mic state:
+  // effects still work with the microphone closed.
+  useRoomSoundboardSession({
+    room: validHandle && state.name ? handle : null,
+    deafened: micsMuted,
+    forceRelayIce,
+    micOn: isMicOn,
+  });
 
   // A sound on your own mute and unmute, both for the mic and for the room.
   //
@@ -7041,8 +7053,8 @@ function WatchRoomView({
           onRequestAccount={() => setAccountModal("create")}
           onOpenAllShortcuts={() => setShortcutsModalOpen(true)}
           extra={
-            canSelectSpeaker ? (
-              <div className="w-64 max-w-[calc(100vw-2rem)]">
+            <div className="w-64 max-w-[calc(100vw-2rem)]">
+              {canSelectSpeaker && (
                 <DeviceSubmenuRow
                   label={translate("watch.watchRoom.chooseAudioOutput")}
                   current={
@@ -7064,12 +7076,13 @@ function WatchRoomView({
                     />
                   ))}
                 </DeviceSubmenuRow>
-              </div>
-            ) : undefined
+              )}
+              <SoundboardVolumeRow />
+            </div>
           }
         >
           <div className="flex items-stretch">
-          {canSelectSpeaker && dockExtra(
+          {dockExtra(
             <Tooltip content={translate("watch.watchRoom.audioSettings")}>
               <button
                 type="button"
@@ -7094,7 +7107,7 @@ function WatchRoomView({
                 setQuickShortcutAction("toggleDeafen");
               }}
               aria-label={micsMuted ? translate("common.unmuteMicrophones") : translate("common.muteMicrophones")}
-              className={`p-2 text-white transition ${canSelectSpeaker && !dockCompact ? "rounded-r-lg" : "rounded-lg"} ${micsMuted ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"
+              className={`p-2 text-white transition ${!dockCompact ? "rounded-r-lg" : "rounded-lg"} ${micsMuted ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"
                 }`}
             >
               {micsMuted ? (
