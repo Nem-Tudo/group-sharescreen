@@ -14,19 +14,22 @@ export type ShortcutAction =
   | "previousMusic"
   | "clipTile"
   | "toggleRecordTile"
-  | "pushToTalk";
+  | "pushToTalk"
+  | "screenPenDraw"
+  | "screenPenShow"
+  | "screenPenViewers";
 
 export interface ShortcutDefinition {
   id: ShortcutAction;
   label: string;
   description: string;
-  category: "audio" | "video" | "music" | "clips";
+  category: "audio" | "video" | "music" | "clips" | "screenPen";
   appOnly?: boolean;
   /**
    * Only offered to people in this tile experiment (see lib/clipsMode) —
    * the shortcut does nothing without the feature behind it.
    */
-  experiment?: "clips" | "recording" | "pushToTalk";
+  experiment?: "clips" | "recording" | "pushToTalk" | "screenPen";
   /**
    * Not an action that fires on press: a key whose held state something
    * follows (push to talk). Kept out of the shell's ordinary shortcut map —
@@ -114,6 +117,32 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
     appOnly: false,
     experiment: "recording",
   },
+  // "Desenhar na tela" (see lib/screenPen): a pen over the real desktop, so
+  // only the app — a website cannot draw outside its own tab.
+  {
+    id: "screenPenDraw",
+    get label() { return translate("keyboardShortcuts.screenPenDraw"); },
+    get description() { return translate("keyboardShortcuts.screenPenDrawDescription"); },
+    category: "screenPen",
+    appOnly: true,
+    experiment: "screenPen",
+  },
+  {
+    id: "screenPenShow",
+    get label() { return translate("keyboardShortcuts.screenPenShow"); },
+    get description() { return translate("keyboardShortcuts.screenPenShowDescription"); },
+    category: "screenPen",
+    appOnly: true,
+    experiment: "screenPen",
+  },
+  {
+    id: "screenPenViewers",
+    get label() { return translate("keyboardShortcuts.screenPenViewers"); },
+    get description() { return translate("keyboardShortcuts.screenPenViewersDescription"); },
+    category: "screenPen",
+    appOnly: true,
+    experiment: "screenPen",
+  },
 ];
 
 export const DEFAULT_SHORTCUTS: Record<ShortcutAction, string> = {
@@ -127,6 +156,9 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutAction, string> = {
   clipTile: "",
   toggleRecordTile: "",
   pushToTalk: "",
+  screenPenDraw: "",
+  screenPenShow: "",
+  screenPenViewers: "",
 };
 
 const STORAGE_KEY = "golive:keyboard-shortcuts";

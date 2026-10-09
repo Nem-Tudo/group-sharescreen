@@ -67,6 +67,7 @@ import {
 import { desktopOAuthNonce } from "../lib/desktop";
 import { initAutoUpdater } from "./updater";
 import { createInputHook } from "./inputHook";
+import { createScreenPen } from "./screenPen";
 import {
   applyFirstRunDefaults,
   getBackgroundSettings,
@@ -2134,6 +2135,11 @@ if (!gotLock) {
       return setCaptureProtection(on === true);
     });
 
+    // "Desenhar na tela" — see screenPen.ts. Keeping the marks out of the
+    // share needs a window the capture can be told to skip, which is the
+    // same "full" protection the protected rooms rely on.
+    screenPen.registerIpc((sender) => Boolean(mainWindow && sender === mainWindow.webContents));
+
     ipcMain.on(IPC.pushToTalkSet, (_event, accelerator) => {
       // Released first, and unconditionally: a page that reloaded while the
       // key was down re-registers the same key on the way up, and without
@@ -2179,6 +2185,11 @@ if (!gotLock) {
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
+  });
+
+  const screenPen = createScreenPen({
+    canHideFromViewers: captureProtectionLevel() === "full",
+    onEvent: (name, value) => mainWindow?.webContents.send(IPC.screenPenEvent, { name, value }),
   });
 
   // Follows the shortcuts system-wide without taking them from other apps —
@@ -2322,6 +2333,7 @@ if (!gotLock) {
     stopSystemAudioCapture();
     stopNativeVideo();
     releasePushToTalk();
+    screenPen.destroy();
     inputHook.stop();
     globalShortcut.unregisterAll();
   });

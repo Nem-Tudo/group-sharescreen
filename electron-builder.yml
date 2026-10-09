@@ -62,6 +62,8 @@ files:
   - electron/picker.html
   - electron/call-overlay.html
   - electron/toast.html
+  - electron/screen-pen.html
+  - electron/screen-pen-toolbar.html
   - package.json
   - "!node_modules/**/*"
   # Linux sets the window icon from a file at runtime rather than from the

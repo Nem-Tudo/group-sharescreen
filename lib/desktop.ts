@@ -221,6 +221,20 @@ export interface DesktopBridge {
   onPushToTalk?(callback: (held: boolean) => void): () => void;
 
   /**
+   * "Desenhar na tela": a pen over the real desktop, in the shell's own
+   * windows (see electron/screenPen.ts and lib/screenPen.ts, the only
+   * caller). Undefined on a shell older than the feature.
+   */
+  screenPen?: {
+    /** On or off for this person, and the words its toolbar uses. */
+    configure(config: { enabled: boolean; labels: Record<string, string> }): void;
+    /** One of the three shortcuts was pressed. */
+    action(action: "screenPenDraw" | "screenPenShow" | "screenPenViewers"): void;
+    /** What happened, for the usage stats. Returns an unsubscribe function. */
+    onEvent(callback: (name: string, value?: number) => void): () => void;
+  };
+
+  /**
    * Keeping the window out of screenshots and screen recorders, for protected
    * rooms and view-once files — see lib/captureProtection.ts, the only thing
    * that should touch this. "full" on Windows; "partial" on macOS, where

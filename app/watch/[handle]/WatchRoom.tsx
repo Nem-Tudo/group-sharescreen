@@ -324,6 +324,7 @@ import {
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
 import { ObsBrowserSourceModal } from "@/components/ObsBrowserSourceModal";
 import { ShortcutQuickPopover } from "@/components/ShortcutQuickPopover";
+import { useScreenPen } from "@/lib/screenPen";
 import { hasVerifiedBadge, verifiedBadge } from "@/lib/entitlements";
 import { useRoomTheme } from "@/lib/useRoomTheme";
 import {
@@ -3645,6 +3646,8 @@ function WatchRoomView({
   // The tile the clip/record shortcuts act on — hyperfocus, else "Focar",
   // else the only tile there is. Worked out further down, once the tiles are.
   const shortcutTileIdRef = useRef<string | null>(null);
+  // "Desenhar na tela" (see lib/screenPen): the shell's pen, on while the room is.
+  const screenPenHandlers = useScreenPen(Boolean(state.account));
 
   useGlobalShortcutListener({
     enabled: Boolean(state.account),
@@ -3720,6 +3723,7 @@ function WatchRoomView({
           signalingClient.setMusicState(music.id, music.playing, 0, music.playbackRate, prevIdx);
         }
       },
+      ...screenPenHandlers,
     },
   });
 

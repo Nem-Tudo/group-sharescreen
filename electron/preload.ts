@@ -281,6 +281,39 @@ contextBridge.exposeInMainWorld("golive", {
       }
     : undefined,
 
+  // "Desenhar na tela" (see electron/screenPen.ts). The site says whether
+  // this person has the feature and in which words, and hands over its three
+  // shortcuts as they fire; the shell reports back what happened, for the
+  // usage stats.
+  screenPen: {
+    configure(config: unknown): void {
+      const value = config && typeof config === "object" ? (config as Record<string, unknown>) : {};
+      ipcRenderer.send(IPC.screenPenConfigure, {
+        enabled: value.enabled === true,
+        labels: value.labels && typeof value.labels === "object" ? { ...(value.labels as object) } : {},
+      });
+    },
+    action(action: unknown): void {
+      if (typeof action === "string") ipcRenderer.send(IPC.screenPenAction, action);
+    },
+    onEvent(callback: unknown): () => void {
+      if (typeof callback !== "function") return () => {};
+      const listener = (_event: unknown, raw: unknown) => {
+        const event = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
+        if (event && typeof event.name === "string") {
+          (callback as (name: string, value?: number) => void)(
+            event.name,
+            typeof event.value === "number" ? event.value : undefined
+          );
+        }
+      };
+      ipcRenderer.on(IPC.screenPenEvent, listener);
+      return () => {
+        ipcRenderer.off(IPC.screenPenEvent, listener);
+      };
+    },
+  },
+
   onGlobalShortcut(callback: unknown): () => void {
     if (typeof callback !== "function") return () => {};
     const listener = (_event: unknown, action: unknown) => {

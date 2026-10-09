@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <!-- The "Desenhar na tela" toolbar (see screenPen.ts). Kept out of every
+         capture, so the people watching see the marks and never these
+         buttons. Also shows the short notice a shortcut leaves when nothing
+         is being drawn ("Desenhos escondidos"). A local file with no remote code. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';"
+    />
+    <title>GoLive</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --panel: #1a1a1f;
+        --border: #2b2b33;
+        --text: #fafafa;
+        --muted: #a1a1aa;
+        --hover: #2a2a31;
+        --accent: #10b981;
+      }
+      * { box-sizing: border-box; }
+      [hidden] { display: none !important; }
+      html, body {
+        margin: 0;
+        height: 100%;
+        background: transparent;
+        overflow: hidden;
+        font: 500 12px system-ui, "Segoe UI", sans-serif;
+        color: var(--text);
+        user-select: none;
+      }
+      body {
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        padding: 8px 16px 24px;
+      }
+      .bar, .notice {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        padding: 6px;
+        border-radius: 14px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+      }
+      .notice { padding: 10px 16px; font-weight: 600; }
+      .grip {
+        -webkit-app-region: drag;
+        width: 14px;
+        align-self: stretch;
+        margin-right: 2px;
+        border-radius: 6px;
+        background-image: radial-gradient(var(--muted) 1px, transparent 1.2px);
+        background-size: 5px 5px;
+        background-position: center;
+        opacity: 0.6;
+        cursor: grab;
+      }
+      button {
+        -webkit-app-region: no-drag;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        height: 34px;
+        min-width: 34px;
+        padding: 0 8px;
+        border: 0;
+        border-radius: 9px;
+        background: transparent;
+        color: var(--text);
+        font: inherit;
+        cursor: pointer;
+      }
+      button:hover { background: var(--hover); }
+      button:disabled { opacity: 0.35; cursor: default; background: transparent; }
+      button.on { background: var(--accent); color: #fff; }
+      button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+      .sep { width: 1px; height: 22px; margin: 0 4px; background: var(--border); }
+      .swatch { min-width: 26px; padding: 0; }
+      .swatch span { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.25); }
+      .swatch.on { background: var(--hover); }
+      .swatch.on span { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); }
+      .size { min-width: 28px; padding: 0; }
+      .size span { border-radius: 50%; background: currentColor; }
+      .size.on { background: var(--hover); color: var(--accent); }
+      #viewers { padding: 0 10px; white-space: nowrap; }
+      #viewers.off { color: #fbbf24; }
+      #stop { color: #fca5a5; }
+    </style>
+  </head>
+  <body>
+    <div class="bar" id="bar" hidden>
+      <div class="grip"></div>
+      <div id="tools" style="display: flex; gap: 2px"></div>
+      <div class="sep"></div>
+      <div id="colors" style="display: flex; gap: 1px"></div>
+      <div class="sep"></div>
+      <div id="sizes" style="display: flex; gap: 1px"></div>
+      <div class="sep"></div>
+      <button id="undo"><svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5" /><path d="M4 9h11a5 5 0 0 1 0 10h-3" /></svg></button>
+      <button id="redo"><svg viewBox="0 0 24 24"><path d="m15 14 5-5-5-5" /><path d="M20 9H9a5 5 0 0 0 0 10h3" /></svg></button>
+      <button id="clear"><svg viewBox="0 0 24 24"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /></svg></button>
+      <div class="sep"></div>
+      <button id="viewers"></button>
+      <button id="stop"><svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12" /></svg></button>
+    </div>
+    <div class="notice" id="notice" hidden></div>
+    <script>
+      const pen = window.goliveScreenPen;
+      // Sent by the site in the person's language; these are only for a
+      // site that has not sent them yet.
+      const FALLBACK = {
+        toolPen: "Caneta",
+        toolHighlighter: "Marca-texto",
+        toolArrow: "Seta",
+        toolRect: "Retângulo",
+        toolEllipse: "Círculo",
+        toolText: "Texto",
+        toolEraser: "Borracha",
+        undo: "Desfazer (Ctrl+Z)",
+        redo: "Refazer (Ctrl+Y)",
+        clear: "Apagar tudo",
+        stop: "Parar de desenhar (Esc)",
+        viewersOn: "Quem assiste vê",
+        viewersOff: "Só você vê",
+        viewersHint: "Decide se os desenhos aparecem na sua transmissão",
+        cannotHide: "Este sistema não deixa esconder os desenhos da transmissão",
+        size: "Espessura",
+      };
+      const ICONS = {
+        pen: '<path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />',
+        highlighter: '<path d="m9 11-6 6v3h9l3-3" /><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" />',
+        arrow: '<path d="M5 19 19 5" /><path d="M9 5h10v10" />',
+        rect: '<rect x="4" y="5" width="16" height="14" rx="1.5" />',
+        ellipse: '<ellipse cx="12" cy="12" rx="9" ry="7" />',
+        text: '<path d="M4 7V5h16v2" /><path d="M12 5v14" /><path d="M9 19h6" />',
+        eraser: '<path d="m7 21-4.3-4.3a1 1 0 0 1 0-1.4l10-10a1 1 0 0 1 1.4 0l5.6 5.6a1 1 0 0 1 0 1.4L13 21" /><path d="M22 21H7" /><path d="m5 11 9 9" />',
+      };
+      const TOOL_LABEL = {
+        pen: "toolPen",
+        highlighter: "toolHighlighter",
+        arrow: "toolArrow",
+        rect: "toolRect",
+        ellipse: "toolEllipse",
+        text: "toolText",
+        eraser: "toolEraser",
+      };
+      const TOOLS = ["pen", "highlighter", "arrow", "rect", "ellipse", "text", "eraser"];
+      const COLORS = ["#ef4444", "#f59e0b", "#22c55e", "#3b82f6", "#a855f7", "#ffffff", "#111111"];
+      const SIZES = [3, 6, 12];
+      const EYE = '<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></svg>';
+      const EYE_OFF = '<svg viewBox="0 0 24 24"><path d="M10.7 5.1A10 10 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-2.2 3.1" /><path d="M6.6 6.6A17 17 0 0 0 2 12s3.6 7 10 7a9.7 9.7 0 0 0 5.4-1.6" /><path d="m2 2 20 20" /></svg>';
+
+      let state = null;
+      const label = (key) => (state && state.labels && state.labels[key]) || FALLBACK[key] || "";
+      const $ = (id) => document.getElementById(id);
+
+      const toolButtons = TOOLS.map((tool) => {
+        const button = document.createElement("button");
+        button.innerHTML = `<svg viewBox="0 0 24 24">${ICONS[tool]}</svg>`;
+        button.addEventListener("click", () => pen.command({ type: "tool", tool }));
+        $("tools").appendChild(button);
+        return button;
+      });
+      const colorButtons = COLORS.map((color) => {
+        const button = document.createElement("button");
+        button.className = "swatch";
+        button.innerHTML = `<span style="background:${color}"></span>`;
+        button.addEventListener("click", () => pen.command({ type: "color", color }));
+        $("colors").appendChild(button);
+        return button;
+      });
+      const sizeButtons = SIZES.map((size, i) => {
+        const button = document.createElement("button");
+        button.className = "size";
+        const dot = 4 + i * 4;
+        button.innerHTML = `<span style="width:${dot}px;height:${dot}px"></span>`;
+        button.addEventListener("click", () => pen.command({ type: "size", size }));
+        $("sizes").appendChild(button);
+        return button;
+      });
+      for (const id of ["undo", "redo", "clear", "stop"]) {
+        $(id).addEventListener("click", () => pen.command({ type: id }));
+      }
+      $("viewers").addEventListener("click", () => pen.command({ type: "toggleViewers" }));
+
+      // The toolbar takes the focus when clicked: Esc and Ctrl+Z still work here.
+      window.addEventListener("keydown", (e) => {
+        const mod = e.ctrlKey || e.metaKey;
+        const letter = e.code.startsWith("Key") ? e.code.slice(3).toLowerCase() : e.key.toLowerCase();
+        if (e.key === "Escape") pen.command({ type: "stop" });
+        else if (mod && letter === "z" && !e.shiftKey) pen.command({ type: "undo" });
+        else if (mod && (letter === "y" || (letter === "z" && e.shiftKey))) pen.command({ type: "redo" });
+      });
+
+      function render() {
+        if (!state) return;
+        $("bar").hidden = !state.drawing;
+        $("notice").hidden = state.drawing || !state.notice;
+        $("notice").textContent = state.notice || "";
+        toolButtons.forEach((b, i) => {
+          b.classList.toggle("on", state.tool === TOOLS[i]);
+          b.title = label(TOOL_LABEL[TOOLS[i]]);
+        });
+        colorButtons.forEach((b, i) => b.classList.toggle("on", state.color === COLORS[i]));
+        sizeButtons.forEach((b, i) => {
+          b.classList.toggle("on", state.size === SIZES[i]);
+          b.title = label("size");
+        });
+        $("undo").disabled = !state.canUndo;
+        $("redo").disabled = !state.canRedo;
+        $("clear").disabled = !state.hasMarks;
+        $("undo").title = label("undo");
+        $("redo").title = label("redo");
+        $("clear").title = label("clear");
+        $("stop").title = label("stop");
+        const viewers = $("viewers");
+        const hidden = state.hiddenFromViewers;
+        viewers.innerHTML = `${hidden ? EYE_OFF : EYE}<span></span>`;
+        viewers.lastChild.textContent = hidden ? label("viewersOff") : label("viewersOn");
+        viewers.classList.toggle("off", hidden);
+        viewers.disabled = !state.canHideFromViewers;
+        viewers.title = state.canHideFromViewers ? label("viewersHint") : label("cannotHide");
+      }
+
+      pen.onUpdate((s) => {
+        state = s;
+        render();
+      });
+      pen.state().then((s) => {
+        if (s) {
+          state = s;
+          render();
+        }
+      });
+    </script>
+  </body>
+</html>

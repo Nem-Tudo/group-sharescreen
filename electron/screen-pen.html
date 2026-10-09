@@ -1,0 +1,515 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <!-- The "Desenhar na tela" canvas: one per monitor, transparent, over the
+         whole desktop (see screenPen.ts). A local file with no remote code. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';"
+    />
+    <title>GoLive</title>
+    <style>
+      html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: transparent;
+        user-select: none;
+      }
+      canvas {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+      }
+      body.drawing { cursor: crosshair; }
+      body.drawing.tool-text { cursor: text; }
+      body.drawing.tool-eraser { cursor: cell; }
+      /* While drawing, a thin frame says "the pen is down on this monitor". */
+      #frame {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        box-shadow: inset 0 0 0 3px rgba(16, 185, 129, 0.85);
+        display: none;
+      }
+      body.drawing #frame { display: block; }
+      .text-input {
+        position: fixed;
+        min-width: 4px;
+        outline: 1px dashed rgba(255, 255, 255, 0.6);
+        white-space: pre;
+        font-family: system-ui, "Segoe UI", sans-serif;
+        font-weight: 600;
+        line-height: 1.2;
+        text-shadow: 0 0 2px rgba(0, 0, 0, 0.35);
+        caret-color: currentColor;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="base"></canvas>
+    <canvas id="live"></canvas>
+    <div id="frame"></div>
+    <script>
+      const pen = window.goliveScreenPen;
+      const base = document.getElementById("base");
+      const live = document.getElementById("live");
+      const baseCtx = base.getContext("2d");
+      const liveCtx = live.getContext("2d");
+
+      let state = null;
+      // Every mark on this monitor, oldest first. A mark is one of:
+      //   { kind: "path", tool: "pen" | "highlighter", color, size, points: [[x, y, pressure], …], pressure }
+      //   { kind: "arrow" | "rect" | "ellipse", color, size, x1, y1, x2, y2 }
+      //   { kind: "text", color, size, x, y, text }
+      let marks = [];
+      // Undo is a list of earlier mark lists — marks are never edited in
+      // place, so a shallow copy is a full snapshot and costs one array.
+      const undoStack = [];
+      let redoStack = [];
+
+      // ── Sizing ─────────────────────────────────────────────────────────
+      let dpr = 1;
+      function resize() {
+        dpr = window.devicePixelRatio || 1;
+        for (const canvas of [base, live]) {
+          canvas.width = Math.round(innerWidth * dpr);
+          canvas.height = Math.round(innerHeight * dpr);
+        }
+        redrawBase();
+      }
+      window.addEventListener("resize", resize);
+
+      // ── Drawing marks ──────────────────────────────────────────────────
+      const HIGHLIGHTER_ALPHA = 0.35;
+
+      function lineWidth(mark) {
+        return mark.tool === "highlighter" ? mark.size * 4 : mark.size;
+      }
+
+      function drawPath(ctx, mark) {
+        const pts = mark.points;
+        if (!pts.length) return;
+        ctx.save();
+        ctx.strokeStyle = mark.color;
+        ctx.fillStyle = mark.color;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        if (mark.tool === "highlighter") ctx.globalAlpha = HIGHLIGHTER_ALPHA;
+        const width = lineWidth(mark);
+        if (pts.length === 1) {
+          ctx.beginPath();
+          ctx.arc(pts[0][0], pts[0][1], width / 2, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (mark.pressure && mark.tool === "pen") {
+          // A real pen: each piece as thick as it was pressed.
+          for (let i = 1; i < pts.length; i++) {
+            ctx.beginPath();
+            ctx.lineWidth = Math.max(1, width * (0.4 + pts[i][2] * 1.2));
+            ctx.moveTo(pts[i - 1][0], pts[i - 1][1]);
+            ctx.lineTo(pts[i][0], pts[i][1]);
+            ctx.stroke();
+          }
+        } else {
+          // One path, smoothed through the midpoints — and one stroke, so a
+          // highlighter crossing itself does not get darker.
+          ctx.lineWidth = width;
+          ctx.beginPath();
+          ctx.moveTo(pts[0][0], pts[0][1]);
+          for (let i = 1; i < pts.length - 1; i++) {
+            const mx = (pts[i][0] + pts[i + 1][0]) / 2;
+            const my = (pts[i][1] + pts[i + 1][1]) / 2;
+            ctx.quadraticCurveTo(pts[i][0], pts[i][1], mx, my);
+          }
+          const last = pts[pts.length - 1];
+          ctx.lineTo(last[0], last[1]);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      function drawShape(ctx, mark) {
+        ctx.save();
+        ctx.strokeStyle = mark.color;
+        ctx.fillStyle = mark.color;
+        ctx.lineWidth = mark.size;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        const { x1, y1, x2, y2 } = mark;
+        ctx.beginPath();
+        if (mark.kind === "rect") {
+          ctx.rect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1));
+          ctx.stroke();
+        } else if (mark.kind === "ellipse") {
+          ctx.ellipse((x1 + x2) / 2, (y1 + y2) / 2, Math.abs(x2 - x1) / 2, Math.abs(y2 - y1) / 2, 0, 0, Math.PI * 2);
+          ctx.stroke();
+        } else {
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(x2, y2);
+          ctx.stroke();
+          const angle = Math.atan2(y2 - y1, x2 - x1);
+          const head = Math.max(10, mark.size * 3.5);
+          ctx.beginPath();
+          ctx.moveTo(x2, y2);
+          ctx.lineTo(x2 - head * Math.cos(angle - 0.45), y2 - head * Math.sin(angle - 0.45));
+          ctx.lineTo(x2 - head * Math.cos(angle + 0.45), y2 - head * Math.sin(angle + 0.45));
+          ctx.closePath();
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+
+      function fontSize(size) {
+        return 14 + size * 3;
+      }
+
+      function drawText(ctx, mark) {
+        ctx.save();
+        ctx.fillStyle = mark.color;
+        ctx.font = `600 ${fontSize(mark.size)}px system-ui, "Segoe UI", sans-serif`;
+        ctx.textBaseline = "top";
+        ctx.shadowColor = "rgba(0,0,0,0.35)";
+        ctx.shadowBlur = 2;
+        const lines = mark.text.split("\n");
+        const height = fontSize(mark.size) * 1.2;
+        lines.forEach((line, i) => ctx.fillText(line, mark.x, mark.y + i * height));
+        ctx.restore();
+      }
+
+      function drawMark(ctx, mark) {
+        if (mark.kind === "path") drawPath(ctx, mark);
+        else if (mark.kind === "text") drawText(ctx, mark);
+        else drawShape(ctx, mark);
+      }
+
+      function clearCtx(ctx) {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, base.width, base.height);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+
+      function redrawBase() {
+        clearCtx(baseCtx);
+        for (const mark of marks) drawMark(baseCtx, mark);
+      }
+
+      // ── History ────────────────────────────────────────────────────────
+      function report(added) {
+        pen.info({ marks: marks.length, canUndo: undoStack.length > 0, canRedo: redoStack.length > 0, added });
+      }
+
+      function commit(next, added) {
+        undoStack.push(marks);
+        if (undoStack.length > 200) undoStack.shift();
+        redoStack = [];
+        marks = next;
+        report(added);
+      }
+
+      function addMark(mark) {
+        commit([...marks, mark], true);
+        drawMark(baseCtx, mark);
+      }
+
+      function undo() {
+        if (!undoStack.length) return;
+        redoStack.push(marks);
+        marks = undoStack.pop();
+        redrawBase();
+        report(false);
+      }
+
+      function redo() {
+        if (!redoStack.length) return;
+        undoStack.push(marks);
+        marks = redoStack.pop();
+        redrawBase();
+        report(false);
+      }
+
+      function clearAll() {
+        if (!marks.length) return;
+        commit([], false);
+        redrawBase();
+      }
+
+      // ── Erasing ────────────────────────────────────────────────────────
+      function distToSegment(px, py, x1, y1, x2, y2) {
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const len = dx * dx + dy * dy;
+        const t = len ? Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / len)) : 0;
+        return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+      }
+
+      function hits(mark, x, y, radius) {
+        if (mark.kind === "path") {
+          const r = radius + lineWidth(mark) / 2;
+          const pts = mark.points;
+          if (pts.length === 1) return Math.hypot(x - pts[0][0], y - pts[0][1]) <= r;
+          for (let i = 1; i < pts.length; i++) {
+            if (distToSegment(x, y, pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]) <= r) return true;
+          }
+          return false;
+        }
+        const r = radius + mark.size / 2;
+        if (mark.kind === "text") {
+          const h = fontSize(mark.size) * 1.2 * mark.text.split("\n").length;
+          const w = Math.max(...mark.text.split("\n").map((l) => l.length)) * fontSize(mark.size) * 0.6;
+          return x >= mark.x - r && x <= mark.x + w + r && y >= mark.y - r && y <= mark.y + h + r;
+        }
+        const { x1, y1, x2, y2 } = mark;
+        if (mark.kind === "arrow") return distToSegment(x, y, x1, y1, x2, y2) <= r;
+        if (mark.kind === "rect") {
+          const l = Math.min(x1, x2), t = Math.min(y1, y2), rr = Math.max(x1, x2), b = Math.max(y1, y2);
+          return (
+            distToSegment(x, y, l, t, rr, t) <= r ||
+            distToSegment(x, y, rr, t, rr, b) <= r ||
+            distToSegment(x, y, rr, b, l, b) <= r ||
+            distToSegment(x, y, l, b, l, t) <= r
+          );
+        }
+        // Ellipse: how far the point is from the outline, roughly.
+        const cx = (x1 + x2) / 2, cy = (y1 + y2) / 2;
+        const rx = Math.max(1, Math.abs(x2 - x1) / 2), ry = Math.max(1, Math.abs(y2 - y1) / 2);
+        const d = Math.hypot((x - cx) / rx, (y - cy) / ry);
+        return Math.abs(d - 1) * Math.min(rx, ry) <= r;
+      }
+
+      // ── Input ──────────────────────────────────────────────────────────
+      let current = null; // the mark being drawn
+      let erasing = null; // marks left while the eraser is down
+      let frame = 0;
+      let lastDrawn = 0; // how many points of `current` are already on `live`
+
+      function scheduleLive() {
+        if (frame) return;
+        frame = requestAnimationFrame(() => {
+          frame = 0;
+          renderLive();
+        });
+      }
+
+      function renderLive() {
+        if (!current) return;
+        if (current.kind === "path" && current.tool === "pen" && !current.pressure) {
+          // Only the new piece: a long stroke stays as cheap as a short one.
+          const pts = current.points;
+          liveCtx.save();
+          liveCtx.strokeStyle = current.color;
+          liveCtx.fillStyle = current.color;
+          liveCtx.lineWidth = current.size;
+          liveCtx.lineCap = "round";
+          liveCtx.lineJoin = "round";
+          if (lastDrawn === 0 && pts.length) {
+            liveCtx.beginPath();
+            liveCtx.arc(pts[0][0], pts[0][1], current.size / 2, 0, Math.PI * 2);
+            liveCtx.fill();
+            lastDrawn = 1;
+          }
+          if (pts.length > lastDrawn) {
+            liveCtx.beginPath();
+            liveCtx.moveTo(pts[lastDrawn - 1][0], pts[lastDrawn - 1][1]);
+            for (let i = lastDrawn; i < pts.length; i++) liveCtx.lineTo(pts[i][0], pts[i][1]);
+            liveCtx.stroke();
+            lastDrawn = pts.length;
+          }
+          liveCtx.restore();
+          return;
+        }
+        clearCtx(liveCtx);
+        drawMark(liveCtx, current);
+      }
+
+      function point(e) {
+        // A mouse reports 0 or 0.5; only a real pen's pressure is used.
+        return [e.clientX, e.clientY, e.pointerType === "pen" ? e.pressure || 0.5 : 0.5];
+      }
+
+      function eraseAt(x, y) {
+        const radius = Math.max(8, state.size * 2);
+        const before = erasing.length;
+        erasing = erasing.filter((mark) => !hits(mark, x, y, radius));
+        if (erasing.length !== before) {
+          clearCtx(baseCtx);
+          for (const mark of erasing) drawMark(baseCtx, mark);
+        }
+      }
+
+      live.addEventListener("pointerdown", (e) => {
+        if (!state || !state.active || e.button !== 0) return;
+        if (textBox) {
+          finishText(true);
+          return;
+        }
+        const tool = state.tool;
+        if (tool === "text") {
+          startText(e.clientX, e.clientY);
+          return;
+        }
+        live.setPointerCapture(e.pointerId);
+        if (tool === "eraser") {
+          erasing = marks;
+          eraseAt(e.clientX, e.clientY);
+          return;
+        }
+        if (tool === "pen" || tool === "highlighter") {
+          current = { kind: "path", tool, color: state.color, size: state.size, points: [point(e)], pressure: e.pointerType === "pen" };
+        } else {
+          current = { kind: tool, color: state.color, size: state.size, x1: e.clientX, y1: e.clientY, x2: e.clientX, y2: e.clientY };
+        }
+        lastDrawn = 0;
+        scheduleLive();
+      });
+
+      live.addEventListener("pointermove", (e) => {
+        if (erasing) {
+          for (const ev of e.getCoalescedEvents ? e.getCoalescedEvents() : [e]) eraseAt(ev.clientX, ev.clientY);
+          return;
+        }
+        if (!current) return;
+        if (current.kind === "path") {
+          for (const ev of e.getCoalescedEvents ? e.getCoalescedEvents() : [e]) {
+            const p = point(ev);
+            const last = current.points[current.points.length - 1];
+            // Points closer than a pixel only make the stroke heavier.
+            if (Math.abs(p[0] - last[0]) + Math.abs(p[1] - last[1]) >= 1) current.points.push(p);
+          }
+        } else {
+          let x = e.clientX;
+          let y = e.clientY;
+          // Shift: a square, a circle, an arrow on the 45° steps.
+          if (e.shiftKey) {
+            const dx = x - current.x1;
+            const dy = y - current.y1;
+            if (current.kind === "arrow") {
+              const angle = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
+              const len = Math.hypot(dx, dy);
+              x = current.x1 + Math.cos(angle) * len;
+              y = current.y1 + Math.sin(angle) * len;
+            } else {
+              const side = Math.max(Math.abs(dx), Math.abs(dy));
+              x = current.x1 + Math.sign(dx || 1) * side;
+              y = current.y1 + Math.sign(dy || 1) * side;
+            }
+          }
+          current.x2 = x;
+          current.y2 = y;
+        }
+        scheduleLive();
+      });
+
+      function endPointer() {
+        if (erasing) {
+          if (erasing.length !== marks.length) commit(erasing, false);
+          erasing = null;
+          return;
+        }
+        if (!current) return;
+        const mark = current;
+        current = null;
+        if (frame) cancelAnimationFrame(frame);
+        frame = 0;
+        clearCtx(liveCtx);
+        // A click with a shape tool is not a shape.
+        if (mark.kind !== "path" && Math.hypot(mark.x2 - mark.x1, mark.y2 - mark.y1) < 4) return;
+        addMark(mark);
+      }
+      live.addEventListener("pointerup", endPointer);
+      live.addEventListener("pointercancel", endPointer);
+      live.addEventListener("lostpointercapture", endPointer);
+
+      // ── Text ───────────────────────────────────────────────────────────
+      let textBox = null;
+
+      function startText(x, y) {
+        const box = document.createElement("div");
+        box.className = "text-input";
+        box.contentEditable = "plaintext-only";
+        box.style.left = `${x}px`;
+        box.style.top = `${y}px`;
+        box.style.color = state.color;
+        box.style.fontSize = `${fontSize(state.size)}px`;
+        box.dataset.x = String(x);
+        box.dataset.y = String(y);
+        box.dataset.color = state.color;
+        box.dataset.size = String(state.size);
+        box.addEventListener("keydown", (e) => {
+          e.stopPropagation();
+          if (e.key === "Escape") finishText(false);
+          else if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            finishText(true);
+          }
+        });
+        box.addEventListener("blur", () => finishText(true));
+        document.body.appendChild(box);
+        textBox = box;
+        setTimeout(() => box.focus(), 0);
+      }
+
+      function finishText(keep) {
+        const box = textBox;
+        if (!box) return;
+        textBox = null;
+        const text = (box.innerText || "").replace(/\s+$/, "");
+        box.remove();
+        if (keep && text) {
+          addMark({
+            kind: "text",
+            color: box.dataset.color,
+            size: Number(box.dataset.size),
+            x: Number(box.dataset.x),
+            y: Number(box.dataset.y),
+            text: text.slice(0, 2000),
+          });
+        }
+      }
+
+      // ── Keys ───────────────────────────────────────────────────────────
+      window.addEventListener("keydown", (e) => {
+        if (!state || !state.active) return;
+        const mod = e.ctrlKey || e.metaKey;
+        const letter = e.code.startsWith("Key") ? e.code.slice(3).toLowerCase() : e.key.toLowerCase();
+        if (e.key === "Escape") {
+          e.preventDefault();
+          pen.command({ type: "stop" });
+        } else if (mod && letter === "z" && !e.shiftKey) {
+          e.preventDefault();
+          undo();
+        } else if (mod && (letter === "y" || (letter === "z" && e.shiftKey))) {
+          e.preventDefault();
+          redo();
+        }
+      });
+
+      // ── State ──────────────────────────────────────────────────────────
+      function setState(next) {
+        const wasActive = state && state.active;
+        state = next;
+        document.body.classList.toggle("drawing", Boolean(state.active));
+        document.body.className = document.body.className.replace(/\btool-\w+/g, "").trim();
+        document.body.classList.add(`tool-${state.tool}`);
+        // The pen lifted mid-stroke (shortcut pressed while drawing): what was
+        // drawn so far is kept, and a half-typed text too.
+        if (wasActive && !state.active) {
+          endPointer();
+          finishText(true);
+        }
+      }
+
+      pen.onUpdate(setState);
+      pen.onCommand((command) => {
+        if (command === "undo") undo();
+        else if (command === "redo") redo();
+        else if (command === "clear") clearAll();
+      });
+
+      resize();
+      pen.state().then((s) => s && setState(s));
+    </script>
+  </body>
+</html>

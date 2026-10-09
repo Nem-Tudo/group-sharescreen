@@ -253,7 +253,67 @@ export const IPC = {
    * screen. A one-shot: main clears it on the first request that reads it.
    */
   shareUseSaved: "golive:share:use-saved",
+
+  // ── Desenhar na tela (see screenPen.ts) ────────────────────────────────
+  /** renderer -> main: the feature on or off for this person, and its words. */
+  screenPenConfigure: "golive:screen-pen:configure",
+  /** renderer -> main: one of the three shortcuts was pressed. */
+  screenPenAction: "golive:screen-pen:action",
+  /** main -> renderer: something happened, for the usage stats. */
+  screenPenEvent: "golive:screen-pen:event",
+  /** pen windows -> main: what to draw with and where things stand. Asked for once, as each opens. */
+  screenPenState: "golive:screen-pen:state",
+  /** main -> pen windows: the state changed. */
+  screenPenUpdate: "golive:screen-pen:update",
+  /** toolbar -> main: a new pen, colour or size; or "stop drawing", "undo"… */
+  screenPenCommand: "golive:screen-pen:command",
+  /** main -> canvas: undo / redo / clear, pressed on the toolbar. */
+  screenPenCanvasCommand: "golive:screen-pen:canvas-command",
+  /** canvas -> main: how many marks it holds and whether undo/redo apply. */
+  screenPenCanvasInfo: "golive:screen-pen:canvas-info",
 } as const;
+
+export type ScreenPenTool = "pen" | "highlighter" | "arrow" | "rect" | "ellipse" | "text" | "eraser";
+export const SCREEN_PEN_TOOLS: ScreenPenTool[] = ["pen", "highlighter", "arrow", "rect", "ellipse", "text", "eraser"];
+export const SCREEN_PEN_COLORS = ["#ef4444", "#f59e0b", "#22c55e", "#3b82f6", "#a855f7", "#ffffff", "#111111"];
+export const SCREEN_PEN_SIZES = [3, 6, 12];
+
+/** The three shortcuts. */
+export type ScreenPenAction = "screenPenDraw" | "screenPenShow" | "screenPenViewers";
+
+/** What the pen windows draw from — the same object for the canvas and the toolbar. */
+export interface ScreenPenState {
+  /** The canvas takes the mouse and the toolbar is up. */
+  drawing: boolean;
+  /** The marks are on screen at all. */
+  visible: boolean;
+  /** Kept out of the screen share (and every other capture). */
+  hiddenFromViewers: boolean;
+  /** Whether this OS can keep a window out of a capture at all. */
+  canHideFromViewers: boolean;
+  tool: ScreenPenTool;
+  color: string;
+  size: number;
+  /** Set on the canvas window only: whether it is the one being drawn on. */
+  active?: boolean;
+  /** Whether undo / redo / clear have anything to act on, on the canvas being drawn on. */
+  canUndo: boolean;
+  canRedo: boolean;
+  hasMarks: boolean;
+  labels: Record<string, string>;
+}
+
+export type ScreenPenCommand =
+  | { type: "tool"; tool: ScreenPenTool }
+  | { type: "color"; color: string }
+  | { type: "size"; size: number }
+  | { type: "undo" | "redo" | "clear" | "stop" | "toggleViewers" };
+
+export interface ScreenPenCanvasInfo {
+  marks: number;
+  canUndo: boolean;
+  canRedo: boolean;
+}
 
 /**
  * The wire format of the PCM on `systemAudioData`, shared so the native

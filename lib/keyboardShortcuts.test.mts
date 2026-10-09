@@ -21,6 +21,9 @@ const expectedActions: ShortcutAction[] = [
   "clipTile",
   "toggleRecordTile",
   "pushToTalk",
+  "screenPenDraw",
+  "screenPenShow",
+  "screenPenViewers",
 ];
 
 assert.equal(Object.keys(DEFAULT_SHORTCUTS).length, expectedActions.length);
@@ -34,7 +37,7 @@ for (const def of SHORTCUT_DEFINITIONS) {
   assert.ok(expectedActions.includes(def.id));
   assert.ok(def.label.length > 0);
   assert.ok(def.description.length > 0);
-  assert.ok(["audio", "video", "music", "clips"].includes(def.category));
+  assert.ok(["audio", "video", "music", "clips", "screenPen"].includes(def.category));
   if (def.id === "pushToTalk") {
     // The one audio exception: the website only sees the key while it has
     // focus, and push to talk you have to look at the app to use is not one.

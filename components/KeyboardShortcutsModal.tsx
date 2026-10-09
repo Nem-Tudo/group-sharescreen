@@ -20,6 +20,7 @@ import { useT } from "@/lib/useI18n";
 import { useTileExperiment } from "@/lib/clipsMode";
 import { NewBadge } from "@/components/NewBadge";
 import { PUSH_TO_TALK_BADGE, trackPushToTalkKeySet } from "@/lib/pushToTalk";
+import { SCREEN_PEN_FEATURE, trackScreenPenKeySet, useScreenPenAvailable } from "@/lib/screenPen";
 
 export function KeyboardShortcutsModal({
   open,
@@ -40,6 +41,9 @@ export function KeyboardShortcutsModal({
   // ones — the room's switch turns the feature on, this is what gives it a
   // key to listen for (see lib/pushToTalk).
   const pushToTalkAvailable = useTileExperiment("pushToTalk").available;
+  // "Desenhar na tela" — only in the app, where the shell can draw on the
+  // screen. This is where the feature shows up, so it counts the exposure.
+  const screenPenAvailable = useScreenPenAvailable(open);
 
   if (!open) return null;
 
@@ -56,6 +60,10 @@ export function KeyboardShortcutsModal({
       d.category === "clips" &&
       ((d.experiment === "clips" && clipsAvailable) || (d.experiment === "recording" && recordingAvailable))
   );
+
+  const screenPenShortcuts = screenPenAvailable
+    ? SHORTCUT_DEFINITIONS.filter((d) => d.category === "screenPen")
+    : [];
 
   function renderGroup(title: string, list: ShortcutDefinition[], isAppOnlyCategory = false) {
     return (
@@ -113,6 +121,7 @@ export function KeyboardShortcutsModal({
                     </p>
                     {def.category === "clips" && <NewBadge id={`shortcut-${def.id}`} />}
                     {def.id === "pushToTalk" && <NewBadge id={PUSH_TO_TALK_BADGE} />}
+                    {def.id === "screenPenDraw" && <NewBadge id={SCREEN_PEN_FEATURE} />}
                   </div>
                   <p className="text-xs text-zinc-500 dark:text-zinc-400">
                     {def.description}
@@ -126,6 +135,7 @@ export function KeyboardShortcutsModal({
                       // Only when one is actually set: clearing it is the
                       // opposite of taking up the feature.
                       if (def.id === "pushToTalk" && combo) trackPushToTalkKeySet();
+                      if (def.category === "screenPen" && combo) trackScreenPenKeySet();
                     }}
                     disabled={isDisabled}
                     onDisabledClick={onDisabledClick}
@@ -211,6 +221,7 @@ export function KeyboardShortcutsModal({
             {renderGroup(t("keyboardShortcutsModal.broadcastCamera"), videoShortcuts, true)}
             {renderGroup(t("common.music"), musicShortcuts, true)}
             {clipShortcuts.length > 0 && renderGroup(t("keyboardShortcutsModal.clipsAndRecording"), clipShortcuts)}
+            {screenPenShortcuts.length > 0 && renderGroup(t("keyboardShortcutsModal.screenPen"), screenPenShortcuts)}
           </div>
 
           <div className="mt-5 rounded-xl border border-zinc-200/80 bg-zinc-50 p-3.5 text-xs leading-relaxed text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/50 dark:text-zinc-400">
