@@ -104,6 +104,14 @@ import {
   stopNativeVideo,
   willUseNativeVideo,
 } from "./nativeVideo";
+import {
+  listSoundboardSounds,
+  openSoundboardFolder,
+  pickSoundboardFile,
+  readSoundboardSound,
+  removeSoundboardSound,
+  saveSoundboardSound,
+} from "./soundboard";
 
 // Where the UI comes from. Overridable so `npm run electron:dev` can point at
 // a local `next dev` without a rebuild.
@@ -1982,6 +1990,34 @@ if (!gotLock) {
     ipcMain.handle(IPC.openExternal, (_event, url: unknown) => {
       if (typeof url !== "string" || !/^https?:$/.test(safeProtocol(url))) return;
       return shell.openExternal(url);
+    });
+
+    // The soundboard is intentionally local to the desktop shell. Every
+    // handler checks the page origin and the storage module itself accepts no
+    // arbitrary destination path.
+    ipcMain.handle(IPC.soundboardList, (event) => {
+      if (!event.sender.getURL().startsWith(APP_ORIGIN)) return [];
+      return listSoundboardSounds();
+    });
+    ipcMain.handle(IPC.soundboardPick, (event) => {
+      if (!event.sender.getURL().startsWith(APP_ORIGIN)) return null;
+      return pickSoundboardFile();
+    });
+    ipcMain.handle(IPC.soundboardSave, (event, raw: unknown) => {
+      if (!event.sender.getURL().startsWith(APP_ORIGIN)) return null;
+      return saveSoundboardSound(raw);
+    });
+    ipcMain.handle(IPC.soundboardRead, (event, id: unknown) => {
+      if (!event.sender.getURL().startsWith(APP_ORIGIN)) return null;
+      return readSoundboardSound(id);
+    });
+    ipcMain.handle(IPC.soundboardRemove, (event, id: unknown) => {
+      if (!event.sender.getURL().startsWith(APP_ORIGIN)) return false;
+      return removeSoundboardSound(id);
+    });
+    ipcMain.handle(IPC.soundboardOpenFolder, (event) => {
+      if (!event.sender.getURL().startsWith(APP_ORIGIN)) return;
+      return openSoundboardFolder();
     });
 
     // Parks the site's install id where the NSIS uninstaller can find it —

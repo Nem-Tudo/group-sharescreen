@@ -17,6 +17,7 @@ import { DEFAULT_AVATAR_PATH } from "@/components/UserAvatar";
 import { useT } from "@/lib/useI18n";
 import { formatLocale } from "@/lib/i18n";
 import { avatarShapeClass } from "@/lib/avatarShape";
+import { SoundboardButton } from "@/components/SoundboardButton";
 
 // Who you are, at the foot of the room's chat column (see WatchRoom, from lg
 // up). It used to be a chip wedged into the header between "Compartilhar
@@ -149,6 +150,10 @@ export function RoomAccountCard({
             {identity}
           </div>
         )}
+
+        {/* Local Discord-style soundboard. It renders only while this client
+            is in a call and the desktop shell exposes the local library. */}
+        <SoundboardButton />
 
         {/* Themes, from inside a room — which is the only place they are worth
             judging. The editor behind this previews onto the room itself (see

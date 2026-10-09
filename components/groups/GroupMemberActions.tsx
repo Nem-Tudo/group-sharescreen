@@ -27,6 +27,7 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { UserProfileDialog } from "@/components/UserProfileDialog";
 import { WebhookProfileDialog } from "@/components/WebhookProfileDialog";
 import { VolumeSlider } from "@/components/VolumeSlider";
+import { SoundboardPeerVolumeControl } from "@/components/SoundboardPeerVolumeControl";
 import { RoleChip } from "@/components/groups/RoleChip";
 import {
   closeGroupMemberMenu,
@@ -453,6 +454,7 @@ function MemberMenu({ detail, target }: { detail: GroupDetail; target: GroupProf
             </button>
           </>
         )}
+        {!rules.self && <SoundboardPeerVolumeControl userId={target.id} name={target.name} />}
         {selfInCall && controls && (
           <>
             <MenuDivider />
