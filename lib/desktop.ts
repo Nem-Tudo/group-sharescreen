@@ -64,6 +64,20 @@ export interface DesktopBackgroundSettings {
   supported: boolean;
 }
 
+export interface DesktopSoundboardSound {
+  id: string;
+  name: string;
+  emoji: string;
+  fileName: string;
+  durationMs: number;
+  sizeBytes: number;
+  hash: string;
+}
+
+export type DesktopSoundboardPickResult =
+  | { ok: true; fileName: string; data: Uint8Array }
+  | { ok: false; error: "file-too-large" | "unsupported" };
+
 export interface DesktopBridge {
   /** The packaged app's version, for the "about"/diagnostics line. */
   readonly appVersion: string;
@@ -99,6 +113,26 @@ export interface DesktopBridge {
   cancelOAuth(nonce: string): void;
   /** Opens a URL in the default browser. */
   openExternal(url: string): Promise<void>;
+
+  /**
+   * The desktop-only local soundboard library. Optional because the website
+   * is loaded live inside already-installed shells: older builds simply do
+   * not expose it and the button stays hidden until the app is updated.
+   */
+  soundboard?: {
+    list(): Promise<DesktopSoundboardSound[]>;
+    pick(): Promise<DesktopSoundboardPickResult | null>;
+    save(input: {
+      name: string;
+      emoji: string;
+      fileName: string;
+      durationMs: number;
+      data: Uint8Array;
+    }): Promise<DesktopSoundboardSound | null>;
+    read(id: string): Promise<Uint8Array | null>;
+    remove(id: string): Promise<boolean>;
+    openFolder(): Promise<void>;
+  };
 
   // The three below are optional for a reason that applies to this whole
   // interface but bites hardest here: the bridge is injected by the *shell

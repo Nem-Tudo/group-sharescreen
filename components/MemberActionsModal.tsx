@@ -12,6 +12,7 @@ import { NewBadge, markFeatureUsed } from "./NewBadge";
 import { DisplayUserName } from "./DisplayUserName";
 import { UserAvatar } from "./UserAvatar";
 import { VolumeSlider } from "./VolumeSlider";
+import { SoundboardPeerVolumeControl } from "@/components/SoundboardPeerVolumeControl";
 import type { VerifiedTone } from "@/lib/entitlements";
 import { useT } from "@/lib/useI18n";
 
@@ -243,6 +244,8 @@ export function MemberActionsMenu({
             )}
           </>
         )}
+
+        <SoundboardPeerVolumeControl userId={userId} name={name} />
 
         {(canPromote || canSilence || canKick || canBan) && (
           <>
