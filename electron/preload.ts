@@ -56,6 +56,48 @@ contextBridge.exposeInMainWorld("golive", {
     return ipcRenderer.invoke(IPC.openExternal, url);
   },
 
+  // Local-only soundboard storage. Main owns the directory and filenames;
+  // the remote page gets only ids and bytes, never a path it can choose.
+  soundboard: {
+    list(): Promise<unknown> {
+      return ipcRenderer.invoke(IPC.soundboardList);
+    },
+    pick(): Promise<unknown> {
+      return ipcRenderer.invoke(IPC.soundboardPick);
+    },
+    save(input: unknown): Promise<unknown> {
+      if (!input || typeof input !== "object") return Promise.resolve(null);
+      const value = input as Record<string, unknown>;
+      if (
+        typeof value.name !== "string" ||
+        typeof value.emoji !== "string" ||
+        typeof value.fileName !== "string" ||
+        typeof value.durationMs !== "number" ||
+        !(value.data instanceof Uint8Array)
+      ) {
+        return Promise.resolve(null);
+      }
+      return ipcRenderer.invoke(IPC.soundboardSave, {
+        name: value.name,
+        emoji: value.emoji,
+        fileName: value.fileName,
+        durationMs: value.durationMs,
+        data: value.data,
+      });
+    },
+    read(id: unknown): Promise<unknown> {
+      return typeof id === "string" ? ipcRenderer.invoke(IPC.soundboardRead, id) : Promise.resolve(null);
+    },
+    remove(id: unknown): Promise<boolean> {
+      return typeof id === "string"
+        ? (ipcRenderer.invoke(IPC.soundboardRemove, id) as Promise<boolean>)
+        : Promise.resolve(false);
+    },
+    openFolder(): Promise<void> {
+      return ipcRenderer.invoke(IPC.soundboardOpenFolder);
+    },
+  },
+
   // Fire-and-forget, and optional on the website's side: a shell from before
   // this existed simply doesn't have it, and the site checks for the
   // function rather than the version.

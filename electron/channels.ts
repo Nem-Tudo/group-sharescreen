@@ -79,6 +79,15 @@ export const IPC = {
    */
   systemAudioEnded: "golive:system-audio:ended",
 
+  // Local soundboard library. The renderer never receives an arbitrary file
+  // system primitive: every operation is confined by main to Documents/GoLive/Soundboard.
+  soundboardList: "golive:soundboard:list",
+  soundboardPick: "golive:soundboard:pick",
+  soundboardSave: "golive:soundboard:save",
+  soundboardRead: "golive:soundboard:read",
+  soundboardRemove: "golive:soundboard:remove",
+  soundboardOpenFolder: "golive:soundboard:open-folder",
+
   /**
    * renderer -> main: whether this machine can capture and encode a share on
    * the GPU (see electron/nativeVideo.ts). Answers a NativeVideoProbe.
