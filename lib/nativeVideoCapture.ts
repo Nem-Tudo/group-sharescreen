@@ -302,13 +302,6 @@ export class NativeVideoSource {
     const transceiver = pc.getTransceivers().find((t) => t.sender === sender);
     if (transceiver) preferH264(transceiver);
     void configureSender(sender, this.ceilingKbps);
-    const forget = () => {
-      if (pc.connectionState !== "closed") return;
-      pc.removeEventListener("connectionstatechange", forget);
-      sink.close();
-      this.sinks.delete(sink);
-    };
-    pc.addEventListener("connectionstatechange", forget);
     return sender;
   }
 
@@ -356,7 +349,10 @@ export class NativeVideoSource {
     const { data, idr } = this.keeper.process(raw);
     const frame: NativeFrame = { data, key: idr };
     if (idr) this.lastKey = frame;
-    for (const sink of this.sinks) sink.onNative(frame);
+    for (const sink of this.sinks) {
+      if (sink.closed) this.sinks.delete(sink);
+      else sink.onNative(frame);
+    }
     this.preview.push(frame);
   }
 
@@ -478,7 +474,7 @@ class SenderSink {
   private inflight: NativeFrame | null = null;
   private held: { frame: EncodedFrame; controller: TransformStreamDefaultController<EncodedFrame>; resolve: () => void } | null = null;
   private needKey = true;
-  private closed = false;
+  closed = false;
   private timestamp = 0;
   private stallTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly blank: Uint8Array;
@@ -536,6 +532,18 @@ class SenderSink {
 
   onNative(frame: NativeFrame) {
     if (this.closed) return;
+    // pc.close() fires no connectionstatechange, so a closed link is only seen here.
+    const state = this.pc.connectionState;
+    if (state === "closed") {
+      this.close();
+      return;
+    }
+    // Nothing goes out until the link is up, and onConnectionState restarts
+    // from an IDR when it is, so frames held meanwhile are only memory.
+    if (state !== "connected") {
+      this.queue = [];
+      return;
+    }
     if (this.held) {
       if (!frame.key) return;
       this.release(frame);
@@ -670,18 +678,18 @@ class SenderSink {
 /** Decodes the helper's stream into the share's own video track. */
 class Preview {
   private readonly writer: WritableStreamDefaultWriter<VideoFrame>;
+  private readonly keeper: ParameterSetKeeper;
+  private readonly requestKey: () => void;
   private decoder: VideoDecoder | null = null;
   private waitingForKey = true;
   private writing = false;
   private ended = false;
   private active = true;
 
-  constructor(
-    track: TrackGenerator,
-    private readonly keeper: ParameterSetKeeper,
-    private readonly requestKey: () => void
-  ) {
+  constructor(track: TrackGenerator, keeper: ParameterSetKeeper, requestKey: () => void) {
     this.writer = track.writable.getWriter();
+    this.keeper = keeper;
+    this.requestKey = requestKey;
   }
 
   /**
