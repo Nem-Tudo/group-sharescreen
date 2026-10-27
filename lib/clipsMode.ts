@@ -27,7 +27,8 @@ export type TileExperiment =
   | "vscodeEditor"
   | "univerSheet"
   | "fullscreenChat"
-  | "stereoMic";
+  | "stereoMic"
+  | "multiMic";
 
 // `defaultOn`: the switch starts on for whoever never touched it.
 const CONFIG: Record<
@@ -142,6 +143,15 @@ const CONFIG: Record<
     modeKey: "sharescreen:stereoMicMode",
     tipKey: "sharescreen:stereoMicTipSeen",
   },
+  // "Várias entradas de áudio" (ver captureNoiseSuppressedMic): outras
+  // entradas misturadas no mesmo microfone. Desligado por padrão — cada
+  // entrada extra é mais uma captura aberta. O interruptor fica no painel do
+  // microfone.
+  multiMic: {
+    feature: "multi-mic",
+    modeKey: "sharescreen:multiMicMode",
+    tipKey: "sharescreen:multiMicTipSeen",
+  },
   musicQueue: {
     feature: "room-music-queue",
     modeKey: "sharescreen:musicQueueMode",
@@ -217,6 +227,12 @@ export const TILE_EXPERIMENT_EVENTS = {
   stereoMic: {
     modeOn: "stereo_mic_on",
     modeOff: "stereo_mic_off",
+  },
+  multiMic: {
+    modeOn: "multi_mic_on",
+    modeOff: "multi_mic_off",
+    add: "multi_mic_add", // uma entrada extra foi marcada
+    start: "multi_mic_start", // value: quantas entradas o mic abriu juntas
   },
   musicQueue: {
     // Nomes de "modo" aqui são a aba, não a ordem aleatória: o interruptor

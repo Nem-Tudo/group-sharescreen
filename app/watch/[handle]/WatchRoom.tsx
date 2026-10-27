@@ -242,7 +242,13 @@ import {
   useCallTranscript,
 } from "@/lib/useCallTranscript";
 import Tippy from "@tippyjs/react";
-import { setTileExperimentMode, useTileExperiment, useTileExperimentTip } from "@/lib/clipsMode";
+import {
+  TILE_EXPERIMENT_EVENTS,
+  setTileExperimentMode,
+  trackTileExperiment,
+  useTileExperiment,
+  useTileExperimentTip,
+} from "@/lib/clipsMode";
 import { FullscreenChatSlotContext } from "@/lib/fullscreenChat";
 import {
   isDefaultOrientation,
@@ -1813,6 +1819,8 @@ function WatchRoomView({
     micConnectionStates,
     micDeviceId,
     setMicDevice,
+    extraMicDeviceIds,
+    setExtraMicDevices,
     micGain,
     setMicGain,
     micGainAvailable,
@@ -2102,6 +2110,9 @@ function WatchRoomView({
   // "Microfone estéreo" (experiment "stereo-mic"): its switch, in the mic's
   // panel. useRoomMedia reads the same switch and restarts the mic on it.
   const stereoMicMode = useTileExperiment("stereoMic", { track: true });
+  // "Várias entradas de áudio" (experiment "multi-mic"): the same, for mixing
+  // more inputs into the microphone. useRoomMedia restarts the mic on it.
+  const multiMicMode = useTileExperiment("multiMic", { track: true });
   // "Girar/inverter" (see lib/tileOrientation): the button in each tile's
   // corner. Tracked here, where its switch is, rather than in every tile.
   const orientationMode = useTileExperiment("orientation", { track: true });
@@ -6483,6 +6494,62 @@ function WatchRoomView({
     />
   );
 
+  // "Várias entradas de áudio": only in the mic's panel, like the stereo
+  // switch. Once on, a second device list right under the switch picks what
+  // gets mixed in with the main input.
+  const multiMicToggle = multiMicMode.available && (
+    <MenuToggleRow
+      label={translate("watch.watchRoom.multiMic")}
+      badge={<NewBadge id="multi-mic" />}
+      active={multiMicMode.on}
+      onToggle={() => setTileExperimentMode("multiMic", !multiMicMode.on)}
+      hint={translate("watch.watchRoom.multiMicHint")}
+      activeIcon={<MicIcon className="h-4 w-4" />}
+      inactiveIcon={<MicIcon className="h-4 w-4 opacity-50" />}
+    />
+  );
+
+  // The main input is left out of this list — it is already in the mix — and
+  // so are Chrome's "default"/"communications" aliases, which are some other
+  // entry in the list under a second name, and capturing a device twice is
+  // how Windows hands back silence.
+  const extraMicOptions = micDevices.filter(
+    (d) => d.deviceId !== micDeviceId && d.deviceId !== "default" && d.deviceId !== "communications"
+  );
+  const pickedExtraMics = extraMicOptions.filter((d) => extraMicDeviceIds.includes(d.deviceId));
+  const extraMicsRow = multiMicMode.active && extraMicOptions.length > 0 && (
+    <DeviceSubmenuRow
+      label={translate("watch.watchRoom.extraMicrophones")}
+      current={
+        pickedExtraMics.length === 0
+          ? translate("watch.watchRoom.extraMicrophonesNone")
+          : pickedExtraMics.length === 1
+            ? pickedExtraMics[0].label
+            : translate("watch.watchRoom.extraMicrophonesCount", { value: pickedExtraMics.length })
+      }
+    >
+      {extraMicOptions.map((d) => {
+        const picked = extraMicDeviceIds.includes(d.deviceId);
+        return (
+          <DeviceMenuOption
+            key={d.deviceId}
+            label={d.label}
+            selected={picked}
+            onClick={() => {
+              if (picked) {
+                setExtraMicDevices(extraMicDeviceIds.filter((id) => id !== d.deviceId));
+              } else {
+                setExtraMicDevices([...extraMicDeviceIds, d.deviceId]);
+                trackTileExperiment(TILE_EXPERIMENT_EVENTS.multiMic.add);
+                markFeatureUsed("multi-mic");
+              }
+            }}
+          />
+        );
+      })}
+    </DeviceSubmenuRow>
+  );
+
   // The key itself, next to the switch in the mic's panel. Only once the
   // switch is on: a key for a feature that is off is a question nobody asked.
   const pushToTalkKeyRow = pushToTalk.available && isDesktopApp() && pushToTalk.on && (
@@ -7070,6 +7137,8 @@ function WatchRoomView({
               />
               {noiseSuppressionToggle}
               {stereoMicToggle}
+              {multiMicToggle}
+              {extraMicsRow}
               {pushToTalkToggle}
               {pushToTalkKeyRow}
             </div>

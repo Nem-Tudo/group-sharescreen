@@ -54,6 +54,8 @@ import {
   setStoredCameraDeviceId,
   setStoredMicDeviceId,
   setStoredSpeakerDeviceId,
+  getStoredExtraMicDeviceIds,
+  setStoredExtraMicDeviceIds,
 } from "./mediaPreferences";
 import {
   BEST_TIER,
@@ -123,7 +125,7 @@ import {
   setMemoryGuardEnabled,
 } from "./memoryGuard";
 import { SCREEN_CODEC_EVENTS, SCREEN_CODEC_FEATURE, setScreenCodecVariant } from "./screenCodec";
-import { useTileExperiment } from "./clipsMode";
+import { TILE_EXPERIMENT_EVENTS, trackTileExperiment, useTileExperiment } from "./clipsMode";
 import {
   answerMirroringStereo,
   offerToSend,
@@ -4607,6 +4609,15 @@ export function useRoomMedia(room: string) {
   const [micDeviceId, setMicDeviceIdState] = useState<string | null>(() => getStoredMicDeviceId());
   const [speakerDeviceId, setSpeakerDeviceIdState] = useState<string | null>(() => getStoredSpeakerDeviceId());
 
+  // "Várias entradas de áudio" (experiment "multi-mic", switch in the mic's
+  // panel): the inputs mixed in with the one above. The stored list survives
+  // the switch going off; it just stops being opened.
+  const multiMic = useTileExperiment("multiMic").active;
+  const [extraMicDeviceIds, setExtraMicDeviceIdsState] = useState<string[]>(() => getStoredExtraMicDeviceIds());
+  // What the next capture opens — empty unless the switch is on. Kept in
+  // step by setExtraMicDevices and the multiMic effect below.
+  const extraMicDeviceIdsRef = useRef<string[]>([]);
+
   // Idempotent: rnnoise's own teardown is guarded, so calling this from both
   // the stop path and unmount costs nothing.
   const releaseMicGraph = useCallback(() => {
@@ -4623,7 +4634,8 @@ export function useRoomMedia(room: string) {
       // opening a second capture of the same input device while the first is
       // still held is how Windows in particular hands back a silent track.
       releaseMicGraph();
-      const { stream, graph } = await captureNoiseSuppressedMic(
+      const extras = extraMicDeviceIdsRef.current;
+      const { stream, graph, inputs } = await captureNoiseSuppressedMic(
         noiseSuppressionOnRef.current,
         () => {
           micGraphRef.current = null;
@@ -4635,8 +4647,10 @@ export function useRoomMedia(room: string) {
         },
         micDeviceIdRef.current,
         micGainRef.current,
-        stereoMicRef.current
+        stereoMicRef.current,
+        extras
       );
+      if (extras.length) trackTileExperiment(TILE_EXPERIMENT_EVENTS.multiMic.start, inputs);
       micGraphRef.current = graph;
       setNoiseSuppressionAvailable(graphSuppressionAvailable(graph));
       setMicGainAvailable(graph !== null);
@@ -4742,6 +4756,35 @@ export function useRoomMedia(room: string) {
     },
     [mic]
   );
+
+  // Adds or removes an extra input. Restarts a live mic for the same reason
+  // setMicDevice does: the mix is wired when the capture is built.
+  const setExtraMicDevices = useCallback(
+    (ids: string[]) => {
+      setExtraMicDeviceIdsState(ids);
+      setStoredExtraMicDeviceIds(ids);
+      extraMicDeviceIdsRef.current = multiMic ? ids : [];
+      if (mic.active) {
+        mic.stop();
+        mic.start();
+      }
+    },
+    [mic, multiMic]
+  );
+
+  // Flipping "Várias entradas de áudio" with extras picked changes what the
+  // capture holds, so a live mic restarts on it like a device switch.
+  const multiMicPrevRef = useRef(multiMic);
+  useEffect(() => {
+    extraMicDeviceIdsRef.current = multiMic ? extraMicDeviceIds : [];
+    if (multiMicPrevRef.current === multiMic) return;
+    multiMicPrevRef.current = multiMic;
+    if (mic.active && extraMicDeviceIds.length) {
+      mic.stop();
+      mic.start();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [multiMic]);
 
   // Flipping "Microfone estéreo" mid-call restarts the mic, like switching
   // device: the capture constraints change, and so does what the offers ask
@@ -4906,6 +4949,8 @@ export function useRoomMedia(room: string) {
     micConnectionStates: mic.recvConnectionStates,
     micDeviceId,
     setMicDevice,
+    extraMicDeviceIds,
+    setExtraMicDevices,
     micGain,
     setMicGain,
     // Like noiseSuppressionAvailable, only meaningful once the mic has

@@ -335,6 +335,25 @@ export function setStoredMicDeviceId(value: string | null) {
   setStoredString(MIC_DEVICE_ID_KEY, value);
 }
 
+// "Várias entradas de áudio" (experiment "multi-mic"): the inputs mixed in
+// alongside the one above. Kept apart from it rather than folded into a list,
+// so switching the experiment off leaves the main choice exactly as it was.
+const EXTRA_MIC_DEVICE_IDS_KEY = "sharescreen:extraMicDeviceIds";
+
+export function getStoredExtraMicDeviceIds(): string[] {
+  const raw = getStoredString(EXTRA_MIC_DEVICE_IDS_KEY);
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string" && id !== "") : [];
+  } catch {
+    return [];
+  }
+}
+export function setStoredExtraMicDeviceIds(ids: string[]) {
+  setStoredString(EXTRA_MIC_DEVICE_IDS_KEY, ids.length ? JSON.stringify(ids) : null);
+}
+
 export function getStoredSpeakerDeviceId(): string | null {
   return getStoredString(SPEAKER_DEVICE_ID_KEY);
 }
