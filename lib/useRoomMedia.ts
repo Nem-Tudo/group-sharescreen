@@ -134,6 +134,19 @@ import {
 } from "./receiveCodec";
 import { TILE_EXPERIMENT_EVENTS, trackTileExperiment, useTileExperiment } from "./clipsMode";
 import {
+  acquirePhoneCamera,
+  onPhoneCameraEvent,
+  PhoneCameraError,
+  phoneCameraSelected,
+  phoneCameraStartBlocked,
+  releaseUnlessSource as releaseUnchosenPhoneCamera,
+  release as releasePhoneCamera,
+  retainPhoneCameraHost,
+  setPhoneCameraInUse,
+  setPhoneCameraSource,
+  usePhoneCamera,
+} from "./phoneCamera";
+import {
   cameraEffectsSupported,
   createCameraEffectsTrack,
   discardCameraEffectsTrack,
@@ -3937,6 +3950,10 @@ export function useRoomMedia(room: string) {
   // What the camera should be drawn with (see wantedCameraEffects below),
   // read by the capture when the camera (re)opens.
   const cameraEffectsRef = useRef<CameraEffectSettings | null>(null);
+  // "Celular como câmera" (see lib/phoneCamera): whether the experiment's
+  // switch is on, and whether the running camera is the phone's.
+  const phoneCameraModeRef = useRef(false);
+  const cameraFromPhoneRef = useRef(false);
 
   const camera = useBroadcastChannel(
     "camera",
@@ -3947,6 +3964,32 @@ export function useRoomMedia(room: string) {
         const main = cameraFacingRef.current === "environment" ? native.back : native.front;
         return new MediaStream(main.getVideoTracks());
       }
+      // A phone chosen as the camera: its video instead of a webcam's, asked
+      // for on the phone if it is not coming in already. A clone, because the
+      // channel's teardown stops every track it holds, and this one must
+      // not end the connection to the phone with it.
+      if (phoneCameraModeRef.current && phoneCameraSelected()) {
+        let remote: MediaStreamTrack;
+        try {
+          remote = await acquirePhoneCamera();
+        } catch (err) {
+          const code = err instanceof PhoneCameraError ? err.code : "failed";
+          // Called off from the panel: nothing to report.
+          if (code === "cancelled") throw new DOMException("cancelled", "AbortError");
+          throw new ShareStartError(t(`useRoomMedia.phoneCamera_${code}`));
+        }
+        cameraFromPhoneRef.current = true;
+        setPhoneCameraInUse(true);
+        const clone = remote.clone();
+        if (!cameraEffectsRef.current) return new MediaStream([clone]);
+        try {
+          return new MediaStream([createCameraEffectsTrack(clone)]);
+        } catch {
+          return new MediaStream([clone]);
+        }
+      }
+      cameraFromPhoneRef.current = false;
+      setPhoneCameraInUse(false);
       // Capture at the full picked resolution regardless of room size. The
       // per-viewer tiers downscale each *sender* independently (see
       // peerQualityController), so capturing small would only put a hard
@@ -4198,6 +4241,89 @@ export function useRoomMedia(room: string) {
         if (!swapped && created) discardCameraEffectsTrack(created);
       });
   }, [wantedCameraEffects, cameraLocalStream]);
+
+  // "Celular como câmera": the relay socket while the switch is on, and the
+  // room's camera following the phone — on when the phone starts by itself
+  // (its page was opened), off when it stops, swapped over when the person
+  // picks another source with the camera on. A phone the camera has not used
+  // for a few seconds is let go, so it stops filming (a stop/start of the
+  // channel — a restart — keeps it).
+  const phoneCameraMode = useTileExperiment("phoneCamera").active;
+  useEffect(() => {
+    phoneCameraModeRef.current = phoneCameraMode;
+    if (!phoneCameraMode) return;
+    return retainPhoneCameraHost();
+  }, [phoneCameraMode]);
+  useEffect(
+    () =>
+      onPhoneCameraEvent((event) => {
+        const cam = cameraRef.current;
+        if (event === "arrived") {
+          if (!phoneCameraModeRef.current || nativeDualRef.current) return;
+          if (!cam.active) {
+            // Not allowed to (the room turned cameras off for this person),
+            // or it would not start: the phone has nobody to film for.
+            if (phoneCameraStartBlocked()) {
+              releasePhoneCamera();
+              return;
+            }
+            void cam.start().then(() => {
+              if (!cameraRef.current.active) releasePhoneCamera();
+            });
+            return;
+          }
+          void cam.swapCapture().then((swapped) => {
+            const now = cameraRef.current;
+            if (swapped || !now.active) return;
+            now.stop();
+            void now.start();
+          });
+        } else if (cam.active && cameraFromPhoneRef.current) {
+          cam.stop();
+        }
+      }),
+    []
+  );
+  // A swap that did not happen (the phone said no, or never answered) puts
+  // the choice back where it was, quietly: the camera keeps what it had,
+  // and the phone is not asked a second time by a restart.
+  const phoneCameraSource = usePhoneCamera().source;
+  const lastPhoneCameraSource = useRef(phoneCameraSource);
+  useEffect(() => {
+    const previous = lastPhoneCameraSource.current;
+    if (previous === phoneCameraSource) return;
+    lastPhoneCameraSource.current = phoneCameraSource;
+    const cam = cameraRef.current;
+    if (!cam.active || nativeDualRef.current) {
+      releaseUnchosenPhoneCamera();
+      return;
+    }
+    // One phone for another: only one connection to a phone at a time, so
+    // the first goes before the second is asked — a restart, not a swap.
+    if (previous && phoneCameraSource && cameraFromPhoneRef.current) {
+      cam.stop();
+      releaseUnchosenPhoneCamera();
+      void cam.start();
+      return;
+    }
+    void cam.swapCapture().then((swapped) => {
+      if (!swapped && cameraRef.current.active && lastPhoneCameraSource.current === phoneCameraSource) {
+        lastPhoneCameraSource.current = previous;
+        setPhoneCameraSource(previous);
+      }
+      releaseUnchosenPhoneCamera();
+    });
+  }, [phoneCameraSource]);
+  useEffect(() => {
+    if (camera.active) return;
+    const timer = setTimeout(() => {
+      if (cameraRef.current.active) return;
+      cameraFromPhoneRef.current = false;
+      setPhoneCameraInUse(false);
+      releasePhoneCamera();
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [camera.active]);
 
   // The second lens only makes sense next to the first.
   const cameraIsActive = camera.active;

@@ -221,6 +221,8 @@ import { MenuToggleRow } from "@/components/MenuToggleRow";
 import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
 import { CameraEffectsPanel } from "@/components/CameraEffectsPanel";
 import { useCameraEffectsSupported } from "@/lib/cameraEffects";
+import { PhoneCameraPanel } from "@/components/PhoneCameraPanel";
+import { getPhoneCameraState, setPhoneCameraSource, setPhoneCameraStartBlocked } from "@/lib/phoneCamera";
 import { trackFeatureEvent, useFeature } from "@/lib/features";
 import type { CallSource } from "@/lib/callRecording";
 import { CALL_RECORDING_FEATURE, trackCallRecordingOpen, useCallRecording } from "@/lib/useCallRecording";
@@ -859,7 +861,15 @@ function ShareControls({
   extraMotion = "",
   addScreen = null,
   cameraEffects = null,
+  phoneCamera = null,
 }: {
+  // "Celular como câmera" (see lib/phoneCamera): its switch, the saved
+  // phones and the QR code, in the camera's panel, and its blue "novo" tip
+  // on the same arrow (after the effects' one, if both are due).
+  phoneCamera?: {
+    panel: ReactNode;
+    tip: { show: boolean; dismiss: () => void; clicked: () => void };
+  } | null;
   // "Efeitos de câmera" (see lib/cameraEffects): its switch and choices, at
   // the bottom of the camera's panel, and the blue "novo" tip on the arrow
   // that opens it. Null where the person does not have it.
@@ -961,7 +971,13 @@ function ShareControls({
   const canPickCamera = cameraSupported && !onPhone && cameraDevices.length > 1;
   // The camera's panel exists when there is something in it: a camera to
   // pick, or the effects. The effects alone are reason enough on a phone too.
-  const hasCameraPanel = cameraSupported && (canPickCamera || Boolean(cameraEffects));
+  const hasCameraPanel = cameraSupported && (canPickCamera || Boolean(cameraEffects) || Boolean(phoneCamera));
+  // One blue tip on the arrow at a time: the effects', then the phone's.
+  const cameraTip = cameraEffects?.tip.show
+    ? { ...cameraEffects.tip, text: t("watch.watchRoom.cameraEffectsTip") }
+    : phoneCamera?.tip.show
+      ? { ...phoneCamera.tip, text: t("watch.watchRoom.phoneCameraTip") }
+      : null;
   const screenBlocked = !screenSharing && Boolean(screenBlockedReason);
   const atScreenLimit = Boolean(addScreen && addScreen.count >= addScreen.limit);
   const upgradeMark = addScreen?.upgrade ? planIcon(tierIconId(addScreen.upgrade.tier)) : null;
@@ -1197,6 +1213,7 @@ function ShareControls({
               </DeviceSubmenuRow>
               )}
               {cameraEffects?.panel}
+              {phoneCamera?.panel}
             </div>
           ) : undefined
         }
@@ -1224,7 +1241,7 @@ function ShareControls({
             people are on, an arrow over a single entry is clutter. */}
         {extra(hasCameraPanel ? (
           <Tippy
-            visible={Boolean(cameraEffects?.tip.show) && quickShortcutAction !== "toggleCamera"}
+            visible={Boolean(cameraTip) && quickShortcutAction !== "toggleCamera"}
             placement="bottom"
             interactive
             theme="golive-panel"
@@ -1236,10 +1253,10 @@ function ShareControls({
               >
                 <span className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
                 <span className="flex items-start gap-2">
-                  <span className="flex-1">{t("watch.watchRoom.cameraEffectsTip")}</span>
+                  <span className="flex-1">{cameraTip?.text}</span>
                   <button
                     type="button"
-                    onClick={cameraEffects?.tip.dismiss}
+                    onClick={cameraTip?.dismiss}
                     aria-label={t("watch.watchRoom.clipsModeTipDismiss")}
                     className="-m-1 rounded p-1 leading-none text-white/80 hover:text-white"
                   >
@@ -1254,7 +1271,7 @@ function ShareControls({
             <button
               type="button"
               onClick={() => {
-                if (cameraEffects?.tip.show) cameraEffects.tip.clicked();
+                cameraTip?.clicked();
                 if (quickShortcutAction === "toggleCamera") onCloseShortcutQuick?.();
                 else onOpenShortcutQuick?.("toggleCamera");
               }}
@@ -2474,6 +2491,12 @@ function WatchRoomView({
   // user agent, which the server render has no answer for.
   const onPhone = mounted && isMobileDevice();
   const isMobileBrowser = mounted && isMobileDevice() && !isMobileApp();
+  // "Celular como câmera" (experiment "phone-camera"): its switch, the saved
+  // phones and the QR code, in the camera's panel. Not on a phone — a phone
+  // already is a camera. useRoomMedia reads the same switch.
+  const phoneCameraMode = useTileExperiment("phoneCamera", { track: mounted && !onPhone });
+  const phoneCameraAvailable = phoneCameraMode.available && mounted && !onPhone;
+  const phoneCameraTip = useTileExperimentTip("phoneCamera", phoneCameraAvailable);
   useEffect(() => {
     const id = setTimeout(() => {
       setMounted(true);
@@ -3359,6 +3382,10 @@ function WatchRoomView({
     : roomBlockReason("mic", "o microfone");
   const screenBlockedReason = roomBlockReason("screen", "o compartilhamento de tela");
   const cameraBlockedReason = roomBlockReason("camera", translate("watch.watchRoom.theCamera"));
+  // The phone camera's self-start goes by the same rule as the camera button.
+  useEffect(() => {
+    setPhoneCameraStartBlocked(Boolean(cameraBlockedReason));
+  }, [cameraBlockedReason]);
   const videoSourceBlockedReason = roomBlockReason("videoSource", translate("watch.watchRoom.addVideoSources"));
   const chatBlockedReason = roomBlockReason("chat", "o chat");
   const gifBlockedReason = roomBlockReason("gif", translate("watch.watchRoom.sendingGifs"));
@@ -7441,7 +7468,11 @@ function WatchRoomView({
           cameraFacing={cameraFacing}
           setCameraFacing={setCameraFacing}
           onPhone={onPhone}
-          setCameraDevice={setCameraDevice}
+          setCameraDevice={(deviceId) => {
+            // Picking a webcam is also leaving the phone (see lib/phoneCamera).
+            if (getPhoneCameraState().source) setPhoneCameraSource(null);
+            setCameraDevice(deviceId);
+          }}
           open={shareQualityOpen}
           setOpen={setShareQualityOpen}
           quality={qualityControlsProps}
@@ -7456,6 +7487,11 @@ function WatchRoomView({
           cameraEffects={
             cameraEffectsAvailable
               ? { panel: <CameraEffectsPanel on={cameraEffectsMode.on} />, tip: cameraEffectsTip }
+              : null
+          }
+          phoneCamera={
+            phoneCameraAvailable
+              ? { panel: <PhoneCameraPanel on={phoneCameraMode.on} />, tip: phoneCameraTip }
               : null
           }
         />

@@ -78,7 +78,7 @@ export function EventPromoWidget() {
 
   const feature = useFeature(EVENT_PROMO_FEATURE, { track: visible.length > 0 });
   const shown = feature.enabled && current !== undefined && pathname !== null &&
-    !pathname.startsWith("/stream") && !pathname.startsWith("/obs");
+    !pathname.startsWith("/stream") && !pathname.startsWith("/obs") && !pathname.startsWith("/cam");
 
   // One view per promo per page load, only while the tab is actually visible.
   const viewed = useRef<Set<string>>(new Set());

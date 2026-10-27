@@ -29,7 +29,8 @@ export type TileExperiment =
   | "fullscreenChat"
   | "stereoMic"
   | "multiMic"
-  | "cameraEffects";
+  | "cameraEffects"
+  | "phoneCamera";
 
 // `defaultOn`: the switch starts on for whoever never touched it.
 const CONFIG: Record<
@@ -162,6 +163,15 @@ const CONFIG: Record<
     modeKey: "sharescreen:cameraEffectsMode",
     tipKey: "sharescreen:cameraEffectsTipSeen",
   },
+  // "Celular como câmera" (ver lib/phoneCamera): um celular que abre o link
+  // do QR code vira a câmera deste computador, sem entrar na sala. Desligado
+  // por padrão — ligado, a sala mantém um socket a mais aberto, esperando o
+  // celular. O interruptor fica no painel da câmera.
+  phoneCamera: {
+    feature: "phone-camera",
+    modeKey: "sharescreen:phoneCameraMode",
+    tipKey: "sharescreen:phoneCameraTipSeen",
+  },
   musicQueue: {
     feature: "room-music-queue",
     modeKey: "sharescreen:musicQueueMode",
@@ -251,6 +261,11 @@ export const TILE_EXPERIMENT_EVENTS = {
     start: "camera_effects_start", // uma câmera começou a passar pelos efeitos
     error: "camera_effects_error", // um modelo não carregou, ou o desenho falhou
     slow: "camera_effects_slow", // value: ms por quadro (uma vez por sessão, acima de 30)
+  },
+  // O resto das estatísticas está em PHONE_CAMERA_EVENTS (lib/phoneCamera).
+  phoneCamera: {
+    modeOn: "phone_camera_on",
+    modeOff: "phone_camera_off",
   },
   musicQueue: {
     // Nomes de "modo" aqui são a aba, não a ordem aleatória: o interruptor

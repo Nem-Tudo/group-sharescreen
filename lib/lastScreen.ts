@@ -56,6 +56,7 @@ const NEVER_RESTORE = [
   "/watch/",
   "/stream/",
   "/obs/",
+  "/cam/",
   "/oauth",
   "/oauth2",
   "/desktop/",
