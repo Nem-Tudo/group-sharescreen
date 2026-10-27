@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { MdClose, MdPhoneIphone } from "react-icons/md";
+import {
+  MdCameraswitch,
+  MdClose,
+  MdFlashlightOff,
+  MdFlashlightOn,
+  MdPhoneIphone,
+  MdVideocam,
+  MdVideocamOff,
+} from "react-icons/md";
 import { MenuToggleRow } from "@/components/MenuToggleRow";
 import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
 import { setTileExperimentMode } from "@/lib/clipsMode";
@@ -14,6 +22,7 @@ import {
   rejectPhoneCameraClaim,
   removePhoneCameraDevice,
   requestPhoneCameraLink,
+  sendPhoneCameraCommand,
   setPhoneCameraSource,
   submitPhoneCameraCode,
   takePhoneCameraHere,
@@ -51,6 +60,36 @@ function QrCode({ text }: { text: string }) {
     >
       <path d={path.d} fill="#000" />
     </svg>
+  );
+}
+
+// One of the phone's own controls, pressed from here.
+function RemoteButton({
+  onClick,
+  label,
+  active = false,
+  children,
+}: {
+  onClick: () => void;
+  label: string;
+  active?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      aria-pressed={active}
+      title={label}
+      className={`flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium transition ${
+        active
+          ? "bg-emerald-600 text-white hover:bg-emerald-700"
+          : "bg-white text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-700"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -191,26 +230,58 @@ export function PhoneCameraPanel({ on }: { on: boolean }) {
               </div>
 
               {session && (
-                <div className="flex items-center gap-2 rounded-md bg-zinc-100 px-2 py-1.5 text-xs dark:bg-zinc-800">
-                  <span className="min-w-0 flex-1">
-                    {session.status === "live"
-                      ? session.phone && !session.phone.camera
-                        ? t("watch.watchRoom.phoneCameraPausedOnPhone", { name: session.name })
-                        : t("watch.watchRoom.phoneCameraLive", { name: session.name })
-                      : session.status === "waiting"
-                        ? t("watch.watchRoom.phoneCameraWaiting", { name: session.name })
-                        : session.status === "asking"
-                          ? t("watch.watchRoom.phoneCameraAsking", { name: session.name })
-                          : t("watch.watchRoom.phoneCameraConnectingPhone", { name: session.name })}
-                  </span>
-                  {session.status !== "live" && (
-                    <button
-                      type="button"
-                      onClick={cancelPhoneCameraRequest}
-                      className="shrink-0 rounded px-1.5 py-0.5 font-semibold text-red-600 hover:bg-red-600/10"
-                    >
-                      {t("watch.watchRoom.phoneCameraCancel")}
-                    </button>
+                <div className="flex flex-col gap-1.5 rounded-md bg-zinc-100 px-2 py-1.5 text-xs dark:bg-zinc-800">
+                  <div className="flex items-center gap-2">
+                    <span className="min-w-0 flex-1">
+                      {session.status === "live"
+                        ? session.phone && !session.phone.camera
+                          ? t("watch.watchRoom.phoneCameraPausedOnPhone", { name: session.name })
+                          : t("watch.watchRoom.phoneCameraLive", { name: session.name })
+                        : session.status === "waiting"
+                          ? t("watch.watchRoom.phoneCameraWaiting", { name: session.name })
+                          : session.status === "asking"
+                            ? t("watch.watchRoom.phoneCameraAsking", { name: session.name })
+                            : t("watch.watchRoom.phoneCameraConnectingPhone", { name: session.name })}
+                    </span>
+                    {session.status !== "live" && (
+                      <button
+                        type="button"
+                        onClick={cancelPhoneCameraRequest}
+                        className="shrink-0 rounded px-1.5 py-0.5 font-semibold text-red-600 hover:bg-red-600/10"
+                      >
+                        {t("watch.watchRoom.phoneCameraCancel")}
+                      </button>
+                    )}
+                  </div>
+                  {/* The phone's own controls, mirrored: what is pressed here
+                      happens on the phone, and the phone's answer is what
+                      these show. */}
+                  {session.status === "live" && session.phone && (
+                    <div className="flex gap-1">
+                      <RemoteButton
+                        onClick={() => sendPhoneCameraCommand("camera")}
+                        label={session.phone.camera ? t("cam.cameraOff") : t("cam.cameraOn")}
+                        active={!session.phone.camera}
+                      >
+                        {session.phone.camera ? <MdVideocam className="h-4 w-4" /> : <MdVideocamOff className="h-4 w-4" />}
+                      </RemoteButton>
+                      <RemoteButton onClick={() => sendPhoneCameraCommand("flip")} label={t("cam.flip")}>
+                        <MdCameraswitch className="h-4 w-4" />
+                      </RemoteButton>
+                      {session.phone.torchSupported && (
+                        <RemoteButton
+                          onClick={() => sendPhoneCameraCommand("torch")}
+                          label={t("cam.flash")}
+                          active={session.phone.torch}
+                        >
+                          {session.phone.torch ? (
+                            <MdFlashlightOn className="h-4 w-4" />
+                          ) : (
+                            <MdFlashlightOff className="h-4 w-4" />
+                          )}
+                        </RemoteButton>
+                      )}
+                    </div>
                   )}
                 </div>
               )}

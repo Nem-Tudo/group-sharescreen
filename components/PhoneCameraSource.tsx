@@ -96,6 +96,9 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
   const facingRef = useRef(facing);
   const cameraOnRef = useRef(cameraOn);
   const torchRef = useRef(torch);
+  const torchSupportedRef = useRef(false);
+  // The controls, for the computer's commands (see the control channel).
+  const commandsRef = useRef<{ camera: () => void; flip: () => void; torch: () => void } | null>(null);
   useEffect(() => {
     phaseRef.current = phase;
     facingRef.current = facing;
@@ -113,7 +116,13 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
   }, []);
 
   const sendState = useCallback(() => {
-    const state = { camera: cameraOnRef.current, torch: torchRef.current };
+    // Everything the computer needs to draw the same controls the phone has.
+    const state = {
+      camera: cameraOnRef.current,
+      torch: torchRef.current,
+      torchSupported: torchSupportedRef.current,
+      facing: facingRef.current,
+    };
     try {
       if (controlRef.current?.readyState === "open") controlRef.current.send(JSON.stringify({ t: "state", ...state }));
     } catch {
@@ -168,6 +177,7 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
     const track = stream.getVideoTracks()[0];
     const caps = (track?.getCapabilities?.() ?? {}) as MediaTrackCapabilities & { torch?: boolean };
     setTorchSupported(Boolean(caps.torch));
+    torchSupportedRef.current = Boolean(caps.torch);
     return stream;
   }, []);
 
@@ -193,13 +203,22 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
     controlRef.current = control;
     control.onopen = () => sendState();
     control.onmessage = (event) => {
+      let data: { t?: string; action?: string };
       try {
-        if ((JSON.parse(String(event.data)) as { t?: string }).t === "bye" && pcRef.current === pc) {
-          stopStreaming(false);
-          setPhase(onceRef.current ? { kind: "ended" } : { kind: "standby" });
-        }
+        data = JSON.parse(String(event.data)) as { t?: string; action?: string };
       } catch {
-        // Not ours.
+        return;
+      }
+      if (pcRef.current !== pc) return;
+      if (data.t === "bye") {
+        stopStreaming(false);
+        setPhase(onceRef.current ? { kind: "ended" } : { kind: "standby" });
+      } else if (data.t === "cmd") {
+        // The same buttons, pressed on the computer.
+        const commands = commandsRef.current;
+        if (data.action === "camera") commands?.camera();
+        else if (data.action === "flip") commands?.flip();
+        else if (data.action === "torch") commands?.torch();
       }
     };
     control.onclose = () => {
@@ -374,7 +393,8 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
     const pc = pcRef.current;
     const old = streamRef.current;
     if (!pc || !old) return;
-    const next = facing === "user" ? "environment" : "user";
+    const current = facingRef.current;
+    const next = current === "user" ? "environment" : "user";
     // Most phones cannot hold two cameras open: the old one goes first.
     old.getTracks().forEach((track) => track.stop());
     let stream: MediaStream;
@@ -382,7 +402,7 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
       stream = await openCamera(next);
     } catch {
       try {
-        stream = await openCamera(facing);
+        stream = await openCamera(current);
       } catch {
         stopStreaming(true);
         setPhase({ kind: "error", reason: "camera" });
@@ -395,7 +415,9 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
     await sender?.replaceTrack(track).catch(() => {});
     streamRef.current = stream;
     if (videoRef.current) videoRef.current.srcObject = stream;
-    setFacing(track.getSettings().facingMode === "user" ? "user" : next);
+    const facingNow = track.getSettings().facingMode === "user" ? "user" : next;
+    setFacing(facingNow);
+    facingRef.current = facingNow;
     setTorch(false);
     torchRef.current = false;
     sendState();
@@ -404,7 +426,8 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
   const toggleTorch = async () => {
     const track = streamRef.current?.getVideoTracks()[0];
     if (!track) return;
-    const next = !torch;
+    if (!torchSupportedRef.current) return;
+    const next = !torchRef.current;
     try {
       await track.applyConstraints({ advanced: [{ torch: next } as MediaTrackConstraintSet] });
       setTorch(next);
@@ -412,8 +435,13 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
       sendState();
     } catch {
       setTorchSupported(false);
+      torchSupportedRef.current = false;
+      sendState();
     }
   };
+  useEffect(() => {
+    commandsRef.current = { camera: toggleCamera, flip: () => void flip(), torch: () => void toggleTorch() };
+  });
 
   const filming = phase.kind === "live" || phase.kind === "starting";
   const errorText =

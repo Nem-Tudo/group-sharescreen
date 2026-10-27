@@ -43,6 +43,7 @@ export const PHONE_CAMERA_EVENTS = {
   seconds: "phone_camera_seconds", // value: seconds the phone was the camera
   declined: "phone_camera_declined", // the phone said no to a request
   failed: "phone_camera_failed", // the connection to the phone never came up
+  remote: "phone_camera_remote", // a phone control (camera, flip, torch) pressed on the computer
 } as const;
 
 const HOST_KEY = "sharescreen:phoneCamHost";
@@ -80,6 +81,23 @@ export class PhoneCameraError extends Error {
   }
 }
 
+/** The phone's own controls, as it reports them — mirrored on the computer. */
+export interface PhoneCameraPhoneState {
+  camera: boolean;
+  torch: boolean;
+  torchSupported: boolean;
+  facing: "user" | "environment";
+}
+
+function readPhoneState(raw: { camera?: unknown; torch?: unknown; torchSupported?: unknown; facing?: unknown }): PhoneCameraPhoneState {
+  return {
+    camera: raw.camera !== false,
+    torch: raw.torch === true,
+    torchSupported: raw.torchSupported === true,
+    facing: raw.facing === "user" ? "user" : "environment",
+  };
+}
+
 export interface PhoneCameraState {
   /** The socket is up and this tab is the one holding it. */
   connected: boolean;
@@ -101,7 +119,7 @@ export interface PhoneCameraState {
     name: string;
     status: "waiting" | "asking" | "connecting" | "live";
     /** What the phone says about itself (camera off, torch, facing). */
-    phone: { camera: boolean; torch: boolean } | null;
+    phone: PhoneCameraPhoneState | null;
   } | null;
   /** When a phone was last confirmed with its code (the QR can go). */
   pairedAt: number;
@@ -365,8 +383,7 @@ function onMessage(msg: Record<string, unknown>) {
     case "state": {
       const session = state.session;
       if (session && session.conn === msg.conn && msg.state && typeof msg.state === "object") {
-        const phone = msg.state as { camera?: unknown; torch?: unknown };
-        set({ session: { ...session, phone: { camera: phone.camera !== false, torch: phone.torch === true } } });
+        set({ session: { ...session, phone: readPhoneState(msg.state as Record<string, unknown>) } });
       }
       return;
     }
@@ -490,6 +507,21 @@ function endSession(reason: PhoneCameraErrorCode) {
   if (!settle(new PhoneCameraError(reason)) && wasLive) emitCamera("ended");
 }
 
+/**
+ * Presses one of the phone's own controls from the computer: turn the camera
+ * off/on, flip it, or the torch. Sent on the connection itself; the phone
+ * answers with its new state, which is what the buttons here show.
+ */
+export function sendPhoneCameraCommand(action: "camera" | "flip" | "torch") {
+  if (control?.readyState !== "open") return;
+  try {
+    control.send(JSON.stringify({ t: "cmd", action }));
+    trackFeatureEvent(PHONE_CAMERA_EVENTS.remote);
+  } catch {
+    // Closing — the session ends on its own.
+  }
+}
+
 /** Lets go of the phone: it is told to stop, and its camera turns off. */
 export function release() {
   const session = state.session;
@@ -542,7 +574,7 @@ async function onSignal(conn: string, data: Record<string, unknown> | undefined)
       const channel = event.channel;
       control = channel;
       channel.onmessage = (e) => {
-        let data: { t?: unknown; camera?: unknown; torch?: unknown };
+        let data: { t?: unknown; camera?: unknown; torch?: unknown; torchSupported?: unknown; facing?: unknown };
         try {
           data = JSON.parse(String(e.data));
         } catch {
@@ -551,7 +583,7 @@ async function onSignal(conn: string, data: Record<string, unknown> | undefined)
         if (pc !== peer) return;
         if (data.t === "bye") endSession("failed");
         else if (data.t === "state" && state.session) {
-          set({ session: { ...state.session, phone: { camera: data.camera !== false, torch: data.torch === true } } });
+          set({ session: { ...state.session, phone: readPhoneState(data) } });
         }
       };
       channel.onclose = () => {
