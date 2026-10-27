@@ -88,6 +88,9 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
   const autostartUntil = useRef(0);
   const phaseRef = useRef(phase);
   const onceRef = useRef(false);
+  // Confirmed by the computer (code typed, or a saved pairing). Nothing films
+  // before this — the code screen must come first.
+  const boundRef = useRef(false);
   // The saved pairing this page came in with, if any.
   const secretRef = useRef<string | null>(null);
   const doneRef = useRef(false);
@@ -171,7 +174,7 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
 
   const start = useCallback(async () => {
     const current = phaseRef.current.kind;
-    if (current === "starting" || current === "live") return;
+    if (!boundRef.current || current === "starting" || current === "live") return;
     setPhase({ kind: "starting" });
     let stream: MediaStream;
     try {
@@ -263,6 +266,7 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
             setPhase({ kind: "code", code: String(msg.code), mode: msg.mode === "save" ? "save" : "once" });
             return;
           case "bound":
+            boundRef.current = true;
             onceRef.current = msg.once === true;
             setSaved(!onceRef.current);
             if (typeof msg.secret === "string") {
@@ -276,13 +280,13 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
           case "host": {
             const online = msg.online === true;
             setHostOnline(online);
-            if (online && Date.now() < autostartUntil.current && (kind === "standby" || kind === "connecting" || kind === "code")) {
+            if (online && boundRef.current && Date.now() < autostartUntil.current && (kind === "standby" || kind === "connecting")) {
               void startRef.current();
             }
             return;
           }
           case "request":
-            if (kind === "starting" || kind === "live") return;
+            if (!boundRef.current || kind === "starting" || kind === "live") return;
             if (Date.now() < autostartUntil.current) void startRef.current();
             else {
               setPhase({ kind: "prompt" });
