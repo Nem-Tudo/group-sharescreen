@@ -128,6 +128,39 @@ function roundShare(value: number): string {
   return String(Math.round(value * 100) / 100);
 }
 
+// The rollout's colour, from dark at 0% through orange and amber to the
+// launched green at 100%, so the list reads at a glance how far each one is.
+const ROLLOUT_STOPS: [number, [number, number, number]][] = [
+  [0, [63, 63, 70]], // zinc-700
+  [25, [249, 115, 22]], // orange-500
+  [50, [245, 158, 11]], // amber-500
+  [75, [132, 204, 22]], // lime-500
+  [100, [16, 185, 129]], // emerald-500
+];
+
+function rolloutColor(rolloutBp: number): string {
+  const pct = Math.max(0, Math.min(100, rolloutBp / 100));
+  let i = 0;
+  while (i < ROLLOUT_STOPS.length - 2 && pct > ROLLOUT_STOPS[i + 1][0]) i++;
+  const [from, a] = ROLLOUT_STOPS[i];
+  const [to, b] = ROLLOUT_STOPS[i + 1];
+  const k = (pct - from) / (to - from);
+  const [r, g, bl] = a.map((v, j) => Math.round(v + (b[j] - v) * k));
+  return `rgb(${r} ${g} ${bl})`;
+}
+
+function RolloutPill({ rolloutBp }: { rolloutBp: number }) {
+  const color = rolloutColor(rolloutBp);
+  return (
+    <span
+      className="rounded-full px-2 py-0.5 text-[11px] font-semibold text-white"
+      style={{ backgroundColor: color }}
+    >
+      {percent(rolloutBp)}
+    </span>
+  );
+}
+
 function Pill({ children, tone = "zinc" }: { children: React.ReactNode; tone?: "zinc" | "green" | "amber" | "red" | "blue" }) {
   const tones = {
     zinc: "bg-zinc-100 text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400",
@@ -296,7 +329,7 @@ export function FeaturesPanel() {
                     ) : feature.rolloutBp >= 10_000 ? (
                       <Pill tone="green">{t("admin.features.fullyLaunched")}</Pill>
                     ) : (
-                      <Pill tone="amber">{percent(feature.rolloutBp)}</Pill>
+                      <RolloutPill rolloutBp={feature.rolloutBp} />
                     )}
                     {feature.variants.length > 1 && (
                       <Pill>{t("admin.features.variantsCount", { count: feature.variants.length })}</Pill>
@@ -310,8 +343,11 @@ export function FeaturesPanel() {
                 {/* The rollout as a bar, readable at a glance down the list. */}
                 <span className="mt-1 hidden h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-zinc-200 sm:block dark:bg-zinc-800">
                   <span
-                    className={`block h-full ${feature.enabled ? "bg-emerald-500" : "bg-zinc-400"}`}
-                    style={{ width: `${feature.rolloutBp / 100}%` }}
+                    className={`block h-full ${feature.enabled ? "" : "bg-zinc-400"}`}
+                    style={{
+                      width: `${feature.rolloutBp / 100}%`,
+                      ...(feature.enabled ? { backgroundColor: rolloutColor(feature.rolloutBp) } : {}),
+                    }}
                   />
                 </span>
                 {open === feature.key ? (

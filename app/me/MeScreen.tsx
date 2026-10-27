@@ -339,7 +339,7 @@ export function MeScreen() {
               be undone. Leads to a page that asks for a fresh sign-in and the
               username typed back before anything happens. */}
           {accountDelete.enabled && !account.bot && (
-            <Row href="/me/excluir" icon={MdDeleteOutline} label={t("accountDelete.row")} tone="red" />
+            <Row href="/me/excluir" icon={MdDeleteOutline} label={t("accountDelete.row")} tone="danger" />
           )}
         </Section>
       )}
@@ -389,19 +389,28 @@ function Row({
   icon: ComponentType<{ className?: string }>;
   iconClassName?: string;
   label: string;
-  tone?: "red" | "purple";
+  // "danger": filled red, for the one row that cannot be undone.
+  tone?: "red" | "purple" | "danger";
   chevron?: boolean;
   /** The blue "NOVO", for a row that has just appeared. */
   badge?: ReactNode;
 }) {
   const color =
-    tone === "red" ? "text-red-600 dark:text-red-500" : tone === "purple" ? "text-purple-600 dark:text-purple-400" : "";
+    tone === "danger"
+      ? "!bg-red-600 !text-white hover:!bg-red-700 active:!bg-red-800"
+      : tone === "red"
+        ? "text-red-600 dark:text-red-500"
+        : tone === "purple"
+          ? "text-purple-600 dark:text-purple-400"
+          : "";
   const inner = (
     <>
       <Icon className={`h-5 w-5 shrink-0 opacity-80 ${iconClassName}`} />
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {badge}
-      {chevron && <MdChevronRight className="h-5 w-5 shrink-0 text-zinc-400" />}
+      {chevron && (
+        <MdChevronRight className={`h-5 w-5 shrink-0 ${tone === "danger" ? "text-white/80" : "text-zinc-400"}`} />
+      )}
     </>
   );
   return href ? (
