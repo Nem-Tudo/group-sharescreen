@@ -78,6 +78,30 @@ export interface SessionAccumulator {
   freezeSeconds: number;
   dropWeighted: number;
   causeCounts: Partial<Record<CauseId, number>>;
+  qpSum: number;
+  qpCount: number;
+  resolutionChanges: number;
+  /** What our quality controller did to this viewer — send only, see SenderControlSample. */
+  ratioSum: number;
+  ratioCount: number;
+  ratioMin: number | null;
+  ceilingKbpsSum: number;
+  ceilingKbpsCount: number;
+  tier: string | null;
+  degradationPreference: string | null;
+}
+
+/**
+ * The sender's quality controller for this connection, read beside each
+ * snapshot (see lib/peerQualityController's senderQualityState). Without it a
+ * low bitrate cannot be pinned on the viewer's small tile, on our congestion
+ * layer or on the encoder not using what it was given.
+ */
+export interface SenderControlSample {
+  tier: string;
+  ceilingKbps: number;
+  ratio: number;
+  degradationPreference: string;
 }
 
 // A session at 10-second sampling for three hours is ~1000 samples; the fps
@@ -117,12 +141,30 @@ export function createAccumulator(startedAt: number): SessionAccumulator {
     freezeSeconds: 0,
     dropWeighted: 0,
     causeCounts: {},
+    qpSum: 0,
+    qpCount: 0,
+    resolutionChanges: 0,
+    ratioSum: 0,
+    ratioCount: 0,
+    ratioMin: null,
+    ceilingKbpsSum: 0,
+    ceilingKbpsCount: 0,
+    tier: null,
+    degradationPreference: null,
   };
 }
 
 /** Adds one snapshot. Mutates and returns `acc`. */
-export function addSnapshot(acc: SessionAccumulator, snapshot: PcSnapshot): SessionAccumulator {
+export function addSnapshot(
+  acc: SessionAccumulator,
+  snapshot: PcSnapshot,
+  control: SenderControlSample | null = null
+): SessionAccumulator {
   const { route, send, recv, intervalSeconds } = snapshot;
+  if (control) {
+    acc.tier = control.tier;
+    acc.degradationPreference = control.degradationPreference;
+  }
   if (route.kind !== "unknown") {
     if (!acc.routeKinds.includes(route.kind)) acc.routeKinds.push(route.kind);
     acc.localType = route.localType;
@@ -167,6 +209,18 @@ export function addSnapshot(acc: SessionAccumulator, snapshot: PcSnapshot): Sess
       acc.cpuLimitedSeconds += send.cpuLimitedShare * intervalSeconds;
       acc.bandwidthLimitedSeconds += send.bandwidthLimitedShare * intervalSeconds;
       acc.maxLoss = Math.max(acc.maxLoss, send.remoteLoss);
+      if (send.qp != null && send.qp > 0) {
+        acc.qpSum += send.qp;
+        acc.qpCount += 1;
+      }
+      acc.resolutionChanges += send.resolutionChanges ?? 0;
+      if (control) {
+        acc.ratioSum += control.ratio;
+        acc.ratioCount += 1;
+        acc.ratioMin = acc.ratioMin === null ? control.ratio : Math.min(acc.ratioMin, control.ratio);
+        acc.ceilingKbpsSum += control.ceilingKbps;
+        acc.ceilingKbpsCount += 1;
+      }
     }
     if (recv) {
       acc.freezes += recv.freezes;
@@ -209,9 +263,56 @@ export interface SessionSummary {
   freezes: number | null;
   freezeSeconds: number | null;
   dropShare: number | null;
-  /** Causes present in at least CAUSE_PRESENCE of the measured samples. */
+  /** Send only: average QP of what was encoded (codec-specific scale, see SendVideoStats.qp). */
+  qpAvg: number | null;
+  /** Send only: resolution changes the encoder made for quality reasons. */
+  resolutionChanges: number | null;
+  /** Send only: the tier actually sent, last seen. */
+  tier: string | null;
+  /** Send only: the ceiling our controller handed the encoder before the congestion ratio, average kbps. */
+  ceilingKbpsAvg: number | null;
+  /** Send only: our congestion ratio, average and lowest (see lib/congestionControl). */
+  congestionRatioAvg: number | null;
+  congestionRatioMin: number | null;
+  /** Send only: the degradation preference the encoder ran under, last seen. */
+  degradationPreference: string | null;
+  /**
+   * Causes present in at least CAUSE_PRESENCE of the measured samples, plus
+   * the session-level "low-source-fps".
+   */
   causes: CauseId[];
   bad: boolean;
+  /**
+   * Which end a bad session is most likely down to; null for a good one.
+   * "unknown" is mostly a screen share's freezes, which a still screen also
+   * produces (see BAD_FREEZE_SHARE_SCREEN).
+   */
+  blame: Blame | null;
+}
+
+export type Blame = "sender" | "network" | "receiver" | "unknown";
+
+const NETWORK_CAUSES: ReadonlySet<CauseId> = new Set(["network-loss", "high-rtt", "turn", "turn-tcp"]);
+
+// Loss under which a slideshow cannot be the network's doing: below the point
+// where diagnose itself starts mentioning loss (THRESHOLDS.lossMedium).
+const SOURCE_FPS_MAX_LOSS = 0.03;
+
+/** See SessionSummary.blame. Pure on the causes, so it can be pinned in tests. */
+export function blameFor(direction: "send" | "recv", causes: readonly CauseId[], bad: boolean): Blame | null {
+  if (!bad) return null;
+  const network = causes.some((id) => NETWORK_CAUSES.has(id));
+  if (direction === "send") {
+    if (causes.includes("sender-cpu") || causes.includes("software-encoder")) return "sender";
+    // An encoder held back with loss or a queue on the path is the link; held
+    // back on a clean one, it is the encoder's own adaptation (its QP).
+    if (causes.includes("sender-bandwidth")) return network ? "network" : "sender";
+    return network ? "network" : "unknown";
+  }
+  if (causes.includes("receiver-drops")) return "receiver";
+  if (network) return "network";
+  if (causes.includes("low-source-fps")) return "sender";
+  return "unknown";
 }
 
 // A cause has to be present for a real stretch of the session to be named in
@@ -272,6 +373,14 @@ export function summarize(
   const dropShare = seconds > 0 ? acc.dropWeighted / seconds : 0;
   const slideshow =
     fpsAvg !== null && kbpsAvg !== null && fpsAvg < SLIDESHOW_FPS && kbpsAvg >= SLIDESHOW_MIN_KBPS;
+  // A received slideshow on a link that lost almost nothing and a machine that
+  // dropped almost nothing: the frames were never sent. The reports had 19% of
+  // bad received screens in exactly this state with no cause at all, and their
+  // broadcasters, matched up, were sending ~6 fps themselves.
+  if (direction === "recv" && slideshow && acc.maxLoss < SOURCE_FPS_MAX_LOSS && dropShare < BAD_DROP_SHARE) {
+    causes.push("low-source-fps");
+    causes.sort();
+  }
   const bad =
     causes.some((id) => HIGH_CAUSES.has(id)) ||
     (causes.includes("network-loss") && acc.maxLoss >= 0.08) ||
@@ -312,7 +421,16 @@ export function summarize(
     freezes: direction === "recv" ? acc.freezes : null,
     freezeSeconds: direction === "recv" ? round(acc.freezeSeconds, 1) : null,
     dropShare: direction === "recv" && seconds > 0 ? round(dropShare, 2) : null,
+    qpAvg: direction === "send" && acc.qpCount ? Math.round(acc.qpSum / acc.qpCount) : null,
+    resolutionChanges: direction === "send" ? acc.resolutionChanges : null,
+    tier: direction === "send" ? acc.tier : null,
+    ceilingKbpsAvg:
+      direction === "send" && acc.ceilingKbpsCount ? Math.round(acc.ceilingKbpsSum / acc.ceilingKbpsCount) : null,
+    congestionRatioAvg: direction === "send" && acc.ratioCount ? round(acc.ratioSum / acc.ratioCount, 2) : null,
+    congestionRatioMin: direction === "send" && acc.ratioMin !== null ? round(acc.ratioMin, 2) : null,
+    degradationPreference: direction === "send" ? acc.degradationPreference : null,
     causes,
     bad,
+    blame: blameFor(direction, causes, bad),
   };
 }

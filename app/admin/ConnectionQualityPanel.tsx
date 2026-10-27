@@ -342,6 +342,34 @@ export function ConnectionQualityPanel() {
             </Section>
           </div>
 
+          <div className="grid gap-6 lg:grid-cols-2">
+            <Section title={t("admin.connectionQualityPanel.byBlame")} hint={t("admin.connectionQualityPanel.byBlameHint")}>
+              <BucketTable
+                rows={data.byBlame ?? []}
+                columns={[t("admin.connectionQualityPanel.side"), t("admin.connectionQualityPanel.blame")]}
+                label={(r) => [
+                  directionLabel(r.key.direction),
+                  r.key.blame
+                    ? t(`admin.connectionQualityPanel.blame.${String(r.key.blame)}`)
+                    : t("admin.connectionQualityPanel.blame.none"),
+                ]}
+              />
+            </Section>
+            <Section
+              title={t("admin.connectionQualityPanel.byExperiment")}
+              hint={t("admin.connectionQualityPanel.byExperimentHint")}
+            >
+              <BucketTable
+                rows={data.byExperiment ?? []}
+                columns={[t("admin.connectionQualityPanel.side"), t("admin.connectionQualityPanel.experiment")]}
+                label={(r) => [
+                  directionLabel(r.key.direction),
+                  r.key.experiments ? String(r.key.experiments) : t("admin.connectionQualityPanel.control"),
+                ]}
+              />
+            </Section>
+          </div>
+
           <Section title={t("admin.connectionQualityPanel.causes")}>
             {data.causes.length === 0 ? (
               <p className="text-xs text-zinc-400">{t("admin.connectionQualityPanel.noData")}</p>

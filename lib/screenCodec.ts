@@ -20,6 +20,13 @@
 //              (MediaCapabilities powerEfficient), and VP9 first otherwise.
 //              "motion" keeps H264: frame rate is its whole point, and a
 //              software VP9 at 60 fps is the slower of the two.
+//   "fps"    — codec and profile unchanged, but "balanced" on a machine whose
+//              H264 encode is software runs under "maintain-framerate"
+//              instead of "balanced". Added 2026-10-27: the reports showed
+//              that pairing (Chrome + OpenH264 + balanced) sending ~540p at
+//              10 fps while using half its bitrate target — WebRTC's balanced
+//              adaptation answering the software encoder's high QP with frame
+//              rate cuts — and the same encoder under "motion" holding 22 fps.
 //
 // Read by useRoomMedia (which decides it, with useFeature) and by the codec
 // ordering deep in the send path — module state for the same reason as
@@ -29,7 +36,7 @@ import type { DegradationMode } from "./peerQualityController";
 
 export const SCREEN_CODEC_FEATURE = "screen-codec";
 
-export type ScreenCodecVariant = "text" | "auto";
+export type ScreenCodecVariant = "text" | "auto" | "fps";
 
 // Beyond the share statistics every screen share already reports (see
 // SCREEN_SHARE_STATS in useRoomMedia), which this experiment is compared on.
@@ -45,8 +52,12 @@ export const SCREEN_CODEC_EVENTS = {
 let variant: ScreenCodecVariant | null = null;
 
 export function setScreenCodecVariant(value: string | null) {
-  variant = value === "text" || value === "auto" ? value : null;
-  if (variant === "auto") void probeEncoders();
+  const next = value === "text" || value === "auto" || value === "fps" ? value : null;
+  if (next === variant) return;
+  variant = next;
+  if (variant === "auto" || variant === "fps") void probeEncoders();
+  // "fps" changes the degradation preference of senders already running.
+  for (const listener of listeners) listener();
 }
 
 export function getScreenCodecVariant(): ScreenCodecVariant | null {
@@ -63,6 +74,15 @@ export function getScreenCodecVariant(): ScreenCodecVariant | null {
 let h264Hardware: boolean | null = null;
 let vp9Hardware: boolean | null = null;
 let probe: Promise<void> | null = null;
+// Told when the variant changes or the probe answers — whatever might move
+// degradationPreferenceFor's answer (see peerQualityController).
+const listeners = new Set<() => void>();
+
+/** Calls `listener` whenever this experiment's say over the encoder may have changed. */
+export function onScreenCodecChange(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
 
 async function powerEfficient(contentType: string): Promise<boolean | null> {
   try {
@@ -88,6 +108,7 @@ export function probeEncoders(): Promise<void> {
     const [h264, vp9] = await Promise.all([powerEfficient("video/H264"), powerEfficient("video/VP9")]);
     h264Hardware = h264;
     vp9Hardware = vp9;
+    for (const listener of listeners) listener();
   })();
   return probe;
 }
@@ -110,6 +131,19 @@ export function plannedFirstCodec(mode: DegradationMode): "vp9" | "h264" | null 
   if (h264Hardware === true) return "h264";
   if (h264Hardware === false) return "vp9";
   return null;
+}
+
+/**
+ * The degradation preference our own share's encoder runs under for `mode`.
+ * Only variant "fps" ever departs from the profile's own (see the head of the
+ * file); everywhere else, and until the probe has answered, it is `fallback`.
+ */
+export function degradationPreferenceFor(
+  mode: DegradationMode,
+  fallback: RTCDegradationPreference
+): RTCDegradationPreference {
+  if (variant === "fps" && mode === "balanced" && h264Hardware === false) return "maintain-framerate";
+  return fallback;
 }
 
 /**

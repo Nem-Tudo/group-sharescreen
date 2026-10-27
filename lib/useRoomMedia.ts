@@ -125,6 +125,13 @@ import {
   setMemoryGuardEnabled,
 } from "./memoryGuard";
 import { SCREEN_CODEC_EVENTS, SCREEN_CODEC_FEATURE, setScreenCodecVariant } from "./screenCodec";
+import { CONGESTION_RECOVER_FEATURE, setCongestionRecoverEnabled } from "./congestionRecover";
+import {
+  applyReceiveCodecPreferences,
+  isReceiveCodecEligible,
+  RECEIVE_CODEC_FEATURE,
+  setReceiveCodecEnabled,
+} from "./receiveCodec";
 import { TILE_EXPERIMENT_EVENTS, trackTileExperiment, useTileExperiment } from "./clipsMode";
 import {
   answerMirroringStereo,
@@ -1008,7 +1015,7 @@ function useBroadcastChannel(
   // telemetry now comes from the single shared mediaStats pump instead of one
   // timer and one getStats() pass per peer, which in a 30-person room was 29
   // uncoordinated polls competing with the encoding those same 29 peers need.
-  const qualityRegistry = useRef(new PeerQualityRegistry(`channel:${channel}`));
+  const qualityRegistry = useRef(new PeerQualityRegistry(`channel:${channel}`, channel.startsWith("screen")));
   // Tier each viewer has asked us for, from the size they render us at (see
   // qualityNegotiation). Kept outside the controllers because a request can
   // arrive before that peer's sendPC exists, and must survive a reconnect.
@@ -2635,6 +2642,9 @@ function useBroadcastChannel(
                   await thisPc.addIceCandidate(candidate).catch(() => {});
                 }
               }
+              // Experiment "recv-codec" (see lib/receiveCodec): the answer's
+              // codec order is what the sender encodes with.
+              if (channel !== "mic") applyReceiveCodecPreferences(thisPc);
               return thisPc.createAnswer();
             })
             .then((answer) => {
@@ -4486,6 +4496,25 @@ export function useRoomMedia(room: string) {
   useFeature(OWN_TURN_FEATURE, {
     track: screen.active || Object.keys(screen.remoteStreams).length > 0,
   });
+  // Experiment "congestion-recover" (see lib/congestionRecover): read by every
+  // sender's congestion step, so a plain module flag; exposed while sharing
+  // the screen, the only time it can move anything.
+  const congestionRecover = useFeature(CONGESTION_RECOVER_FEATURE, { track: screen.active });
+  useEffect(() => {
+    setCongestionRecoverEnabled(congestionRecover.enabled);
+  }, [congestionRecover.enabled]);
+  // Experiment "recv-codec" (see lib/receiveCodec): only viewers on Safari or a
+  // phone are covered, and they are exposed once they receive video. Applied
+  // to answers as they are made, so a stream already running keeps its codec
+  // until its next negotiation.
+  const receivingVideo =
+    Object.keys(screen.remoteStreams).length > 0 || Object.keys(camera.remoteStreams).length > 0;
+  const receiveCodec = useFeature(RECEIVE_CODEC_FEATURE, {
+    track: receivingVideo && isReceiveCodecEligible(),
+  });
+  useEffect(() => {
+    setReceiveCodecEnabled(receiveCodec.enabled);
+  }, [receiveCodec.enabled]);
 
   // Experiment "stream-perf" (see lib/streamPerf). An exposure only once a
   // screen share is running, which is the only time it changes anything.

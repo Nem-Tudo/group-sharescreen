@@ -80,6 +80,17 @@ export interface SendVideoStats {
    * browser does not report it.
    */
   targetKbps?: number | null;
+  /**
+   * Average QP of the frames encoded over the interval — the encoder's own
+   * measure of how coarsely it quantised. High QP is what WebRTC's quality
+   * scaler answers by cutting resolution and frame rate, and it files that
+   * under "bandwidth"; this is what tells it apart from a link that is short.
+   * Codec-specific scale (H264 0–51, VP8/VP9 0–127/255), so only comparable
+   * within a codec. Null where not reported or on a first sample.
+   */
+  qp?: number | null;
+  /** Times the encoder changed resolution for quality reasons over the interval. */
+  resolutionChanges?: number;
 }
 
 export interface RecvVideoStats {
@@ -116,6 +127,8 @@ export interface StatsCounters {
   at: number;
   bytesSent: number;
   framesEncoded: number;
+  qpSum: number;
+  resolutionChanges: number;
   nackCount: number;
   pliCount: number;
   limitCpu: number;
@@ -269,6 +282,8 @@ export function readPcStats(
     at: now,
     bytesSent: num(outbound?.bytesSent),
     framesEncoded: num(outbound?.framesEncoded),
+    qpSum: num(outbound?.qpSum),
+    resolutionChanges: num(outbound?.qualityLimitationResolutionChanges),
     nackCount: num(outbound?.nackCount),
     pliCount: num(outbound?.pliCount),
     limitCpu,
@@ -321,6 +336,8 @@ export function readPcStats(
       nackPerSecond: round2(perSecond(d("nackCount"), seconds)),
       pliPerSecond: round2(perSecond(d("pliCount"), seconds)),
       targetKbps: num(outbound.targetBitrate) > 0 ? Math.round(num(outbound.targetBitrate) / 1000) : null,
+      qp: d("framesEncoded") > 0 && d("qpSum") > 0 ? Math.round(d("qpSum") / d("framesEncoded")) : null,
+      resolutionChanges: d("resolutionChanges"),
     };
     // A sender-side pc usually has no selected-pair RTT in Firefox; the
     // receiver's own report of it is the next best thing.
@@ -386,6 +403,10 @@ export type CauseId =
   | "network-loss"
   | "high-rtt"
   | "receiver-drops"
+  // Session-level only, never in a live sample (see connectionTelemetrySummary):
+  // a received picture that is a slideshow on a clean link, so the frames were
+  // never sent — the broadcaster's encoder is where it went wrong.
+  | "low-source-fps"
   | "freezes";
 
 export type Severity = "high" | "medium";

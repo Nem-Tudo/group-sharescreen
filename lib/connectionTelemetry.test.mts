@@ -7,10 +7,12 @@
 import assert from "node:assert/strict";
 import {
   addSnapshot,
+  blameFor,
   createAccumulator,
   estimateBadRate,
   estimateSessions,
   summarize,
+  type SenderControlSample,
 } from "./connectionTelemetrySummary";
 import type { PcSnapshot, RecvVideoStats, RouteInfo, SendVideoStats } from "./connectionDiagnostics";
 
@@ -197,5 +199,56 @@ assert.equal(estimateBadRate(50, 5, 1), 0.1);
 // No sampling information: the raw count is all there is.
 assert.equal(estimateSessions(28, 10, 0), 28);
 assert.equal(estimateBadRate(0, 0, 0.2), 0);
+
+// A received slideshow on a clean link is the broadcaster's doing: named
+// "low-source-fps" and blamed on the sender.
+{
+  const s = session("recv", 12, () => ({ recv: recv({ fps: 5, kbps: 1000 }) }), "screen");
+  assert.equal(s.bad, true);
+  assert.ok(s.causes.includes("low-source-fps"));
+  assert.equal(s.blame, "sender");
+}
+// The same slideshow with real loss is the network's.
+{
+  const s = session("recv", 12, () => ({ recv: recv({ fps: 5, kbps: 1000, loss: 0.1 }) }), "screen");
+  assert.ok(!s.causes.includes("low-source-fps"));
+  assert.equal(s.blame, "network");
+}
+// A good session carries no blame.
+assert.equal(session("recv", 12, () => ({ recv: recv() })).blame, null);
+
+// Blame on the send side: held back on a clean link is the encoder; with loss, the link.
+assert.equal(blameFor("send", ["sender-bandwidth"], true), "sender");
+assert.equal(blameFor("send", ["network-loss", "sender-bandwidth"], true), "network");
+assert.equal(blameFor("send", ["sender-cpu", "network-loss"], true), "sender");
+assert.equal(blameFor("recv", ["freezes"], true), "unknown");
+assert.equal(blameFor("recv", ["freezes", "receiver-drops"], true), "receiver");
+
+// What the encoder and our controller did, averaged over a send session.
+{
+  const acc = createAccumulator(0);
+  const control = (ratio: number): SenderControlSample => ({
+    tier: "1080p30",
+    ceilingKbps: 4000,
+    ratio,
+    degradationPreference: "balanced",
+  });
+  addSnapshot(acc, snap({ send: send(), intervalSeconds: 0 }, 0), control(1));
+  for (let i = 1; i <= 4; i += 1) {
+    addSnapshot(acc, snap({ send: send({ qp: 30 + i * 2, resolutionChanges: 1 }) }, i * 10_000), control(i % 2 ? 0.5 : 1));
+  }
+  const s = summarize(acc, 50_000, "send", "screen");
+  assert.equal(s.qpAvg, 35);
+  assert.equal(s.resolutionChanges, 4);
+  assert.equal(s.tier, "1080p30");
+  assert.equal(s.ceilingKbpsAvg, 4000);
+  assert.equal(s.congestionRatioAvg, 0.75);
+  assert.equal(s.congestionRatioMin, 0.5);
+  assert.equal(s.degradationPreference, "balanced");
+  // None of it belongs on a recv report.
+  const r = session("recv", 4, () => ({ recv: recv() }));
+  assert.equal(r.qpAvg, null);
+  assert.equal(r.congestionRatioAvg, null);
+}
 
 console.log("connectionTelemetry: ok");

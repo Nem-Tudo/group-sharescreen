@@ -94,12 +94,32 @@ export function initialCongestionState(): CongestionState {
   return { ratio: 1, healthyStreak: 0, badStreak: 0, rttFloor: 0 };
 }
 
+export interface CongestionOptions {
+  /**
+   * Experiment "congestion-recover" (see lib/congestionRecover): count a clean
+   * link as healthy even while the encoder says it is limited.
+   *
+   * Recovery used to demand qualityLimitationReason "none" on top of a clean
+   * link. A software H264 encoder almost never reports "none" — WebRTC files
+   * its QP-driven quality scaling under "bandwidth" — so once a burst of loss
+   * had cut its ratio, nothing could bring it back for the rest of the
+   * session. A backoff still needs "limited" (that is the evidence it acts
+   * on); recovery, with this, needs only what recovery is about: no loss and
+   * no standing queue. Real congestion is still WebRTC's to answer first.
+   */
+  recoverWhileLimited?: boolean;
+}
+
 /**
  * The control law, as one pure step: what a single telemetry sample does to a
  * viewer's congestion state. See the head of this file for why it lives on
  * its own.
  */
-export function congestionStep(state: CongestionState, sample: SenderSample): CongestionState {
+export function congestionStep(
+  state: CongestionState,
+  sample: SenderSample,
+  options: CongestionOptions = {}
+): CongestionState {
   const { fractionLost, rtt, qualityLimitationReason } = sample;
   const rttFloor = nextRttFloor(state.rttFloor, rtt);
   const rttExcess = rttFloor > 0 ? rtt - rttFloor : 0;
@@ -124,7 +144,9 @@ export function congestionStep(state: CongestionState, sample: SenderSample): Co
   const limited = qualityLimitationReason === "bandwidth" || qualityLimitationReason === "cpu";
   const congested = limited && (fractionLost > LOSS_BAD || rttExcess > RTT_EXCESS_BAD);
   const healthy =
-    qualityLimitationReason === "none" && fractionLost <= LOSS_GOOD && rttExcess < RTT_EXCESS_GOOD;
+    (qualityLimitationReason === "none" || options.recoverWhileLimited === true) &&
+    fractionLost <= LOSS_GOOD &&
+    rttExcess < RTT_EXCESS_GOOD;
 
   if (congested) {
     const badStreak = state.badStreak + 1;

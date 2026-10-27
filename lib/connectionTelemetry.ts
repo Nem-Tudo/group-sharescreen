@@ -45,6 +45,14 @@ import { trackFeatureEvent } from "./features";
 import { defaultShareProfile, getScreenCodecVariant, isH264Hardware, SCREEN_CODEC_FEATURE } from "./screenCodec";
 import { getOwnTurnVariant, OWN_TURN_EVENTS, OWN_TURN_FEATURE } from "./ownTurn";
 import { isMemoryGuardEnabled, MEMORY_GUARD_FEATURE } from "./memoryGuard";
+import { CONGESTION_RECOVER_FEATURE, isCongestionRecoverEnabled } from "./congestionRecover";
+import {
+  countReceiveCodecSession,
+  isReceiveCodecEligible,
+  isReceiveCodecEnabled,
+  RECEIVE_CODEC_FEATURE,
+} from "./receiveCodec";
+import { senderQualityState } from "./peerQualityController";
 
 const ENABLED = process.env.NEXT_PUBLIC_QUALITY_TELEMETRY_ENABLED !== "false";
 
@@ -120,6 +128,8 @@ function experimentsTag(): string | null {
   const turn = getOwnTurnVariant();
   if (turn) parts.push(`${OWN_TURN_FEATURE}=${turn}`);
   if (isMemoryGuardEnabled()) parts.push(`${MEMORY_GUARD_FEATURE}=on`);
+  if (isCongestionRecoverEnabled()) parts.push(`${CONGESTION_RECOVER_FEATURE}=on`);
+  if (isReceiveCodecEnabled() && isReceiveCodecEligible()) parts.push(`${RECEIVE_CODEC_FEATURE}=on`);
   return parts.length > 0 ? parts.join(";") : null;
 }
 
@@ -213,7 +223,11 @@ class ConnectionTelemetry {
       const snapshot = await this.sample(session.connection.pc);
       // Closed while awaiting: close() has already summarised it.
       if (!snapshot || !this.sessions.has(session.connection.pc)) continue;
-      addSnapshot(session.acc, snapshot);
+      // What our quality controller is doing to this viewer, read beside the
+      // encoder's own numbers (see SenderControlSample).
+      const control =
+        session.connection.direction === "send" ? senderQualityState(session.connection.pc) : null;
+      addSnapshot(session.acc, snapshot, control);
     }
   }
 
@@ -241,6 +255,11 @@ class ConnectionTelemetry {
     // Counted before the sampling below, since every relayed session matters
     // to experiment "own-turn" and not only the ones that get reported.
     this.countOwnTurn(summary, provider);
+    // Likewise experiment "recv-codec": every received video session of an
+    // eligible viewer, on both of its sides.
+    if (connection.direction === "recv" && (connection.channel.startsWith("screen") || connection.channel.startsWith("camera"))) {
+      countReceiveCodecSession(summary);
+    }
     if (!summary.bad && Math.random() >= QUALITY_SAMPLE_RATE) return null;
 
     const ownShare = connection.direction === "send" && !connection.viaRelay;

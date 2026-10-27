@@ -176,6 +176,19 @@ gargalo é a VPS do TURN. Se as sessões ruins se concentram em poucos
 software × um encode por espectador). Se um **espectador** é ruim com todo
 mundo e a causa é `receiver-drops`, é a máquina de quem assiste.
 
+Leitura de 27/10/2026 (~1,9 mi de relatórios em 14 dias): o TURN pesava menos
+de 2%; o grosso era Chrome + OpenH264 (software) no "equilibrado" — rotulado
+`sender-bandwidth` com o dobro do alvo disponível, mandando ~540p a 10 fps e
+usando metade do alvo. Esse rótulo é o quality scaler do WebRTC (QP alto), não
+a rede. Por isso os relatórios de envio passaram a trazer `qpAvg`,
+`resolutionChanges`, `tier`, `ceilingKbpsAvg`, `congestionRatioAvg/Min` e
+`degradationPreference` (o estado do `PeerQualityController` ao lado do que o
+encoder fez), e todo relatório ruim traz `blame` (`sender` / `network` /
+`receiver` / `unknown`, ver `blameFor`). Um slideshow recebido com rede limpa
+ganha a causa `low-source-fps`, porque os quadros nunca foram enviados. Os
+experiments abertos a partir dessa leitura são `screen-codec` (variante
+`fps`), `congestion-recover` e `recv-codec`.
+
 ## Verificar
 
 ```bash

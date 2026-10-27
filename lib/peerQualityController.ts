@@ -42,6 +42,8 @@ import {
 import { RELAY_ROUTE_CAP, RELAY_ROUTE_MAX_KBPS, watchTurnRelay } from "./turnRoute";
 import type { TurnProvider } from "./iceConfig";
 import { OWN_TURN_LEAN_KBPS, OWN_TURN_LEAN_TIER, ownTurnLeanCap } from "./ownTurn";
+import { degradationPreferenceFor, onScreenCodecChange } from "./screenCodec";
+import { isCongestionRecoverEnabled } from "./congestionRecover";
 
 // What the broadcaster says they are sharing, which decides how the encoder
 // spends a shortage — of bits, of CPU, or both.
@@ -136,6 +138,35 @@ export function refreshRelayCaps() {
   for (const c of liveControllers) c.refreshRouteCap();
 }
 
+// Experiment "screen-codec"'s "fps" variant can move a running share's
+// degradation preference: when it is decided, and again when the encoder
+// probe answers. apply()'s own guard drops the calls that change nothing.
+onScreenCodecChange(() => {
+  for (const c of liveControllers) c.apply();
+});
+
+/** What a sender's controller is doing to one viewer, for the quality reports. */
+export interface SenderQualityState {
+  /** The tier actually sent, after any route cap. */
+  tier: QualityTier;
+  /** The ceiling handed to the encoder before the congestion ratio, kbps. */
+  ceilingKbps: number;
+  /** The congestion ratio, 0..1 (see lib/congestionControl). */
+  ratio: number;
+  degradationPreference: RTCDegradationPreference;
+}
+
+// The controller behind each send pc, for lib/connectionTelemetry: the reports
+// need the tier, ceiling and ratio next to what the encoder did with them, or a
+// low bitrate cannot be told apart between "the viewer's tile is small", "our
+// congestion layer cut it" and "the encoder did not use what it had".
+const controllerByPc = new WeakMap<RTCPeerConnection, PeerQualityController>();
+
+/** The quality state of the controller sending on `pc`, or null when there is none. */
+export function senderQualityState(pc: RTCPeerConnection): SenderQualityState | null {
+  return controllerByPc.get(pc)?.qualityState() ?? null;
+}
+
 export class PeerQualityController {
   private congestion = initialCongestionState();
   private appliedKbps = 0;
@@ -148,7 +179,7 @@ export class PeerQualityController {
   // The mode those two numbers were pushed with. Null means nothing is known
   // to have reached the sender — the initial state, and what a rejected
   // setParameters restores.
-  private appliedDegradation: DegradationMode | null = null;
+  private appliedPreference: RTCDegradationPreference | null = null;
   // Which apply() a given setParameters belongs to. Without it a call that
   // rejects late rolls back the record of a *later* one that succeeded, and
   // the controller then re-pushes parameters the sender is already carrying.
@@ -180,9 +211,37 @@ export class PeerQualityController {
     // The broadcaster's bitrate dial, in kbps. A hard limit on what this
     // viewer may be given; the tier decides how much of it is actually used.
     private bitrateCeilingKbps: number,
-    private degradation: DegradationMode
+    private degradation: DegradationMode,
+    // Our own share, as opposed to a relay's re-encode of somebody else's:
+    // only our own share is under experiment "screen-codec".
+    private ownShare = false
   ) {
     liveControllers.add(this);
+  }
+
+  /** See senderQualityState. */
+  qualityState(): SenderQualityState {
+    const tier = this.sentTier();
+    return {
+      tier,
+      ceilingKbps: this.ceilingKbps(tier),
+      ratio: this.congestion.ratio,
+      degradationPreference: this.degradationPreference(),
+    };
+  }
+
+  private degradationPreference(): RTCDegradationPreference {
+    const own = DEGRADATION_PREFERENCE[this.degradation];
+    return this.ownShare ? degradationPreferenceFor(this.degradation, own) : own;
+  }
+
+  private ceilingKbps(tier: QualityTier): number {
+    return this.routeCapped()
+      ? Math.min(
+          encoderCeilingKbps(tier, this.bitrateCeilingKbps),
+          this.leanCapped() ? OWN_TURN_LEAN_KBPS : RELAY_ROUTE_MAX_KBPS
+        )
+      : encoderCeilingKbps(tier, this.bitrateCeilingKbps);
   }
 
   /**
@@ -275,7 +334,9 @@ export class PeerQualityController {
   /** Feed one telemetry sample for this peer. */
   onSample(sample: SenderSample) {
     if (this.disposed) return;
-    const next = congestionStep(this.congestion, sample);
+    const next = congestionStep(this.congestion, sample, {
+      recoverWhileLimited: isCongestionRecoverEnabled(),
+    });
     const changed = next.ratio !== this.congestion.ratio;
     this.congestion = next;
     if (changed) this.apply();
@@ -301,12 +362,8 @@ export class PeerQualityController {
     // controls.
     const tier = this.sentTier();
     const tierKbps = tierSpec(tier).baseKbps;
-    const ceilingKbps = this.routeCapped()
-      ? Math.min(
-          encoderCeilingKbps(tier, this.bitrateCeilingKbps),
-          this.leanCapped() ? OWN_TURN_LEAN_KBPS : RELAY_ROUTE_MAX_KBPS
-        )
-      : encoderCeilingKbps(tier, this.bitrateCeilingKbps);
+    const ceilingKbps = this.ceilingKbps(tier);
+    const preference = this.degradationPreference();
     const targetKbps = congestedBitrateKbps(ceilingKbps, this.congestion.ratio);
     const tierScale = scaleFactorFor(tier, this.captureHeight);
     const share = tierKbps > 0 ? targetKbps / tierKbps : 1;
@@ -338,7 +395,7 @@ export class PeerQualityController {
     // restarting the whole share cleared it.
     const framerate = tierSpec(tier).frameRate;
     if (
-      this.appliedDegradation === this.degradation &&
+      this.appliedPreference === preference &&
       Math.abs(targetKbps - this.appliedKbps) < Math.max(50, this.appliedKbps * 0.05) &&
       scale === this.appliedScale &&
       framerate === this.appliedFramerate
@@ -361,7 +418,7 @@ export class PeerQualityController {
     this.appliedKbps = targetKbps;
     this.appliedScale = scale;
     this.appliedFramerate = framerate;
-    this.appliedDegradation = this.degradation;
+    this.appliedPreference = preference;
     const seq = (this.applySeq += 1);
     const encodings =
       params.encodings && params.encodings.length > 0 ? params.encodings : [{} as RTCRtpEncodingParameters];
@@ -372,7 +429,7 @@ export class PeerQualityController {
     // See DEGRADATION_PREFERENCE. Choosing wrong is not subtle: a 60fps share
     // under maintain-resolution degrades into a slideshow rather than
     // softening.
-    params.degradationPreference = DEGRADATION_PREFERENCE[this.degradation];
+    params.degradationPreference = preference;
     this.sender.setParameters(params).then(
       () => {
         if (seq !== this.applySeq) return;
@@ -389,7 +446,7 @@ export class PeerQualityController {
         this.appliedKbps = 0;
         this.appliedScale = 0;
         this.appliedFramerate = 0;
-        this.appliedDegradation = null;
+        this.appliedPreference = null;
         // And undoing it is not enough on its own, which is the part that
         // bites. apply() runs when something moves — a tier, a dial, a
         // congestion ratio — and a profile switch on a settled link moves
@@ -446,7 +503,11 @@ export class PeerQualityRegistry {
    * the camera's loss and RTT; and closing either channel's connection
    * unregistered the other one's sender along with it.
    */
-  constructor(namespace: string) {
+  constructor(
+    namespace: string,
+    // A broadcaster's own screen share — see PeerQualityController's ownShare.
+    private ownShare = false
+  ) {
     this.keyPrefix = `${namespace}\u0000`;
   }
 
@@ -479,9 +540,11 @@ export class PeerQualityRegistry {
       tier,
       captureHeight,
       this.bitrateCeilingKbps,
-      this.degradation
+      this.degradation,
+      this.ownShare
     );
     this.controllers.set(peerId, controller);
+    controllerByPc.set(pc, controller);
     mediaStats.register(key, pc, sender, tier);
     controller.apply();
     // Our own end relaying through TURN. The viewer's end is theirs to

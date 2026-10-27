@@ -236,6 +236,8 @@ export type ConnectionQualityOverview = {
   byProfile: QualityBucket[];
   byApp: QualityBucket[];
   byBrowser: QualityBucket[];
+  byBlame?: QualityBucket[];
+  byExperiment?: QualityBucket[];
   causes: { cause: string; count: number }[];
   topSenders: QualityPerson[];
   topReceivers: QualityPerson[];
