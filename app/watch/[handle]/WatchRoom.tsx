@@ -219,6 +219,8 @@ import { Tooltip, Popover } from "@/components/Tooltip";
 import { ThemeSegmented } from "@/components/ThemeToggle";
 import { MenuToggleRow } from "@/components/MenuToggleRow";
 import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
+import { CameraEffectsPanel } from "@/components/CameraEffectsPanel";
+import { useCameraEffectsSupported } from "@/lib/cameraEffects";
 import { trackFeatureEvent, useFeature } from "@/lib/features";
 import type { CallSource } from "@/lib/callRecording";
 import { CALL_RECORDING_FEATURE, trackCallRecordingOpen, useCallRecording } from "@/lib/useCallRecording";
@@ -856,7 +858,15 @@ function ShareControls({
   compact = false,
   extraMotion = "",
   addScreen = null,
+  cameraEffects = null,
 }: {
+  // "Efeitos de câmera" (see lib/cameraEffects): its switch and choices, at
+  // the bottom of the camera's panel, and the blue "novo" tip on the arrow
+  // that opens it. Null where the person does not have it.
+  cameraEffects?: {
+    panel: ReactNode;
+    tip: { show: boolean; dismiss: () => void; clicked: () => void };
+  } | null;
   // "Várias telas" (see lib/multiScreen): the "+" beside the screen button
   // while a screen is going out. Null where the person does not have it.
   // `items` is every screen going out, each closable on its own — listed in
@@ -949,6 +959,9 @@ function ShareControls({
   // A list of cameras to pick from: a computer with more than one. A phone
   // gets the flip button instead (see below), never both.
   const canPickCamera = cameraSupported && !onPhone && cameraDevices.length > 1;
+  // The camera's panel exists when there is something in it: a camera to
+  // pick, or the effects. The effects alone are reason enough on a phone too.
+  const hasCameraPanel = cameraSupported && (canPickCamera || Boolean(cameraEffects));
   const screenBlocked = !screenSharing && Boolean(screenBlockedReason);
   const atScreenLimit = Boolean(addScreen && addScreen.count >= addScreen.limit);
   const upgradeMark = addScreen?.upgrade ? planIcon(tierIconId(addScreen.upgrade.tier)) : null;
@@ -1158,8 +1171,9 @@ function ShareControls({
         onRequestAccount={onRequestAccount ?? (() => {})}
         onOpenAllShortcuts={onOpenAllShortcuts}
         extra={
-          canPickCamera ? (
+          hasCameraPanel ? (
             <div className="w-64 max-w-[calc(100vw-2rem)]">
+              {canPickCamera && (
               <DeviceSubmenuRow
                 label={t("common.chooseCamera")}
                 current={
@@ -1181,6 +1195,8 @@ function ShareControls({
                   />
                 ))}
               </DeviceSubmenuRow>
+              )}
+              {cameraEffects?.panel}
             </div>
           ) : undefined
         }
@@ -1206,15 +1222,42 @@ function ShareControls({
         {/* Inside the panel's anchor, like the mic's arrow — see there. Only
             where there is a choice to make: on the one-webcam laptop most
             people are on, an arrow over a single entry is clutter. */}
-        {extra(canPickCamera ? (
+        {extra(hasCameraPanel ? (
+          <Tippy
+            visible={Boolean(cameraEffects?.tip.show) && quickShortcutAction !== "toggleCamera"}
+            placement="bottom"
+            interactive
+            theme="golive-panel"
+            appendTo={() => document.body}
+            content={
+              <span
+                role="status"
+                className="relative block w-60 rounded-lg bg-blue-600 px-3 py-2 text-left text-xs font-medium text-white shadow-lg"
+              >
+                <span className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
+                <span className="flex items-start gap-2">
+                  <span className="flex-1">{t("watch.watchRoom.cameraEffectsTip")}</span>
+                  <button
+                    type="button"
+                    onClick={cameraEffects?.tip.dismiss}
+                    aria-label={t("watch.watchRoom.clipsModeTipDismiss")}
+                    className="-m-1 rounded p-1 leading-none text-white/80 hover:text-white"
+                  >
+                    ✕
+                  </button>
+                </span>
+              </span>
+            }
+          >
+          <span className="flex">
           <Tooltip content={t("watch.watchRoom.cameraSettings")}>
             <button
               type="button"
-              onClick={() =>
-                quickShortcutAction === "toggleCamera"
-                  ? onCloseShortcutQuick?.()
-                  : onOpenShortcutQuick?.("toggleCamera")
-              }
+              onClick={() => {
+                if (cameraEffects?.tip.show) cameraEffects.tip.clicked();
+                if (quickShortcutAction === "toggleCamera") onCloseShortcutQuick?.();
+                else onOpenShortcutQuick?.("toggleCamera");
+              }}
               aria-label={t("watch.watchRoom.cameraSettings")}
               aria-expanded={quickShortcutAction === "toggleCamera"}
               className={`flex h-full items-center border-l border-black/15 px-1 text-white transition ${cameraSharing ? live : idle}`}
@@ -1222,6 +1265,8 @@ function ShareControls({
               <ChevronDownIcon className="h-3.5 w-3.5" />
             </button>
           </Tooltip>
+          </span>
+          </Tippy>
         ) : null)}
         </div>
       </ShortcutQuickPopover>
@@ -2114,6 +2159,13 @@ function WatchRoomView({
   // "Várias entradas de áudio" (experiment "multi-mic"): the same, for mixing
   // more inputs into the microphone. useRoomMedia restarts the mic on it.
   const multiMicMode = useTileExperiment("multiMic", { track: true });
+  // "Efeitos de câmera" (experiment "camera-effects"): its switch and choices,
+  // in the camera's panel. Only where the browser can run it (Chromium), and
+  // only counted as an exposure there. useRoomMedia reads the same switch.
+  const cameraEffectsSupported = useCameraEffectsSupported();
+  const cameraEffectsMode = useTileExperiment("cameraEffects", { track: cameraEffectsSupported });
+  const cameraEffectsAvailable = cameraEffectsMode.available && cameraEffectsSupported;
+  const cameraEffectsTip = useTileExperimentTip("cameraEffects", cameraEffectsAvailable);
   // "Girar/inverter" (see lib/tileOrientation): the button in each tile's
   // corner. Tracked here, where its switch is, rather than in every tile.
   const orientationMode = useTileExperiment("orientation", { track: true });
@@ -7401,6 +7453,11 @@ function WatchRoomView({
           compact={dockCompact}
           extraMotion={dockMotion}
           addScreen={addScreenControl}
+          cameraEffects={
+            cameraEffectsAvailable
+              ? { panel: <CameraEffectsPanel on={cameraEffectsMode.on} />, tip: cameraEffectsTip }
+              : null
+          }
         />
       </div>
     </>

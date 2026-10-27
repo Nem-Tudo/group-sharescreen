@@ -134,6 +134,16 @@ import {
 } from "./receiveCodec";
 import { TILE_EXPERIMENT_EVENTS, trackTileExperiment, useTileExperiment } from "./clipsMode";
 import {
+  cameraEffectsSupported,
+  createCameraEffectsTrack,
+  discardCameraEffectsTrack,
+  hasAnyCameraEffect,
+  isCameraEffectsTrack,
+  setCameraEffectsTarget,
+  useCameraEffectSettings,
+  type CameraEffectSettings,
+} from "./cameraEffects";
+import {
   answerMirroringStereo,
   offerToSend,
   setMicStereoEnabled,
@@ -2312,9 +2322,17 @@ function useBroadcastChannel(
    * nothing at all: the old one is still running and still being sent, so a
    * flip to a camera the phone will not open leaves the room watching what it
    * was already watching rather than watching nothing.
+   *
+   * `wrap` swaps in something built *from* the live capture instead of a
+   * fresh one — the camera effects (lib/cameraEffects), which take the
+   * running camera over rather than opening it a second time (a phone will
+   * not). The old track is then left running: the new one owns it.
    */
   const swapCapture = useCallback(
-    async (requestedSource?: ShareSource): Promise<boolean> => {
+    async (
+      requestedSource?: ShareSource,
+      wrap?: (current: MediaStreamTrack) => MediaStream
+    ): Promise<boolean> => {
       if (!activeRef.current || swapping.current) return false;
       const previous = localStreamRef.current;
       const previousVideo = previous?.getVideoTracks()[0];
@@ -2325,7 +2343,7 @@ function useBroadcastChannel(
       swapping.current = true;
       let next: MediaStream;
       try {
-        next = await capture(requestedSource);
+        next = wrap ? wrap(previousVideo) : await capture(requestedSource);
       } catch {
         // Deliberately swallowed rather than surfaced through setError: the
         // share the person is running is untouched and still fine, and
@@ -2340,7 +2358,7 @@ function useBroadcastChannel(
       // The share may have been stopped while getUserMedia was open, in which
       // case this capture is already orphaned and must not be left running.
       if (!activeRef.current || !nextVideo || localStreamRef.current !== previous) {
-        next.getTracks().forEach((t) => t.stop());
+        if (!wrap) next.getTracks().forEach((t) => t.stop());
         swapping.current = false;
         return false;
       }
@@ -2368,7 +2386,8 @@ function useBroadcastChannel(
         // parameters already negotiated. Rare, and recoverable only by
         // renegotiating — which is exactly the restart the caller falls back
         // to, so this capture is discarded and the old one left in place.
-        next.getTracks().forEach((t) => t.stop());
+        // A wrapper owns the old track, so it is not stopped with it here.
+        if (!wrap) next.getTracks().forEach((t) => t.stop());
         swapping.current = false;
         return false;
       }
@@ -2388,7 +2407,7 @@ function useBroadcastChannel(
       // Moved over before the old track is stopped: stop() fires no event,
       // but `ended` on a track already being watched would reach the listener
       // start() installed and take the whole share down with it.
-      previousVideo.stop();
+      if (!wrap) previousVideo.stop();
       // The new track needs the same backstop the original got — a camera
       // that disappears mid-share (unplugged, or taken by another app) should
       // still end the transmission rather than leave a frozen tile.
@@ -3915,6 +3934,9 @@ export function useRoomMedia(room: string) {
   // the WebView cannot hold one lens while the plugin opens the other. Null
   // the rest of the time — one camera is always the WebView's.
   const nativeDualRef = useRef<AndroidDualCamera | null>(null);
+  // What the camera should be drawn with (see wantedCameraEffects below),
+  // read by the capture when the camera (re)opens.
+  const cameraEffectsRef = useRef<CameraEffectSettings | null>(null);
 
   const camera = useBroadcastChannel(
     "camera",
@@ -3930,11 +3952,20 @@ export function useRoomMedia(room: string) {
       // peerQualityController), so capturing small would only put a hard
       // ceiling on the one or two people actually watching fullscreen while
       // saving nothing for the many watching in a grid.
-      return captureCamera(
+      const stream = await captureCamera(
         captureConstraints(shareResolutionRef.current, shareFpsRef.current, false),
         cameraDeviceIdRef.current,
         cameraFacingRef.current
       );
+      // "Efeitos de câmera": only when something is picked, so a camera with
+      // no effect is the plain capture, exactly as before.
+      const raw = stream.getVideoTracks()[0];
+      if (!cameraEffectsRef.current || !raw) return stream;
+      try {
+        return new MediaStream([createCameraEffectsTrack(raw)]);
+      } catch {
+        return stream;
+      }
     },
     () => hasCameraCapture(),
     t("useRoomMedia.yourBrowserDoesNotSupportA"),
@@ -4132,6 +4163,41 @@ export function useRoomMedia(room: string) {
     await camera.start();
     await camera2.start();
   }, [camera, camera2, nativeDualSupported, t]);
+
+  // "Efeitos de câmera" (see lib/cameraEffects): the switch (experiment
+  // "camera-effects") and what is picked, as one thing — null unless the
+  // camera should actually be drawn on. Picking another effect on a camera
+  // already going through them only tells the worker; the first pick on a
+  // plain camera swaps the effects track in over the running capture (no
+  // second getUserMedia, which a phone would refuse). Un-picking leaves the
+  // pipeline passing frames straight through until the camera next starts.
+  // The dual camera's native path is left alone: it has its own pipeline.
+  const cameraEffectsMode = useTileExperiment("cameraEffects").active;
+  const cameraEffectSettings = useCameraEffectSettings();
+  const wantedCameraEffects = useMemo(
+    () =>
+      cameraEffectsMode && cameraEffectsSupported() && hasAnyCameraEffect(cameraEffectSettings)
+        ? cameraEffectSettings
+        : null,
+    [cameraEffectsMode, cameraEffectSettings]
+  );
+  const cameraLocalStream = camera.localStream;
+  useEffect(() => {
+    cameraEffectsRef.current = wantedCameraEffects;
+    setCameraEffectsTarget(wantedCameraEffects);
+    if (!wantedCameraEffects || !cameraRef.current.active || nativeDualRef.current) return;
+    const track = cameraLocalStream?.getVideoTracks()[0];
+    if (!track || isCameraEffectsTrack(track)) return;
+    let created: MediaStreamTrack | null = null;
+    void cameraRef.current
+      .swapCapture(undefined, (current) => {
+        created = createCameraEffectsTrack(current);
+        return new MediaStream([created]);
+      })
+      .then((swapped) => {
+        if (!swapped && created) discardCameraEffectsTrack(created);
+      });
+  }, [wantedCameraEffects, cameraLocalStream]);
 
   // The second lens only makes sense next to the first.
   const cameraIsActive = camera.active;

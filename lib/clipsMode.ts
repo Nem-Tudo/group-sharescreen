@@ -28,7 +28,8 @@ export type TileExperiment =
   | "univerSheet"
   | "fullscreenChat"
   | "stereoMic"
-  | "multiMic";
+  | "multiMic"
+  | "cameraEffects";
 
 // `defaultOn`: the switch starts on for whoever never touched it.
 const CONFIG: Record<
@@ -152,6 +153,15 @@ const CONFIG: Record<
     modeKey: "sharescreen:multiMicMode",
     tipKey: "sharescreen:multiMicTipSeen",
   },
+  // "Efeitos de câmera" (ver lib/cameraEffects): fundo desfocado, filtros de
+  // cor e máscaras no rosto, desenhados na câmera antes de sair. Desligado por
+  // padrão — é um modelo rodando em cada quadro da câmera. O interruptor fica
+  // no painel da câmera (setinha ao lado do botão da câmera).
+  cameraEffects: {
+    feature: "camera-effects",
+    modeKey: "sharescreen:cameraEffectsMode",
+    tipKey: "sharescreen:cameraEffectsTipSeen",
+  },
   musicQueue: {
     feature: "room-music-queue",
     modeKey: "sharescreen:musicQueueMode",
@@ -233,6 +243,14 @@ export const TILE_EXPERIMENT_EVENTS = {
     modeOff: "multi_mic_off",
     add: "multi_mic_add", // uma entrada extra foi marcada
     start: "multi_mic_start", // value: quantas entradas o mic abriu juntas
+  },
+  cameraEffects: {
+    modeOn: "camera_effects_on",
+    modeOff: "camera_effects_off",
+    pick: "camera_effects_pick", // um efeito escolhido (qualquer um que não seja "nenhum")
+    start: "camera_effects_start", // uma câmera começou a passar pelos efeitos
+    error: "camera_effects_error", // um modelo não carregou, ou o desenho falhou
+    slow: "camera_effects_slow", // value: ms por quadro (uma vez por sessão, acima de 30)
   },
   musicQueue: {
     // Nomes de "modo" aqui são a aba, não a ordem aleatória: o interruptor
