@@ -28,6 +28,7 @@ import { useT } from "@/lib/useI18n";
 import { TIP_CLICK_EVENT } from "@/lib/clipsMode";
 import { PARTNER_EVENTS } from "@/lib/partnerExperiment";
 import { formatLocale } from "@/lib/i18n";
+import { ExperimentsDashboard } from "./ExperimentsDashboard";
 
 // Feature rollouts, Discord-experiment style.
 //
@@ -41,7 +42,8 @@ import { formatLocale } from "@/lib/i18n";
 const inputClass =
   "w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50";
 const HIDE_LAUNCHED_KEY = "admin:features:hideLaunched";
-const labelClass ="flex flex-col gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-400";
+const VIEW_KEY = "admin:features:view";
+const labelClass = "flex flex-col gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-400";
 const buttonClass =
   "rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900";
 const primaryClass =
@@ -224,8 +226,16 @@ export function FeaturesPanel() {
   useEffect(() => {
     try {
       setHideLaunched(localStorage.getItem(HIDE_LAUNCHED_KEY) === "1");
+      if (localStorage.getItem(VIEW_KEY) === "dashboard") setView("dashboard");
     } catch {}
   }, []);
+  const [view, setView] = useState<"list" | "dashboard">("list");
+  const chooseView = (next: "list" | "dashboard") => {
+    setView(next);
+    try {
+      localStorage.setItem(VIEW_KEY, next);
+    } catch {}
+  };
   const [open, setOpen] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -277,7 +287,30 @@ export function FeaturesPanel() {
           <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">{t("admin.features.title")}</h2>
           <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t("admin.features.intro")}</p>
         </div>
-        <div className="flex shrink-0 gap-2">
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <div className="flex overflow-hidden rounded-lg border border-zinc-300 text-xs font-semibold dark:border-zinc-700">
+            {(["list", "dashboard"] as const).map((entry) => (
+              <button
+                key={entry}
+                type="button"
+                onClick={() => chooseView(entry)}
+                className={`px-3 py-1.5 transition ${
+                  view === entry
+                    ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                    : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                }`}
+              >
+                {t(entry === "list" ? "admin.dash.tabList" : "admin.dash.tabDashboard")}
+              </button>
+            ))}
+          </div>
+          {view === "list" && (launchedCount > 0 || hideLaunched) && (
+            <button type="button" onClick={toggleHideLaunched} className={buttonClass}>
+              {hideLaunched
+                ? t("admin.features.showLaunched", { count: launchedCount })
+                : t("admin.features.hideLaunched")}
+            </button>
+          )}
           <button type="button" onClick={load} className={buttonClass} aria-label={t("admin.features.reload")}>
             <MdRefresh className="h-4 w-4" />
           </button>
@@ -321,7 +354,9 @@ export function FeaturesPanel() {
 
       {error && <p className="mt-3 text-sm text-red-500">{error}</p>}
 
-      {visible.length === 0 ? (
+      {view === "dashboard" ? (
+        <ExperimentsDashboard features={features} />
+      ) : visible.length === 0 ? (
         <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">{t("admin.features.empty")}</p>
       ) : (
         <ul className="mt-4 flex flex-col gap-2">
@@ -390,18 +425,7 @@ export function FeaturesPanel() {
         </ul>
       )}
 
-      {(launchedCount > 0 || hideLaunched) && (
-        <button
-          type="button"
-          onClick={toggleHideLaunched}
-          className="mt-3 mr-4 text-xs text-zinc-500 underline underline-offset-2 hover:text-zinc-800 dark:hover:text-zinc-200"
-        >
-          {hideLaunched
-            ? t("admin.features.showLaunched", { count: launchedCount })
-            : t("admin.features.hideLaunched")}
-        </button>
-      )}
-      {archivedCount > 0 && (
+      {view === "list" && archivedCount > 0 && (
         <button
           type="button"
           onClick={() => setShowArchived((value) => !value)}
