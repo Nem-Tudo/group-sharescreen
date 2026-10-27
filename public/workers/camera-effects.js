@@ -19,6 +19,8 @@
 // One worker for every pipeline (a camera flip briefly runs two), so the
 // models are loaded once and shared.
 
+// Loaded as /workers/camera-effects.js?v=N (see WORKER_VERSION in
+// lib/cameraEffects.ts): bump it there whenever this file changes.
 const VISION_BASE = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
 const FACE_MODEL =
   "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
