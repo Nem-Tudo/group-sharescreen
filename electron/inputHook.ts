@@ -19,10 +19,58 @@
 // globalShortcut, combo by combo — see canHandle.
 
 import path from "node:path";
+import { readFileSync, writeFileSync } from "node:fs";
 import { app } from "electron";
 import type { UiohookKeyboardEvent, UiohookMouseEvent } from "uiohook-napi";
 
 type Hook = typeof import("uiohook-napi");
+
+// ── The off switch ─────────────────────────────────────────────────────────
+//
+// A low-level hook sits in front of every key on the machine, and there are
+// reports of Alt+Tab and the Windows key no longer getting out of a full-screen
+// game while GoLive runs. Nothing here holds a key back, but a hook is also
+// one more link in the chain games and anti-cheats hook into, and the person
+// stuck in a game is better served by a switch than by an argument. Off, every
+// shortcut goes back to globalShortcut — what the app did before the hook —
+// at the price of mouse buttons and a real push-to-talk release. Kept in the
+// tray menu: it is a property of this machine, not of an account.
+
+const SETTINGS_FILE = "input-hook.json";
+let enabledCache: boolean | null = null;
+const enabledListeners = new Set<() => void>();
+
+function settingsPath(): string {
+  return path.join(app.getPath("userData"), SETTINGS_FILE);
+}
+
+export function inputHookEnabled(): boolean {
+  if (enabledCache !== null) return enabledCache;
+  try {
+    const parsed = JSON.parse(readFileSync(settingsPath(), "utf8")) as { enabled?: unknown };
+    enabledCache = parsed.enabled !== false;
+  } catch {
+    enabledCache = true;
+  }
+  return enabledCache;
+}
+
+export function setInputHookEnabled(enabled: boolean): void {
+  if (inputHookEnabled() === enabled) return;
+  enabledCache = enabled;
+  try {
+    writeFileSync(settingsPath(), JSON.stringify({ enabled }));
+  } catch {
+    // Holds for this run, like the other settings in this shell.
+  }
+  for (const listener of enabledListeners) listener();
+}
+
+/** Called after the switch moves, so the shortcuts can be registered again. */
+export function onInputHookEnabledChange(listener: () => void): () => void {
+  enabledListeners.add(listener);
+  return () => enabledListeners.delete(listener);
+}
 
 interface ParsedCombo {
   ctrl: boolean;
@@ -309,6 +357,7 @@ export function createInputHook(callbacks: InputHookCallbacks) {
   return {
     /** Whether this accelerator can be followed by the hook on this machine. */
     canHandle(accelerator: string): boolean {
+      if (!inputHookEnabled()) return false;
       const hook = loadHook();
       return Boolean(hook && accelerator && parse(hook, accelerator));
     },

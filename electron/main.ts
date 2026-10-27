@@ -66,7 +66,12 @@ import {
 // bundles into the main process without dragging the app in with it.
 import { desktopOAuthNonce } from "../lib/desktop";
 import { initAutoUpdater } from "./updater";
-import { createInputHook } from "./inputHook";
+import {
+  createInputHook,
+  inputHookEnabled,
+  onInputHookEnabledChange,
+  setInputHookEnabled,
+} from "./inputHook";
 import { createScreenPen } from "./screenPen";
 import { createStoreDesktopShortcutOnce } from "./storeShortcut";
 import {
@@ -1280,6 +1285,18 @@ function buildTrayMenu(): Menu {
         refreshTrayMenu();
       },
     },
+    {
+      // Off, the shortcuts go back to globalShortcut — see inputHook.ts for
+      // why this exists. Windows only: elsewhere there is no hook to turn off.
+      label: "Atalhos com botões do mouse (desmarque se o Alt+Tab travar em jogos)",
+      type: "checkbox",
+      checked: inputHookEnabled(),
+      visible: process.platform === "win32",
+      click: (item) => {
+        setInputHookEnabled(item.checked);
+        refreshTrayMenu();
+      },
+    },
     { type: "separator" },
     {
       label: "Sair do GoLive",
@@ -2222,7 +2239,18 @@ if (!gotLock) {
     appFocused: () => Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused()),
   });
 
+  // The last set the site sent, so the tray's hook switch can register them
+  // again on the other path without waiting for the site to resend them.
+  let currentShortcuts: Record<string, string> = {};
+  onInputHookEnabledChange(() => {
+    // The hook may have been holding push to talk down; the other path
+    // starts from released.
+    releasePushToTalk();
+    updateGlobalShortcuts(currentShortcuts);
+  });
+
   function updateGlobalShortcuts(shortcuts: Record<string, string>) {
+    currentShortcuts = shortcuts;
     globalShortcut.unregisterAll();
     const hooked: Record<string, string> = {};
     for (const [action, accelerator] of Object.entries(shortcuts)) {
