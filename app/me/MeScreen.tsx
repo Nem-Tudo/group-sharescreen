@@ -12,6 +12,7 @@ import {
   MdCampaign,
   MdChatBubbleOutline,
   MdChevronRight,
+  MdDeleteOutline,
   MdDescription,
   MdEdit,
   MdLogin,
@@ -68,6 +69,7 @@ import {
   PARTNER_ADS_MODES,
   type PartnerAdsMode,
 } from "@/lib/partnerAdsMode";
+import { ACCOUNT_DELETE_FEATURE } from "@/lib/accountDelete";
 import {
   NOTIFICATION_SETTINGS_BADGE,
   NOTIFICATION_SETTINGS_FEATURE,
@@ -105,6 +107,9 @@ export function MeScreen() {
   // The exposure is counted here because this row is the only place the
   // screen is offered — see lib/notificationSettings.ts.
   const notificationSettings = useFeature(NOTIFICATION_SETTINGS_FEATURE);
+  // Counted here, the one place deleting the account is offered — see
+  // lib/accountDelete.ts.
+  const accountDelete = useFeature(ACCOUNT_DELETE_FEATURE, { track: Boolean(account && !account.bot) });
 
   const name = account?.displayName ?? state.name ?? "";
   const isAdmin = Boolean(account?.flags?.includes("ADMIN") || state.account?.flags?.includes("ADMIN"));
@@ -330,6 +335,12 @@ export function MeScreen() {
       {account && (
         <Section>
           <Row onClick={logout} icon={MdLogout} label={t("accountMenu.signOut")} tone="red" chevron={false} />
+          {/* Last, under signing out: the one row on this screen that cannot
+              be undone. Leads to a page that asks for a fresh sign-in and the
+              username typed back before anything happens. */}
+          {accountDelete.enabled && !account.bot && (
+            <Row href="/me/excluir" icon={MdDeleteOutline} label={t("accountDelete.row")} tone="red" />
+          )}
         </Section>
       )}
 
