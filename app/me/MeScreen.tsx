@@ -389,7 +389,8 @@ function Row({
   icon: ComponentType<{ className?: string }>;
   iconClassName?: string;
   label: string;
-  // "danger": filled red, for the one row that cannot be undone.
+  // "danger": red text that wins over the row's own colour, for the one row
+  // that cannot be undone.
   tone?: "red" | "purple" | "danger";
   chevron?: boolean;
   /** The blue "NOVO", for a row that has just appeared. */
@@ -397,7 +398,7 @@ function Row({
 }) {
   const color =
     tone === "danger"
-      ? "!bg-red-600 !text-white hover:!bg-red-700 active:!bg-red-800"
+      ? "!text-red-600 dark:!text-red-500"
       : tone === "red"
         ? "text-red-600 dark:text-red-500"
         : tone === "purple"
@@ -409,7 +410,7 @@ function Row({
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {badge}
       {chevron && (
-        <MdChevronRight className={`h-5 w-5 shrink-0 ${tone === "danger" ? "text-white/80" : "text-zinc-400"}`} />
+        <MdChevronRight className={`h-5 w-5 shrink-0 text-zinc-400`} />
       )}
     </>
   );

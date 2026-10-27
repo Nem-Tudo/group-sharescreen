@@ -5193,7 +5193,7 @@
   "watch.watchRoom.phoneCameraPausedOnPhone": "La cámara se apagó en {name}.",
   "watch.watchRoom.phoneCameraLive": "Usando la cámara de {name}.",
   "watch.watchRoom.phoneCameraWaiting": "Abre el enlace guardado en {name} para que sea la cámara.",
-  "watch.watchRoom.phoneCameraAsking": "Acepta en {name}…",
+  "watch.watchRoom.phoneCameraAsking": "Encendiendo la cámara de {name}…",
   "watch.watchRoom.phoneCameraConnectingPhone": "Conectando a {name}…",
   "watch.watchRoom.phoneCameraCancel": "Cancelar",
   "watch.watchRoom.phoneCameraTypeCode": "Escribe el código que apareció en {name}:",

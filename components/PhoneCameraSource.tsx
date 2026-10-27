@@ -23,8 +23,8 @@ import { useT } from "@/lib/useI18n";
 // The first time on a link it shows a code, typed on the computer. A saved
 // phone keeps a secret in localStorage, so opening the same link (or /cam)
 // again goes straight in. Opening the page is consent: it starts filming as
-// soon as the computer is there. Later, when the computer asks for the camera
-// on its own, the phone asks its holder first.
+// soon as the computer is there, and later the computer choosing it is
+// enough — a phone confirmed with the code is not asked again.
 
 const DEVICES_KEY = "sharescreen:phoneCamDevices";
 /** After the page opens, the computer's first ask needs no tap. */
@@ -34,7 +34,6 @@ type Phase =
   | { kind: "connecting" }
   | { kind: "code"; code: string; mode: "once" | "save" }
   | { kind: "standby" }
-  | { kind: "prompt" }
   | { kind: "starting" }
   | { kind: "live" }
   | { kind: "ended" }
@@ -286,16 +285,10 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
             return;
           }
           case "request":
+            // A phone confirmed with the code once is this computer's camera:
+            // the computer choosing it is enough, nobody is asked again.
             if (!boundRef.current || kind === "starting" || kind === "live") return;
-            if (Date.now() < autostartUntil.current) void startRef.current();
-            else {
-              setPhase({ kind: "prompt" });
-              try {
-                navigator.vibrate?.([200, 100, 200]);
-              } catch {
-                // No vibration.
-              }
-            }
+            void startRef.current();
             return;
           case "stop":
             stopStreaming(false);
@@ -492,33 +485,6 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
                 {t("cam.startCamera")}
               </button>
             )}
-          </>
-        )}
-
-        {phase.kind === "prompt" && (
-          <>
-            <MdVideocam className="h-12 w-12" />
-            <span className="text-lg font-semibold">{t("cam.requestTitle")}</span>
-            <span className="max-w-xs text-sm text-white/70">{t("cam.requestText")}</span>
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  send({ t: "declined" });
-                  setPhase({ kind: "standby" });
-                }}
-                className="rounded-full bg-white/15 px-6 py-3 text-sm font-semibold transition hover:bg-white/25"
-              >
-                {t("cam.decline")}
-              </button>
-              <button
-                type="button"
-                onClick={() => void start()}
-                className="rounded-full bg-emerald-600 px-6 py-3 text-sm font-semibold transition hover:bg-emerald-700"
-              >
-                {t("cam.accept")}
-              </button>
-            </div>
           </>
         )}
 
