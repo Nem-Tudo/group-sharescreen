@@ -13,8 +13,8 @@
 // Until it is ready, frames go through untouched instead of waiting.
 //
 // A classic worker, not a module one: MediaPipe loads its WASM glue with
-// importScripts, which module workers do not have. Its CommonJS bundle is
-// loaded the same way, with a `module` shim to catch the exports.
+// importScripts, which module workers do not have. The library itself is its
+// ES module build, through import() (allowed in a classic worker too).
 //
 // One worker for every pipeline (a camera flip briefly runs two), so the
 // models are loaded once and shared.
@@ -70,15 +70,10 @@ self.onmessage = (event) => {
 function loadVision() {
   if (!visionPromise) {
     visionPromise = (async () => {
-      self.module = { exports: {} };
-      self.exports = self.module.exports;
-      importScripts(`${VISION_BASE}/vision_bundle.cjs`);
-      const vision = self.module.exports;
-      // Taken away again before the WASM glue loads: Emscripten's output
-      // assigns itself to module.exports when it sees one, and MediaPipe
-      // looks for it on the global instead.
-      delete self.module;
-      delete self.exports;
+      // The ES module build, through import(). The CommonJS one cannot be
+      // loaded at all: jsDelivr serves .cjs as "application/node", which
+      // importScripts refuses to execute (strict MIME checking).
+      const vision = await import(`${VISION_BASE}/vision_bundle.mjs`);
       const fileset = await vision.FilesetResolver.forVisionTasks(`${VISION_BASE}/wasm`);
       return { vision, fileset };
     })();
