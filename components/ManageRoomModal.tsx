@@ -23,6 +23,9 @@ import {
   MdLockOutline,
   MdBrandingWatermark,
   MdOutlineBrandingWatermark,
+  MdFiberManualRecord,
+  MdSubtitles,
+  MdContentCut,
 } from "react-icons/md";
 import { MenuToggleRow } from "@/components/MenuToggleRow";
 import { captureProtectionLevel } from "@/lib/captureProtection";
@@ -76,6 +79,12 @@ const PERMISSION_ROWS: {
   { key: "theme", get label() { return translate("manageRoomModal.allowProMaxMembersToChange"); }, icon: MdPalette },
   { key: "tools", get label() { return translate("manageRoomModal.allowEveryoneToOpenTools"); }, icon: MdBuild },
   { key: "music", get label() { return translate("manageRoomModal.allowEveryoneToPlayMusic"); }, icon: MdMusicNote },
+  // These three run in the browser doing them, so "off" is the room's rule
+  // rather than a lock: the site stops offering them and stops whatever was
+  // already running (see WatchRoom's roomAllowsRecording and its siblings).
+  { key: "recording", get label() { return translate("manageRoomModal.allowEveryoneToRecord"); }, icon: MdFiberManualRecord },
+  { key: "transcript", get label() { return translate("manageRoomModal.allowEveryoneToTranscribe"); }, icon: MdSubtitles },
+  { key: "clips", get label() { return translate("manageRoomModal.allowEveryoneToClip"); }, icon: MdContentCut },
 ];
 
 type View = "menu" | "admins" | "permissions" | "location" | "bans" | "limit" | "protection";

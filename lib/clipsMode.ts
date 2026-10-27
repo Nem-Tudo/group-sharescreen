@@ -303,6 +303,34 @@ export function setTileExperimentMode(experiment: TileExperiment, on: boolean) {
 }
 
 /** The experiment and the person's switch together — what tiles check. */
+// Which of clips/recording the current room's management turned off for this
+// person (the room's "clips" and "recording" switches — see WatchRoom, which
+// is what sets this, managers never being subject to it). Module state like
+// the protected room above, so every tile reads it without a prop.
+let roomBlocked: { clips: boolean; recording: boolean } = { clips: false, recording: false };
+const roomBlockedListeners = new Set<() => void>();
+
+export function setRoomBlockedTileExperiments(next: { clips: boolean; recording: boolean }) {
+  if (next.clips === roomBlocked.clips && next.recording === roomBlocked.recording) return;
+  roomBlocked = next;
+  roomBlockedListeners.forEach((listener) => listener());
+}
+
+function subscribeRoomBlocked(listener: () => void) {
+  roomBlockedListeners.add(listener);
+  return () => {
+    roomBlockedListeners.delete(listener);
+  };
+}
+
+function useRoomBlocked(experiment: TileExperiment): boolean {
+  return useSyncExternalStore(
+    subscribeRoomBlocked,
+    () => (experiment === "clips" || experiment === "recording" ? roomBlocked[experiment] : false),
+    () => false
+  );
+}
+
 export function useTileExperiment(experiment: TileExperiment, options: { track?: boolean } = {}) {
   const { feature, modeKey, defaultOn = false } = CONFIG[experiment];
   const { enabled: available } = useFeature(feature, { track: options.track ?? false });
@@ -317,7 +345,10 @@ export function useTileExperiment(experiment: TileExperiment, options: { track?:
   // Clips and recordings save the room to disk — the one thing a protected
   // room exists to prevent (see lib/captureProtection.ts).
   const blocked = useProtectedRoom() && (experiment === "clips" || experiment === "recording");
-  return { available, on, active: available && on && !blocked };
+  // Turned off by the room for this person: the switch in "⋯" is greyed out
+  // and the tiles stop offering it (and stop a recording already running).
+  const blockedByRoom = useRoomBlocked(experiment);
+  return { available, on, blockedByRoom, active: available && on && !blocked && !blockedByRoom };
 }
 
 /**

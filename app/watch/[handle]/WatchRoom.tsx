@@ -244,6 +244,7 @@ import {
 import Tippy from "@tippyjs/react";
 import {
   TILE_EXPERIMENT_EVENTS,
+  setRoomBlockedTileExperiments,
   setTileExperimentMode,
   trackTileExperiment,
   useTileExperiment,
@@ -3208,6 +3209,16 @@ function WatchRoomView({
         : state.roomPermissions[key];
     return own || isRoomManager;
   }
+  // Recording, transcribing and clipping happen in this browser, so the
+  // room's switches for them are kept here: what is offered, and stopping
+  // what is already running when one is turned off (below, by each feature).
+  const roomAllowsRecording = canUseRoomPermission("recording");
+  const roomAllowsTranscript = canUseRoomPermission("transcript");
+  const roomAllowsClips = canUseRoomPermission("clips");
+  useEffect(() => {
+    setRoomBlockedTileExperiments({ clips: !roomAllowsClips, recording: !roomAllowsRecording });
+  }, [roomAllowsClips, roomAllowsRecording]);
+  useEffect(() => () => setRoomBlockedTileExperiments({ clips: false, recording: false }), []);
   // Repainting the room is two questions at once, and they are kept apart
   // because the button says something different about each: a plan (Pro Max, a
   // fact about the account) and the room's own switch (which managers are
@@ -4035,7 +4046,8 @@ function WatchRoomView({
   const liveTranslation = useLiveTranslation({ roomPeerIds: transcriptPeerIds, sources: callSources });
   const canTranslate = hasFeature("live_translation", account?.features ?? []) || (liveTranslationFree && Boolean(account));
   const showLiveTranslation =
-    liveTranslationFeature.enabled || liveTranslationFree || liveTranslation.status !== "idle";
+    (liveTranslationFeature.enabled || liveTranslationFree || liveTranslation.status !== "idle") &&
+    (roomAllowsTranscript || liveTranslation.status !== "idle");
   const [liveTranslationOpen, setLiveTranslationOpen] = useState(false);
   const openLiveTranslation = () => {
     if (liveTranslation.status === "idle") {
@@ -4062,7 +4074,8 @@ function WatchRoomView({
     setTranscriptOpen(true);
   };
   const showTranscript =
-    callTranscriptFeature.enabled || callTranscriptFree || callTranscript.status !== "idle";
+    (callTranscriptFeature.enabled || callTranscriptFree || callTranscript.status !== "idle") &&
+    (roomAllowsTranscript || callTranscript.status !== "idle");
   const callRecording = useCallRecording(
     callSources,
     {
@@ -4092,7 +4105,10 @@ function WatchRoomView({
   };
   // Available to the experiment's people — and to anyone already mid-recording
   // if the feature is switched off under them, so "parar" never disappears.
-  const showCallRecording = (callRecordingFeature.enabled || callRecording.status !== "idle") && !roomProtected;
+  const showCallRecording =
+    (callRecordingFeature.enabled || callRecording.status !== "idle") &&
+    !roomProtected &&
+    (roomAllowsRecording || callRecording.status !== "idle");
   // A recording already running when the room is switched to protected is
   // thrown away rather than finished: finishing it would hand over a file of
   // exactly what the switch was turned on to keep.
@@ -4101,6 +4117,38 @@ function WatchRoomView({
   useEffect(() => {
     if (roomProtected && recordingActive) discardRecording();
   }, [roomProtected, recordingActive, discardRecording]);
+  // The room turned recording or transcription off for us. Unlike the
+  // protected room above, what was captured while it was allowed is kept:
+  // the recording finishes and downloads, and so does a transcript started on
+  // its own (one started with the recording goes with the recording's file).
+  const recordingStatus = callRecording.status;
+  const stopRecording = callRecording.stop;
+  useEffect(() => {
+    if (roomAllowsRecording || recordingStatus !== "recording") return;
+    void stopRecording();
+    signalingClient.notifyPermissionDenied("recording", translate("watch.watchRoom.roomRecordingOff"));
+  }, [roomAllowsRecording, recordingStatus, stopRecording]);
+  const transcriptStatus = callTranscript.status;
+  const transcriptOwner = callTranscript.owner;
+  const stopTranscript = callTranscript.stop;
+  const translationStatus = liveTranslation.status;
+  const stopTranslation = liveTranslation.stop;
+  useEffect(() => {
+    if (roomAllowsTranscript) return;
+    let stopped = false;
+    if (transcriptStatus === "running") {
+      if (transcriptOwner === "recording") discardTranscript();
+      else void stopTranscript();
+      stopped = true;
+    }
+    if (translationStatus === "running") {
+      stopTranslation();
+      stopped = true;
+    }
+    if (stopped) {
+      signalingClient.notifyPermissionDenied("transcript", translate("watch.watchRoom.roomTranscriptOff"));
+    }
+  }, [roomAllowsTranscript, transcriptStatus, transcriptOwner, stopTranscript, discardTranscript, translationStatus, stopTranslation]);
   // The blue "novo" tip, on the button itself (not on "⋯", so it is not in
   // the newFeatureTip chain). Only one of the two buttons exists at a time:
   // the card's from lg up, the pull-up menu's tile below it.
@@ -6831,9 +6879,10 @@ function WatchRoomView({
         <MenuToggleRow
           label={translate("watch.watchRoom.clipsMode")}
           badge={<NewBadge id="room-clips" />}
-          active={clipsMode.on}
+          active={clipsMode.on && roomAllowsClips}
           onToggle={() => setTileExperimentMode("clips", !clipsMode.on)}
-          hint={translate("watch.watchRoom.clipsModeHint")}
+          disabled={!roomAllowsClips}
+          hint={translate(roomAllowsClips ? "watch.watchRoom.clipsModeHint" : "watch.watchRoom.roomClipsOff")}
           activeIcon={<ClipIcon className="h-4 w-4" />}
           inactiveIcon={<ClipIcon className="h-4 w-4 opacity-50" />}
         />
@@ -6844,9 +6893,10 @@ function WatchRoomView({
         <MenuToggleRow
           label={translate("watch.watchRoom.recordingMode")}
           badge={<NewBadge id="room-recording" />}
-          active={recordingMode.on}
+          active={recordingMode.on && roomAllowsRecording}
           onToggle={() => setTileExperimentMode("recording", !recordingMode.on)}
-          hint={translate("watch.watchRoom.recordingModeHint")}
+          disabled={!roomAllowsRecording}
+          hint={translate(roomAllowsRecording ? "watch.watchRoom.recordingModeHint" : "watch.watchRoom.roomRecordingOff")}
           activeIcon={<RecordIcon className="h-4 w-4" />}
           inactiveIcon={<RecordIcon className="h-4 w-4 opacity-50" />}
         />

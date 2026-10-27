@@ -258,7 +258,10 @@ export type RoomPermissionKey =
   | "image"
   | "theme"
   | "tools"
-  | "music";
+  | "music"
+  | "recording"
+  | "transcript"
+  | "clips";
 
 export type RoomPermissions = Record<RoomPermissionKey, boolean>;
 
@@ -276,6 +279,9 @@ export const DEFAULT_ROOM_PERMISSIONS: RoomPermissions = {
   theme: true,
   tools: true,
   music: true,
+  recording: true,
+  transcript: true,
+  clips: true,
 };
 
 /**
@@ -3460,6 +3466,16 @@ class SignalingClient {
   // author editing their theme reaches this room on its next load.
   setRoomTheme(themeId: string | null) {
     this.rawSend({ type: "room-theme-set", theme: themeId });
+  }
+
+  // The same notice, raised here: something that runs only in this browser
+  // (a recording, a transcript) was stopped because the room turned its
+  // switch off — there is no server refusal to carry it.
+  notifyPermissionDenied(permission: RoomPermissionKey, message: string) {
+    this.setState({
+      permissionDenied: { permission, message },
+      permissionDeniedSeq: this.state.permissionDeniedSeq + 1,
+    });
   }
 
   // Dismisses the "this room doesn't allow that" notice — a one-shot warning,
