@@ -123,6 +123,15 @@ import {
   setMemoryGuardEnabled,
 } from "./memoryGuard";
 import { SCREEN_CODEC_EVENTS, SCREEN_CODEC_FEATURE, setScreenCodecVariant } from "./screenCodec";
+import { useTileExperiment } from "./clipsMode";
+import {
+  answerMirroringStereo,
+  offerToSend,
+  setMicStereoEnabled,
+  setStereoAudioEnabled,
+  STEREO_AUDIO_FEATURE,
+  STEREO_AUDIO_SHARE_EVENT,
+} from "./opusStereo";
 import { isHardwareImplementation } from "./connectionDiagnostics";
 import {
   HIDDEN_WINDOWS_EVENTS,
@@ -1678,7 +1687,7 @@ function useBroadcastChannel(
               channel,
               role: "broadcaster",
               kind: "offer",
-              sdp: pc.localDescription,
+              sdp: offerToSend(pc.localDescription, channel),
               // Without this the viewer cannot tell an ICE restart from a
               // brand-new session, and its offer handler would answer by
               // tearing its own pc down and building another. That is not
@@ -1770,7 +1779,7 @@ function useBroadcastChannel(
             channel,
             role: "broadcaster",
             kind: "offer",
-            sdp: pc.localDescription,
+            sdp: offerToSend(pc.localDescription, channel),
           });
         })
         .catch(() => {
@@ -2202,6 +2211,9 @@ function useBroadcastChannel(
       if (channel === "screen" && requestedSource !== "camera") {
         shareStatsRef.current = startShareStats(videoQualityRef.current ?? null);
       }
+      if (channel !== "mic" && stream.getAudioTracks().length > 0) {
+        trackFeatureEvent(STEREO_AUDIO_SHARE_EVENT, { feature: STEREO_AUDIO_FEATURE });
+      }
       stream.getTracks().forEach((track) =>
         track.addEventListener("ended", () => {
           // The capture went away without the person pressing stop: the
@@ -2625,7 +2637,9 @@ function useBroadcastChannel(
             })
             .then((answer) => {
               if (!answer || recvPCs.current.get(from) !== thisPc) return;
-              return thisPc.setLocalDescription(answer);
+              // A sharer asking for stereo gets it from here: the answer is
+              // what its encoder is set up from (see lib/opusStereo).
+              return thisPc.setLocalDescription(answerMirroringStereo(data.sdp, answer));
             })
             .then(() => {
               if (recvPCs.current.get(from) !== thisPc) return;
@@ -3418,6 +3432,13 @@ export function useRoomMedia(room: string) {
   // Experiment "own-turn" (see lib/ownTurn): shapes connections as they open
   // (iceConfigFor) and the relay caps already applied, so decided here; the
   // exposure is counted further down, next to screen-codec's.
+  // Experiment "stereo-audio" (see lib/opusStereo): read by every offer
+  // that goes out, so decided here; exposure counted while sharing, below.
+  const stereoAudioFeature = useFeature(STEREO_AUDIO_FEATURE, { track: false });
+  useEffect(() => {
+    setStereoAudioEnabled(stereoAudioFeature.enabled);
+  }, [stereoAudioFeature.enabled]);
+
   const ownTurnFeature = useFeature(OWN_TURN_FEATURE, { track: false });
   useEffect(() => {
     setOwnTurnVariant(ownTurnFeature.variant);
@@ -4457,6 +4478,7 @@ export function useRoomMedia(room: string) {
   // the default profile needs it; this second read only counts the exposure,
   // once a screen share is running.
   useFeature(SCREEN_CODEC_FEATURE, { track: screen.active });
+  useFeature(STEREO_AUDIO_FEATURE, { track: screen.active });
   // Likewise "own-turn": exposed once there is screen video going either way,
   // the only time its relay transport and cap can matter.
   useFeature(OWN_TURN_FEATURE, {
@@ -4570,6 +4592,13 @@ export function useRoomMedia(room: string) {
   // the UI says so instead of pretending.
   const [micGainAvailable, setMicGainAvailable] = useState(true);
 
+  // "Microfone estéreo" (experiment "stereo-mic", switch in the mic's panel):
+  // the capture, the graph and the offers all in two channels. Same "ref
+  // mirrors state, for the capture closure" pattern as above; the switch
+  // itself restarts the mic, further down.
+  const stereoMic = useTileExperiment("stereoMic").active;
+  const stereoMicRef = useRef(stereoMic);
+
   // Same "ref mirrors state, for the capture closure" pattern as
   // noiseSuppressionOnRef above — useBroadcastChannel only calls this start
   // callback once per mic start, so a captured `const` would go stale if the
@@ -4605,7 +4634,8 @@ export function useRoomMedia(room: string) {
           micStopRef.current();
         },
         micDeviceIdRef.current,
-        micGainRef.current
+        micGainRef.current,
+        stereoMicRef.current
       );
       micGraphRef.current = graph;
       setNoiseSuppressionAvailable(graphSuppressionAvailable(graph));
@@ -4712,6 +4742,20 @@ export function useRoomMedia(room: string) {
     },
     [mic]
   );
+
+  // Flipping "Microfone estéreo" mid-call restarts the mic, like switching
+  // device: the capture constraints change, and so does what the offers ask
+  // for (see lib/opusStereo) — only a fresh set of connections carries that.
+  useEffect(() => {
+    setMicStereoEnabled(stereoMic);
+    if (stereoMicRef.current === stereoMic) return;
+    stereoMicRef.current = stereoMic;
+    if (mic.active) {
+      mic.stop();
+      mic.start();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stereoMic]);
 
   const setSpeakerDevice = useCallback((deviceId: string | null) => {
     setSpeakerDeviceIdState(deviceId);
@@ -4875,5 +4919,6 @@ export function useRoomMedia(room: string) {
     // just the pending preference for the next start.
     noiseSuppressionAvailable,
     toggleNoiseSuppression,
+    stereoMic,
   };
 }

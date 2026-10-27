@@ -26,7 +26,8 @@ export type TileExperiment =
   | "roomTools"
   | "vscodeEditor"
   | "univerSheet"
-  | "fullscreenChat";
+  | "fullscreenChat"
+  | "stereoMic";
 
 // `defaultOn`: the switch starts on for whoever never touched it.
 const CONFIG: Record<
@@ -132,6 +133,15 @@ const CONFIG: Record<
     modeKey: "sharescreen:fullscreenChatMode",
     tipKey: "sharescreen:fullscreenChatTipSeen",
   },
+  // "Microfone estéreo" (ver lib/opusStereo e captureNoiseSuppressedMic): o
+  // microfone capturado e enviado em dois canais. Desligado por padrão — sem
+  // cancelamento de eco nem supressão de ruído, quem não usa fone ecoa a sala
+  // de volta. O interruptor fica no painel do microfone.
+  stereoMic: {
+    feature: "stereo-mic",
+    modeKey: "sharescreen:stereoMicMode",
+    tipKey: "sharescreen:stereoMicTipSeen",
+  },
   musicQueue: {
     feature: "room-music-queue",
     modeKey: "sharescreen:musicQueueMode",
@@ -203,6 +213,10 @@ export const TILE_EXPERIMENT_EVENTS = {
   fullscreenChat: {
     modeOn: "fullscreen_chat_on",
     modeOff: "fullscreen_chat_off",
+  },
+  stereoMic: {
+    modeOn: "stereo_mic_on",
+    modeOff: "stereo_mic_off",
   },
   musicQueue: {
     // Nomes de "modo" aqui são a aba, não a ordem aleatória: o interruptor

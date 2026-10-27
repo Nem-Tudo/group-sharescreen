@@ -150,11 +150,17 @@ const MIC_LEVELER_RELEASE_SECONDS = 0.25;
 // clipping a mic that was already loud to begin with.
 const MIC_LEVELER_MAKEUP_GAIN = 10 ** (9 / 20);
 
-function micConstraints(deviceId?: string | null): MediaTrackConstraints {
+function micConstraints(deviceId?: string | null, stereo = false): MediaTrackConstraints {
   // autoGainControl: false so Chrome's own AGC never touches the OS mic
   // level — see the MIN_MIC_GAIN/MAX_MIC_GAIN comment above for why that's
   // the wrong tool even when the intent (fixing a too-quiet mic) is right.
-  const base = { channelCount: 1, autoGainControl: false };
+  //
+  // Stereo ("Microfone estéreo") also turns the browser's echo cancellation
+  // and noise suppression off: Chrome runs them on one channel and hands back
+  // mono whenever they are on, whatever channelCount asked for.
+  const base: MediaTrackConstraints = stereo
+    ? { channelCount: 2, autoGainControl: false, echoCancellation: false, noiseSuppression: false }
+    : { channelCount: 1, autoGainControl: false };
   return deviceId ? { ...base, deviceId: { exact: deviceId } } : base;
 }
 
@@ -173,12 +179,12 @@ function isMissingDeviceError(err: unknown): boolean {
 // for the same reason: a working microphone beats an error about permissions
 // that were never denied. The stored choice is deliberately left alone, so
 // the next start tries that device again once it is back.
-async function captureRawMic(deviceId?: string | null): Promise<MediaStream> {
+async function captureRawMic(deviceId?: string | null, stereo = false): Promise<MediaStream> {
   try {
-    return await navigator.mediaDevices.getUserMedia({ audio: micConstraints(deviceId) });
+    return await navigator.mediaDevices.getUserMedia({ audio: micConstraints(deviceId, stereo) });
   } catch (err) {
     if (!deviceId || !isMissingDeviceError(err)) throw err;
-    return navigator.mediaDevices.getUserMedia({ audio: micConstraints(null) });
+    return navigator.mediaDevices.getUserMedia({ audio: micConstraints(null, stereo) });
   }
 }
 
@@ -271,9 +277,12 @@ export async function captureNoiseSuppressedMic(
   // Where the input-volume dial is right now. Applied as the graph is built
   // rather than in a follow-up call, so a mic started at 30% is never
   // broadcast at 100% for the first few frames.
-  initialGain: number = DEFAULT_MIC_GAIN
+  initialGain: number = DEFAULT_MIC_GAIN,
+  // "Microfone estéreo": two channels end to end, and no RNNoise — it only
+  // processes one, so the toggle is greyed out for as long as this is on.
+  stereo = false
 ): Promise<MicCaptureResult> {
-  const rawStream = await captureRawMic(deviceId);
+  const rawStream = await captureRawMic(deviceId, stereo);
 
   // The processed mic is produced by an audio graph, and a graph in a
   // suspended AudioContext does not run: its destination node emits digital
@@ -308,22 +317,20 @@ export async function captureNoiseSuppressedMic(
     const destination = audioCtx.createMediaStreamDestination();
     // All pinned mono for the reason createRnnoiseNode pins its node, and
     // pinned here as well because connectUpstream's bypass path reaches the
-    // destination without passing through that node at all.
-    compressor.channelCount = 1;
-    compressor.channelCountMode = "explicit";
-    makeupGainNode.channelCount = 1;
-    makeupGainNode.channelCountMode = "explicit";
-    gainNode.channelCount = 1;
-    gainNode.channelCountMode = "explicit";
-    destination.channelCount = 1;
-    destination.channelCountMode = "explicit";
+    // destination without passing through that node at all. Pinned to two
+    // in stereo, where there is no RNNoise node to protect.
+    const channels = stereo ? 2 : 1;
+    for (const node of [compressor, makeupGainNode, gainNode, destination]) {
+      node.channelCount = channels;
+      node.channelCountMode = "explicit";
+    }
     compressor.connect(makeupGainNode);
     makeupGainNode.connect(gainNode);
     gainNode.connect(destination);
 
     // Only the suppressor is optional — a graph without it is still a graph,
     // and still carries the volume dial.
-    const rnnoiseNode = await createRnnoiseNode(audioCtx);
+    const rnnoiseNode = stereo ? null : await createRnnoiseNode(audioCtx);
 
     // One teardown, reachable two ways. `stop()` below is the reliable path
     // (the caller switching the mic off); the "ended" listener stays as the

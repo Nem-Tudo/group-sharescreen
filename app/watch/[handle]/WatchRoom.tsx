@@ -1821,6 +1821,7 @@ function WatchRoomView({
     noiseSuppressionOn,
     noiseSuppressionAvailable,
     toggleNoiseSuppression,
+    stereoMic,
     forceRelayIce,
     forceRelayAllowed,
     toggleForceRelayIce,
@@ -2098,6 +2099,9 @@ function WatchRoomView({
   // the person records in the shortcuts panel. Desktop app only.
   const pushToTalk = usePushToTalk();
   const pushToTalkTip = useTileExperimentTip("pushToTalk", pushToTalk.available);
+  // "Microfone estéreo" (experiment "stereo-mic"): its switch, in the mic's
+  // panel. useRoomMedia reads the same switch and restarts the mic on it.
+  const stereoMicMode = useTileExperiment("stereoMic", { track: true });
   // "Girar/inverter" (see lib/tileOrientation): the button in each tile's
   // corner. Tracked here, where its switch is, rather than in every tile.
   const orientationMode = useTileExperiment("orientation", { track: true });
@@ -6424,11 +6428,13 @@ function WatchRoomView({
       label={translate("watch.watchRoom.noiseSuppression")}
       active={noiseSuppressionOn}
       onToggle={toggleNoiseSuppression}
-      disabled={isMicOn && !noiseSuppressionAvailable}
+      disabled={stereoMic || (isMicOn && !noiseSuppressionAvailable)}
       hint={
-        isMicOn && !noiseSuppressionAvailable
-          ? translate("watch.watchRoom.noiseSuppressionUnavailableWithThisAudio")
-          : undefined
+        stereoMic
+          ? translate("watch.watchRoom.noiseSuppressionOffInStereo")
+          : isMicOn && !noiseSuppressionAvailable
+            ? translate("watch.watchRoom.noiseSuppressionUnavailableWithThisAudio")
+            : undefined
       }
       activeIcon={<NoiseSuppressionIcon className="h-4 w-4" />}
       inactiveIcon={<NoiseSuppressionOffIcon className="h-4 w-4" />}
@@ -6452,6 +6458,26 @@ function WatchRoomView({
           ? translate("watch.watchRoom.pushToTalkNeedsKey")
           : translate("watch.watchRoom.pushToTalkModeHint")
       }
+      activeIcon={<MicIcon className="h-4 w-4" />}
+      inactiveIcon={<MicIcon className="h-4 w-4 opacity-50" />}
+    />
+  );
+
+  // "Microfone estéreo": only in the mic's panel — it is a setting of the
+  // microphone, and nowhere else would anybody look for it.
+  const stereoMicToggle = stereoMicMode.available && (
+    <MenuToggleRow
+      label={translate("watch.watchRoom.stereoMic")}
+      badge={<NewBadge id="stereo-mic" />}
+      active={stereoMicMode.on}
+      onToggle={() => {
+        const next = !stereoMicMode.on;
+        setTileExperimentMode("stereoMic", next);
+        if (next) markFeatureUsed("stereo-mic");
+      }}
+      // What it costs, said where it is switched on: no echo cancellation
+      // means anyone on speakers sends the room back to itself.
+      hint={translate("watch.watchRoom.stereoMicHint")}
       activeIcon={<MicIcon className="h-4 w-4" />}
       inactiveIcon={<MicIcon className="h-4 w-4 opacity-50" />}
     />
@@ -7043,6 +7069,7 @@ function WatchRoomView({
                 disabled={isMicOn && !micGainAvailable}
               />
               {noiseSuppressionToggle}
+              {stereoMicToggle}
               {pushToTalkToggle}
               {pushToTalkKeyRow}
             </div>
