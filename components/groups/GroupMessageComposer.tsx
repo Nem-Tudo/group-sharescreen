@@ -16,6 +16,8 @@ import { MdCheck, MdClose, MdEdit, MdGif, MdGroups, MdSend, MdTune, MdVolumeUp }
 import { AttachMenu, splitPicked } from "@/components/AttachMenu";
 import { AttachmentTray, dataUrlToFile, ImageViewOnceButton } from "@/components/AttachmentTray";
 import { EmojiPickerButton } from "@/components/EmojiPicker";
+import { FILE_DROP_FEATURE, FileDropOverlay, useFileDrop } from "@/components/FileDrop";
+import { trackFeatureEvent, useFeature } from "@/lib/features";
 import { useCustomEmojiEnabled, type EmojiPlace } from "@/lib/customEmoji";
 import { EmojiSuggestions } from "@/components/EmojiSuggestions";
 import { GifPicker } from "@/components/GifPicker";
@@ -1064,8 +1066,16 @@ export function GroupMessageComposer({
     textRef.current?.focus();
   }
 
+  // Files dragged onto the box go where the "+" would send them.
+  const fileDrop = useFeature(FILE_DROP_FEATURE);
+  const { dragging, dropProps } = useFileDrop((files) => {
+    trackFeatureEvent("chat_file_drop_group", { value: files.length, feature: FILE_DROP_FEATURE });
+    addAnything(files);
+  }, fileDrop.enabled && allow.images && !disabled && !editing);
+
   return (
-    <div data-composer className="relative shrink-0 border-t border-zinc-200 p-2 dark:border-zinc-800">
+    <div data-composer {...dropProps} className="relative shrink-0 border-t border-zinc-200 p-2 dark:border-zinc-800">
+      <FileDropOverlay show={dragging} />
       {emoji.open && (
         <EmojiSuggestions
           matches={emoji.matches}

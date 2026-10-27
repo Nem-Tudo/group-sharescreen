@@ -3731,6 +3731,7 @@
   "mobile.notSignedIn": "No has iniciado sesión",
   "mobile.pickAName": "Elegir un nombre",
   "attachments.attach": "Adjuntar",
+  "attachments.dropToAttach": "Suelta para adjuntar",
   "attachments.image": "Imagen",
   "attachments.takePhoto": "Tomar foto",
   "attachments.video": "Video",

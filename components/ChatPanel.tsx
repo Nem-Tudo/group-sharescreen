@@ -35,6 +35,8 @@ import { MdClose, MdDeleteOutline, MdReply } from "react-icons/md";
 import { LuPanelRightClose } from "react-icons/lu";
 import { ChatImageModal, type ChatImagePreviewState } from "@/components/ChatImageModal";
 import { AttachMenu, splitPicked } from "@/components/AttachMenu";
+import { FILE_DROP_FEATURE, FileDropOverlay, useFileDrop } from "@/components/FileDrop";
+import { trackFeatureEvent, useFeature } from "@/lib/features";
 import { AttachmentTray, dataUrlToFile, ImageViewOnceButton } from "@/components/AttachmentTray";
 import { MessageAttachments } from "@/components/MessageAttachments";
 import { InviteEmbeds } from "@/components/groups/InviteEmbed";
@@ -1398,6 +1400,13 @@ export function ChatPanel({
     t,
   ]);
 
+  // Files dragged onto the box go where the "+" would send them.
+  const fileDrop = useFeature(FILE_DROP_FEATURE);
+  const { dragging, dropProps } = useFileDrop((files) => {
+    trackFeatureEvent("chat_file_drop_room", { room: roomHandle, value: files.length, feature: FILE_DROP_FEATURE });
+    attachAnything(files);
+  }, fileDrop.enabled && canAttach && !sendDisabledReason);
+
   return (
     <div
       className={`${marginClassName} flex ${heightClassName} flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950`}
@@ -1486,12 +1495,14 @@ export function ChatPanel({
 
       {onSend && (
         <form
+          {...dropProps}
           onSubmit={handleSubmit}
           // items-end, so the GIF and send buttons stay on the last line as
           // the box grows with a long message (see handleInput) instead of
           // floating in the middle of it.
           className="relative flex shrink-0 flex-col gap-2 border-t border-zinc-200 p-2 dark:border-zinc-800"
         >
+          <FileDropOverlay show={dragging} />
           {emoji.open && (
             <EmojiSuggestions
               matches={emoji.matches}
