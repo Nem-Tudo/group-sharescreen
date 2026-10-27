@@ -505,6 +505,8 @@
   "admin.features.overridesCount": "{count} forzados",
   "admin.features.serverOnly": "solo servidor",
   "admin.features.hideArchived": "Ocultar archivadas",
+  "admin.features.hideLaunched": "Ocultar las que están al 100%",
+  "admin.features.showLaunched": "Mostrar las al 100% ({count})",
   "admin.features.showArchived": "Mostrar archivadas ({count})",
   "admin.features.key": "Clave (usada en el código)",
   "admin.features.keyHint": "Minúsculas, números, - y _. No se puede cambiar después.",

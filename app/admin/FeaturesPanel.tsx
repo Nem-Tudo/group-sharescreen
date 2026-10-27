@@ -40,7 +40,8 @@ import { formatLocale } from "@/lib/i18n";
 
 const inputClass =
   "w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50";
-const labelClass = "flex flex-col gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-400";
+const HIDE_LAUNCHED_KEY = "admin:features:hideLaunched";
+const labelClass ="flex flex-col gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-400";
 const buttonClass =
   "rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900";
 const primaryClass =
@@ -219,6 +220,12 @@ export function FeaturesPanel() {
   const [features, setFeatures] = useState<AdminFeature[]>([]);
   const [builtInEvents, setBuiltInEvents] = useState<string[]>([]);
   const [showArchived, setShowArchived] = useState(false);
+  const [hideLaunched, setHideLaunched] = useState(false);
+  useEffect(() => {
+    try {
+      setHideLaunched(localStorage.getItem(HIDE_LAUNCHED_KEY) === "1");
+    } catch {}
+  }, []);
   const [open, setOpen] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -249,8 +256,19 @@ export function FeaturesPanel() {
   const replace = (next: AdminFeature) =>
     setFeatures((current) => current.map((feature) => (feature.key === next.key ? next : feature)));
 
-  const visible = features.filter((feature) => showArchived || !feature.archived);
+  const isLaunched = (feature: AdminFeature) => !feature.archived && feature.enabled && feature.rolloutBp >= 10_000;
+  const visible = features.filter(
+    (feature) => (showArchived || !feature.archived) && !(hideLaunched && isLaunched(feature))
+  );
   const archivedCount = features.filter((feature) => feature.archived).length;
+  const launchedCount = features.filter(isLaunched).length;
+  const toggleHideLaunched = () =>
+    setHideLaunched((value) => {
+      try {
+        localStorage.setItem(HIDE_LAUNCHED_KEY, value ? "0" : "1");
+      } catch {}
+      return !value;
+    });
 
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
@@ -372,6 +390,17 @@ export function FeaturesPanel() {
         </ul>
       )}
 
+      {(launchedCount > 0 || hideLaunched) && (
+        <button
+          type="button"
+          onClick={toggleHideLaunched}
+          className="mt-3 mr-4 text-xs text-zinc-500 underline underline-offset-2 hover:text-zinc-800 dark:hover:text-zinc-200"
+        >
+          {hideLaunched
+            ? t("admin.features.showLaunched", { count: launchedCount })
+            : t("admin.features.hideLaunched")}
+        </button>
+      )}
       {archivedCount > 0 && (
         <button
           type="button"

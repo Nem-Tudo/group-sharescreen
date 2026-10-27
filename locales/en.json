@@ -505,6 +505,8 @@
   "admin.features.overridesCount": "{count} overrides",
   "admin.features.serverOnly": "server only",
   "admin.features.hideArchived": "Hide archived",
+  "admin.features.hideLaunched": "Hide the ones at 100%",
+  "admin.features.showLaunched": "Show the ones at 100% ({count})",
   "admin.features.showArchived": "Show archived ({count})",
   "admin.features.key": "Key (used in code)",
   "admin.features.keyHint": "Lowercase, numbers, - and _. Cannot be changed later.",
