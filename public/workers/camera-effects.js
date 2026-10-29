@@ -67,6 +67,8 @@ self.onmessage = (event) => {
   } else if (data.type === "stop") {
     const pipeline = pipelines.get(data.id);
     if (pipeline) pipeline.stopped = true;
+  } else if (data.type === "background-image") {
+    setCustomBackground(data.bitmap || null);
   }
 };
 
@@ -327,7 +329,10 @@ function render(p, frame) {
   ctx.filter = color;
   ctx.drawImage(frame, 0, 0, width, height);
   ctx.filter = "none";
-  if (segmenter && p.hasMask) drawBlurredBackground(p, frame, color, width, height);
+  if (segmenter && p.hasMask) {
+    if (s.background === "blur") drawBlurredBackground(p, frame, color, width, height);
+    else drawReplacedBackground(p, s.background, color, width, height);
+  }
   if (landmarker) for (const face of p.faces) drawFace(ctx, s.face, face);
   if (landmarker && FACES_3D.has(s.face)) draw3d(ctx, p, s.face, width, height);
   if (s.face === "reactions") {
@@ -946,9 +951,10 @@ function drawDevil(ctx, f) {
       gradient.addColorStop(0, "#9e0b0b");
       gradient.addColorStop(1, "#ff3b2f");
       ctx.beginPath();
-      ctx.moveTo(x(0.13), 0);
-      ctx.quadraticCurveTo(x(0.16), -0.22 * s, x(0.34), -0.34 * s);
-      ctx.quadraticCurveTo(x(0.27), -0.14 * s, x(0.31), 0);
+      // Convex edge outside, tip curling in over the head.
+      ctx.moveTo(x(0.31), 0);
+      ctx.quadraticCurveTo(x(0.28), -0.22 * s, x(0.1), -0.34 * s);
+      ctx.quadraticCurveTo(x(0.17), -0.14 * s, x(0.13), 0);
       ctx.closePath();
       ctx.fillStyle = gradient;
       ctx.fill();
@@ -1443,3 +1449,284 @@ function draw3d(ctx, p, kind, width, height) {
     self.postMessage({ type: "error", kind: "render3d", reason: String((err && err.message) || err).slice(0, 120) });
   }
 }
+
+// ---------------------------------------------------------------------------
+// Background replacement
+//
+// Same cut-out as the blur, the other way round: the replacement is drawn at
+// the frame's full size, the person is cut out of it with the mask (stretched
+// up from the detection size, which softens the edge a little), and the rest
+// goes over the camera. The ready-made ones are painted here, once per size —
+// no image files to fetch — and a custom one arrives as an ImageBitmap from
+// the page (see pushCustomBackground in lib/cameraEffects.ts).
+
+let customBackground = null;
+const backgroundCache = new Map();
+
+function setCustomBackground(bitmap) {
+  if (customBackground) customBackground.close();
+  customBackground = bitmap;
+  for (const key of [...backgroundCache.keys()]) {
+    if (key.startsWith("custom:")) backgroundCache.delete(key);
+  }
+}
+
+function backgroundImage(kind, width, height) {
+  if (kind === "custom" && !customBackground) return null;
+  const key = `${kind}:${width}x${height}`;
+  let canvas = backgroundCache.get(key);
+  if (canvas) return canvas;
+  const painter = BACKGROUND_PAINTERS[kind];
+  if (!painter) return null;
+  // A handful at most: a camera flip or a resolution change briefly needs two.
+  if (backgroundCache.size >= 4) backgroundCache.clear();
+  canvas = new OffscreenCanvas(width, height);
+  painter(canvas.getContext("2d"), width, height);
+  backgroundCache.set(key, canvas);
+  return canvas;
+}
+
+function drawReplacedBackground(p, kind, color, width, height) {
+  const image = backgroundImage(kind, width, height);
+  if (!image) return;
+  if (!p.full || p.full.width !== width || p.full.height !== height) {
+    p.full = new OffscreenCanvas(width, height);
+    p.fullCtx = p.full.getContext("2d");
+  }
+  const ctx = p.fullCtx;
+  ctx.globalCompositeOperation = "copy";
+  ctx.filter = color;
+  ctx.drawImage(image, 0, 0, width, height);
+  ctx.filter = "none";
+  ctx.globalCompositeOperation = "destination-out";
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(p.mask, 0, 0, width, height);
+  ctx.globalCompositeOperation = "source-over";
+  p.ctx.drawImage(p.full, 0, 0);
+}
+
+// A fixed sequence, so a background looks the same every time it is painted.
+function seeded(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function verticalGradient(ctx, y0, y1, stops) {
+  const g = ctx.createLinearGradient(0, y0, 0, y1);
+  stops.forEach(([at, c]) => g.addColorStop(at, c));
+  return g;
+}
+
+function glow(ctx, x, y, r, inner) {
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, inner);
+  g.addColorStop(1, "rgba(0, 0, 0, 0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(x - r, y - r, r * 2, r * 2);
+}
+
+// A ridge from left to right at `base`, filled down to the bottom.
+function ridge(ctx, w, h, base, amp, freq, phase, fill) {
+  ctx.beginPath();
+  ctx.moveTo(0, h);
+  for (let i = 0; i <= 48; i += 1) {
+    const x = (i / 48) * w;
+    const y = base + amp * Math.sin((i / 48) * freq + phase) + amp * 0.4 * Math.sin((i / 48) * freq * 2.7 + phase * 1.3);
+    ctx.lineTo(x, y);
+  }
+  ctx.lineTo(w, h);
+  ctx.closePath();
+  ctx.fillStyle = fill;
+  ctx.fill();
+}
+
+const BACKGROUND_PAINTERS = {
+  sunset(ctx, w, h) {
+    ctx.fillStyle = verticalGradient(ctx, 0, h, [[0, "#2b1055"], [0.45, "#c2417d"], [0.7, "#ff8a5b"], [1, "#ffc46b"]]);
+    ctx.fillRect(0, 0, w, h);
+    glow(ctx, w * 0.68, h * 0.64, h * 0.4, "rgba(255, 214, 150, 0.75)");
+    ctx.beginPath();
+    ctx.arc(w * 0.68, h * 0.64, h * 0.1, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffe3a3";
+    ctx.fill();
+    ridge(ctx, w, h, h * 0.7, h * 0.04, 5, 0.6, "#7a2d63");
+    ridge(ctx, w, h, h * 0.8, h * 0.035, 4, 2.1, "#4a1747");
+    ridge(ctx, w, h, h * 0.9, h * 0.025, 3, 4.0, "#2a0c2e");
+  },
+  beach(ctx, w, h) {
+    ctx.fillStyle = verticalGradient(ctx, 0, h * 0.56, [[0, "#3d9cf5"], [1, "#cdeeff"]]);
+    ctx.fillRect(0, 0, w, h * 0.56);
+    glow(ctx, w * 0.82, h * 0.17, h * 0.22, "rgba(255, 250, 210, 0.9)");
+    ctx.beginPath();
+    ctx.arc(w * 0.82, h * 0.17, h * 0.06, 0, Math.PI * 2);
+    ctx.fillStyle = "#fffbe0";
+    ctx.fill();
+    const rand = seeded(7);
+    ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+    for (const [cx, cy, size] of [[0.2, 0.16, 1], [0.48, 0.1, 0.8], [0.6, 0.28, 0.6]]) {
+      for (let i = 0; i < 5; i += 1) {
+        ctx.beginPath();
+        ctx.ellipse(w * cx + (i - 2) * h * 0.05 * size, h * cy + (rand() - 0.5) * h * 0.02, h * 0.06 * size, h * 0.035 * size, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.fillStyle = verticalGradient(ctx, h * 0.55, h * 0.8, [[0, "#1667b8"], [1, "#3fb5e6"]]);
+    ctx.fillRect(0, h * 0.55, w, h * 0.27);
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
+    ctx.lineWidth = Math.max(1, h * 0.004);
+    for (let i = 0; i < 14; i += 1) {
+      const y = h * (0.58 + rand() * 0.2);
+      const x = rand() * w;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + w * (0.04 + rand() * 0.08), y);
+      ctx.stroke();
+    }
+    ridge(ctx, w, h, h * 0.8, h * 0.012, 6, 1, "rgba(255, 255, 255, 0.85)");
+    ctx.save();
+    ctx.translate(0, h * 0.012);
+    ridge(ctx, w, h, h * 0.8, h * 0.012, 6, 1, verticalGradient(ctx, h * 0.78, h, [[0, "#f6dca6"], [1, "#e4b874"]]));
+    ctx.restore();
+  },
+  space(ctx, w, h) {
+    const bg = ctx.createRadialGradient(w * 0.3, h * 0.4, 0, w * 0.3, h * 0.4, Math.max(w, h));
+    bg.addColorStop(0, "#2a1d5c");
+    bg.addColorStop(1, "#05040f");
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, w, h);
+    glow(ctx, w * 0.25, h * 0.6, h * 0.6, "rgba(150, 60, 200, 0.25)");
+    glow(ctx, w * 0.6, h * 0.2, h * 0.5, "rgba(40, 120, 220, 0.2)");
+    const rand = seeded(42);
+    const unit = h / 720;
+    for (let i = 0; i < 320; i += 1) {
+      ctx.globalAlpha = 0.3 + rand() * 0.7;
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.arc(rand() * w, rand() * h, (0.4 + rand() * 1.4) * unit, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    const px = w * 0.8;
+    const py = h * 0.28;
+    const r = h * 0.13;
+    const ring = (start, end) => {
+      ctx.beginPath();
+      ctx.ellipse(px, py, r * 1.9, r * 0.4, -0.3, start, end);
+      ctx.lineWidth = r * 0.12;
+      ctx.strokeStyle = "rgba(255, 220, 180, 0.65)";
+      ctx.stroke();
+    };
+    ring(Math.PI, Math.PI * 2);
+    const planet = ctx.createRadialGradient(px - r * 0.4, py - r * 0.4, r * 0.1, px, py, r);
+    planet.addColorStop(0, "#ffc58a");
+    planet.addColorStop(1, "#8a3d1c");
+    ctx.beginPath();
+    ctx.arc(px, py, r, 0, Math.PI * 2);
+    ctx.fillStyle = planet;
+    ctx.fill();
+    ring(0, Math.PI);
+  },
+  office(ctx, w, h) {
+    ctx.fillStyle = verticalGradient(ctx, 0, h, [[0, "#f1ebe1"], [1, "#d6ccbd"]]);
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = verticalGradient(ctx, h * 0.84, h, [[0, "#a77f58"], [1, "#7f5d3d"]]);
+    ctx.fillRect(0, h * 0.84, w, h * 0.16);
+    // The window.
+    const wx = w * 0.06;
+    const wy = h * 0.12;
+    const ww = w * 0.3;
+    const wh = h * 0.5;
+    ctx.fillStyle = verticalGradient(ctx, wy, wy + wh, [[0, "#8fcbff"], [1, "#e3f3ff"]]);
+    ctx.fillRect(wx, wy, ww, wh);
+    ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+    ctx.beginPath();
+    ctx.ellipse(wx + ww * 0.3, wy + wh * 0.3, ww * 0.12, wh * 0.05, 0, 0, Math.PI * 2);
+    ctx.ellipse(wx + ww * 0.42, wy + wh * 0.28, ww * 0.1, wh * 0.06, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = h * 0.014;
+    ctx.strokeRect(wx, wy, ww, wh);
+    ctx.beginPath();
+    ctx.moveTo(wx + ww / 2, wy);
+    ctx.lineTo(wx + ww / 2, wy + wh);
+    ctx.moveTo(wx, wy + wh / 2);
+    ctx.lineTo(wx + ww, wy + wh / 2);
+    ctx.stroke();
+    // Two shelves of books, and a plant on the lower one.
+    const rand = seeded(3);
+    const colors = ["#c0392b", "#2c6fbb", "#e1a12f", "#3c8d5a", "#6c4ab6", "#d35d8a", "#34495e"];
+    const sx = w * 0.62;
+    const sw = w * 0.32;
+    for (const [shelfY, until] of [[h * 0.38, 1], [h * 0.62, 0.62]]) {
+      let x = sx + w * 0.01;
+      while (x < sx + sw * until - w * 0.02) {
+        const bw = w * (0.012 + rand() * 0.012);
+        const bh = h * (0.1 + rand() * 0.06);
+        ctx.fillStyle = colors[Math.floor(rand() * colors.length)];
+        ctx.fillRect(x, shelfY - bh, bw, bh);
+        x += bw + w * 0.002;
+      }
+      ctx.fillStyle = "#8b5e3c";
+      ctx.fillRect(sx, shelfY, sw, h * 0.022);
+    }
+    const potX = sx + sw * 0.8;
+    const potY = h * 0.62;
+    ctx.fillStyle = "#3d8b4f";
+    for (let i = 0; i < 7; i += 1) {
+      const a = -Math.PI / 2 + (i - 3) * 0.32;
+      ctx.beginPath();
+      ctx.ellipse(potX + Math.cos(a) * h * 0.05, potY - h * 0.07 + Math.sin(a) * h * 0.05, h * 0.018, h * 0.055, a + Math.PI / 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = "#c8693b";
+    ctx.fillRect(potX - h * 0.035, potY - h * 0.06, h * 0.07, h * 0.06);
+  },
+  aurora(ctx, w, h) {
+    ctx.fillStyle = verticalGradient(ctx, 0, h, [[0, "#030a14"], [1, "#0b2236"]]);
+    ctx.fillRect(0, 0, w, h);
+    const rand = seeded(11);
+    const unit = h / 720;
+    ctx.fillStyle = "#ffffff";
+    for (let i = 0; i < 160; i += 1) {
+      ctx.globalAlpha = 0.2 + rand() * 0.6;
+      ctx.beginPath();
+      ctx.arc(rand() * w, rand() * h * 0.7, (0.4 + rand()) * unit, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "lighter";
+    const tints = ["rgba(46, 230, 160, 0.4)", "rgba(60, 200, 255, 0.28)", "rgba(170, 90, 255, 0.26)", "rgba(46, 230, 160, 0.3)"];
+    tints.forEach((tint, i) => {
+      ctx.save();
+      ctx.translate(w * (0.15 + i * 0.24), h * (0.3 + (i % 2) * 0.08));
+      ctx.scale(1, 0.45);
+      glow(ctx, 0, 0, w * 0.32, tint);
+      ctx.restore();
+    });
+    ctx.globalCompositeOperation = "source-over";
+    ridge(ctx, w, h, h * 0.82, h * 0.05, 4, 0.3, "#06101a");
+    ridge(ctx, w, h, h * 0.9, h * 0.03, 6, 2, "#020609");
+  },
+  studio(ctx, w, h) {
+    const g = ctx.createRadialGradient(w * 0.5, h * 0.42, 0, w * 0.5, h * 0.42, Math.max(w, h) * 0.75);
+    g.addColorStop(0, "#6b7280");
+    g.addColorStop(0.55, "#2a2f37");
+    g.addColorStop(1, "#0d0f12");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+  },
+  custom(ctx, w, h) {
+    // Covering the frame, cropped from the middle.
+    const b = customBackground;
+    const scale = Math.max(w / b.width, h / b.height);
+    const dw = b.width * scale;
+    const dh = b.height * scale;
+    ctx.drawImage(b, (w - dw) / 2, (h - dh) / 2, dw, dh);
+  },
+};

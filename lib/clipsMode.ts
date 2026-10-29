@@ -261,6 +261,8 @@ export const TILE_EXPERIMENT_EVENTS = {
     start: "camera_effects_start", // uma câmera começou a passar pelos efeitos
     error: "camera_effects_error", // um modelo não carregou, ou o desenho falhou
     slow: "camera_effects_slow", // value: ms por quadro (uma vez por sessão, acima de 30)
+    bgUpload: "camera_effects_bg_upload", // enviou uma imagem de fundo própria
+    bgLocked: "camera_effects_bg_locked", // tocou em "Seu fundo" sem o plano (abriu os planos)
   },
   // O resto das estatísticas está em PHONE_CAMERA_EVENTS (lib/phoneCamera).
   phoneCamera: {

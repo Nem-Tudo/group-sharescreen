@@ -1,6 +1,7 @@
 "use client";
 
-import { MdAutoAwesome } from "react-icons/md";
+import { useRef, useState, type ReactNode } from "react";
+import { MdAutoAwesome, MdLock, MdUpload } from "react-icons/md";
 import { MenuToggleRow } from "@/components/MenuToggleRow";
 import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
 import {
@@ -10,12 +11,19 @@ import {
   CAMERA_EFFECTS_FEATURE,
   CAMERA_FACES,
   CAMERA_FACES_3D,
+  CUSTOM_BACKGROUND_TIER,
+  canUseCustomBackground,
   setCameraEffect,
+  setCustomCameraBackground,
   useCameraEffectSettings,
   useCameraEffectsStatus,
+  useCustomCameraBackground,
   type CameraEffectSettings,
 } from "@/lib/cameraEffects";
-import { setTileExperimentMode } from "@/lib/clipsMode";
+import { setTileExperimentMode, trackTileExperiment, TILE_EXPERIMENT_EVENTS } from "@/lib/clipsMode";
+import { useAuth } from "@/lib/AuthContext";
+import { TIER_NAMES } from "@/lib/entitlements";
+import { openProModal } from "@/lib/proModal";
 import { useFeature } from "@/lib/features";
 import { useT } from "@/lib/useI18n";
 
@@ -30,6 +38,13 @@ const LABELS: { [K in keyof CameraEffectSettings]: Record<CameraEffectSettings[K
   background: {
     none: "watch.watchRoom.cameraEffectNone",
     blur: "watch.watchRoom.cameraEffectBlur",
+    sunset: "watch.watchRoom.cameraEffectSunset",
+    beach: "watch.watchRoom.cameraEffectBeach",
+    space: "watch.watchRoom.cameraEffectSpace",
+    office: "watch.watchRoom.cameraEffectOffice",
+    aurora: "watch.watchRoom.cameraEffectAurora",
+    studio: "watch.watchRoom.cameraEffectStudio",
+    custom: "watch.watchRoom.cameraEffectCustomBg",
   },
   color: {
     none: "watch.watchRoom.cameraEffectNone",
@@ -60,12 +75,18 @@ const LABELS: { [K in keyof CameraEffectSettings]: Record<CameraEffectSettings[K
   },
 };
 
+const CHIP = "rounded-md px-2 py-1 text-xs font-medium transition";
+const CHIP_ON = "bg-emerald-600 text-white";
+const CHIP_OFF =
+  "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700";
+
 function EffectGroup<K extends keyof CameraEffectSettings>({
   name,
   title,
   options,
   value,
   turnOn,
+  children,
 }: {
   name: K;
   title: string;
@@ -73,6 +94,8 @@ function EffectGroup<K extends keyof CameraEffectSettings>({
   value: CameraEffectSettings[K];
   // Set when picking an effect should also turn the switch on.
   turnOn?: () => void;
+  // More chips after the plain choices (the custom background's).
+  children?: ReactNode;
 }) {
   const t = useT();
   return (
@@ -91,17 +114,111 @@ function EffectGroup<K extends keyof CameraEffectSettings>({
                 turnOn?.();
               }
             }}
-            className={`rounded-md px-2 py-1 text-xs font-medium transition ${
-              value === option
-                ? "bg-emerald-600 text-white"
-                : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-            }`}
+            className={`${CHIP} ${value === option ? CHIP_ON : CHIP_OFF}`}
           >
             {t((LABELS[name] as Record<string, string>)[option])}
           </button>
         ))}
+        {children}
       </div>
     </div>
+  );
+}
+
+// "Seu fundo": an image of the person's own, Pro Max and up. Below the plan it
+// is still shown, locked, and opens the plans. With the plan and no image yet
+// it asks for one; with one, it picks it, and a second chip swaps the image.
+function CustomBackgroundChips({ selected, turnOn }: { selected: boolean; turnOn?: () => void }) {
+  const t = useT();
+  const { account } = useAuth();
+  const allowed = canUseCustomBackground(account?.flags);
+  const image = useCustomCameraBackground();
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  if (!allowed) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          trackTileExperiment(TILE_EXPERIMENT_EVENTS.cameraEffects.bgLocked);
+          openProModal(CUSTOM_BACKGROUND_TIER);
+        }}
+        title={t("watch.watchRoom.cameraEffectCustomBgLocked", { plan: TIER_NAMES[CUSTOM_BACKGROUND_TIER] })}
+        className={`${CHIP} ${CHIP_OFF} inline-flex items-center gap-1`}
+      >
+        <MdLock className="h-3 w-3 text-amber-500" />
+        {t("watch.watchRoom.cameraEffectCustomBg")}
+        <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+          {TIER_NAMES[CUSTOM_BACKGROUND_TIER]}
+        </span>
+      </button>
+    );
+  }
+
+  const upload = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true);
+    setFailed(false);
+    try {
+      await setCustomCameraBackground(file);
+      markFeatureUsed(CAMERA_EFFECTS_FEATURE);
+      turnOn?.();
+    } catch {
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <input
+        ref={input}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          void upload(e.target.files?.[0]);
+          e.target.value = "";
+        }}
+      />
+      {image && (
+        <button
+          type="button"
+          aria-pressed={selected}
+          onClick={() => {
+            setCameraEffect("background", "custom");
+            markFeatureUsed(CAMERA_EFFECTS_FEATURE);
+            turnOn?.();
+          }}
+          className={`${CHIP} ${selected ? CHIP_ON : CHIP_OFF} inline-flex items-center gap-1.5`}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element -- a data URL from this browser */}
+          <img src={image} alt="" className="h-4 w-6 rounded-sm object-cover" />
+          {t("watch.watchRoom.cameraEffectCustomBg")}
+        </button>
+      )}
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => input.current?.click()}
+        className={`${CHIP} ${CHIP_OFF} inline-flex items-center gap-1 disabled:opacity-50`}
+      >
+        <MdUpload className="h-3.5 w-3.5" />
+        {busy
+          ? t("watch.watchRoom.cameraEffectsLoading")
+          : image
+            ? t("watch.watchRoom.cameraEffectChangeBg")
+            : t("watch.watchRoom.cameraEffectUploadBg")}
+      </button>
+      {failed && (
+        <span className="w-full text-[11px] text-red-600 dark:text-red-400">
+          {t("watch.watchRoom.cameraEffectBgError")}
+        </span>
+      )}
+    </>
   );
 }
 
@@ -155,7 +272,9 @@ export function CameraEffectsPanel({ on, standalone = false }: { on: boolean; st
             options={CAMERA_BACKGROUNDS}
             value={settings.background}
             turnOn={turnOn}
-          />
+          >
+            <CustomBackgroundChips selected={settings.background === "custom"} turnOn={turnOn} />
+          </EffectGroup>
           <EffectGroup
             name="color"
             title={t("watch.watchRoom.cameraEffectColor")}

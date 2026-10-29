@@ -1261,7 +1261,8 @@ class SignalingClient {
     camera: boolean;
     files: Omit<SharedFile, "updatedAt">[];
     cameraEffects: boolean;
-  } = { screen: false, camera: false, files: [], cameraEffects: false };
+    phoneCamera: boolean;
+  } = { screen: false, camera: false, files: [], cameraEffects: false, phoneCamera: false };
   // Consecutive "captcha-required" rejections for the current join
   // attempt — see MAX_JOIN_RETRIES and performJoin.
   private joinRetryCount = 0;
@@ -3663,12 +3664,16 @@ class SignalingClient {
     // The camera is going out through "Efeitos de câmera" (see
     // lib/cameraEffects). Only the admin panel reads it, to filter on it.
     cameraEffects?: boolean;
+    // The camera is a phone's ("Celular como câmera", lib/phoneCamera).
+    // Same: only the admin panel reads it.
+    phoneCamera?: boolean;
   }) {
     if (sources.screen !== undefined) this.sharingSources.screen = sources.screen;
     if (sources.camera !== undefined) this.sharingSources.camera = sources.camera;
     if (sources.files !== undefined) this.sharingSources.files = sources.files;
     if (sources.cameraEffects !== undefined) this.sharingSources.cameraEffects = sources.cameraEffects;
-    const { screen, camera, files, cameraEffects } = this.sharingSources;
+    if (sources.phoneCamera !== undefined) this.sharingSources.phoneCamera = sources.phoneCamera;
+    const { screen, camera, files, cameraEffects, phoneCamera } = this.sharingSources;
     this.rawSend({
       type: "sharing",
       // The rolled-up "is this person transmitting anything" every older
@@ -3678,6 +3683,7 @@ class SignalingClient {
       camera,
       files,
       cameraEffects: camera && cameraEffects,
+      phoneCamera: camera && phoneCamera,
     });
   }
 

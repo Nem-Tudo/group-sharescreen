@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from "react";
 import { trackTileExperiment, TILE_EXPERIMENT_EVENTS } from "./clipsMode";
 import { trackFeatureEvent } from "./features";
+import { accountTierOf, tierAtLeast } from "./entitlements";
 
 // "Efeitos de câmera" (experiment "camera-effects"): background blur, colour
 // filters and face overlays (dog, cat, sunglasses, clown, crown, bunny, bear,
@@ -27,7 +28,18 @@ import { trackFeatureEvent } from "./features";
 // capture. One that had effects earlier in the same session keeps its
 // pipeline, but the worker passes frames straight through without drawing.
 
-export type CameraBackground = "none" | "blur";
+export type CameraBackground =
+  | "none"
+  | "blur"
+  | "sunset"
+  | "beach"
+  | "space"
+  | "office"
+  | "aurora"
+  | "studio"
+  // An image of the person's own (Pro Max and up), kept in this browser —
+  // see setCustomCameraBackground.
+  | "custom";
 export type CameraColor = "none" | "mono" | "sepia" | "vivid";
 export type CameraFace =
   | "none"
@@ -56,7 +68,17 @@ export interface CameraEffectSettings {
   face: CameraFace;
 }
 
-export const CAMERA_BACKGROUNDS: CameraBackground[] = ["none", "blur"];
+// The ones offered as plain choices; "custom" has a control of its own.
+export const CAMERA_BACKGROUNDS: CameraBackground[] = [
+  "none",
+  "blur",
+  "sunset",
+  "beach",
+  "space",
+  "office",
+  "aurora",
+  "studio",
+];
 export const CAMERA_COLORS: CameraColor[] = ["none", "mono", "sepia", "vivid"];
 export const CAMERA_FACES: CameraFace[] = [
   "none",
@@ -96,10 +118,122 @@ function track3d(name: string, value?: number) {
   });
 }
 
-/** `settings` with a 3D face taken away from whoever is not in the experiment. */
-export function effectiveCameraEffects(settings: CameraEffectSettings, allow3d: boolean): CameraEffectSettings {
-  if (allow3d || !CAMERA_FACES_3D.includes(settings.face)) return settings;
-  return { ...settings, face: "none" };
+/**
+ * `settings` as they may actually be drawn: a 3D face taken away from whoever
+ * is not in the experiment, and the custom background from whoever is not on
+ * the plan for it (or has no image stored).
+ */
+export function effectiveCameraEffects(
+  settings: CameraEffectSettings,
+  allow3d: boolean,
+  allowCustomBackground: boolean
+): CameraEffectSettings {
+  let next = settings;
+  if (!allow3d && CAMERA_FACES_3D.includes(next.face)) next = { ...next, face: "none" };
+  if (!allowCustomBackground && next.background === "custom") next = { ...next, background: "none" };
+  return next;
+}
+
+// ---------------------------------------------------------------------------
+// The custom background (Pro Max and up)
+
+export const CUSTOM_BACKGROUND_TIER = "premium_max" as const;
+
+export function canUseCustomBackground(flags: readonly string[] | undefined | null): boolean {
+  return tierAtLeast(accountTierOf(flags), CUSTOM_BACKGROUND_TIER);
+}
+
+// A JPEG data URL in localStorage: shrunk to fit MAX_CUSTOM_BACKGROUND_SIDE so
+// it stays a couple of hundred KB, well inside the quota, and is there again
+// on the next visit without anything going to the server.
+const CUSTOM_BACKGROUND_KEY = "sharescreen:cameraBackgroundImage";
+const MAX_CUSTOM_BACKGROUND_SIDE = 1280;
+const MAX_CUSTOM_BACKGROUND_BYTES = 20 * 1024 * 1024;
+
+let customCached: string | null | undefined;
+const customListeners = new Set<() => void>();
+
+function readCustomBackground(): string | null {
+  if (customCached !== undefined) return customCached;
+  try {
+    customCached = window.localStorage.getItem(CUSTOM_BACKGROUND_KEY);
+  } catch {
+    customCached = null;
+  }
+  return customCached;
+}
+
+/** The stored custom background, as a data URL (for the thumbnail), or null. */
+export function useCustomCameraBackground(): string | null {
+  return useSyncExternalStore(
+    (listener) => {
+      customListeners.add(listener);
+      const onStorage = (event: StorageEvent) => {
+        if (event.key !== CUSTOM_BACKGROUND_KEY) return;
+        customCached = undefined;
+        listener();
+        void pushCustomBackground();
+      };
+      window.addEventListener("storage", onStorage);
+      return () => {
+        customListeners.delete(listener);
+        window.removeEventListener("storage", onStorage);
+      };
+    },
+    readCustomBackground,
+    () => null
+  );
+}
+
+/**
+ * Takes an image file as the custom background and picks it. Throws (with
+ * nothing changed) for a file that is not a readable image, or one too big
+ * to keep.
+ */
+export async function setCustomCameraBackground(file: File): Promise<void> {
+  if (!file.type.startsWith("image/") || file.size > MAX_CUSTOM_BACKGROUND_BYTES) {
+    throw new Error("not an image");
+  }
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, MAX_CUSTOM_BACKGROUND_SIDE / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("no canvas");
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+  // Throws on a full quota, before anything is switched over to it.
+  window.localStorage.setItem(CUSTOM_BACKGROUND_KEY, dataUrl);
+  customCached = dataUrl;
+  customListeners.forEach((listener) => listener());
+  trackTileExperiment(TILE_EXPERIMENT_EVENTS.cameraEffects.bgUpload);
+  await pushCustomBackground();
+  setCameraEffect("background", "custom");
+}
+
+// The worker gets the image decoded, once per worker and once per change.
+let customPushed = 0;
+async function pushCustomBackground() {
+  const target = worker;
+  if (!target) return;
+  const push = ++customPushed;
+  const dataUrl = readCustomBackground();
+  let bitmap: ImageBitmap | null = null;
+  if (dataUrl) {
+    try {
+      bitmap = await createImageBitmap(await (await fetch(dataUrl)).blob());
+    } catch {
+      bitmap = null;
+    }
+  }
+  // A newer push, or another worker, took over while this one decoded.
+  if (push !== customPushed || worker !== target) {
+    bitmap?.close();
+    return;
+  }
+  target.postMessage({ type: "background-image", bitmap }, bitmap ? [bitmap] : []);
 }
 
 export const CAMERA_EFFECTS_FEATURE = "camera-effects";
@@ -107,7 +241,7 @@ export const CAMERA_EFFECTS_FEATURE = "camera-effects";
 // Versioned: public/ files are cached by Cloudflare for a month under their
 // plain URL, so a fixed worker kept being served as the old one. Bump this
 // whenever public/workers/camera-effects.js changes.
-const WORKER_VERSION = 4;
+const WORKER_VERSION = 5;
 const WORKER_URL = `/workers/camera-effects.js?v=${WORKER_VERSION}`;
 const SETTINGS_KEY = "sharescreen:cameraEffects";
 // How long the worker (and the models it loaded) outlives the last camera
@@ -160,7 +294,7 @@ function readSettings(): CameraEffectSettings {
     parsed = {};
   }
   cached = {
-    background: pick(parsed.background, CAMERA_BACKGROUNDS),
+    background: pick(parsed.background, [...CAMERA_BACKGROUNDS, "custom"]),
     color: pick(parsed.color, CAMERA_COLORS),
     face: pick(parsed.face, [...CAMERA_FACES, ...CAMERA_FACES_3D]),
   };
@@ -305,6 +439,7 @@ function ensureWorker(): Worker {
   };
   created.postMessage({ type: "settings", settings: current });
   worker = created;
+  void pushCustomBackground();
   return created;
 }
 

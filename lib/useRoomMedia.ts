@@ -148,6 +148,7 @@ import {
 } from "./phoneCamera";
 import {
   CAMERA_EFFECTS_3D_FEATURE,
+  canUseCustomBackground,
   cameraEffectsSupported,
   createCameraEffectsTrack,
   discardCameraEffectsTrack,
@@ -156,6 +157,7 @@ import {
   isCameraEffectsTrack,
   setCameraEffectsTarget,
   useCameraEffectSettings,
+  useCustomCameraBackground,
   type CameraEffectSettings,
 } from "./cameraEffects";
 import {
@@ -3956,6 +3958,10 @@ export function useRoomMedia(room: string) {
   // switch is on, and whether the running camera is the phone's.
   const phoneCameraModeRef = useRef(false);
   const cameraFromPhoneRef = useRef(false);
+  // The same, as state: announced to the server so the admin panel can
+  // filter on it. A swap between webcam and phone keeps camera.active as it
+  // was, so the ref alone would never re-announce.
+  const [cameraFromPhone, setCameraFromPhone] = useState(false);
 
   const camera = useBroadcastChannel(
     "camera",
@@ -3981,6 +3987,7 @@ export function useRoomMedia(room: string) {
           throw new ShareStartError(t(`useRoomMedia.phoneCamera_${code}`));
         }
         cameraFromPhoneRef.current = true;
+        setCameraFromPhone(true);
         setPhoneCameraInUse(true);
         const clone = remote.clone();
         if (!cameraEffectsRef.current) return new MediaStream([clone]);
@@ -3991,6 +3998,7 @@ export function useRoomMedia(room: string) {
         }
       }
       cameraFromPhoneRef.current = false;
+      setCameraFromPhone(false);
       setPhoneCameraInUse(false);
       // Capture at the full picked resolution regardless of room size. The
       // per-viewer tiers downscale each *sender* independently (see
@@ -4222,9 +4230,13 @@ export function useRoomMedia(room: string) {
   // effectiveCameraEffects); exposure is counted where they are offered.
   const allowCameraEffects3d = useFeature(CAMERA_EFFECTS_3D_FEATURE, { track: false }).enabled;
   const storedCameraEffects = useCameraEffectSettings();
+  // The custom background only on the plan for it, and only with an image.
+  const customCameraBackground = useCustomCameraBackground();
+  const allowCustomCameraBackground =
+    canUseCustomBackground(account?.flags) && customCameraBackground !== null;
   const cameraEffectSettings = useMemo(
-    () => effectiveCameraEffects(storedCameraEffects, allowCameraEffects3d),
-    [storedCameraEffects, allowCameraEffects3d]
+    () => effectiveCameraEffects(storedCameraEffects, allowCameraEffects3d, allowCustomCameraBackground),
+    [storedCameraEffects, allowCameraEffects3d, allowCustomCameraBackground]
   );
   const wantedCameraEffects = useMemo(
     () =>
@@ -4333,6 +4345,7 @@ export function useRoomMedia(room: string) {
     const timer = setTimeout(() => {
       if (cameraRef.current.active) return;
       cameraFromPhoneRef.current = false;
+      setCameraFromPhone(false);
       setPhoneCameraInUse(false);
       releasePhoneCamera();
     }, 5000);
@@ -4563,8 +4576,17 @@ export function useRoomMedia(room: string) {
       camera: camera.active || camera2.active,
       files: JSON.parse(announcedFilesKey) as typeof announcedFiles,
       cameraEffects: cameraEffectsLive,
+      phoneCamera: camera.active && cameraFromPhone,
     });
-  }, [screen.active, extraScreensActive, camera.active, camera2.active, announcedFilesKey, cameraEffectsLive]);
+  }, [
+    screen.active,
+    extraScreensActive,
+    camera.active,
+    camera2.active,
+    announcedFilesKey,
+    cameraEffectsLive,
+    cameraFromPhone,
+  ]);
 
   // Capacity measurement and the cascade decision. Both are driven by the
   // screen channel only: it is the expensive one, and the mic's ~32 kbps is
