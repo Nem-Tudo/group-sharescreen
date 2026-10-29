@@ -10,6 +10,7 @@
 // MediaPipe (face landmarks, selfie segmentation) is loaded from the CDN the
 // first time an effect that needs it is picked, and only that model: blur
 // never downloads the face model, a dog nose never downloads the segmenter.
+// Three.js likewise, only for the 3D objects (see the end of the file).
 // Until it is ready, frames go through untouched instead of waiting.
 //
 // A classic worker, not a module one: MediaPipe loads its WASM glue with
@@ -36,6 +37,9 @@ const DETECT_WIDTH = 320;
 // 320px a 6px blur reads like ~36px at 1920, for a fraction of the work, and
 // the stretch only adds to the blur.
 const BLUR_PX = 6;
+
+// The faces of experiment "camera-effects-3d" (see the end of the file).
+const FACES_3D = new Set(["glasses3d", "tophat3d", "viking3d"]);
 
 const COLOR_FILTERS = {
   none: "none",
@@ -95,7 +99,8 @@ async function createTask(kind) {
           canvas: new OffscreenCanvas(1, 1),
           runningMode: "VIDEO",
           numFaces: 2,
-          outputFaceBlendshapes: false,
+          // The expressions, for the reactions (a blink, a smile, raised brows).
+          outputFaceBlendshapes: true,
           outputFacialTransformationMatrixes: false,
         })
       : vision.ImageSegmenter.createFromOptions(fileset, {
@@ -119,7 +124,12 @@ function wants(kind) {
   return kind === "face" ? settings.face !== "none" : settings.background !== "none";
 }
 
+function wants3d() {
+  return Boolean(settings && FACES_3D.has(settings.face));
+}
+
 function ensureTasks() {
+  if (wants3d()) ensureThree();
   for (const kind of ["face", "segment"]) {
     const slot = tasks[kind];
     if (!wants(kind) || slot.task || slot.loading || slot.failed) continue;
@@ -144,7 +154,8 @@ function ensureTasks() {
 }
 
 function postStatus() {
-  const loading = ["face", "segment"].some((kind) => wants(kind) && tasks[kind].loading);
+  const loading =
+    ["face", "segment"].some((kind) => wants(kind) && tasks[kind].loading) || (wants3d() && three.loading);
   self.postMessage({ type: "status", loading });
 }
 
@@ -174,6 +185,9 @@ function startPipeline(id, readable, writable) {
     maskBuffer: null,
     hasMask: false,
     faces: [],
+    particles: [],
+    reactions: [],
+    render3dFailed: false,
     missed: 0,
     frameIndex: 0,
     detectEvery: 1,
@@ -250,6 +264,7 @@ function reportStats(pipeline) {
       frameMs: pipeline.statsMs / pipeline.statsFrames,
       detectMs: pipeline.detectCost,
       detectEvery: pipeline.detectEvery,
+      fx3d: Boolean(settings && (FACES_3D.has(settings.face) || settings.face === "reactions")),
     });
   }
   pipeline.statsSince = now;
@@ -282,10 +297,13 @@ function render(p, frame) {
   const s = settings;
   const ctx = p.ctx;
 
-  // How far apart frames arrive, for the detection budget below.
+  // How far apart frames arrive, for the detection budget below, and how far
+  // the reactions' particles move.
   const ts = frame.timestamp / 1000;
+  let dt = 0;
   if (p.lastFrameTs && ts > p.lastFrameTs) {
     p.frameInterval = p.frameInterval * 0.9 + (ts - p.lastFrameTs) * 0.1;
+    dt = Math.min(0.1, (ts - p.lastFrameTs) / 1000);
   }
   p.lastFrameTs = ts;
 
@@ -311,6 +329,13 @@ function render(p, frame) {
   ctx.filter = "none";
   if (segmenter && p.hasMask) drawBlurredBackground(p, frame, color, width, height);
   if (landmarker) for (const face of p.faces) drawFace(ctx, s.face, face);
+  if (landmarker && FACES_3D.has(s.face)) draw3d(ctx, p, s.face, width, height);
+  if (s.face === "reactions") {
+    if (landmarker) p.faces.forEach((face, i) => spawnReactions(p, face, i, ts));
+    drawParticles(ctx, p, dt);
+  } else if (p.particles.length > 0) {
+    p.particles = [];
+  }
 
   return new VideoFrame(p.canvas, { timestamp: frame.timestamp, alpha: "discard" });
 }
@@ -375,7 +400,10 @@ function drawBlurredBackground(p, frame, color, width, height) {
 
 function detectFaces(p, landmarker, timestamp, width, height) {
   const result = landmarker.detectForVideo(p.small, timestamp);
-  const found = (result.faceLandmarks || []).map((landmarks) => anchorsOf(landmarks, width, height));
+  const shapes = result.faceBlendshapes || [];
+  const found = (result.faceLandmarks || []).map((landmarks, i) =>
+    anchorsOf(landmarks, width, height, shapes[i])
+  );
   if (found.length === 0) {
     // A face lost for a frame or two (a hand passing, motion blur) keeps its
     // overlay instead of blinking.
@@ -394,8 +422,28 @@ function point(landmarks, index, width, height) {
   const q = landmarks[index];
   return { x: q.x * width, y: q.y * height };
 }
+// With depth: the landmarks' z is on the same scale as their x.
+function point3(landmarks, index, width, height) {
+  const q = landmarks[index];
+  return { x: q.x * width, y: q.y * height, z: q.z * width };
+}
 function mid(a, b) {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
+function mid3(a, b) {
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 };
+}
+
+// The three expressions the reactions read, 0 to 1.
+function expressionsOf(blendshapes) {
+  const score = {};
+  for (const c of (blendshapes && blendshapes.categories) || []) score[c.categoryName] = c.score;
+  const get = (name) => score[name] || 0;
+  return {
+    blink: Math.min(get("eyeBlinkLeft"), get("eyeBlinkRight")),
+    smile: (get("mouthSmileLeft") + get("mouthSmileRight")) / 2,
+    brow: get("browInnerUp"),
+  };
 }
 function dist(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
@@ -405,9 +453,12 @@ function dist(a, b) {
 // MediaPipe's face mesh: 10 top of the forehead, 152 chin, 234/454 the sides
 // of the face, 33/133 and 263/362 the corners of each eye, 1 the tip of the
 // nose, 13/14 the inside of the lips, 164/0 the philtrum and the top of the
-// upper lip, 205/425 the cheeks.
-function anchorsOf(landmarks, width, height) {
+// upper lip, 205/425 the cheeks. The `3` ones keep depth, for the 3D objects;
+// `raw` is the expressions, left out of the smoothing (a blink is over in a
+// frame or two, and averaged it would never register).
+function anchorsOf(landmarks, width, height, blendshapes) {
   const at = (index) => point(landmarks, index, width, height);
+  const at3 = (index) => point3(landmarks, index, width, height);
   const eyeLeft = mid(at(33), at(133));
   const eyeRight = mid(at(263), at(362));
   const top = at(10);
@@ -427,6 +478,13 @@ function anchorsOf(landmarks, width, height) {
     eyeCenter: mid(eyeLeft, eyeRight),
     cheekLeft: at(205),
     cheekRight: at(425),
+    eye3Left: mid3(at3(33), at3(133)),
+    eye3Right: mid3(at3(263), at3(362)),
+    top3: at3(10),
+    chin3: at3(152),
+    side3Left: at3(234),
+    side3Right: at3(454),
+    raw: blendshapes ? expressionsOf(blendshapes) : null,
   };
 }
 
@@ -448,12 +506,14 @@ function nearest(faces, face) {
 function smooth(previous, next) {
   const k = 0.5;
   const lerp = (a, b) => a + (b - a) * k;
-  const lerpPoint = (a, b) => ({ x: lerp(a.x, b.x), y: lerp(a.y, b.y) });
+  const lerpPoint = (a, b) =>
+    b.z === undefined ? { x: lerp(a.x, b.x), y: lerp(a.y, b.y) } : { x: lerp(a.x, b.x), y: lerp(a.y, b.y), z: lerp(a.z, b.z) };
   const out = {};
   for (const key of Object.keys(next)) {
     const a = previous[key];
     const b = next[key];
-    out[key] = typeof b === "number" ? lerp(a, b) : lerpPoint(a, b);
+    if (key === "raw" || a === undefined || a === null || b === null) out[key] = b;
+    else out[key] = typeof b === "number" ? lerp(a, b) : lerpPoint(a, b);
   }
   return out;
 }
@@ -980,4 +1040,406 @@ function drawPartyHat(ctx, f) {
     ctx.fill();
     ctx.restore();
   });
+}
+
+// ---------------------------------------------------------------------------
+// Reactions (experiment "camera-effects-3d"): the face's expressions, read
+// from MediaPipe's blendshapes, set off particles drawn in 2D — a blink
+// throws sparkles, a smile lets hearts float up, raised brows pop a "!".
+
+const MAX_PARTICLES = 90;
+let reportedReaction = false;
+
+function reactionState(p, index) {
+  if (!p.reactions[index]) p.reactions[index] = { blinking: false, browUp: false, lastHeart: 0 };
+  return p.reactions[index];
+}
+
+function spawnReactions(p, face, index, now) {
+  const raw = face.raw;
+  if (!raw) return;
+  const state = reactionState(p, index);
+  const s = face.size;
+  let fired = false;
+  // Both eyes, so a wink or a squint against the light does not count.
+  const blinking = raw.blink > 0.5;
+  if (blinking && !state.blinking) {
+    for (const eye of [face.eyeLeft, face.eyeRight]) {
+      for (let i = 0; i < 5; i += 1) {
+        const a = Math.random() * Math.PI * 2;
+        const speed = (0.4 + Math.random() * 0.5) * s;
+        addParticle(p, {
+          kind: "sparkle",
+          x: eye.x,
+          y: eye.y,
+          vx: Math.cos(a) * speed,
+          vy: Math.sin(a) * speed - 0.2 * s,
+          size: (0.06 + Math.random() * 0.05) * s,
+          life: 0.7,
+          hue: Math.random() < 0.5 ? "#fff3a1" : "#ffffff",
+        });
+      }
+    }
+    fired = true;
+  }
+  state.blinking = blinking;
+
+  if (raw.smile > 0.55 && now - state.lastHeart > 160) {
+    state.lastHeart = now;
+    const cheek = Math.random() < 0.5 ? face.cheekLeft : face.cheekRight;
+    addParticle(p, {
+      kind: "heart",
+      x: cheek.x + (Math.random() - 0.5) * 0.1 * s,
+      y: cheek.y,
+      vx: (Math.random() - 0.5) * 0.15 * s,
+      vy: -(0.35 + Math.random() * 0.25) * s,
+      size: (0.05 + Math.random() * 0.03) * s,
+      life: 1.4,
+      hue: Math.random() < 0.3 ? "#ff8fb3" : "#ff2d55",
+    });
+    fired = true;
+  }
+
+  const browUp = raw.brow > 0.55;
+  if (browUp && !state.browUp) {
+    addParticle(p, {
+      kind: "bang",
+      x: face.top.x + 0.28 * s,
+      y: face.top.y - 0.05 * s,
+      vx: 0.1 * s,
+      vy: -0.35 * s,
+      size: 0.16 * s,
+      life: 0.9,
+      hue: "#ffd400",
+    });
+    fired = true;
+  }
+  state.browUp = browUp;
+
+  if (fired && !reportedReaction) {
+    reportedReaction = true;
+    self.postMessage({ type: "reaction" });
+  }
+}
+
+function addParticle(p, particle) {
+  if (p.particles.length >= MAX_PARTICLES) p.particles.shift();
+  particle.age = 0;
+  p.particles.push(particle);
+}
+
+// Moves and draws every particle, `dt` seconds on.
+function drawParticles(ctx, p, dt) {
+  const alive = [];
+  for (const q of p.particles) {
+    q.age += dt;
+    if (q.age >= q.life) continue;
+    q.x += q.vx * dt;
+    q.y += q.vy * dt;
+    if (q.kind === "sparkle") q.vy += 0.6 * q.size * dt * 10;
+    alive.push(q);
+    const t = q.age / q.life;
+    ctx.save();
+    ctx.globalAlpha = t < 0.15 ? t / 0.15 : 1 - Math.max(0, (t - 0.5) / 0.5);
+    ctx.fillStyle = q.hue;
+    if (q.kind === "sparkle") {
+      sparklePath(ctx, q.x, q.y, q.size * (1 - t * 0.5));
+      ctx.fill();
+    } else if (q.kind === "heart") {
+      heartPath(ctx, q.x + Math.sin(q.age * 6) * q.size * 0.4, q.y, q.size);
+      ctx.fill();
+    } else {
+      const pop = t < 0.2 ? 0.6 + t * 2 : 1;
+      ctx.font = `900 ${Math.round(q.size * pop)}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.lineWidth = q.size * 0.12;
+      ctx.strokeStyle = "#7a4b00";
+      ctx.strokeText("!", q.x, q.y);
+      ctx.fillText("!", q.x, q.y);
+    }
+    ctx.restore();
+  }
+  p.particles = alive;
+}
+
+function sparklePath(ctx, x, y, r) {
+  ctx.beginPath();
+  ctx.moveTo(x, y - r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.quadraticCurveTo(x, y, x, y + r);
+  ctx.quadraticCurveTo(x, y, x - r, y);
+  ctx.quadraticCurveTo(x, y, x, y - r);
+  ctx.closePath();
+}
+
+// ---------------------------------------------------------------------------
+// 3D objects (experiment "camera-effects-3d")
+//
+// Three.js, from the CDN, the first time one is picked. The head's pose comes
+// from the face landmarks themselves (their z is depth on the same scale as
+// x), as a basis at the point between the eyes:
+//
+//   x along the eyes, y from the chin to the forehead, z out of the face,
+//   one unit = the face's width (landmarks 234 to 454).
+//
+// Every model below is built in that space, so it follows the head turning
+// and tilting. An invisible head (an ellipsoid writing depth only) hides
+// whatever is behind it — the arms of the glasses, the back of a hat's brim.
+// Drawn orthographically: a webcam's perspective over a face is too slight
+// to be worth matching.
+
+const THREE_URL = "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+// The 3D layer is drawn at most this wide and stretched onto the frame.
+const RENDER_3D_WIDTH = 960;
+
+const three = { lib: null, loading: false, failed: false };
+let gl = null;
+
+function ensureThree() {
+  if (three.lib || three.loading || three.failed) return;
+  three.loading = true;
+  import(THREE_URL)
+    .then(
+      (lib) => {
+        three.lib = lib;
+      },
+      (err) => {
+        three.failed = true;
+        const reason = String((err && err.message) || err).slice(0, 120);
+        self.postMessage({ type: "error", kind: "three", reason });
+      }
+    )
+    .finally(() => {
+      three.loading = false;
+      postStatus();
+    });
+}
+
+function ensureGl(width, height) {
+  const THREE = three.lib;
+  const scale = Math.min(1, RENDER_3D_WIDTH / width);
+  const rw = Math.max(2, Math.round(width * scale));
+  const rh = Math.max(2, Math.round(height * scale));
+  if (!gl) {
+    const canvas = new OffscreenCanvas(rw, rh);
+    const renderer = new THREE.WebGLRenderer({
+      canvas,
+      alpha: true,
+      antialias: true,
+      premultipliedAlpha: true,
+      preserveDrawingBuffer: true,
+    });
+    renderer.setPixelRatio(1);
+    renderer.setClearColor(0x000000, 0);
+    const scene = new THREE.Scene();
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x404050, 1.6));
+    const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+    sun.position.set(0.35, 0.6, 1);
+    scene.add(sun);
+    const camera = new THREE.OrthographicCamera(0, 1, 0, -1, 1, 1e6);
+    camera.position.set(0, 0, 5e5);
+    gl = { canvas, renderer, scene, camera, kind: null, heads: [], width: 0, height: 0 };
+  }
+  if (gl.width !== width || gl.height !== height || gl.canvas.width !== rw) {
+    gl.renderer.setSize(rw, rh, false);
+    gl.camera.left = 0;
+    gl.camera.right = width;
+    gl.camera.top = 0;
+    gl.camera.bottom = -height;
+    gl.camera.updateProjectionMatrix();
+    gl.width = width;
+    gl.height = height;
+  }
+  return gl;
+}
+
+// One group per face (up to two), each holding the occluder and the model.
+function headsFor(kind, count) {
+  const THREE = three.lib;
+  if (gl.kind !== kind) {
+    for (const head of gl.heads) {
+      gl.scene.remove(head);
+      head.traverse((o) => {
+        if (o.geometry) o.geometry.dispose();
+      });
+    }
+    gl.heads = [];
+    gl.kind = kind;
+  }
+  while (gl.heads.length < count) {
+    const head = new THREE.Group();
+    head.matrixAutoUpdate = false;
+    head.add(makeOccluder(THREE));
+    head.add(makeModel(THREE, kind));
+    gl.scene.add(head);
+    gl.heads.push(head);
+  }
+  return gl.heads;
+}
+
+function makeOccluder(THREE) {
+  const mesh = new THREE.Mesh(
+    new THREE.SphereGeometry(1, 32, 20),
+    new THREE.MeshBasicMaterial({ colorWrite: false })
+  );
+  mesh.scale.set(0.5, 0.8, 0.62);
+  mesh.position.set(0, 0.06, -0.6);
+  mesh.renderOrder = -1;
+  return mesh;
+}
+
+function makeModel(THREE, kind) {
+  if (kind === "glasses3d") return makeGlasses3d(THREE);
+  if (kind === "tophat3d") return makeTopHat(THREE);
+  if (kind === "viking3d") return makeViking(THREE);
+  return new THREE.Group();
+}
+
+function makeGlasses3d(THREE) {
+  const group = new THREE.Group();
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0xf5f5f5, roughness: 0.45 });
+  const w = 1.04;
+  const h = 0.3;
+  const shape = new THREE.Shape();
+  shape.moveTo(-w / 2, -h / 2);
+  shape.lineTo(w / 2, -h / 2);
+  shape.lineTo(w / 2, h / 2);
+  shape.lineTo(-w / 2, h / 2);
+  shape.closePath();
+  for (const side of [-1, 1]) {
+    const hole = new THREE.Path();
+    const cx = side * 0.23;
+    hole.moveTo(cx - 0.17, -0.11);
+    hole.lineTo(cx + 0.17, -0.11);
+    hole.lineTo(cx + 0.17, 0.11);
+    hole.lineTo(cx - 0.17, 0.11);
+    hole.closePath();
+    shape.holes.push(hole);
+  }
+  const front = new THREE.Mesh(
+    new THREE.ExtrudeGeometry(shape, { depth: 0.04, bevelEnabled: true, bevelSize: 0.01, bevelThickness: 0.01, bevelSegments: 2 }),
+    frameMat
+  );
+  front.position.set(0, 0.02, 0.12);
+  group.add(front);
+  // Red and cyan, like cinema 3D glasses.
+  for (const [side, color] of [[-1, 0xff2a2a], [1, 0x22d3ee]]) {
+    const lens = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.34, 0.22),
+      new THREE.MeshStandardMaterial({ color, transparent: true, opacity: 0.5, roughness: 0.15, side: THREE.DoubleSide })
+    );
+    lens.position.set(side * 0.23, 0.02, 0.15);
+    group.add(lens);
+    // Back to about the ear, no further.
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.04, 0.56), frameMat);
+    arm.position.set(side * 0.52, 0.04, 0.12 - 0.28);
+    group.add(arm);
+  }
+  return group;
+}
+
+function makeTopHat(THREE) {
+  const group = new THREE.Group();
+  const black = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.55 });
+  const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.34, 0.62, 40), black);
+  crown.position.y = 0.31;
+  group.add(crown);
+  const top = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.01, 40), black);
+  top.position.y = 0.62;
+  group.add(top);
+  const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.035, 48), black);
+  group.add(brim);
+  const ribbon = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.345, 0.345, 0.1, 40, 1, true),
+    new THREE.MeshStandardMaterial({ color: 0xc81e3a, roughness: 0.4 })
+  );
+  ribbon.position.y = 0.07;
+  group.add(ribbon);
+  group.position.set(0.03, 0.56, -0.48);
+  group.rotation.z = -0.12;
+  group.rotation.x = -0.08;
+  return group;
+}
+
+function makeViking(THREE) {
+  const group = new THREE.Group();
+  const steel = new THREE.MeshStandardMaterial({ color: 0x9aa3ad, metalness: 0.75, roughness: 0.35 });
+  const bronze = new THREE.MeshStandardMaterial({ color: 0xb07a2c, metalness: 0.7, roughness: 0.4 });
+  const ivory = new THREE.MeshStandardMaterial({ color: 0xf1e6c8, roughness: 0.6 });
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(0.56, 40, 20, 0, Math.PI * 2, 0, Math.PI / 2), steel);
+  dome.scale.set(1, 0.95, 1.08);
+  dome.position.set(0, 0.3, -0.56);
+  group.add(dome);
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(0.575, 0.575, 0.09, 48, 1, true), bronze);
+  band.scale.set(1, 1, 1.08);
+  band.position.set(0, 0.33, -0.56);
+  group.add(band);
+  const ridge = new THREE.Mesh(new THREE.TorusGeometry(0.535, 0.025, 8, 40, Math.PI), bronze);
+  ridge.rotation.y = Math.PI / 2;
+  ridge.scale.set(1.08, 0.97, 1);
+  ridge.position.set(0, 0.3, -0.56);
+  group.add(ridge);
+  const guard = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.3, 0.04), bronze);
+  guard.position.set(0, 0.17, 0.06);
+  group.add(guard);
+  // Each horn a chain of tapering cylinders along a curve out and up.
+  for (const side of [-1, 1]) {
+    const curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(side * 0.5, 0.45, -0.52),
+      new THREE.Vector3(side * 0.74, 0.58, -0.48),
+      new THREE.Vector3(side * 0.86, 0.86, -0.44),
+      new THREE.Vector3(side * 0.8, 1.08, -0.42),
+    ]);
+    const steps = 10;
+    for (let i = 0; i < steps; i += 1) {
+      const a = curve.getPoint(i / steps);
+      const b = curve.getPoint((i + 1) / steps);
+      const length = a.distanceTo(b);
+      const r0 = 0.11 * (1 - i / steps) + 0.008;
+      const r1 = 0.11 * (1 - (i + 1) / steps) + 0.008;
+      const piece = new THREE.Mesh(new THREE.CylinderGeometry(r1, r0, length * 1.08, 14), ivory);
+      piece.position.copy(a.clone().add(b).multiplyScalar(0.5));
+      piece.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
+      group.add(piece);
+    }
+  }
+  return group;
+}
+
+// The head's basis (see above) from one face's smoothed 3D points, in the
+// scene's coordinates: y up and z towards the camera, where the image has y
+// down and the landmarks' z grows away from it.
+function headMatrix(THREE, face, matrix) {
+  const v = (q) => new THREE.Vector3(q.x, -q.y, -q.z);
+  const eyeL = v(face.eye3Left);
+  const eyeR = v(face.eye3Right);
+  const x = eyeR.clone().sub(eyeL).normalize();
+  const up = v(face.top3).sub(v(face.chin3));
+  const y = up.sub(x.clone().multiplyScalar(up.dot(x))).normalize();
+  const z = new THREE.Vector3().crossVectors(x, y);
+  const size = v(face.side3Left).distanceTo(v(face.side3Right));
+  matrix.makeBasis(x, y, z);
+  matrix.scale(new THREE.Vector3(size, size, size));
+  matrix.setPosition(eyeL.add(eyeR).multiplyScalar(0.5));
+  return matrix;
+}
+
+function draw3d(ctx, p, kind, width, height) {
+  if (!three.lib || p.render3dFailed || p.faces.length === 0) return;
+  try {
+    const g = ensureGl(width, height);
+    const heads = headsFor(kind, p.faces.length);
+    heads.forEach((head, i) => {
+      const face = p.faces[i];
+      head.visible = Boolean(face && face.eye3Left);
+      if (head.visible) headMatrix(three.lib, face, head.matrix);
+      head.matrixWorldNeedsUpdate = true;
+    });
+    g.renderer.render(g.scene, g.camera);
+    ctx.drawImage(g.canvas, 0, 0, width, height);
+  } catch (err) {
+    p.render3dFailed = true;
+    self.postMessage({ type: "error", kind: "render3d", reason: String((err && err.message) || err).slice(0, 120) });
+  }
 }

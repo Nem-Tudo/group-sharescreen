@@ -147,9 +147,11 @@ import {
   usePhoneCamera,
 } from "./phoneCamera";
 import {
+  CAMERA_EFFECTS_3D_FEATURE,
   cameraEffectsSupported,
   createCameraEffectsTrack,
   discardCameraEffectsTrack,
+  effectiveCameraEffects,
   hasAnyCameraEffect,
   isCameraEffectsTrack,
   setCameraEffectsTarget,
@@ -4216,7 +4218,14 @@ export function useRoomMedia(room: string) {
   // pipeline passing frames straight through until the camera next starts.
   // The dual camera's native path is left alone: it has its own pipeline.
   const cameraEffectsMode = useTileExperiment("cameraEffects").active;
-  const cameraEffectSettings = useCameraEffectSettings();
+  // The 3D faces only for whoever is in "camera-effects-3d" (see
+  // effectiveCameraEffects); exposure is counted where they are offered.
+  const allowCameraEffects3d = useFeature(CAMERA_EFFECTS_3D_FEATURE, { track: false }).enabled;
+  const storedCameraEffects = useCameraEffectSettings();
+  const cameraEffectSettings = useMemo(
+    () => effectiveCameraEffects(storedCameraEffects, allowCameraEffects3d),
+    [storedCameraEffects, allowCameraEffects3d]
+  );
   const wantedCameraEffects = useMemo(
     () =>
       cameraEffectsMode && cameraEffectsSupported() && hasAnyCameraEffect(cameraEffectSettings)

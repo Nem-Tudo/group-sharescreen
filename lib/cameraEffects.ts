@@ -2,11 +2,16 @@
 
 import { useSyncExternalStore } from "react";
 import { trackTileExperiment, TILE_EXPERIMENT_EVENTS } from "./clipsMode";
+import { trackFeatureEvent } from "./features";
 
 // "Efeitos de câmera" (experiment "camera-effects"): background blur, colour
 // filters and face overlays (dog, cat, sunglasses, clown, crown, bunny, bear,
 // pig, mustache, heart eyes, devil, angel, pirate, party hat) drawn into
 // the camera before it is sent, so whoever watches needs nothing at all.
+// Experiment "camera-effects-3d" adds 3D objects that follow the head turning
+// (cinema 3D glasses, top hat, viking helmet) and reactions to expressions
+// (a blink throws sparkles, a smile hearts, raised brows a "!") — see
+// CAMERA_FACES_3D.
 //
 // The work is in public/workers/camera-effects.js. This side only wires the
 // camera track to it:
@@ -39,7 +44,11 @@ export type CameraFace =
   | "crown"
   | "devil"
   | "angel"
-  | "party";
+  | "party"
+  | "reactions"
+  | "glasses3d"
+  | "tophat3d"
+  | "viking3d";
 
 export interface CameraEffectSettings {
   background: CameraBackground;
@@ -67,12 +76,38 @@ export const CAMERA_FACES: CameraFace[] = [
   "party",
 ];
 
+// Only for whoever is in experiment "camera-effects-3d": offered in a group of
+// their own, and dropped back to no face effect for anyone outside it (see
+// effectiveCameraEffects) — a choice stored while in it must not keep
+// drawing once the experiment is gone.
+export const CAMERA_FACES_3D: CameraFace[] = ["reactions", "glasses3d", "tophat3d", "viking3d"];
+export const CAMERA_EFFECTS_3D_FEATURE = "camera-effects-3d";
+export const CAMERA_EFFECTS_3D_EVENTS = {
+  pick: "camera_fx3d_pick", // escolheu um dos efeitos 3D ou as reações
+  reaction: "camera_fx3d_reaction", // uma reação disparou (uma vez por sessão)
+  error: "camera_fx3d_error", // o Three.js não carregou, ou o desenho 3D falhou
+  slow: "camera_fx3d_slow", // value: ms por quadro com efeito 3D (uma vez por sessão, acima de 30)
+};
+
+function track3d(name: string, value?: number) {
+  trackFeatureEvent(name, {
+    feature: CAMERA_EFFECTS_3D_FEATURE,
+    ...(value ? { value: Math.max(1, Math.round(value)) } : {}),
+  });
+}
+
+/** `settings` with a 3D face taken away from whoever is not in the experiment. */
+export function effectiveCameraEffects(settings: CameraEffectSettings, allow3d: boolean): CameraEffectSettings {
+  if (allow3d || !CAMERA_FACES_3D.includes(settings.face)) return settings;
+  return { ...settings, face: "none" };
+}
+
 export const CAMERA_EFFECTS_FEATURE = "camera-effects";
 
 // Versioned: public/ files are cached by Cloudflare for a month under their
 // plain URL, so a fixed worker kept being served as the old one. Bump this
 // whenever public/workers/camera-effects.js changes.
-const WORKER_VERSION = 3;
+const WORKER_VERSION = 4;
 const WORKER_URL = `/workers/camera-effects.js?v=${WORKER_VERSION}`;
 const SETTINGS_KEY = "sharescreen:cameraEffects";
 // How long the worker (and the models it loaded) outlives the last camera
@@ -127,7 +162,7 @@ function readSettings(): CameraEffectSettings {
   cached = {
     background: pick(parsed.background, CAMERA_BACKGROUNDS),
     color: pick(parsed.color, CAMERA_COLORS),
-    face: pick(parsed.face, CAMERA_FACES),
+    face: pick(parsed.face, [...CAMERA_FACES, ...CAMERA_FACES_3D]),
   };
   return cached;
 }
@@ -148,6 +183,7 @@ export function setCameraEffect<K extends keyof CameraEffectSettings>(
     // Storage refused — the choice just won't survive a reload.
   }
   if (value !== "none") trackTileExperiment(TILE_EXPERIMENT_EVENTS.cameraEffects.pick);
+  if (key === "face" && CAMERA_FACES_3D.includes(value as CameraFace)) track3d(CAMERA_EFFECTS_3D_EVENTS.pick);
   emit();
 }
 
@@ -227,6 +263,7 @@ let current: CameraEffectSettings | null = null;
 // behind it running (see discardCameraEffectsTrack).
 const effectTracks = new WeakMap<MediaStreamTrack, () => void>();
 let reportedSlow = false;
+let reportedSlow3d = false;
 
 function ensureWorker(): Worker {
   if (idleTimer) {
@@ -239,17 +276,25 @@ function ensureWorker(): Worker {
     const data = event.data as
       | { type: "status"; loading: boolean }
       | { type: "error"; kind: string; reason: string }
-      | { type: "stats"; frameMs: number }
+      | { type: "stats"; frameMs: number; fx3d?: boolean }
+      | { type: "reaction" }
       | { type: "ended"; id: number };
     if (data.type === "status") setStatus({ loading: data.loading });
     else if (data.type === "error") {
       setStatus({ failed: true });
       trackTileExperiment(TILE_EXPERIMENT_EVENTS.cameraEffects.error);
+      if (data.kind === "three" || data.kind === "render3d") track3d(CAMERA_EFFECTS_3D_EVENTS.error);
     } else if (data.type === "stats") {
       if (!reportedSlow && data.frameMs > SLOW_FRAME_MS) {
         reportedSlow = true;
         trackTileExperiment(TILE_EXPERIMENT_EVENTS.cameraEffects.slow, data.frameMs);
       }
+      if (data.fx3d && !reportedSlow3d && data.frameMs > SLOW_FRAME_MS) {
+        reportedSlow3d = true;
+        track3d(CAMERA_EFFECTS_3D_EVENTS.slow, data.frameMs);
+      }
+    } else if (data.type === "reaction") {
+      track3d(CAMERA_EFFECTS_3D_EVENTS.reaction);
     } else if (data.type === "ended") {
       release(data.id);
     }

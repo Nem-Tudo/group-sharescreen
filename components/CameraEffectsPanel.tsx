@@ -6,14 +6,17 @@ import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
 import {
   CAMERA_BACKGROUNDS,
   CAMERA_COLORS,
+  CAMERA_EFFECTS_3D_FEATURE,
   CAMERA_EFFECTS_FEATURE,
   CAMERA_FACES,
+  CAMERA_FACES_3D,
   setCameraEffect,
   useCameraEffectSettings,
   useCameraEffectsStatus,
   type CameraEffectSettings,
 } from "@/lib/cameraEffects";
 import { setTileExperimentMode } from "@/lib/clipsMode";
+import { useFeature } from "@/lib/features";
 import { useT } from "@/lib/useI18n";
 
 // "Efeitos de câmera": the switch and what to draw. On a computer it is the
@@ -50,6 +53,10 @@ const LABELS: { [K in keyof CameraEffectSettings]: Record<CameraEffectSettings[K
     angel: "watch.watchRoom.cameraEffectAngel",
     pirate: "watch.watchRoom.cameraEffectPirate",
     party: "watch.watchRoom.cameraEffectParty",
+    reactions: "watch.watchRoom.cameraEffectReactions",
+    glasses3d: "watch.watchRoom.cameraEffectGlasses3d",
+    tophat3d: "watch.watchRoom.cameraEffectTopHat3d",
+    viking3d: "watch.watchRoom.cameraEffectViking3d",
   },
 };
 
@@ -102,6 +109,9 @@ export function CameraEffectsPanel({ on, standalone = false }: { on: boolean; st
   const t = useT();
   const settings = useCameraEffectSettings();
   const status = useCameraEffectsStatus();
+  // Experiment "camera-effects-3d": its own group of faces. An exposure is
+  // this panel being shown to someone in it.
+  const has3d = useFeature(CAMERA_EFFECTS_3D_FEATURE, { track: true }).enabled;
   const turnOn = standalone && !on ? () => setTileExperimentMode("cameraEffects", true) : undefined;
   return (
     <div className="flex flex-col">
@@ -125,6 +135,20 @@ export function CameraEffectsPanel({ on, standalone = false }: { on: boolean; st
             value={settings.face}
             turnOn={turnOn}
           />
+          {has3d && (
+            <div className="flex flex-col gap-1">
+              <EffectGroup
+                name="face"
+                title={t("watch.watchRoom.cameraEffectFace3d")}
+                options={CAMERA_FACES_3D}
+                value={settings.face}
+                turnOn={turnOn}
+              />
+              <span className="text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">
+                {t("watch.watchRoom.cameraEffectFace3dHint")}
+              </span>
+            </div>
+          )}
           <EffectGroup
             name="background"
             title={t("watch.watchRoom.cameraEffectBackground")}

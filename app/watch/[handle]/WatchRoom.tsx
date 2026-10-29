@@ -1337,7 +1337,11 @@ function ShareControls({
           onClose={() => setEffectsOpen(false)}
           placement="bottom"
           tooltip={t("watch.watchRoom.cameraEffects")}
-          content={<div className="w-72 max-w-[calc(100vw-1rem)]">{effectsButton.buttonPanel}</div>}
+          content={
+            <div className="max-h-[80vh] w-72 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-xl border border-zinc-200 bg-white p-1 shadow-2xl dark:border-zinc-800 dark:bg-zinc-950">
+              {effectsButton.buttonPanel}
+            </div>
+          }
         >
           <button
             type="button"
