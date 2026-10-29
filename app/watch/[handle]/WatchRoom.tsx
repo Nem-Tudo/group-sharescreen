@@ -226,7 +226,14 @@ import {
   useCameraEffectsSupported,
 } from "@/lib/cameraEffects";
 import { PhoneCameraPanel } from "@/components/PhoneCameraPanel";
-import { getPhoneCameraState, setPhoneCameraSource, setPhoneCameraStartBlocked } from "@/lib/phoneCamera";
+import {
+  getPhoneCameraState,
+  PHONE_CAMERA_EVENTS,
+  requestPhoneCameraUse,
+  setPhoneCameraSource,
+  setPhoneCameraStartBlocked,
+  usePhoneCamera,
+} from "@/lib/phoneCamera";
 import { trackFeatureEvent, useFeature } from "@/lib/features";
 import type { CallSource } from "@/lib/callRecording";
 import { CALL_RECORDING_FEATURE, trackCallRecordingOpen, useCallRecording } from "@/lib/useCallRecording";
@@ -313,6 +320,7 @@ import {
   MdClose,
   MdSubtitles,
   MdTranslate,
+  MdPhoneIphone,
 } from "react-icons/md";
 import { BsGearFill, BsCoin } from "react-icons/bs";
 import {
@@ -376,10 +384,12 @@ function DeviceMenuOption({
   label,
   selected,
   onClick,
+  icon = null,
 }: {
   label: string;
   selected: boolean;
   onClick: () => void;
+  icon?: ReactNode;
 }) {
   return (
     <button
@@ -390,7 +400,14 @@ function DeviceMenuOption({
         : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
         }`}
     >
-      <span className="truncate">{label}</span>
+      {icon ? (
+        <span className="flex min-w-0 items-center gap-2">
+          {icon}
+          <span className="truncate">{label}</span>
+        </span>
+      ) : (
+        <span className="truncate">{label}</span>
+      )}
       {selected && <CheckIcon className="h-4 w-4 shrink-0" />}
     </button>
   );
@@ -873,6 +890,11 @@ function ShareControls({
   phoneCamera?: {
     panel: ReactNode;
     tip: { show: boolean; dismiss: () => void; clicked: () => void };
+    // Also an entry of the camera list, beside the webcams: the phone the
+    // camera comes from, when one is picked (null: a webcam), and what
+    // picking the entry does (see WatchRoom's pickPhoneCamera).
+    selectedName: string | null;
+    onPick: () => void;
   } | null;
   // "Efeitos de câmera" (see lib/cameraEffects): its switch and choices. On a
   // computer, the panel of a button of its own right of the camera's while
@@ -981,7 +1003,10 @@ function ShareControls({
 
   // A list of cameras to pick from: a computer with more than one. A phone
   // gets the flip button instead (see below), never both.
-  const canPickCamera = cameraSupported && !onPhone && cameraDevices.length > 1;
+  // The phone camera is one more entry of that list, so with it the list is
+  // there even on a computer with a single webcam (or none).
+  const canPickCamera = cameraSupported && !onPhone && (cameraDevices.length > 1 || Boolean(phoneCamera));
+  const phoneSelected = Boolean(phoneCamera?.selectedName);
   // The effects' own button, on a computer (see the cameraEffects prop).
   const effectsInPanel = Boolean(cameraEffects) && onPhone;
   const effectsButton = cameraEffects && !onPhone && cameraSupported && cameraSharing ? cameraEffects : null;
@@ -1210,23 +1235,32 @@ function ShareControls({
               <DeviceSubmenuRow
                 label={t("common.chooseCamera")}
                 current={
+                  phoneCamera?.selectedName ??
                   cameraDevices.find((d) => d.deviceId === cameraDeviceId)?.label ??
                   t("watch.watchRoom.systemDefault")
                 }
               >
                 <DeviceMenuOption
                   label={t("watch.watchRoom.systemDefault")}
-                  selected={cameraDeviceId === null}
+                  selected={!phoneSelected && cameraDeviceId === null}
                   onClick={() => setCameraDevice(null)}
                 />
                 {cameraDevices.map((d) => (
                   <DeviceMenuOption
                     key={d.deviceId}
                     label={d.label}
-                    selected={cameraDeviceId === d.deviceId}
+                    selected={!phoneSelected && cameraDeviceId === d.deviceId}
                     onClick={() => setCameraDevice(d.deviceId)}
                   />
                 ))}
+                {phoneCamera && (
+                  <DeviceMenuOption
+                    icon={<MdPhoneIphone className="h-4 w-4 shrink-0" />}
+                    label={phoneCamera.selectedName ?? t("watch.watchRoom.phoneCameraUse")}
+                    selected={phoneSelected}
+                    onClick={phoneCamera.onPick}
+                  />
+                )}
               </DeviceSubmenuRow>
               )}
               {effectsInPanel && cameraEffects?.panel}
@@ -3866,6 +3900,29 @@ function WatchRoomView({
     [handle, state.account, canUseObsSource, state.selfUserId, state.selfId]
   );
   const [quickShortcutAction, setQuickShortcutAction] = useState<ShortcutAction | null>(null);
+  // "Usar o celular" (the camera list's entry, a camera error's button): the
+  // experiment's switch on, then the panel picks the last saved phone or
+  // shows the QR (see requestPhoneCameraUse) — in the camera's panel, opened
+  // here for that, since a camera error leaves it closed.
+  const pickPhoneCamera = useCallback(() => {
+    if (!phoneCameraMode.on) setTileExperimentMode("phoneCamera", true);
+    requestPhoneCameraUse();
+    setQuickShortcutAction("toggleCamera");
+  }, [phoneCameraMode.on]);
+  const phoneCameraSource = usePhoneCamera().source;
+  const phoneCameraDevices = usePhoneCamera().devices;
+  const phoneCameraSelectedName =
+    phoneCameraMode.on && phoneCameraSource
+      ? phoneCameraSource === "once"
+        ? translate("watch.watchRoom.phoneCameraPhone")
+        : (phoneCameraDevices.find((d) => d.deviceId === phoneCameraSource)?.name ?? translate("watch.watchRoom.phoneCameraPhone"))
+      : null;
+  // A camera that would not start offers the phone instead — not when it was
+  // the phone already, nor where the experiment is not offered.
+  const offerPhoneCamera = Boolean(visibleCameraError) && phoneCameraAvailable && !cameraFromPhone;
+  useEffect(() => {
+    if (offerPhoneCamera) trackFeatureEvent(PHONE_CAMERA_EVENTS.errorOffer);
+  }, [offerPhoneCamera]);
   // The tile the clip/record shortcuts act on — hyperfocus, else "Focar",
   // else the only tile there is. Worked out further down, once the tiles are.
   const shortcutTileIdRef = useRef<string | null>(null);
@@ -7574,7 +7631,15 @@ function WatchRoomView({
           }
           phoneCamera={
             phoneCameraAvailable
-              ? { panel: <PhoneCameraPanel on={phoneCameraMode.on} />, tip: phoneCameraTip }
+              ? {
+                  panel: <PhoneCameraPanel on={phoneCameraMode.on} />,
+                  tip: phoneCameraTip,
+                  selectedName: phoneCameraSelectedName,
+                  onPick: () => {
+                    trackFeatureEvent(PHONE_CAMERA_EVENTS.pickerClick);
+                    pickPhoneCamera();
+                  },
+                }
               : null
           }
         />
@@ -9042,7 +9107,26 @@ function WatchRoomView({
       )}
       {visibleCameraError && (
         <div className="flex items-center justify-between gap-3 bg-red-50 px-4 py-2 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">
-          <p>{visibleCameraError}</p>
+          <p className="min-w-0 flex-1">
+            {visibleCameraError}
+            {offerPhoneCamera && (
+              <>
+                {" "}
+                <button
+                  type="button"
+                  onClick={() => {
+                    trackFeatureEvent(PHONE_CAMERA_EVENTS.errorClick);
+                    setVisibleCameraError(null);
+                    pickPhoneCamera();
+                  }}
+                  className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2 py-0.5 align-middle text-xs font-semibold text-white transition hover:bg-blue-700"
+                >
+                  <MdPhoneIphone className="h-3.5 w-3.5" />
+                  {translate("watch.watchRoom.phoneCameraUseInstead")}
+                </button>
+              </>
+            )}
+          </p>
           <button
             type="button"
             onClick={() => setVisibleCameraError(null)}

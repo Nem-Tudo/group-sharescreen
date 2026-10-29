@@ -26,6 +26,7 @@ import {
   setPhoneCameraSource,
   submitPhoneCameraCode,
   takePhoneCameraHere,
+  takePhoneCameraUseRequest,
   usePhoneCamera,
 } from "@/lib/phoneCamera";
 import { encodeQr } from "@/lib/qrCode";
@@ -155,6 +156,24 @@ export function PhoneCameraPanel({ on }: { on: boolean }) {
     if (!on || !linking || !phone.connected) return;
     requestPhoneCameraLink(mode);
   }, [on, linking, mode, phone.connected]);
+
+  // "Usar o celular" from the camera list or a camera error (see
+  // requestPhoneCameraUse): the last saved phone if there is one, else the QR.
+  // Waits for the relay, which only now opens when the switch just went on.
+  useEffect(() => {
+    if (!on || !phone.useRequested || !phone.connected || phone.replaced) return;
+    const saved = takePhoneCameraUseRequest();
+    if (saved) {
+      if (!phone.source) setPhoneCameraSource(saved.deviceId);
+      return;
+    }
+    if (phone.source === "once") return;
+    // Answering a request taken off the store (a side effect), so not in
+    // render like the pairedAt reset below; it runs once per request.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLinking(true);
+    trackFeatureEvent(PHONE_CAMERA_EVENTS.qrOpen);
+  }, [on, phone.useRequested, phone.connected, phone.replaced, phone.source]);
 
   // A confirmed phone closes the QR: it did its job.
   const [seenPairedAt, setSeenPairedAt] = useState(phone.pairedAt);

@@ -5280,6 +5280,8 @@
   "watch.watchRoom.phoneCameraNewLinkHint": "Cambia el enlace: el anterior deja de funcionar para celulares nuevos (los guardados siguen funcionando).",
   "watch.watchRoom.phoneCameraClose": "Cerrar",
   "watch.watchRoom.phoneCameraLink": "Conectar un celular",
+  "watch.watchRoom.phoneCameraUse": "Usar el celular",
+  "watch.watchRoom.phoneCameraUseInstead": "Usar el celular como cámara",
   "cam.title": "Cámara de GoLive",
   "cam.live": "EN VIVO",
   "cam.connecting": "Conectando…",

@@ -46,6 +46,9 @@ export const PHONE_CAMERA_EVENTS = {
   remote: "phone_camera_remote", // a phone control (camera, flip, torch) pressed on the computer
   offlineScreen: "phone_camera_offline_screen", // the camera came on with the "phone not connected" screen
   reconnected: "phone_camera_reconnected", // the phone's video replaced that screen
+  pickerClick: "phone_camera_picker_click", // "Usar o celular" picked in the camera list
+  errorOffer: "phone_camera_error_offer", // a camera error offered the phone instead
+  errorClick: "phone_camera_error_click", // ...and the offer was taken
 } as const;
 
 const HOST_KEY = "sharescreen:phoneCamHost";
@@ -127,6 +130,12 @@ export interface PhoneCameraState {
   pairedAt: number;
   /** Which phone the camera should come from: a saved one's id, "once", or null (a webcam). */
   source: string | null;
+  /**
+   * "Usar o celular" was asked for from outside the panel (the camera list,
+   * a camera error): the panel picks the last saved phone, or shows the QR
+   * when there is none — once the relay is up (see requestPhoneCameraUse).
+   */
+  useRequested: boolean;
 }
 
 // ── Store ──────────────────────────────────────────────────────────────────
@@ -142,6 +151,7 @@ let state: PhoneCameraState = {
   session: null,
   pairedAt: 0,
   source: readSource(),
+  useRequested: false,
 };
 const listeners = new Set<() => void>();
 
@@ -430,6 +440,20 @@ export function setPhoneCameraSource(source: string | null) {
   set({ source });
   // Not in use by a camera that is on: nothing to swap away from first.
   if (!cameraInUse) releaseUnlessSource();
+}
+
+/** Asks the panel for "Usar o celular" (see PhoneCameraState.useRequested). */
+export function requestPhoneCameraUse() {
+  set({ useRequested: true });
+}
+
+/**
+ * The panel answering that request: the most recently used saved phone, or
+ * null when there is none (the QR is what it shows then).
+ */
+export function takePhoneCameraUseRequest(): PhoneCameraDevice | null {
+  set({ useRequested: false });
+  return [...state.devices].sort((a, b) => b.lastUsedAt - a.lastUsedAt)[0] ?? null;
 }
 
 // Set by the room when its management turned the camera off for this person

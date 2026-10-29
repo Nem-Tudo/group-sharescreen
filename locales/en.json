@@ -5280,6 +5280,8 @@
   "watch.watchRoom.phoneCameraNewLinkHint": "Replaces the link: the old one stops working for new phones (saved ones keep working).",
   "watch.watchRoom.phoneCameraClose": "Close",
   "watch.watchRoom.phoneCameraLink": "Connect a phone",
+  "watch.watchRoom.phoneCameraUse": "Use your phone",
+  "watch.watchRoom.phoneCameraUseInstead": "Use your phone as a camera",
   "cam.title": "GoLive camera",
   "cam.live": "LIVE",
   "cam.connecting": "Connecting…",
