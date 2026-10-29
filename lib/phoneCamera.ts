@@ -44,6 +44,8 @@ export const PHONE_CAMERA_EVENTS = {
   declined: "phone_camera_declined", // the phone said no to a request
   failed: "phone_camera_failed", // the connection to the phone never came up
   remote: "phone_camera_remote", // a phone control (camera, flip, torch) pressed on the computer
+  offlineScreen: "phone_camera_offline_screen", // the camera came on with the "phone not connected" screen
+  reconnected: "phone_camera_reconnected", // the phone's video replaced that screen
 } as const;
 
 const HOST_KEY = "sharescreen:phoneCamHost";

@@ -135,9 +135,10 @@ import {
 import { TILE_EXPERIMENT_EVENTS, trackTileExperiment, useTileExperiment } from "./clipsMode";
 import {
   acquirePhoneCamera,
+  getPhoneCameraState,
   onPhoneCameraEvent,
-  PhoneCameraError,
-  phoneCameraSelected,
+  PHONE_CAMERA_EVENTS,
+  phoneCameraLive,
   phoneCameraStartBlocked,
   releaseUnlessSource as releaseUnchosenPhoneCamera,
   release as releasePhoneCamera,
@@ -146,6 +147,7 @@ import {
   setPhoneCameraSource,
   usePhoneCamera,
 } from "./phoneCamera";
+import { createPhoneCameraPlaceholder, isPhoneCameraPlaceholder } from "./phoneCameraPlaceholder";
 import {
   CAMERA_EFFECTS_3D_FEATURE,
   CUSTOM_BG_FREE_FEATURE,
@@ -3963,6 +3965,14 @@ export function useRoomMedia(room: string) {
   // filter on it. A swap between webcam and phone keeps camera.active as it
   // was, so the ref alone would never re-announce.
   const [cameraFromPhone, setCameraFromPhone] = useState(false);
+  // The "phone not connected" screen (lib/phoneCameraPlaceholder): whether a
+  // capture showing it should also ask the phone (not when the phone itself
+  // just stopped — it would get a request it did not want), what asks it
+  // (set below, once the channel exists), and whether the screen was shown
+  // since the phone was last live (counted when the phone comes back).
+  const askPhoneCameraRef = useRef(true);
+  const awaitPhoneCameraRef = useRef<() => void>(() => {});
+  const phonePlaceholderShownRef = useRef(false);
 
   const camera = useBroadcastChannel(
     "camera",
@@ -3973,23 +3983,40 @@ export function useRoomMedia(room: string) {
         const main = cameraFacingRef.current === "environment" ? native.back : native.front;
         return new MediaStream(main.getVideoTracks());
       }
-      // A phone chosen as the camera: its video instead of a webcam's, asked
-      // for on the phone if it is not coming in already. A clone, because the
-      // channel's teardown stops every track it holds, and this one must
-      // not end the connection to the phone with it.
-      if (phoneCameraModeRef.current && phoneCameraSelected()) {
-        let remote: MediaStreamTrack;
-        try {
-          remote = await acquirePhoneCamera();
-        } catch (err) {
-          const code = err instanceof PhoneCameraError ? err.code : "failed";
-          // Called off from the panel: nothing to report.
-          if (code === "cancelled") throw new DOMException("cancelled", "AbortError");
-          throw new ShareStartError(t(`useRoomMedia.phoneCamera_${code}`));
-        }
+      // A phone chosen as the camera: its video instead of a webcam's. A
+      // clone, because the channel's teardown stops every track it holds,
+      // and this one must not end the connection to the phone with it.
+      if (phoneCameraModeRef.current && getPhoneCameraState().source) {
         cameraFromPhoneRef.current = true;
         setCameraFromPhone(true);
         setPhoneCameraInUse(true);
+        // Not coming in (page closed, phone offline, never paired here): the
+        // camera comes on anyway, as a black screen saying so and how to fix
+        // it. The phone is asked for meanwhile, and its video is swapped in
+        // over the screen once it connects (see awaitPhoneCamera).
+        if (!phoneCameraLive()) {
+          if (askPhoneCameraRef.current) awaitPhoneCameraRef.current();
+          trackFeatureEvent(PHONE_CAMERA_EVENTS.offlineScreen);
+          phonePlaceholderShownRef.current = true;
+          return new MediaStream([
+            createPhoneCameraPlaceholder({
+              title: t("useRoomMedia.phoneCameraOfflineTitle"),
+              description: t("useRoomMedia.phoneCameraOfflineDescription"),
+              stepsTitle: t("useRoomMedia.phoneCameraOfflineStepsTitle"),
+              steps: [
+                t("useRoomMedia.phoneCameraOfflineStep1"),
+                t("useRoomMedia.phoneCameraOfflineStep2"),
+                t("useRoomMedia.phoneCameraOfflineStep3"),
+                t("useRoomMedia.phoneCameraOfflineStep4"),
+              ],
+            }),
+          ]);
+        }
+        const remote = await acquirePhoneCamera();
+        if (phonePlaceholderShownRef.current) {
+          phonePlaceholderShownRef.current = false;
+          trackFeatureEvent(PHONE_CAMERA_EVENTS.reconnected);
+        }
         const clone = remote.clone();
         if (!cameraEffectsRef.current) return new MediaStream([clone]);
         try {
@@ -4257,7 +4284,7 @@ export function useRoomMedia(room: string) {
     setCameraEffectsTarget(wantedCameraEffects);
     if (!wantedCameraEffects || !cameraRef.current.active || nativeDualRef.current) return;
     const track = cameraLocalStream?.getVideoTracks()[0];
-    if (!track || isCameraEffectsTrack(track)) return;
+    if (!track || isCameraEffectsTrack(track) || isPhoneCameraPlaceholder(track)) return;
     let created: MediaStreamTrack | null = null;
     void cameraRef.current
       .swapCapture(undefined, (current) => {
@@ -4307,11 +4334,58 @@ export function useRoomMedia(room: string) {
             void now.start();
           });
         } else if (cam.active && cameraFromPhoneRef.current) {
-          cam.stop();
+          // The phone went away (page closed, connection lost, stopped on
+          // it): the camera stays on, showing the "not connected" screen,
+          // until the phone starts again by itself. Not asked again from
+          // here — a phone that stopped on purpose would get a request.
+          const resume = () => {
+            askPhoneCameraRef.current = true;
+          };
+          askPhoneCameraRef.current = false;
+          void cam.swapCapture().then((swapped) => {
+            const now = cameraRef.current;
+            if (swapped || !now.active) return resume();
+            now.stop();
+            void now.start().finally(resume);
+          });
         }
       }),
     []
   );
+  // Asks for the phone behind the "not connected" screen and, when it comes
+  // in, swaps its video over the screen (only if the screen is still what
+  // the camera shows — a newer capture may have replaced it already).
+  const phoneCameraWaitRef = useRef(0);
+  useEffect(() => {
+    awaitPhoneCameraRef.current = () => {
+      const wait = ++phoneCameraWaitRef.current;
+      acquirePhoneCamera().then(
+        () => {
+          const cam = cameraRef.current;
+          if (wait !== phoneCameraWaitRef.current || !cam.active) return;
+          if (!isPhoneCameraPlaceholder(cam.localStream?.getVideoTracks()[0])) return;
+          void cam.swapCapture().then((swapped) => {
+            const now = cameraRef.current;
+            if (swapped || !now.active) return;
+            now.stop();
+            void now.start();
+          });
+        },
+        // Not there in time, refused, or called off: the screen stays, and
+        // the phone opening its page later still brings it in ("arrived").
+        () => {}
+      );
+    };
+  });
+  // The relay was not up when the screen went on (nothing could be asked
+  // then): ask now that it is.
+  const phoneCameraConnected = usePhoneCamera().connected;
+  useEffect(() => {
+    if (!phoneCameraConnected || !askPhoneCameraRef.current) return;
+    const cam = cameraRef.current;
+    if (!cam.active || getPhoneCameraState().session) return;
+    if (isPhoneCameraPlaceholder(cam.localStream?.getVideoTracks()[0])) awaitPhoneCameraRef.current();
+  }, [phoneCameraConnected]);
   // A swap that did not happen (the phone said no, or never answered) puts
   // the choice back where it was, quietly: the camera keeps what it had,
   // and the phone is not asked a second time by a restart.
@@ -4349,6 +4423,7 @@ export function useRoomMedia(room: string) {
       cameraFromPhoneRef.current = false;
       setCameraFromPhone(false);
       setPhoneCameraInUse(false);
+      phonePlaceholderShownRef.current = false;
       releasePhoneCamera();
     }, 5000);
     return () => clearTimeout(timer);
@@ -5137,6 +5212,8 @@ export function useRoomMedia(room: string) {
 
   return {
     isSharing: screen.active || camera.active,
+    // The camera that is on is a phone's (see lib/phoneCamera).
+    cameraFromPhone: camera.active && cameraFromPhone,
     startShare: screen.start,
     stopShare: screen.stop,
     localStream: screen.localStream,

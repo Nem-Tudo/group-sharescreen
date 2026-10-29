@@ -120,6 +120,28 @@ export function CameraIcon({ className }: IconProps) {
   );
 }
 
+// A camera that is a phone's ("Celular como câmera", lib/phoneCamera): the
+// camera drawn on a phone's screen, so it still reads as "camera" first.
+export function PhoneCameraIcon({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <rect x="4" y="2" width="16" height="20" rx="2.5" />
+      <rect x="7.5" y="8.5" width="6" height="5.5" rx="1" strokeWidth={1.75} />
+      <path d="m13.5 10.25 3-1.75v5l-3-1.75z" strokeWidth={1.75} />
+      <path d="M10.5 18.5h3" />
+    </svg>
+  );
+}
+
 // A room's queued videos (see RoomVideoSource) — deliberately not CameraIcon,
 // which already means "this person's webcam" everywhere else in the room UI.
 export function VideoSourceIcon({ className }: IconProps) {

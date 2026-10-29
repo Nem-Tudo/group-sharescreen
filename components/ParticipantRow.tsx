@@ -8,6 +8,7 @@ import {
   MicOffIcon,
   ScreenIcon,
   CameraIcon,
+  PhoneCameraIcon,
   HeadphonesOffIcon,
   SpeakerIcon,
   SpeakerMuteIcon,
@@ -44,6 +45,7 @@ export const ParticipantRow = memo(function ParticipantRow({
   sharing,
   screen,
   camera,
+  phoneCamera = false,
   sharingVideo = false,
   micStream,
   muted = false,
@@ -99,6 +101,9 @@ export const ParticipantRow = memo(function ParticipantRow({
   // shown, rather than guessing a channel and labelling it wrong.
   screen?: boolean | null;
   camera?: boolean | null;
+  // Their camera is a phone's ("Celular como câmera") — drawn with the phone
+  // camera icon instead of the plain one.
+  phoneCamera?: boolean;
   // Whether this person has a room video source on screen (see
   // components/VideoSourceTile) — a different thing from `sharing`, which is
   // about transmitting their own screen or camera. Shown with its own icon
@@ -366,13 +371,20 @@ export const ParticipantRow = memo(function ParticipantRow({
                 </span>
               </Tooltip>
             )}
-            {camera && (
-              <Tooltip content={t("participantRow.nameIsBroadcastingTheirCamera", { name })}>
-                <span className="flex shrink-0 items-center">
-                  <CameraIcon className="h-4 w-4 text-violet-500" />
-                </span>
-              </Tooltip>
-            )}
+            {camera &&
+              (phoneCamera ? (
+                <Tooltip content={t("participantRow.nameIsBroadcastingTheirPhoneCamera", { name })}>
+                  <span className="flex shrink-0 items-center">
+                    <PhoneCameraIcon className="h-4 w-4 text-violet-500" />
+                  </span>
+                </Tooltip>
+              ) : (
+                <Tooltip content={t("participantRow.nameIsBroadcastingTheirCamera", { name })}>
+                  <span className="flex shrink-0 items-center">
+                    <CameraIcon className="h-4 w-4 text-violet-500" />
+                  </span>
+                </Tooltip>
+              ))}
           </>
         ) : (
           sharing && <ScreenIcon className="h-4 w-4 text-emerald-500" />

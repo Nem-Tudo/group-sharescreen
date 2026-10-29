@@ -84,6 +84,9 @@ export type PeerInfo = {
   // channel. Undefined only from a server that predates the fields.
   screen?: boolean | null;
   camera?: boolean | null;
+  // Their camera is a phone's ("Celular como câmera", lib/phoneCamera).
+  // Undefined from a server that predates it, read as false.
+  phoneCamera?: boolean;
   // The name of the local file this peer is playing into the room, when their
   // screen channel is carrying one rather than a screen (see
   // lib/localMediaSource.ts and the server's ClientInfo.sharingFile). Null
@@ -2036,6 +2039,7 @@ class SignalingClient {
                   sharing: Boolean(msg.sharing),
                   screen: typeof msg.screen === "boolean" ? msg.screen : null,
                   camera: typeof msg.camera === "boolean" ? msg.camera : null,
+                  phoneCamera: msg.phoneCamera === true,
                   files: Array.isArray(msg.files) ? (msg.files as SharedFile[]) : [],
                   // See PeerInfo.adPaused. An older server never sends it,
                   // which reads as false and leaves the tile alone.

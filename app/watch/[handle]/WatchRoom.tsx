@@ -1974,6 +1974,7 @@ function WatchRoomView({
     toggleForceRelayIce,
     autoJoin,
     toggleAutoJoin,
+    cameraFromPhone,
   } = useRoomMedia(handle);
 
   const [switching, setSwitching] = useState(false);
@@ -7845,6 +7846,7 @@ function WatchRoomView({
         sharing={isSharing}
         screen={Boolean(localStream)}
         camera={Boolean(localCameraStream)}
+        phoneCamera={cameraFromPhone}
         sharingVideo={peerSharesVideo(state.selfUserId)}
         micStream={localMicStream}
       />
@@ -7886,6 +7888,7 @@ function WatchRoomView({
             sharing={p.sharing}
             screen={p.screen}
             camera={p.camera}
+            phoneCamera={p.phoneCamera}
             sharingVideo={peerSharesVideo(p.userId)}
             micStream={remoteMicStreams[p.id]}
             muted={micsMuted || mutedPeerIds.has(p.id) || isPeerSilenced(p)}
