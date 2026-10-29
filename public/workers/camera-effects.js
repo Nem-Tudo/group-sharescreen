@@ -2,7 +2,9 @@
 //
 // The camera's frames arrive here as VideoFrames (a MediaStreamTrackProcessor
 // on the page, its readable transferred in) and leave as VideoFrames (into a
-// MediaStreamTrackGenerator's writable), so nothing on the page's thread
+// MediaStreamTrackGenerator's writable) — or, in Safari, where those two only
+// exist in workers, the camera track itself comes in and the generated track
+// goes back (see startTrackPipeline) — so nothing on the page's thread
 // touches a pixel, and nothing here is paced by requestAnimationFrame — which
 // is what keeps the camera moving for the room while the tab is in the
 // background.
@@ -68,6 +70,15 @@ self.onmessage = (event) => {
     ensureTasks();
   } else if (data.type === "start") {
     startPipeline(data.id, data.readable, data.writable);
+  } else if (data.type === "probe") {
+    // Safari's kind of insertable streams, which only exists in here (see
+    // probeWorkerTracks in lib/cameraEffects.ts).
+    self.postMessage({ type: "probe", workerTracks: workerTracksSupported() });
+  } else if (data.type === "start-track") {
+    startTrackPipeline(data.id, data.track);
+  } else if (data.type === "constraints") {
+    const held = heldTracks.get(data.id);
+    if (held) held.applyConstraints(data.constraints).catch(() => {});
   } else if (data.type === "stop") {
     const pipeline = pipelines.get(data.id);
     if (pipeline) pipeline.stopped = true;
@@ -182,6 +193,39 @@ function nextTimestamp() {
 }
 
 // ---------------------------------------------------------------------------
+// Safari: the camera itself comes in (a clone, transferred), and the track
+// with the effects goes back out
+
+// The camera clones this worker owns, by pipeline: stopped when it ends.
+const heldTracks = new Map();
+
+function workerTracksSupported() {
+  return (
+    typeof MediaStreamTrackProcessor !== "undefined" &&
+    typeof VideoTrackGenerator !== "undefined" &&
+    typeof OffscreenCanvas !== "undefined" &&
+    typeof VideoFrame !== "undefined"
+  );
+}
+
+function startTrackPipeline(id, track) {
+  let generator;
+  let processor;
+  try {
+    processor = new MediaStreamTrackProcessor({ track });
+    generator = new VideoTrackGenerator();
+    self.postMessage({ type: "track", id, track: generator.track }, [generator.track]);
+  } catch (err) {
+    if (track) track.stop();
+    self.postMessage({ type: "track", id, error: String((err && err.message) || err).slice(0, 120) });
+    self.postMessage({ type: "ended", id });
+    return;
+  }
+  heldTracks.set(id, track);
+  startPipeline(id, processor.readable, generator.writable);
+}
+
+// ---------------------------------------------------------------------------
 // The frame loop
 
 function startPipeline(id, readable, writable) {
@@ -222,6 +266,11 @@ function startPipeline(id, readable, writable) {
     .catch(() => {})
     .finally(() => {
       pipelines.delete(id);
+      const held = heldTracks.get(id);
+      if (held) {
+        held.stop();
+        heldTracks.delete(id);
+      }
       self.postMessage({ type: "ended", id });
     });
 }

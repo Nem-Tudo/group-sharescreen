@@ -155,7 +155,7 @@ import {
   CAMERA_EFFECTS_3D_FEATURE,
   CUSTOM_BG_FREE_FEATURE,
   canUseCustomBackground,
-  cameraEffectsSupported,
+  useCameraEffectsSupported,
   createCameraEffectsTrack,
   discardCameraEffectsTrack,
   effectiveCameraEffects,
@@ -2354,7 +2354,7 @@ function useBroadcastChannel(
   const swapCapture = useCallback(
     async (
       requestedSource?: ShareSource,
-      wrap?: (current: MediaStreamTrack) => MediaStream
+      wrap?: (current: MediaStreamTrack) => MediaStream | Promise<MediaStream>
     ): Promise<boolean> => {
       if (!activeRef.current || swapping.current) return false;
       const previous = localStreamRef.current;
@@ -2366,7 +2366,7 @@ function useBroadcastChannel(
       swapping.current = true;
       let next: MediaStream;
       try {
-        next = wrap ? wrap(previousVideo) : await capture(requestedSource);
+        next = wrap ? await wrap(previousVideo) : await capture(requestedSource);
       } catch {
         // Deliberately swallowed rather than surfaced through setError: the
         // share the person is running is untouched and still fine, and
@@ -4023,7 +4023,7 @@ export function useRoomMedia(room: string) {
         const clone = remote.clone();
         if (!cameraEffectsRef.current) return new MediaStream([clone]);
         try {
-          return new MediaStream([createCameraEffectsTrack(clone)]);
+          return new MediaStream([await createCameraEffectsTrack(clone)]);
         } catch {
           return new MediaStream([clone]);
         }
@@ -4046,7 +4046,7 @@ export function useRoomMedia(room: string) {
       const raw = stream.getVideoTracks()[0];
       if (!cameraEffectsRef.current || !raw) return stream;
       try {
-        return new MediaStream([createCameraEffectsTrack(raw)]);
+        return new MediaStream([await createCameraEffectsTrack(raw)]);
       } catch {
         return stream;
       }
@@ -4266,16 +4266,18 @@ export function useRoomMedia(room: string) {
   const customBackgroundFree = useFeature(CUSTOM_BG_FREE_FEATURE, { track: false }).enabled;
   const allowCustomCameraBackground =
     canUseCustomBackground(account?.flags, customBackgroundFree) && customCameraBackground !== null;
+  // Safari's answer comes in after the first render (see cameraEffectsSupported).
+  const cameraEffectsCanRun = useCameraEffectsSupported();
   const cameraEffectSettings = useMemo(
     () => effectiveCameraEffects(storedCameraEffects, allowCameraEffects3d, allowCustomCameraBackground),
     [storedCameraEffects, allowCameraEffects3d, allowCustomCameraBackground]
   );
   const wantedCameraEffects = useMemo(
     () =>
-      cameraEffectsMode && cameraEffectsSupported() && hasAnyCameraEffect(cameraEffectSettings)
+      cameraEffectsMode && cameraEffectsCanRun && hasAnyCameraEffect(cameraEffectSettings)
         ? cameraEffectSettings
         : null,
-    [cameraEffectsMode, cameraEffectSettings]
+    [cameraEffectsMode, cameraEffectsCanRun, cameraEffectSettings]
   );
   const cameraLocalStream = camera.localStream;
   // Bumped when the effects track is swapped into the running camera: the
@@ -4290,8 +4292,8 @@ export function useRoomMedia(room: string) {
     if (!track || isCameraEffectsTrack(track) || isPhoneCameraPlaceholder(track)) return;
     let created: MediaStreamTrack | null = null;
     void cameraRef.current
-      .swapCapture(undefined, (current) => {
-        created = createCameraEffectsTrack(current);
+      .swapCapture(undefined, async (current) => {
+        created = await createCameraEffectsTrack(current);
         return new MediaStream([created]);
       })
       .then((swapped) => {

@@ -21,9 +21,13 @@ import { accountTierOf, tierAtLeast } from "./entitlements";
 //
 //   camera track → MediaStreamTrackProcessor → (worker) → MediaStreamTrackGenerator
 //
-// and hands the generator to the room in the camera track's place. Insertable
-// streams are Chromium only (Chrome, Edge, the desktop app, Android), so that
-// is where the switch is offered; see cameraEffectsSupported.
+// and hands the generator to the room in the camera track's place. Those two
+// exist on the page in Chromium only (Chrome, Edge, the desktop app, Android).
+// Safari (iPhone, iOS 18 and up) has the standard ones instead, which live in
+// workers only: there a clone of the camera is transferred into the worker,
+// which builds the processor and a VideoTrackGenerator itself and sends the
+// generated track back (see createWorkerEffectsTrack). Whether a browser has
+// either is what offers the switch; see cameraEffectsSupported.
 //
 // What it costs when nobody picked anything is nothing: no worker exists
 // until an effect is chosen, and a camera started with none is the plain
@@ -258,7 +262,7 @@ export const CAMERA_EFFECTS_FEATURE = "camera-effects";
 // Versioned: public/ files are cached by Cloudflare for a month under their
 // plain URL, so a fixed worker kept being served as the old one. Bump this
 // whenever public/workers/camera-effects.js changes.
-const WORKER_VERSION = 6;
+const WORKER_VERSION = 7;
 const WORKER_URL = `/workers/camera-effects.js?v=${WORKER_VERSION}`;
 const SETTINGS_KEY = "sharescreen:cameraEffects";
 // How long the worker (and the models it loaded) outlives the last camera
@@ -371,17 +375,67 @@ function insertableStreams(): { Processor: TrackProcessorCtor; Generator: TrackG
   return { Processor: scope.MediaStreamTrackProcessor, Generator: scope.MediaStreamTrackGenerator };
 }
 
+// The worker-only kind (Safari) can only be seen from inside a worker: a
+// throwaway one is asked once per page, the first time anyone wants to know.
+// null: not asked yet, or not answered yet.
+let workerTracks: boolean | null = null;
+let workerTracksProbe: Promise<boolean> | null = null;
+const supportListeners = new Set<() => void>();
+
+function probeWorkerTracks(): Promise<boolean> {
+  if (workerTracksProbe) return workerTracksProbe;
+  workerTracksProbe = new Promise<boolean>((resolve) => {
+    if (typeof Worker === "undefined" || typeof MediaStreamTrack === "undefined") {
+      resolve(false);
+      return;
+    }
+    let probe: Worker;
+    try {
+      probe = new Worker(WORKER_URL);
+    } catch {
+      resolve(false);
+      return;
+    }
+    const done = (answer: boolean) => {
+      clearTimeout(timer);
+      probe.terminate();
+      resolve(answer);
+    };
+    const timer = setTimeout(() => done(false), 10_000);
+    probe.onmessage = (event: MessageEvent) => {
+      const data = event.data as { type?: string; workerTracks?: boolean };
+      if (data.type === "probe") done(Boolean(data.workerTracks));
+    };
+    probe.onerror = () => done(false);
+    probe.postMessage({ type: "probe" });
+  }).then((answer) => {
+    workerTracks = answer;
+    supportListeners.forEach((listener) => listener());
+    return answer;
+  });
+  return workerTracksProbe;
+}
+
 export function cameraEffectsSupported(): boolean {
-  return insertableStreams() !== null;
+  if (insertableStreams() !== null) return true;
+  if (typeof window === "undefined") return false;
+  if (workerTracks === null) void probeWorkerTracks();
+  return workerTracks === true;
 }
 
-function noopSubscribe() {
-  return () => {};
+function subscribeSupport(listener: () => void) {
+  supportListeners.add(listener);
+  return () => {
+    supportListeners.delete(listener);
+  };
 }
 
-/** cameraEffectsSupported for render: false on the server, the answer after. */
+/**
+ * cameraEffectsSupported for render: false on the server (and in Safari until
+ * its worker has answered), the answer after.
+ */
 export function useCameraEffectsSupported(): boolean {
-  return useSyncExternalStore(noopSubscribe, cameraEffectsSupported, () => false);
+  return useSyncExternalStore(subscribeSupport, cameraEffectsSupported, () => false);
 }
 
 // ---------------------------------------------------------------------------
@@ -422,6 +476,10 @@ const live = new Set<number>();
 // What the room wants drawn right now: null when the switch is off or nothing
 // is picked. Sent to the worker whenever it changes and when it starts.
 let current: CameraEffectSettings | null = null;
+// The generated tracks the worker is still to send back (Safari's way).
+const pendingTracks = new Map<number, { resolve: (track: MediaStreamTrack) => void; reject: (err: Error) => void }>();
+// How long the worker gets to send one back before the plain camera is used.
+const TRACK_TIMEOUT_MS = 8_000;
 // Each effects track's way to end its pipeline while leaving the camera
 // behind it running (see discardCameraEffectsTrack).
 const effectTracks = new WeakMap<MediaStreamTrack, () => void>();
@@ -441,6 +499,7 @@ function ensureWorker(): Worker {
       | { type: "error"; kind: string; reason: string }
       | { type: "stats"; frameMs: number; fx3d?: boolean }
       | { type: "reaction"; name: string }
+      | { type: "track"; id: number; track?: MediaStreamTrack; error?: string }
       | { type: "ended"; id: number };
     if (data.type === "status") setStatus({ loading: data.loading });
     else if (data.type === "error") {
@@ -464,11 +523,22 @@ function ensureWorker(): Worker {
       }
     } else if (data.type === "reaction") {
       track3d(CAMERA_EFFECTS_3D_EVENTS.reaction);
+    } else if (data.type === "track") {
+      const pending = pendingTracks.get(data.id);
+      pendingTracks.delete(data.id);
+      if (data.track) {
+        if (pending) pending.resolve(data.track);
+        else data.track.stop();
+      } else {
+        pending?.reject(new Error(data.error || "no track"));
+      }
     } else if (data.type === "ended") {
       release(data.id);
     }
   };
   created.onerror = () => {
+    for (const pending of pendingTracks.values()) pending.reject(new Error("worker failed"));
+    pendingTracks.clear();
     setStatus({ failed: true, loading: false });
     trackTileExperiment(TILE_EXPERIMENT_EVENTS.cameraEffects.error);
   };
@@ -522,20 +592,75 @@ export function discardCameraEffectsTrack(track: MediaStreamTrack) {
  * the lens's facing and device id, none of which a generated track knows.
  * Its `ended` fires when the camera's does, like the camera's own would.
  *
- * Throws where insertable streams are missing; the caller sends the plain
- * camera then.
+ * Rejects where neither kind of insertable streams is there, or Safari's
+ * worker did not hand a track back; the caller sends the plain camera then.
  */
-export function createCameraEffectsTrack(source: MediaStreamTrack): MediaStreamTrack {
+export async function createCameraEffectsTrack(source: MediaStreamTrack): Promise<MediaStreamTrack> {
   const streams = insertableStreams();
-  if (!streams) throw new Error("insertable streams unavailable");
-  const processor = new streams.Processor({ track: source, maxBufferSize: 1 });
-  const generator = new streams.Generator({ kind: "video" });
+  if (streams) {
+    const processor = new streams.Processor({ track: source, maxBufferSize: 1 });
+    const generator = new streams.Generator({ kind: "video" });
+    const id = nextId++;
+    ensureWorker().postMessage(
+      { type: "start", id, readable: processor.readable, writable: generator.writable },
+      [processor.readable as unknown as Transferable, generator.writable as unknown as Transferable]
+    );
+    live.add(id);
+    return wrapEffectsTrack(id, source, generator, (constraints) => source.applyConstraints(constraints));
+  }
+  if (!(await probeWorkerTracks())) throw new Error("insertable streams unavailable");
+  return createWorkerEffectsTrack(source);
+}
+
+// Safari's way: the worker gets a clone of the camera (a transferred track is
+// gone from the page, and the page still needs the camera's own answers) and
+// sends the generated track back. Resolution changes reach the clone through
+// the worker, since a clone does not follow its original's constraints.
+async function createWorkerEffectsTrack(source: MediaStreamTrack): Promise<MediaStreamTrack> {
   const id = nextId++;
-  ensureWorker().postMessage(
-    { type: "start", id, readable: processor.readable, writable: generator.writable },
-    [processor.readable as unknown as Transferable, generator.writable as unknown as Transferable]
-  );
+  const clone = source.clone();
+  const target = ensureWorker();
   live.add(id);
+  let generated: MediaStreamTrack;
+  try {
+    generated = await new Promise<MediaStreamTrack>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pendingTracks.delete(id);
+        reject(new Error("timed out"));
+      }, TRACK_TIMEOUT_MS);
+      pendingTracks.set(id, {
+        resolve: (track) => {
+          clearTimeout(timer);
+          resolve(track);
+        },
+        reject: (err) => {
+          clearTimeout(timer);
+          reject(err);
+        },
+      });
+      target.postMessage({ type: "start-track", id, track: clone }, [clone as unknown as Transferable]);
+    });
+  } catch (err) {
+    pendingTracks.delete(id);
+    // Already gone if the transfer went through; the worker stops its copy.
+    clone.stop();
+    target.postMessage({ type: "stop", id });
+    release(id);
+    trackTileExperiment(TILE_EXPERIMENT_EVENTS.cameraEffects.error);
+    throw err;
+  }
+  return wrapEffectsTrack(id, source, generated, async (constraints) => {
+    await source.applyConstraints(constraints);
+    worker?.postMessage({ type: "constraints", id, constraints });
+  });
+}
+
+function wrapEffectsTrack(
+  id: number,
+  source: MediaStreamTrack,
+  generated: MediaStreamTrack,
+  applyConstraints: (constraints?: MediaTrackConstraints) => Promise<void>
+): MediaStreamTrack {
   trackTileExperiment(TILE_EXPERIMENT_EVENTS.cameraEffects.start);
 
   let done = false;
@@ -546,25 +671,25 @@ export function createCameraEffectsTrack(source: MediaStreamTrack): MediaStreamT
     if (!keepSource) source.stop();
     return true;
   };
-  const stopGenerator = generator.stop.bind(generator);
-  Object.assign(generator, {
+  const stopGenerated = generated.stop.bind(generated);
+  Object.assign(generated, {
     stop: () => {
       finish();
-      stopGenerator();
+      stopGenerated();
     },
     getSettings: () => source.getSettings(),
     getCapabilities: () => source.getCapabilities?.() ?? {},
     getConstraints: () => source.getConstraints(),
-    applyConstraints: (constraints?: MediaTrackConstraints) => source.applyConstraints(constraints),
+    applyConstraints,
   });
-  Object.defineProperty(generator, "muted", { get: () => source.muted });
+  Object.defineProperty(generated, "muted", { get: () => source.muted });
   source.addEventListener("ended", () => {
     if (!finish()) return;
-    stopGenerator();
-    generator.dispatchEvent(new Event("ended"));
+    stopGenerated();
+    generated.dispatchEvent(new Event("ended"));
   });
-  effectTracks.set(generator, () => {
-    if (finish(true)) stopGenerator();
+  effectTracks.set(generated, () => {
+    if (finish(true)) stopGenerated();
   });
-  return generator;
+  return generated;
 }
