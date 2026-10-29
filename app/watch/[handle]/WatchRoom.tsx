@@ -220,6 +220,7 @@ import { ThemeSegmented } from "@/components/ThemeToggle";
 import { MenuToggleRow } from "@/components/MenuToggleRow";
 import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
 import { CameraEffectsPanel } from "@/components/CameraEffectsPanel";
+import { CameraEffectsSheet } from "@/components/CameraEffectsSheet";
 import {
   hasAnyCameraEffect,
   useCameraEffectSettings,
@@ -2296,6 +2297,11 @@ function WatchRoomView({
   const cameraEffectsAvailable = cameraEffectsMode.available && cameraEffectsSupported;
   const cameraEffectsTip = useTileExperimentTip("cameraEffects", cameraEffectsAvailable);
   const cameraEffectSettings = useCameraEffectSettings();
+  // The bottom bar's sheet (see showDockEffectsButton).
+  const [cameraEffectsSheetOpen, setCameraEffectsSheetOpen] = useState(false);
+  useEffect(() => {
+    if (!localCameraStream) setCameraEffectsSheetOpen(false);
+  }, [localCameraStream]);
   // "Girar/inverter" (see lib/tileOrientation): the button in each tile's
   // corner. Tracked here, where its switch is, rather than in every tile.
   const orientationMode = useTileExperiment("orientation", { track: true });
@@ -4996,6 +5002,16 @@ function WatchRoomView({
   // Gone for good on a device that already showed it cannot (dualCameraSupported).
   const showDualCameraButton =
     canSwitchCamera && multiScreenMode.active && Boolean(localCameraStream) && dualCameraSupported;
+  // "Efeitos de câmera" on the bottom bar: a ✨ beside the camera while it is
+  // on, opening CameraEffectsSheet — the camera's arrow panel is not on that
+  // bar at all. Its "novo" tip waits for the second lens's to be gone.
+  const showDockEffectsButton = cameraEffectsAvailable && Boolean(localCameraStream);
+  const dockEffectsTipShow = showDockEffectsButton && cameraEffectsTip.show && !dualCameraTip.show;
+  // "Pessoas" below lg: in the top bar, beside the bell, to leave the bottom
+  // bar room for the call itself. Only where that bar is there to take it —
+  // the room's own header, or a group's bar lending its right slot; otherwise
+  // it stays in the bottom bar, next to the chat.
+  const peopleInHeader = !isWideLayout && !callLayout && (!group || Boolean(headerSlots?.right));
   const switchCameraLabel = flipsByFacing
     ? cameraFacing === "environment"
       ? translate("watch.watchRoom.useTheFrontCamera")
@@ -8918,6 +8934,31 @@ function WatchRoomView({
                 of them: the old test was "not a group", and a direct call is
                 not a group either. What decides it is whether there is a bar
                 lending us its right-hand slot, not what kind of call it is. */}
+            {peopleInHeader && (
+              <Tooltip content={translate("watch.watchRoom.people")} placement="bottom">
+                <button
+                  type="button"
+                  onClick={() => {
+                    haptic("tap");
+                    toggleMobilePanel("participants");
+                  }}
+                  data-tour="people"
+                  aria-pressed={mobilePanel === "participants"}
+                  aria-label={translate("watch.watchRoom.people")}
+                  className={`relative flex shrink-0 items-center justify-center rounded-lg p-2 transition ${
+                    mobilePanel === "participants"
+                      ? DOCK_TAB_ACTIVE
+                      : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
+                  }`}
+                >
+                  <MdOutlinePeople className="h-5 w-5" />
+                  <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-zinc-600 px-1 text-center text-[10px] font-bold leading-4 text-white dark:bg-zinc-700">
+                    {peerCount}
+                  </span>
+                </button>
+              </Tooltip>
+            )}
+
             {!group && !headerSlots?.right && <NotificationInboxBell />}
 
             {/* In a group's bar this goes to its far corner instead (see
@@ -9993,7 +10034,7 @@ function WatchRoomView({
                     <div
                       className="flex min-w-0 items-stretch"
                       style={{
-                        flex: showDualCameraButton ? "1 1 4rem" : canSwitchCamera ? "1 1 1.5rem" : "1 1 0%",
+                        flex: `1 1 ${(showDualCameraButton ? 2.5 : 0) + (canSwitchCamera ? 1.5 : 0) + (showDockEffectsButton ? 2.25 : 0)}rem`,
                       }}
                     >
                       <Tooltip
@@ -10012,12 +10053,67 @@ function WatchRoomView({
                           aria-pressed={Boolean(localCameraStream)}
                           aria-label={localCameraStream ? translate("watch.watchRoom.stopCamera") : translate("watch.watchRoom.shareCamera")}
                           className={`${DOCK_BUTTON_BASE} ${
-                            canSwitchCamera ? "rounded-r-none" : ""
+                            canSwitchCamera || showDockEffectsButton ? "rounded-r-none" : ""
                           } ${localCameraStream ? DOCK_LIVE : DOCK_ON}`}
                         >
                           <CameraIcon className="h-5 w-5" />
                         </button>
                       </Tooltip>
+                      {showDockEffectsButton && (
+                        <Tippy
+                          visible={dockEffectsTipShow && !cameraEffectsSheetOpen}
+                          placement="top"
+                          interactive
+                          theme="golive-panel"
+                          appendTo={() => document.body}
+                          content={
+                            <span
+                              role="status"
+                              className="relative block w-60 rounded-lg bg-blue-600 px-3 py-2 text-left text-xs font-medium text-white shadow-lg"
+                            >
+                              <span className="absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
+                              <span className="flex items-start gap-2">
+                                <span className="flex-1">{translate("watch.watchRoom.cameraEffectsTip")}</span>
+                                <button
+                                  type="button"
+                                  onClick={cameraEffectsTip.dismiss}
+                                  aria-label={translate("watch.watchRoom.clipsModeTipDismiss")}
+                                  className="-m-1 rounded p-1 leading-none text-white/80 hover:text-white"
+                                >
+                                  ✕
+                                </button>
+                              </span>
+                            </span>
+                          }
+                        >
+                        <span className="flex shrink-0">
+                        <Tooltip content={translate("watch.watchRoom.cameraEffects")} wrapperClassName="flex shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              haptic("tap");
+                              if (dockEffectsTipShow) cameraEffectsTip.clicked();
+                              trackTileExperiment(TILE_EXPERIMENT_EVENTS.cameraEffects.sheet);
+                              setCameraEffectsSheetOpen(true);
+                            }}
+                            aria-label={translate("watch.watchRoom.cameraEffects")}
+                            aria-expanded={cameraEffectsSheetOpen}
+                            className={`relative flex h-11 w-9 shrink-0 items-center justify-center border-l border-white/20 text-white transition active:scale-95 ${
+                              canSwitchCamera || showDualCameraButton ? "" : "rounded-r-xl"
+                            } ${DOCK_LIVE}`}
+                          >
+                            <MdAutoAwesome
+                              className={`h-4 w-4 ${cameraEffectsMode.on && hasAnyCameraEffect(cameraEffectSettings) ? "" : "opacity-70"}`}
+                            />
+                            {/* Something is being drawn on the camera right now. */}
+                            {cameraEffectsMode.on && hasAnyCameraEffect(cameraEffectSettings) && (
+                              <span className="absolute right-1 top-1.5 h-1.5 w-1.5 rounded-full bg-white" />
+                            )}
+                          </button>
+                        </Tooltip>
+                        </span>
+                        </Tippy>
+                      )}
                       {/* Front and rear at once — part of "Várias telas". */}
                       {showDualCameraButton && (
                         // The "novo" tip on a phone, where the desktop's "+" for
@@ -10206,24 +10302,27 @@ function WatchRoomView({
                     <span className="text-[10px] font-medium leading-none truncate max-w-full">{translate("common.chat")}</span>
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      haptic("tap");
-                      toggleMobilePanel("participants");
-                    }}
-                    data-tour="people"
-                    aria-pressed={mobilePanel === "participants"}
-                    className={`${DOCK_TAB} ${mobilePanel === "participants" ? DOCK_TAB_ACTIVE : DOCK_TAB_IDLE}`}
-                  >
-                    <span className="relative">
-                      <MdOutlinePeople className="h-5 w-5" />
-                      <span className="absolute -right-2.5 -top-1.5 min-w-4 rounded-full bg-zinc-600 dark:bg-zinc-700 px-1 text-center text-[10px] font-bold leading-4 text-white">
-                        {peerCount}
+                  {/* In the top bar instead, where it has one (see peopleInHeader). */}
+                  {!peopleInHeader && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        haptic("tap");
+                        toggleMobilePanel("participants");
+                      }}
+                      data-tour="people"
+                      aria-pressed={mobilePanel === "participants"}
+                      className={`${DOCK_TAB} ${mobilePanel === "participants" ? DOCK_TAB_ACTIVE : DOCK_TAB_IDLE}`}
+                    >
+                      <span className="relative">
+                        <MdOutlinePeople className="h-5 w-5" />
+                        <span className="absolute -right-2.5 -top-1.5 min-w-4 rounded-full bg-zinc-600 dark:bg-zinc-700 px-1 text-center text-[10px] font-bold leading-4 text-white">
+                          {peerCount}
+                        </span>
                       </span>
-                    </span>
-                    <span className="text-[10px] font-medium leading-none truncate max-w-full">{translate("watch.watchRoom.people")}</span>
-                  </button>
+                      <span className="text-[10px] font-medium leading-none truncate max-w-full">{translate("watch.watchRoom.people")}</span>
+                    </button>
+                  )}
                 </div>
                 )}
               </nav>
@@ -10342,6 +10441,17 @@ function WatchRoomView({
         open={mobileScreenShareModalOpen}
         onClose={() => setMobileScreenShareModalOpen(false)}
       />
+      {/* Mounted only while open: it counts the 3D faces' exposure. Closes
+          by itself when the camera stops (there is nothing left to preview). */}
+      {cameraEffectsSheetOpen && showDockEffectsButton && (
+        <CameraEffectsSheet
+          open
+          onClose={() => setCameraEffectsSheetOpen(false)}
+          on={cameraEffectsMode.on}
+          stream={localCameraStream}
+          fallbackMirrored={onPhone && cameraFacing === "user"}
+        />
+      )}
 
       {/* A protected room: covered until the window is confirmed out of
           captures, and signed with the viewer's name once it is — the

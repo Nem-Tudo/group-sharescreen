@@ -263,6 +263,7 @@ export const TILE_EXPERIMENT_EVENTS = {
     slow: "camera_effects_slow", // value: ms por quadro (uma vez por sessão, acima de 30)
     bgUpload: "camera_effects_bg_upload", // enviou uma imagem de fundo própria
     bgLocked: "camera_effects_bg_locked", // tocou em "Seu fundo" sem o plano (abriu os planos)
+    sheet: "camera_effects_sheet", // abriu a folha de efeitos pelo botão ✨ da barra de baixo (celular)
   },
   // O resto das estatísticas está em PHONE_CAMERA_EVENTS (lib/phoneCamera).
   phoneCamera: {

@@ -35,9 +35,10 @@ import { useT } from "@/lib/useI18n";
 // choices are always shown and picking one turns the switch on. On a phone,
 // where that button does not fit, it sits in the camera's panel (the arrow
 // beside the camera button) and the choices only show behind the switch.
-// Either way the switch is what costs nothing when off.
+// Either way the switch is what costs nothing when off. The phone's bottom
+// bar has its own way in, a sheet with the picture in it (CameraEffectsSheet).
 
-const LABELS: { [K in keyof CameraEffectSettings]: Record<CameraEffectSettings[K], string> } = {
+export const CAMERA_EFFECT_LABELS: { [K in keyof CameraEffectSettings]: Record<CameraEffectSettings[K], string> } = {
   background: {
     none: "watch.watchRoom.cameraEffectNone",
     blur: "watch.watchRoom.cameraEffectBlur",
@@ -122,7 +123,7 @@ function EffectGroup<K extends keyof CameraEffectSettings>({
             }}
             className={`${CHIP} ${value === option ? CHIP_ON : CHIP_OFF}`}
           >
-            {t((LABELS[name] as Record<string, string>)[option])}
+            {t((CAMERA_EFFECT_LABELS[name] as Record<string, string>)[option])}
           </button>
         ))}
         {children}
@@ -134,7 +135,7 @@ function EffectGroup<K extends keyof CameraEffectSettings>({
 // "Seu fundo": an image of the person's own, Pro Max and up. Below the plan it
 // is still shown, locked, and opens the plans. With the plan and no image yet
 // it asks for one; with one, it picks it, and a second chip swaps the image.
-function CustomBackgroundChips({ selected, turnOn }: { selected: boolean; turnOn?: () => void }) {
+export function CustomBackgroundChips({ selected, turnOn }: { selected: boolean; turnOn?: () => void }) {
   const t = useT();
   const { account } = useAuth();
   // Experiment "custom-bg-free" unlocks it below the plan. Only counted as an

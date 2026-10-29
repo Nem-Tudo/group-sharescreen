@@ -3645,6 +3645,7 @@
   "watch.watchRoom.cameraEffects": "Camera effects",
   "watch.watchRoom.cameraEffectsHint": "Background blur, color filters and face masks, applied to your camera before it reaches the room. Uses more processing while an effect is picked.",
   "watch.watchRoom.cameraEffectsTip": "New: camera effects! Blur your background or turn into a dog here.",
+  "watch.watchRoom.cameraEffectsSheetOff": "Effects off: pick one to turn them on",
   "watch.watchRoom.cameraEffectsLoading": "Loading effects…",
   "watch.watchRoom.cameraEffectsFailed": "Couldn't load the effects on this device.",
   "watch.watchRoom.cameraEffectFace": "Face",

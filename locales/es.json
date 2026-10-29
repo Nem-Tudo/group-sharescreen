@@ -3645,6 +3645,7 @@
   "watch.watchRoom.cameraEffects": "Efectos de cámara",
   "watch.watchRoom.cameraEffectsHint": "Fondo desenfocado, filtros de color y máscaras en la cara, aplicados a tu cámara antes de llegar a la sala. Usa más procesamiento mientras haya un efecto elegido.",
   "watch.watchRoom.cameraEffectsTip": "Nuevo: ¡efectos de cámara! Desenfoca el fondo o conviértete en perro aquí.",
+  "watch.watchRoom.cameraEffectsSheetOff": "Efectos desactivados: elige uno para activarlos",
   "watch.watchRoom.cameraEffectsLoading": "Cargando efectos…",
   "watch.watchRoom.cameraEffectsFailed": "No se pudieron cargar los efectos en este dispositivo.",
   "watch.watchRoom.cameraEffectFace": "Cara",
