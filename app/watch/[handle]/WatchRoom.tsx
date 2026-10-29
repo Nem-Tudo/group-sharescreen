@@ -174,7 +174,7 @@ import { ToolMediaTileById } from "@/components/roomTools/ToolMediaTile";
 import { ToolPipLabel } from "@/components/roomTools/ToolPip";
 import { ChatToolsStrip, PollCreateDialog } from "@/components/roomTools/ChatToolsStrip";
 import { HandsQueue, RaiseHandButton } from "@/components/roomTools/HandRaise";
-import { MdBackHand, MdHandyman, MdPoll } from "react-icons/md";
+import { MdAutoAwesome, MdBackHand, MdHandyman, MdPoll } from "react-icons/md";
 import { VideoSourceTile } from "@/components/VideoSourceTile";
 import {
   videoSourceVolumeKey,
@@ -220,7 +220,11 @@ import { ThemeSegmented } from "@/components/ThemeToggle";
 import { MenuToggleRow } from "@/components/MenuToggleRow";
 import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
 import { CameraEffectsPanel } from "@/components/CameraEffectsPanel";
-import { useCameraEffectsSupported } from "@/lib/cameraEffects";
+import {
+  hasAnyCameraEffect,
+  useCameraEffectSettings,
+  useCameraEffectsSupported,
+} from "@/lib/cameraEffects";
 import { PhoneCameraPanel } from "@/components/PhoneCameraPanel";
 import { getPhoneCameraState, setPhoneCameraSource, setPhoneCameraStartBlocked } from "@/lib/phoneCamera";
 import { trackFeatureEvent, useFeature } from "@/lib/features";
@@ -870,11 +874,19 @@ function ShareControls({
     panel: ReactNode;
     tip: { show: boolean; dismiss: () => void; clicked: () => void };
   } | null;
-  // "Efeitos de câmera" (see lib/cameraEffects): its switch and choices, at
-  // the bottom of the camera's panel, and the blue "novo" tip on the arrow
-  // that opens it. Null where the person does not have it.
+  // "Efeitos de câmera" (see lib/cameraEffects): its switch and choices. On a
+  // computer, the panel of a button of its own right of the camera's while
+  // the camera is on (like the screens' "+"), with the blue "novo" tip on it;
+  // on a phone, where the bar has no room for one more button, the bottom of
+  // the camera's panel and the tip on its arrow. Null where the person does
+  // not have it.
   cameraEffects?: {
     panel: ReactNode;
+    // The same, for the button's own panel (see CameraEffectsPanel's
+    // `standalone`).
+    buttonPanel: ReactNode;
+    // An effect is actually being drawn on the camera.
+    active: boolean;
     tip: { show: boolean; dismiss: () => void; clicked: () => void };
   } | null;
   // "Várias telas" (see lib/multiScreen): the "+" beside the screen button
@@ -961,6 +973,7 @@ function ShareControls({
   extraMotion?: string;
 }) {
   const t = useT();
+  const [effectsOpen, setEffectsOpen] = useState(false);
   const segment =
     "flex items-center px-3 py-2 text-white transition disabled:cursor-not-allowed disabled:opacity-50";
   const live = "bg-red-600 hover:bg-red-700";
@@ -969,11 +982,15 @@ function ShareControls({
   // A list of cameras to pick from: a computer with more than one. A phone
   // gets the flip button instead (see below), never both.
   const canPickCamera = cameraSupported && !onPhone && cameraDevices.length > 1;
+  // The effects' own button, on a computer (see the cameraEffects prop).
+  const effectsInPanel = Boolean(cameraEffects) && onPhone;
+  const effectsButton = cameraEffects && !onPhone && cameraSupported && cameraSharing ? cameraEffects : null;
   // The camera's panel exists when there is something in it: a camera to
   // pick, or the effects. The effects alone are reason enough on a phone too.
-  const hasCameraPanel = cameraSupported && (canPickCamera || Boolean(cameraEffects) || Boolean(phoneCamera));
-  // One blue tip on the arrow at a time: the effects', then the phone's.
-  const cameraTip = cameraEffects?.tip.show
+  const hasCameraPanel = cameraSupported && (canPickCamera || effectsInPanel || Boolean(phoneCamera));
+  // One blue tip on the arrow at a time: the effects' (on a phone), then the
+  // phone camera's.
+  const cameraTip = effectsInPanel && cameraEffects?.tip.show
     ? { ...cameraEffects.tip, text: t("watch.watchRoom.cameraEffectsTip") }
     : phoneCamera?.tip.show
       ? { ...phoneCamera.tip, text: t("watch.watchRoom.phoneCameraTip") }
@@ -1212,7 +1229,7 @@ function ShareControls({
                 ))}
               </DeviceSubmenuRow>
               )}
-              {cameraEffects?.panel}
+              {effectsInPanel && cameraEffects?.panel}
               {phoneCamera?.panel}
             </div>
           ) : undefined
@@ -1287,6 +1304,61 @@ function ShareControls({
         ) : null)}
         </div>
       </ShortcutQuickPopover>
+      {extra(effectsButton ? (
+        <Tippy
+          visible={effectsButton.tip.show && !effectsOpen}
+          placement="bottom"
+          interactive
+          theme="golive-panel"
+          appendTo={() => document.body}
+          content={
+            <span
+              role="status"
+              className="relative block w-60 rounded-lg bg-blue-600 px-3 py-2 text-left text-xs font-medium text-white shadow-lg"
+            >
+              <span className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
+              <span className="flex items-start gap-2">
+                <span className="flex-1">{t("watch.watchRoom.cameraEffectsTip")}</span>
+                <button
+                  type="button"
+                  onClick={effectsButton.tip.dismiss}
+                  aria-label={t("watch.watchRoom.clipsModeTipDismiss")}
+                  className="-m-1 rounded p-1 leading-none text-white/80 hover:text-white"
+                >
+                  ✕
+                </button>
+              </span>
+            </span>
+          }
+        >
+        <span className="flex">
+        <Popover
+          open={effectsOpen}
+          onClose={() => setEffectsOpen(false)}
+          placement="bottom"
+          tooltip={t("watch.watchRoom.cameraEffects")}
+          content={<div className="w-72 max-w-[calc(100vw-1rem)]">{effectsButton.buttonPanel}</div>}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              if (effectsButton.tip.show) effectsButton.tip.clicked();
+              setEffectsOpen((o) => !o);
+            }}
+            aria-label={t("watch.watchRoom.cameraEffects")}
+            aria-expanded={effectsOpen}
+            className={`${segment} relative border-l border-black/15 px-2.5 ${live}`}
+          >
+            <MdAutoAwesome className={`h-4 w-4 ${effectsButton.active ? "" : "opacity-70"}`} />
+            {/* Something is being drawn on the camera right now. */}
+            {effectsButton.active && (
+              <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-white" />
+            )}
+          </button>
+        </Popover>
+        </span>
+        </Tippy>
+      ) : null)}
       {/* Only where there is actually a choice to make: on the one-webcam
           laptop that most people are on, a chevron whose menu offers a
           single entry is pure clutter. Enumeration fills in after the first
@@ -2183,6 +2255,7 @@ function WatchRoomView({
   const cameraEffectsMode = useTileExperiment("cameraEffects", { track: cameraEffectsSupported });
   const cameraEffectsAvailable = cameraEffectsMode.available && cameraEffectsSupported;
   const cameraEffectsTip = useTileExperimentTip("cameraEffects", cameraEffectsAvailable);
+  const cameraEffectSettings = useCameraEffectSettings();
   // "Girar/inverter" (see lib/tileOrientation): the button in each tile's
   // corner. Tracked here, where its switch is, rather than in every tile.
   const orientationMode = useTileExperiment("orientation", { track: true });
@@ -7486,7 +7559,12 @@ function WatchRoomView({
           addScreen={addScreenControl}
           cameraEffects={
             cameraEffectsAvailable
-              ? { panel: <CameraEffectsPanel on={cameraEffectsMode.on} />, tip: cameraEffectsTip }
+              ? {
+                  panel: <CameraEffectsPanel on={cameraEffectsMode.on} />,
+                  buttonPanel: <CameraEffectsPanel on={cameraEffectsMode.on} standalone />,
+                  active: cameraEffectsMode.on && hasAnyCameraEffect(cameraEffectSettings),
+                  tip: cameraEffectsTip,
+                }
               : null
           }
           phoneCamera={

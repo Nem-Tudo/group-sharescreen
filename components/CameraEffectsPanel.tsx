@@ -16,9 +16,12 @@ import {
 import { setTileExperimentMode } from "@/lib/clipsMode";
 import { useT } from "@/lib/useI18n";
 
-// "Efeitos de câmera" in the camera's panel (the arrow beside the camera
-// button): the switch, and once it is on, what to draw. The switch is what
-// costs nothing when off; the choices only show behind it.
+// "Efeitos de câmera": the switch and what to draw. On a computer it is the
+// panel of its own button beside the camera's (`standalone`), where the
+// choices are always shown and picking one turns the switch on. On a phone,
+// where that button does not fit, it sits in the camera's panel (the arrow
+// beside the camera button) and the choices only show behind the switch.
+// Either way the switch is what costs nothing when off.
 
 const LABELS: { [K in keyof CameraEffectSettings]: Record<CameraEffectSettings[K], string> } = {
   background: {
@@ -55,11 +58,14 @@ function EffectGroup<K extends keyof CameraEffectSettings>({
   title,
   options,
   value,
+  turnOn,
 }: {
   name: K;
   title: string;
   options: CameraEffectSettings[K][];
   value: CameraEffectSettings[K];
+  // Set when picking an effect should also turn the switch on.
+  turnOn?: () => void;
 }) {
   const t = useT();
   return (
@@ -73,7 +79,10 @@ function EffectGroup<K extends keyof CameraEffectSettings>({
             aria-pressed={value === option}
             onClick={() => {
               setCameraEffect(name, option);
-              if (option !== "none") markFeatureUsed(CAMERA_EFFECTS_FEATURE);
+              if (option !== "none") {
+                markFeatureUsed(CAMERA_EFFECTS_FEATURE);
+                turnOn?.();
+              }
             }}
             className={`rounded-md px-2 py-1 text-xs font-medium transition ${
               value === option
@@ -89,10 +98,11 @@ function EffectGroup<K extends keyof CameraEffectSettings>({
   );
 }
 
-export function CameraEffectsPanel({ on }: { on: boolean }) {
+export function CameraEffectsPanel({ on, standalone = false }: { on: boolean; standalone?: boolean }) {
   const t = useT();
   const settings = useCameraEffectSettings();
   const status = useCameraEffectsStatus();
+  const turnOn = standalone && !on ? () => setTileExperimentMode("cameraEffects", true) : undefined;
   return (
     <div className="flex flex-col">
       <MenuToggleRow
@@ -104,25 +114,30 @@ export function CameraEffectsPanel({ on }: { on: boolean }) {
         activeIcon={<MdAutoAwesome className="h-4 w-4" />}
         inactiveIcon={<MdAutoAwesome className="h-4 w-4 opacity-50" />}
       />
-      {on && (
-        <div className="flex flex-col gap-2 px-2 pb-2">
+      {(on || standalone) && (
+        // Dimmed while the switch is off: what is highlighted is what will be
+        // drawn once it is on, not what the room sees now.
+        <div className={`flex flex-col gap-2 px-2 pb-2 ${on ? "" : "opacity-60"}`}>
           <EffectGroup
             name="face"
             title={t("watch.watchRoom.cameraEffectFace")}
             options={CAMERA_FACES}
             value={settings.face}
+            turnOn={turnOn}
           />
           <EffectGroup
             name="background"
             title={t("watch.watchRoom.cameraEffectBackground")}
             options={CAMERA_BACKGROUNDS}
             value={settings.background}
+            turnOn={turnOn}
           />
           <EffectGroup
             name="color"
             title={t("watch.watchRoom.cameraEffectColor")}
             options={CAMERA_COLORS}
             value={settings.color}
+            turnOn={turnOn}
           />
           {status.failed ? (
             <span className="text-xs text-red-600 dark:text-red-400">
