@@ -330,9 +330,13 @@ export async function captureNoiseSuppressedMic(
   // "Várias entradas de áudio": more inputs mixed in with the main one. Only
   // ever reach the room through the graph — without one there is nothing to
   // mix them in, and they are released straight away.
-  extraDeviceIds: string[] = []
+  extraDeviceIds: string[] = [],
+  // An input that is not a device here — "Celular como microfone": the
+  // phone's audio (or silence while waiting for it), put through the same
+  // graph. Owned by the graph from here on, like a capture: stopped with it.
+  rawOverride?: MediaStream
 ): Promise<MicCaptureResult> {
-  const rawStream = await captureRawMic(deviceId, stereo);
+  const rawStream = rawOverride ?? (await captureRawMic(deviceId, stereo));
   const extraRawStreams = extraDeviceIds.length ? await captureExtraMics(extraDeviceIds, rawStream, stereo) : [];
   const releaseExtras = () => {
     for (const stream of extraRawStreams) stream.getTracks().forEach((t) => t.stop());

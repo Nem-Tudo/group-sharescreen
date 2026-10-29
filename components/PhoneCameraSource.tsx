@@ -5,6 +5,8 @@ import {
   MdCameraswitch,
   MdFlashlightOff,
   MdFlashlightOn,
+  MdMic,
+  MdMicOff,
   MdPhoneIphone,
   MdStop,
   MdVideocam,
@@ -17,8 +19,10 @@ import { useT } from "@/lib/useI18n";
 
 // The phone's side of "Celular como câmera" (the computer's is
 // lib/phoneCamera.ts): the page the QR code opens. It is a media source and
-// nothing else — no room, no account, no chat. It films and sends the video
-// to the one computer it belongs to, and has the few controls a camera needs.
+// nothing else — no room, no account, no chat. It sends its camera, its
+// microphone or both to the one computer it belongs to — whichever that
+// computer says it is using (the "use" message) — and has the few controls a
+// camera and a mic need.
 //
 // The first time on a link it shows a code, typed on the computer. A saved
 // phone keeps a secret in localStorage, so opening the same link (or /cam)
@@ -29,6 +33,10 @@ import { useT } from "@/lib/useI18n";
 const DEVICES_KEY = "sharescreen:phoneCamDevices";
 /** After the page opens, the computer's first ask needs no tap. */
 const AUTOSTART_MS = 2 * 60 * 1000;
+
+/** What the computer wants opened. Before it says, the camera (as always). */
+type Use = { camera: boolean; mic: boolean };
+const DEFAULT_USE: Use = { camera: true, mic: false };
 
 type Phase =
   | { kind: "connecting" }
@@ -67,6 +75,12 @@ function deviceName(): string {
   return "Celular";
 }
 
+// The sender of one kind: each transceiver is made at the start (see start),
+// so it is there whether or not that kind is going out yet.
+function senderOf(pc: RTCPeerConnection, kind: "audio" | "video"): RTCRtpSender | null {
+  return pc.getTransceivers().find((tr) => tr.receiver.track.kind === kind)?.sender ?? null;
+}
+
 export function PhoneCameraSource({ token }: { token: string | null }) {
   const t = useT();
   const [phase, setPhase] = useState<Phase>({ kind: "connecting" });
@@ -76,11 +90,22 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
   const [torch, setTorch] = useState(false);
   const [torchSupported, setTorchSupported] = useState(false);
   const [facing, setFacing] = useState<"user" | "environment">("environment");
+  // What is actually going out right now, and the mic's own control.
+  const [sendingCamera, setSendingCamera] = useState(false);
+  const [sendingMic, setSendingMic] = useState(false);
+  const [micMuted, setMicMuted] = useState(false);
 
   const socketRef = useRef<WebSocket | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const controlRef = useRef<RTCDataChannel | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const micMutedRef = useRef(false);
+  const micErrorRef = useRef(false);
+  // The computer's latest "use", and the queue applying it (one at a time:
+  // opening a camera or mic takes a moment, and asks can come in a row).
+  const wantRef = useRef<Use>(DEFAULT_USE);
+  const applyingRef = useRef<Promise<void>>(Promise.resolve());
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const wakeLockRef = useRef<{ release: () => Promise<void> } | null>(null);
   // Set when the page opens (see the first effect below).
@@ -98,7 +123,7 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
   const torchRef = useRef(torch);
   const torchSupportedRef = useRef(false);
   // The controls, for the computer's commands (see the control channel).
-  const commandsRef = useRef<{ camera: () => void; flip: () => void; torch: () => void } | null>(null);
+  const commandsRef = useRef<{ camera: () => void; flip: () => void; torch: () => void; mic: () => void } | null>(null);
   useEffect(() => {
     phaseRef.current = phase;
     facingRef.current = facing;
@@ -122,6 +147,12 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
       torch: torchRef.current,
       torchSupported: torchSupportedRef.current,
       facing: facingRef.current,
+      // This page knows the mic and "use" (an older one says neither).
+      micCapable: true,
+      sendingCamera: Boolean(streamRef.current?.getVideoTracks().some((t) => t.readyState === "live")),
+      sendingMic: Boolean(micStreamRef.current?.getAudioTracks().some((t) => t.readyState === "live")),
+      micMuted: micMutedRef.current,
+      micError: micErrorRef.current,
     };
     try {
       if (controlRef.current?.readyState === "open") controlRef.current.send(JSON.stringify({ t: "state", ...state }));
@@ -162,6 +193,11 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
       pcRef.current = null;
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
+      micStreamRef.current?.getTracks().forEach((track) => track.stop());
+      micStreamRef.current = null;
+      micErrorRef.current = false;
+      setSendingCamera(false);
+      setSendingMic(false);
       if (videoRef.current) videoRef.current.srcObject = null;
       setTorch(false);
       releaseWakeLock();
@@ -181,20 +217,117 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
     return stream;
   }, []);
 
-  const start = useCallback(async () => {
+  const openMic = useCallback(
+    () =>
+      navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        video: false,
+      }),
+    []
+  );
+
+  /** Opens / closes the camera and mic to match what the computer uses. */
+  const applyUse = useCallback(
+    (use: Use) => {
+      wantRef.current = use;
+      applyingRef.current = applyingRef.current.then(async () => {
+        const pc = pcRef.current;
+        if (!pc) return;
+        const want = wantRef.current;
+        const video = streamRef.current?.getVideoTracks().find((t) => t.readyState === "live");
+        if (want.camera && !video) {
+          try {
+            const stream = await openCamera(facingRef.current);
+            if (pcRef.current !== pc) {
+              stream.getTracks().forEach((t) => t.stop());
+              return;
+            }
+            const next = stream.getVideoTracks()[0];
+            next.enabled = cameraOnRef.current;
+            await senderOf(pc, "video")?.replaceTrack(next).catch(() => {});
+            streamRef.current = stream;
+            if (videoRef.current) videoRef.current.srcObject = stream;
+          } catch {
+            // Left without video; the computer sees it is not being sent.
+          }
+        } else if (!want.camera && video) {
+          await senderOf(pc, "video")?.replaceTrack(null).catch(() => {});
+          streamRef.current?.getTracks().forEach((t) => t.stop());
+          streamRef.current = null;
+          if (videoRef.current) videoRef.current.srcObject = null;
+          setTorch(false);
+          torchRef.current = false;
+        }
+        const audio = micStreamRef.current?.getAudioTracks().find((t) => t.readyState === "live");
+        if (want.mic && !audio) {
+          try {
+            const stream = await openMic();
+            if (pcRef.current !== pc) {
+              stream.getTracks().forEach((t) => t.stop());
+              return;
+            }
+            const next = stream.getAudioTracks()[0];
+            next.enabled = !micMutedRef.current;
+            await senderOf(pc, "audio")?.replaceTrack(next).catch(() => {});
+            micStreamRef.current = stream;
+            micErrorRef.current = false;
+          } catch {
+            micErrorRef.current = true;
+          }
+        } else if (!want.mic && audio) {
+          await senderOf(pc, "audio")?.replaceTrack(null).catch(() => {});
+          micStreamRef.current?.getTracks().forEach((t) => t.stop());
+          micStreamRef.current = null;
+        }
+        if (!want.mic) micErrorRef.current = false;
+        setSendingCamera(Boolean(streamRef.current));
+        setSendingMic(Boolean(micStreamRef.current));
+        sendState();
+      });
+    },
+    [openCamera, openMic, sendState]
+  );
+
+  const start = useCallback(async (use: Use = DEFAULT_USE) => {
     const current = phaseRef.current.kind;
     if (!boundRef.current || current === "starting" || current === "live") return;
     setPhase({ kind: "starting" });
-    let stream: MediaStream;
-    try {
-      stream = await openCamera(facingRef.current);
-    } catch {
-      send({ t: "declined" });
-      setPhase({ kind: "error", reason: "camera" });
-      return;
+    wantRef.current = use;
+    // What was asked for opens before the connection, so it goes out from
+    // the first frame; a later "use" opens or closes the rest.
+    let stream: MediaStream | null = null;
+    let micStream: MediaStream | null = null;
+    if (use.camera) {
+      try {
+        stream = await openCamera(facingRef.current);
+      } catch {
+        if (!use.mic) {
+          send({ t: "declined" });
+          setPhase({ kind: "error", reason: "camera" });
+          return;
+        }
+      }
+    }
+    if (use.mic) {
+      try {
+        micStream = await openMic();
+      } catch {
+        micErrorRef.current = true;
+        if (!stream) {
+          send({ t: "declined" });
+          setPhase({ kind: "error", reason: "mic" });
+          return;
+        }
+      }
     }
     streamRef.current = stream;
+    micStreamRef.current = micStream;
+    micMutedRef.current = false;
+    setMicMuted(false);
     setCameraOn(true);
+    cameraOnRef.current = true;
+    setSendingCamera(Boolean(stream));
+    setSendingMic(Boolean(micStream));
     if (videoRef.current) videoRef.current.srcObject = stream;
     ensureIceServers();
     const pc = new RTCPeerConnection(iceConfigFor(false));
@@ -203,9 +336,9 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
     controlRef.current = control;
     control.onopen = () => sendState();
     control.onmessage = (event) => {
-      let data: { t?: string; action?: string };
+      let data: { t?: string; action?: string; camera?: unknown; mic?: unknown };
       try {
-        data = JSON.parse(String(event.data)) as { t?: string; action?: string };
+        data = JSON.parse(String(event.data)) as { t?: string; action?: string; camera?: unknown; mic?: unknown };
       } catch {
         return;
       }
@@ -219,6 +352,10 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
         if (data.action === "camera") commands?.camera();
         else if (data.action === "flip") commands?.flip();
         else if (data.action === "torch") commands?.torch();
+        else if (data.action === "mic") commands?.mic();
+      } else if (data.t === "use") {
+        const use = data as { camera?: unknown; mic?: unknown };
+        applyUse({ camera: use.camera === true, mic: use.mic === true });
       }
     };
     control.onclose = () => {
@@ -226,7 +363,10 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
       stopStreaming(false);
       setPhase(onceRef.current ? { kind: "ended" } : { kind: "standby" });
     };
-    for (const track of stream.getTracks()) pc.addTrack(track, stream);
+    // Both kinds from the start, sending or not, so either can be switched
+    // on later with a replaceTrack instead of a new negotiation.
+    pc.addTransceiver(stream?.getVideoTracks()[0] ?? "video", { direction: "sendonly" });
+    pc.addTransceiver(micStream?.getAudioTracks()[0] ?? "audio", { direction: "sendonly" });
     pc.onicecandidate = (event) => {
       if (event.candidate) send({ t: "signal", data: { candidate: event.candidate.toJSON() } });
     };
@@ -248,7 +388,7 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
       stopStreaming(true);
       setPhase({ kind: "error", reason: "connection" });
     }
-  }, [openCamera, send, sendState, stopStreaming, requestWakeLock]);
+  }, [openCamera, openMic, applyUse, send, sendState, stopStreaming, requestWakeLock]);
 
   const startRef = useRef(start);
   useEffect(() => {
@@ -298,6 +438,8 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
           case "host": {
             const online = msg.online === true;
             setHostOnline(online);
+            // Opening the page is for the camera, as it has always been; the
+            // computer's "use" switches to the mic if that is what it wants.
             if (online && boundRef.current && Date.now() < autostartUntil.current && (kind === "standby" || kind === "connecting")) {
               void startRef.current();
             }
@@ -307,7 +449,15 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
             // A phone confirmed with the code once is this computer's camera:
             // the computer choosing it is enough, nobody is asked again.
             if (!boundRef.current || kind === "starting" || kind === "live") return;
-            void startRef.current();
+            {
+              // What the computer wants opened; an older server sends nothing.
+              const data = msg.data as { camera?: unknown; mic?: unknown } | undefined;
+              void startRef.current(
+                data && typeof data === "object"
+                  ? { camera: data.camera !== false, mic: data.mic === true }
+                  : DEFAULT_USE
+              );
+            }
             return;
           case "stop":
             stopStreaming(false);
@@ -411,8 +561,7 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
     }
     const track = stream.getVideoTracks()[0];
     track.enabled = cameraOnRef.current;
-    const sender = pc.getSenders().find((s) => s.track?.kind === "video" || s.track === null);
-    await sender?.replaceTrack(track).catch(() => {});
+    await senderOf(pc, "video")?.replaceTrack(track).catch(() => {});
     streamRef.current = stream;
     if (videoRef.current) videoRef.current.srcObject = stream;
     const facingNow = track.getSettings().facingMode === "user" ? "user" : next;
@@ -439,8 +588,22 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
       sendState();
     }
   };
+  const toggleMic = () => {
+    const track = micStreamRef.current?.getAudioTracks()[0];
+    if (!track) return;
+    const muted = !micMutedRef.current;
+    track.enabled = !muted;
+    micMutedRef.current = muted;
+    setMicMuted(muted);
+    sendState();
+  };
   useEffect(() => {
-    commandsRef.current = { camera: toggleCamera, flip: () => void flip(), torch: () => void toggleTorch() };
+    commandsRef.current = {
+      camera: toggleCamera,
+      flip: () => void flip(),
+      torch: () => void toggleTorch(),
+      mic: toggleMic,
+    };
   });
 
   const filming = phase.kind === "live" || phase.kind === "starting";
@@ -454,6 +617,8 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
             ? t("cam.errorRejected")
             : phase.reason === "camera"
               ? t("cam.errorCamera")
+              : phase.reason === "mic"
+                ? t("cam.errorMic")
               : phase.reason === "connection"
                 ? t("cam.errorConnection")
                 : phase.reason === "none"
@@ -469,7 +634,7 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
         muted
         playsInline
         className={`absolute inset-0 h-full w-full object-cover transition-opacity ${
-          filming && cameraOn ? "opacity-100" : "opacity-0"
+          filming && cameraOn && sendingCamera ? "opacity-100" : "opacity-0"
         } ${facing === "user" ? "-scale-x-100" : ""}`}
       />
 
@@ -518,7 +683,14 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
 
         {phase.kind === "starting" && <span className="text-sm text-white/80">{t("cam.starting")}</span>}
 
-        {phase.kind === "live" && !cameraOn && (
+        {phase.kind === "live" && !sendingCamera && sendingMic && (
+          <>
+            {micMuted ? <MdMicOff className="h-12 w-12 text-white/60" /> : <MdMic className="h-12 w-12 text-emerald-400" />}
+            <span className="text-sm text-white/80">{micMuted ? t("cam.micMuted") : t("cam.usingAsMic")}</span>
+          </>
+        )}
+
+        {phase.kind === "live" && sendingCamera && !cameraOn && (
           <>
             <MdVideocamOff className="h-12 w-12 text-white/60" />
             <span className="text-sm text-white/70">{t("cam.cameraPaused")}</span>
@@ -545,17 +717,26 @@ export function PhoneCameraSource({ token }: { token: string | null }) {
 
       {filming && (
         <div className="relative z-10 flex items-center justify-center gap-4 bg-gradient-to-t from-black/70 to-transparent px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-8">
-          <ControlButton
-            onClick={toggleCamera}
-            label={cameraOn ? t("cam.cameraOff") : t("cam.cameraOn")}
-            active={!cameraOn}
-          >
-            {cameraOn ? <MdVideocam className="h-6 w-6" /> : <MdVideocamOff className="h-6 w-6" />}
-          </ControlButton>
-          <ControlButton onClick={() => void flip()} label={t("cam.flip")}>
-            <MdCameraswitch className="h-6 w-6" />
-          </ControlButton>
-          {torchSupported && (
+          {sendingMic && (
+            <ControlButton onClick={toggleMic} label={micMuted ? t("cam.micOn") : t("cam.micOff")} active={micMuted}>
+              {micMuted ? <MdMicOff className="h-6 w-6" /> : <MdMic className="h-6 w-6" />}
+            </ControlButton>
+          )}
+          {sendingCamera && (
+            <>
+              <ControlButton
+                onClick={toggleCamera}
+                label={cameraOn ? t("cam.cameraOff") : t("cam.cameraOn")}
+                active={!cameraOn}
+              >
+                {cameraOn ? <MdVideocam className="h-6 w-6" /> : <MdVideocamOff className="h-6 w-6" />}
+              </ControlButton>
+              <ControlButton onClick={() => void flip()} label={t("cam.flip")}>
+                <MdCameraswitch className="h-6 w-6" />
+              </ControlButton>
+            </>
+          )}
+          {sendingCamera && torchSupported && (
             <ControlButton onClick={() => void toggleTorch()} label={t("cam.flash")} active={torch}>
               {torch ? <MdFlashlightOn className="h-6 w-6" /> : <MdFlashlightOff className="h-6 w-6" />}
             </ControlButton>

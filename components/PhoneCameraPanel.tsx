@@ -6,6 +6,8 @@ import {
   MdClose,
   MdFlashlightOff,
   MdFlashlightOn,
+  MdMic,
+  MdMicOff,
   MdPhoneIphone,
   MdVideocam,
   MdVideocamOff,
@@ -24,6 +26,8 @@ import {
   requestPhoneCameraLink,
   sendPhoneCameraCommand,
   setPhoneCameraSource,
+  setPhoneMicSource,
+  type PhoneKind,
   submitPhoneCameraCode,
   takePhoneCameraHere,
   takePhoneCameraUseRequest,
@@ -34,9 +38,11 @@ import { copyText } from "@/lib/clipboard";
 import { useT } from "@/lib/useI18n";
 
 // "Celular como câmera" in the camera's panel (the arrow beside the camera
-// button): the switch, and behind it which camera the room gets — the
-// webcam or one of the saved phones — plus the QR code that links a new
-// phone and the box where its code is typed. See lib/phoneCamera.
+// button), and "como microfone" in the mic's: the switch (one experiment,
+// the same in both), and behind it which camera / mic the room gets — this
+// computer's or one of the saved phones (the same list in both: a phone
+// linked for one is there for the other) — plus the QR code that links a
+// new phone and the box where its code is typed. See lib/phoneCamera.
 
 function QrCode({ text }: { text: string }) {
   const path = useMemo(() => {
@@ -143,9 +149,12 @@ function OptionRow({
   );
 }
 
-export function PhoneCameraPanel({ on }: { on: boolean }) {
+export function PhoneCameraPanel({ on, kind = "camera" }: { on: boolean; kind?: PhoneKind }) {
   const t = useT();
   const phone = usePhoneCamera();
+  const isMic = kind === "mic";
+  const source = isMic ? phone.micSource : phone.source;
+  const setSource = isMic ? setPhoneMicSource : setPhoneCameraSource;
   const [linking, setLinking] = useState(false);
   const [mode, setMode] = useState<"once" | "save">("save");
   const [code, setCode] = useState("");
@@ -154,26 +163,26 @@ export function PhoneCameraPanel({ on }: { on: boolean }) {
   // Asking for the link again whenever the mode changes while the QR is up.
   useEffect(() => {
     if (!on || !linking || !phone.connected) return;
-    requestPhoneCameraLink(mode);
-  }, [on, linking, mode, phone.connected]);
+    requestPhoneCameraLink(mode, false, kind);
+  }, [on, linking, mode, phone.connected, kind]);
 
   // "Usar o celular" from the camera list or a camera error (see
   // requestPhoneCameraUse): the last saved phone if there is one, else the QR.
   // Waits for the relay, which only now opens when the switch just went on.
   useEffect(() => {
-    if (!on || !phone.useRequested || !phone.connected || phone.replaced) return;
+    if (!on || phone.useRequested !== kind || !phone.connected || phone.replaced) return;
     const saved = takePhoneCameraUseRequest();
     if (saved) {
-      if (!phone.source) setPhoneCameraSource(saved.deviceId);
+      if (!source) setSource(saved.deviceId);
       return;
     }
-    if (phone.source === "once") return;
+    if (source === "once") return;
     // Answering a request taken off the store (a side effect), so not in
     // render like the pairedAt reset below; it runs once per request.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLinking(true);
     trackFeatureEvent(PHONE_CAMERA_EVENTS.qrOpen);
-  }, [on, phone.useRequested, phone.connected, phone.replaced, phone.source]);
+  }, [on, kind, phone.useRequested, phone.connected, phone.replaced, source, setSource]);
 
   // A confirmed phone closes the QR: it did its job.
   const [seenPairedAt, setSeenPairedAt] = useState(phone.pairedAt);
@@ -186,16 +195,17 @@ export function PhoneCameraPanel({ on }: { on: boolean }) {
   const claim = phone.claims[phone.claims.length - 1] ?? null;
   const onceOnline = phone.online.find((o) => o.deviceId === null) ?? null;
   const session = phone.session;
+  const phoneState = session?.phone ?? null;
   const url = phone.link ? phoneCameraLinkUrl(phone.link.token) : null;
 
   return (
     <div className="flex flex-col">
       <MenuToggleRow
-        label={t("watch.watchRoom.phoneCamera")}
+        label={isMic ? t("watch.watchRoom.phoneMic") : t("watch.watchRoom.phoneCamera")}
         badge={<NewBadge id={PHONE_CAMERA_FEATURE} />}
         active={on}
         onToggle={() => setTileExperimentMode("phoneCamera", !on)}
-        hint={t("watch.watchRoom.phoneCameraHint")}
+        hint={isMic ? t("watch.watchRoom.phoneMicHint") : t("watch.watchRoom.phoneCameraHint")}
         activeIcon={<MdPhoneIphone className="h-4 w-4" />}
         inactiveIcon={<MdPhoneIphone className="h-4 w-4 opacity-50" />}
       />
@@ -216,18 +226,20 @@ export function PhoneCameraPanel({ on }: { on: boolean }) {
             <span className="text-xs text-zinc-500 dark:text-zinc-400">{t("watch.watchRoom.phoneCameraConnecting")}</span>
           ) : (
             <>
-              <span className="text-xs text-zinc-500 dark:text-zinc-400">{t("watch.watchRoom.phoneCameraSource")}</span>
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                {isMic ? t("watch.watchRoom.phoneMicSource") : t("watch.watchRoom.phoneCameraSource")}
+              </span>
               <div className="flex flex-col gap-1">
                 <OptionRow
-                  selected={!phone.source}
-                  onClick={() => setPhoneCameraSource(null)}
-                  label={t("watch.watchRoom.phoneCameraWebcam")}
+                  selected={!source}
+                  onClick={() => setSource(null)}
+                  label={isMic ? t("watch.watchRoom.phoneMicComputer") : t("watch.watchRoom.phoneCameraWebcam")}
                 />
                 {phone.devices.map((device) => (
                   <OptionRow
                     key={device.deviceId}
-                    selected={phone.source === device.deviceId}
-                    onClick={() => setPhoneCameraSource(device.deviceId)}
+                    selected={source === device.deviceId}
+                    onClick={() => setSource(device.deviceId)}
                     label={device.name}
                     status={phone.online.some((o) => o.deviceId === device.deviceId) ? "online" : "offline"}
                     onRemove={() => {
@@ -238,10 +250,10 @@ export function PhoneCameraPanel({ on }: { on: boolean }) {
                     removeLabel={t("watch.watchRoom.phoneCameraRemove")}
                   />
                 ))}
-                {(onceOnline || phone.source === "once") && (
+                {(onceOnline || source === "once") && (
                   <OptionRow
-                    selected={phone.source === "once"}
-                    onClick={() => setPhoneCameraSource("once")}
+                    selected={source === "once"}
+                    onClick={() => setSource("once")}
                     label={`${onceOnline?.name || t("watch.watchRoom.phoneCameraPhone")} · ${t("watch.watchRoom.phoneCameraOnce")}`}
                     status={onceOnline ? "online" : "offline"}
                   />
@@ -253,9 +265,19 @@ export function PhoneCameraPanel({ on }: { on: boolean }) {
                   <div className="flex items-center gap-2">
                     <span className="min-w-0 flex-1">
                       {session.status === "live"
-                        ? session.phone && !session.phone.camera
-                          ? t("watch.watchRoom.phoneCameraPausedOnPhone", { name: session.name })
-                          : t("watch.watchRoom.phoneCameraLive", { name: session.name })
+                        ? isMic
+                          ? phoneState?.micError
+                            ? t("watch.watchRoom.phoneMicError", { name: session.name })
+                            : phoneState?.sendingMic
+                              ? phoneState.micMuted
+                                ? t("watch.watchRoom.phoneMicMutedOnPhone", { name: session.name })
+                                : t("watch.watchRoom.phoneMicLive", { name: session.name })
+                              : t("watch.watchRoom.phoneCameraAsking", { name: session.name })
+                          : phoneState && !phoneState.sendingCamera
+                            ? t("watch.watchRoom.phoneMicLive", { name: session.name })
+                            : phoneState && !phoneState.camera
+                              ? t("watch.watchRoom.phoneCameraPausedOnPhone", { name: session.name })
+                              : t("watch.watchRoom.phoneCameraLive", { name: session.name })
                         : session.status === "waiting"
                           ? t("watch.watchRoom.phoneCameraWaiting", { name: session.name })
                           : session.status === "asking"
@@ -275,7 +297,18 @@ export function PhoneCameraPanel({ on }: { on: boolean }) {
                   {/* The phone's own controls, mirrored: what is pressed here
                       happens on the phone, and the phone's answer is what
                       these show. */}
-                  {session.status === "live" && session.phone && (
+                  {session.status === "live" && isMic && phoneState?.sendingMic && (
+                    <div className="flex gap-1">
+                      <RemoteButton
+                        onClick={() => sendPhoneCameraCommand("mic")}
+                        label={phoneState.micMuted ? t("cam.micOn") : t("cam.micOff")}
+                        active={phoneState.micMuted}
+                      >
+                        {phoneState.micMuted ? <MdMicOff className="h-4 w-4" /> : <MdMic className="h-4 w-4" />}
+                      </RemoteButton>
+                    </div>
+                  )}
+                  {session.status === "live" && !isMic && session.phone && session.phone.sendingCamera && (
                     <div className="flex gap-1">
                       <RemoteButton
                         onClick={() => sendPhoneCameraCommand("camera")}
@@ -397,7 +430,7 @@ export function PhoneCameraPanel({ on }: { on: boolean }) {
                         {mode === "save" && (
                           <button
                             type="button"
-                            onClick={() => requestPhoneCameraLink("save", true)}
+                            onClick={() => requestPhoneCameraLink("save", true, kind)}
                             title={t("watch.watchRoom.phoneCameraNewLinkHint")}
                             className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
                           >

@@ -2009,6 +2009,7 @@ function WatchRoomView({
     autoJoin,
     toggleAutoJoin,
     cameraFromPhone,
+    phoneMicOffline,
   } = useRoomMedia(handle);
 
   const [switching, setSwitching] = useState(false);
@@ -3906,17 +3907,25 @@ function WatchRoomView({
   // here for that, since a camera error leaves it closed.
   const pickPhoneCamera = useCallback(() => {
     if (!phoneCameraMode.on) setTileExperimentMode("phoneCamera", true);
-    requestPhoneCameraUse();
+    requestPhoneCameraUse("camera");
     setQuickShortcutAction("toggleCamera");
   }, [phoneCameraMode.on]);
-  const phoneCameraSource = usePhoneCamera().source;
-  const phoneCameraDevices = usePhoneCamera().devices;
-  const phoneCameraSelectedName =
-    phoneCameraMode.on && phoneCameraSource
-      ? phoneCameraSource === "once"
+  // The same from the mic's list ("Celular como microfone"), in the mic's panel.
+  const pickPhoneMic = useCallback(() => {
+    trackFeatureEvent(PHONE_CAMERA_EVENTS.micPickerClick);
+    if (!phoneCameraMode.on) setTileExperimentMode("phoneCamera", true);
+    requestPhoneCameraUse("mic");
+    setQuickShortcutAction("toggleMute");
+  }, [phoneCameraMode.on]);
+  const phoneCameraStore = usePhoneCamera();
+  const phoneSourceName = (source: string | null) =>
+    phoneCameraMode.on && source
+      ? source === "once"
         ? translate("watch.watchRoom.phoneCameraPhone")
-        : (phoneCameraDevices.find((d) => d.deviceId === phoneCameraSource)?.name ?? translate("watch.watchRoom.phoneCameraPhone"))
+        : (phoneCameraStore.devices.find((d) => d.deviceId === source)?.name ?? translate("watch.watchRoom.phoneCameraPhone"))
       : null;
+  const phoneCameraSelectedName = phoneSourceName(phoneCameraStore.source);
+  const phoneMicSelectedName = phoneSourceName(phoneCameraStore.micSource);
   // A camera that would not start offers the phone instead — not when it was
   // the phone already, nor where the experiment is not offered.
   const offerPhoneCamera = Boolean(visibleCameraError) && phoneCameraAvailable && !cameraFromPhone;
@@ -7376,23 +7385,34 @@ function WatchRoomView({
               <DeviceSubmenuRow
                 label={translate("watch.watchRoom.chooseMicrophone")}
                 current={
+                  phoneMicSelectedName ??
                   micDevices.find((d) => d.deviceId === micDeviceId)?.label ??
                   translate("watch.watchRoom.systemDefault")
                 }
               >
                 <DeviceMenuOption
                   label={translate("watch.watchRoom.systemDefault")}
-                  selected={micDeviceId === null}
+                  selected={!phoneMicSelectedName && micDeviceId === null}
                   onClick={() => setMicDevice(null)}
                 />
                 {micDevices.map((d) => (
                   <DeviceMenuOption
                     key={d.deviceId}
                     label={d.label}
-                    selected={micDeviceId === d.deviceId}
+                    selected={!phoneMicSelectedName && micDeviceId === d.deviceId}
                     onClick={() => setMicDevice(d.deviceId)}
                   />
                 ))}
+                {/* "Celular como microfone": the phones are mics too (see
+                    lib/phoneCamera) — the same entry as the camera's list. */}
+                {phoneCameraAvailable && (
+                  <DeviceMenuOption
+                    icon={<MdPhoneIphone className="h-4 w-4 shrink-0" />}
+                    label={phoneMicSelectedName ?? translate("watch.watchRoom.phoneCameraUse")}
+                    selected={Boolean(phoneMicSelectedName)}
+                    onClick={pickPhoneMic}
+                  />
+                )}
               </DeviceSubmenuRow>
               <MicGainRow
                 value={micGain}
@@ -7405,6 +7425,7 @@ function WatchRoomView({
               {extraMicsRow}
               {pushToTalkToggle}
               {pushToTalkKeyRow}
+              {phoneCameraAvailable && <PhoneCameraPanel on={phoneCameraMode.on} kind="mic" />}
             </div>
           }
         >
@@ -9104,6 +9125,22 @@ function WatchRoomView({
         <p className="bg-red-50 px-4 py-2 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">
           {micError}
         </p>
+      )}
+      {/* "Celular como microfone" with the phone not there: the mic is on but
+          silent until it connects (see useRoomMedia) — said here, with the
+          steps, since there is no picture to put them on as the camera has. */}
+      {phoneMicOffline && (
+        <div className="bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+          <p className="font-semibold">{translate("useRoomMedia.phoneMicOfflineTitle")}</p>
+          <p className="opacity-90">{translate("useRoomMedia.phoneMicOfflineDescription")}</p>
+          <p className="mt-1 font-medium">{translate("useRoomMedia.phoneCameraOfflineStepsTitle")}</p>
+          <ol className="list-decimal pl-5 opacity-90">
+            <li>{translate("useRoomMedia.phoneMicOfflineStep1")}</li>
+            <li>{translate("useRoomMedia.phoneMicOfflineStep2")}</li>
+            <li>{translate("useRoomMedia.phoneCameraOfflineStep3")}</li>
+            <li>{translate("useRoomMedia.phoneCameraOfflineStep4")}</li>
+          </ol>
+        </div>
       )}
       {visibleCameraError && (
         <div className="flex items-center justify-between gap-3 bg-red-50 px-4 py-2 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">

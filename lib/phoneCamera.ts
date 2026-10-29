@@ -6,14 +6,22 @@ import { ensureIceServers } from "./iceServers";
 import { getSignalingWsUrl } from "./roomsApi";
 import { trackFeatureEvent } from "./features";
 
-// "Celular como câmera" — the computer's side (the phone's is app/cam).
+// "Celular como câmera" (and as microphone) — the computer's side (the
+// phone's is app/cam).
 //
 // A phone opens a link (from a QR code shown here) and becomes this
-// computer's camera. It never joins the room: it connects to this browser
-// alone, over one WebRTC connection, and the video it sends is handed to the
-// room's ordinary camera channel (see the capture in lib/useRoomMedia.ts),
-// which is what the room sees. To everyone else it is just this person's
-// camera.
+// computer's camera, its microphone, or both at once. It never joins the
+// room: it connects to this browser alone, over one WebRTC connection, and
+// what it sends is handed to the room's ordinary camera and mic channels
+// (see the captures in lib/useRoomMedia.ts), which is what the room sees and
+// hears. To everyone else it is just this person's camera and mic.
+//
+// One connection per phone carries both: a video and an audio transceiver
+// from the start, and this side tells the phone which of the two it wants
+// right now (the "use" message, see syncUse). The phone opens and closes its
+// camera and microphone to match, swapping tracks in place — no
+// renegotiation. A phone page from before the microphone knows nothing of
+// "use" and just sends its camera, which is all that was ever asked of it.
 //
 // The API's phoneCamera.ts is the go-between: a socket of its own (not the
 // room's "/ws") that knows which phones belong to which computer and relays
@@ -28,6 +36,10 @@ import { trackFeatureEvent } from "./features";
 // Either way the first time shows a code on the phone, typed here, so a link
 // that leaked cannot turn a stranger's phone into this person's camera
 // without them noticing.
+//
+// Only one phone at a time: the camera and the mic can come from the same
+// phone, but picking a different phone for one of them puts the other back
+// on this computer's own device.
 //
 // The socket only exists while a room has the experiment's switch on (see
 // usePhoneCameraHost), and only the newest tab of this browser holds it.
@@ -49,10 +61,17 @@ export const PHONE_CAMERA_EVENTS = {
   pickerClick: "phone_camera_picker_click", // "Usar o celular" picked in the camera list
   errorOffer: "phone_camera_error_offer", // a camera error offered the phone instead
   errorClick: "phone_camera_error_click", // ...and the offer was taken
+  micStart: "phone_mic_start", // audio from the phone reached the room's mic
+  micPickerClick: "phone_mic_picker_click", // "Usar o celular" picked in the mic list
+  micOffline: "phone_mic_offline", // the mic came on (silent) waiting for the phone
 } as const;
+
+/** What a phone is to this computer: its camera, its microphone. */
+export type PhoneKind = "camera" | "mic";
 
 const HOST_KEY = "sharescreen:phoneCamHost";
 const SOURCE_KEY = "sharescreen:phoneCamSource";
+const MIC_SOURCE_KEY = "sharescreen:phoneMicSource";
 /** How long turning the camera on waits for the phone to answer. */
 const REQUEST_TIMEOUT_MS = 90_000;
 /** How long an offered connection has to come up before it is given up. */
@@ -78,7 +97,15 @@ export interface PhoneCameraOnline {
   name: string;
 }
 
-export type PhoneCameraErrorCode = "offline" | "declined" | "timeout" | "failed" | "cancelled" | "unavailable";
+export type PhoneCameraErrorCode =
+  | "offline"
+  | "declined"
+  | "timeout"
+  | "failed"
+  | "cancelled"
+  | "unavailable"
+  // The phone's page predates the microphone, or its mic would not open.
+  | "nomic";
 
 export class PhoneCameraError extends Error {
   constructor(public code: PhoneCameraErrorCode) {
@@ -92,14 +119,28 @@ export interface PhoneCameraPhoneState {
   torch: boolean;
   torchSupported: boolean;
   facing: "user" | "environment";
+  /** Its page knows the microphone (and "use"). False on an older page. */
+  micCapable: boolean;
+  /** What it is sending right now: an older page always sends its camera. */
+  sendingCamera: boolean;
+  sendingMic: boolean;
+  /** The mic is muted on the phone (sending silence). */
+  micMuted: boolean;
+  /** The phone's microphone would not open (permission refused, in use). */
+  micError: boolean;
 }
 
-function readPhoneState(raw: { camera?: unknown; torch?: unknown; torchSupported?: unknown; facing?: unknown }): PhoneCameraPhoneState {
+function readPhoneState(raw: Record<string, unknown>): PhoneCameraPhoneState {
   return {
     camera: raw.camera !== false,
     torch: raw.torch === true,
     torchSupported: raw.torchSupported === true,
     facing: raw.facing === "user" ? "user" : "environment",
+    micCapable: raw.micCapable === true,
+    sendingCamera: raw.sendingCamera !== false,
+    sendingMic: raw.sendingMic === true,
+    micMuted: raw.micMuted === true,
+    micError: raw.micError === true,
   };
 }
 
@@ -112,6 +153,8 @@ export interface PhoneCameraState {
   online: PhoneCameraOnline[];
   claims: PhoneCameraClaim[];
   link: { token: string; mode: "once" | "save" } | null;
+  /** Which list the QR was opened from: the phone confirmed becomes that. */
+  linkFor: PhoneKind;
   /** The last code typed was wrong: tries left for that phone. */
   codeWrong: { conn: string; left: number } | null;
   /**
@@ -123,19 +166,22 @@ export interface PhoneCameraState {
     deviceId: string | null;
     name: string;
     status: "waiting" | "asking" | "connecting" | "live";
-    /** What the phone says about itself (camera off, torch, facing). */
+    /** What the phone says about itself (camera off, torch, facing, mic). */
     phone: PhoneCameraPhoneState | null;
   } | null;
   /** When a phone was last confirmed with its code (the QR can go). */
   pairedAt: number;
   /** Which phone the camera should come from: a saved one's id, "once", or null (a webcam). */
   source: string | null;
+  /** The same, for the microphone: null is this computer's own mic. */
+  micSource: string | null;
   /**
-   * "Usar o celular" was asked for from outside the panel (the camera list,
-   * a camera error): the panel picks the last saved phone, or shows the QR
-   * when there is none — once the relay is up (see requestPhoneCameraUse).
+   * "Usar o celular" was asked for from outside the panel (a device list, a
+   * camera error), and for which: the panel picks the last saved phone, or
+   * shows the QR when there is none — once the relay is up (see
+   * requestPhoneCameraUse).
    */
-  useRequested: boolean;
+  useRequested: PhoneKind | null;
 }
 
 // ── Store ──────────────────────────────────────────────────────────────────
@@ -147,11 +193,13 @@ let state: PhoneCameraState = {
   online: [],
   claims: [],
   link: null,
+  linkFor: "camera",
   codeWrong: null,
   session: null,
   pairedAt: 0,
-  source: readSource(),
-  useRequested: false,
+  source: readStored(SOURCE_KEY),
+  micSource: readStored(MIC_SOURCE_KEY),
+  useRequested: null,
 };
 const listeners = new Set<() => void>();
 
@@ -175,11 +223,21 @@ export function getPhoneCameraState(): PhoneCameraState {
   return state;
 }
 
-function readSource(): string | null {
+function readStored(key: string): string | null {
   try {
-    return typeof window === "undefined" ? null : window.localStorage.getItem(SOURCE_KEY);
+    return typeof window === "undefined" ? null : window.localStorage.getItem(key);
   } catch {
     return null;
+  }
+}
+
+function writeStored(key: string, source: string | null) {
+  // A saved choice survives a reload; a one-time phone does not.
+  try {
+    if (source && source !== "once") window.localStorage.setItem(key, source);
+    else window.localStorage.removeItem(key);
+  } catch {
+    // For this page only.
   }
 }
 
@@ -211,7 +269,12 @@ export function phoneCameraLinkUrl(token: string): string {
   return `${window.location.origin}/cam/${token}`;
 }
 
-// ── Events the room's camera listens to ─────────────────────────────────────
+/** The session's phone as a source value: its saved id, or "once". */
+function sessionKey(session: NonNullable<PhoneCameraState["session"]>): string {
+  return session.deviceId ?? "once";
+}
+
+// ── Events the room's camera and mic listen to ──────────────────────────────
 
 type CameraEvent = "arrived" | "ended";
 const cameraListeners = new Set<(event: CameraEvent) => void>();
@@ -220,8 +283,8 @@ function emitCamera(event: CameraEvent) {
 }
 /**
  * "arrived": a phone started sending without being asked for (its page was
- * opened) — the room's camera should come on from it. "ended": the phone in
- * use stopped — the room's camera should stop with it.
+ * opened) — the room's camera (and mic, if it is the mic's phone) should
+ * come from it. "ended": the phone in use stopped.
  */
 export function onPhoneCameraEvent(listener: (event: CameraEvent) => void): () => void {
   cameraListeners.add(listener);
@@ -347,8 +410,11 @@ function onMessage(msg: Record<string, unknown>) {
         // A link used once is spent; the QR for it should go.
         link: state.link?.mode === "once" ? null : state.link,
       });
-      // The phone that was just confirmed is the camera from now on.
-      setPhoneCameraSource(device ? device.deviceId : "once");
+      // The phone that was just confirmed is, from now on, what the QR was
+      // opened for: the camera, or the microphone.
+      const key = device ? device.deviceId : "once";
+      if (state.linkFor === "mic") setPhoneMicSource(key);
+      else setPhoneCameraSource(key);
       return;
     }
     case "cam-online": {
@@ -359,7 +425,7 @@ function onMessage(msg: Record<string, unknown>) {
       };
       set({ online: [...state.online.filter((o) => o.conn !== online.conn), online] });
       const session = state.session;
-      // The phone in use reconnected its socket (the video, peer to peer,
+      // The phone in use reconnected its socket (the media, peer to peer,
       // never stopped): messages for it go to the new one.
       if (session && session.status !== "waiting" && online.deviceId && online.deviceId === session.deviceId) {
         set({ session: { ...session, conn: online.conn } });
@@ -368,14 +434,14 @@ function onMessage(msg: Record<string, unknown>) {
       // Asked for while its page was closed: now it is open, ask it.
       if (session?.status === "waiting" && online.deviceId === session.deviceId) {
         set({ session: { ...session, conn: online.conn, status: "asking" } });
-        sendRaw({ t: "request", conn: online.conn });
+        sendRaw({ t: "request", conn: online.conn, data: wants() });
       }
       return;
     }
     case "cam-offline": {
       set({ online: state.online.filter((o) => o.conn !== msg.conn) });
       // A live phone can lose its socket and keep sending; the connection
-      // itself (and its data channel) says when the video is really gone.
+      // itself (and its data channel) says when the media is really gone.
       const session = state.session;
       if (session && session.conn === msg.conn && session.status !== "live") endSession("failed");
       return;
@@ -396,6 +462,7 @@ function onMessage(msg: Record<string, unknown>) {
       const session = state.session;
       if (session && session.conn === msg.conn && msg.state && typeof msg.state === "object") {
         set({ session: { ...session, phone: readPhoneState(msg.state as Record<string, unknown>) } });
+        checkWaiters();
       }
       return;
     }
@@ -404,8 +471,8 @@ function onMessage(msg: Record<string, unknown>) {
 
 // ── Pairing, from the panel ─────────────────────────────────────────────────
 
-export function requestPhoneCameraLink(mode: "once" | "save", fresh = false) {
-  set({ link: null });
+export function requestPhoneCameraLink(mode: "once" | "save", fresh = false, linkFor: PhoneKind = "camera") {
+  set({ link: null, linkFor });
   sendRaw({ t: "link", mode, fresh });
 }
 
@@ -422,6 +489,7 @@ export function rejectPhoneCameraClaim(conn: string) {
 export function removePhoneCameraDevice(deviceId: string) {
   sendRaw({ t: "remove", deviceId });
   if (state.source === deviceId) setPhoneCameraSource(null);
+  if (state.micSource === deviceId) setPhoneMicSource(null);
 }
 
 export function renamePhoneCameraDevice(deviceId: string, name: string) {
@@ -430,21 +498,28 @@ export function renamePhoneCameraDevice(deviceId: string, name: string) {
 
 /** Which phone the room's camera comes from — null for a webcam again. */
 export function setPhoneCameraSource(source: string | null) {
-  // A saved choice survives a reload; a one-time phone does not.
-  try {
-    if (source && source !== "once") window.localStorage.setItem(SOURCE_KEY, source);
-    else window.localStorage.removeItem(SOURCE_KEY);
-  } catch {
-    // For this page only.
-  }
+  writeStored(SOURCE_KEY, source);
   set({ source });
+  // One phone at a time: a different one for the camera takes the mic back
+  // to this computer's own.
+  if (source && state.micSource && state.micSource !== source) setPhoneMicSource(null);
   // Not in use by a camera that is on: nothing to swap away from first.
   if (!cameraInUse) releaseUnlessSource();
+  syncUse();
+}
+
+/** Which phone the room's microphone comes from — null for this computer's. */
+export function setPhoneMicSource(source: string | null) {
+  writeStored(MIC_SOURCE_KEY, source);
+  set({ micSource: source });
+  if (source && state.source && state.source !== source) setPhoneCameraSource(null);
+  if (!micInUse) releaseUnlessSource();
+  syncUse();
 }
 
 /** Asks the panel for "Usar o celular" (see PhoneCameraState.useRequested). */
-export function requestPhoneCameraUse() {
-  set({ useRequested: true });
+export function requestPhoneCameraUse(kind: PhoneKind = "camera") {
+  set({ useRequested: kind });
 }
 
 /**
@@ -452,7 +527,7 @@ export function requestPhoneCameraUse() {
  * null when there is none (the QR is what it shows then).
  */
 export function takePhoneCameraUseRequest(): PhoneCameraDevice | null {
-  set({ useRequested: false });
+  set({ useRequested: null });
   return [...state.devices].sort((a, b) => b.lastUsedAt - a.lastUsedAt)[0] ?? null;
 }
 
@@ -467,18 +542,40 @@ export function phoneCameraStartBlocked(): boolean {
   return startBlocked;
 }
 
-// Set by the room while its camera is fed by the phone (see useRoomMedia),
-// so a change of source swaps the room's camera over before the phone is let
-// go — the other way round, the room would see the camera end and stop.
+// Set by the room while its camera / mic is fed by the phone (see
+// useRoomMedia), so a change of source swaps the room's capture over before
+// the phone is let go — the other way round, the room would see it end and
+// stop. Also what the phone is told to keep open (see syncUse).
 let cameraInUse = false;
+let micInUse = false;
 export function setPhoneCameraInUse(inUse: boolean) {
   cameraInUse = inUse;
+  syncUse();
+}
+export function setPhoneMicInUse(inUse: boolean) {
+  micInUse = inUse;
+  syncUse();
 }
 
-/** Lets go of a phone that is no longer the chosen source. */
+/** Lets go of a phone that is no longer the chosen source of anything. */
 export function releaseUnlessSource() {
   const session = state.session;
-  if (session && state.source !== (session.deviceId ?? "once")) release();
+  if (!session) return;
+  const key = sessionKey(session);
+  if (state.source !== key && state.micSource !== key) release();
+}
+
+/**
+ * The room is done with the phone for one of the two (its camera or mic went
+ * off a while ago): let go of it if the other is not using it either, or just
+ * tell it to close what is no longer used.
+ */
+export function releasePhoneIfIdle() {
+  if (cameraInUse || micInUse || waiters.length > 0) {
+    syncUse();
+    return;
+  }
+  release();
 }
 
 // ── The connection to the phone ─────────────────────────────────────────────
@@ -488,22 +585,88 @@ let pc: RTCPeerConnection | null = null;
 // other is gone — no waiting for ICE to time out.
 let control: RTCDataChannel | null = null;
 let track: MediaStreamTrack | null = null;
+let audioTrack: MediaStreamTrack | null = null;
+// Chrome only feeds a remote audio track into Web Audio (the mic's graph)
+// while something plays it: a muted element does, and is otherwise silent.
+let audioSink: HTMLAudioElement | null = null;
 let connectTimer: ReturnType<typeof setTimeout> | null = null;
 let liveSince = 0;
-// Captures waiting for the phone (a start and a swap can both be asking).
-let waiters: { resolve: (track: MediaStreamTrack) => void; reject: (err: PhoneCameraError) => void }[] = [];
-let waitTimer: ReturnType<typeof setTimeout> | null = null;
+// What the phone was last told to have open (see syncUse).
+let lastUse = "";
 
-function settle(result: MediaStreamTrack | PhoneCameraError) {
-  if (waitTimer) clearTimeout(waitTimer);
-  waitTimer = null;
+// Captures waiting for the phone: the camera's for its video, the mic's for
+// its audio. Each with its own deadline.
+interface Waiter {
+  kind: PhoneKind;
+  resolve: (track: MediaStreamTrack) => void;
+  reject: (err: PhoneCameraError) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+let waiters: Waiter[] = [];
+
+/** What the room wants from the phone right now. */
+function wants(): { camera: boolean; mic: boolean } {
+  return {
+    camera: cameraInUse || waiters.some((w) => w.kind === "camera"),
+    mic: micInUse || waiters.some((w) => w.kind === "mic"),
+  };
+}
+
+/** Tells the phone what to keep open, when that changed (or `force`). */
+function syncUse(force = false) {
+  if (control?.readyState !== "open") return;
+  const use = wants();
+  const key = `${use.camera}:${use.mic}`;
+  if (!force && key === lastUse) return;
+  lastUse = key;
+  try {
+    control.send(JSON.stringify({ t: "use", ...use }));
+  } catch {
+    // Closing — the session ends on its own.
+  }
+}
+
+function dropWaiter(waiter: Waiter) {
+  clearTimeout(waiter.timer);
+  waiters = waiters.filter((w) => w !== waiter);
+}
+
+/** Every waiter fails at once (the session is over). True if there were any. */
+function rejectAll(err: PhoneCameraError): boolean {
   const current = waiters;
   waiters = [];
   for (const waiter of current) {
-    if (result instanceof PhoneCameraError) waiter.reject(result);
-    else waiter.resolve(result);
+    clearTimeout(waiter.timer);
+    waiter.reject(err);
   }
   return current.length > 0;
+}
+
+/** Hands the waiting captures what the live phone has for them now. */
+function checkWaiters() {
+  const session = state.session;
+  if (session?.status !== "live") return;
+  const phone = session.phone;
+  for (const waiter of [...waiters]) {
+    if (waiter.kind === "camera") {
+      // An older page never reports what it sends: it sends its camera.
+      if (track && (!phone || phone.sendingCamera)) {
+        dropWaiter(waiter);
+        waiter.resolve(track);
+      }
+      continue;
+    }
+    if (!phone) continue;
+    if (!phone.micCapable || !audioTrack || phone.micError) {
+      dropWaiter(waiter);
+      waiter.reject(new PhoneCameraError("nomic"));
+    } else if (phone.sendingMic) {
+      dropWaiter(waiter);
+      trackFeatureEvent(PHONE_CAMERA_EVENTS.micStart);
+      waiter.resolve(audioTrack);
+    }
+  }
+  syncUse();
 }
 
 function closePc() {
@@ -515,9 +678,16 @@ function closePc() {
     // Closing anyway.
   }
   control = null;
+  lastUse = "";
   pc?.close();
   pc = null;
   track = null;
+  audioTrack = null;
+  if (audioSink) {
+    audioSink.pause();
+    audioSink.srcObject = null;
+    audioSink = null;
+  }
   if (liveSince) {
     trackFeatureEvent(PHONE_CAMERA_EVENTS.seconds, {
       value: Math.max(1, Math.round((Date.now() - liveSince) / 1000)),
@@ -530,15 +700,18 @@ function endSession(reason: PhoneCameraErrorCode) {
   const wasLive = state.session?.status === "live";
   closePc();
   set({ session: null });
-  if (!settle(new PhoneCameraError(reason)) && wasLive) emitCamera("ended");
+  rejectAll(new PhoneCameraError(reason));
+  // While live something may be using it (the camera, the mic) even with
+  // the other still waiting: both hear it.
+  if (wasLive) emitCamera("ended");
 }
 
 /**
  * Presses one of the phone's own controls from the computer: turn the camera
- * off/on, flip it, or the torch. Sent on the connection itself; the phone
- * answers with its new state, which is what the buttons here show.
+ * off/on, flip it, the torch, or mute its mic. Sent on the connection itself;
+ * the phone answers with its new state, which is what the buttons here show.
  */
-export function sendPhoneCameraCommand(action: "camera" | "flip" | "torch") {
+export function sendPhoneCameraCommand(action: "camera" | "flip" | "torch" | "mic") {
   if (control?.readyState !== "open") return;
   try {
     control.send(JSON.stringify({ t: "cmd", action }));
@@ -548,15 +721,16 @@ export function sendPhoneCameraCommand(action: "camera" | "flip" | "torch") {
   }
 }
 
-/** Lets go of the phone: it is told to stop, and its camera turns off. */
+/** Lets go of the phone: it is told to stop, and its camera and mic turn off. */
 export function release() {
   const session = state.session;
   if (!session) return;
   if (session.conn) sendRaw({ t: "stop", conn: session.conn });
   closePc();
   set({ session: null });
-  settle(new PhoneCameraError("cancelled"));
-  // A room camera still fed by it stops (one already swapped away is not).
+  rejectAll(new PhoneCameraError("cancelled"));
+  // A room camera / mic still fed by it moves off it (one already swapped
+  // away is not).
   if (session.status === "live") emitCamera("ended");
 }
 
@@ -571,8 +745,8 @@ async function onSignal(conn: string, data: Record<string, unknown> | undefined)
     const known = state.online.find((o) => o.conn === conn);
     if (!known) return;
     // The phone started on its own (its page was opened) or answered a
-    // request — either way this is the camera now. Another phone already in
-    // use gives way: the newest one is the one being held up.
+    // request — either way this is the phone in use now. Another phone
+    // already in use gives way: the newest one is the one being held up.
     // A request still waiting for this very phone's page is answered by it.
     const session = state.session;
     const answersWait = session?.status === "waiting" && session.deviceId === known.deviceId;
@@ -582,13 +756,17 @@ async function onSignal(conn: string, data: Record<string, unknown> | undefined)
     set({
       session: { conn, deviceId: known.deviceId, name: known.name, status: "connecting", phone: null },
     });
-    if (state.source !== (known.deviceId ?? "once")) {
-      try {
-        if (known.deviceId) window.localStorage.setItem(SOURCE_KEY, known.deviceId);
-      } catch {
-        // For this page only.
+    // A phone that started by itself is the camera from now on — unless it
+    // is already this computer's microphone and the camera is a webcam: then
+    // it came back as the mic, and the camera stays what it was.
+    const key = known.deviceId ?? "once";
+    if (state.source !== key && !(state.micSource === key && !state.source)) {
+      writeStored(SOURCE_KEY, key);
+      set({ source: key });
+      if (state.micSource && state.micSource !== key) {
+        writeStored(MIC_SOURCE_KEY, null);
+        set({ micSource: null });
       }
-      set({ source: known.deviceId ?? "once" });
     }
     const peer = new RTCPeerConnection(iceConfigFor(false));
     pc = peer;
@@ -599,10 +777,15 @@ async function onSignal(conn: string, data: Record<string, unknown> | undefined)
       if (pc !== peer) return;
       const channel = event.channel;
       control = channel;
+      const onOpen = () => {
+        if (pc === peer) syncUse(true);
+      };
+      if (channel.readyState === "open") onOpen();
+      else channel.onopen = onOpen;
       channel.onmessage = (e) => {
-        let data: { t?: unknown; camera?: unknown; torch?: unknown; torchSupported?: unknown; facing?: unknown };
+        let data: Record<string, unknown>;
         try {
-          data = JSON.parse(String(e.data));
+          data = JSON.parse(String(e.data)) as Record<string, unknown>;
         } catch {
           return;
         }
@@ -610,6 +793,7 @@ async function onSignal(conn: string, data: Record<string, unknown> | undefined)
         if (data.t === "bye") endSession("failed");
         else if (data.t === "state" && state.session) {
           set({ session: { ...state.session, phone: readPhoneState(data) } });
+          checkWaiters();
         }
       };
       channel.onclose = () => {
@@ -617,8 +801,16 @@ async function onSignal(conn: string, data: Record<string, unknown> | undefined)
       };
     };
     peer.ontrack = (event) => {
-      if (event.track.kind !== "video" || pc !== peer) return;
-      track = event.track;
+      if (pc !== peer) return;
+      if (event.track.kind === "video") {
+        track = event.track;
+      } else if (event.track.kind === "audio") {
+        audioTrack = event.track;
+        audioSink = new Audio();
+        audioSink.muted = true;
+        audioSink.srcObject = new MediaStream([event.track]);
+        void audioSink.play().catch(() => {});
+      }
     };
     peer.onconnectionstatechange = () => {
       if (pc !== peer) return;
@@ -628,7 +820,9 @@ async function onSignal(conn: string, data: Record<string, unknown> | undefined)
         liveSince = Date.now();
         set({ session: state.session ? { ...state.session, status: "live" } : null });
         trackFeatureEvent(PHONE_CAMERA_EVENTS.start);
-        if (!settle(track) && !asked) emitCamera("arrived");
+        const hadWaiters = waiters.length > 0;
+        checkWaiters();
+        if (!hadWaiters && !asked) emitCamera("arrived");
       } else if (peer.connectionState === "failed" || peer.connectionState === "closed") {
         if (state.session?.status !== "live") trackFeatureEvent(PHONE_CAMERA_EVENTS.failed);
         sendRaw({ t: "stop", conn });
@@ -660,31 +854,46 @@ async function onSignal(conn: string, data: Record<string, unknown> | undefined)
   }
 }
 
-/** Whether the room's camera should come from a phone right now. */
-export function phoneCameraSelected(): boolean {
-  return Boolean(state.source) && (state.connected || Boolean(track));
-}
-
 /**
- * The phone's video for the room's camera: the one already coming in, or
- * the chosen phone asked for (its holder accepts on the phone). Waits for its
- * page to be opened if it is not — up to REQUEST_TIMEOUT_MS.
+ * What the room's camera (`"camera"`, the video) or mic (`"mic"`, the audio)
+ * gets from the chosen phone: what is already coming in, or the phone asked
+ * for it (it opens its camera / mic to match). Waits for the phone's page to
+ * be opened if it is not — up to REQUEST_TIMEOUT_MS.
  */
-export function acquirePhoneCamera(): Promise<MediaStreamTrack> {
-  const source = state.source;
+export function acquirePhoneCamera(kind: PhoneKind = "camera"): Promise<MediaStreamTrack> {
+  const source = kind === "camera" ? state.source : state.micSource;
   if (!source || !state.connected) return Promise.reject(new PhoneCameraError("unavailable"));
-  if (phoneCameraLive()) return Promise.resolve(track!);
+  if (kind === "camera" && phoneCameraLive()) return Promise.resolve(track!);
+  if (kind === "mic" && phoneMicLive()) return Promise.resolve(audioTrack!);
   return new Promise<MediaStreamTrack>((resolve, reject) => {
-    waiters.push({ resolve, reject });
-    // Already on its way (asked, or the phone is connecting on its own).
-    if (state.session && (state.session.deviceId ?? "once") === source) return;
-    waitTimer = setTimeout(() => {
-      const session = state.session;
-      if (session?.conn) sendRaw({ t: "stop", conn: session.conn });
-      closePc();
-      set({ session: null });
-      settle(new PhoneCameraError(session?.status === "waiting" ? "offline" : "timeout"));
-    }, REQUEST_TIMEOUT_MS);
+    const waiter: Waiter = {
+      kind,
+      resolve,
+      reject,
+      timer: setTimeout(() => {
+        const session = state.session;
+        // Live already (the other one is using it): only this ask gives up.
+        if (session?.status === "live") {
+          dropWaiter(waiter);
+          reject(new PhoneCameraError(kind === "mic" ? "nomic" : "timeout"));
+          syncUse();
+          return;
+        }
+        if (session?.conn) sendRaw({ t: "stop", conn: session.conn });
+        closePc();
+        set({ session: null });
+        rejectAll(new PhoneCameraError(session?.status === "waiting" ? "offline" : "timeout"));
+      }, REQUEST_TIMEOUT_MS),
+    };
+    waiters.push(waiter);
+    const current = state.session;
+    // Already on its way (asked, or connecting on its own), or live and
+    // only needing to open the other one: tell it what is wanted now.
+    if (current && sessionKey(current) === source) {
+      if (current.status === "live") checkWaiters();
+      else syncUse();
+      return;
+    }
     if (source === "once") {
       // A one-time phone just confirmed may not have said it is online yet.
       const online = state.online.find((o) => o.deviceId === null);
@@ -697,12 +906,13 @@ export function acquirePhoneCamera(): Promise<MediaStreamTrack> {
           phone: null,
         },
       });
-      if (online) sendRaw({ t: "request", conn: online.conn });
+      if (online) sendRaw({ t: "request", conn: online.conn, data: wants() });
       return;
     }
     const device = state.devices.find((d) => d.deviceId === source);
     if (!device) {
-      settle(new PhoneCameraError("unavailable"));
+      dropWaiter(waiter);
+      reject(new PhoneCameraError("unavailable"));
       return;
     }
     const online = state.online.find((o) => o.deviceId === source);
@@ -715,11 +925,30 @@ export function acquirePhoneCamera(): Promise<MediaStreamTrack> {
         phone: null,
       },
     });
-    if (online) sendRaw({ t: "request", conn: online.conn });
+    if (online) sendRaw({ t: "request", conn: online.conn, data: wants() });
   });
 }
 
-/** Whether the phone's connection is live (the room's camera can use it as is). */
+/** Whether the phone's video is coming in (the room's camera can use it as is). */
 export function phoneCameraLive(): boolean {
-  return Boolean(track && track.readyState === "live" && state.session?.status === "live");
+  const session = state.session;
+  return Boolean(
+    track &&
+      track.readyState === "live" &&
+      session?.status === "live" &&
+      (!session.phone || session.phone.sendingCamera) &&
+      state.source === sessionKey(session)
+  );
+}
+
+/** The same, for its audio and the room's mic. */
+export function phoneMicLive(): boolean {
+  const session = state.session;
+  return Boolean(
+    audioTrack &&
+      audioTrack.readyState === "live" &&
+      session?.status === "live" &&
+      session.phone?.sendingMic &&
+      state.micSource === sessionKey(session)
+  );
 }

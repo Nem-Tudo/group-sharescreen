@@ -105,7 +105,7 @@ import {
   videoCodecOrder,
   type VideoCodecOrder,
 } from "./videoCodecPreferences";
-import { setPreferredAudioSink } from "./audioContext";
+import { getSharedAudioContext, setPreferredAudioSink } from "./audioContext";
 import { startExcludedSystemAudio, prewarmExcludedSystemAudio } from "./desktopSystemAudio";
 import {
   captureAndroidScreen,
@@ -140,11 +140,14 @@ import {
   PHONE_CAMERA_EVENTS,
   phoneCameraLive,
   phoneCameraStartBlocked,
+  phoneMicLive,
+  releasePhoneIfIdle,
   releaseUnlessSource as releaseUnchosenPhoneCamera,
-  release as releasePhoneCamera,
   retainPhoneCameraHost,
   setPhoneCameraInUse,
   setPhoneCameraSource,
+  setPhoneMicInUse,
+  setPhoneMicSource,
   usePhoneCamera,
 } from "./phoneCamera";
 import { createPhoneCameraPlaceholder, isPhoneCameraPlaceholder } from "./phoneCameraPlaceholder";
@@ -4315,15 +4318,19 @@ export function useRoomMedia(room: string) {
         const cam = cameraRef.current;
         if (event === "arrived") {
           if (!phoneCameraModeRef.current || nativeDualRef.current) return;
+          // A phone that came back as the microphone only is the mic's
+          // business (see the mic's own listener), not the camera's.
+          const phone = getPhoneCameraState();
+          if (!phone.session || phone.source !== (phone.session.deviceId ?? "once")) return;
           if (!cam.active) {
             // Not allowed to (the room turned cameras off for this person),
             // or it would not start: the phone has nobody to film for.
             if (phoneCameraStartBlocked()) {
-              releasePhoneCamera();
+              releasePhoneIfIdle();
               return;
             }
             void cam.start().then(() => {
-              if (!cameraRef.current.active) releasePhoneCamera();
+              if (!cameraRef.current.active) releasePhoneIfIdle();
             });
             return;
           }
@@ -4424,7 +4431,8 @@ export function useRoomMedia(room: string) {
       setCameraFromPhone(false);
       setPhoneCameraInUse(false);
       phonePlaceholderShownRef.current = false;
-      releasePhoneCamera();
+      // The mic may still be using the same phone: then it only closes its camera.
+      releasePhoneIfIdle();
     }, 5000);
     return () => clearTimeout(timer);
   }, [camera.active]);
@@ -4969,9 +4977,27 @@ export function useRoomMedia(room: string) {
   // Idempotent: rnnoise's own teardown is guarded, so calling this from both
   // the stop path and unmount costs nothing.
   const releaseMicGraph = useCallback(() => {
-    micGraphRef.current?.stop();
+    // Cleared before the stop, so the graph's own ended-callback can tell
+    // this (we stopped it) from its input dying under it.
+    const graph = micGraphRef.current;
     micGraphRef.current = null;
+    graph?.stop();
   }, []);
+
+  // "Celular como microfone" (see lib/phoneCamera): whether the running mic
+  // is the phone's, whether it is the silence that stands in while the phone
+  // is not there (announced to the room page as a notice), whether a capture
+  // standing in should also ask the phone (not right after the phone itself
+  // stopped), and what asks it (set below, once the channel exists).
+  const micFromPhoneRef = useRef(false);
+  // Whether the running mic is the phone's audio (not the stand-in silence).
+  const phoneMicLiveInMicRef = useRef(false);
+  const [phoneMicOffline, setPhoneMicOffline] = useState(false);
+  const askPhoneMicRef = useRef(true);
+  const awaitPhoneMicRef = useRef<() => void>(() => {});
+  // Restarts the mic off the phone's audio (gone) or onto it (back) — once,
+  // however many of the paths that notice it get there in the same moment.
+  const restartPhoneMicRef = useRef<(ask: boolean) => void>(() => {});
 
   const mic = useBroadcastChannel(
     "mic",
@@ -4983,10 +5009,44 @@ export function useRoomMedia(room: string) {
       // still held is how Windows in particular hands back a silent track.
       releaseMicGraph();
       const extras = extraMicDeviceIdsRef.current;
+      // A phone chosen as the microphone: its audio, through the same graph
+      // as any mic (suppression, leveler, the volume dial). Not there yet
+      // (page closed, offline): the mic comes on anyway, silent, with a notice
+      // saying why — and the phone's audio replaces the silence once it
+      // connects (see awaitPhoneMic), as the camera's screen does.
+      let rawOverride: MediaStream | undefined;
+      const fromPhone = phoneCameraModeRef.current && Boolean(getPhoneCameraState().micSource);
+      micFromPhoneRef.current = fromPhone;
+      setPhoneMicInUse(fromPhone);
+      if (fromPhone) {
+        if (phoneMicLive()) {
+          const remote = await acquirePhoneCamera("mic");
+          rawOverride = new MediaStream([remote.clone()]);
+          setPhoneMicOffline(false);
+        } else {
+          const silence = getSharedAudioContext()?.createMediaStreamDestination().stream;
+          if (!silence) throw new ShareStartError(t("useRoomMedia.phoneMicOfflineTitle"));
+          if (askPhoneMicRef.current) awaitPhoneMicRef.current();
+          trackFeatureEvent(PHONE_CAMERA_EVENTS.micOffline);
+          setPhoneMicOffline(true);
+          rawOverride = silence;
+        }
+      } else {
+        setPhoneMicOffline(false);
+      }
+      let built: MicNoiseGraph | null = null;
       const { stream, graph, inputs } = await captureNoiseSuppressedMic(
         noiseSuppressionOnRef.current,
         () => {
+          const ownInputDied = built !== null && micGraphRef.current === built;
           micGraphRef.current = null;
+          // The phone's audio ending is the phone going away, not the mic:
+          // it stays on, silent, waiting for the phone (see above). Only when
+          // the input died — a stop of ours is just a stop.
+          if (fromPhone) {
+            if (ownInputDied) restartPhoneMicRef.current(false);
+            return;
+          }
           // Reached only when the graph tore itself down rather than being
           // stopped by us — i.e. the raw capture ended underneath it. Turning
           // the channel off is what stops us broadcasting silence and what
@@ -4996,9 +5056,11 @@ export function useRoomMedia(room: string) {
         micDeviceIdRef.current,
         micGainRef.current,
         stereoMicRef.current,
-        extras
+        extras,
+        rawOverride
       );
       if (extras.length) trackTileExperiment(TILE_EXPERIMENT_EVENTS.multiMic.start, inputs);
+      built = graph;
       micGraphRef.current = graph;
       setNoiseSuppressionAvailable(graphSuppressionAvailable(graph));
       setMicGainAvailable(graph !== null);
@@ -5024,6 +5086,94 @@ export function useRoomMedia(room: string) {
   useEffect(() => {
     micStopRef.current = micStop;
   }, [micStop]);
+
+  // "Celular como microfone": the mic follows the phone like the camera
+  // does — onto its audio when it comes in, back to silence (still on) when
+  // it goes, and moved when the source changes. Only ever restarts a mic
+  // that is on: whether the mic is on stays the person's own choice.
+  const micRef = useRef(mic);
+  useEffect(() => {
+    micRef.current = mic;
+  });
+  const micRestartPendingRef = useRef(false);
+  useEffect(() => {
+    restartPhoneMicRef.current = (ask) => {
+      if (micRestartPendingRef.current) return;
+      micRestartPendingRef.current = true;
+      setTimeout(() => {
+        micRestartPendingRef.current = false;
+        const m = micRef.current;
+        if (!m.active) return;
+        askPhoneMicRef.current = ask;
+        m.stop();
+        void Promise.resolve(m.start()).finally(() => {
+          askPhoneMicRef.current = true;
+        });
+      }, 0);
+    };
+    awaitPhoneMicRef.current = () => {
+      acquirePhoneCamera("mic").then(
+        () => {
+          // Still standing in with silence: the phone's audio takes over.
+          if (micRef.current.active && micFromPhoneRef.current && !phoneMicLiveInMicRef.current) {
+            restartPhoneMicRef.current(true);
+          }
+        },
+        // Not there in time, refused, or called off: the silence stays, and
+        // the phone opening its page later still brings it in ("arrived").
+        () => {}
+      );
+    };
+  });
+  useEffect(() => {
+    phoneMicLiveInMicRef.current = mic.active && micFromPhoneRef.current && !phoneMicOffline;
+  });
+  useEffect(
+    () =>
+      onPhoneCameraEvent((event) => {
+        const m = micRef.current;
+        if (!m.active || !micFromPhoneRef.current) return;
+        if (event === "ended") {
+          restartPhoneMicRef.current(false);
+          return;
+        }
+        const phone = getPhoneCameraState();
+        if (phone.session && phone.micSource === (phone.session.deviceId ?? "once") && !phoneMicLiveInMicRef.current) {
+          restartPhoneMicRef.current(true);
+        }
+      }),
+    []
+  );
+  // Another source picked for the mic (a phone, or back to this computer's):
+  // a mic that is on restarts on it; the phone it no longer uses is let go.
+  const phoneMicSource = usePhoneCamera().micSource;
+  const lastPhoneMicSource = useRef(phoneMicSource);
+  useEffect(() => {
+    if (lastPhoneMicSource.current === phoneMicSource) return;
+    lastPhoneMicSource.current = phoneMicSource;
+    if (micRef.current.active) restartPhoneMicRef.current(true);
+    else releaseUnchosenPhoneCamera();
+  }, [phoneMicSource]);
+  // The relay was not up when the silence went on: ask now that it is.
+  const phoneRelayConnected = usePhoneCamera().connected;
+  useEffect(() => {
+    if (!phoneRelayConnected || !micRef.current.active || !micFromPhoneRef.current) return;
+    if (phoneMicLiveInMicRef.current || getPhoneCameraState().session) return;
+    awaitPhoneMicRef.current();
+  }, [phoneRelayConnected]);
+  // A mic that went off lets go of the phone a moment later, unless the
+  // camera is still using it (a restart keeps it).
+  useEffect(() => {
+    if (mic.active) return;
+    const timer = setTimeout(() => {
+      if (micRef.current.active) return;
+      micFromPhoneRef.current = false;
+      setPhoneMicOffline(false);
+      setPhoneMicInUse(false);
+      releasePhoneIfIdle();
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [mic.active]);
 
   // Leaving the page mid-call is the same release, for the same reasons — and
   // covers a graph built by a capture whose start never completed.
@@ -5094,6 +5244,13 @@ export function useRoomMedia(room: string) {
   // a brief drop beats silently continuing to broadcast the old device.
   const setMicDevice = useCallback(
     (deviceId: string | null) => {
+      // Picking one of this computer's mics is also leaving the phone. Marked
+      // as already seen, so the source's own effect does not restart the mic
+      // a second time on top of the restart below.
+      if (getPhoneCameraState().micSource) {
+        lastPhoneMicSource.current = null;
+        setPhoneMicSource(null);
+      }
       micDeviceIdRef.current = deviceId;
       setMicDeviceIdState(deviceId);
       setStoredMicDeviceId(deviceId);
@@ -5214,6 +5371,9 @@ export function useRoomMedia(room: string) {
     isSharing: screen.active || camera.active,
     // The camera that is on is a phone's (see lib/phoneCamera).
     cameraFromPhone: camera.active && cameraFromPhone,
+    // The mic is on and should be the phone's, which is not there: it is
+    // sending silence (see the mic's capture) — the room says why.
+    phoneMicOffline: mic.active && phoneMicOffline,
     startShare: screen.start,
     stopShare: screen.stop,
     localStream: screen.localStream,
