@@ -404,7 +404,8 @@ function dist(a, b) {
 // The handful of points the overlays hang off, in output pixels. Indices are
 // MediaPipe's face mesh: 10 top of the forehead, 152 chin, 234/454 the sides
 // of the face, 33/133 and 263/362 the corners of each eye, 1 the tip of the
-// nose, 13/14 the inside of the lips, 205/425 the cheeks.
+// nose, 13/14 the inside of the lips, 164/0 the philtrum and the top of the
+// upper lip, 205/425 the cheeks.
 function anchorsOf(landmarks, width, height) {
   const at = (index) => point(landmarks, index, width, height);
   const eyeLeft = mid(at(33), at(133));
@@ -417,7 +418,9 @@ function anchorsOf(landmarks, width, height) {
     size: dist(at(234), at(454)),
     top,
     nose: at(1),
+    lipTop: at(13),
     lipBottom: at(14),
+    philtrum: mid(at(164), at(0)),
     mouthOpen: faceH > 0 ? dist(at(13), at(14)) / faceH : 0,
     eyeLeft,
     eyeRight,
@@ -470,6 +473,15 @@ function drawFace(ctx, kind, face) {
   else if (kind === "glasses") drawGlasses(ctx, face);
   else if (kind === "clown") drawClown(ctx, face);
   else if (kind === "crown") drawCrown(ctx, face);
+  else if (kind === "bunny") drawBunny(ctx, face);
+  else if (kind === "bear") drawBear(ctx, face);
+  else if (kind === "pig") drawPig(ctx, face);
+  else if (kind === "mustache") drawMustache(ctx, face);
+  else if (kind === "hearts") drawHearts(ctx, face);
+  else if (kind === "devil") drawDevil(ctx, face);
+  else if (kind === "angel") drawAngel(ctx, face);
+  else if (kind === "pirate") drawPirate(ctx, face);
+  else if (kind === "party") drawPartyHat(ctx, face);
 }
 
 function drawDog(ctx, f) {
@@ -690,5 +702,282 @@ function drawCrown(ctx, f) {
       ctx.fillStyle = "#fff3c4";
       ctx.fill();
     }
+  });
+}
+
+function drawBunny(ctx, f) {
+  const s = f.size;
+  inFaceFrame(ctx, f.top, f.angle, () => {
+    for (const side of [-1, 1]) {
+      ctx.save();
+      ctx.translate(side * 0.16 * s, -0.06 * s);
+      ctx.rotate(side * 0.18);
+      ctx.beginPath();
+      ctx.ellipse(0, -0.32 * s, 0.1 * s, 0.32 * s, 0, 0, Math.PI * 2);
+      ctx.fillStyle = "#f7f7f7";
+      ctx.fill();
+      ctx.lineWidth = 0.015 * s;
+      ctx.strokeStyle = "#cfcfcf";
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.ellipse(0, -0.3 * s, 0.05 * s, 0.24 * s, 0, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffb6c8";
+      ctx.fill();
+      ctx.restore();
+    }
+  });
+  // Buck teeth under the upper lip, once the mouth opens enough to show them.
+  if (f.mouthOpen > 0.04) {
+    inFaceFrame(ctx, f.lipTop, f.angle, () => {
+      const tw = 0.06 * s;
+      const th = Math.min(0.1 * s, 0.05 * s + f.mouthOpen * 0.5 * s);
+      ctx.fillStyle = "#ffffff";
+      ctx.strokeStyle = "#c8c8c8";
+      ctx.lineWidth = 0.008 * s;
+      for (const x of [-tw - 0.004 * s, 0.004 * s]) {
+        ctx.beginPath();
+        ctx.roundRect(x, -0.01 * s, tw, th, [0, 0, 0.015 * s, 0.015 * s]);
+        ctx.fill();
+        ctx.stroke();
+      }
+    });
+  }
+  inFaceFrame(ctx, f.nose, f.angle, () => {
+    ctx.beginPath();
+    ctx.moveTo(-0.045 * s, -0.035 * s);
+    ctx.lineTo(0.045 * s, -0.035 * s);
+    ctx.lineTo(0, 0.02 * s);
+    ctx.closePath();
+    ctx.lineJoin = "round";
+    ctx.lineWidth = 0.02 * s;
+    ctx.fillStyle = "#ff8fab";
+    ctx.strokeStyle = "#ff8fab";
+    ctx.fill();
+    ctx.stroke();
+  });
+}
+
+function drawBear(ctx, f) {
+  const s = f.size;
+  inFaceFrame(ctx, f.top, f.angle, () => {
+    for (const side of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(side * 0.4 * s, -0.04 * s, 0.15 * s, 0, Math.PI * 2);
+      ctx.fillStyle = "#7a4a26";
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(side * 0.4 * s, -0.04 * s, 0.08 * s, 0, Math.PI * 2);
+      ctx.fillStyle = "#c89a6c";
+      ctx.fill();
+    }
+  });
+  inFaceFrame(ctx, f.nose, f.angle, () => {
+    ctx.beginPath();
+    ctx.ellipse(0, 0.03 * s, 0.16 * s, 0.11 * s, 0, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(200, 154, 108, 0.92)";
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(0, -0.02 * s, 0.07 * s, 0.045 * s, 0, 0, Math.PI * 2);
+    ctx.fillStyle = "#1b1b1b";
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(0, 0.02 * s);
+    ctx.lineTo(0, 0.07 * s);
+    ctx.lineWidth = 0.012 * s;
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "#1b1b1b";
+    ctx.stroke();
+  });
+}
+
+function drawPig(ctx, f) {
+  const s = f.size;
+  inFaceFrame(ctx, f.top, f.angle, () => {
+    for (const side of [-1, 1]) {
+      ctx.save();
+      ctx.translate(side * 0.36 * s, -0.02 * s);
+      ctx.rotate(side * 0.6);
+      ctx.beginPath();
+      ctx.moveTo(-0.12 * s, 0);
+      ctx.quadraticCurveTo(0, -0.34 * s, 0.12 * s, 0);
+      ctx.closePath();
+      ctx.fillStyle = "#f7a1b5";
+      ctx.fill();
+      ctx.lineWidth = 0.015 * s;
+      ctx.strokeStyle = "#d9748d";
+      ctx.stroke();
+      ctx.restore();
+    }
+  });
+  inFaceFrame(ctx, f.nose, f.angle, () => {
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 0.13 * s, 0.09 * s, 0, 0, Math.PI * 2);
+    ctx.fillStyle = "#f7a1b5";
+    ctx.fill();
+    ctx.lineWidth = 0.015 * s;
+    ctx.strokeStyle = "#d9748d";
+    ctx.stroke();
+    ctx.fillStyle = "#a8475f";
+    for (const side of [-1, 1]) {
+      ctx.beginPath();
+      ctx.ellipse(side * 0.045 * s, 0, 0.022 * s, 0.035 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+}
+
+function drawMustache(ctx, f) {
+  const s = f.size;
+  inFaceFrame(ctx, f.philtrum, f.angle, () => {
+    ctx.fillStyle = "#3b2414";
+    for (const side of [-1, 1]) {
+      const x = (v) => side * v * s;
+      const y = (v) => v * s;
+      ctx.beginPath();
+      ctx.moveTo(0, y(-0.015));
+      ctx.bezierCurveTo(x(0.08), y(-0.07), x(0.2), y(-0.05), x(0.26), y(0));
+      // The curl at the tip.
+      ctx.bezierCurveTo(x(0.3), y(0.035), x(0.34), y(0), x(0.32), y(-0.04));
+      ctx.bezierCurveTo(x(0.31), y(0.03), x(0.24), y(0.06), x(0.17), y(0.04));
+      ctx.bezierCurveTo(x(0.1), y(0.03), x(0.04), y(0.045), 0, y(0.03));
+      ctx.closePath();
+      ctx.fill();
+    }
+  });
+}
+
+function heartPath(ctx, cx, cy, r) {
+  ctx.beginPath();
+  ctx.moveTo(cx, cy + r * 0.9);
+  ctx.bezierCurveTo(cx - r * 1.6, cy - r * 0.2, cx - r * 0.6, cy - r * 1.3, cx, cy - r * 0.45);
+  ctx.bezierCurveTo(cx + r * 0.6, cy - r * 1.3, cx + r * 1.6, cy - r * 0.2, cx, cy + r * 0.9);
+  ctx.closePath();
+}
+
+function drawHearts(ctx, f) {
+  const s = f.size;
+  const half = dist(f.eyeLeft, f.eyeRight) / 2;
+  // A slow beat, off the clock: the frame is drawn anyway.
+  const beat = 1 + 0.08 * Math.sin(performance.now() / 160);
+  inFaceFrame(ctx, f.eyeCenter, f.angle, () => {
+    const r = 0.12 * s * beat;
+    for (const side of [-1, 1]) {
+      const cx = side * half;
+      const gradient = ctx.createRadialGradient(cx - r * 0.3, -r * 0.4, r * 0.1, cx, 0, r * 1.2);
+      gradient.addColorStop(0, "#ff7a9a");
+      gradient.addColorStop(1, "#e0123f");
+      heartPath(ctx, cx, 0, r);
+      ctx.fillStyle = gradient;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(cx - r * 0.45, -r * 0.45, r * 0.18, r * 0.1, -0.6, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
+      ctx.fill();
+    }
+  });
+}
+
+function drawDevil(ctx, f) {
+  const s = f.size;
+  inFaceFrame(ctx, f.top, f.angle, () => {
+    for (const side of [-1, 1]) {
+      const x = (v) => side * v * s;
+      const gradient = ctx.createLinearGradient(0, 0, 0, -0.34 * s);
+      gradient.addColorStop(0, "#9e0b0b");
+      gradient.addColorStop(1, "#ff3b2f");
+      ctx.beginPath();
+      ctx.moveTo(x(0.13), 0);
+      ctx.quadraticCurveTo(x(0.16), -0.22 * s, x(0.34), -0.34 * s);
+      ctx.quadraticCurveTo(x(0.27), -0.14 * s, x(0.31), 0);
+      ctx.closePath();
+      ctx.fillStyle = gradient;
+      ctx.fill();
+      ctx.lineWidth = 0.012 * s;
+      ctx.lineJoin = "round";
+      ctx.strokeStyle = "#6e0606";
+      ctx.stroke();
+    }
+  });
+}
+
+function drawAngel(ctx, f) {
+  const s = f.size;
+  inFaceFrame(ctx, f.top, f.angle, () => {
+    // A wide faint stroke for the glow (shadowBlur would cost every frame),
+    // the ring, and a light line along it.
+    ctx.beginPath();
+    ctx.ellipse(0, -0.3 * s, 0.32 * s, 0.08 * s, 0, 0, Math.PI * 2);
+    ctx.lineWidth = 0.07 * s;
+    ctx.strokeStyle = "rgba(255, 230, 120, 0.35)";
+    ctx.stroke();
+    ctx.lineWidth = 0.04 * s;
+    ctx.strokeStyle = "#f5c518";
+    ctx.stroke();
+    ctx.lineWidth = 0.012 * s;
+    ctx.strokeStyle = "#fff6c8";
+    ctx.stroke();
+  });
+}
+
+function drawPirate(ctx, f) {
+  const s = f.size;
+  const half = dist(f.eyeLeft, f.eyeRight) / 2;
+  inFaceFrame(ctx, f.eyeCenter, f.angle, () => {
+    // The strap first, round the side and across the forehead; the patch over it.
+    ctx.beginPath();
+    ctx.moveTo(-0.55 * s, 0.02 * s);
+    ctx.lineTo(-half, 0);
+    ctx.lineTo(0.55 * s, -0.42 * s);
+    ctx.lineWidth = 0.022 * s;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "#151515";
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.ellipse(-half, 0.005 * s, 0.13 * s, 0.1 * s, 0, 0, Math.PI * 2);
+    ctx.fillStyle = "#111111";
+    ctx.fill();
+    ctx.lineWidth = 0.01 * s;
+    ctx.strokeStyle = "#3a3a3a";
+    ctx.stroke();
+  });
+}
+
+function drawPartyHat(ctx, f) {
+  const s = f.size;
+  inFaceFrame(ctx, f.top, f.angle, () => {
+    ctx.save();
+    ctx.translate(0.08 * s, -0.04 * s);
+    ctx.rotate(0.18);
+    const w = 0.42 * s;
+    const h = 0.55 * s;
+    ctx.beginPath();
+    ctx.moveTo(-w / 2, 0);
+    ctx.lineTo(0, -h);
+    ctx.lineTo(w / 2, 0);
+    ctx.closePath();
+    ctx.fillStyle = "#7c4dff";
+    ctx.fill();
+    ctx.save();
+    ctx.clip();
+    const stripes = ["#ffd54f", "#ff4f8b", "#4fc3f7"];
+    ctx.lineWidth = 0.04 * s;
+    for (let i = 0; i < 6; i += 1) {
+      const y = -h + (i + 0.5) * (h / 6);
+      ctx.beginPath();
+      ctx.moveTo(-w, y + 0.06 * s);
+      ctx.lineTo(w, y - 0.06 * s);
+      ctx.strokeStyle = stripes[i % stripes.length];
+      ctx.stroke();
+    }
+    ctx.restore();
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.arc(0, -h, 0.06 * s, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.roundRect(-w / 2 - 0.02 * s, -0.035 * s, w + 0.04 * s, 0.05 * s, 0.025 * s);
+    ctx.fill();
+    ctx.restore();
   });
 }

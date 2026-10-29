@@ -38,6 +38,15 @@ const LABELS: { [K in keyof CameraEffectSettings]: Record<CameraEffectSettings[K
     glasses: "watch.watchRoom.cameraEffectGlasses",
     clown: "watch.watchRoom.cameraEffectClown",
     crown: "watch.watchRoom.cameraEffectCrown",
+    bunny: "watch.watchRoom.cameraEffectBunny",
+    bear: "watch.watchRoom.cameraEffectBear",
+    pig: "watch.watchRoom.cameraEffectPig",
+    mustache: "watch.watchRoom.cameraEffectMustache",
+    hearts: "watch.watchRoom.cameraEffectHearts",
+    devil: "watch.watchRoom.cameraEffectDevil",
+    angel: "watch.watchRoom.cameraEffectAngel",
+    pirate: "watch.watchRoom.cameraEffectPirate",
+    party: "watch.watchRoom.cameraEffectParty",
   },
 };
 

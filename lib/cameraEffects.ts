@@ -4,7 +4,8 @@ import { useSyncExternalStore } from "react";
 import { trackTileExperiment, TILE_EXPERIMENT_EVENTS } from "./clipsMode";
 
 // "Efeitos de câmera" (experiment "camera-effects"): background blur, colour
-// filters and face overlays (dog, cat, sunglasses, clown, crown) drawn into
+// filters and face overlays (dog, cat, sunglasses, clown, crown, bunny, bear,
+// pig, mustache, heart eyes, devil, angel, pirate, party hat) drawn into
 // the camera before it is sent, so whoever watches needs nothing at all.
 //
 // The work is in public/workers/camera-effects.js. This side only wires the
@@ -23,7 +24,22 @@ import { trackTileExperiment, TILE_EXPERIMENT_EVENTS } from "./clipsMode";
 
 export type CameraBackground = "none" | "blur";
 export type CameraColor = "none" | "mono" | "sepia" | "vivid";
-export type CameraFace = "none" | "dog" | "cat" | "glasses" | "clown" | "crown";
+export type CameraFace =
+  | "none"
+  | "dog"
+  | "cat"
+  | "bunny"
+  | "bear"
+  | "pig"
+  | "glasses"
+  | "hearts"
+  | "pirate"
+  | "mustache"
+  | "clown"
+  | "crown"
+  | "devil"
+  | "angel"
+  | "party";
 
 export interface CameraEffectSettings {
   background: CameraBackground;
@@ -33,14 +49,30 @@ export interface CameraEffectSettings {
 
 export const CAMERA_BACKGROUNDS: CameraBackground[] = ["none", "blur"];
 export const CAMERA_COLORS: CameraColor[] = ["none", "mono", "sepia", "vivid"];
-export const CAMERA_FACES: CameraFace[] = ["none", "dog", "cat", "glasses", "clown", "crown"];
+export const CAMERA_FACES: CameraFace[] = [
+  "none",
+  "dog",
+  "cat",
+  "bunny",
+  "bear",
+  "pig",
+  "glasses",
+  "hearts",
+  "pirate",
+  "mustache",
+  "clown",
+  "crown",
+  "devil",
+  "angel",
+  "party",
+];
 
 export const CAMERA_EFFECTS_FEATURE = "camera-effects";
 
 // Versioned: public/ files are cached by Cloudflare for a month under their
 // plain URL, so a fixed worker kept being served as the old one. Bump this
 // whenever public/workers/camera-effects.js changes.
-const WORKER_VERSION = 2;
+const WORKER_VERSION = 3;
 const WORKER_URL = `/workers/camera-effects.js?v=${WORKER_VERSION}`;
 const SETTINGS_KEY = "sharescreen:cameraEffects";
 // How long the worker (and the models it loaded) outlives the last camera
