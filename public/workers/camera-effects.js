@@ -980,14 +980,18 @@ function drawDevil(ctx, f) {
   inFaceFrame(ctx, f.top, f.angle, () => {
     for (const side of [-1, 1]) {
       const x = (v) => side * v * s;
-      const gradient = ctx.createLinearGradient(0, 0, 0, -0.34 * s);
+      // Landmark 10 is the top of the forehead: the horns stand a little
+      // above it, in the hair, over each temple rather than meeting in the
+      // middle.
+      const y = (v) => -(v + 0.1) * s;
+      const gradient = ctx.createLinearGradient(0, y(0), 0, y(0.46));
       gradient.addColorStop(0, "#9e0b0b");
       gradient.addColorStop(1, "#ff3b2f");
       ctx.beginPath();
-      // Convex edge outside, tip curling in over the head.
-      ctx.moveTo(x(0.31), 0);
-      ctx.quadraticCurveTo(x(0.28), -0.22 * s, x(0.1), -0.34 * s);
-      ctx.quadraticCurveTo(x(0.17), -0.14 * s, x(0.13), 0);
+      // Upright, convex edge outside, the tip leaning only slightly inwards.
+      ctx.moveTo(x(0.37), y(0));
+      ctx.bezierCurveTo(x(0.4), y(0.2), x(0.35), y(0.38), x(0.25), y(0.46));
+      ctx.quadraticCurveTo(x(0.25), y(0.18), x(0.19), y(0));
       ctx.closePath();
       ctx.fillStyle = gradient;
       ctx.fill();
