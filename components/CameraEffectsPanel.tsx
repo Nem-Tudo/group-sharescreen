@@ -13,7 +13,9 @@ import {
   CAMERA_FACES_3D,
   CAMERA_REACTIONS,
   CUSTOM_BACKGROUND_TIER,
+  CUSTOM_BG_FREE_FEATURE,
   canUseCustomBackground,
+  planAllowsCustomBackground,
   setCameraEffect,
   setCustomCameraBackground,
   useCameraEffectSettings,
@@ -135,7 +137,11 @@ function EffectGroup<K extends keyof CameraEffectSettings>({
 function CustomBackgroundChips({ selected, turnOn }: { selected: boolean; turnOn?: () => void }) {
   const t = useT();
   const { account } = useAuth();
-  const allowed = canUseCustomBackground(account?.flags);
+  // Experiment "custom-bg-free" unlocks it below the plan. Only counted as an
+  // exposure for whoever it changes something for: the plan already has it.
+  const planAllows = planAllowsCustomBackground(account?.flags);
+  const free = useFeature(CUSTOM_BG_FREE_FEATURE, { track: !planAllows }).enabled;
+  const allowed = canUseCustomBackground(account?.flags, free);
   const image = useCustomCameraBackground();
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);

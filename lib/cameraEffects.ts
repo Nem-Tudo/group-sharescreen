@@ -147,8 +147,17 @@ export function effectiveCameraEffects(
 
 export const CUSTOM_BACKGROUND_TIER = "premium_max" as const;
 
-export function canUseCustomBackground(flags: readonly string[] | undefined | null): boolean {
+// Experiment "custom-bg-free": the custom background for anyone, whatever
+// the plan, to see whether it gets used (and whether locking it sells Pro Max).
+export const CUSTOM_BG_FREE_FEATURE = "custom-bg-free";
+
+/** The plan alone, without the experiment: what decides who it changes anything for. */
+export function planAllowsCustomBackground(flags: readonly string[] | undefined | null): boolean {
   return tierAtLeast(accountTierOf(flags), CUSTOM_BACKGROUND_TIER);
+}
+
+export function canUseCustomBackground(flags: readonly string[] | undefined | null, free: boolean): boolean {
+  return free || planAllowsCustomBackground(flags);
 }
 
 // A JPEG data URL in localStorage: shrunk to fit MAX_CUSTOM_BACKGROUND_SIDE so

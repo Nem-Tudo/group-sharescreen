@@ -148,6 +148,7 @@ import {
 } from "./phoneCamera";
 import {
   CAMERA_EFFECTS_3D_FEATURE,
+  CUSTOM_BG_FREE_FEATURE,
   canUseCustomBackground,
   cameraEffectsSupported,
   createCameraEffectsTrack,
@@ -4232,8 +4233,9 @@ export function useRoomMedia(room: string) {
   const storedCameraEffects = useCameraEffectSettings();
   // The custom background only on the plan for it, and only with an image.
   const customCameraBackground = useCustomCameraBackground();
+  const customBackgroundFree = useFeature(CUSTOM_BG_FREE_FEATURE, { track: false }).enabled;
   const allowCustomCameraBackground =
-    canUseCustomBackground(account?.flags) && customCameraBackground !== null;
+    canUseCustomBackground(account?.flags, customBackgroundFree) && customCameraBackground !== null;
   const cameraEffectSettings = useMemo(
     () => effectiveCameraEffects(storedCameraEffects, allowCameraEffects3d, allowCustomCameraBackground),
     [storedCameraEffects, allowCameraEffects3d, allowCustomCameraBackground]
