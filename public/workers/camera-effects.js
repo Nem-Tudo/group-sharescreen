@@ -27,6 +27,8 @@ const FACE_MODEL =
   "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 const SEGMENT_MODEL =
   "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite";
+const HAND_MODEL =
+  "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 
 // Detection runs on a copy this wide, not on the camera's own frame: both
 // models resize to 256px or less internally, so handing them 1080p only adds
@@ -53,6 +55,8 @@ let visionPromise = null;
 const tasks = {
   face: { task: null, loading: false, failed: false },
   segment: { task: null, loading: false, failed: false },
+  // Only for the reactions (claps, thumbs up).
+  hand: { task: null, loading: false, failed: false },
 };
 const pipelines = new Map();
 let lastTimestamp = 0;
@@ -105,6 +109,13 @@ async function createTask(kind) {
           outputFaceBlendshapes: true,
           outputFacialTransformationMatrixes: false,
         })
+      : kind === "hand"
+      ? vision.HandLandmarker.createFromOptions(fileset, {
+          baseOptions: { modelAssetPath: HAND_MODEL, delegate },
+          canvas: new OffscreenCanvas(1, 1),
+          runningMode: "VIDEO",
+          numHands: 2,
+        })
       : vision.ImageSegmenter.createFromOptions(fileset, {
           baseOptions: { modelAssetPath: SEGMENT_MODEL, delegate },
           canvas: new OffscreenCanvas(1, 1),
@@ -123,7 +134,9 @@ async function createTask(kind) {
 
 function wants(kind) {
   if (!settings) return false;
-  return kind === "face" ? settings.face !== "none" : settings.background !== "none";
+  if (kind === "face") return settings.face !== "none" || settings.reactions === "on";
+  if (kind === "hand") return settings.reactions === "on";
+  return settings.background !== "none";
 }
 
 function wants3d() {
@@ -132,7 +145,7 @@ function wants3d() {
 
 function ensureTasks() {
   if (wants3d()) ensureThree();
-  for (const kind of ["face", "segment"]) {
+  for (const kind of ["face", "segment", "hand"]) {
     const slot = tasks[kind];
     if (!wants(kind) || slot.task || slot.loading || slot.failed) continue;
     slot.loading = true;
@@ -157,7 +170,7 @@ function ensureTasks() {
 
 function postStatus() {
   const loading =
-    ["face", "segment"].some((kind) => wants(kind) && tasks[kind].loading) || (wants3d() && three.loading);
+    ["face", "segment", "hand"].some((kind) => wants(kind) && tasks[kind].loading) || (wants3d() && three.loading);
   self.postMessage({ type: "status", loading });
 }
 
@@ -189,6 +202,9 @@ function startPipeline(id, readable, writable) {
     faces: [],
     particles: [],
     reactions: [],
+    hands: [],
+    handTick: 0,
+    handState: { thumbFrames: 0, lastThumb: 0, lastClap: 0, apartAt: 0, pair: null },
     render3dFailed: false,
     missed: 0,
     frameIndex: 0,
@@ -212,7 +228,11 @@ function startPipeline(id, readable, writable) {
 
 function needsDrawing() {
   return Boolean(
-    settings && (settings.face !== "none" || settings.background !== "none" || settings.color !== "none")
+    settings &&
+      (settings.face !== "none" ||
+        settings.background !== "none" ||
+        settings.color !== "none" ||
+        settings.reactions === "on")
   );
 }
 
@@ -266,7 +286,7 @@ function reportStats(pipeline) {
       frameMs: pipeline.statsMs / pipeline.statsFrames,
       detectMs: pipeline.detectCost,
       detectEvery: pipeline.detectEvery,
-      fx3d: Boolean(settings && (FACES_3D.has(settings.face) || settings.face === "reactions")),
+      fx3d: Boolean(settings && (FACES_3D.has(settings.face) || settings.reactions === "on")),
     });
   }
   pipeline.statsSince = now;
@@ -310,9 +330,13 @@ function render(p, frame) {
   p.lastFrameTs = ts;
 
   const segmenter = s.background !== "none" ? tasks.segment.task : null;
-  const landmarker = s.face !== "none" ? tasks.face.task : null;
+  const reacting = s.reactions === "on";
+  const landmarker = s.face !== "none" || reacting ? tasks.face.task : null;
+  // Hands every other detection: a clap or a thumb is slower than a blink.
+  const hander = reacting ? tasks.hand.task : null;
   if (!segmenter) p.hasMask = false;
   if (!landmarker) p.faces = [];
+  if (!hander) p.hands = [];
 
   p.frameIndex += 1;
   if ((segmenter || landmarker) && p.frameIndex % p.detectEvery === 0) {
@@ -321,6 +345,10 @@ function render(p, frame) {
     const timestamp = nextTimestamp();
     if (segmenter) segment(p, segmenter, timestamp);
     if (landmarker) detectFaces(p, landmarker, timestamp, width, height);
+    if (hander) {
+      p.handTick = (p.handTick + 1) % 2;
+      if (p.handTick === 0) detectHands(p, hander, nextTimestamp(), width, height);
+    }
     p.detectCost = p.detectCost ? p.detectCost * 0.8 + (performance.now() - started) * 0.2 : performance.now() - started;
     adaptDetection(p);
   }
@@ -335,8 +363,9 @@ function render(p, frame) {
   }
   if (landmarker) for (const face of p.faces) drawFace(ctx, s.face, face);
   if (landmarker && FACES_3D.has(s.face)) draw3d(ctx, p, s.face, width, height);
-  if (s.face === "reactions") {
+  if (reacting) {
     if (landmarker) p.faces.forEach((face, i) => spawnReactions(p, face, i, ts));
+    if (hander) handReactions(p, ts);
     drawParticles(ctx, p, dt);
   } else if (p.particles.length > 0) {
     p.particles = [];
@@ -439,15 +468,19 @@ function mid3(a, b) {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 };
 }
 
-// The three expressions the reactions read, 0 to 1.
+// The expressions the reactions read, 0 to 1.
 function expressionsOf(blendshapes) {
   const score = {};
   for (const c of (blendshapes && blendshapes.categories) || []) score[c.categoryName] = c.score;
   const get = (name) => score[name] || 0;
   return {
-    blink: Math.min(get("eyeBlinkLeft"), get("eyeBlinkRight")),
+    blinkL: get("eyeBlinkLeft"),
+    blinkR: get("eyeBlinkRight"),
     smile: (get("mouthSmileLeft") + get("mouthSmileRight")) / 2,
     brow: get("browInnerUp"),
+    pucker: get("mouthPucker"),
+    jaw: get("jawOpen"),
+    puff: get("cheekPuff"),
   };
 }
 function dist(a, b) {
@@ -1049,83 +1082,53 @@ function drawPartyHat(ctx, f) {
 }
 
 // ---------------------------------------------------------------------------
-// Reactions (experiment "camera-effects-3d"): the face's expressions, read
-// from MediaPipe's blendshapes, set off particles drawn in 2D — a blink
-// throws sparkles, a smile lets hearts float up, raised brows pop a "!".
+// Reactions (experiment "camera-effects-3d", the "Reações" switch): what the
+// face, the head and the hands do sets off particles drawn in 2D, over
+// whatever mask is on.
+//
+//   face (MediaPipe's blendshapes): blink → sparkles, wink → a star, smile →
+//   hearts, raised brows → "!", kiss → hearts from the lips, mouth wide open
+//   → 😮, puffed cheeks → bubbles
+//   head (its pose, from the 3D points): nod → ✅, shake → ❌, face raised →
+//   confetti
+//   hands (MediaPipe's hand landmarker, loaded only with the switch on):
+//   clap → 👏 and confetti, thumbs up → 👍
+//
+// No tongue: MediaPipe's tongueOut blendshape was never trained and stays at 0.
 
-const MAX_PARTICLES = 90;
-let reportedReaction = false;
+const MAX_PARTICLES = 160;
+const EMOJI_FONT = '"Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
+const CONFETTI_COLORS = ["#ff4f8b", "#ffd54f", "#4fc3f7", "#7c4dff", "#4cd964", "#ff8a3d"];
+const reportedReactions = new Set();
 
-function reactionState(p, index) {
-  if (!p.reactions[index]) p.reactions[index] = { blinking: false, browUp: false, lastHeart: 0 };
-  return p.reactions[index];
+// Once per kind of reaction per worker, for the usage stats.
+function report(name) {
+  if (reportedReactions.has(name)) return;
+  reportedReactions.add(name);
+  self.postMessage({ type: "reaction", name });
 }
 
-function spawnReactions(p, face, index, now) {
-  const raw = face.raw;
-  if (!raw) return;
-  const state = reactionState(p, index);
-  const s = face.size;
-  let fired = false;
-  // Both eyes, so a wink or a squint against the light does not count.
-  const blinking = raw.blink > 0.5;
-  if (blinking && !state.blinking) {
-    for (const eye of [face.eyeLeft, face.eyeRight]) {
-      for (let i = 0; i < 5; i += 1) {
-        const a = Math.random() * Math.PI * 2;
-        const speed = (0.4 + Math.random() * 0.5) * s;
-        addParticle(p, {
-          kind: "sparkle",
-          x: eye.x,
-          y: eye.y,
-          vx: Math.cos(a) * speed,
-          vy: Math.sin(a) * speed - 0.2 * s,
-          size: (0.06 + Math.random() * 0.05) * s,
-          life: 0.7,
-          hue: Math.random() < 0.5 ? "#fff3a1" : "#ffffff",
-        });
-      }
-    }
-    fired = true;
-  }
-  state.blinking = blinking;
+function rnd(a, b) {
+  return a + Math.random() * (b - a);
+}
 
-  if (raw.smile > 0.55 && now - state.lastHeart > 160) {
-    state.lastHeart = now;
-    const cheek = Math.random() < 0.5 ? face.cheekLeft : face.cheekRight;
-    addParticle(p, {
-      kind: "heart",
-      x: cheek.x + (Math.random() - 0.5) * 0.1 * s,
-      y: cheek.y,
-      vx: (Math.random() - 0.5) * 0.15 * s,
-      vy: -(0.35 + Math.random() * 0.25) * s,
-      size: (0.05 + Math.random() * 0.03) * s,
-      life: 1.4,
-      hue: Math.random() < 0.3 ? "#ff8fb3" : "#ff2d55",
-    });
-    fired = true;
+function reactionState(p, index) {
+  if (!p.reactions[index]) {
+    p.reactions[index] = {
+      blinking: false,
+      winking: false,
+      browUp: false,
+      wow: false,
+      headUp: false,
+      lastHeart: 0,
+      lastKiss: 0,
+      lastBubble: 0,
+      lastHead: 0,
+      basePitch: null,
+      pose: [],
+    };
   }
-
-  const browUp = raw.brow > 0.55;
-  if (browUp && !state.browUp) {
-    addParticle(p, {
-      kind: "bang",
-      x: face.top.x + 0.28 * s,
-      y: face.top.y - 0.05 * s,
-      vx: 0.1 * s,
-      vy: -0.35 * s,
-      size: 0.16 * s,
-      life: 0.9,
-      hue: "#ffd400",
-    });
-    fired = true;
-  }
-  state.browUp = browUp;
-
-  if (fired && !reportedReaction) {
-    reportedReaction = true;
-    self.postMessage({ type: "reaction" });
-  }
+  return p.reactions[index];
 }
 
 function addParticle(p, particle) {
@@ -1134,7 +1137,311 @@ function addParticle(p, particle) {
   p.particles.push(particle);
 }
 
-// Moves and draws every particle, `dt` seconds on.
+function emoji(p, char, x, y, size, opts = {}) {
+  addParticle(p, { kind: "emoji", char, x, y, vx: opts.vx || 0, vy: opts.vy ?? -0.25 * size, size, life: opts.life || 1.2 });
+}
+
+function confetti(p, x, y, spread, count, size, opts = {}) {
+  for (let i = 0; i < count; i += 1) {
+    const a = opts.down ? rnd(0.3, Math.PI - 0.3) : rnd(-Math.PI, 0);
+    const speed = rnd(0.4, 1) * spread;
+    addParticle(p, {
+      kind: "confetti",
+      x: x + (opts.down ? rnd(-1, 1) * spread : 0),
+      y,
+      vx: Math.cos(a) * speed * (opts.down ? 0.3 : 1),
+      vy: opts.down ? rnd(0.2, 0.5) * spread : Math.sin(a) * speed,
+      gravity: spread * 1.2,
+      size: rnd(0.6, 1) * size,
+      rot: rnd(0, Math.PI),
+      spin: rnd(-8, 8),
+      life: opts.down ? 2.2 : 1.4,
+      hue: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
+    });
+  }
+}
+
+// The head's turn (yaw) and tilt up (pitch), in radians, from the same 3D
+// points as the objects' basis.
+function headAngles(face) {
+  const v = (q) => [q.x, -q.y, -q.z];
+  const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  const norm = (a) => {
+    const l = Math.hypot(a[0], a[1], a[2]) || 1;
+    return [a[0] / l, a[1] / l, a[2] / l];
+  };
+  const x = norm(sub(v(face.eye3Right), v(face.eye3Left)));
+  const up = sub(v(face.top3), v(face.chin3));
+  const d = up[0] * x[0] + up[1] * x[1] + up[2] * x[2];
+  const y = norm([up[0] - x[0] * d, up[1] - x[1] * d, up[2] - x[2] * d]);
+  const z = [x[1] * y[2] - x[2] * y[1], x[2] * y[0] - x[0] * y[2], x[0] * y[1] - x[1] * y[0]];
+  return { yaw: Math.atan2(z[0], z[2]), pitch: Math.atan2(z[1], z[2]) };
+}
+
+// How many times `key` turned back by more than `hysteresis` radians.
+function swings(history, key, hysteresis) {
+  let count = 0;
+  let dir = 0;
+  let extreme = history.length ? history[0][key] : 0;
+  for (const h of history) {
+    const value = h[key];
+    if (dir >= 0 && value < extreme - hysteresis) {
+      if (dir > 0) count += 1;
+      dir = -1;
+      extreme = value;
+    } else if (dir <= 0 && value > extreme + hysteresis) {
+      if (dir < 0) count += 1;
+      dir = 1;
+      extreme = value;
+    } else if ((dir > 0 && value > extreme) || (dir < 0 && value < extreme)) {
+      extreme = value;
+    }
+  }
+  return count;
+}
+
+function range(history, key) {
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const h of history) {
+    lo = Math.min(lo, h[key]);
+    hi = Math.max(hi, h[key]);
+  }
+  return hi - lo;
+}
+
+function spawnReactions(p, face, index, now) {
+  const raw = face.raw;
+  const st = reactionState(p, index);
+  const s = face.size;
+  const mouth = mid(face.lipTop, face.lipBottom);
+
+  if (raw) {
+    // Both eyes, so a wink or a squint against the light does not count.
+    const blinking = raw.blinkL > 0.5 && raw.blinkR > 0.5;
+    if (blinking && !st.blinking) {
+      for (const eye of [face.eyeLeft, face.eyeRight]) {
+        for (let i = 0; i < 5; i += 1) {
+          const a = rnd(0, Math.PI * 2);
+          const speed = rnd(0.4, 0.9) * s;
+          addParticle(p, {
+            kind: "sparkle",
+            x: eye.x,
+            y: eye.y,
+            vx: Math.cos(a) * speed,
+            vy: Math.sin(a) * speed - 0.2 * s,
+            gravity: 0.6 * s,
+            size: rnd(0.06, 0.11) * s,
+            life: 0.7,
+            hue: Math.random() < 0.5 ? "#fff3a1" : "#ffffff",
+          });
+        }
+      }
+      report("blink");
+    }
+    st.blinking = blinking;
+
+    // One eye shut and the other open: a blink's two eyes never part this far.
+    const winking = (raw.blinkL > 0.6 && raw.blinkR < 0.25) || (raw.blinkR > 0.6 && raw.blinkL < 0.25);
+    if (winking && !st.winking) {
+      addParticle(p, {
+        kind: "star",
+        x: face.eyeCenter.x,
+        y: face.eyeCenter.y - 0.25 * s,
+        vx: rnd(-0.1, 0.1) * s,
+        vy: -0.35 * s,
+        size: 0.15 * s,
+        rot: 0,
+        spin: rnd(-3, 3),
+        life: 1.1,
+        hue: "#ffd400",
+      });
+      report("wink");
+    }
+    st.winking = winking;
+
+    if (raw.smile > 0.55 && now - st.lastHeart > 160) {
+      st.lastHeart = now;
+      const cheek = Math.random() < 0.5 ? face.cheekLeft : face.cheekRight;
+      addParticle(p, {
+        kind: "heart",
+        x: cheek.x + rnd(-0.05, 0.05) * s,
+        y: cheek.y,
+        vx: rnd(-0.08, 0.08) * s,
+        vy: -rnd(0.35, 0.6) * s,
+        size: rnd(0.05, 0.08) * s,
+        life: 1.4,
+        hue: Math.random() < 0.3 ? "#ff8fb3" : "#ff2d55",
+      });
+      report("smile");
+    }
+
+    const browUp = raw.brow > 0.55;
+    if (browUp && !st.browUp) {
+      addParticle(p, {
+        kind: "bang",
+        x: face.top.x + 0.28 * s,
+        y: face.top.y - 0.05 * s,
+        vx: 0.1 * s,
+        vy: -0.35 * s,
+        size: 0.16 * s,
+        life: 0.9,
+        hue: "#ffd400",
+      });
+      report("brow");
+    }
+    st.browUp = browUp;
+
+    // Lips pushed out, mouth shut: hearts off the lips, growing as they go.
+    if (raw.pucker > 0.55 && raw.jaw < 0.3 && raw.smile < 0.3 && now - st.lastKiss > 220) {
+      st.lastKiss = now;
+      const a = rnd(-Math.PI * 0.9, -Math.PI * 0.1);
+      addParticle(p, {
+        kind: "heart",
+        x: mouth.x,
+        y: mouth.y,
+        vx: Math.cos(a) * 0.45 * s,
+        vy: Math.sin(a) * 0.45 * s,
+        size: 0.05 * s,
+        grow: 2.2,
+        life: 1.2,
+        hue: "#e0123f",
+      });
+      report("kiss");
+    }
+
+    const wow = raw.jaw > 0.5 && raw.smile < 0.3;
+    if (wow && !st.wow) {
+      emoji(p, "😮", face.top.x - 0.45 * s, face.top.y + 0.1 * s, 0.3 * s, { vx: -0.1 * s });
+      report("wow");
+    }
+    st.wow = wow;
+
+    if (raw.puff > 0.45 && now - st.lastBubble > 140) {
+      st.lastBubble = now;
+      addParticle(p, {
+        kind: "bubble",
+        x: mouth.x + rnd(-0.15, 0.15) * s,
+        y: mouth.y,
+        vx: rnd(-0.1, 0.1) * s,
+        vy: -rnd(0.3, 0.55) * s,
+        size: rnd(0.03, 0.07) * s,
+        grow: 0.8,
+        life: 1.6,
+        hue: "rgba(180, 230, 255, 0.9)",
+      });
+      report("puff");
+    }
+  }
+
+  if (!face.eye3Left) return;
+  const { yaw, pitch } = headAngles(face);
+  // Neutral is wherever this head usually is (a webcam above the screen sees
+  // a face tipped down a little), followed slowly.
+  st.basePitch = st.basePitch === null ? pitch : st.basePitch + (pitch - st.basePitch) * 0.01;
+  st.pose.push({ t: now, yaw, pitch });
+  while (st.pose.length > 0 && now - st.pose[0].t > 1400) st.pose.shift();
+  if (now - st.lastHead > 1500 && st.pose.length > 6) {
+    const above = { x: face.top.x, y: face.top.y - 0.35 * s };
+    if (swings(st.pose, "pitch", 0.1) >= 2 && range(st.pose, "yaw") < range(st.pose, "pitch")) {
+      emoji(p, "✅", above.x, above.y, 0.35 * s);
+      st.lastHead = now;
+      st.pose = [];
+      report("nod");
+    } else if (swings(st.pose, "yaw", 0.12) >= 2 && range(st.pose, "pitch") < range(st.pose, "yaw")) {
+      emoji(p, "❌", above.x, above.y, 0.35 * s);
+      st.lastHead = now;
+      st.pose = [];
+      report("shake");
+    }
+  }
+  const headUp = pitch - st.basePitch > 0.3;
+  if (headUp && !st.headUp && now - st.lastHead > 800) {
+    // From the top of the frame, or just above the head when that is lower.
+    confetti(p, face.top.x, Math.max(0, face.top.y - 1.2 * s), 1.2 * s, 40, 0.06 * s, { down: true });
+    report("headup");
+  }
+  st.headUp = headUp;
+}
+
+// ---------------------------------------------------------------------------
+// Hands, for the claps and the thumbs up. Indices are MediaPipe's hand
+// landmarks: 0 the wrist, 2/4 the base and tip of the thumb, 5/9/13/17 the
+// knuckles, 6/10/14/18 the middle joints and 8/12/16/20 the fingertips.
+
+function detectHands(p, task, timestamp, width, height) {
+  const result = task.detectForVideo(p.small, timestamp);
+  p.hands = (result.landmarks || []).map((landmarks) => landmarks.map((q) => ({ x: q.x * width, y: q.y * height })));
+}
+
+function palmOf(hand) {
+  let x = 0;
+  let y = 0;
+  for (const i of [0, 5, 9, 13, 17]) {
+    x += hand[i].x;
+    y += hand[i].y;
+  }
+  return { x: x / 5, y: y / 5 };
+}
+
+function handSize(hand) {
+  return dist(hand[0], hand[9]) || 1;
+}
+
+function thumbsUp(hand) {
+  const size = handSize(hand);
+  const folded = [[8, 6], [12, 10], [16, 14], [20, 18]].every(
+    ([tip, joint]) => dist(hand[tip], hand[0]) < dist(hand[joint], hand[0]) * 1.05
+  );
+  if (!folded) return false;
+  if (hand[4].y > hand[2].y - 0.5 * size) return false;
+  return hand.every((q, i) => i === 3 || i === 4 || q.y > hand[4].y);
+}
+
+function handReactions(p, now) {
+  const st = p.handState;
+  const hands = p.hands;
+
+  const thumb = hands.find(thumbsUp);
+  if (thumb) {
+    st.thumbFrames += 1;
+    // Held for two looks in a row, so a hand passing through the pose does not count.
+    if (st.thumbFrames === 2 && now - st.lastThumb > 1200) {
+      st.lastThumb = now;
+      const size = handSize(thumb);
+      emoji(p, "👍", thumb[4].x, thumb[4].y - 0.4 * size, 0.9 * size, { vy: -0.4 * size });
+      report("thumbs");
+    }
+  } else {
+    st.thumbFrames = 0;
+  }
+
+  const clap = (at, size) => {
+    st.lastClap = now;
+    st.apartAt = 0;
+    emoji(p, "👏", at.x, at.y - 0.5 * size, 0.9 * size, { vy: -0.5 * size, life: 0.9 });
+    confetti(p, at.x, at.y, 1.6 * size, 14, 0.12 * size);
+    report("clap");
+  };
+  if (hands.length === 2) {
+    const a = palmOf(hands[0]);
+    const b = palmOf(hands[1]);
+    const size = (handSize(hands[0]) + handSize(hands[1])) / 2;
+    const apart = dist(a, b) / size;
+    if (apart > 1.6) st.apartAt = now;
+    // Coming together from apart, quickly.
+    if (apart < 1.0 && now - st.apartAt < 700 && now - st.lastClap > 250) clap(mid(a, b), size);
+    st.pair = { at: mid(a, b), size, apart, t: now };
+  } else if (st.pair && now - st.pair.t < 250 && st.pair.apart < 1.5 && now - st.apartAt < 700 && now - st.lastClap > 250) {
+    // The two hands met and the detector saw one (or none): that was the clap.
+    clap(st.pair.at, st.pair.size);
+    st.pair = null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Particles: moved and drawn every frame, `dt` seconds on.
+
 function drawParticles(ctx, p, dt) {
   const alive = [];
   for (const q of p.particles) {
@@ -1142,24 +1449,54 @@ function drawParticles(ctx, p, dt) {
     if (q.age >= q.life) continue;
     q.x += q.vx * dt;
     q.y += q.vy * dt;
-    if (q.kind === "sparkle") q.vy += 0.6 * q.size * dt * 10;
+    if (q.gravity) q.vy += q.gravity * dt;
+    if (q.spin) q.rot += q.spin * dt;
     alive.push(q);
     const t = q.age / q.life;
+    const size = q.size * (1 + (q.grow || 0) * t);
     ctx.save();
-    ctx.globalAlpha = t < 0.15 ? t / 0.15 : 1 - Math.max(0, (t - 0.5) / 0.5);
-    ctx.fillStyle = q.hue;
+    ctx.globalAlpha = t < 0.12 ? t / 0.12 : 1 - Math.max(0, (t - 0.55) / 0.45);
+    ctx.fillStyle = q.hue || "#ffffff";
     if (q.kind === "sparkle") {
-      sparklePath(ctx, q.x, q.y, q.size * (1 - t * 0.5));
+      sparklePath(ctx, q.x, q.y, size * (1 - t * 0.5));
       ctx.fill();
     } else if (q.kind === "heart") {
-      heartPath(ctx, q.x + Math.sin(q.age * 6) * q.size * 0.4, q.y, q.size);
+      heartPath(ctx, q.x + Math.sin(q.age * 6) * size * 0.4, q.y, size);
       ctx.fill();
-    } else {
-      const pop = t < 0.2 ? 0.6 + t * 2 : 1;
-      ctx.font = `900 ${Math.round(q.size * pop)}px sans-serif`;
+    } else if (q.kind === "star") {
+      ctx.translate(q.x, q.y);
+      ctx.rotate(q.rot);
+      starPath(ctx, size);
+      ctx.fill();
+      ctx.lineWidth = size * 0.08;
+      ctx.strokeStyle = "#b8860b";
+      ctx.stroke();
+    } else if (q.kind === "confetti") {
+      ctx.translate(q.x, q.y);
+      ctx.rotate(q.rot);
+      ctx.fillRect(-size / 2, -size / 4, size, size / 2);
+    } else if (q.kind === "bubble") {
+      ctx.beginPath();
+      ctx.arc(q.x + Math.sin(q.age * 5) * size * 0.3, q.y, size, 0, Math.PI * 2);
+      ctx.lineWidth = Math.max(1, size * 0.12);
+      ctx.strokeStyle = q.hue;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(q.x - size * 0.35, q.y - size * 0.35, size * 0.18, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+      ctx.fill();
+    } else if (q.kind === "emoji") {
+      const pop = t < 0.15 ? 0.5 + (t / 0.15) * 0.6 : t < 0.25 ? 1.1 - ((t - 0.15) / 0.1) * 0.1 : 1;
+      ctx.font = `${Math.round(size * pop)}px ${EMOJI_FONT}`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.lineWidth = q.size * 0.12;
+      ctx.fillText(q.char, q.x, q.y);
+    } else {
+      const pop = t < 0.2 ? 0.6 + t * 2 : 1;
+      ctx.font = `900 ${Math.round(size * pop)}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.lineWidth = size * 0.12;
       ctx.strokeStyle = "#7a4b00";
       ctx.strokeText("!", q.x, q.y);
       ctx.fillText("!", q.x, q.y);
@@ -1176,6 +1513,16 @@ function sparklePath(ctx, x, y, r) {
   ctx.quadraticCurveTo(x, y, x, y + r);
   ctx.quadraticCurveTo(x, y, x - r, y);
   ctx.quadraticCurveTo(x, y, x, y - r);
+  ctx.closePath();
+}
+
+function starPath(ctx, r) {
+  ctx.beginPath();
+  for (let i = 0; i < 10; i += 1) {
+    const a = -Math.PI / 2 + (i * Math.PI) / 5;
+    const radius = i % 2 === 0 ? r : r * 0.45;
+    ctx.lineTo(Math.cos(a) * radius, Math.sin(a) * radius);
+  }
   ctx.closePath();
 }
 

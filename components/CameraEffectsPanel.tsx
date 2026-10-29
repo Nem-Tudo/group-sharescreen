@@ -11,6 +11,7 @@ import {
   CAMERA_EFFECTS_FEATURE,
   CAMERA_FACES,
   CAMERA_FACES_3D,
+  CAMERA_REACTIONS,
   CUSTOM_BACKGROUND_TIER,
   canUseCustomBackground,
   setCameraEffect,
@@ -68,10 +69,13 @@ const LABELS: { [K in keyof CameraEffectSettings]: Record<CameraEffectSettings[K
     angel: "watch.watchRoom.cameraEffectAngel",
     pirate: "watch.watchRoom.cameraEffectPirate",
     party: "watch.watchRoom.cameraEffectParty",
-    reactions: "watch.watchRoom.cameraEffectReactions",
     glasses3d: "watch.watchRoom.cameraEffectGlasses3d",
     tophat3d: "watch.watchRoom.cameraEffectTopHat3d",
     viking3d: "watch.watchRoom.cameraEffectViking3d",
+  },
+  reactions: {
+    none: "watch.watchRoom.cameraEffectReactionsOff",
+    on: "watch.watchRoom.cameraEffectReactionsOn",
   },
 };
 
@@ -226,8 +230,8 @@ export function CameraEffectsPanel({ on, standalone = false }: { on: boolean; st
   const t = useT();
   const settings = useCameraEffectSettings();
   const status = useCameraEffectsStatus();
-  // Experiment "camera-effects-3d": its own group of faces. An exposure is
-  // this panel being shown to someone in it.
+  // Experiment "camera-effects-3d": the 3D faces after the others, and the
+  // reactions. An exposure is this panel being shown to someone in it.
   const has3d = useFeature(CAMERA_EFFECTS_3D_FEATURE, { track: true }).enabled;
   const turnOn = standalone && !on ? () => setTileExperimentMode("cameraEffects", true) : undefined;
   return (
@@ -248,21 +252,21 @@ export function CameraEffectsPanel({ on, standalone = false }: { on: boolean; st
           <EffectGroup
             name="face"
             title={t("watch.watchRoom.cameraEffectFace")}
-            options={CAMERA_FACES}
+            options={has3d ? [...CAMERA_FACES, ...CAMERA_FACES_3D] : CAMERA_FACES}
             value={settings.face}
             turnOn={turnOn}
           />
           {has3d && (
             <div className="flex flex-col gap-1">
               <EffectGroup
-                name="face"
-                title={t("watch.watchRoom.cameraEffectFace3d")}
-                options={CAMERA_FACES_3D}
-                value={settings.face}
+                name="reactions"
+                title={t("watch.watchRoom.cameraEffectReactions")}
+                options={CAMERA_REACTIONS}
+                value={settings.reactions}
                 turnOn={turnOn}
               />
               <span className="text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">
-                {t("watch.watchRoom.cameraEffectFace3dHint")}
+                {t("watch.watchRoom.cameraEffectReactionsHint")}
               </span>
             </div>
           )}

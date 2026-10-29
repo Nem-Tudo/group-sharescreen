@@ -10,9 +10,11 @@ import { accountTierOf, tierAtLeast } from "./entitlements";
 // pig, mustache, heart eyes, devil, angel, pirate, party hat) drawn into
 // the camera before it is sent, so whoever watches needs nothing at all.
 // Experiment "camera-effects-3d" adds 3D objects that follow the head turning
-// (cinema 3D glasses, top hat, viking helmet) and reactions to expressions
-// (a blink throws sparkles, a smile hearts, raised brows a "!") — see
-// CAMERA_FACES_3D.
+// (cinema 3D glasses, top hat, viking helmet), in with the other faces, and
+// the reactions: a switch of their own, on top of any face, that turns what
+// the face, head and hands do into particles (a blink throws sparkles, a
+// smile hearts, a clap confetti...) — see CAMERA_FACES_3D and
+// CameraReactions.
 //
 // The work is in public/workers/camera-effects.js. This side only wires the
 // camera track to it:
@@ -57,16 +59,21 @@ export type CameraFace =
   | "devil"
   | "angel"
   | "party"
-  | "reactions"
   | "glasses3d"
   | "tophat3d"
   | "viking3d";
+
+// The reactions (experiment "camera-effects-3d"): on or off, beside the face.
+export type CameraReactions = "none" | "on";
 
 export interface CameraEffectSettings {
   background: CameraBackground;
   color: CameraColor;
   face: CameraFace;
+  reactions: CameraReactions;
 }
+
+export const CAMERA_REACTIONS: CameraReactions[] = ["none", "on"];
 
 // The ones offered as plain choices; "custom" has a control of its own.
 export const CAMERA_BACKGROUNDS: CameraBackground[] = [
@@ -98,15 +105,15 @@ export const CAMERA_FACES: CameraFace[] = [
   "party",
 ];
 
-// Only for whoever is in experiment "camera-effects-3d": offered in a group of
-// their own, and dropped back to no face effect for anyone outside it (see
-// effectiveCameraEffects) — a choice stored while in it must not keep
-// drawing once the experiment is gone.
-export const CAMERA_FACES_3D: CameraFace[] = ["reactions", "glasses3d", "tophat3d", "viking3d"];
+// Only for whoever is in experiment "camera-effects-3d" (these and the
+// reactions): offered after the other faces, and dropped back to nothing for
+// anyone outside it (see effectiveCameraEffects) — a choice stored while in it
+// must not keep drawing once the experiment is gone.
+export const CAMERA_FACES_3D: CameraFace[] = ["glasses3d", "tophat3d", "viking3d"];
 export const CAMERA_EFFECTS_3D_FEATURE = "camera-effects-3d";
 export const CAMERA_EFFECTS_3D_EVENTS = {
-  pick: "camera_fx3d_pick", // escolheu um dos efeitos 3D ou as reações
-  reaction: "camera_fx3d_reaction", // uma reação disparou (uma vez por sessão)
+  pick: "camera_fx3d_pick", // escolheu um dos efeitos 3D ou ligou as reações
+  reaction: "camera_fx3d_reaction", // uma reação disparou (uma vez por tipo de reação por sessão)
   error: "camera_fx3d_error", // o Three.js não carregou, ou o desenho 3D falhou
   slow: "camera_fx3d_slow", // value: ms por quadro com efeito 3D (uma vez por sessão, acima de 30)
 };
@@ -130,6 +137,7 @@ export function effectiveCameraEffects(
 ): CameraEffectSettings {
   let next = settings;
   if (!allow3d && CAMERA_FACES_3D.includes(next.face)) next = { ...next, face: "none" };
+  if (!allow3d && next.reactions !== "none") next = { ...next, reactions: "none" };
   if (!allowCustomBackground && next.background === "custom") next = { ...next, background: "none" };
   return next;
 }
@@ -241,7 +249,7 @@ export const CAMERA_EFFECTS_FEATURE = "camera-effects";
 // Versioned: public/ files are cached by Cloudflare for a month under their
 // plain URL, so a fixed worker kept being served as the old one. Bump this
 // whenever public/workers/camera-effects.js changes.
-const WORKER_VERSION = 5;
+const WORKER_VERSION = 6;
 const WORKER_URL = `/workers/camera-effects.js?v=${WORKER_VERSION}`;
 const SETTINGS_KEY = "sharescreen:cameraEffects";
 // How long the worker (and the models it loaded) outlives the last camera
@@ -251,10 +259,15 @@ const WORKER_IDLE_MS = 30_000;
 // Average time per drawn frame past which the session is reported as slow.
 const SLOW_FRAME_MS = 30;
 
-const NONE: CameraEffectSettings = { background: "none", color: "none", face: "none" };
+const NONE: CameraEffectSettings = { background: "none", color: "none", face: "none", reactions: "none" };
 
 export function hasAnyCameraEffect(settings: CameraEffectSettings): boolean {
-  return settings.background !== "none" || settings.color !== "none" || settings.face !== "none";
+  return (
+    settings.background !== "none" ||
+    settings.color !== "none" ||
+    settings.face !== "none" ||
+    settings.reactions !== "none"
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -287,7 +300,7 @@ function pick<T extends string>(value: unknown, options: T[]): T {
 let cached: CameraEffectSettings | null = null;
 function readSettings(): CameraEffectSettings {
   if (cached) return cached;
-  let parsed: Partial<CameraEffectSettings> = {};
+  let parsed: Partial<Record<keyof CameraEffectSettings, unknown>> = {};
   try {
     parsed = JSON.parse(window.localStorage.getItem(SETTINGS_KEY) ?? "{}") ?? {};
   } catch {
@@ -297,6 +310,8 @@ function readSettings(): CameraEffectSettings {
     background: pick(parsed.background, [...CAMERA_BACKGROUNDS, "custom"]),
     color: pick(parsed.color, CAMERA_COLORS),
     face: pick(parsed.face, [...CAMERA_FACES, ...CAMERA_FACES_3D]),
+    // The reactions were a face once: carried over to their own switch.
+    reactions: parsed.face === "reactions" && parsed.reactions === undefined ? "on" : pick(parsed.reactions, CAMERA_REACTIONS),
   };
   return cached;
 }
@@ -317,7 +332,12 @@ export function setCameraEffect<K extends keyof CameraEffectSettings>(
     // Storage refused — the choice just won't survive a reload.
   }
   if (value !== "none") trackTileExperiment(TILE_EXPERIMENT_EVENTS.cameraEffects.pick);
-  if (key === "face" && CAMERA_FACES_3D.includes(value as CameraFace)) track3d(CAMERA_EFFECTS_3D_EVENTS.pick);
+  if (
+    (key === "face" && CAMERA_FACES_3D.includes(value as CameraFace)) ||
+    (key === "reactions" && value === "on")
+  ) {
+    track3d(CAMERA_EFFECTS_3D_EVENTS.pick);
+  }
   emit();
 }
 
@@ -411,13 +431,19 @@ function ensureWorker(): Worker {
       | { type: "status"; loading: boolean }
       | { type: "error"; kind: string; reason: string }
       | { type: "stats"; frameMs: number; fx3d?: boolean }
-      | { type: "reaction" }
+      | { type: "reaction"; name: string }
       | { type: "ended"; id: number };
     if (data.type === "status") setStatus({ loading: data.loading });
     else if (data.type === "error") {
-      setStatus({ failed: true });
-      trackTileExperiment(TILE_EXPERIMENT_EVENTS.cameraEffects.error);
-      if (data.kind === "three" || data.kind === "render3d") track3d(CAMERA_EFFECTS_3D_EVENTS.error);
+      // The hands model only takes away the claps and the thumbs up; the
+      // rest keeps working, so the panel does not say it failed.
+      if (data.kind !== "hand") {
+        setStatus({ failed: true });
+        trackTileExperiment(TILE_EXPERIMENT_EVENTS.cameraEffects.error);
+      }
+      if (data.kind === "three" || data.kind === "render3d" || data.kind === "hand") {
+        track3d(CAMERA_EFFECTS_3D_EVENTS.error);
+      }
     } else if (data.type === "stats") {
       if (!reportedSlow && data.frameMs > SLOW_FRAME_MS) {
         reportedSlow = true;
