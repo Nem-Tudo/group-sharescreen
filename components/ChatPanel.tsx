@@ -31,7 +31,12 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { withDeviceSuffix } from "@/lib/displayName";
 import { Popover, Tooltip } from "@/components/Tooltip";
 import { NotificationBell } from "@/components/NotificationBell";
-import { MdClose, MdDeleteOutline, MdReply } from "react-icons/md";
+import { MdClose, MdContentCopy, MdDeleteOutline, MdPerson, MdReply, MdShield } from "react-icons/md";
+import { useMessageGestures, type MessageGestures } from "@/lib/messageGestures";
+import { SwipeReplyHint } from "@/components/SwipeReplyHint";
+import { MessageActionSheet, type MessageAction } from "@/components/MessageActionSheet";
+import { copyText } from "@/lib/clipboard";
+import { MOBILE_CHAT_EVENTS, trackMobileChatEvent } from "@/lib/mobileChat";
 import { LuPanelRightClose } from "react-icons/lu";
 import { ChatImageModal, type ChatImagePreviewState } from "@/components/ChatImageModal";
 import { AttachMenu, splitPicked } from "@/components/AttachMenu";
@@ -179,6 +184,22 @@ const TYPING_IDLE_MS = 3000;
 // conversation is itself worth showing.
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 
+// One message row with the phone's two gestures on it (lib/messageGestures).
+// A component of its own because the log is built in a loop, and a hook
+// cannot be called from one.
+function GestureRow({
+  onReply,
+  onMenu,
+  render,
+}: {
+  onReply?: () => void;
+  onMenu: () => void;
+  render: (gestures: MessageGestures) => ReactNode;
+}) {
+  const gestures = useMessageGestures({ onReply, onMenu });
+  return <>{render(gestures)}</>;
+}
+
 export function ChatPanel({
   messages,
   selfId,
@@ -206,7 +227,24 @@ export function ChatPanel({
   attachExtras,
   onDeleteMessage,
   protectedUserIds,
+  variant = "default",
+  pillComposer = false,
+  onSent,
 }: {
+  /**
+   * "mobile" is the room's phone sheet (experiment room-redesign): no card
+   * or header of its own (the sheet has them), no buttons on each message
+   * (drag to answer, hold for the actions), and a pill composer.
+   */
+  variant?: "default" | "mobile";
+  /**
+   * The composer as one box with everything inside it (attach, field, GIF,
+   * emoji, send), the way Discord and Slack draw theirs — the room redesign's
+   * desktop composer. The phone variant has its own pill either way.
+   */
+  pillComposer?: boolean;
+  /** Called whenever a message actually goes, for the caller's statistics. */
+  onSent?: () => void;
   /** A room manager deleting someone's message — absent for everyone else. */
   onDeleteMessage?: (message: ChatMessage) => void;
   /** Whose messages the delete button stays off (the owner; admins, unless we own the room). */
@@ -313,6 +351,16 @@ export function ChatPanel({
   onRequestAccount?: () => void;
 }) {
   const t = useT();
+  const mobile = variant === "mobile";
+  // The one-box composer on a desktop (see pillComposer).
+  const desk = pillComposer && !mobile;
+  // How tall the field may grow before it scrolls. The desktop box has the
+  // whole chat column above it, so it gets far more room than the 120px a
+  // shared sidebar or a phone sheet can spare — capped by the window, so a
+  // long draft never pushes the conversation off screen.
+  const composerMaxHeight = () => (desk ? Math.min(420, Math.round(window.innerHeight * 0.45)) : 120);
+  // The message whose actions are up after a long press (mobile only).
+  const [actionsFor, setActionsFor] = useState<ChatMessage | null>(null);
   const [input, setInput] = useState("");
   // Which message's author menu is open, by message id — one at a time, and
   // keyed on the message rather than the person so two messages from the same
@@ -390,6 +438,26 @@ export function ChatPanel({
 
   const listRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // The box's height is set from its scrollHeight on input (handleInput),
+  // which is only right for the width it had then. Dragging the chat column
+  // wider or narrower left a box grown for another width — a tall one with
+  // the text stranded at its top, or a short one with a scrollbar. Width
+  // only: a height change here is this very adjustment, and reacting to it
+  // would loop.
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let width = el.offsetWidth;
+    const observer = new ResizeObserver(() => {
+      if (el.offsetWidth === width) return;
+      width = el.offsetWidth;
+      el.style.height = "auto";
+      el.style.height = `${Math.min(el.scrollHeight, composerMaxHeight())}px`;
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- composerMaxHeight only reads `desk`
+  }, [desk]);
   // ":" for emoji, ":sob:" → 😭, and the picker beside "send" — see
   // useEmojiAutocomplete. A change it makes is not an input event, so the box
   // is grown here the way handleInput grows it for typing.
@@ -405,7 +473,7 @@ export function ChatPanel({
         const el = textareaRef.current;
         if (!el) return;
         el.style.height = "auto";
-        el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+        el.style.height = `${Math.min(el.scrollHeight, composerMaxHeight())}px`;
       });
     },
   });
@@ -740,12 +808,14 @@ export function ChatPanel({
     // as a socket message plus a separate upload.
     if (attachments.length > 0 || uploads.items.length > 0) {
       if (attachments.some((entry) => entry.pending)) return;
+      onSent?.();
       void sendWithAttachments();
       return;
     }
     if (!input.trim() || !onSend) return;
     const replyPayload = getReplyToPayload();
     onSend(emoji.convert(input), replyPayload);
+    onSent?.();
     clearComposer();
   }
 
@@ -820,7 +890,7 @@ export function ChatPanel({
   function handleInput(e: FormEvent<HTMLTextAreaElement>) {
     const el = e.currentTarget;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+    el.style.height = `${Math.min(el.scrollHeight, composerMaxHeight())}px`;
   }
 
   // Announces true on the first keystroke of a burst, then leaves the idle
@@ -1084,7 +1154,7 @@ export function ChatPanel({
             <MdDeleteOutline className="h-3.5 w-3.5" />
           </button>
         ) : null;
-      const row = (
+      const renderRow = (gestures?: MessageGestures) => (
         <div
           key={m.id}
           id={`chat-msg-${m.id}`}
@@ -1100,8 +1170,11 @@ export function ChatPanel({
                 }
               : undefined
           }
-          title={hasMenu ? t("common.rightClickToSeeTheActions") : undefined}
-          className={`group relative -mx-1.5 rounded-lg px-2 text-sm transition-colors duration-150 ${
+          title={hasMenu && !mobile ? t("common.rightClickToSeeTheActions") : undefined}
+          // Replaces the row's own onContextMenu with the long press.
+          {...gestures?.handlers}
+          style={gestures?.style}
+          className={`group relative -mx-1.5 rounded-lg px-2 ${mobile ? "text-[15px] leading-snug" : "text-sm"} transition-colors duration-150 ${
             grouped ? "pb-0.5" : "mt-2.5 pb-0.5 first:mt-0"
           } ${
             isHighlighted
@@ -1115,6 +1188,7 @@ export function ChatPanel({
               : ""
           }`}
         >
+          {gestures && <SwipeReplyHint pull={gestures.pull} progress={gestures.progress} armed={gestures.armed} />}
           {/* Quoted reply header (Discord style) */}
           {m.replyTo && (
             <div
@@ -1172,7 +1246,7 @@ export function ChatPanel({
                 <UserAvatar
                   src={m.avatarUrl}
                   name={m.name}
-                  size={20}
+                  size={mobile ? 26 : 20}
                   userId={m.webhook ? null : m.userId}
                   isGuest={m.isGuest}
                 />
@@ -1233,7 +1307,7 @@ export function ChatPanel({
                   </span>
                 </span>
               </div>
-              <div className="flex shrink-0 items-center gap-0.5">
+              <div className={`${mobile ? "hidden" : "flex"} shrink-0 items-center gap-0.5`}>
                 <CopyMessageButton
                   text={m.text}
                   className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-400 opacity-100 transition hover:bg-zinc-200/70 hover:text-zinc-800 focus:opacity-100 active:scale-95 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 sm:group-focus-within:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
@@ -1327,7 +1401,7 @@ export function ChatPanel({
               )}
             </div>
             {grouped && (
-              <div className="flex shrink-0 items-center gap-0.5">
+              <div className={`${mobile ? "hidden" : "flex"} shrink-0 items-center gap-0.5`}>
                 <CopyMessageButton
                   text={m.text}
                   className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-400 opacity-100 transition hover:bg-zinc-200/70 hover:text-zinc-800 focus:opacity-100 active:scale-95 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 sm:group-focus-within:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
@@ -1352,6 +1426,27 @@ export function ChatPanel({
             )}
           </div>
         </div>
+      );
+
+      const row = mobile ? (
+        <GestureRow
+          key={m.id}
+          onReply={
+            canReply
+              ? () => {
+                  trackMobileChatEvent(MOBILE_CHAT_EVENTS.swipeReply);
+                  handlers.startReply(m);
+                }
+              : undefined
+          }
+          onMenu={() => {
+            trackMobileChatEvent(MOBILE_CHAT_EVENTS.holdMenu);
+            setActionsFor(m);
+          }}
+          render={renderRow}
+        />
+      ) : (
+        renderRow()
       );
 
       if (!openAuthorMenu) return row;
@@ -1397,6 +1492,7 @@ export function ChatPanel({
     canDeleteMessages,
     protectedKey,
     handlers,
+    mobile,
     t,
   ]);
 
@@ -1407,12 +1503,54 @@ export function ChatPanel({
     attachAnything(files);
   }, fileDrop.enabled && canAttach && !sendDisabledReason);
 
+  // What holding a message offers (mobile): everything its hover buttons and
+  // its right click do on a desktop, through the same handlers.
+  function messageActions(m: ChatMessage): MessageAction[] {
+    const actions: MessageAction[] = [];
+    if (canReply) {
+      actions.push({ key: "reply", label: t("common.reply"), icon: <MdReply />, onSelect: () => handlers.startReply(m) });
+    }
+    if (m.text.trim()) {
+      actions.push({ key: "copy", label: t("common.copy"), icon: <MdContentCopy />, onSelect: () => void copyText(m.text) });
+    }
+    if (canOpenProfile && m.userId && !m.isGuest && !m.webhook) {
+      const userId = m.userId;
+      actions.push({ key: "profile", label: t("common.viewProfile"), icon: <MdPerson />, onSelect: () => handlers.openProfile(userId) });
+    }
+    if (hasAuthorContextMenu && m.from !== selfId && !m.webhook) {
+      actions.push({
+        key: "moderate",
+        label: t("chatPanel.mobileModerate"),
+        icon: <MdShield />,
+        onSelect: () => handlers.authorContextMenu(m.from, m.name),
+      });
+    }
+    if (canDeleteMessages && !m.webhook && !(m.userId && protectedKey.split(",").includes(m.userId))) {
+      actions.push({
+        key: "delete",
+        label: t("chatPanel.deleteMessage"),
+        icon: <MdDeleteOutline />,
+        onSelect: () => handlers.deleteMessage(m),
+        danger: true,
+      });
+    }
+    return actions;
+  }
+
   return (
     <div
-      className={`${marginClassName} flex ${heightClassName} flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950`}
+      // A card for the room redesign's layer (globals.css, data-room-redesign).
+      // The phone sheet is the card itself, so its chat is not one.
+      data-rr-card={mobile ? undefined : ""}
+      className={
+        mobile
+          ? `${marginClassName} flex ${heightClassName} flex-col overflow-hidden`
+          : `${marginClassName} flex ${heightClassName} flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950`
+      }
       style={{ minHeight: "180px" }}
     >
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
+      {/* On the phone the sheet's own header says this (see WatchRoom). */}
+      <div className={`${mobile ? "hidden" : "flex"} shrink-0 items-center justify-between gap-2 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800`}>
         <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">{t("common.chat")}</h2>
         <div className="flex items-center gap-1.5">
           {messages.length > 0 && (
@@ -1479,13 +1617,25 @@ export function ChatPanel({
           overlay over its last line) so a long name never sits on top of
           what somebody just said. The gradient is decoration, not cover-up:
           from transparent to the panel's own background, top to bottom. */}
-      <div className="h-6 shrink-0 overflow-hidden bg-gradient-to-b from-transparent to-white px-3 dark:to-zinc-950">
-        {typingNames && typingNames.length > 0 && (
-          <p className="truncate text-xs leading-6 text-zinc-500 italic dark:text-zinc-500">
-            {formatTypingLabel(typingNames)}
-          </p>
-        )}
-      </div>
+      {mobile ? (
+        // A phone has no rows to spare: who is typing floats over the bottom
+        // of the log instead, and takes no height when nobody is.
+        <div className="relative h-0 shrink-0">
+          {typingNames && typingNames.length > 0 && (
+            <p className="absolute bottom-1 left-3 max-w-[calc(100%-1.5rem)] truncate rounded-full bg-zinc-100/95 px-2.5 py-0.5 text-xs text-zinc-500 italic dark:bg-zinc-800/95 dark:text-zinc-400">
+              {formatTypingLabel(typingNames)}
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className="h-6 shrink-0 overflow-hidden bg-gradient-to-b from-transparent to-white px-3 dark:to-zinc-950">
+          {typingNames && typingNames.length > 0 && (
+            <p className="truncate text-xs leading-6 text-zinc-500 italic dark:text-zinc-500">
+              {formatTypingLabel(typingNames)}
+            </p>
+          )}
+        </div>
+      )}
 
       {(blockedMessage || imageError || uploads.error) && (
         <p className="border-t border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-600 dark:border-red-900 dark:bg-red-950/40 dark:text-red-400">
@@ -1500,7 +1650,13 @@ export function ChatPanel({
           // items-end, so the GIF and send buttons stay on the last line as
           // the box grows with a long message (see handleInput) instead of
           // floating in the middle of it.
-          className="relative flex shrink-0 flex-col gap-2 border-t border-zinc-200 p-2 dark:border-zinc-800"
+          className={
+            mobile
+              ? "relative flex shrink-0 flex-col gap-2 px-1 pt-1.5 pb-1"
+              : desk
+                ? "relative flex shrink-0 flex-col gap-2 px-2.5 pt-1 pb-2.5"
+                : "relative flex shrink-0 flex-col gap-2 border-t border-zinc-200 p-2 dark:border-zinc-800"
+          }
         >
           <FileDropOverlay show={dragging} />
           {emoji.open && (
@@ -1666,7 +1822,17 @@ export function ChatPanel({
             onRestoreImage={(file) => void attachFiles([file])}
             disabled={sendingImages}
           />
-          <div className="flex items-end gap-2">
+          <div
+            className={
+              mobile
+                ? "flex items-end gap-1.5"
+                : desk
+                  ? // items-start: with a long draft the buttons stay up by the
+                    // first line instead of sinking to the bottom of the box.
+                    "flex items-start gap-0.5 rounded-[1rem] border border-zinc-300 bg-white p-1 transition focus-within:border-zinc-400 focus-within:ring-4 focus-within:ring-zinc-950/5 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-within:border-zinc-600 dark:focus-within:ring-white/5"
+                  : "flex items-end gap-2"
+            }
+          >
             <AttachMenu
               onImages={(files) => void attachFiles(files)}
               onFiles={attachAnything}
@@ -1687,12 +1853,21 @@ export function ChatPanel({
                     : t("attachments.attach")
               }
               iconClassName="h-5 w-5"
-              buttonClassName={`inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border transition disabled:cursor-not-allowed ${
+              buttonClassName={desk ? `inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-[0.75rem] text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100` : mobile ? `inline-flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full bg-zinc-100 text-zinc-700 transition active:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-800 dark:text-zinc-300 dark:active:bg-zinc-700` : `inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border transition disabled:cursor-not-allowed ${
                 canAttach || attachExtras?.length
                   ? "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
                   : "border-zinc-200 opacity-50 text-zinc-400 dark:border-zinc-800 dark:text-zinc-600"
               }`}
             />
+            {/* The pill: the field with the GIF and emoji buttons inside it.
+                `contents` on desktop, so the row there is exactly what it was. */}
+            <div
+              className={
+                mobile
+                  ? "flex min-w-0 flex-1 items-end rounded-[22px] bg-zinc-100 pl-3.5 pr-1 dark:bg-zinc-800"
+                  : "contents"
+              }
+            >
             <HighlightedTextarea
               ref={textareaRef}
               value={input}
@@ -1709,6 +1884,7 @@ export function ChatPanel({
               onFocus={emoji.prefetch}
               maxLength={6000}
               rows={1}
+              enterKeyHint={mobile ? "send" : undefined}
               disabled={Boolean(sendDisabledReason) || sendingImages}
               placeholder={
                 sendDisabledReason ??
@@ -1718,7 +1894,13 @@ export function ChatPanel({
                     ? t("chatPanel.writeSomethingAlongWithItOptional")
                     : t("chatPanel.typeAMessage"))
               }
-              className="min-h-8 resize-none rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-base sm:text-sm leading-5 text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-white/10"
+              className={
+                mobile
+                  ? "min-h-11 resize-none bg-transparent py-2.5 text-base leading-6 text-zinc-950 outline-none placeholder-shown:h-11! placeholder-shown:overflow-hidden placeholder-shown:text-ellipsis placeholder-shown:whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-60 dark:text-zinc-50"
+                  : desk
+                    ? "block min-h-9 resize-none bg-transparent px-1.5 py-2 text-sm leading-5 text-zinc-950 outline-none placeholder:text-zinc-400 [scrollbar-width:thin] placeholder-shown:h-9! placeholder-shown:overflow-hidden placeholder-shown:text-ellipsis placeholder-shown:whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-60 dark:text-zinc-50 dark:placeholder:text-zinc-500"
+                    : "min-h-8 resize-none rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-base sm:text-sm leading-5 text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-white/10"
+              }
             />
             <Popover
               open={pickerOpen}
@@ -1736,7 +1918,7 @@ export function ChatPanel({
                   type="button"
                   onClick={onSendGif ? () => setPickerOpen((open) => !open) : onRequestAccount}
                   aria-label={t("chatPanel.addGif")}
-                  className={`inline-flex h-8 shrink-0 items-center justify-center rounded-lg border px-2.5 text-xs font-semibold transition ${
+                  className={desk ? `inline-flex h-9 shrink-0 items-center justify-center rounded-[0.75rem] px-2 text-xs font-bold text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 ${onSendGif ? "" : "opacity-50"}` : mobile ? `inline-flex h-11 shrink-0 items-center justify-center px-2 text-xs font-bold text-zinc-500 transition dark:text-zinc-400 ${onSendGif ? "" : "opacity-50"}` : `inline-flex h-8 shrink-0 items-center justify-center rounded-lg border px-2.5 text-xs font-semibold transition ${
                     onSendGif
                       ? "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
                       : "border-zinc-200 opacity-50 text-zinc-400 dark:border-zinc-800 dark:text-zinc-600"
@@ -1752,14 +1934,36 @@ export function ChatPanel({
               custom={emoji.custom}
               onPickCustom={emoji.insertCustom}
               disabled={Boolean(sendDisabledReason) || sendingImages}
-              iconSize={18}
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-zinc-300 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+              iconSize={mobile ? 22 : 18}
+              className={
+                mobile
+                  ? "inline-flex h-11 w-10 shrink-0 items-center justify-center text-zinc-500 disabled:cursor-not-allowed disabled:opacity-50 dark:text-zinc-400"
+                  : desk
+                    ? "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[0.75rem] text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                    : "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-zinc-300 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+              }
             />
+            </div>
             <button
               type="submit"
               disabled={!canSend}
               aria-label={t("common.send")}
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-950 text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+              // On a phone, tapping send must not take the focus off the field:
+              // that would drop the keyboard after every message.
+              onPointerDown={mobile ? (e) => e.preventDefault() : undefined}
+              className={
+                mobile
+                  ? `${canSend || sendingImages ? "inline-flex" : "hidden"} h-11 w-11 shrink-0 items-center justify-center rounded-full bg-zinc-950 text-white transition active:scale-95 dark:bg-zinc-50 dark:text-zinc-950`
+                  : desk
+                    ? // Always there, so the box never changes width; it only
+                      // fills in once there is something to send.
+                      `inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[0.75rem] transition disabled:cursor-not-allowed ${
+                        canSend || sendingImages
+                          ? "bg-zinc-950 text-white hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+                          : "text-zinc-400 dark:text-zinc-600"
+                      }`
+                    : "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-950 text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+              }
             >
               {sendingImages ? (
                 <span
@@ -1767,7 +1971,7 @@ export function ChatPanel({
                   className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
                 />
               ) : (
-                <MdSend className="h-4 w-4" />
+                <MdSend className={mobile ? "h-5 w-5" : "h-4 w-4"} />
               )}
             </button>
           </div>
@@ -1777,6 +1981,23 @@ export function ChatPanel({
         preview={imageModalPreview}
         onClose={() => setImageModalPreview(null)}
       />
+      {mobile && (
+        <MessageActionSheet
+          open={actionsFor !== null}
+          onClose={() => setActionsFor(null)}
+          author={actionsFor?.name ?? ""}
+          preview={
+            actionsFor
+              ? actionsFor.text.trim()
+                ? stripMarkdown(actionsFor.text)
+                : actionsFor.kind === "gif"
+                  ? "[GIF]"
+                  : "[Imagem]"
+              : ""
+          }
+          actions={actionsFor ? messageActions(actionsFor) : []}
+        />
+      )}
       {webhookCard && (
         <WebhookProfileDialog
           name={webhookCard.name}

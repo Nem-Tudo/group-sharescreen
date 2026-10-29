@@ -12,6 +12,8 @@ import {
   CAMERA_FACES,
   CAMERA_FACES_3D,
   CAMERA_REACTIONS,
+  CAMERA_WARP_FEATURE,
+  CAMERA_WARPS,
   CUSTOM_BACKGROUND_TIER,
   CUSTOM_BG_FREE_FEATURE,
   canUseCustomBackground,
@@ -79,6 +81,17 @@ export const CAMERA_EFFECT_LABELS: { [K in keyof CameraEffectSettings]: Record<C
   reactions: {
     none: "watch.watchRoom.cameraEffectReactionsOff",
     on: "watch.watchRoom.cameraEffectReactionsOn",
+  },
+  warp: {
+    none: "watch.watchRoom.cameraEffectNone",
+    sad: "watch.watchRoom.cameraWarpSad",
+    angry: "watch.watchRoom.cameraWarpAngry",
+    happy: "watch.watchRoom.cameraWarpHappy",
+    surprised: "watch.watchRoom.cameraWarpSurprised",
+    fat: "watch.watchRoom.cameraWarpFat",
+    thin: "watch.watchRoom.cameraWarpThin",
+    bigeyes: "watch.watchRoom.cameraWarpBigEyes",
+    bighead: "watch.watchRoom.cameraWarpBigHead",
   },
 };
 
@@ -240,6 +253,8 @@ export function CameraEffectsPanel({ on, standalone = false }: { on: boolean; st
   // Experiment "camera-effects-3d": the 3D faces after the others, and the
   // reactions. An exposure is this panel being shown to someone in it.
   const has3d = useFeature(CAMERA_EFFECTS_3D_FEATURE, { track: true }).enabled;
+  // Experiment "camera-warp": the warps, after the faces. Exposure the same way.
+  const hasWarp = useFeature(CAMERA_WARP_FEATURE, { track: true }).enabled;
   const turnOn = standalone && !on ? () => setTileExperimentMode("cameraEffects", true) : undefined;
   return (
     <div className="flex flex-col">
@@ -263,6 +278,15 @@ export function CameraEffectsPanel({ on, standalone = false }: { on: boolean; st
             value={settings.face}
             turnOn={turnOn}
           />
+          {hasWarp && (
+            <EffectGroup
+              name="warp"
+              title={t("watch.watchRoom.cameraEffectWarp")}
+              options={CAMERA_WARPS}
+              value={settings.warp}
+              turnOn={turnOn}
+            />
+          )}
           {has3d && (
             <div className="flex flex-col gap-1">
               <EffectGroup

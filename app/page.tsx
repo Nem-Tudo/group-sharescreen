@@ -41,7 +41,7 @@ import { RecentRooms } from "@/components/RecentRooms";
 import { HomeGroupsPanel } from "@/components/groups/HomeGroupsPanel";
 import { ButtonSpinner } from "@/components/ButtonSpinner";
 import { prewarmCaptcha } from "@/lib/turnstile";
-import { MdLock, MdOutlineMap } from "react-icons/md";
+import { MdChevronRight, MdLock, MdOutlineMap, MdPublic } from "react-icons/md";
 import { SocialLinks } from "@/components/SocialLinks";
 import { SiteHeader } from "@/components/SiteHeader";
 import { HomeFriendsPanel } from "@/components/HomeFriendsPanel";
@@ -50,6 +50,8 @@ import { Tooltip } from "@/components/Tooltip";
 import { useI18n } from "@/lib/useI18n";
 import { FINE_POINTER_QUERY } from "@/lib/useMediaQuery";
 import { useTabBarEnabled } from "@/lib/mobileShell";
+import { useFeature } from "@/lib/features";
+import { HOME_REDESIGN_EVENTS, HOME_REDESIGN_FEATURE, trackHomeEvent } from "@/lib/homeRedesign";
 
 // Mirrors server/signaling.ts's HANDLE_RE — must match exactly, or a name
 // this lets through but the server rejects lands the user in a dead room
@@ -81,10 +83,29 @@ const secondaryButtonClass =
 const linkButtonClass =
   "self-start text-sm font-medium underline underline-offset-2 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100";
 const labelClass = "text-sm font-medium text-zinc-700 dark:text-zinc-300";
+
+// The same controls in the home-redesign experiment (lib/homeRedesign):
+// borderless filled fields, pill buttons, and a taller hit area.
+const v2InputClass =
+  "h-12 rounded-2xl border border-transparent bg-zinc-100 px-4 text-base text-zinc-950 outline-none transition focus:border-zinc-950 focus:bg-white dark:bg-zinc-800 dark:text-zinc-50 dark:focus:border-zinc-50 dark:focus:bg-zinc-900";
+const v2PrimaryButtonClass =
+  "h-12 rounded-full bg-zinc-950 px-6 text-base font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200";
+const v2SecondaryButtonClass =
+  "h-12 rounded-full bg-zinc-100 px-6 text-base font-semibold text-zinc-800 transition hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700";
+// Overrides for the two side panels, which own their own card styling.
+const v2PanelClass =
+  "rounded-[28px]! border-0! p-[22px]! shadow-none! dark:bg-zinc-900!";
+
 // The room-type / create-vs-join choices below. Selected state is a filled
 // button rather than a subtle border, because which one is active decides
 // what the rest of the form asks for.
-function roomTabClass(selected: boolean): string {
+function roomTabClass(selected: boolean, v2 = false): string {
+  if (v2) {
+    return `flex h-11 items-center justify-center gap-1.5 rounded-full px-3 text-sm font-semibold transition ${selected
+      ? "bg-zinc-950 text-white dark:bg-white dark:text-zinc-950"
+      : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+      }`;
+  }
   return `flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition ${selected
     ? "border-zinc-950 bg-zinc-950 text-white dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-950"
     : "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
@@ -130,6 +151,11 @@ export default function Home() {
   // One shared poller for the whole page rather than one per component — see
   // lib/peopleOnline.ts for why that mattered enough to be worth a module.
   const peopleOnline = usePeopleOnline();
+  // Tracked here: this page is where the redesign is seen.
+  const v2 = useFeature(HOME_REDESIGN_FEATURE).enabled;
+  const inputCls = v2 ? v2InputClass : inputClass;
+  const primaryCls = v2 ? v2PrimaryButtonClass : primaryButtonClass;
+  const secondaryCls = v2 ? v2SecondaryButtonClass : secondaryButtonClass;
   const [roomInput, setRoomInput] = useState("");
   const [roomError, setRoomError] = useState<string | null>(null);
   const [roomMode, setRoomMode] = useState<RoomMode>("public");
@@ -192,7 +218,8 @@ export default function Home() {
     });
     observer.observe(form);
     return () => observer.disconnect();
-  }, []);
+    // v2 swaps which element formRef points at (the form or its column).
+  }, [v2]);
 
   // Which shell this is, read once. `useState` with an initializer rather
   // than a plain call: the answer comes from window, so it must not run
@@ -345,6 +372,7 @@ export default function Home() {
     e.preventDefault();
     const trimmed = nameInput.trim();
     if (!trimmed) return;
+    trackHomeEvent(HOME_REDESIGN_EVENTS.guestRegister);
     signalingClient.register(trimmed);
   }
 
@@ -417,6 +445,7 @@ export default function Home() {
         return;
       }
       trackEvent("room_create", { visibility: "private" });
+      trackHomeEvent(HOME_REDESIGN_EVENTS.roomSubmit);
       setNavigating(true);
     router.push(`/watch/${handle}`);
       return;
@@ -458,6 +487,7 @@ export default function Home() {
       } finally {
         setCheckingRoom(false);
       }
+      trackHomeEvent(HOME_REDESIGN_EVENTS.roomSubmit);
       setNavigating(true);
     router.push(`/watch/${handle}`);
       return;
@@ -468,9 +498,423 @@ export default function Home() {
       setRoomError(t("common.use1To32LettersNumbers"));
       return;
     }
+    trackHomeEvent(HOME_REDESIGN_EVENTS.roomSubmit);
     setNavigating(true);
     router.push(`/watch/${fullHandle}`);
   }
+
+  const formCard = (
+    <main
+      ref={v2 ? undefined : formRef}
+      className={v2
+        ? "relative w-full rounded-[28px] bg-white p-[22px] dark:bg-zinc-900"
+        : "w-full max-w-md rounded-2xl border border-black/10 bg-white p-5 shadow-sm sm:p-8 dark:border-white/10 dark:bg-zinc-950"}
+    >
+      {v2 && (
+        // The brand mark where the reference puts its mascot: the one
+        // friendly face on an otherwise all-type card.
+        <img
+          src="/icon.png"
+          alt=""
+          aria-hidden="true"
+          className="absolute top-[22px] right-[22px] h-12 w-12 rounded-2xl"
+        />
+      )}
+      {/* The page's one h1, and it says what the page does rather than
+        what it is called. "GoLive" is already the wordmark in the header
+        above and the <title>'s tail, so spending the strongest heading
+        on the brand name meant the document never stated, anywhere in
+        its text, that this is a place to stream a screen to a group -
+        which is the thing people search for. */}
+      <h1 className={v2
+        ? "pr-16 text-[28px] font-extrabold leading-[1.15] tracking-tight text-zinc-950 sm:text-[36px] dark:text-zinc-50"
+        : "text-xl font-semibold tracking-tight text-zinc-950 sm:text-2xl dark:text-zinc-50"}>
+        {t("page.seoHeadline")}
+      </h1>
+      <p className={v2
+        ? "mt-2 text-lg leading-snug text-zinc-500 dark:text-zinc-400"
+        : "mt-1 text-sm text-zinc-500 dark:text-zinc-400"}>
+        {t("page.shareYourScreenWithWhoeverIs")}
+      </p>
+      {/* Wrapped so the two sit side by side and wrap together on a
+        narrow screen — the download button renders nothing at all in
+        the app itself or on mobile, and the row collapses cleanly. */}
+      {/* The redesign moves these to the "Explorar" card under the form. */}
+      <div className={`mt-3 flex-wrap items-center gap-2 ${v2 ? "hidden" : tabBar ? "hidden lg:flex" : "flex"}`}>
+        <Link
+          href="/rooms"
+          onClick={() => trackHomeEvent(HOME_REDESIGN_EVENTS.exploreClick)}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-sky-300 px-3.5 py-2 text-sm font-medium text-sky-700 transition hover:border-sky-400 hover:bg-sky-100 dark:border-sky-700 dark:text-sky-300 dark:hover:border-sky-600 dark:hover:bg-sky-900"
+        >
+          <GlobeIcon className="h-4 w-4" />
+          {t("page.seePublicRooms")}
+        </Link>
+        {/* The same rooms, arranged by where their owners put them on the
+          globe instead of by headcount — see app/worldmap. Only ever public
+          ones, same as the list beside it. */}
+        <Tooltip content={t("page.findRoomsInYourCountryCity")}>
+          <Link
+            href="/worldmap"
+            onClick={() => trackHomeEvent(HOME_REDESIGN_EVENTS.exploreClick)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-sky-300 px-3.5 py-2 text-sm font-medium text-sky-700 transition hover:border-sky-400 hover:bg-sky-100 dark:border-sky-700 dark:text-sky-300 dark:hover:border-sky-600 dark:hover:bg-sky-900"
+          >
+            <MdOutlineMap className="h-4 w-4" />
+            {t("page.seeTheRoomMap")}
+          </Link>
+        </Tooltip>
+      </div>
+      {banned ? (
+        <div className="mt-8 flex flex-col items-start gap-2">
+          <p className="text-sm font-medium text-red-600 dark:text-red-400">
+            {state.bannedReason
+              ? t("common.youHaveBeenBannedFromThe", { bannedReason: state.bannedReason })
+              : t("page.youHaveBeenTemporarilyBannedFrom")}
+          </p>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            {t("common.ifYouThinkThisIsA")}{" "}
+            <a
+              href="https://discord.gg/nemtudo"
+              target="_blank"
+              className="font-medium text-blue-600 hover:text-blue-700 dark:text-blue-500 dark:hover:text-blue-400"
+            >
+              {t("common.discordGgNemtudo")}
+            </a>
+          </p>
+        </div>
+      ) : superseded ? (
+        <div className="mt-8 flex flex-col items-start gap-2">
+          <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+            {t("common.thisSessionWasOpenedInAnother")}
+          </p>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            {t("common.youCanOnlyStayConnectedWith")}
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              // state.name is null when this tab never got as far as
+              // registering, which is exactly the case that used to look
+              // like an endless reconnect — so fall back to the name on
+              // disk rather than leaving the button doing nothing.
+              const name = state.name ?? getStoredName();
+              if (name) signalingClient.register(name);
+            }}
+            className={secondaryCls}
+          >
+            {t("common.useThisTab")}
+          </button>
+        </div>
+      ) : restoring ? (
+        <div className="mt-8 flex flex-col items-start gap-2">
+          <p className="text-sm text-sky-500 dark:text-zinc-400">{t("common.connecting")}</p>
+          {stuckReconnecting && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  // Not a page reload: the socket is what is stuck, and
+                  // reloading would throw away everything else that is
+                  // already loaded to fix one connection.
+                  //
+                  // Through retryIdentity when there is an account, because
+                  // the socket is not always the stuck part: a register
+                  // that never went out (or was refused) leaves
+                  // signalingClient with no desired name, and reconnecting
+                  // a socket that will register nothing is a button that
+                  // does nothing. It calls retryNow() itself either way.
+                  if (account) void retryIdentity();
+                  else signalingClient.retryNow();
+                  setStuckReconnecting(false);
+                }}
+                className="rounded-lg border border-zinc-300 px-3.5 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+              >
+                {t("common.tryAgain")}
+              </button>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                {t("page.itIsTakingLongerThanUsual")}
+              </p>
+            </>
+          )}
+        </div>
+      ) : !mounted ? (
+        // The one frame where a returning visitor still looks brand new
+        // (see `mounted`), sized so the layout does not jump when the real
+        // content lands.
+        //
+        // It says something, and it carries an escape hatch, because this
+        // is also the exact markup a visitor is left staring at if the page
+        // never hydrates — and a silent empty box is the worst possible
+        // thing to leave them with. The link is a plain anchor revealed by
+        // a CSS animation (see .reveal-when-stuck), so it works when no
+        // JavaScript on the page is running at all, which is precisely the
+        // situation it exists for.
+        <div className="mt-8 flex h-24 flex-col items-start gap-2">
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">{t("common.loading2")}</p>
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages --
+              A plain anchor on purpose. <Link> is client-side navigation,
+              which needs the very JavaScript that has failed to arrive in
+              the one situation this link exists for; it would render a
+              control that does nothing. A real href does a full document
+              load with no script involved at all. */}
+          <a href="/" className={`reveal-when-stuck ${linkButtonClass}`}>
+            {t("page.itTookTooLongReloadThe")}
+          </a>
+        </div>
+      ) : oauthTicket ? (
+        <div className="mt-8">
+          <CompleteOAuthSignupForm
+            ticket={oauthTicket.ticket}
+            provider={oauthTicket.provider}
+            suggestedUsername={oauthTicket.suggestedUsername}
+            suggestedDisplayName={oauthTicket.suggestedDisplayName}
+            onSuccess={resetIdentityForm}
+            // Back to whichever form the user came from, not out of the
+            // identity area entirely.
+            onCancel={() => setOAuthTicket(null)}
+          />
+        </div>
+      ) : mode === "create" ? (
+        <CreateAccountForm
+          initialDisplayName={state.name ?? ""}
+          onSuccess={resetIdentityForm}
+          onCancel={resetIdentityForm}
+          onSwitchToLogin={() => setMode("login")}
+        />
+      ) : mode === "login" ? (
+        <LoginForm
+          onSuccess={resetIdentityForm}
+          onCancel={resetIdentityForm}
+          onSwitchToCreate={openCreateMode}
+          // Handled above rather than inside the form, so the username
+          // step takes over the whole identity area (same as a ticket
+          // coming from the landing buttons).
+          onTicket={setOAuthTicket}
+        />
+      ) : !registered ? (
+        <>
+          {/* The app has no guest mode — this shell is account-only, so
+              offering the name box here would be a form whose only outcome
+              is an identity the app doesn't offer. The two account buttons
+              below it are the whole flow there. */}
+          {mode === "landing" && appShell && (
+            <div className="mt-8 flex flex-col gap-3">
+              <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                {t("page.inTheAppYouNeedAn")}
+              </p>
+              {/* Signed in, but the signaling registration was refused —
+                  which lands right back on this screen and, until this
+                  existed, said nothing at all: the name box that shows
+                  state.nameError is the one thing the app doesn't render,
+                  so a login that "worked" looked like a login that
+                  silently did nothing, and trying again did nothing too.
+                  Now it says why and offers the retry. */}
+              {account && state.nameError && (
+                <div className="flex flex-col items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/5 p-3">
+                  <p className="text-sm text-red-500">{state.nameError}</p>
+                  <button
+                    type="button"
+                    disabled={retryingIdentity}
+                    onClick={() => {
+                      setRetryingIdentity(true);
+                      void retryIdentity().finally(() => setRetryingIdentity(false));
+                    }}
+                    className={`flex items-center gap-2 ${linkButtonClass}`}
+                  >
+                    {retryingIdentity && <ButtonSpinner />}
+                    {retryingIdentity ? t("common.joining") : t("common.tryAgain")}
+                  </button>
+                </div>
+              )}
+              <button type="button" onClick={openCreateMode} className={primaryCls}>
+                {t("common.createAnAccount")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("login")}
+                className={`${linkButtonClass} self-center`}
+              >
+                {t("common.iAlreadyHaveAnAccount")}
+              </button>
+            </div>
+          )}
+          {mode === "landing" && !appShell && (
+            <form onSubmit={handleGuestSubmit} className={`${v2 ? "mt-6" : "mt-8"} flex flex-col gap-3`}>
+              <label htmlFor="name" className={labelClass}>
+                {t("common.yourName")}
+              </label>
+              <div className="flex gap-2">
+                <input
+                  id="name"
+                  ref={focusWithMouse}
+                  value={nameInput}
+                  onChange={(e) => setNameInput(e.target.value)}
+                  maxLength={24}
+                  placeholder={t("common.exMaria")}
+                  className={`min-w-0 flex-1 ${inputCls}`}
+                />
+                <button
+                  type="submit"
+                  disabled={!nameInput.trim()}
+                  className={`shrink-0 ${primaryCls}`}
+                >
+                  {t("common.continue")}
+                </button>
+              </div>
+              {state.nameError && <p className="text-sm text-red-500">{state.nameError}</p>}
+              <button type="button" onClick={openCreateMode} className={secondaryCls}>
+                {t("common.createAnAccount")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("login")}
+                className={`${linkButtonClass} self-center`}
+              >
+                {t("common.iAlreadyHaveAnAccount")}
+              </button>
+            </form>
+          )}
+          {/* The highest-value spot for these: someone landing here with
+            no account gets in with one click, skipping both the guest
+            name and the signup form. */}
+          {mode === "landing" && (
+            <div className="mt-3">
+              <OAuthButtons onSuccess={resetIdentityForm} onTicket={setOAuthTicket} />
+            </div>
+          )}
+        </>
+      ) : (
+        <form onSubmit={handleRoomSubmit} className={`${v2 ? "mt-6" : "mt-8"} flex flex-col gap-3`}>
+          {/* Last rooms this browser was in. Hidden when empty so a first
+            visit doesn't grow the form for nothing — see RecentRooms. */}
+          <RecentRooms />
+          {/* Public/private as two visible options rather than a
+            checkbox under the name field: the choice changes what the
+            form even asks for, so it belongs above the fields it
+            governs instead of below them. */}
+          {/* The redesign drops the label: the two pills say it themselves. */}
+          {!v2 && <span className={labelClass}>{t("page.whatKindOfRoom")}</span>}
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => switchRoomMode("public")}
+              aria-pressed={roomMode === "public"}
+              className={roomTabClass(roomMode === "public", v2)}
+            >
+              <GlobeIcon className="h-4 w-4 shrink-0" />
+              {t("page.public")}
+            </button>
+            {/* Lands on "Entrar em sala" — someone who was handed a link
+              or a code is the common arrival here, and creating is the
+              one click away that a first-timer is already looking for. */}
+            <button
+              type="button"
+              onClick={() => switchRoomMode("private-join")}
+              aria-pressed={roomMode !== "public"}
+              className={roomTabClass(roomMode !== "public", v2)}
+            >
+              <MdLock className="h-4 w-4 shrink-0" />
+              {t("page.private")}
+            </button>
+          </div>
+
+          {/* Only private rooms split into create/join — a public room
+            needs no such distinction, since its name alone is enough to
+            both find it and make it. */}
+          {roomMode !== "public" && (
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => switchRoomMode("private-join")}
+                aria-pressed={roomMode === "private-join"}
+                className={roomTabClass(roomMode === "private-join", v2)}
+              >
+                {t("page.joinARoom")}
+              </button>
+              <button
+                type="button"
+                onClick={() => switchRoomMode("private-create")}
+                aria-pressed={roomMode === "private-create"}
+                className={roomTabClass(roomMode === "private-create", v2)}
+              >
+                {t("page.createRoom")}
+              </button>
+            </div>
+          )}
+
+          <label htmlFor="room" className={labelClass}>
+            {t("common.roomName")}
+          </label>
+          {/* One field, always. For "Entrar em sala" the code is just the
+            tail of what's typed here ("familia-123456") — the same
+            string someone reads off a link, rather than a second box to
+            split it into. */}
+          <input
+            id="room"
+            ref={focusWithMouse}
+            value={roomInput}
+            onChange={(e) => setRoomInput(e.target.value)}
+            // Long enough to hold a pasted link on the two modes that
+            // accept one. At 32 a URL was silently cut mid-paste, which
+            // is the worst way for this to fail: the field looks filled
+            // in and the error talks about invalid characters.
+            maxLength={
+              roomMode === "private-create" ? MAX_PRIVATE_ROOM_NAME_LENGTH : 200
+            }
+            placeholder={
+              roomMode === "private-join"
+                ? t("page.exFamily123456OrLink")
+                : t("page.exTeamMeetingOrLink")
+            }
+            className={inputCls}
+          />
+
+          {/* One line explaining what this mode is about to do, where the
+            old form had a parenthetical about the public list. */}
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            {roomMode === "public" ? (
+              <>{t("page.itAppearsInThePublicRoom")}</>
+            ) : roomMode === "private-create" ? (
+              <>
+                {t("page.weGenerateACodeOf")} {ROOM_CODE_LENGTH} {t("page.digitsAndItBecomesPartOf")}
+              </>
+            ) : ENFORCE_NEW_ROOM_CODE_SYSTEM ? (
+              <>{t("page.pasteTheNameWithTheCode")}</>
+            ) : (
+              // While the code scheme isn't enforced, a room from before
+              // it exists has no code to type — so this can't read as if
+              // one were mandatory.
+              <>{t("page.pasteTheRoomNameWithThe")}</>
+            )}
+          </p>
+
+          {roomError && <p className="text-sm text-red-500">{roomError}</p>}
+          <button
+            type="submit"
+            disabled={!roomInput.trim() || checkingRoom || navigating}
+            className={`mt-2 flex items-center justify-center gap-2 ${primaryCls}`}
+          >
+            {(checkingRoom || navigating) && <ButtonSpinner />}
+            {roomMode === "private-create"
+              ? t("page.createPrivateRoom")
+              : roomMode === "private-join"
+                ? checkingRoom
+                  ? t("common.checking")
+                  : t("common.joinTheRoom")
+                : // Public: entering and creating are the same click, so
+                // the label is the only thing that tells someone which
+                // of the two they're about to do. "Criar sala" is the
+                // resting state and only a confirmed hit flips it —
+                // typing a name nobody has used is the common case, and
+                // promising "Entrar" before the lookup lands would walk
+                // that back a moment later on most names.
+                publicRoomExists === true
+                  ? t("common.joinTheRoom")
+                  : t("page.createRoom")}
+          </button>
+        </form>
+      )}
+    </main>
+  );
 
   return (
     <>
@@ -505,12 +949,15 @@ export default function Home() {
         height, so a floor of "one screen" grew with it and pushed everything
         below out of the rendered snapshot, leaving an empty grey block where
         the copy should be. */}
-      <div className="flex min-h-[calc(100dvh-3.5rem-var(--app-tabbar-h))] [html[data-crawler]_&]:min-h-0 shrink-0 flex-col items-center justify-start gap-3 bg-zinc-50 px-4 pt-4 pb-6 dark:bg-black lg:justify-center lg:py-16">
+      <div className={`flex min-h-[calc(100dvh-3.5rem-var(--app-tabbar-h))] [html[data-crawler]_&]:min-h-0 shrink-0 flex-col items-center justify-start lg:justify-center lg:py-16 ${v2
+        ? "gap-6 bg-zinc-200/70 px-5 pt-5 pb-8 [font-family:var(--font-jakarta),sans-serif] dark:bg-[#050507]"
+        : "gap-3 bg-zinc-50 px-4 pt-4 pb-6 dark:bg-black"}`}>
         {peopleOnline !== null && (<div className="inline-flex gap-2">
-          <span className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3.5 py-1.5 text-xs font-medium text-zinc-600 shadow-sm dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
+          {/* In the redesign the count is a card of its own under the form. */}
+          {!v2 && <span className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3.5 py-1.5 text-xs font-medium text-zinc-600 shadow-sm dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
             <span className="h-2 w-2 rounded-full bg-emerald-500" />
             {tc("home.peopleInRoomsNow", peopleOnline)}
-          </span>
+          </span>}
           <DownloadAppButton source="home" />
         </div>
         )}
@@ -558,7 +1005,7 @@ export default function Home() {
           // any of this. The effect above replaces it with the form's real
           // height on the first measurement.
           style={{ "--home-form-h": "26rem" } as React.CSSProperties}
-          className="flex w-full flex-col items-center justify-center gap-4 lg:flex-row lg:flex-wrap lg:items-stretch xl:grid xl:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]"
+          className={`flex w-full flex-col items-center justify-center ${v2 ? "gap-6" : "gap-4"} lg:flex-row lg:flex-wrap lg:items-stretch xl:grid xl:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]`}
         >
           {/* The groups, in what used to be an empty counterweight column: from
               xl the grid's left column, hugging the form from that side as the
@@ -580,401 +1027,65 @@ export default function Home() {
                 does. Below xl the wrapper is a flex row and the panel would
                 stretch anyway; h-full is harmless there, since a percentage
                 height against an auto-height parent simply resolves to auto. */}
-            <HomeGroupsPanel className="h-full lg:max-h-[var(--home-form-h)]" />
+            <HomeGroupsPanel className={`h-full lg:max-h-[var(--home-form-h)] ${v2 ? v2PanelClass : ""}`} />
           </div>
-          <main
-            ref={formRef}
-            className="w-full max-w-md rounded-2xl border border-black/10 bg-white p-5 shadow-sm sm:p-8 dark:border-white/10 dark:bg-zinc-950"
-          >
-            {/* The page's one h1, and it says what the page does rather than
-              what it is called. "GoLive" is already the wordmark in the header
-              above and the <title>'s tail, so spending the strongest heading
-              on the brand name meant the document never stated, anywhere in
-              its text, that this is a place to stream a screen to a group -
-              which is the thing people search for. */}
-            <h1 className="text-xl font-semibold tracking-tight text-zinc-950 sm:text-2xl dark:text-zinc-50">
-              {t("page.seoHeadline")}
-            </h1>
-            <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-              {t("page.shareYourScreenWithWhoeverIs")}
-            </p>
-            {/* Wrapped so the two sit side by side and wrap together on a
-              narrow screen — the download button renders nothing at all in
-              the app itself or on mobile, and the row collapses cleanly. */}
-            <div className={`mt-3 flex-wrap items-center gap-2 ${tabBar ? "hidden lg:flex" : "flex"}`}>
-              <Link
-                href="/rooms"
-                className="inline-flex items-center gap-1.5 rounded-lg border border-sky-300 px-3.5 py-2 text-sm font-medium text-sky-700 transition hover:border-sky-400 hover:bg-sky-100 dark:border-sky-700 dark:text-sky-300 dark:hover:border-sky-600 dark:hover:bg-sky-900"
+          {v2 ? (
+            // One column: the form, then the live count and the explore
+            // card. formRef measures the whole column, so the side panels
+            // cap themselves to it rather than to the form alone.
+            <div
+              ref={formRef as React.Ref<HTMLDivElement>}
+              className="flex w-full max-w-md flex-col gap-6"
+            >
+              {formCard}
+              {peopleOnline !== null && (
+                <section className="rounded-[28px] bg-[linear-gradient(120deg,#4f46e5_0%,#a21caf_55%,#f97316_100%)] p-[22px] text-white">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide">
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-300" />
+                    {t("home.v2Live")}
+                  </span>
+                  <p className="mt-3 text-[40px] font-extrabold leading-none tabular-nums tracking-tight">
+                    {peopleOnline.toLocaleString()}
+                  </p>
+                  <p className="mt-1 text-lg font-medium text-white/80">
+                    {tc("home.v2PeopleOnline", peopleOnline)}
+                  </p>
+                </section>
+              )}
+              <section
+                className={`flex-col rounded-[28px] bg-amber-400 p-[22px] text-zinc-950 ${tabBar ? "hidden lg:flex" : "flex"}`}
               >
-                <GlobeIcon className="h-4 w-4" />
-                {t("page.seePublicRooms")}
-              </Link>
-              {/* The same rooms, arranged by where their owners put them on the
-                globe instead of by headcount — see app/worldmap. Only ever public
-                ones, same as the list beside it. */}
-              <Tooltip content={t("page.findRoomsInYourCountryCity")}>
-                <Link
-                  href="/worldmap"
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-sky-300 px-3.5 py-2 text-sm font-medium text-sky-700 transition hover:border-sky-400 hover:bg-sky-100 dark:border-sky-700 dark:text-sky-300 dark:hover:border-sky-600 dark:hover:bg-sky-900"
-                >
-                  <MdOutlineMap className="h-4 w-4" />
-                  {t("page.seeTheRoomMap")}
-                </Link>
-              </Tooltip>
-            </div>
-            {banned ? (
-              <div className="mt-8 flex flex-col items-start gap-2">
-                <p className="text-sm font-medium text-red-600 dark:text-red-400">
-                  {state.bannedReason
-                    ? t("common.youHaveBeenBannedFromThe", { bannedReason: state.bannedReason })
-                    : t("page.youHaveBeenTemporarilyBannedFrom")}
-                </p>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  {t("common.ifYouThinkThisIsA")}{" "}
-                  <a
-                    href="https://discord.gg/nemtudo"
-                    target="_blank"
-                    className="font-medium text-blue-600 hover:text-blue-700 dark:text-blue-500 dark:hover:text-blue-400"
+                <h2 className="text-[28px] font-extrabold leading-tight tracking-tight">
+                  {t("home.v2Explore")}
+                </h2>
+                <div className="mt-3 flex flex-col gap-2">
+                  <Link
+                    href="/rooms"
+                    onClick={() => trackHomeEvent(HOME_REDESIGN_EVENTS.exploreClick)}
+                    className="flex h-12 items-center gap-3 rounded-2xl bg-zinc-950/10 px-4 text-base font-semibold transition hover:bg-zinc-950/15"
                   >
-                    {t("common.discordGgNemtudo")}
-                  </a>
-                </p>
-              </div>
-            ) : superseded ? (
-              <div className="mt-8 flex flex-col items-start gap-2">
-                <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                  {t("common.thisSessionWasOpenedInAnother")}
-                </p>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  {t("common.youCanOnlyStayConnectedWith")}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    // state.name is null when this tab never got as far as
-                    // registering, which is exactly the case that used to look
-                    // like an endless reconnect — so fall back to the name on
-                    // disk rather than leaving the button doing nothing.
-                    const name = state.name ?? getStoredName();
-                    if (name) signalingClient.register(name);
-                  }}
-                  className={secondaryButtonClass}
-                >
-                  {t("common.useThisTab")}
-                </button>
-              </div>
-            ) : restoring ? (
-              <div className="mt-8 flex flex-col items-start gap-2">
-                <p className="text-sm text-sky-500 dark:text-zinc-400">{t("common.connecting")}</p>
-                {stuckReconnecting && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        // Not a page reload: the socket is what is stuck, and
-                        // reloading would throw away everything else that is
-                        // already loaded to fix one connection.
-                        //
-                        // Through retryIdentity when there is an account, because
-                        // the socket is not always the stuck part: a register
-                        // that never went out (or was refused) leaves
-                        // signalingClient with no desired name, and reconnecting
-                        // a socket that will register nothing is a button that
-                        // does nothing. It calls retryNow() itself either way.
-                        if (account) void retryIdentity();
-                        else signalingClient.retryNow();
-                        setStuckReconnecting(false);
-                      }}
-                      className="rounded-lg border border-zinc-300 px-3.5 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
-                    >
-                      {t("common.tryAgain")}
-                    </button>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                      {t("page.itIsTakingLongerThanUsual")}
-                    </p>
-                  </>
-                )}
-              </div>
-            ) : !mounted ? (
-              // The one frame where a returning visitor still looks brand new
-              // (see `mounted`), sized so the layout does not jump when the real
-              // content lands.
-              //
-              // It says something, and it carries an escape hatch, because this
-              // is also the exact markup a visitor is left staring at if the page
-              // never hydrates — and a silent empty box is the worst possible
-              // thing to leave them with. The link is a plain anchor revealed by
-              // a CSS animation (see .reveal-when-stuck), so it works when no
-              // JavaScript on the page is running at all, which is precisely the
-              // situation it exists for.
-              <div className="mt-8 flex h-24 flex-col items-start gap-2">
-                <p className="text-sm text-zinc-500 dark:text-zinc-400">{t("common.loading2")}</p>
-                {/* eslint-disable-next-line @next/next/no-html-link-for-pages --
-                    A plain anchor on purpose. <Link> is client-side navigation,
-                    which needs the very JavaScript that has failed to arrive in
-                    the one situation this link exists for; it would render a
-                    control that does nothing. A real href does a full document
-                    load with no script involved at all. */}
-                <a href="/" className={`reveal-when-stuck ${linkButtonClass}`}>
-                  {t("page.itTookTooLongReloadThe")}
-                </a>
-              </div>
-            ) : oauthTicket ? (
-              <div className="mt-8">
-                <CompleteOAuthSignupForm
-                  ticket={oauthTicket.ticket}
-                  provider={oauthTicket.provider}
-                  suggestedUsername={oauthTicket.suggestedUsername}
-                  suggestedDisplayName={oauthTicket.suggestedDisplayName}
-                  onSuccess={resetIdentityForm}
-                  // Back to whichever form the user came from, not out of the
-                  // identity area entirely.
-                  onCancel={() => setOAuthTicket(null)}
-                />
-              </div>
-            ) : mode === "create" ? (
-              <CreateAccountForm
-                initialDisplayName={state.name ?? ""}
-                onSuccess={resetIdentityForm}
-                onCancel={resetIdentityForm}
-                onSwitchToLogin={() => setMode("login")}
-              />
-            ) : mode === "login" ? (
-              <LoginForm
-                onSuccess={resetIdentityForm}
-                onCancel={resetIdentityForm}
-                onSwitchToCreate={openCreateMode}
-                // Handled above rather than inside the form, so the username
-                // step takes over the whole identity area (same as a ticket
-                // coming from the landing buttons).
-                onTicket={setOAuthTicket}
-              />
-            ) : !registered ? (
-              <>
-                {/* The app has no guest mode — this shell is account-only, so
-                    offering the name box here would be a form whose only outcome
-                    is an identity the app doesn't offer. The two account buttons
-                    below it are the whole flow there. */}
-                {mode === "landing" && appShell && (
-                  <div className="mt-8 flex flex-col gap-3">
-                    <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                      {t("page.inTheAppYouNeedAn")}
-                    </p>
-                    {/* Signed in, but the signaling registration was refused —
-                        which lands right back on this screen and, until this
-                        existed, said nothing at all: the name box that shows
-                        state.nameError is the one thing the app doesn't render,
-                        so a login that "worked" looked like a login that
-                        silently did nothing, and trying again did nothing too.
-                        Now it says why and offers the retry. */}
-                    {account && state.nameError && (
-                      <div className="flex flex-col items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/5 p-3">
-                        <p className="text-sm text-red-500">{state.nameError}</p>
-                        <button
-                          type="button"
-                          disabled={retryingIdentity}
-                          onClick={() => {
-                            setRetryingIdentity(true);
-                            void retryIdentity().finally(() => setRetryingIdentity(false));
-                          }}
-                          className={`flex items-center gap-2 ${linkButtonClass}`}
-                        >
-                          {retryingIdentity && <ButtonSpinner />}
-                          {retryingIdentity ? t("common.joining") : t("common.tryAgain")}
-                        </button>
-                      </div>
-                    )}
-                    <button type="button" onClick={openCreateMode} className={primaryButtonClass}>
-                      {t("common.createAnAccount")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setMode("login")}
-                      className={`${linkButtonClass} self-center`}
-                    >
-                      {t("common.iAlreadyHaveAnAccount")}
-                    </button>
-                  </div>
-                )}
-                {mode === "landing" && !appShell && (
-                  <form onSubmit={handleGuestSubmit} className="mt-8 flex flex-col gap-3">
-                    <label htmlFor="name" className={labelClass}>
-                      {t("common.yourName")}
-                    </label>
-                    <div className="flex gap-2">
-                      <input
-                        id="name"
-                        ref={focusWithMouse}
-                        value={nameInput}
-                        onChange={(e) => setNameInput(e.target.value)}
-                        maxLength={24}
-                        placeholder={t("common.exMaria")}
-                        className={`min-w-0 flex-1 ${inputClass}`}
-                      />
-                      <button
-                        type="submit"
-                        disabled={!nameInput.trim()}
-                        className={`shrink-0 ${primaryButtonClass}`}
-                      >
-                        {t("common.continue")}
-                      </button>
-                    </div>
-                    {state.nameError && <p className="text-sm text-red-500">{state.nameError}</p>}
-                    <button type="button" onClick={openCreateMode} className={secondaryButtonClass}>
-                      {t("common.createAnAccount")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setMode("login")}
-                      className={`${linkButtonClass} self-center`}
-                    >
-                      {t("common.iAlreadyHaveAnAccount")}
-                    </button>
-                  </form>
-                )}
-                {/* The highest-value spot for these: someone landing here with
-                  no account gets in with one click, skipping both the guest
-                  name and the signup form. */}
-                {mode === "landing" && (
-                  <div className="mt-3">
-                    <OAuthButtons onSuccess={resetIdentityForm} onTicket={setOAuthTicket} />
-                  </div>
-                )}
-              </>
-            ) : (
-              <form onSubmit={handleRoomSubmit} className="mt-8 flex flex-col gap-3">
-                {/* Last rooms this browser was in. Hidden when empty so a first
-                  visit doesn't grow the form for nothing — see RecentRooms. */}
-                <RecentRooms />
-                {/* Public/private as two visible options rather than a
-                  checkbox under the name field: the choice changes what the
-                  form even asks for, so it belongs above the fields it
-                  governs instead of below them. */}
-                <span className={labelClass}>{t("page.whatKindOfRoom")}</span>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => switchRoomMode("public")}
-                    aria-pressed={roomMode === "public"}
-                    className={roomTabClass(roomMode === "public")}
+                    <MdPublic className="h-5 w-5 shrink-0" aria-hidden="true" />
+                    <span className="flex-1">{t("page.seePublicRooms")}</span>
+                    <MdChevronRight className="h-5 w-5 shrink-0" aria-hidden="true" />
+                  </Link>
+                  <Link
+                    href="/worldmap"
+                    onClick={() => trackHomeEvent(HOME_REDESIGN_EVENTS.exploreClick)}
+                    className="flex h-12 items-center gap-3 rounded-2xl bg-zinc-950/10 px-4 text-base font-semibold transition hover:bg-zinc-950/15"
                   >
-                    <GlobeIcon className="h-4 w-4 shrink-0" />
-                    {t("page.public")}
-                  </button>
-                  {/* Lands on "Entrar em sala" — someone who was handed a link
-                    or a code is the common arrival here, and creating is the
-                    one click away that a first-timer is already looking for. */}
-                  <button
-                    type="button"
-                    onClick={() => switchRoomMode("private-join")}
-                    aria-pressed={roomMode !== "public"}
-                    className={roomTabClass(roomMode !== "public")}
-                  >
-                    <MdLock className="h-4 w-4 shrink-0" />
-                    {t("page.private")}
-                  </button>
+                    <MdOutlineMap className="h-5 w-5 shrink-0" aria-hidden="true" />
+                    <span className="flex-1">{t("page.seeTheRoomMap")}</span>
+                    <MdChevronRight className="h-5 w-5 shrink-0" aria-hidden="true" />
+                  </Link>
                 </div>
-
-                {/* Only private rooms split into create/join — a public room
-                  needs no such distinction, since its name alone is enough to
-                  both find it and make it. */}
-                {roomMode !== "public" && (
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => switchRoomMode("private-join")}
-                      aria-pressed={roomMode === "private-join"}
-                      className={roomTabClass(roomMode === "private-join")}
-                    >
-                      {t("page.joinARoom")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => switchRoomMode("private-create")}
-                      aria-pressed={roomMode === "private-create"}
-                      className={roomTabClass(roomMode === "private-create")}
-                    >
-                      {t("page.createRoom")}
-                    </button>
-                  </div>
-                )}
-
-                <label htmlFor="room" className={labelClass}>
-                  {t("common.roomName")}
-                </label>
-                {/* One field, always. For "Entrar em sala" the code is just the
-                  tail of what's typed here ("familia-123456") — the same
-                  string someone reads off a link, rather than a second box to
-                  split it into. */}
-                <input
-                  id="room"
-                  ref={focusWithMouse}
-                  value={roomInput}
-                  onChange={(e) => setRoomInput(e.target.value)}
-                  // Long enough to hold a pasted link on the two modes that
-                  // accept one. At 32 a URL was silently cut mid-paste, which
-                  // is the worst way for this to fail: the field looks filled
-                  // in and the error talks about invalid characters.
-                  maxLength={
-                    roomMode === "private-create" ? MAX_PRIVATE_ROOM_NAME_LENGTH : 200
-                  }
-                  placeholder={
-                    roomMode === "private-join"
-                      ? t("page.exFamily123456OrLink")
-                      : t("page.exTeamMeetingOrLink")
-                  }
-                  className={inputClass}
-                />
-
-                {/* One line explaining what this mode is about to do, where the
-                  old form had a parenthetical about the public list. */}
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  {roomMode === "public" ? (
-                    <>{t("page.itAppearsInThePublicRoom")}</>
-                  ) : roomMode === "private-create" ? (
-                    <>
-                      {t("page.weGenerateACodeOf")} {ROOM_CODE_LENGTH} {t("page.digitsAndItBecomesPartOf")}
-                    </>
-                  ) : ENFORCE_NEW_ROOM_CODE_SYSTEM ? (
-                    <>{t("page.pasteTheNameWithTheCode")}</>
-                  ) : (
-                    // While the code scheme isn't enforced, a room from before
-                    // it exists has no code to type — so this can't read as if
-                    // one were mandatory.
-                    <>{t("page.pasteTheRoomNameWithThe")}</>
-                  )}
-                </p>
-
-                {roomError && <p className="text-sm text-red-500">{roomError}</p>}
-                <button
-                  type="submit"
-                  disabled={!roomInput.trim() || checkingRoom || navigating}
-                  className={`mt-2 flex items-center justify-center gap-2 ${primaryButtonClass}`}
-                >
-                  {(checkingRoom || navigating) && <ButtonSpinner />}
-                  {roomMode === "private-create"
-                    ? t("page.createPrivateRoom")
-                    : roomMode === "private-join"
-                      ? checkingRoom
-                        ? t("common.checking")
-                        : t("common.joinTheRoom")
-                      : // Public: entering and creating are the same click, so
-                      // the label is the only thing that tells someone which
-                      // of the two they're about to do. "Criar sala" is the
-                      // resting state and only a confirmed hit flips it —
-                      // typing a name nobody has used is the common case, and
-                      // promising "Entrar" before the lookup lands would walk
-                      // that back a moment later on most names.
-                      publicRoomExists === true
-                        ? t("common.joinTheRoom")
-                        : t("page.createRoom")}
-                </button>
-              </form>
-            )}
-          </main>
+              </section>
+            </div>
+          ) : (
+            formCard
+          )}
           {/* Hard against the start of its column, so it stays beside the form
               instead of drifting to the right edge on a wide screen. */}
-          <HomeFriendsPanel className="h-full lg:max-h-[var(--home-form-h)] xl:justify-self-start" />
+          <HomeFriendsPanel className={`h-full lg:max-h-[var(--home-form-h)] xl:justify-self-start ${v2 ? v2PanelClass : ""}`} />
         </div>
         {/* No heading on this one: the home page is a form someone came here to
           fill in, and three handles under it explain themselves. */}

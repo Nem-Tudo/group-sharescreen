@@ -13,6 +13,8 @@ import {
   CAMERA_FACES,
   CAMERA_FACES_3D,
   CAMERA_REACTIONS,
+  CAMERA_WARP_FEATURE,
+  CAMERA_WARPS,
   setCameraEffect,
   useCameraEffectSettings,
   useCameraEffectsStatus,
@@ -51,6 +53,18 @@ const FACE_ICONS: Record<CameraEffectSettings["face"], string> = {
   glasses3d: "🕶️",
   tophat3d: "🎩",
   viking3d: "🪖",
+};
+
+const WARP_ICONS: Record<CameraEffectSettings["warp"], string> = {
+  none: "",
+  sad: "😢",
+  angry: "😠",
+  happy: "😁",
+  surprised: "😲",
+  fat: "🍔",
+  thin: "🥢",
+  bigeyes: "👀",
+  bighead: "🎈",
 };
 
 const BACKGROUND_SWATCHES: Record<CameraEffectSettings["background"], string> = {
@@ -130,6 +144,8 @@ export function CameraEffectsSheet({
   // Exposure for "camera-effects-3d", as in the panel: the sheet is only
   // mounted while open.
   const has3d = useFeature(CAMERA_EFFECTS_3D_FEATURE, { track: true }).enabled;
+  // And for "camera-warp".
+  const hasWarp = useFeature(CAMERA_WARP_FEATURE, { track: true }).enabled;
   const [tab, setTab] = useState<Tab>("face");
   const video = useRef<HTMLVideoElement>(null);
 
@@ -157,6 +173,7 @@ export function CameraEffectsSheet({
 
   const tabs: { key: Tab; label: string }[] = [
     { key: "face", label: t("watch.watchRoom.cameraEffectFace") },
+    ...(hasWarp ? [{ key: "warp" as const, label: t("watch.watchRoom.cameraEffectWarp") }] : []),
     { key: "background", label: t("watch.watchRoom.cameraEffectBackground") },
     { key: "color", label: t("watch.watchRoom.cameraEffectColor") },
     ...(has3d ? [{ key: "reactions" as const, label: t("watch.watchRoom.cameraEffectReactions") }] : []),
@@ -242,6 +259,16 @@ export function CameraEffectsSheet({
               {(has3d ? [...CAMERA_FACES, ...CAMERA_FACES_3D] : CAMERA_FACES).map((face) => (
                 <Tile key={face} selected={settings.face === face} label={label("face", face)} onClick={() => pick("face", face)}>
                   {face === "none" ? NONE_ICON : FACE_ICONS[face]}
+                </Tile>
+              ))}
+            </div>
+          )}
+
+          {tab === "warp" && hasWarp && (
+            <div className="grid grid-cols-4 gap-2">
+              {CAMERA_WARPS.map((warp) => (
+                <Tile key={warp} selected={settings.warp === warp} label={label("warp", warp)} onClick={() => pick("warp", warp)}>
+                  {warp === "none" ? NONE_ICON : WARP_ICONS[warp]}
                 </Tile>
               ))}
             </div>

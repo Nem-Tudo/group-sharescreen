@@ -153,6 +153,7 @@ import {
 import { createPhoneCameraPlaceholder, isPhoneCameraPlaceholder } from "./phoneCameraPlaceholder";
 import {
   CAMERA_EFFECTS_3D_FEATURE,
+  CAMERA_WARP_FEATURE,
   CUSTOM_BG_FREE_FEATURE,
   canUseCustomBackground,
   useCameraEffectsSupported,
@@ -4265,6 +4266,8 @@ export function useRoomMedia(room: string) {
   // The 3D faces only for whoever is in "camera-effects-3d" (see
   // effectiveCameraEffects); exposure is counted where they are offered.
   const allowCameraEffects3d = useFeature(CAMERA_EFFECTS_3D_FEATURE, { track: false }).enabled;
+  // The warps likewise, for "camera-warp".
+  const allowCameraWarp = useFeature(CAMERA_WARP_FEATURE, { track: false }).enabled;
   const storedCameraEffects = useCameraEffectSettings();
   // The custom background only on the plan for it, and only with an image.
   const customCameraBackground = useCustomCameraBackground();
@@ -4274,8 +4277,9 @@ export function useRoomMedia(room: string) {
   // Safari's answer comes in after the first render (see cameraEffectsSupported).
   const cameraEffectsCanRun = useCameraEffectsSupported();
   const cameraEffectSettings = useMemo(
-    () => effectiveCameraEffects(storedCameraEffects, allowCameraEffects3d, allowCustomCameraBackground),
-    [storedCameraEffects, allowCameraEffects3d, allowCustomCameraBackground]
+    () =>
+      effectiveCameraEffects(storedCameraEffects, allowCameraEffects3d, allowCustomCameraBackground, allowCameraWarp),
+    [storedCameraEffects, allowCameraEffects3d, allowCustomCameraBackground, allowCameraWarp]
   );
   const wantedCameraEffects = useMemo(
     () =>

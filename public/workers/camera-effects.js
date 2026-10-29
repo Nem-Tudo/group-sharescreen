@@ -12,7 +12,8 @@
 // MediaPipe (face landmarks, selfie segmentation) is loaded from the CDN the
 // first time an effect that needs it is picked, and only that model: blur
 // never downloads the face model, a dog nose never downloads the segmenter.
-// Three.js likewise, only for the 3D objects (see the end of the file).
+// Three.js likewise, only for the 3D objects (see the end of the file). The
+// warps need the face model and a WebGL context of their own, nothing else.
 // Until it is ready, frames go through untouched instead of waiting.
 //
 // A classic worker, not a module one: MediaPipe loads its WASM glue with
@@ -180,13 +181,17 @@ function readiness() {
 
 function wants(kind) {
   if (!settings) return false;
-  if (kind === "face") return settings.face !== "none" || settings.reactions === "on";
+  if (kind === "face") return settings.face !== "none" || settings.reactions === "on" || wantsWarp();
   if (kind === "hand") return settings.reactions === "on";
   return settings.background !== "none";
 }
 
 function wants3d() {
   return Boolean(settings && FACES_3D.has(settings.face));
+}
+
+function wantsWarp() {
+  return Boolean(settings && settings.warp && settings.warp !== "none");
 }
 
 function ensureTasks() {
@@ -287,6 +292,7 @@ function startPipeline(id, readable, writable) {
     handTick: 0,
     handState: { thumbFrames: 0, lastThumb: 0, lastClap: 0, apartAt: 0, pair: null },
     render3dFailed: false,
+    warpFailed: false,
     missed: 0,
     frameIndex: 0,
     detectEvery: 1,
@@ -318,7 +324,8 @@ function needsDrawing() {
       (settings.face !== "none" ||
         settings.background !== "none" ||
         settings.color !== "none" ||
-        settings.reactions === "on")
+        settings.reactions === "on" ||
+        wantsWarp())
   );
 }
 
@@ -373,6 +380,7 @@ function reportStats(pipeline) {
       detectMs: pipeline.detectCost,
       detectEvery: pipeline.detectEvery,
       fx3d: Boolean(settings && (FACES_3D.has(settings.face) || settings.reactions === "on")),
+      warp: wantsWarp(),
     });
   }
   pipeline.statsSince = now;
@@ -462,7 +470,8 @@ function render(p, rawFrame) {
 
   const segmenter = s.background !== "none" ? tasks.segment.task : null;
   const reacting = s.reactions === "on";
-  const landmarker = s.face !== "none" || reacting ? tasks.face.task : null;
+  const warp = wantsWarp() ? s.warp : null;
+  const landmarker = s.face !== "none" || reacting || warp ? tasks.face.task : null;
   // Hands every other detection: a clap or a thumb is slower than a blink.
   const hander = reacting ? tasks.hand.task : null;
   if (!segmenter) p.hasMask = false;
@@ -492,6 +501,8 @@ function render(p, rawFrame) {
     if (s.background === "blur") drawBlurredBackground(p, frame, color, width, height);
     else drawReplacedBackground(p, s.background, color, width, height);
   }
+  // The face moved first, so whatever is drawn on it sits on top.
+  if (landmarker && warp) drawWarp(ctx, p, warp, width, height);
   if (landmarker) for (const face of p.faces) drawFace(ctx, s.face, face);
   if (landmarker && FACES_3D.has(s.face)) draw3d(ctx, p, s.face, width, height);
   if (reacting) {
@@ -622,7 +633,9 @@ function dist(a, b) {
 // MediaPipe's face mesh: 10 top of the forehead, 152 chin, 234/454 the sides
 // of the face, 33/133 and 263/362 the corners of each eye, 1 the tip of the
 // nose, 13/14 the inside of the lips, 164/0 the philtrum and the top of the
-// upper lip, 205/425 the cheeks. The `3` ones keep depth, for the 3D objects;
+// upper lip, 205/425 the cheeks, 61/291 the corners of the mouth, 107/70 and
+// 336/300 the inner and outer ends of each eyebrow (on the side of 33 and of
+// 263, in that order). The `3` ones keep depth, for the 3D objects;
 // `raw` is the expressions, left out of the smoothing (a blink is over in a
 // frame or two, and averaged it would never register).
 function anchorsOf(landmarks, width, height, blendshapes) {
@@ -647,6 +660,15 @@ function anchorsOf(landmarks, width, height, blendshapes) {
     eyeCenter: mid(eyeLeft, eyeRight),
     cheekLeft: at(205),
     cheekRight: at(425),
+    chin,
+    eyeOuterLeft: at(33),
+    eyeOuterRight: at(263),
+    mouthLeft: at(61),
+    mouthRight: at(291),
+    browInnerLeft: at(107),
+    browOuterLeft: at(70),
+    browInnerRight: at(336),
+    browOuterRight: at(300),
     eye3Left: mid3(at3(33), at3(133)),
     eye3Right: mid3(at3(263), at3(362)),
     top3: at3(10),
@@ -1659,6 +1681,232 @@ function starPath(ctx, r) {
     ctx.lineTo(Math.cos(a) * radius, Math.sin(a) * radius);
   }
   ctx.closePath();
+}
+
+// ---------------------------------------------------------------------------
+// Warps (experiment "camera-warp")
+//
+// Nothing drawn: the picture itself is pushed around the face's landmarks.
+// Each warp is a short list of operations in the face's own frame (x along
+// the eyes, y down the face, lengths in face widths), each with an elliptic
+// reach that fades to nothing at its edge:
+//
+//   scale: what is inside grows (or shrinks) by kx, ky towards its centre
+//   shift: what is at the centre is carried by (dx, dy)
+//
+// A fragment shader maps every output pixel back to where it is read from in
+// the frame (so there are no holes), running the operations one after the
+// other. Only the box the operations reach is drawn and copied back; the
+// rest of the frame is left as the 2D canvas has it. Strengths are kept low
+// enough that the mapping never folds over itself (a scale under ~1.7, a
+// shift under ~0.6 of its reach).
+
+const WARP_OPS_MAX = 32;
+
+const WARP_VERTEX = `
+attribute vec2 aPos;
+void main() {
+  gl_Position = vec4(aPos, 0.0, 1.0);
+}
+`;
+
+// uA: centre x, y and reach x, y (pixels). uB: kind (0 scale, 1 shift), the
+// two parameters (1/kx, 1/ky for a scale; dx, dy in pixels for a shift), and
+// the face's angle.
+const WARP_FRAGMENT = `
+precision highp float;
+uniform sampler2D uFrame;
+uniform vec2 uSize;
+uniform int uCount;
+uniform vec4 uA[${WARP_OPS_MAX}];
+uniform vec4 uB[${WARP_OPS_MAX}];
+void main() {
+  vec2 p = vec2(gl_FragCoord.x, uSize.y - gl_FragCoord.y);
+  for (int i = 0; i < ${WARP_OPS_MAX}; i++) {
+    if (i >= uCount) break;
+    vec4 a = uA[i];
+    vec4 b = uB[i];
+    float c = cos(b.w);
+    float s = sin(b.w);
+    vec2 d = p - a.xy;
+    vec2 local = vec2(c * d.x + s * d.y, -s * d.x + c * d.y);
+    vec2 n = local / a.zw;
+    float e = dot(n, n);
+    if (e >= 1.0) continue;
+    float f = (1.0 - e) * (1.0 - e);
+    if (b.x < 0.5) local *= mix(vec2(1.0), b.yz, f);
+    else local -= b.yz * f;
+    p = a.xy + vec2(c * local.x - s * local.y, s * local.x + c * local.y);
+  }
+  gl_FragColor = texture2D(uFrame, clamp(p / uSize, vec2(0.0), vec2(1.0)));
+}
+`;
+
+let warpGl = null;
+
+function compileWarp(g, type, source) {
+  const shader = g.createShader(type);
+  g.shaderSource(shader, source);
+  g.compileShader(shader);
+  if (!g.getShaderParameter(shader, g.COMPILE_STATUS)) throw new Error(g.getShaderInfoLog(shader) || "shader");
+  return shader;
+}
+
+function ensureWarpGl(width, height) {
+  if (!warpGl) {
+    const canvas = new OffscreenCanvas(width, height);
+    const g = canvas.getContext("webgl", {
+      alpha: false,
+      antialias: false,
+      depth: false,
+      premultipliedAlpha: false,
+      preserveDrawingBuffer: true,
+    });
+    if (!g) throw new Error("no webgl");
+    const program = g.createProgram();
+    g.attachShader(program, compileWarp(g, g.VERTEX_SHADER, WARP_VERTEX));
+    g.attachShader(program, compileWarp(g, g.FRAGMENT_SHADER, WARP_FRAGMENT));
+    g.linkProgram(program);
+    if (!g.getProgramParameter(program, g.LINK_STATUS)) throw new Error(g.getProgramInfoLog(program) || "link");
+    g.useProgram(program);
+    const quad = g.createBuffer();
+    g.bindBuffer(g.ARRAY_BUFFER, quad);
+    g.bufferData(g.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), g.STATIC_DRAW);
+    const aPos = g.getAttribLocation(program, "aPos");
+    g.enableVertexAttribArray(aPos);
+    g.vertexAttribPointer(aPos, 2, g.FLOAT, false, 0, 0);
+    const texture = g.createTexture();
+    g.bindTexture(g.TEXTURE_2D, texture);
+    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_S, g.CLAMP_TO_EDGE);
+    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_T, g.CLAMP_TO_EDGE);
+    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MIN_FILTER, g.LINEAR);
+    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MAG_FILTER, g.LINEAR);
+    g.enable(g.SCISSOR_TEST);
+    warpGl = {
+      canvas,
+      g,
+      uSize: g.getUniformLocation(program, "uSize"),
+      uCount: g.getUniformLocation(program, "uCount"),
+      uA: g.getUniformLocation(program, "uA"),
+      uB: g.getUniformLocation(program, "uB"),
+      a: new Float32Array(WARP_OPS_MAX * 4),
+      b: new Float32Array(WARP_OPS_MAX * 4),
+    };
+  }
+  if (warpGl.canvas.width !== width || warpGl.canvas.height !== height) {
+    warpGl.canvas.width = width;
+    warpGl.canvas.height = height;
+  }
+  return warpGl;
+}
+
+// The operations of one warp on one face, in face widths (see above). `side`
+// is -1 on the side of landmark 33 and 1 on the other, so "outwards" is
+// side * something.
+function warpOps(kind, f) {
+  const ops = [];
+  const scale = (c, rx, ry, kx, ky) => ops.push({ c, rx, ry, kind: 0, p: 1 / kx, q: 1 / ky });
+  const shift = (c, r, dx, dy) => ops.push({ c, rx: r, ry: r, kind: 1, p: dx, q: dy });
+  const sides = [
+    { side: -1, eye: f.eyeLeft, eyeOuter: f.eyeOuterLeft, mouth: f.mouthLeft, browIn: f.browInnerLeft, browOut: f.browOuterLeft, cheek: f.cheekLeft },
+    { side: 1, eye: f.eyeRight, eyeOuter: f.eyeOuterRight, mouth: f.mouthRight, browIn: f.browInnerRight, browOut: f.browOuterRight, cheek: f.cheekRight },
+  ];
+  const mouth = mid(f.lipTop, f.lipBottom);
+  if (kind === "sad") {
+    for (const s of sides) {
+      shift(s.mouth, 0.22, -s.side * 0.01, 0.11);
+      shift(s.browIn, 0.14, -s.side * 0.01, -0.06);
+      shift(s.browOut, 0.14, 0, 0.045);
+      shift(s.eyeOuter, 0.1, 0, 0.025);
+    }
+  } else if (kind === "angry") {
+    for (const s of sides) {
+      shift(s.browIn, 0.17, -s.side * 0.045, 0.09);
+      shift(s.browOut, 0.15, 0, -0.05);
+      scale(s.eye, 0.14, 0.1, 1, 0.85);
+      shift(s.mouth, 0.18, 0, 0.06);
+    }
+    scale(f.nose, 0.14, 0.12, 1.2, 1);
+  } else if (kind === "happy") {
+    for (const s of sides) {
+      shift(s.mouth, 0.2, s.side * 0.03, -0.075);
+      scale(s.cheek, 0.16, 0.16, 1.12, 1.12);
+      scale(s.eye, 0.14, 0.1, 1, 0.9);
+    }
+  } else if (kind === "surprised") {
+    for (const s of sides) {
+      shift(mid(s.browIn, s.browOut), 0.2, 0, -0.07);
+      scale(s.eye, 0.15, 0.13, 1.1, 1.35);
+    }
+    scale(mouth, 0.2, 0.15, 0.8, 1.3);
+  } else if (kind === "fat") {
+    scale(f.nose, 0.9, 1, 1.55, 1.03);
+    for (const s of sides) scale(s.cheek, 0.2, 0.2, 1.15, 1.15);
+    scale(f.chin, 0.6, 0.38, 1.4, 1.2);
+  } else if (kind === "thin") {
+    scale(f.nose, 0.85, 1, 0.68, 1.03);
+    for (const s of sides) scale(s.cheek, 0.18, 0.18, 0.9, 0.9);
+    scale(f.chin, 0.45, 0.3, 0.82, 1.05);
+  } else if (kind === "bigeyes") {
+    for (const s of sides) scale(s.eye, 0.3, 0.26, 2.4, 2.4);
+    scale(mouth, 0.22, 0.14, 0.8, 0.8);
+  } else if (kind === "bighead") {
+    scale(mid(f.top, f.chin), 0.95, 1.15, 1.35, 1.35);
+  }
+  return ops;
+}
+
+function drawWarp(ctx, p, kind, width, height) {
+  if (p.warpFailed || p.faces.length === 0) return;
+  try {
+    const w = ensureWarpGl(width, height);
+    let count = 0;
+    let x0 = width;
+    let y0 = height;
+    let x1 = 0;
+    let y1 = 0;
+    for (const face of p.faces) {
+      if (!face.mouthLeft) continue;
+      const size = face.size;
+      for (const op of warpOps(kind, face)) {
+        if (count >= WARP_OPS_MAX) break;
+        const rx = op.rx * size;
+        const ry = op.ry * size;
+        const p1 = op.kind === 1 ? op.p * size : op.p;
+        const p2 = op.kind === 1 ? op.q * size : op.q;
+        w.a.set([op.c.x, op.c.y, rx, ry], count * 4);
+        w.b.set([op.kind, p1, p2, face.angle], count * 4);
+        count += 1;
+        // Whatever the angle, the ellipse stays inside the circle of its
+        // longer reach (and a shift reads from that far away, too).
+        const reach = Math.max(rx, ry) + (op.kind === 1 ? Math.hypot(p1, p2) : 0);
+        x0 = Math.min(x0, op.c.x - reach);
+        y0 = Math.min(y0, op.c.y - reach);
+        x1 = Math.max(x1, op.c.x + reach);
+        y1 = Math.max(y1, op.c.y + reach);
+      }
+    }
+    if (count === 0) return;
+    x0 = Math.max(0, Math.floor(x0));
+    y0 = Math.max(0, Math.floor(y0));
+    x1 = Math.min(width, Math.ceil(x1));
+    y1 = Math.min(height, Math.ceil(y1));
+    if (x1 <= x0 || y1 <= y0) return;
+    const g = w.g;
+    g.viewport(0, 0, width, height);
+    // The GL's y goes up from the bottom.
+    g.scissor(x0, height - y1, x1 - x0, y1 - y0);
+    g.texImage2D(g.TEXTURE_2D, 0, g.RGBA, g.RGBA, g.UNSIGNED_BYTE, p.canvas);
+    g.uniform2f(w.uSize, width, height);
+    g.uniform1i(w.uCount, count);
+    g.uniform4fv(w.uA, w.a);
+    g.uniform4fv(w.uB, w.b);
+    g.drawArrays(g.TRIANGLE_STRIP, 0, 4);
+    ctx.drawImage(w.canvas, x0, y0, x1 - x0, y1 - y0, x0, y0, x1 - x0, y1 - y0);
+  } catch (err) {
+    p.warpFailed = true;
+    self.postMessage({ type: "error", kind: "warp", reason: String((err && err.message) || err).slice(0, 120) });
+  }
 }
 
 // ---------------------------------------------------------------------------

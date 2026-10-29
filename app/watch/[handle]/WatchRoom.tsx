@@ -174,7 +174,10 @@ import { ToolMediaTileById } from "@/components/roomTools/ToolMediaTile";
 import { ToolPipLabel } from "@/components/roomTools/ToolPip";
 import { ChatToolsStrip, PollCreateDialog } from "@/components/roomTools/ChatToolsStrip";
 import { HandsQueue, RaiseHandButton } from "@/components/roomTools/HandRaise";
-import { MdAutoAwesome, MdBackHand, MdHandyman, MdPoll } from "react-icons/md";
+import { MdAutoAwesome, MdBackHand, MdCloseFullscreen, MdHandyman, MdOpenInFull, MdPoll } from "react-icons/md";
+import { MOBILE_CHAT_EVENTS, MOBILE_CHAT_FEATURE, trackMobileChatEvent } from "@/lib/mobileChat";
+import { useSoftKeyboardOpen } from "@/lib/mobileShell";
+import { NotificationBell } from "@/components/NotificationBell";
 import { VideoSourceTile } from "@/components/VideoSourceTile";
 import {
   videoSourceVolumeKey,
@@ -236,6 +239,7 @@ import {
   usePhoneCamera,
 } from "@/lib/phoneCamera";
 import { trackFeatureEvent, useFeature } from "@/lib/features";
+import { ROOM_REDESIGN_EVENTS, ROOM_REDESIGN_FEATURE, trackRoomRedesignEvent } from "@/lib/roomRedesign";
 import type { CallSource } from "@/lib/callRecording";
 import { CALL_RECORDING_FEATURE, trackCallRecordingOpen, useCallRecording } from "@/lib/useCallRecording";
 import { CallRecordButton, CallRecordingModal } from "@/components/CallRecordingModal";
@@ -1605,8 +1609,10 @@ const DOCK_TAB_IDLE =
 // change a single row of chat. Each of these subscribes to its own slice and
 // re-renders alone. See selectWatchRoom.
 
-const sendChatMessage = (text: string, replyTo?: Parameters<typeof signalingClient.sendChatMessage>[1]) =>
-  signalingClient.sendChatMessage(text, replyTo);
+const sendChatMessage = (text: string, replyTo?: Parameters<typeof signalingClient.sendChatMessage>[1]) => {
+  trackRoomRedesignEvent(ROOM_REDESIGN_EVENTS.chatSend);
+  return signalingClient.sendChatMessage(text, replyTo);
+};
 const setChatTyping = (typing: boolean) => signalingClient.setTyping(typing);
 const NO_TYPING: string[] = [];
 
@@ -1890,6 +1896,22 @@ function WatchRoomView({
   // to the room, and a call carried around the site must not repaint the page
   // somebody walked off to read.
   const roomTheme = useRoomTheme(state.roomTheme, viewThemeId, !group && visible);
+  // The room redesign (lib/roomRedesign): a scoped layer in globals.css keyed
+  // off data-room-redesign below. Not in a direct call, which is drawn inside
+  // a conversation's card and is not this page's look to change. Exposure
+  // only while the room is the page on screen.
+  const roomRedesign =
+    useFeature(ROOM_REDESIGN_FEATURE, { track: visible && !callLayout }).enabled && !callLayout;
+  // The popovers and modals the room opens are portalled outside its page
+  // element, so the redesign's layer in globals.css finds them through this
+  // mark on <html> — only while the room is the page on screen, so a docked
+  // call does not restyle whatever page somebody walked off to.
+  useEffect(() => {
+    if (!roomRedesign || !visible) return;
+    const root = document.documentElement;
+    root.setAttribute("data-room-redesign-on", "");
+    return () => root.removeAttribute("data-room-redesign-on");
+  }, [roomRedesign, visible]);
   // Whether this browser refuses room themes (see the toggle in the menu). Read
   // here as well as inside the hook, because the row has to draw its own state.
   const roomThemeOptedOut = useSyncExternalStore(
@@ -2387,6 +2409,17 @@ function WatchRoomView({
   // lg up, where the list and the chat each have a permanent column.
   const [mobilePanel, setMobilePanel] = useState<MobilePanel | null>(null);
   const [mobileExtraMenuOpen, setMobileExtraMenuOpen] = useState(false);
+  // The phone chat sheet of the room redesign (lib/mobileChat): two heights,
+  // and full by itself while the keyboard is up, with the bottom bar hidden
+  // behind it. Exposure is counted where the redesign itself is read.
+  const mobileChatV2 =
+    useFeature(MOBILE_CHAT_FEATURE, { track: false }).enabled && !isWideLayout;
+  const [mobileSheetFull, setMobileSheetFull] = useState(false);
+  const softKeyboardOpen = useSoftKeyboardOpen();
+  const chatComposing = mobileChatV2 && softKeyboardOpen && mobilePanel === "chat";
+  const sheetFull = mobileChatV2 && (mobileSheetFull || chatComposing);
+  // Where the touch on the sheet began: only its top drags it up.
+  const panelGrabStart = useRef(false);
   const mobileDrawerTouchStartY = useRef<number | null>(null);
 
   // Permite fechar o painel mobile (Chat e Pessoas) puxando para baixo
@@ -2396,6 +2429,7 @@ function WatchRoomView({
   function closeMobilePanel(callback?: () => void) {
     if (panelClosingRef.current) return;
     const section = mobilePanelRef.current;
+    setMobileSheetFull(false);
     if (!section) {
       setMobilePanel(null);
       callback?.();
@@ -2424,6 +2458,8 @@ function WatchRoomView({
       closeMobilePanel();
     } else {
       panelClosingRef.current = false;
+      if (panel === "chat") trackMobileChatEvent(MOBILE_CHAT_EVENTS.open);
+      setMobileSheetFull(false);
       setMobilePanel(panel);
     }
   }
@@ -2476,6 +2512,7 @@ function WatchRoomView({
 
     const target = e.target as HTMLElement | null;
     const isGrabHandle = Boolean(target?.closest("[data-panel-grab-handle]"));
+    panelGrabStart.current = isGrabHandle;
 
     if (isGrabHandle) {
       panelScrollElement.current = null;
@@ -2506,6 +2543,9 @@ function WatchRoomView({
     const touch = e.touches[0];
     const deltaY = touch.clientY - panelTouchStartY.current;
     const deltaX = touch.clientX - panelTouchStartX.current;
+
+    // Pulled up by its top: the size changes on release (see TouchEnd).
+    if (deltaY < 0 && mobileChatV2 && panelGrabStart.current) return;
 
     // Se estiver subindo ou neutro
     if (deltaY <= 0) {
@@ -2548,6 +2588,27 @@ function WatchRoomView({
     // Fecha se arrastou mais de 60px para baixo OU swipe rápido (>25px com velocidade > 0.35)
     const shouldClose = panelIsDragging.current && (deltaY > 60 || (velocity > 0.35 && deltaY > 25));
     panelIsDragging.current = false;
+    const grabbed = panelGrabStart.current;
+    panelGrabStart.current = false;
+
+    // Room redesign: up by the top goes full; down from full comes back to
+    // half (and puts the keyboard away) instead of closing outright.
+    if (mobileChatV2 && grabbed && deltaY < -40 && !sheetFull) {
+      setMobileSheetFull(true);
+      trackMobileChatEvent(MOBILE_CHAT_EVENTS.expand);
+      return;
+    }
+    if (mobileChatV2 && shouldClose && sheetFull) {
+      if (chatComposing && document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      setMobileSheetFull(false);
+      section.style.transition = "transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)";
+      section.style.transform = "translateY(0px)";
+      setTimeout(() => {
+        section.style.transform = "";
+        section.style.transition = "";
+      }, 200);
+      return;
+    }
 
     if (shouldClose) {
       closeMobilePanel();
@@ -2820,6 +2881,7 @@ function WatchRoomView({
         });
       }
       trackEvent("left_sidebar_toggle", { collapsed: next });
+      trackRoomRedesignEvent(ROOM_REDESIGN_EVENTS.sidebarToggle);
       return next;
     });
   }, [hasAnyMedia, rawActivePartner, activePartnerAd, partnerAdHidden]);
@@ -2830,6 +2892,7 @@ function WatchRoomView({
       if (!hasAnyMedia && !prev) return prev;
       const next = !prev;
       trackEvent("right_sidebar_toggle", { collapsed: next });
+      trackRoomRedesignEvent(ROOM_REDESIGN_EVENTS.sidebarToggle);
       return next;
     });
   }, [hasAnyMedia]);
@@ -3034,6 +3097,7 @@ function WatchRoomView({
       return;
     }
     trackEvent("room_link_copied");
+    trackRoomRedesignEvent(ROOM_REDESIGN_EVENTS.linkShare);
     setLinkCopied(true);
     setTimeout(() => setLinkCopied(false), 2000);
   }
@@ -3042,7 +3106,10 @@ function WatchRoomView({
   // link, where there is one (see lib/nativeApp). Copying is the fallback.
   async function handleShareLink() {
     const result = await shareLink({ url: window.location.href });
-    if (result === "shared") trackEvent("room_link_shared");
+    if (result === "shared") {
+      trackEvent("room_link_shared");
+      trackRoomRedesignEvent(ROOM_REDESIGN_EVENTS.linkShare);
+    }
     else if (result === "unsupported") await handleCopyLink();
   }
 
@@ -8071,10 +8138,14 @@ function WatchRoomView({
       {/* empty:hidden — in a group, somebody who does not run it has none of
           these three (no map, no theme, no management), and an empty row
           would be a strip of margin above the chat. */}
-      <div className="mb-2 flex items-center gap-2 empty:hidden">
+      {/* Wraps instead of squeezing: each button keeps its label on one line
+          and grows to fill its row, so a narrow chat column puts the third
+          one on a line of its own rather than breaking every label in two
+          (or pushing the last one past the edge). */}
+      <div className="mb-2 flex flex-wrap items-center gap-2 empty:hidden">
         {/* A group's room is on no map. */}
         {!group && (isRoomManager || state.roomLocation) && (
-          <Tooltip content={roomLocationTooltip} wrapperClassName="flex flex-1">
+          <Tooltip content={roomLocationTooltip} wrapperClassName="flex flex-auto">
             <button
               type="button"
               onClick={openRoomLocationPopup}
@@ -8083,7 +8154,7 @@ function WatchRoomView({
               // dead for a manager of one, with the tooltip explaining why
               // rather than the button silently doing nothing.
               disabled={isRoomManager && privateRoomCannotBeMapped}
-              className={`flex w-full items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${state.roomLocation
+              className={`flex w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border px-3 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${state.roomLocation
                 ? "border-sky-500 text-sky-600 hover:bg-sky-50 dark:border-sky-700 dark:text-sky-400 dark:hover:bg-sky-950/40"
                 : "border-sky-500 text-sky-600 hover:bg-sky-50 dark:border-sky-700 dark:text-sky-400 dark:hover:bg-sky-950/40"
                 }`}
@@ -8113,7 +8184,7 @@ function WatchRoomView({
                 ? translate("watch.watchRoom.theAdministrationHasTurnedOffTheme")
                 : translate("watch.watchRoom.changesTheThemeForEveryoneIn")
           }
-          wrapperClassName="flex flex-1"
+          wrapperClassName="flex flex-auto"
         >
           <button
             type="button"
@@ -8132,7 +8203,7 @@ function WatchRoomView({
                 data: { currentThemeId: state.roomTheme ?? null },
               });
             }}
-            className={`flex w-full items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
+            className={`flex w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border px-3 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
               canSetRoomTheme
                 ? "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
                 : "border-zinc-300 text-zinc-500 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900"
@@ -8148,7 +8219,7 @@ function WatchRoomView({
             type="button"
             data-tour="manage"
             onClick={openManageRoomPopup}
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+            className="flex flex-auto items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
           >
             <BsGearFill className="h-3.5 w-3.5 shrink-0" />
             {translate("common.manageRoom")}
@@ -8242,6 +8313,9 @@ function WatchRoomView({
         // only chat there is nothing to separate it from.
         heightClassName="flex-1 min-h-0"
         marginClassName=""
+        variant={mobileChatV2 ? "mobile" : "default"}
+        pillComposer={roomRedesign}
+        onSent={!isWideLayout ? () => trackMobileChatEvent(MOBILE_CHAT_EVENTS.send) : undefined}
       />
   );
 
@@ -8435,6 +8509,8 @@ function WatchRoomView({
       // instead of the page *colour* being painted transparent, which also
       // emptied every `bg-black/60` backdrop on the site.
       data-room-page=""
+      // The redesign's scope: every rule of it in globals.css hangs off this.
+      data-room-redesign={roomRedesign ? "" : undefined}
       className={`flex min-h-0 flex-1 flex-col ${
         // The conversation's own card is what this is drawn on.
         callLayout ? "" : "bg-zinc-50 dark:bg-black"
@@ -8483,6 +8559,7 @@ function WatchRoomView({
           the mid-call controls are the bottom bar down there, not in here,
           so there is no middle zone to centre anything around. */}
       <header
+        data-rr-header=""
         className={
           // Hidden in a group: what matters in it is portalled into the
           // group's bar (see inHeaderSlot), and the rest is said there already.
@@ -9316,7 +9393,7 @@ function WatchRoomView({
             in it would be counting impressions nobody saw. */}
         {isWideLayout && visible && !leftSidebarCollapsed && !group && !callLayout && (
           <aside data-tour="people" className="flex h-full w-[300px] shrink-0 flex-col gap-3">
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+            <div data-rr-card="" className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
               <div className="shrink-0 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
                 {participantsHeader}
               </div>
@@ -9717,7 +9794,11 @@ function WatchRoomView({
                 Below lg the room is a fixed-height shell, which makes this
                 band the one slot on the site that costs somebody video area
                 rather than page. */}
-            {!callLayout && !partnerOnStage && !partnerAdHidden && <PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />}
+            {/* Hidden rather than unmounted while typing in the chat sheet, so
+                it is not counted again when it comes back. */}
+            <div className={chatComposing ? "hidden" : "contents"}>
+              {!callLayout && !partnerOnStage && !partnerAdHidden && <PartnerCard partner={rawActivePartner} loaded={partnerLoaded} />}
+            </div>
 
             {mobilePanel && (
               <section
@@ -9732,11 +9813,54 @@ function WatchRoomView({
                 // panel kept alive behind `display: none` cannot scroll
                 // itself, so it would come back holding whatever position it
                 // had when it was put away.
-                className="relative z-10 flex h-[55dvh] min-h-72 shrink-0 flex-col border-t border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 will-change-transform"
+                data-rr-sheet=""
+                className={`relative z-10 flex flex-col bg-white dark:bg-zinc-950 will-change-transform ${
+                  // Full shares the column with the video 3:1, so a strip of
+                  // the stream stays in sight above the conversation.
+                  sheetFull ? "min-h-0 flex-[3_1_0%]" : "h-[55dvh] min-h-72 shrink-0"
+                } ${
+                  mobileChatV2
+                    ? "rounded-t-[1.75rem] shadow-[0_-8px_24px_rgb(0_0_0/0.08)] dark:shadow-[0_-8px_24px_rgb(0_0_0/0.5)]"
+                    : "border-t border-zinc-200 dark:border-zinc-800"
+                }`}
               >
                 {/* The usual sheet grab bar, and a second way out: a sheet
                     whose only exit is the control that opened it is the kind
                     of thing people get stuck inside. */}
+                {mobileChatV2 ? (
+                  // The sheet's own header: dragging it changes the height,
+                  // and the chat inside has no card or title of its own.
+                  <div data-panel-grab-handle="" className="shrink-0 touch-none select-none">
+                    <button
+                      type="button"
+                      onClick={() => closeMobilePanel()}
+                      aria-label={translate("common.close")}
+                      className="flex w-full cursor-pointer justify-center pt-2 pb-1"
+                    >
+                      <span className="h-1.5 w-10 rounded-full bg-zinc-300 dark:bg-zinc-700" />
+                    </button>
+                    <div className="flex items-center gap-1 px-4 pb-1">
+                      <h2 className="min-w-0 flex-1 truncate text-base font-bold text-zinc-950 dark:text-zinc-50">
+                        {mobilePanel === "chat" ? translate("common.chat") : translate("watch.watchRoom.people")}
+                      </h2>
+                      {mobilePanel === "chat" && <NotificationBell />}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!sheetFull) trackMobileChatEvent(MOBILE_CHAT_EVENTS.expand);
+                          if (sheetFull && chatComposing && document.activeElement instanceof HTMLElement) {
+                            document.activeElement.blur();
+                          }
+                          setMobileSheetFull(!sheetFull);
+                        }}
+                        aria-label={translate(sheetFull ? "chatPanel.mobileCollapse" : "chatPanel.mobileExpand")}
+                        className="flex h-10 w-10 items-center justify-center rounded-full text-zinc-500 transition active:bg-zinc-100 dark:text-zinc-400 dark:active:bg-zinc-900"
+                      >
+                        {sheetFull ? <MdCloseFullscreen className="h-5 w-5" /> : <MdOpenInFull className="h-5 w-5" />}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
                 <button
                   type="button"
                   data-panel-grab-handle
@@ -9746,6 +9870,7 @@ function WatchRoomView({
                 >
                   <span className="h-1.5 w-12 rounded-full bg-zinc-300 transition-colors group-hover:bg-zinc-400 group-active:bg-zinc-500 dark:bg-zinc-700 dark:group-hover:bg-zinc-600 dark:group-active:bg-zinc-500" />
                 </button>
+                )}
 
                 {mobilePanel === "participants" ? (
                   <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
@@ -9753,7 +9878,13 @@ function WatchRoomView({
                     {participantsSection}
                   </div>
                 ) : (
-                  <div className="flex min-h-0 flex-1 flex-col px-3 pb-3">
+                  <div
+                    className={
+                      mobileChatV2
+                        ? `flex min-h-0 flex-1 flex-col px-3 ${chatComposing ? "pb-1" : "pb-[max(0.25rem,env(safe-area-inset-bottom))]"}`
+                        : "flex min-h-0 flex-1 flex-col px-3 pb-3"
+                    }
+                  >
                     {fullscreenChatSlot ? null : chatPanel}
                   </div>
                 )}
@@ -9773,7 +9904,11 @@ function WatchRoomView({
                 *over* it on the right. One row, thumb-sized targets, never
                 scrolls, never moves. */}
             <div
-              className="relative z-20 flex shrink-0 flex-col border-t border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950"
+              data-rr-dock=""
+              // Out of the way while typing in the chat sheet (room redesign):
+              // the keyboard is the bottom of the screen then. Hidden, not
+              // unmounted — the controls in it hold state.
+              className={`relative z-20 flex shrink-0 flex-col border-t border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 ${chatComposing ? "hidden" : ""}`}
               onTouchStart={handleDrawerTouchStart}
               onTouchEnd={handleDrawerTouchEnd}
             >

@@ -14,7 +14,9 @@ import { accountTierOf, tierAtLeast } from "./entitlements";
 // the reactions: a switch of their own, on top of any face, that turns what
 // the face, head and hands do into particles (a blink throws sparkles, a
 // smile hearts, a clap confetti...) — see CAMERA_FACES_3D and
-// CameraReactions.
+// CameraReactions. Experiment "camera-warp" adds the warps: the face itself
+// pushed around (sad, angry, fat, thin...), nothing drawn on it — see
+// CameraWarp.
 //
 // The work is in public/workers/camera-effects.js. This side only wires the
 // camera track to it:
@@ -70,14 +72,40 @@ export type CameraFace =
 // The reactions (experiment "camera-effects-3d"): on or off, beside the face.
 export type CameraReactions = "none" | "on";
 
+// The warps (experiment "camera-warp"): the picture of the face moved around
+// its landmarks, no drawing on top. Beside the face, so a dog nose can go on
+// a fat face.
+export type CameraWarp =
+  | "none"
+  | "sad"
+  | "angry"
+  | "happy"
+  | "surprised"
+  | "fat"
+  | "thin"
+  | "bigeyes"
+  | "bighead";
+
 export interface CameraEffectSettings {
   background: CameraBackground;
   color: CameraColor;
   face: CameraFace;
   reactions: CameraReactions;
+  warp: CameraWarp;
 }
 
 export const CAMERA_REACTIONS: CameraReactions[] = ["none", "on"];
+export const CAMERA_WARPS: CameraWarp[] = [
+  "none",
+  "sad",
+  "angry",
+  "happy",
+  "surprised",
+  "fat",
+  "thin",
+  "bigeyes",
+  "bighead",
+];
 
 // The ones offered as plain choices; "custom" has a control of its own.
 export const CAMERA_BACKGROUNDS: CameraBackground[] = [
@@ -129,17 +157,35 @@ function track3d(name: string, value?: number) {
   });
 }
 
+// Only for whoever is in experiment "camera-warp"; dropped back to nothing for
+// anyone outside it, like the 3D ones.
+export const CAMERA_WARP_FEATURE = "camera-warp";
+export const CAMERA_WARP_EVENTS = {
+  pick: "camera_warp_pick", // escolheu uma distorção
+  error: "camera_warp_error", // o WebGL da distorção não abriu, ou o desenho falhou
+  slow: "camera_warp_slow", // value: ms por quadro com distorção (uma vez por sessão, acima de 30)
+};
+
+function trackWarp(name: string, value?: number) {
+  trackFeatureEvent(name, {
+    feature: CAMERA_WARP_FEATURE,
+    ...(value ? { value: Math.max(1, Math.round(value)) } : {}),
+  });
+}
+
 /**
- * `settings` as they may actually be drawn: a 3D face taken away from whoever
- * is not in the experiment, and the custom background from whoever is not on
- * the plan for it (or has no image stored).
+ * `settings` as they may actually be drawn: a 3D face (or a warp) taken away
+ * from whoever is not in its experiment, and the custom background from
+ * whoever is not on the plan for it (or has no image stored).
  */
 export function effectiveCameraEffects(
   settings: CameraEffectSettings,
   allow3d: boolean,
-  allowCustomBackground: boolean
+  allowCustomBackground: boolean,
+  allowWarp: boolean
 ): CameraEffectSettings {
   let next = settings;
+  if (!allowWarp && next.warp !== "none") next = { ...next, warp: "none" };
   if (!allow3d && CAMERA_FACES_3D.includes(next.face)) next = { ...next, face: "none" };
   if (!allow3d && next.reactions !== "none") next = { ...next, reactions: "none" };
   if (!allowCustomBackground && next.background === "custom") next = { ...next, background: "none" };
@@ -262,7 +308,7 @@ export const CAMERA_EFFECTS_FEATURE = "camera-effects";
 // Versioned: public/ files are cached by Cloudflare for a month under their
 // plain URL, so a fixed worker kept being served as the old one. Bump this
 // whenever public/workers/camera-effects.js changes.
-const WORKER_VERSION = 9;
+const WORKER_VERSION = 10;
 const WORKER_URL = `/workers/camera-effects.js?v=${WORKER_VERSION}`;
 const SETTINGS_KEY = "sharescreen:cameraEffects";
 // How long the worker (and the models it loaded) outlives the last camera
@@ -272,14 +318,15 @@ const WORKER_IDLE_MS = 30_000;
 // Average time per drawn frame past which the session is reported as slow.
 const SLOW_FRAME_MS = 30;
 
-const NONE: CameraEffectSettings = { background: "none", color: "none", face: "none", reactions: "none" };
+const NONE: CameraEffectSettings = { background: "none", color: "none", face: "none", reactions: "none", warp: "none" };
 
 export function hasAnyCameraEffect(settings: CameraEffectSettings): boolean {
   return (
     settings.background !== "none" ||
     settings.color !== "none" ||
     settings.face !== "none" ||
-    settings.reactions !== "none"
+    settings.reactions !== "none" ||
+    settings.warp !== "none"
   );
 }
 
@@ -325,6 +372,7 @@ function readSettings(): CameraEffectSettings {
     face: pick(parsed.face, [...CAMERA_FACES, ...CAMERA_FACES_3D]),
     // The reactions were a face once: carried over to their own switch.
     reactions: parsed.face === "reactions" && parsed.reactions === undefined ? "on" : pick(parsed.reactions, CAMERA_REACTIONS),
+    warp: pick(parsed.warp, CAMERA_WARPS),
   };
   return cached;
 }
@@ -351,6 +399,7 @@ export function setCameraEffect<K extends keyof CameraEffectSettings>(
   ) {
     track3d(CAMERA_EFFECTS_3D_EVENTS.pick);
   }
+  if (key === "warp" && value !== "none") trackWarp(CAMERA_WARP_EVENTS.pick);
   emit();
 }
 
@@ -485,6 +534,7 @@ const TRACK_TIMEOUT_MS = 8_000;
 const effectTracks = new WeakMap<MediaStreamTrack, () => void>();
 let reportedSlow = false;
 let reportedSlow3d = false;
+let reportedSlowWarp = false;
 
 function ensureWorker(): Worker {
   if (idleTimer) {
@@ -497,7 +547,7 @@ function ensureWorker(): Worker {
     const data = event.data as
       | { type: "status"; loading: boolean }
       | { type: "error"; kind: string; reason: string }
-      | { type: "stats"; frameMs: number; fx3d?: boolean }
+      | { type: "stats"; frameMs: number; fx3d?: boolean; warp?: boolean }
       | { type: "reaction"; name: string }
       | { type: "track"; id: number; track?: MediaStreamTrack; error?: string }
       | { type: "prepared"; nonce: number }
@@ -513,6 +563,7 @@ function ensureWorker(): Worker {
       if (data.kind === "three" || data.kind === "render3d" || data.kind === "hand") {
         track3d(CAMERA_EFFECTS_3D_EVENTS.error);
       }
+      if (data.kind === "warp") trackWarp(CAMERA_WARP_EVENTS.error);
     } else if (data.type === "stats") {
       if (!reportedSlow && data.frameMs > SLOW_FRAME_MS) {
         reportedSlow = true;
@@ -521,6 +572,10 @@ function ensureWorker(): Worker {
       if (data.fx3d && !reportedSlow3d && data.frameMs > SLOW_FRAME_MS) {
         reportedSlow3d = true;
         track3d(CAMERA_EFFECTS_3D_EVENTS.slow, data.frameMs);
+      }
+      if (data.warp && !reportedSlowWarp && data.frameMs > SLOW_FRAME_MS) {
+        reportedSlowWarp = true;
+        trackWarp(CAMERA_WARP_EVENTS.slow, data.frameMs);
       }
     } else if (data.type === "reaction") {
       track3d(CAMERA_EFFECTS_3D_EVENTS.reaction);

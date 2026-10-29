@@ -86,6 +86,8 @@ import { AnnotateButton, AnnotationLayer } from "@/components/roomTools/Annotati
 import { annotatedVideoDrawer, openCanvasPip } from "@/components/roomTools/canvasPip";
 import { useRoomToolsSelector, type RoomToolsState } from "@/lib/roomTools";
 import { ReactionButton, ReactionFloats } from "@/components/roomTools/ReactionLayer";
+import { useFeature } from "@/lib/features";
+import { ROOM_REDESIGN_EVENTS, ROOM_REDESIGN_FEATURE, trackRoomRedesignEvent } from "@/lib/roomRedesign";
 
 function noopSubscribe() {
   return () => { };
@@ -106,6 +108,9 @@ const DOUBLE_CLICK_WINDOW_MS = 250;
 // How long a still mouse leaves the controls up in fullscreen before they,
 // and the cursor, get out of the picture's way. Any movement brings them back.
 const FULLSCREEN_IDLE_MS = 3000;
+// The room redesign's touch overlay (see touchOverlayAuto): how long the
+// controls stay up after a tap, or after the tile first appears.
+const TOUCH_OVERLAY_IDLE_MS = 3500;
 
 const VideoTileView = memo(function VideoTileView({
   stream,
@@ -330,6 +335,14 @@ const VideoTileView = memo(function VideoTileView({
   // always "hovering" it and the controls would never leave. There they follow
   // the mouse moving instead — see the idle timer below.
   const [fullscreenMouseActive, setFullscreenMouseActive] = useState(true);
+  // Room redesign (lib/roomRedesign): on touch the controls and the name used
+  // to sit over the picture for good outside fullscreen, since there is no
+  // hover to reveal them. Now they work the way a phone video player does —
+  // up for a moment when the tile appears, then a tap on the picture shows
+  // them and they leave again by themselves. Exposure is counted by the room.
+  const roomRedesign = useFeature(ROOM_REDESIGN_FEATURE, { track: false }).enabled;
+  const [touchOverlayVisible, setTouchOverlayVisible] = useState(true);
+  const touchOverlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isPiP, setIsPiP] = useState(false);
   // While the room's screen notes are open, the browser's video PiP would
   // leave them behind — so the picture goes to a PiP of the page's own (a
@@ -868,6 +881,34 @@ const VideoTileView = memo(function VideoTileView({
   // which are siblings rather than descendants of <video> so their clicks
   // never reach this handler — toggles the controls while fullscreen. Outside
   // fullscreen the existing hover/touch-always-on behavior is untouched.
+  const touchOverlayAuto = roomRedesign && !isFullscreen;
+  function showTouchOverlay() {
+    setTouchOverlayVisible(true);
+    if (touchOverlayTimerRef.current) clearTimeout(touchOverlayTimerRef.current);
+    touchOverlayTimerRef.current = setTimeout(() => {
+      touchOverlayTimerRef.current = null;
+      setTouchOverlayVisible(false);
+    }, TOUCH_OVERLAY_IDLE_MS);
+  }
+  function hideTouchOverlay() {
+    if (touchOverlayTimerRef.current) clearTimeout(touchOverlayTimerRef.current);
+    touchOverlayTimerRef.current = null;
+    setTouchOverlayVisible(false);
+  }
+  // The first look: up when the tile arrives (so it is clear there is
+  // something to tap for), gone a moment later.
+  useEffect(() => {
+    if (!touchOverlayAuto) return;
+    const id = setTimeout(() => setTouchOverlayVisible(false), TOUCH_OVERLAY_IDLE_MS);
+    return () => clearTimeout(id);
+  }, [touchOverlayAuto]);
+  useEffect(
+    () => () => {
+      if (touchOverlayTimerRef.current) clearTimeout(touchOverlayTimerRef.current);
+    },
+    []
+  );
+
   function handleVideoTap() {
     // A one-finger drag on a zoomed picture still ends in a click. That click
     // is the tail of a pan, not a tap, and revealing the controls on it would
@@ -878,6 +919,17 @@ const VideoTileView = memo(function VideoTileView({
       // all, and that has to keep working — there is no hover to fall back
       // on and no other way back to the buttons.
       setFullscreenControlsVisible((v) => !v);
+      return;
+    }
+    // Room redesign, touch: the tap is the way to the controls, as in
+    // fullscreen. Play/pause is in the transport those controls bring up.
+    if (touchOverlayAuto && window.matchMedia("(hover: none)").matches) {
+      if (touchOverlayVisible) {
+        hideTouchOverlay();
+      } else {
+        showTouchOverlay();
+        trackRoomRedesignEvent(ROOM_REDESIGN_EVENTS.tileTap);
+      }
       return;
     }
     if (!onTogglePlay) return;
@@ -921,7 +973,9 @@ const VideoTileView = memo(function VideoTileView({
   // hidden and only appear once handleVideoTap flips them on.
   // Hover stops meaning anything once the tile is the whole screen, though, so
   // in fullscreen a mouse gets the idle timer instead (fullscreenMouseActive).
-  const touchHiddenInFullscreen = isFullscreen && !fullscreenControlsVisible;
+  const touchHiddenInFullscreen = isFullscreen
+    ? !fullscreenControlsVisible
+    : touchOverlayAuto && !touchOverlayVisible;
   const mouseVisibilityClass = !isFullscreen
     ? "[@media(hover:hover)]:pointer-events-auto [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100"
     : fullscreenMouseActive
@@ -946,6 +1000,15 @@ const VideoTileView = memo(function VideoTileView({
       // of a scrollable page, and swallowing touches there would break the
       // page's own scrolling.
       style={isFullscreen ? { touchAction: "none" } : undefined}
+      // Using one of the controls keeps them up (room redesign, touch).
+      onPointerDown={
+        touchOverlayAuto
+          ? (e) => {
+              if (e.pointerType === "mouse" || !touchOverlayVisible) return;
+              if ((e.target as Element).closest("[data-tile-controls], button, input, [role=slider]")) showTouchOverlay();
+            }
+          : undefined
+      }
       className={`group relative overflow-hidden bg-black ${
         // Beside the chat (see rootRef) this is no longer the fullscreen
         // element, so nothing stretches it to the screen: it takes what the
