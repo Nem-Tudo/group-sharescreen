@@ -157,6 +157,8 @@ import {
   canUseCustomBackground,
   useCameraEffectsSupported,
   createCameraEffectsTrack,
+  cameraEffectsPrepared,
+  prepareCameraEffects,
   discardCameraEffectsTrack,
   effectiveCameraEffects,
   hasAnyCameraEffect,
@@ -4021,7 +4023,9 @@ export function useRoomMedia(room: string) {
           trackFeatureEvent(PHONE_CAMERA_EVENTS.reconnected);
         }
         const clone = remote.clone();
-        if (!cameraEffectsRef.current) return new MediaStream([clone]);
+        // Effects not loaded yet: the plain camera now, swapped over once they
+        // are (the effect below) instead of a picture frozen while they load.
+        if (!cameraEffectsRef.current || !cameraEffectsPrepared()) return new MediaStream([clone]);
         try {
           return new MediaStream([await createCameraEffectsTrack(clone)]);
         } catch {
@@ -4043,8 +4047,9 @@ export function useRoomMedia(room: string) {
       );
       // "Efeitos de câmera": only when something is picked, so a camera with
       // no effect is the plain capture, exactly as before.
+      // Not loaded yet: see the phone's case above.
       const raw = stream.getVideoTracks()[0];
-      if (!cameraEffectsRef.current || !raw) return stream;
+      if (!cameraEffectsRef.current || !raw || !cameraEffectsPrepared()) return stream;
       try {
         return new MediaStream([await createCameraEffectsTrack(raw)]);
       } catch {
@@ -4288,18 +4293,29 @@ export function useRoomMedia(room: string) {
     cameraEffectsRef.current = wantedCameraEffects;
     setCameraEffectsTarget(wantedCameraEffects);
     if (!wantedCameraEffects || !cameraRef.current.active || nativeDualRef.current) return;
-    const track = cameraLocalStream?.getVideoTracks()[0];
-    if (!track || isCameraEffectsTrack(track) || isPhoneCameraPlaceholder(track)) return;
-    let created: MediaStreamTrack | null = null;
-    void cameraRef.current
-      .swapCapture(undefined, async (current) => {
-        created = await createCameraEffectsTrack(current);
-        return new MediaStream([created]);
-      })
-      .then((swapped) => {
-        if (!swapped && created) discardCameraEffectsTrack(created);
-        if (swapped) setCameraEffectsSwaps((n) => n + 1);
-      });
+    const initial = cameraLocalStream?.getVideoTracks()[0];
+    if (!initial || isCameraEffectsTrack(initial) || isPhoneCameraPlaceholder(initial)) return;
+    // The plain camera keeps going out while the models load (see
+    // prepareCameraEffects); the swap is only made once they are in.
+    let cancelled = false;
+    void prepareCameraEffects().then(() => {
+      if (cancelled || !cameraRef.current.active || nativeDualRef.current) return;
+      const track = cameraLocalStream?.getVideoTracks()[0];
+      if (!track || isCameraEffectsTrack(track) || isPhoneCameraPlaceholder(track)) return;
+      let created: MediaStreamTrack | null = null;
+      void cameraRef.current
+        .swapCapture(undefined, async (current) => {
+          created = await createCameraEffectsTrack(current);
+          return new MediaStream([created]);
+        })
+        .then((swapped) => {
+          if (!swapped && created) discardCameraEffectsTrack(created);
+          if (swapped) setCameraEffectsSwaps((n) => n + 1);
+        });
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [wantedCameraEffects, cameraLocalStream]);
 
   // "Celular como câmera": the relay socket while the switch is on, and the

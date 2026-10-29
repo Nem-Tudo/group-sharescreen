@@ -262,7 +262,7 @@ export const CAMERA_EFFECTS_FEATURE = "camera-effects";
 // Versioned: public/ files are cached by Cloudflare for a month under their
 // plain URL, so a fixed worker kept being served as the old one. Bump this
 // whenever public/workers/camera-effects.js changes.
-const WORKER_VERSION = 7;
+const WORKER_VERSION = 8;
 const WORKER_URL = `/workers/camera-effects.js?v=${WORKER_VERSION}`;
 const SETTINGS_KEY = "sharescreen:cameraEffects";
 // How long the worker (and the models it loaded) outlives the last camera
@@ -500,6 +500,7 @@ function ensureWorker(): Worker {
       | { type: "stats"; frameMs: number; fx3d?: boolean }
       | { type: "reaction"; name: string }
       | { type: "track"; id: number; track?: MediaStreamTrack; error?: string }
+      | { type: "prepared"; nonce: number }
       | { type: "ended"; id: number };
     if (data.type === "status") setStatus({ loading: data.loading });
     else if (data.type === "error") {
@@ -523,6 +524,8 @@ function ensureWorker(): Worker {
       }
     } else if (data.type === "reaction") {
       track3d(CAMERA_EFFECTS_3D_EVENTS.reaction);
+    } else if (data.type === "prepared") {
+      preparing.get(data.nonce)?.();
     } else if (data.type === "track") {
       const pending = pendingTracks.get(data.id);
       pendingTracks.delete(data.id);
@@ -537,6 +540,7 @@ function ensureWorker(): Worker {
     }
   };
   created.onerror = () => {
+    for (const finish of [...preparing.values()]) finish();
     for (const pending of pendingTracks.values()) pending.reject(new Error("worker failed"));
     pendingTracks.clear();
     setStatus({ failed: true, loading: false });
@@ -549,15 +553,60 @@ function ensureWorker(): Worker {
 }
 
 function release(id: number) {
-  if (!live.delete(id) || live.size > 0 || !worker) return;
+  if (!live.delete(id)) return;
+  scheduleIdle();
+}
+
+function scheduleIdle() {
+  if (live.size > 0 || !worker) return;
   if (idleTimer) clearTimeout(idleTimer);
   idleTimer = setTimeout(() => {
     idleTimer = null;
     if (live.size > 0 || !worker) return;
     worker.terminate();
     worker = null;
+    preparedFor = null;
     setStatus({ loading: false });
   }, WORKER_IDLE_MS);
+}
+
+// Loading a model, and its first run, hold the worker's thread — and with it
+// every frame of a camera already going through it, which froze the picture
+// for a few seconds on a phone each time effects were switched on. So the
+// room keeps sending the plain camera until the worker says what is picked
+// is ready, and only then swaps the effects in (see useRoomMedia).
+const preparing = new Map<number, () => void>();
+let prepareNonce = 0;
+// The target the worker last said it was ready for (null: none, or the worker
+// is gone). Compared by identity with `current`.
+let preparedFor: CameraEffectSettings | null = null;
+const PREPARE_TIMEOUT_MS = 30_000;
+
+/** Resolves once the worker has loaded (and warmed up) what the current target needs. */
+export function prepareCameraEffects(): Promise<void> {
+  const target = current;
+  if (!target) return Promise.resolve();
+  if (cameraEffectsPrepared()) return Promise.resolve();
+  const w = ensureWorker();
+  const nonce = ++prepareNonce;
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(() => finish(), PREPARE_TIMEOUT_MS);
+    const finish = () => {
+      clearTimeout(timer);
+      if (!preparing.delete(nonce)) return;
+      if (current === target && worker === w) preparedFor = target;
+      // Nobody may come to use it (the camera stopped meanwhile).
+      scheduleIdle();
+      resolve();
+    };
+    preparing.set(nonce, finish);
+    w.postMessage({ type: "prepare", nonce });
+  });
+}
+
+/** Whether an effects track started now would draw right away, without the loading freeze. */
+export function cameraEffectsPrepared(): boolean {
+  return worker !== null && current !== null && preparedFor === current;
 }
 
 /** What every effects track (live and future) draws. Null = pass through. */

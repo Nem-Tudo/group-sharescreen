@@ -54,11 +54,12 @@ const COLOR_FILTERS = {
 
 let settings = null;
 let visionPromise = null;
+// `promise`: the load under way, settled either way.
 const tasks = {
-  face: { task: null, loading: false, failed: false },
-  segment: { task: null, loading: false, failed: false },
+  face: { task: null, loading: false, failed: false, promise: null },
+  segment: { task: null, loading: false, failed: false, promise: null },
   // Only for the reactions (claps, thumbs up).
-  hand: { task: null, loading: false, failed: false },
+  hand: { task: null, loading: false, failed: false, promise: null },
 };
 const pipelines = new Map();
 let lastTimestamp = 0;
@@ -70,6 +71,15 @@ self.onmessage = (event) => {
     ensureTasks();
   } else if (data.type === "start") {
     startPipeline(data.id, data.readable, data.writable);
+  } else if (data.type === "prepare") {
+    // Answered once what the settings need is loaded and warmed up (or has
+    // failed), so the page can keep sending the plain camera until then
+    // rather than a camera frozen behind the loading (see prepareCameraEffects).
+    if (data.settings !== undefined) {
+      settings = data.settings || null;
+      ensureTasks();
+    }
+    readiness().then(() => self.postMessage({ type: "prepared", nonce: data.nonce }));
   } else if (data.type === "probe") {
     // Safari's kind of insertable streams, which only exists in here (see
     // probeWorkerTracks in lib/cameraEffects.ts).
@@ -136,11 +146,36 @@ async function createTask(kind) {
         });
   // The GPU first; a machine whose WebGL will not have it (blocklisted
   // driver, software rendering) still gets the effect on the CPU, slower.
+  let task;
   try {
-    return await make("GPU");
+    task = await make("GPU");
   } catch {
-    return make("CPU");
+    task = await make("CPU");
   }
+  warmUp(kind, task);
+  return task;
+}
+
+// The first run of a model compiles its shaders, which on a phone holds this
+// thread (and so every camera frame) for a second or more: paid here, on a
+// blank picture, before any pipeline gets to use it.
+function warmUp(kind, task) {
+  try {
+    const blank = new OffscreenCanvas(DETECT_WIDTH, Math.round((DETECT_WIDTH * 3) / 4));
+    blank.getContext("2d").fillRect(0, 0, blank.width, blank.height);
+    if (kind === "segment") task.segmentForVideo(blank, nextTimestamp(), () => {});
+    else task.detectForVideo(blank, nextTimestamp());
+  } catch {
+    // Only a head start; the real frames will find out if it is broken.
+  }
+}
+
+function readiness() {
+  const waits = ["face", "segment", "hand"]
+    .filter((kind) => wants(kind) && tasks[kind].promise)
+    .map((kind) => tasks[kind].promise);
+  if (wants3d() && three.promise) waits.push(three.promise);
+  return Promise.allSettled(waits);
 }
 
 function wants(kind) {
@@ -160,7 +195,7 @@ function ensureTasks() {
     const slot = tasks[kind];
     if (!wants(kind) || slot.task || slot.loading || slot.failed) continue;
     slot.loading = true;
-    createTask(kind)
+    slot.promise = createTask(kind)
       .then(
         (task) => {
           slot.task = task;
@@ -223,6 +258,8 @@ function startTrackPipeline(id, track) {
   }
   heldTracks.set(id, track);
   startPipeline(id, processor.readable, generator.writable);
+  const pipeline = pipelines.get(id);
+  if (pipeline) pipeline.track = track;
 }
 
 // ---------------------------------------------------------------------------
@@ -361,16 +398,59 @@ function ensureCanvases(p, width, height) {
   p.faces = [];
 }
 
-function render(p, frame) {
-  const width = frame.displayWidth;
-  const height = frame.displayHeight;
+// A frame that says how it should be turned (Safari's camera on an iPhone
+// held upright sends the sensor's landscape frames with rotation 90) drawn
+// the right way up once, so detection sees an upright face and what goes out
+// is upright too — drawImage of the frame itself ignores its rotation, and
+// the VideoFrame made from the canvas carries none. Null: already upright.
+function uprightSource(p, frame) {
+  const rotation = ((rotationOf(p, frame) % 360) + 360) % 360;
+  const flip = Boolean(frame.flip);
+  if (rotation === 0 && !flip) return null;
+  const sideways = rotation === 90 || rotation === 270;
+  const w = sideways ? frame.displayHeight : frame.displayWidth;
+  const h = sideways ? frame.displayWidth : frame.displayHeight;
+  if (!p.upright || p.upright.width !== w || p.upright.height !== h) {
+    p.upright = new OffscreenCanvas(w, h);
+    p.uprightCtx = p.upright.getContext("2d", { alpha: false });
+  }
+  const ctx = p.uprightCtx;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.translate(w / 2, h / 2);
+  ctx.rotate((rotation * Math.PI) / 180);
+  if (flip) ctx.scale(-1, 1);
+  ctx.drawImage(frame, -frame.displayWidth / 2, -frame.displayHeight / 2, frame.displayWidth, frame.displayHeight);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  return p.upright;
+}
+
+// The frame's own rotation; where a browser does not fill it in, the camera
+// track this worker holds (Safari) says which way the picture should stand,
+// and a frame the other way round is a sensor's sideways one.
+function rotationOf(p, frame) {
+  if (typeof frame.rotation === "number") return frame.rotation;
+  if (!p.track) return 0;
+  const settings = p.track.getSettings();
+  if (!settings.width || !settings.height) return 0;
+  const portraitTrack = settings.height > settings.width;
+  const portraitFrame = frame.displayHeight > frame.displayWidth;
+  if (portraitTrack === portraitFrame) return 0;
+  return settings.facingMode === "user" ? 270 : 90;
+}
+
+function render(p, rawFrame) {
+  // `frame` from here on is what gets drawn: the camera's frame, or its
+  // upright copy. Only the timestamp is read from the frame itself.
+  const frame = uprightSource(p, rawFrame) || rawFrame;
+  const width = frame === rawFrame ? rawFrame.displayWidth : frame.width;
+  const height = frame === rawFrame ? rawFrame.displayHeight : frame.height;
   ensureCanvases(p, width, height);
   const s = settings;
   const ctx = p.ctx;
 
   // How far apart frames arrive, for the detection budget below, and how far
   // the reactions' particles move.
-  const ts = frame.timestamp / 1000;
+  const ts = rawFrame.timestamp / 1000;
   let dt = 0;
   if (p.lastFrameTs && ts > p.lastFrameTs) {
     p.frameInterval = p.frameInterval * 0.9 + (ts - p.lastFrameTs) * 0.1;
@@ -420,7 +500,7 @@ function render(p, frame) {
     p.particles = [];
   }
 
-  return new VideoFrame(p.canvas, { timestamp: frame.timestamp, alpha: "discard" });
+  return new VideoFrame(p.canvas, { timestamp: rawFrame.timestamp, alpha: "discard" });
 }
 
 // Detection on every frame while it fits in half a frame's time; past that,
@@ -1599,13 +1679,13 @@ const THREE_URL = "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module
 // The 3D layer is drawn at most this wide and stretched onto the frame.
 const RENDER_3D_WIDTH = 960;
 
-const three = { lib: null, loading: false, failed: false };
+const three = { lib: null, loading: false, failed: false, promise: null };
 let gl = null;
 
 function ensureThree() {
   if (three.lib || three.loading || three.failed) return;
   three.loading = true;
-  import(THREE_URL)
+  three.promise = import(THREE_URL)
     .then(
       (lib) => {
         three.lib = lib;
