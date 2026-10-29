@@ -1260,7 +1260,8 @@ class SignalingClient {
     screen: boolean;
     camera: boolean;
     files: Omit<SharedFile, "updatedAt">[];
-  } = { screen: false, camera: false, files: [] };
+    cameraEffects: boolean;
+  } = { screen: false, camera: false, files: [], cameraEffects: false };
   // Consecutive "captcha-required" rejections for the current join
   // attempt — see MAX_JOIN_RETRIES and performJoin.
   private joinRetryCount = 0;
@@ -3659,11 +3660,15 @@ class SignalingClient {
     screen?: boolean;
     camera?: boolean;
     files?: Omit<SharedFile, "updatedAt">[];
+    // The camera is going out through "Efeitos de câmera" (see
+    // lib/cameraEffects). Only the admin panel reads it, to filter on it.
+    cameraEffects?: boolean;
   }) {
     if (sources.screen !== undefined) this.sharingSources.screen = sources.screen;
     if (sources.camera !== undefined) this.sharingSources.camera = sources.camera;
     if (sources.files !== undefined) this.sharingSources.files = sources.files;
-    const { screen, camera, files } = this.sharingSources;
+    if (sources.cameraEffects !== undefined) this.sharingSources.cameraEffects = sources.cameraEffects;
+    const { screen, camera, files, cameraEffects } = this.sharingSources;
     this.rawSend({
       type: "sharing",
       // The rolled-up "is this person transmitting anything" every older
@@ -3672,6 +3677,7 @@ class SignalingClient {
       screen,
       camera,
       files,
+      cameraEffects: camera && cameraEffects,
     });
   }
 

@@ -4225,6 +4225,10 @@ export function useRoomMedia(room: string) {
     [cameraEffectsMode, cameraEffectSettings]
   );
   const cameraLocalStream = camera.localStream;
+  // Bumped when the effects track is swapped into the running camera: the
+  // swap keeps the same MediaStream, so nothing else re-renders to notice
+  // (see cameraEffectsLive).
+  const [cameraEffectsSwaps, setCameraEffectsSwaps] = useState(0);
   useEffect(() => {
     cameraEffectsRef.current = wantedCameraEffects;
     setCameraEffectsTarget(wantedCameraEffects);
@@ -4239,6 +4243,7 @@ export function useRoomMedia(room: string) {
       })
       .then((swapped) => {
         if (!swapped && created) discardCameraEffectsTrack(created);
+        if (swapped) setCameraEffectsSwaps((n) => n + 1);
       });
   }, [wantedCameraEffects, cameraLocalStream]);
 
@@ -4528,6 +4533,19 @@ export function useRoomMedia(room: string) {
   // render.
   const announcedFilesKey = JSON.stringify(announcedFiles);
 
+  // The camera going out is drawn on by an effect actually picked (an
+  // un-picked pipeline only passes frames through). Only the admin panel
+  // reads it, to filter on people using camera effects. Recomputed on
+  // cameraEffectsSwaps too, since a swap changes the track and not the stream.
+  const cameraEffectsLive = useMemo(
+    () =>
+      camera.active &&
+      wantedCameraEffects !== null &&
+      isCameraEffectsTrack(cameraLocalStream?.getVideoTracks()[0]),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [camera.active, wantedCameraEffects, cameraLocalStream, cameraEffectsSwaps]
+  );
+
   useEffect(() => {
     signalingClient.setSharing({
       // The extra screens are not announced one by one (the server knows
@@ -4535,8 +4553,9 @@ export function useRoomMedia(room: string) {
       screen: screen.active || extraScreensActive > 0,
       camera: camera.active || camera2.active,
       files: JSON.parse(announcedFilesKey) as typeof announcedFiles,
+      cameraEffects: cameraEffectsLive,
     });
-  }, [screen.active, extraScreensActive, camera.active, camera2.active, announcedFilesKey]);
+  }, [screen.active, extraScreensActive, camera.active, camera2.active, announcedFilesKey, cameraEffectsLive]);
 
   // Capacity measurement and the cascade decision. Both are driven by the
   // screen channel only: it is the expensive one, and the mic's ~32 kbps is
