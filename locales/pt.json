@@ -2634,6 +2634,7 @@
   "mobileQualitySheet.medium": "Média",
   "mobileQualitySheet.youCanChangeItLaterIn": "Dá para mudar depois nas configurações.",
   "musicBar.couldNotLoadTheMusic": "Não foi possível carregar a música",
+  "musicBar.trackBlockedOutsideYoutube": "Esta música só toca no próprio YouTube (restrição de idade ou do dono).",
   "musicBar.everyoneCanControlItClickTo": "Todos podem controlar. Clique para deixar só com a administração",
   "musicBar.loadingMusic": "Carregando música...",
   "musicBar.musicPosition": "Posição da música",

@@ -87,6 +87,76 @@ export function applyPlayerVolume(
   else player.unMute?.();
 }
 
+// Quanto esperar o player escondido abaixo listar a playlist.
+const PLAYLIST_LIST_TIMEOUT_MS = 12_000;
+
+// Os ids de uma playlist do YouTube, sem tocar nada. Os ids só existem dentro
+// de um player que carregou a playlist (a Data API pediria chave e cota), então
+// isto monta um escondido, lê a lista e o desmonta. É o que deixa colar uma
+// playlist na fila de uma música que já está tocando: o servidor não tem como
+// abrir a playlist sozinho. Vazio quando não deu (privada, inexistente, rede).
+export async function listYouTubePlaylist(playlistId: string): Promise<string[]> {
+  const YT = await loadYouTubeApi();
+  return new Promise<string[]>((resolve) => {
+    const host = document.createElement("div");
+    host.setAttribute("aria-hidden", "true");
+    Object.assign(host.style, {
+      position: "fixed",
+      left: "0",
+      bottom: "0",
+      width: "1px",
+      height: "1px",
+      overflow: "hidden",
+      opacity: "0",
+      pointerEvents: "none",
+    });
+    const mount = document.createElement("div");
+    host.appendChild(mount);
+    document.body.appendChild(host);
+
+    let player: EmbeddedPlayer | null = null;
+    let poll: ReturnType<typeof setInterval> | null = null;
+    let done = false;
+    const finish = (ids: string[]) => {
+      if (done) return;
+      done = true;
+      if (poll) clearInterval(poll);
+      clearTimeout(timeout);
+      try {
+        player?.destroy();
+      } catch {
+        // Já desmontado; nada a fazer.
+      }
+      host.remove();
+      resolve(ids);
+    };
+    const timeout = setTimeout(() => finish([]), PLAYLIST_LIST_TIMEOUT_MS);
+
+    player = new YT.Player(mount, {
+      width: "1",
+      height: "1",
+      playerVars: {
+        listType: "playlist",
+        list: playlistId,
+        autoplay: 0,
+        controls: 0,
+        disablekb: 1,
+        playsinline: 1,
+      },
+      events: {
+        // Um primeiro item que não toca (restrição de idade, por exemplo) dá
+        // erro, mas a lista continua lá — por isso o erro não encerra nada.
+        onReady: () => {
+          poll = setInterval(() => {
+            const list = player?.getPlaylist?.();
+            if (Array.isArray(list) && list.length > 0) finish(list);
+          }, 300);
+        },
+      },
+    });
+  });
+}
+
 let youtubeApiPromise: Promise<YTNamespace> | null = null;
 
 // Loaded on first use rather than from the document head: a room with no

@@ -16,6 +16,8 @@ import { useYouTubeTitles, youtubeThumbnail } from "@/lib/youtubeTitles";
 import { signalingClient } from "@/lib/signalingClient";
 import { musicPlayOrder, parseMusicUrl, type MusicSource, type MusicTrack } from "@/lib/musicSource";
 import { importSpotifyPlaylist, looksLikeSpotifyUrl } from "@/lib/musicImportApi";
+import { listYouTubePlaylist } from "@/lib/youtubePlayer";
+import { isYouTubeVideoId } from "@/lib/videoSource";
 import { TILE_EXPERIMENT_EVENTS, trackTileExperiment } from "@/lib/clipsMode";
 import { markFeatureUsed } from "@/components/NewBadge";
 
@@ -124,10 +126,33 @@ export function MusicQueuePanel({
       return;
     }
 
-    if (!parseMusicUrl(url)) {
+    const parsed = parseMusicUrl(url);
+    if (!parsed) {
       setNotice(t("musicBar.addInvalid"));
       return;
     }
+
+    // Uma playlist do YouTube: o servidor não consegue abri-la, então ela é
+    // lida aqui (ver listYouTubePlaylist) e entra na fila já como faixas.
+    // Antes ia só o link, e a fila ganhava no máximo uma música.
+    if (parsed.playlistId) {
+      setBusy(true);
+      setNotice(t("musicBar.importing"));
+      const ids = await listYouTubePlaylist(parsed.playlistId).catch(() => [] as string[]);
+      setBusy(false);
+      const tracks = ids.filter((id) => isYouTubeVideoId(id)).map((videoId) => ({ videoId }));
+      if (tracks.length > 0) {
+        signalingClient.addMusicToQueue({ tracks });
+        trackTileExperiment(TILE_EXPERIMENT_EVENTS.musicQueue.add);
+        markFeatureUsed("room-music-queue");
+        setAdding("");
+        setNotice(t("musicBar.imported", { count: tracks.length }));
+        return;
+      }
+      // Não deu para ler a lista: segue como antes, com o link.
+      setNotice(null);
+    }
+
     signalingClient.addMusicToQueue({ url });
     trackTileExperiment(TILE_EXPERIMENT_EVENTS.musicQueue.add);
     markFeatureUsed("room-music-queue");

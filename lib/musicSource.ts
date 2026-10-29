@@ -141,6 +141,54 @@ export function neighbourMusicTrack(music: MusicSource, direction: 1 | -1): Musi
   return order[(at + direction + order.length) % order.length] ?? null;
 }
 
+// A mesma faixa segue no ar entre dois registros da mesma música? Com fila, é
+// a mesma faixa da fila; saindo de uma playlist do YouTube para a fila (a
+// importação), é o mesmo índice; saindo de um vídeo só, é o mesmo vídeo.
+function sameMusicTrack(prev: MusicSource, next: MusicSource): boolean {
+  const prevTrack = currentMusicTrack(prev);
+  const nextTrack = currentMusicTrack(next);
+  if (!nextTrack) return false;
+  if (prevTrack) return prevTrack.id === nextTrack.id;
+  if (prev.playlistId) return (prev.playlistIndex ?? 0) === (next.queueIndex ?? 0);
+  return prev.videoId === nextTrack.videoId;
+}
+
+// O que uma edição da fila muda: as faixas, a ordem, o sorteio, o cadeado.
+function musicLayoutChanged(prev: MusicSource, next: MusicSource): boolean {
+  const ids = (music: MusicSource) => (music.queue ?? []).map((track) => track.id).join(",");
+  return (
+    ids(prev) !== ids(next) ||
+    (prev.order ?? []).join(",") !== (next.order ?? []).join(",") ||
+    Boolean(prev.shuffle) !== Boolean(next.shuffle) ||
+    prev.controlMode !== next.controlMode
+  );
+}
+
+// Um registro novo que só mexe na fila (adicionar, tirar, arrastar, sortear,
+// trocar o cadeado) não é notícia sobre o que está tocando. Mas ele chega com
+// a posição que o servidor tinha guardada, e essa posição pode ser velha —
+// a da última vez que alguém reportou, que numa faixa tocando sozinha é o
+// começo dela. Aceitar isso puxava a sala inteira de volta para 0:00 a cada
+// música adicionada ou arrastada. Então, quando a faixa no ar é a mesma e o
+// que mudou foi a fila, o tempo continua sendo o que esta sala já sabia.
+//
+// Pedir a mesma faixa de novo (a fila igual, o tempo zerado) não cai aqui:
+// sem mudança na fila, o registro do servidor vale inteiro.
+export function keepMusicPlayback(
+  prev: MusicSource | null,
+  next: MusicSource | null
+): MusicSource | null {
+  if (!prev || !next || prev.id !== next.id) return next;
+  if (!sameMusicTrack(prev, next) || !musicLayoutChanged(prev, next)) return next;
+  return {
+    ...next,
+    playing: prev.playing,
+    positionSeconds: prev.positionSeconds,
+    playbackRate: prev.playbackRate,
+    updatedAt: prev.updatedAt,
+  };
+}
+
 // Client-side twin of the server's parse, used only to tell someone their
 // link is wrong before sending it — never as the gate.
 export function parseMusicUrl(raw: string): { videoId: string; playlistId: string | null } | null {

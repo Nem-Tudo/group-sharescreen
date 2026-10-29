@@ -2,7 +2,12 @@
 
 import { trackEvent } from "./analytics";
 import type { VideoSource, VideoSourceKind } from "./videoSource";
-import type { MusicControlMode, MusicSource, MusicSourceKind } from "./musicSource";
+import {
+  keepMusicPlayback,
+  type MusicControlMode,
+  type MusicSource,
+  type MusicSourceKind,
+} from "./musicSource";
 import type { Announcement } from "./announcement";
 import { readEmbeds, type MessageEmbed } from "./messageEmbeds";
 import type { Partner } from "./partner";
@@ -2287,7 +2292,14 @@ class SignalingClient {
       // the transport half, which fires on every play/pause/seek/skip and
       // must not re-render the player by replacing its source identity.
       case "music":
-        this.setState({ music: (msg.music as MusicSource | null | undefined) ?? null });
+        // Uma edição da fila não pode voltar a faixa no ar para o começo
+        // (ver keepMusicPlayback).
+        this.setState({
+          music: keepMusicPlayback(
+            this.state.music,
+            (msg.music as MusicSource | null | undefined) ?? null
+          ),
+        });
         break;
       case "music-state": {
         const current = this.state.music;

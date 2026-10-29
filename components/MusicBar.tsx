@@ -163,6 +163,17 @@ const PAUSED_SETTLE_MS = 600;
 // people reach a room through several clicks, so this rarely fires — but when
 // it does, the bar has to say so rather than silently playing nothing.
 const AUTOPLAY_CHECK_MS = 2500;
+// Quanto a barra mostra que a faixa não toca antes de pular para a próxima.
+// Curto, mas não instantâneo: a sala precisa ver por que a música mudou.
+const UNPLAYABLE_SKIP_MS = 2000;
+// Os erros do player do YouTube que querem dizer "este vídeo não toca aqui":
+// 101 e 150 são o dono que não deixa incorporar — e é também como o YouTube
+// responde a um vídeo com restrição de idade fora do site dele. Não há
+// parâmetro do embed que mude isso; o que dá para fazer é não travar a sala.
+const EMBED_BLOCKED_ERRORS = new Set([101, 150]);
+// Uma playlist do YouTube ainda não expandida não diz quantos itens tem antes
+// de carregar; isto é o teto de pulos seguidos nela.
+const MAX_UNPLAYABLE_SKIPS = 200;
 
 export function MusicBar({
   music,
@@ -224,6 +235,9 @@ export function MusicBar({
   const playerRef = useRef<EmbeddedPlayer | null>(null);
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  // A faixa no ar é uma que o YouTube não deixa tocar fora dele (ver
+  // EMBED_BLOCKED_ERRORS) — dito assim, e não como "não carregou".
+  const [trackBlocked, setTrackBlocked] = useState(false);
   const [needsGesture, setNeedsGesture] = useState(false);
   const [volume, setVolume] = useState(() => getStoredMusicVolume());
   const [position, setPosition] = useState(0);
@@ -350,6 +364,55 @@ export function MusicBar({
     pushNowRef.current = pushNow;
   }, [pushNow]);
 
+  // A faixa que o player recusou, enquanto nenhuma outra começou a tocar. O
+  // player com erro pode não dizer mais qual vídeo tem carregado, e a
+  // sincronização precisa saber disso para trocar de faixa quando a sala
+  // seguir em frente.
+  const failedVideoIdRef = useRef<string | null>(null);
+  // Pulos seguidos por faixa que não toca, zerados quando alguma toca. É o que
+  // impede uma fila inteira de vídeos bloqueados de girar para sempre.
+  const unplayableSkipsRef = useRef(0);
+  const unplayableTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Uma faixa que o YouTube não deixa tocar (restrição de idade, dono que não
+  // deixa incorporar, vídeo removido) parava a sala inteira nela: o player não
+  // chega a ENDED, então a fila nunca andava. Quem dirige pula para a próxima,
+  // como faria a faixa acabando; o resto da sala segue o registro.
+  const skipUnplayable = useCallback(() => {
+    if (!canControlRef.current || !isDriverRef.current) return;
+    const music = musicRef.current;
+    const queueLength = music.queue?.length ?? 0;
+    // Um vídeo só não tem para onde ir.
+    if (queueLength === 0 && !music.playlistId) return;
+    const limit = queueLength > 0 ? queueLength : MAX_UNPLAYABLE_SKIPS;
+    // Um pulo já a caminho: o mesmo erro repetido não o adia nem conta duas vezes.
+    if (unplayableTimerRef.current || unplayableSkipsRef.current >= limit) return;
+    unplayableSkipsRef.current++;
+    const failedTrackId = currentMusicTrack(music)?.id ?? null;
+    const failedIndex = playerRef.current?.getPlaylistIndex?.() ?? -1;
+    if (unplayableTimerRef.current) clearTimeout(unplayableTimerRef.current);
+    unplayableTimerRef.current = setTimeout(() => {
+      unplayableTimerRef.current = null;
+      const player = playerRef.current;
+      const now = musicRef.current;
+      if (!player || !isDriverRef.current || now.id !== music.id) return;
+      seekSettledAtRef.current = Date.now() + SEEK_SETTLE_MS;
+      if ((now.queue?.length ?? 0) > 0) {
+        const current = currentMusicTrack(now);
+        // Alguém já trocou de faixa nesse meio tempo.
+        if (!current || current.id !== failedTrackId) return;
+        const next = neighbourMusicTrack(now, 1);
+        if (next && next.id !== current.id) signalingClient.playMusicTrack(now.id, next.id);
+        return;
+      }
+      // Playlist do YouTube que ainda não virou fila. Se o próprio player já
+      // passou do item, não há o que pular.
+      if (player.getPlaylistIndex?.() !== failedIndex) return;
+      player.nextVideo?.();
+      setTimeout(() => pushNowRef.current(), 700);
+    }, UNPLAYABLE_SKIP_MS);
+  }, []);
+
   const schedulePush = useCallback(() => {
     if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
     const sinceLast = Date.now() - lastPushAtRef.current;
@@ -384,6 +447,9 @@ export function MusicBar({
     let cancelled = false;
     setReady(false);
     setLoadError(false);
+    setTrackBlocked(false);
+    failedVideoIdRef.current = null;
+    unplayableSkipsRef.current = 0;
     setNeedsGesture(false);
     setTitle(null);
     // Outra música: o que ficou na tela é da anterior.
@@ -434,8 +500,17 @@ export function MusicBar({
               applyPlayerVolume(playerRef.current, volumeRef.current, false);
               setReady(true);
             },
-            onError: () => {
-              if (!cancelled) setLoadError(true);
+            onError: (event: { data: number }) => {
+              if (cancelled) return;
+              setLoadError(true);
+              setTrackBlocked(EMBED_BLOCKED_ERRORS.has(event.data));
+              setNeedsGesture(false);
+              const now = musicRef.current;
+              failedVideoIdRef.current =
+                playerRef.current?.getVideoData?.()?.video_id ||
+                currentMusicTrack(now)?.videoId ||
+                now.videoId;
+              skipUnplayable();
             },
             onStateChange: (event: { data: number }) => {
               if (cancelled) return;
@@ -444,7 +519,14 @@ export function MusicBar({
               // transition rather than once at load.
               const data = playerRef.current?.getVideoData?.();
               if (data?.title) setTitle(data.title);
-              if (event.data === PLAYER_STATE.PLAYING) setNeedsGesture(false);
+              if (event.data === PLAYER_STATE.PLAYING) {
+                setNeedsGesture(false);
+                // Uma faixa tocou: o erro era da anterior.
+                setLoadError(false);
+                setTrackBlocked(false);
+                failedVideoIdRef.current = null;
+                unplayableSkipsRef.current = 0;
+              }
               if (data?.video_id) setCurrentVideoId(data.video_id);
               // Só o que uma pessoa daqui fez viaja, e só se ela pode dirigir.
               // Um play/pause que esta barra acabou de executar para seguir a
@@ -494,6 +576,7 @@ export function MusicBar({
     return () => {
       cancelled = true;
       if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
+      if (unplayableTimerRef.current) clearTimeout(unplayableTimerRef.current);
       playerRef.current?.destroy();
       playerRef.current = null;
       // A hosted mount is this player's alone and goes with it. The bar's own
@@ -502,7 +585,7 @@ export function MusicBar({
       if (hosted) mount.remove();
       else mount.innerHTML = "";
     };
-  }, [sourceKey, markApplyingRemote, schedulePush, keepPlayerInPlace]);
+  }, [sourceKey, markApplyingRemote, schedulePush, skipUnplayable, keepPlayerInPlace]);
 
   // This listener's own volume.
   useEffect(() => {
@@ -554,10 +637,14 @@ export function MusicBar({
       // que toca.
       const track = currentMusicTrack(current);
       if (track && player.loadVideoById) {
-        const loaded = player.getVideoData?.()?.video_id;
+        // Um player que recusou a faixa pode não dizer mais o que tem
+        // carregado; sem isto ele ficava parado no erro mesmo depois de a sala
+        // ir para a próxima.
+        const loaded = player.getVideoData?.()?.video_id || failedVideoIdRef.current;
         if (loaded && loaded !== track.videoId) {
           markApplyingRemote();
           seekSettledAtRef.current = Date.now() + SEEK_SETTLE_MS;
+          failedVideoIdRef.current = null;
           player.loadVideoById({
             videoId: track.videoId,
             startSeconds: Math.max(0, musicPosition(current, serverNowRef.current())),
@@ -565,6 +652,10 @@ export function MusicBar({
           return;
         }
       }
+
+      // A faixa no ar é uma que o player recusou: dar play nela de novo só
+      // repete o erro. Fica assim até a sala ir para outra.
+      if (failedVideoIdRef.current) return;
 
       if (
         !justActed &&
@@ -718,6 +809,9 @@ export function MusicBar({
   useEffect(() => {
     if (!ready || !music.playing) return;
     const timer = setTimeout(() => {
+      // Uma faixa que o YouTube recusou não é um autoplay bloqueado: um clique
+      // aqui não faria ela tocar.
+      if (failedVideoIdRef.current) return;
       const state = playerRef.current?.getPlayerState();
       if (state !== PLAYER_STATE.PLAYING && state !== PLAYER_STATE.BUFFERING) {
         setNeedsGesture(true);
@@ -863,7 +957,9 @@ export function MusicBar({
           <div className="min-w-0">
             <Tooltip content={title ?? undefined}>
               <p className="truncate text-xs font-semibold leading-tight">
-                {loadError
+                {trackBlocked
+                  ? t("musicBar.trackBlockedOutsideYoutube")
+                  : loadError
                   ? t("musicBar.couldNotLoadTheMusic")
                   : (title ?? (ready ? t("musicBar.roomMusic") : t("musicBar.loadingMusic")))}
               </p>
