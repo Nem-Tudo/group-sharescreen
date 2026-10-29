@@ -417,7 +417,9 @@ function uprightSource(p, frame) {
   const ctx = p.uprightCtx;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.translate(w / 2, h / 2);
-  ctx.rotate((rotation * Math.PI) / 180);
+  // Turned the other way from what the number says: rotating by +rotation
+  // (clockwise, on a canvas) came out upside down on an iPhone.
+  ctx.rotate((-rotation * Math.PI) / 180);
   if (flip) ctx.scale(-1, 1);
   ctx.drawImage(frame, -frame.displayWidth / 2, -frame.displayHeight / 2, frame.displayWidth, frame.displayHeight);
   ctx.setTransform(1, 0, 0, 1, 0, 0);

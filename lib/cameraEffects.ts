@@ -262,7 +262,7 @@ export const CAMERA_EFFECTS_FEATURE = "camera-effects";
 // Versioned: public/ files are cached by Cloudflare for a month under their
 // plain URL, so a fixed worker kept being served as the old one. Bump this
 // whenever public/workers/camera-effects.js changes.
-const WORKER_VERSION = 8;
+const WORKER_VERSION = 9;
 const WORKER_URL = `/workers/camera-effects.js?v=${WORKER_VERSION}`;
 const SETTINGS_KEY = "sharescreen:cameraEffects";
 // How long the worker (and the models it loaded) outlives the last camera
