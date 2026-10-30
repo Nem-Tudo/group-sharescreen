@@ -411,33 +411,79 @@ function ensureCanvases(p, width, height) {
 // A frame that says how it should be turned (Safari's camera on an iPhone
 // held upright sends the sensor's landscape frames with rotation 90) drawn
 // the right way up once, so detection sees an upright face and what goes out
-// is upright too — drawImage of the frame itself ignores its rotation, and
-// the VideoFrame made from the canvas carries none. Null: already upright.
+// is upright too — the VideoFrame made from the canvas carries no rotation.
+// Null: already upright.
 //
-// Only on a phone or tablet: a computer's webcam never stands sideways, and
-// there the guess in rotationOf (settings vs frame shape, no facingMode) turned
-// the picture on its side.
+// On a computer only the frame's own rotation counts: its webcam never stands
+// sideways, and the guess in rotationOf (settings vs frame shape, no
+// facingMode) turned it on its side. A phone used as the camera ("câmera do
+// celular") does arrive turned, though — over WebRTC, as the sensor's
+// landscape frames plus the rotation the phone announced.
 function uprightSource(p, frame) {
-  const rotation = p.turns ? ((rotationOf(p, frame) % 360) + 360) % 360 : 0;
+  const own = typeof frame.rotation === "number";
+  if (!p.turns && !own) return null;
+  const rotation = (((p.turns ? rotationOf(p, frame) : frame.rotation) % 360) + 360) % 360;
   const flip = Boolean(frame.flip);
   if (rotation === 0 && !flip) return null;
   const sideways = rotation === 90 || rotation === 270;
-  const w = sideways ? frame.displayHeight : frame.displayWidth;
-  const h = sideways ? frame.displayWidth : frame.displayHeight;
+  const drawn = p.turns ? null : frameOrientationSupport();
+  // The frame's size before it is turned.
+  const fw = drawn && drawn.dims && sideways ? frame.displayHeight : frame.displayWidth;
+  const fh = drawn && drawn.dims && sideways ? frame.displayWidth : frame.displayHeight;
+  const w = sideways ? fh : fw;
+  const h = sideways ? fw : fh;
   if (!p.upright || p.upright.width !== w || p.upright.height !== h) {
     p.upright = new OffscreenCanvas(w, h);
     p.uprightCtx = p.upright.getContext("2d", { alpha: false });
   }
   const ctx = p.uprightCtx;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (drawn && drawn.draws) {
+    // This browser's drawImage already turns (and mirrors) the frame.
+    ctx.drawImage(frame, 0, 0, w, h);
+    return p.upright;
+  }
   ctx.translate(w / 2, h / 2);
-  // Turned the other way from what the number says: rotating by +rotation
-  // (clockwise, on a canvas) came out upside down on an iPhone.
-  ctx.rotate((-rotation * Math.PI) / 180);
+  // On a phone, turned the other way from what the number says: rotating by
+  // +rotation (clockwise, on a canvas) came out upside down on an iPhone. On
+  // a computer the number is the spec's clockwise turn — the other way laid
+  // the phone camera on its left side.
+  ctx.rotate(((p.turns ? -rotation : rotation) * Math.PI) / 180);
   if (flip) ctx.scale(-1, 1);
-  ctx.drawImage(frame, -frame.displayWidth / 2, -frame.displayHeight / 2, frame.displayWidth, frame.displayHeight);
+  ctx.drawImage(frame, -fw / 2, -fh / 2, fw, fh);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   return p.upright;
+}
+
+// Whether this browser's drawImage turns a VideoFrame by its rotation, and
+// whether displayWidth/displayHeight already count the turn — browsers have
+// differed while the rotation field was new. Found once, on a 2x1 frame
+// marked rotation 90: drawn turned it is 1x2, so its second column stays
+// empty.
+let orientationSupport = null;
+function frameOrientationSupport() {
+  if (orientationSupport) return orientationSupport;
+  orientationSupport = { draws: false, dims: false };
+  let probe = null;
+  try {
+    const src = new OffscreenCanvas(2, 1);
+    const sctx = src.getContext("2d");
+    sctx.fillStyle = "#fff";
+    sctx.fillRect(0, 0, 2, 1);
+    probe = new VideoFrame(src, { timestamp: 0, rotation: 90 });
+    if (probe.rotation !== 90) return orientationSupport;
+    orientationSupport.dims = probe.displayWidth === 1 && probe.displayHeight === 2;
+    const out = new OffscreenCanvas(2, 2);
+    const octx = out.getContext("2d", { willReadFrequently: true });
+    octx.drawImage(probe, 0, 0);
+    const [r, , , a] = octx.getImageData(1, 0, 1, 1).data;
+    orientationSupport.draws = !(a > 0 && r > 128);
+  } catch {
+    // No rotation in VideoFrameInit: nothing turns it, so the canvas does.
+  } finally {
+    if (probe) probe.close();
+  }
+  return orientationSupport;
 }
 
 // The frame's own rotation; where a browser does not fill it in, the camera
