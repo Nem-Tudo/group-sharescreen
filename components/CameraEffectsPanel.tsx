@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, type ReactNode } from "react";
-import { MdAutoAwesome, MdLock, MdUpload } from "react-icons/md";
+import { MdAutoAwesome, MdLock, MdMovie, MdScreenShare, MdUpload, MdVideocam } from "react-icons/md";
 import { MenuToggleRow } from "@/components/MenuToggleRow";
 import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
 import {
@@ -12,6 +12,8 @@ import {
   CAMERA_FACES,
   CAMERA_FACES_3D,
   CAMERA_REACTIONS,
+  CAMERA_STREAM_BG_EVENTS,
+  CAMERA_STREAM_BG_FEATURE,
   CAMERA_WARP_FEATURE,
   CAMERA_WARPS,
   CUSTOM_BACKGROUND_TIER,
@@ -20,11 +22,19 @@ import {
   planAllowsCustomBackground,
   setCameraEffect,
   setCustomCameraBackground,
+  STREAM_BACKGROUND_TIER,
+  trackStreamBackground,
   useCameraEffectSettings,
   useCameraEffectsStatus,
   useCustomCameraBackground,
   type CameraEffectSettings,
 } from "@/lib/cameraEffects";
+import {
+  pickStreamBackground,
+  useStreamBackgroundSelected,
+  useStreamBackgroundSources,
+  type StreamBackgroundSource,
+} from "@/lib/cameraStreamBackground";
 import { setTileExperimentMode, trackTileExperiment, TILE_EXPERIMENT_EVENTS } from "@/lib/clipsMode";
 import { useAuth } from "@/lib/AuthContext";
 import { TIER_NAMES } from "@/lib/entitlements";
@@ -51,6 +61,7 @@ export const CAMERA_EFFECT_LABELS: { [K in keyof CameraEffectSettings]: Record<C
     aurora: "watch.watchRoom.cameraEffectAurora",
     studio: "watch.watchRoom.cameraEffectStudio",
     custom: "watch.watchRoom.cameraEffectCustomBg",
+    stream: "watch.watchRoom.cameraEffectStreamBg",
   },
   color: {
     none: "watch.watchRoom.cameraEffectNone",
@@ -246,6 +257,80 @@ export function CustomBackgroundChips({ selected, turnOn }: { selected: boolean;
   );
 }
 
+const STREAM_ICONS: Record<StreamBackgroundSource["kind"], typeof MdVideocam> = {
+  screen: MdScreenShare,
+  camera: MdVideocam,
+  file: MdMovie,
+};
+
+// "Transmissão ao vivo" (experiment "camera-stream-bg", Pro Max and up): one
+// chip per transmission in the room with a picture, and picking one puts it
+// behind the person, live. Below the plan it is one locked chip that opens
+// the plans, like "Seu fundo" — and "custom-bg-free" unlocks it the same way. Its own little block, under the backgrounds:
+// it changes with the room, where those never do.
+export function StreamBackgroundPicker({ selected, turnOn }: { selected: boolean; turnOn?: () => void }) {
+  const t = useT();
+  const { account } = useAuth();
+  // Exposure: this block shown to someone in the experiment.
+  const inExperiment = useFeature(CAMERA_STREAM_BG_FEATURE, { track: true }).enabled;
+  const sources = useStreamBackgroundSources();
+  const picked = useStreamBackgroundSelected();
+  // Its exposure is counted by "Seu fundo", always shown beside this.
+  const free = useFeature(CUSTOM_BG_FREE_FEATURE, { track: false }).enabled;
+  if (!inExperiment) return null;
+  const allowed = canUseCustomBackground(account?.flags, free);
+
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-xs text-zinc-500 dark:text-zinc-400">{t("watch.watchRoom.cameraEffectStreamBg")}</span>
+      <div className="flex flex-wrap gap-1">
+        {!allowed ? (
+          <button
+            type="button"
+            onClick={() => {
+              trackStreamBackground(CAMERA_STREAM_BG_EVENTS.locked);
+              openProModal(STREAM_BACKGROUND_TIER);
+            }}
+            title={t("watch.watchRoom.cameraEffectStreamBgLocked", { plan: TIER_NAMES[STREAM_BACKGROUND_TIER] })}
+            className={`${CHIP} ${CHIP_OFF} inline-flex items-center gap-1`}
+          >
+            <MdLock className="h-3 w-3 text-amber-500" />
+            {t("watch.watchRoom.cameraEffectStreamBgPick")}
+            <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+              {TIER_NAMES[STREAM_BACKGROUND_TIER]}
+            </span>
+          </button>
+        ) : sources.length === 0 ? (
+          <span className="text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">
+            {t("watch.watchRoom.cameraEffectStreamBgEmpty")}
+          </span>
+        ) : (
+          sources.map((source) => {
+            const Icon = STREAM_ICONS[source.kind];
+            const on = selected && picked?.id === source.id;
+            return (
+              <button
+                key={source.id}
+                type="button"
+                aria-pressed={on}
+                onClick={() => {
+                  pickStreamBackground(source.id);
+                  markFeatureUsed(CAMERA_EFFECTS_FEATURE);
+                  turnOn?.();
+                }}
+                className={`${CHIP} ${on ? CHIP_ON : CHIP_OFF} inline-flex max-w-full items-center gap-1`}
+              >
+                <Icon className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{source.name}</span>
+              </button>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function CameraEffectsPanel({ on, standalone = false }: { on: boolean; standalone?: boolean }) {
   const t = useT();
   const settings = useCameraEffectSettings();
@@ -310,6 +395,7 @@ export function CameraEffectsPanel({ on, standalone = false }: { on: boolean; st
           >
             <CustomBackgroundChips selected={settings.background === "custom"} turnOn={turnOn} />
           </EffectGroup>
+          <StreamBackgroundPicker selected={settings.background === "stream"} turnOn={turnOn} />
           <EffectGroup
             name="color"
             title={t("watch.watchRoom.cameraEffectColor")}

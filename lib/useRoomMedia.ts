@@ -154,6 +154,7 @@ import { createPhoneCameraPlaceholder, isPhoneCameraPlaceholder } from "./phoneC
 import {
   CAMERA_EFFECTS_3D_FEATURE,
   CAMERA_WARP_FEATURE,
+  CAMERA_STREAM_BG_FEATURE,
   CUSTOM_BG_FREE_FEATURE,
   canUseCustomBackground,
   useCameraEffectsSupported,
@@ -169,6 +170,7 @@ import {
   useCustomCameraBackground,
   type CameraEffectSettings,
 } from "./cameraEffects";
+import { useStreamBackgroundSelected } from "./cameraStreamBackground";
 import {
   answerMirroringStereo,
   offerToSend,
@@ -4274,12 +4276,26 @@ export function useRoomMedia(room: string) {
   const customBackgroundFree = useFeature(CUSTOM_BG_FREE_FEATURE, { track: false }).enabled;
   const allowCustomCameraBackground =
     canUseCustomBackground(account?.flags, customBackgroundFree) && customCameraBackground !== null;
+  // A transmission as the background: "camera-stream-bg", Pro Max (or
+  // "custom-bg-free", which frees it too), and the one picked still in the room.
+  const cameraStreamBackgroundExperiment = useFeature(CAMERA_STREAM_BG_FEATURE, { track: false }).enabled;
+  const cameraStreamBackground = useStreamBackgroundSelected();
+  const allowCameraStreamBackground =
+    cameraStreamBackgroundExperiment &&
+    canUseCustomBackground(account?.flags, customBackgroundFree) &&
+    cameraStreamBackground !== null;
   // Safari's answer comes in after the first render (see cameraEffectsSupported).
   const cameraEffectsCanRun = useCameraEffectsSupported();
   const cameraEffectSettings = useMemo(
     () =>
-      effectiveCameraEffects(storedCameraEffects, allowCameraEffects3d, allowCustomCameraBackground, allowCameraWarp),
-    [storedCameraEffects, allowCameraEffects3d, allowCustomCameraBackground, allowCameraWarp]
+      effectiveCameraEffects(
+        storedCameraEffects,
+        allowCameraEffects3d,
+        allowCustomCameraBackground,
+        allowCameraWarp,
+        allowCameraStreamBackground
+      ),
+    [storedCameraEffects, allowCameraEffects3d, allowCustomCameraBackground, allowCameraWarp, allowCameraStreamBackground]
   );
   const wantedCameraEffects = useMemo(
     () =>

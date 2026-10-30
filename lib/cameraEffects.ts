@@ -50,7 +50,11 @@ export type CameraBackground =
   | "studio"
   // An image of the person's own (Pro Max and up), kept in this browser —
   // see setCustomCameraBackground.
-  | "custom";
+  | "custom"
+  // A transmission in the room, live (Pro Max and up, experiment
+  // "camera-stream-bg") — see setCameraBackgroundTrack. Never stored: which
+  // one only means something in this room, this visit.
+  | "stream";
 export type CameraColor = "none" | "mono" | "sepia" | "vivid";
 export type CameraFace =
   | "none"
@@ -178,16 +182,19 @@ function trackWarp(name: string, value?: number) {
 
 /**
  * `settings` as they may actually be drawn: a 3D face (or a warp) taken away
- * from whoever is not in its experiment, and the custom background from
- * whoever is not on the plan for it (or has no image stored).
+ * from whoever is not in its experiment, and the custom background (or a
+ * transmission as the background) from whoever is not on the plan for it, or
+ * has no image stored (no transmission picked, or it ended).
  */
 export function effectiveCameraEffects(
   settings: CameraEffectSettings,
   allow3d: boolean,
   allowCustomBackground: boolean,
-  allowWarp: boolean
+  allowWarp: boolean,
+  allowStreamBackground: boolean
 ): CameraEffectSettings {
   let next = settings;
+  if (!allowStreamBackground && next.background === "stream") next = { ...next, background: "none" };
   if (!allowWarp && next.warp !== "none") next = { ...next, warp: "none" };
   if (!allow3d && CAMERA_FACES_3D.includes(next.face)) next = { ...next, face: "none" };
   if (!allow3d && next.reactions !== "none") next = { ...next, reactions: "none" };
@@ -312,7 +319,7 @@ export const CAMERA_EFFECTS_FEATURE = "camera-effects";
 // plain URL, so a fixed worker kept being served as the old one. Bump this
 // whenever public/workers/camera-effects.js or camera-detect.js changes (the
 // detector is loaded with the same ?v=).
-const WORKER_VERSION = 11;
+const WORKER_VERSION = 12;
 const WORKER_URL = `/workers/camera-effects.js?v=${WORKER_VERSION}`;
 const SETTINGS_KEY = "sharescreen:cameraEffects";
 // How long the worker (and the models it loaded) outlives the last camera
@@ -568,6 +575,7 @@ function ensureWorker(): Worker {
         track3d(CAMERA_EFFECTS_3D_EVENTS.error);
       }
       if (data.kind === "warp") trackWarp(CAMERA_WARP_EVENTS.error);
+      if (data.kind === "stream-bg") trackStreamBackground(CAMERA_STREAM_BG_EVENTS.error);
     } else if (data.type === "stats") {
       if (!reportedSlow && data.frameMs > SLOW_FRAME_MS) {
         reportedSlow = true;
@@ -608,6 +616,7 @@ function ensureWorker(): Worker {
   created.postMessage({ type: "settings", settings: current });
   worker = created;
   void pushCustomBackground();
+  syncBackgroundStream();
   return created;
 }
 
@@ -624,6 +633,7 @@ function scheduleIdle() {
     if (live.size > 0 || !worker) return;
     worker.terminate();
     worker = null;
+    syncBackgroundStream();
     preparedFor = null;
     setStatus({ loading: false });
   }, WORKER_IDLE_MS);
@@ -675,6 +685,74 @@ export function setCameraEffectsTarget(settings: CameraEffectSettings | null) {
   current = next;
   if (next) setStatus({ failed: false });
   worker?.postMessage({ type: "settings", settings: next });
+  syncBackgroundStream();
+}
+
+// ---------------------------------------------------------------------------
+// A transmission as the background (Pro Max and up, experiment
+// "camera-stream-bg")
+//
+// Someone's screen or camera in the room (or one's own screen) behind the
+// person, live. The room's own track for it is cloned — stopping the clone
+// ends nothing a tile is showing — and its frames go to the worker, which
+// keeps only the newest to draw. Only while the effects actually draw it: a
+// pick with the switch off, or no camera on, reads no frames at all. Which
+// transmission is lib/cameraStreamBackground.ts's business; this side only
+// gets its track.
+
+export const CAMERA_STREAM_BG_FEATURE = "camera-stream-bg";
+export const STREAM_BACKGROUND_TIER = CUSTOM_BACKGROUND_TIER;
+export const CAMERA_STREAM_BG_EVENTS = {
+  pick: "camera_stream_bg_pick", // escolheu uma transmissão como fundo
+  locked: "camera_stream_bg_locked", // clicou no cadeado (abaixo do Pro Max)
+  error: "camera_stream_bg_error", // os quadros da transmissão não chegaram ao worker
+};
+
+export function trackStreamBackground(name: string) {
+  trackFeatureEvent(name, { feature: CAMERA_STREAM_BG_FEATURE });
+}
+
+// What the room says is picked (live), and what is being fed to the worker.
+let backgroundTrack: MediaStreamTrack | null = null;
+let piped: { source: MediaStreamTrack; clone: MediaStreamTrack; worker: Worker } | null = null;
+
+/** The transmission's video track to draw behind the person, or null. */
+export function setCameraBackgroundTrack(track: MediaStreamTrack | null) {
+  if (track === backgroundTrack) return;
+  backgroundTrack = track;
+  syncBackgroundStream();
+}
+
+function syncBackgroundStream() {
+  const wanted = worker && current?.background === "stream" ? backgroundTrack : null;
+  if (piped && piped.source === wanted && piped.worker === worker) return;
+  if (piped) {
+    if (piped.worker === worker) piped.worker.postMessage({ type: "background-stream", readable: null });
+    piped.clone.stop();
+    piped = null;
+  }
+  if (!wanted || !worker || wanted.readyState === "ended") return;
+  const clone = wanted.clone();
+  try {
+    const streams = insertableStreams();
+    if (streams) {
+      const processor = new streams.Processor({ track: clone, maxBufferSize: 1 });
+      worker.postMessage({ type: "background-stream", readable: processor.readable }, [
+        processor.readable as unknown as Transferable,
+      ]);
+    } else if (workerTracks) {
+      // Safari: the processor only exists in the worker, so the track goes there.
+      worker.postMessage({ type: "background-stream", track: clone }, [clone as unknown as Transferable]);
+    } else {
+      clone.stop();
+      return;
+    }
+  } catch {
+    clone.stop();
+    trackStreamBackground(CAMERA_STREAM_BG_EVENTS.error);
+    return;
+  }
+  piped = { source: wanted, clone, worker };
 }
 
 export function isCameraEffectsTrack(track: MediaStreamTrack | null | undefined): boolean {

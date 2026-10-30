@@ -78,6 +78,8 @@ self.onmessage = (event) => {
     if (pipeline) pipeline.stopped = true;
   } else if (data.type === "background-image") {
     setCustomBackground(data.bitmap || null);
+  } else if (data.type === "background-stream") {
+    setBackgroundStream(data.readable || null, data.track || null);
   }
 };
 
@@ -2277,7 +2279,8 @@ function backgroundImage(kind, width, height) {
 }
 
 function drawReplacedBackground(p, kind, color, width, height) {
-  const image = backgroundImage(kind, width, height);
+  const live = kind === "stream" ? streamFrame : null;
+  const image = live || backgroundImage(kind, width, height);
   if (!image) return;
   if (!p.full || p.full.width !== width || p.full.height !== height) {
     p.full = new OffscreenCanvas(width, height);
@@ -2286,7 +2289,8 @@ function drawReplacedBackground(p, kind, color, width, height) {
   const ctx = p.fullCtx;
   ctx.globalCompositeOperation = "copy";
   ctx.filter = color;
-  ctx.drawImage(image, 0, 0, width, height);
+  if (live) drawCover(ctx, live, live.displayWidth, live.displayHeight, width, height);
+  else ctx.drawImage(image, 0, 0, width, height);
   ctx.filter = "none";
   ctx.globalCompositeOperation = "destination-out";
   ctx.imageSmoothingQuality = "high";
@@ -2512,11 +2516,74 @@ const BACKGROUND_PAINTERS = {
     ctx.fillRect(0, 0, w, h);
   },
   custom(ctx, w, h) {
-    // Covering the frame, cropped from the middle.
     const b = customBackground;
-    const scale = Math.max(w / b.width, h / b.height);
-    const dw = b.width * scale;
-    const dh = b.height * scale;
-    ctx.drawImage(b, (w - dw) / 2, (h - dh) / 2, dw, dh);
+    drawCover(ctx, b, b.width, b.height, w, h);
   },
 };
+
+// Covering the frame, cropped from the middle.
+function drawCover(ctx, source, sw, sh, w, h) {
+  const scale = Math.max(w / sw, h / sh);
+  const dw = sw * scale;
+  const dh = sh * scale;
+  ctx.drawImage(source, (w - dw) / 2, (h - dh) / 2, dw, dh);
+}
+
+// ---------------------------------------------------------------------------
+// A transmission as the background (experiment "camera-stream-bg")
+//
+// Someone's screen or camera in the room, as frames: a readable from a
+// processor on the page (Chromium), or the track itself, which gets its
+// processor here (Safari). Only the newest frame is kept — the camera draws
+// whatever is latest when its own frame comes, at its own pace — and every
+// older one is closed at once, so the decoder behind it never runs out of
+// frames. Until the first one arrives, or after it ends, nothing replaces
+// the background (see drawReplacedBackground).
+
+let streamFrame = null;
+let streamReader = null;
+let streamTrack = null;
+let streamGen = 0;
+
+function setBackgroundStream(readable, track) {
+  const gen = ++streamGen;
+  if (streamReader) streamReader.cancel().catch(() => {});
+  if (streamTrack) streamTrack.stop();
+  if (streamFrame) streamFrame.close();
+  streamReader = null;
+  streamTrack = track;
+  streamFrame = null;
+  if (!readable && track) {
+    try {
+      readable = new MediaStreamTrackProcessor({ track }).readable;
+    } catch (err) {
+      track.stop();
+      streamTrack = null;
+      self.postMessage({ type: "error", kind: "stream-bg", reason: String((err && err.message) || err).slice(0, 120) });
+      return;
+    }
+  }
+  if (!readable) return;
+  const reader = readable.getReader();
+  streamReader = reader;
+  (async () => {
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (gen !== streamGen) {
+          value.close();
+          break;
+        }
+        if (streamFrame) streamFrame.close();
+        streamFrame = value;
+      }
+    } catch {
+      // Cancelled (another one picked), or the track went away.
+    }
+    if (gen === streamGen && streamFrame) {
+      streamFrame.close();
+      streamFrame = null;
+    }
+  })();
+}

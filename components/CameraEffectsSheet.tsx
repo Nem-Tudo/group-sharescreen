@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { MdAutoAwesome, MdBlock } from "react-icons/md";
 import { MobileSheet } from "@/components/MobileSheet";
 import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
-import { CAMERA_EFFECT_LABELS, CustomBackgroundChips } from "@/components/CameraEffectsPanel";
+import { CAMERA_EFFECT_LABELS, CustomBackgroundChips, StreamBackgroundPicker } from "@/components/CameraEffectsPanel";
 import {
   CAMERA_BACKGROUNDS,
   CAMERA_COLORS,
@@ -70,6 +70,7 @@ const WARP_ICONS: Record<CameraEffectSettings["warp"], string> = {
 const BACKGROUND_SWATCHES: Record<CameraEffectSettings["background"], string> = {
   none: "",
   custom: "",
+  stream: "",
   blur: "bg-gradient-to-br from-zinc-300 via-zinc-400 to-zinc-500 blur-[2px]",
   sunset: "bg-gradient-to-b from-orange-400 via-pink-500 to-purple-700",
   beach: "bg-gradient-to-b from-sky-400 via-cyan-300 to-amber-200",
@@ -291,6 +292,7 @@ export function CameraEffectsSheet({
               <div className="flex flex-wrap gap-1">
                 <CustomBackgroundChips selected={settings.background === "custom"} turnOn={turnOn} />
               </div>
+              <StreamBackgroundPicker selected={settings.background === "stream"} turnOn={turnOn} />
             </>
           )}
 

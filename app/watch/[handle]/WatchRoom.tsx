@@ -233,6 +233,7 @@ import {
   useCameraEffectSettings,
   useCameraEffectsSupported,
 } from "@/lib/cameraEffects";
+import { publishStreamBackgroundSources, type StreamBackgroundSource } from "@/lib/cameraStreamBackground";
 import { PhoneCameraPanel } from "@/components/PhoneCameraPanel";
 import {
   getPhoneCameraState,
@@ -4346,6 +4347,21 @@ function WatchRoomView({
     fileChannels,
     localMediaSnapshots,
   ]);
+  // What can be the camera's background, live ("camera-stream-bg", see
+  // lib/cameraStreamBackground.ts): every transmission with a picture except
+  // one's own camera, which the effects would end up drawing into itself.
+  useEffect(() => {
+    publishStreamBackgroundSources(
+      callSources.flatMap((source): StreamBackgroundSource[] => {
+        if (source.kind === "voice" || source.audioOnly) return [];
+        if (source.self && source.id === `camera:${SELF_TILE_OWNER}`) return [];
+        const track = source.stream.getVideoTracks()[0];
+        if (!track) return [];
+        return [{ id: source.id, kind: source.kind, name: source.name, self: source.self, track }];
+      })
+    );
+  }, [callSources]);
+  useEffect(() => () => publishStreamBackgroundSources([]), []);
   // "Transcrição": on its own from "⋯", or with the recording (its text goes
   // into the recording's zip, under transcripts/). Pro Max, which the API is
   // what enforces; this only decides what to offer.
