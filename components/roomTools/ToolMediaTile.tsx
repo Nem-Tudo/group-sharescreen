@@ -2,7 +2,6 @@
 
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { MdClose, MdSettings } from "react-icons/md";
-import { BetaMark } from "@/components/BetaMark";
 import { Tooltip } from "@/components/Tooltip";
 import { EyeOffIcon, FocusIcon, FullscreenExitIcon, FullscreenIcon, HyperfocusIcon, PipIcon } from "@/components/icons";
 import {
@@ -182,9 +181,6 @@ export function ToolMediaTile({
     >
       <div className="flex shrink-0 items-center justify-between gap-1 bg-zinc-900 px-2 py-1 sm:gap-2 sm:px-2.5 sm:py-1.5">
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className="hidden sm:inline">
-            <BetaMark />
-          </span>
           {icon}
           <span className="truncate text-sm font-medium text-white">{tool.title}</span>
           <span className="hidden shrink-0 rounded-full bg-emerald-600/90 px-2 py-0.5 text-[10px] font-semibold uppercase text-white sm:inline">

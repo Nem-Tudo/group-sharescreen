@@ -128,9 +128,16 @@ export type ManageRoomPopupData = {
 export function ManageRoomModal({
   closePopup,
   data,
+  inline = false,
 }: {
   closePopup: (hasAction?: boolean) => void;
   data?: ManageRoomPopupData;
+  /**
+   * Drawn inside a page instead of a popup — the room redesign's settings
+   * tab (see WatchRoom). No × and no box of its own: the tab is the box, and
+   * there is nothing to close.
+   */
+  inline?: boolean;
 }) {
   const t = useT();
   const state = useSignalingSelector(selectManageRoom, shallow);
@@ -220,7 +227,7 @@ export function ManageRoomModal({
 
   return (
     <div
-      className={`flex max-h-[92vh] max-w-full flex-col gap-4 overflow-y-auto bg-white p-4 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50 ${
+      className={inline ? "flex w-full flex-col gap-4 text-zinc-900 dark:text-zinc-50" : `flex max-h-[92vh] max-w-full flex-col gap-4 overflow-y-auto bg-white p-4 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50 ${
         // The map view fills whatever box the popup was opened with — its
         // width is set on the popup itself (see WatchRoom's
         // openRoomLocationPopup), because a fixed width here would be sized
@@ -258,6 +265,7 @@ export function ManageRoomModal({
         <button
           type="button"
           onClick={() => closePopup(false)}
+          hidden={inline}
           aria-label={t("common.close")}
           className="-mr-1 -mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-lg leading-none opacity-60 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
         >

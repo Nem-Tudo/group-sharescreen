@@ -5,7 +5,6 @@ import { FaYoutube, FaSpotify } from "react-icons/fa";
 import { MdMusicNote, MdFolderOpen } from "react-icons/md";
 import { parseMusicUrl, type MusicControlMode } from "@/lib/musicSource";
 import { importSpotifyPlaylist } from "@/lib/musicImportApi";
-import { BetaMark } from "./BetaMark";
 import { LocalMediaPicker } from "./LocalMediaPicker";
 import type { LocalMediaSlot } from "@/lib/localMediaSource";
 import { useT } from "@/lib/useI18n";
@@ -116,7 +115,7 @@ export function AddMusicSourceModal({
       <div className="flex items-start justify-between gap-2">
         <p className="flex items-center gap-1.5 text-sm font-semibold">
           <MdMusicNote className="h-4 w-4 shrink-0 text-emerald-600" />
-          <BetaMark /> {replacing ? t("common.changeTheRoomSMusic") : t("common.playMusicInTheRoom")}
+          {replacing ? t("common.changeTheRoomSMusic") : t("common.playMusicInTheRoom")}
         </p>
         <button
           type="button"

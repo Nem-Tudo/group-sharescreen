@@ -229,6 +229,8 @@ export function ChatPanel({
   protectedUserIds,
   variant = "default",
   pillComposer = false,
+  headerless = false,
+  animateNew = false,
   onSent,
 }: {
   /**
@@ -243,6 +245,10 @@ export function ChatPanel({
    * desktop composer. The phone variant has its own pill either way.
    */
   pillComposer?: boolean;
+  /** No title bar of its own: the room's side panel has tabs that say it (room redesign). */
+  headerless?: boolean;
+  /** New messages ease in instead of appearing (room redesign). */
+  animateNew?: boolean;
   /** Called whenever a message actually goes, for the caller's statistics. */
   onSent?: () => void;
   /** A room manager deleting someone's message — absent for everyone else. */
@@ -352,6 +358,9 @@ export function ChatPanel({
 }) {
   const t = useT();
   const mobile = variant === "mobile";
+  // Messages sent after this panel appeared are the "new" ones animateNew
+  // eases in; the log handed over on joining just appears.
+  const [mountedAt] = useState(() => Date.now());
   // The one-box composer on a desktop (see pillComposer).
   const desk = pillComposer && !mobile;
   // How tall the field may grow before it scrolls. The desktop box has the
@@ -1174,7 +1183,7 @@ export function ChatPanel({
           // Replaces the row's own onContextMenu with the long press.
           {...gestures?.handlers}
           style={gestures?.style}
-          className={`group relative -mx-1.5 rounded-lg px-2 ${mobile ? "text-[15px] leading-snug" : "text-sm"} transition-colors duration-150 ${
+          className={`group relative -mx-1.5 rounded-lg px-2 ${mobile ? "text-[15px] leading-snug" : "text-sm"} ${animateNew && m.ts > mountedAt ? "rr-msg-in" : ""} transition-colors duration-150 ${
             grouped ? "pb-0.5" : "mt-2.5 pb-0.5 first:mt-0"
           } ${
             isHighlighted
@@ -1493,6 +1502,8 @@ export function ChatPanel({
     protectedKey,
     handlers,
     mobile,
+    animateNew,
+    mountedAt,
     t,
   ]);
 
@@ -1550,7 +1561,7 @@ export function ChatPanel({
       style={{ minHeight: "180px" }}
     >
       {/* On the phone the sheet's own header says this (see WatchRoom). */}
-      <div className={`${mobile ? "hidden" : "flex"} shrink-0 items-center justify-between gap-2 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800`}>
+      <div className={`${mobile || headerless ? "hidden" : "flex"} shrink-0 items-center justify-between gap-2 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800`}>
         <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">{t("common.chat")}</h2>
         <div className="flex items-center gap-1.5">
           {messages.length > 0 && (

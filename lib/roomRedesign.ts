@@ -16,6 +16,10 @@ export const ROOM_REDESIGN_EVENTS = {
   sidebarToggle: "room_redesign_sidebar_toggle",
   /** A tap on a tile's picture that brought its controls up (touch). */
   tileTap: "room_redesign_tile_tap",
+  /** A button of the call bar under the stage (desktop). */
+  dockUse: "room_redesign_dock_use",
+  /** Chat ⇄ people in the side panel (desktop). */
+  panelTab: "room_redesign_panel_tab",
 } as const;
 
 export function trackRoomRedesignEvent(

@@ -158,6 +158,9 @@ import { UserProfileDialog } from "@/components/UserProfileDialog";
 import { InviteToRoomModal } from "@/components/InviteToRoomModal";
 import { prewarmCaptcha } from "@/lib/turnstile";
 import { RoomAccountCard } from "@/components/RoomAccountCard";
+import { RoomSidePanel, type RoomSideTab } from "@/components/RoomSidePanel";
+import { ManageRoomModal } from "@/components/ManageRoomModal";
+import { useFlipChildren } from "@/lib/useFlipChildren";
 import { openProModal } from "@/lib/proModal";
 import {
   MEDIA_KINDS,
@@ -1566,7 +1569,12 @@ type MobilePanel = "participants" | "chat";
 // dragged to something unusable is otherwise a fiddly thing to undo by hand.
 // The maximum is a ceiling, not the real limit: the drag also refuses to take
 // more than half the room, which on most screens bites first.
-const DEFAULT_CHAT_WIDTH = 350;
+const DEFAULT_CHAT_WIDTH = 400;
+// What the default used to be. The width is saved on every change, the
+// default included, so a stored 350 is almost always somebody who never
+// dragged the edge — they get the new default rather than the old one kept
+// forever (see chatWidth's initializer).
+const PREVIOUS_DEFAULT_CHAT_WIDTH = 350;
 const MIN_CHAT_WIDTH = 260;
 const MAX_CHAT_WIDTH = 720;
 
@@ -1906,12 +1914,14 @@ function WatchRoomView({
   // element, so the redesign's layer in globals.css finds them through this
   // mark on <html> — only while the room is the page on screen, so a docked
   // call does not restyle whatever page somebody walked off to.
+  const redesignInGroup = Boolean(group);
   useEffect(() => {
     if (!roomRedesign || !visible) return;
     const root = document.documentElement;
-    root.setAttribute("data-room-redesign-on", "");
+    // "group" keeps the redesign's colours off the floating layers too.
+    root.setAttribute("data-room-redesign-on", redesignInGroup ? "group" : "");
     return () => root.removeAttribute("data-room-redesign-on");
-  }, [roomRedesign, visible]);
+  }, [roomRedesign, visible, redesignInGroup]);
   // Whether this browser refuses room themes (see the toggle in the menu). Read
   // here as well as inside the hook, because the row has to draw its own state.
   const roomThemeOptedOut = useSyncExternalStore(
@@ -2401,6 +2411,27 @@ function WatchRoomView({
   // chat one on the right — see participantsSection/chatSection below.
   // Below lg, they share one pane via the tab switcher right below instead.
   const isWideLayout = useMediaQuery(LG_BREAKPOINT_QUERY);
+  // The desktop half of the room redesign (lib/roomRedesign): the call
+  // controls in a bar under the stage, and the chat column as a panel with
+  // tabs — the chat, and the room's settings (map, theme, management), which
+  // used to sit over the conversation. Not in a group, whose shell lays its
+  // room out.
+  // In a group too, with the group's colours: only the layout changes there
+  // (see data-rr-group on the page element and in globals.css).
+  const deskRedesign = roomRedesign && isWideLayout;
+  const dockInStage = deskRedesign && visible;
+  // Not remembered: coming back to a room should land on its conversation.
+  const [sideTab, setSideTabState] = useState<RoomSideTab>("chat");
+  function setSideTab(next: RoomSideTab) {
+    if (next === sideTab) return;
+    setSideTabState(next);
+    trackRoomRedesignEvent(ROOM_REDESIGN_EVENTS.panelTab);
+  }
+  // The tile grid's element and what is in it, for the tiles' FLIP animation
+  // (lib/useFlipChildren). The key is filled in where the tiles are built.
+  const tileGridRef = useRef<HTMLDivElement | null>(null);
+  const tileKeyRef = useRef("");
+  useFlipChildren(tileGridRef, tileKeyRef, deskRedesign);
   // Below lg the room is an app shell rather than a page: the header, the
   // video, and the bar at the bottom of the screen divide the viewport
   // between them and nothing scrolls except the inside of a pane. This is
@@ -2940,7 +2971,7 @@ function WatchRoomView({
     if (typeof window === "undefined") return DEFAULT_CHAT_WIDTH;
 
     const saved = localStorage.getItem("chat-panel-width");
-    const width = saved ? Number(saved) : DEFAULT_CHAT_WIDTH;
+    const width = saved && Number(saved) !== PREVIOUS_DEFAULT_CHAT_WIDTH ? Number(saved) : DEFAULT_CHAT_WIDTH;
 
     return Number.isFinite(width)
       ? Math.min(Math.max(width, MIN_CHAT_WIDTH), MAX_CHAT_WIDTH)
@@ -7172,7 +7203,6 @@ function WatchRoomView({
             >
               <MdMusicNote className="h-4 w-4 shrink-0 text-emerald-500" />
               {hasMusic || myMusicSlot ? translate("common.changeTheRoomSMusic") : translate("common.playMusicInTheRoom")}
-              <BetaMark />
             </button>
           </Tooltip>
 
@@ -8214,7 +8244,9 @@ function WatchRoomView({
           </button>
         </Tooltip>
         )}
-        {isRoomManager && (
+        {/* In the redesign's settings tab the management screen is drawn
+            right there instead (see RoomSidePanel's settings). */}
+        {isRoomManager && !deskRedesign && (
           <button
             type="button"
             data-tour="manage"
@@ -8302,7 +8334,9 @@ function WatchRoomView({
         sendDisabledReason={chatBlockedReason}
         gifDisabledReason={gifBlockedReason}
         imageDisabledReason={imageBlockedReason}
-        onCollapse={!fullscreenChatSlot && isWideLayout && hasAnyMedia ? toggleRightSidebar : undefined}
+        onCollapse={!fullscreenChatSlot && isWideLayout && hasAnyMedia && !deskRedesign ? toggleRightSidebar : undefined}
+        headerless={deskRedesign}
+        animateNew={roomRedesign}
         onRequestAccount={() => setAccountModal("create")}
         roomHandle={handle}
         // Fills whatever box it is given, in both layouts: its own column
@@ -8322,11 +8356,7 @@ function WatchRoomView({
   // Only ever rendered in the chat column, which only exists from lg up — so
   // the header's own identity chip is kept for narrower screens and the two
   // never both appear. See RoomAccountCard, and the chip in the header below.
-  const chatSection = (
-    <>
-      {roomManageRow}
-      {/* Off to the fullscreen tile's side for now (see fullscreenChatSlot). */}
-      {fullscreenChatSlot ? null : chatPanel}
+  const roomAccountCard = (
       <RoomAccountCard
         onCreateAccount={() => setAccountModal("create")}
         onOpenProfile={setProfileUserId}
@@ -8357,6 +8387,13 @@ function WatchRoomView({
           ),
         ].filter(Boolean)}
       />
+  );
+  const chatSection = (
+    <>
+      {roomManageRow}
+      {/* Off to the fullscreen tile's side for now (see fullscreenChatSlot). */}
+      {fullscreenChatSlot ? null : chatPanel}
+      {roomAccountCard}
     </>
   );
 
@@ -8483,6 +8520,179 @@ function WatchRoomView({
   // Only a group's own voice room draws its music under the group's header.
   const groupMusicSlot = group ? musicSlot : null;
 
+  // The call's own controls (mic, sound, screen, camera, what is brought into
+  // the room, leaving): the middle of the header, or the bar under the stage
+  // in the desktop redesign. One copy either way — see the header's comment.
+  tileKeyRef.current = tiles.map((tile) => tile.id).join(",") + (stageTile ? `|${stageTile.id}` : "");
+
+  const callControls = (
+    <div
+      className={
+        dockInStage
+          ? "flex items-center justify-center gap-1.5"
+          : "flex items-center justify-center gap-1.5 justify-self-center rounded-xl border border-zinc-200 bg-zinc-100 p-1 dark:border-zinc-800 dark:bg-zinc-900"
+      }
+    >
+      {mainControls}
+
+      {/* Everything here past what a call needs every minute goes in
+          one piece, so the compact call bar leaves it out and the
+          expanded one grows it in as one (see dockExtra). The gap
+          variable is the row's own gap-1.5, taken back while closed. */}
+      {dockExtra(
+      <>
+      <span className="mx-0.5 h-6 w-px shrink-0 bg-zinc-300 dark:bg-zinc-700" />
+
+      {/* Adding a YouTube/Twitch video/live to the room. Sits with
+          the transmission controls because that's what it produces:
+          one more tile everyone in the room sees, with the same focus
+          and hyperfocus buttons — the difference is that nobody is
+          uploading it. Opens components/AddVideoSourceModal as an
+          ntpopups popup rather than the little inline box this used
+          to be — picking a platform and who gets to control it needs
+          more room than a popover corner has. */}
+      <Tooltip
+        content={videoSourceBlockedReason ?? translate("watch.watchRoom.addVideoSource")}
+        wrapperClassName="flex"
+      >
+        <button
+          type="button"
+          onClick={openAddVideoSourcePopup}
+          disabled={Boolean(videoSourceBlockedReason)}
+          data-tour="video"
+          aria-label={translate("watch.watchRoom.addVideoSource")}
+          className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <MdOutlineOndemandVideo className="h-5 w-5 shrink-0" />
+        </button>
+      </Tooltip>
+
+      {/* The room's soundtrack. Next to the video button because it
+          is the same kind of act — bringing something in for the
+          whole room to hear — but a different thing entirely once
+          it's here: one per room, managers only, and a bar under the
+          header rather than a tile (see components/MusicBar). Shown
+          to everyone, disabled with the reason in its tooltip for
+          whoever may not use it, rather than hidden: "why can't I put
+          music on" is a question the UI should answer by itself. */}
+      <Tooltip
+        content={
+          musicBlockedReason ??
+          (hasMusic || myMusicSlot
+            ? translate("common.changeTheRoomSMusic")
+            : translate("common.playMusicInTheRoom"))
+        }
+        wrapperClassName="flex"
+      >
+        <button
+          type="button"
+          data-tour="music"
+          onClick={openAddMusicPopup}
+          disabled={!canManageMusic}
+          aria-label={translate("common.playMusicInTheRoom")}
+          className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <MdMusicNote className="h-5 w-5 shrink-0" />
+        </button>
+      </Tooltip>
+
+      {/* "Ferramentas": the shared whiteboard, notepad, notes over a
+          shared screen, polls, reactions, code editor and task list
+          (see components/roomTools). Same family as the two buttons
+          before it — something brought in for the whole room — and
+          shown to everyone: members use what the managers opened. */}
+      {showRoomToolsButton && (
+      <Tippy
+        visible={roomToolsTip.show}
+        placement="bottom"
+        interactive
+        theme="golive-panel"
+        appendTo={() => document.body}
+        content={
+          <span
+            role="status"
+            className="relative block w-60 rounded-lg bg-blue-600 px-3 py-2 text-left text-xs font-medium text-white shadow-lg"
+          >
+            <span className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
+            <span className="flex items-start gap-2">
+              <span className="flex-1">{translate("watch.watchRoom.roomToolsTip")}</span>
+              <button
+                type="button"
+                onClick={roomToolsTip.dismiss}
+                aria-label={translate("watch.watchRoom.clipsModeTipDismiss")}
+                className="-m-1 rounded p-1 leading-none text-white/80 hover:text-white"
+              >
+                ✕
+              </button>
+            </span>
+          </span>
+        }
+      >
+      <span className="flex">
+      <Tooltip content={translate("roomTools.title")} wrapperClassName="flex">
+        <button
+          type="button"
+          onClick={() => {
+            if (roomToolsTip.show) roomToolsTip.clicked();
+            markFeatureUsed(ROOM_TOOLS_FEATURE);
+            roomTools.togglePanel();
+          }}
+          data-tour="tools"
+          aria-pressed={toolsPanelOpen}
+          aria-label={translate("roomTools.title")}
+          className="relative flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700"
+        >
+          <MdHandyman className="h-5 w-5 shrink-0" />
+          {toolCount > 0 && (
+            <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-white px-1 text-[10px] font-bold text-emerald-700 ring-1 ring-emerald-600">
+              {toolCount}
+            </span>
+          )}
+        </button>
+      </Tooltip>
+      </span>
+      </Tippy>
+      )}
+
+      {canRaiseHand && (
+        <span data-tour="raiseHand" className="contents">
+          <RaiseHandButton selfUserId={state.selfUserId} />
+        </span>
+      )}
+      </>,
+      "flex items-center gap-1.5",
+      translate("watch.watchRoom.callDockGap0375rem")
+      )}
+
+      {/* Leaving. Red and last in the row for the same reason every
+          call app puts it there: it is the one control here that ends
+          the thing, and it must never be next to something pressed by
+          reflex. Navigating home is what actually disconnects —
+          unmounting this component is what calls leaveRoom(). */}
+      <Tooltip content={translate("common.leaveTheCall")}>
+        <button
+          type="button"
+          onClick={() => {
+            // Before navigating, not after: router.push is a client
+            // transition so the AudioContext survives it, but the
+            // button is about to be unmounted and there is no reason
+            // to race that.
+            playHangUpSound();
+            // Ends the session, which unmounts this room and leaves
+            // it — and, from the room's own page, moves off a page
+            // that now has nothing to show (see RoomCallHost).
+            onDisconnect();
+          }}
+          data-tour="leave"
+          aria-label={translate("common.leaveTheCall")}
+          className="flex items-center rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-700"
+        >
+          <MdCallEnd className="h-5 w-5 shrink-0" />
+        </button>
+      </Tooltip>
+    </div>
+  );
+
   return (
     <RoomToolsViewer.Provider value={toolsViewer}>
     <FullscreenChatSlotContext.Provider value={fullscreenChatMode.available ? setFullscreenChatSlot : null}>
@@ -8511,6 +8721,8 @@ function WatchRoomView({
       data-room-page=""
       // The redesign's scope: every rule of it in globals.css hangs off this.
       data-room-redesign={roomRedesign ? "" : undefined}
+      // A group's room wears the group's colours, not the redesign's.
+      data-rr-group={roomRedesign && group ? "" : undefined}
       className={`flex min-h-0 flex-1 flex-col ${
         // The conversation's own card is what this is drawn on.
         callLayout ? "" : "bg-zinc-50 dark:bg-black"
@@ -8721,170 +8933,10 @@ function WatchRoomView({
               Docked, at any width: the floating call bar is where they go then
               (see inHeaderSlot), and the bottom bar is not drawn — the one-
               place rule still holds. */}
-          {(isWideLayout || !visible) && inHeaderSlot("center", (
-            <div className="flex items-center justify-center gap-1.5 justify-self-center rounded-xl border border-zinc-200 bg-zinc-100 p-1 dark:border-zinc-800 dark:bg-zinc-900">
-              {mainControls}
-
-              {/* Everything here past what a call needs every minute goes in
-                  one piece, so the compact call bar leaves it out and the
-                  expanded one grows it in as one (see dockExtra). The gap
-                  variable is the row's own gap-1.5, taken back while closed. */}
-              {dockExtra(
-              <>
-              <span className="mx-0.5 h-6 w-px shrink-0 bg-zinc-300 dark:bg-zinc-700" />
-
-              {/* Adding a YouTube/Twitch video/live to the room. Sits with
-                  the transmission controls because that's what it produces:
-                  one more tile everyone in the room sees, with the same focus
-                  and hyperfocus buttons — the difference is that nobody is
-                  uploading it. Opens components/AddVideoSourceModal as an
-                  ntpopups popup rather than the little inline box this used
-                  to be — picking a platform and who gets to control it needs
-                  more room than a popover corner has. */}
-              <Tooltip
-                content={videoSourceBlockedReason ?? translate("watch.watchRoom.addVideoSource")}
-                wrapperClassName="flex"
-              >
-                <button
-                  type="button"
-                  onClick={openAddVideoSourcePopup}
-                  disabled={Boolean(videoSourceBlockedReason)}
-                  data-tour="video"
-                  aria-label={translate("watch.watchRoom.addVideoSource")}
-                  className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <MdOutlineOndemandVideo className="h-5 w-5 shrink-0" />
-                  <span data-header-label className="hidden 2xl:inline"><BetaMark /></span>
-                </button>
-              </Tooltip>
-
-              {/* The room's soundtrack. Next to the video button because it
-                  is the same kind of act — bringing something in for the
-                  whole room to hear — but a different thing entirely once
-                  it's here: one per room, managers only, and a bar under the
-                  header rather than a tile (see components/MusicBar). Shown
-                  to everyone, disabled with the reason in its tooltip for
-                  whoever may not use it, rather than hidden: "why can't I put
-                  music on" is a question the UI should answer by itself. */}
-              <Tooltip
-                content={
-                  musicBlockedReason ??
-                  (hasMusic || myMusicSlot
-                    ? translate("common.changeTheRoomSMusic")
-                    : translate("common.playMusicInTheRoom"))
-                }
-                wrapperClassName="flex"
-              >
-                <button
-                  type="button"
-                  data-tour="music"
-                  onClick={openAddMusicPopup}
-                  disabled={!canManageMusic}
-                  aria-label={translate("common.playMusicInTheRoom")}
-                  className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <MdMusicNote className="h-5 w-5 shrink-0" />
-                  <span data-header-label className="hidden 2xl:inline"><BetaMark /></span>
-                </button>
-              </Tooltip>
-
-              {/* "Ferramentas": the shared whiteboard, notepad, notes over a
-                  shared screen, polls, reactions, code editor and task list
-                  (see components/roomTools). Same family as the two buttons
-                  before it — something brought in for the whole room — and
-                  shown to everyone: members use what the managers opened. */}
-              {showRoomToolsButton && (
-              <Tippy
-                visible={roomToolsTip.show}
-                placement="bottom"
-                interactive
-                theme="golive-panel"
-                appendTo={() => document.body}
-                content={
-                  <span
-                    role="status"
-                    className="relative block w-60 rounded-lg bg-blue-600 px-3 py-2 text-left text-xs font-medium text-white shadow-lg"
-                  >
-                    <span className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
-                    <span className="flex items-start gap-2">
-                      <span className="flex-1">{translate("watch.watchRoom.roomToolsTip")}</span>
-                      <button
-                        type="button"
-                        onClick={roomToolsTip.dismiss}
-                        aria-label={translate("watch.watchRoom.clipsModeTipDismiss")}
-                        className="-m-1 rounded p-1 leading-none text-white/80 hover:text-white"
-                      >
-                        ✕
-                      </button>
-                    </span>
-                  </span>
-                }
-              >
-              <span className="flex">
-              <Tooltip content={translate("roomTools.title")} wrapperClassName="flex">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (roomToolsTip.show) roomToolsTip.clicked();
-                    markFeatureUsed(ROOM_TOOLS_FEATURE);
-                    roomTools.togglePanel();
-                  }}
-                  data-tour="tools"
-                  aria-pressed={toolsPanelOpen}
-                  aria-label={translate("roomTools.title")}
-                  className="relative flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700"
-                >
-                  <MdHandyman className="h-5 w-5 shrink-0" />
-                  <span data-header-label className="hidden 2xl:inline"><BetaMark /></span>
-                  {toolCount > 0 && (
-                    <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-white px-1 text-[10px] font-bold text-emerald-700 ring-1 ring-emerald-600">
-                      {toolCount}
-                    </span>
-                  )}
-                </button>
-              </Tooltip>
-              </span>
-              </Tippy>
-              )}
-
-              {canRaiseHand && (
-                <span data-tour="raiseHand" className="contents">
-                  <RaiseHandButton selfUserId={state.selfUserId} />
-                </span>
-              )}
-              </>,
-              "flex items-center gap-1.5",
-              translate("watch.watchRoom.callDockGap0375rem")
-              )}
-
-              {/* Leaving. Red and last in the row for the same reason every
-                  call app puts it there: it is the one control here that ends
-                  the thing, and it must never be next to something pressed by
-                  reflex. Navigating home is what actually disconnects —
-                  unmounting this component is what calls leaveRoom(). */}
-              <Tooltip content={translate("common.leaveTheCall")}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    // Before navigating, not after: router.push is a client
-                    // transition so the AudioContext survives it, but the
-                    // button is about to be unmounted and there is no reason
-                    // to race that.
-                    playHangUpSound();
-                    // Ends the session, which unmounts this room and leaves
-                    // it — and, from the room's own page, moves off a page
-                    // that now has nothing to show (see RoomCallHost).
-                    onDisconnect();
-                  }}
-                  data-tour="leave"
-                  aria-label={translate("common.leaveTheCall")}
-                  className="flex items-center rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-700"
-                >
-                  <MdCallEnd className="h-5 w-5 shrink-0" />
-                </button>
-              </Tooltip>
-            </div>
-          ))}
+          {/* Under the stage instead, in the desktop redesign (see dockInStage). */}
+          {/* The grid's middle column stays, empty, so the right zone keeps
+              to the right. */}
+          {dockInStage ? <span aria-hidden /> : (isWideLayout || !visible) && inHeaderSlot("center", callControls)}
 
           {/* Who you are, and everything that is about the page rather than
               about the call. Labels drop out before anything else does, so a
@@ -9486,7 +9538,14 @@ function WatchRoomView({
               {/* min-h rather than h while the ad is in here: centred content
                   taller than a fixed-height box spills off its top, where no
                   scrolling reaches it. */}
-              <div className={`flex ${partnerOnStage ? "min-h-full py-6" : "h-full"} min-h-75 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-300 bg-white/50 px-4 text-center dark:border-zinc-800 dark:bg-zinc-950/40`}>
+              <div
+                data-rr-empty={deskRedesign ? "" : undefined}
+                className={`flex ${partnerOnStage ? "min-h-full py-6" : "h-full"} min-h-75 flex-col items-center justify-center gap-2 rounded-xl px-4 text-center ${
+                  deskRedesign
+                    ? "border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950"
+                    : "border border-dashed border-zinc-300 bg-white/50 dark:border-zinc-800 dark:bg-zinc-950/40"
+                }`}
+              >
                 {/* Empty only because our own previews are hidden: saying nobody
                     is broadcasting, and offering to start, would be wrong about
                     the share that is going out right now. */}
@@ -9506,7 +9565,10 @@ function WatchRoomView({
                   </>
                 ) : (
                 <>
-                <p className="text-zinc-600 dark:text-zinc-400">
+                {/* mt-auto with the ad's own mt-auto below: the free height
+                    is split between them, so the invitation stays in the
+                    middle of what is left and the ad sits at the bottom. */}
+                <p className={`${partnerOnStage ? "mt-auto" : ""} ${deskRedesign ? "text-lg font-semibold text-zinc-900 dark:text-zinc-100" : "text-zinc-600 dark:text-zinc-400"}`}>
                   {translate("watch.watchRoom.nobodyIsBroadcastingYet")}
                 </p>
                 {/* The empty pane is the one place with room for the labelled
@@ -9522,12 +9584,15 @@ function WatchRoomView({
                     {translate("watch.watchRoom.yourBrowserDoesNotAllowSharing2")}
                   </p>
                 )}
-                <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
-                  {/* Each is hidden outright rather than disabled here (unlike
-                      the header's copies, which stay put so the row doesn't
-                      reflow): this pane exists to offer what can be done right
-                      now, and a wall of dead buttons is not that. The note
-                      below says why, once, for whatever ends up missing. */}
+                {/* A grid rather than a wrapping row: the main thing (the
+                    screen) across the top, everything else two by two under
+                    it, so the block is the same shape whatever is offered.
+                    Each is hidden outright rather than disabled here (unlike
+                    the header's copies, which stay put so the row doesn't
+                    reflow): this pane exists to offer what can be done right
+                    now, and a wall of dead buttons is not that. The note
+                    below says why, once, for whatever ends up missing. */}
+                <div className="mt-3 flex w-full max-w-md flex-col gap-2">
                   {(screenShareMode === "display" || isMobileBrowser) && !screenBlockedReason && (
                     <button
                       type="button"
@@ -9538,44 +9603,88 @@ function WatchRoomView({
                         }
                         startShare("display");
                       }}
-                      className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                      className="flex h-12 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 text-base font-semibold text-white transition hover:bg-emerald-700"
                     >
                       <ScreenIcon className="h-5 w-5" />
                       {translate("watch.watchRoom.shareScreen")}
                     </button>
                   )}
 
-                  {screenShareMode !== "unsupported" && !cameraBlockedReason && (
-                    <button
-                      type="button"
-                      onClick={() => startCameraShare()}
-                      className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
-                    >
-                      <CameraIcon className="h-5 w-5" />
-                      {translate("watch.watchRoom.shareCamera")}
-                    </button>
-                  )}
-
-                  {videoSourceBlockedReason ? (
-                    <p className="basis-full text-center text-sm text-zinc-500 dark:text-zinc-500">
-                      {translate("watch.watchRoom.theRoomSOwnerHasLimited")}
-                    </p>
-                  ) : (
-                    <div className="basis-full flex justify-center">
-                      <button
-                        type="button"
-                        onClick={openAddVideoSourcePopup}
-                        className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
-                      >
+                  {/* An odd one out at the end takes the whole row. */}
+                  <div className="grid grid-cols-2 gap-2 empty:hidden [&>*:last-child:nth-child(odd)]:col-span-2">
+                    {screenShareMode !== "unsupported" && !cameraBlockedReason && (
+                      <button type="button" onClick={() => startCameraShare()} className="flex h-11 items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800">
+                        <CameraIcon className="h-5 w-5 shrink-0" />
+                        {translate("watch.watchRoom.shareCamera")}
+                      </button>
+                    )}
+                    {!videoSourceBlockedReason && (
+                      <button type="button" onClick={openAddVideoSourcePopup} className="flex h-11 items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800">
                         <MdOutlineOndemandVideo className="h-5 w-5 shrink-0" />
                         {translate("watch.watchRoom.addVideoSource")}
-                        <BetaMark />
                       </button>
+                    )}
+                    {/* The other two things brought in for the whole room, the
+                        way the bar offers them: music (managers, unless the
+                        room says otherwise) and the room's tools. */}
+                    {canManageMusic && (
+                      <button type="button" onClick={openAddMusicPopup} className="flex h-11 items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800">
+                        <MdMusicNote className="h-5 w-5 shrink-0" />
+                        {translate("common.playMusicInTheRoom")}
+                      </button>
+                    )}
+                    {showRoomToolsButton && canOpenRoomTools && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          markFeatureUsed(ROOM_TOOLS_FEATURE);
+                          roomTools.togglePanel();
+                        }}
+                        className="flex h-11 items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+                      >
+                        <MdHandyman className="h-5 w-5 shrink-0" />
+                        {translate("roomTools.title")}
+                      </button>
+                    )}
+                  </div>
+
+                  {videoSourceBlockedReason && (
+                    <p className="text-center text-sm text-zinc-500 dark:text-zinc-500">
+                      {translate("watch.watchRoom.theRoomSOwnerHasLimited")}
+                    </p>
+                  )}
+
+                  {/* Bringing people in, under what to show them: the link
+                      itself, as a field with its copy button, the way a call
+                      app hands out its joining link. In streamer mode the
+                      address (a private room's code is in it) stays off the
+                      screen and only the button is left. */}
+                  {deskRedesign && !group && (
+                    <div className="mt-3 flex flex-col gap-1.5 border-t border-zinc-200 pt-4 text-left dark:border-zinc-800">
+                      <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                        {translate("common.invitePeople")}
+                      </span>
+                      <div className="flex items-center gap-1.5 rounded-xl border border-zinc-200 bg-zinc-50 p-1 pl-3 dark:border-zinc-800 dark:bg-zinc-900">
+                        <LinkIcon className="h-4 w-4 shrink-0 text-zinc-400" />
+                        <span className="min-w-0 flex-1 truncate text-sm text-zinc-600 dark:text-zinc-300">
+                          {mounted && !streamerMode
+                            ? `${window.location.host}${window.location.pathname}`
+                            : translate("watch.watchRoom.copyThisRoomSLink")}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleCopyLink}
+                          className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-zinc-900 px-3 text-sm font-semibold text-white transition hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+                        >
+                          {linkCopied ? <CheckIcon className="h-4 w-4" /> : null}
+                          {linkCopied ? translate("common.copied") : translate("common.copy")}
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
                 {partnerOnStage && (
-                  <div className="mt-4 flex w-full justify-center">
+                  <div className="mt-auto flex w-full justify-center pt-6">
                     <PartnerCard layout="stage" partner={rawActivePartner} loaded={partnerLoaded} />
                   </div>
                 )}
@@ -9691,6 +9800,7 @@ function WatchRoomView({
                   </div>
                 ) : (
                   <div
+                    ref={tileGridRef}
                     className={
                       isSingleTile
                         ? "h-full"
@@ -9734,6 +9844,21 @@ function WatchRoomView({
               </div>
             </>
           )}
+          {dockInStage && (
+            <div
+              data-rr-calldock=""
+              // A card the width of the stage, like the columns beside it, so
+              // the bottom of the room is one line instead of a pill floating
+              // between two card edges.
+              data-rr-card=""
+              className="flex shrink-0 items-center justify-center rounded-xl border border-zinc-200 bg-white p-1.5 dark:border-zinc-800 dark:bg-zinc-950"
+              onClickCapture={(e) => {
+                if ((e.target as Element).closest("button")) trackRoomRedesignEvent(ROOM_REDESIGN_EVENTS.dockUse);
+              }}
+            >
+              {callControls}
+            </div>
+          )}
         </main>
 
         {/* From lg up, chat gets this dedicated full-height column instead
@@ -9741,12 +9866,22 @@ function WatchRoomView({
             else in here but the owner/admin "Gerenciar sala" button, so
             chatSection's flex-1 (see its heightClassName) still has
             practically the whole column to fill. */}
-        {isWideLayout && !rightSidebarCollapsed && !callLayout && (
+        {/* In the desktop redesign the panel stays mounted and folds away by
+            animating its width (globals.css, [data-rr-panel]), so the stage
+            grows into the room instead of jumping to it. */}
+        {isWideLayout && !callLayout && (deskRedesign || !rightSidebarCollapsed) && (
           <aside
             data-tour="chat"
             ref={chatAsideRef}
+            data-rr-panel={deskRedesign ? "" : undefined}
+            data-collapsed={deskRedesign && rightSidebarCollapsed ? "" : undefined}
+            inert={deskRedesign && rightSidebarCollapsed ? true : undefined}
             className="relative flex h-full shrink-0 flex-col"
-            style={{ width: `${chatWidth}px` }}
+            style={
+              deskRedesign
+                ? { width: rightSidebarCollapsed ? 0 : chatWidth, marginLeft: rightSidebarCollapsed ? "-0.75rem" : 0 }
+                : { width: `${chatWidth}px` }
+            }
           >
             {/* The grab handle sits in the gap *between* the video and the
                 chat rather than on the chat's own edge, so reaching for it is
@@ -9764,7 +9899,47 @@ function WatchRoomView({
               <div className="h-12 w-1 rounded-full bg-zinc-300 opacity-0 transition-opacity group-hover:opacity-100 dark:bg-zinc-600" />
             </div>
 
-            {chatSection}
+            {deskRedesign ? (
+              // Clipped by the aside as it narrows, and pinned to its right
+              // edge at full width, so the content slides out rather than
+              // reflowing into a sliver.
+              <div className="absolute inset-0 overflow-hidden">
+                <div className="absolute inset-y-0 right-0 flex flex-col" style={{ width: chatWidth }}>
+                  <RoomSidePanel
+                    tab={sideTab}
+                    onTab={setSideTab}
+                    chat={
+                      <>
+                        {fullscreenChatSlot ? null : chatPanel}
+                        {roomAccountCard}
+                      </>
+                    }
+                    // In a group, a member has none of these (no map, no
+                    // theme — the group's — and no management).
+                    settings={group && !isRoomManager ? null : (
+                      <div
+                        data-rr-card=""
+                        // The same buttons the row over the chat had, as a list
+                        // here: one per line, full width.
+                        className="flex min-h-0 flex-1 flex-col overflow-y-auto rounded-xl border border-zinc-200 bg-white p-3 pb-1 dark:border-zinc-800 dark:bg-zinc-950 [&>div]:flex-col [&>div]:items-stretch"
+                      >
+                        {roomManageRow}
+                        {isRoomManager && (
+                          <div data-tour="manage" className="mt-1 border-t border-zinc-200 pt-3 pb-2 dark:border-zinc-800">
+                            <ManageRoomModal inline closePopup={() => {}} />
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    chatBadge={<ChatUnreadBadge chatOnScreen={sideTab === "chat" && !rightSidebarCollapsed} />}
+                    chatExtra={<NotificationBell />}
+                    onCollapse={hasAnyMedia ? toggleRightSidebar : undefined}
+                  />
+                </div>
+              </div>
+            ) : (
+              chatSection
+            )}
           </aside>
         )}
 
@@ -9959,7 +10134,6 @@ function WatchRoomView({
                           <span className="text-center text-[11px] font-semibold leading-tight">
                             {translate("watch.watchRoom.video")}
                           </span>
-                          <span className="text-[9px] font-bold leading-none"><BetaMark /></span>
                         </div>
                         <span className="text-[9px] font-medium leading-none text-zinc-400 dark:text-zinc-500 mt-0.5">
                           {translate("common.media")}
@@ -9987,7 +10161,6 @@ function WatchRoomView({
                           <span className="text-center text-[11px] font-semibold leading-tight">
                             {translate("common.music")}
                           </span>
-                          <span className="text-[9px] font-bold leading-none"><BetaMark /></span>
                         </div>
                         <span className="text-[9px] font-medium leading-none text-zinc-400 dark:text-zinc-500 mt-0.5">
                           {hasMusic || myMusicSlot ? translate("watch.watchRoom.playing") : translate("watch.watchRoom.stopped")}
@@ -10016,7 +10189,6 @@ function WatchRoomView({
                           <span className="text-center text-[11px] font-semibold leading-tight">
                             {translate("roomTools.titleShort")}
                           </span>
-                          <span className="text-[9px] font-bold leading-none"><BetaMark /></span>
                           <NewBadge id={ROOM_TOOLS_FEATURE} />
                         </div>
                         <span className="text-[9px] font-medium leading-none text-zinc-400 dark:text-zinc-500 mt-0.5">

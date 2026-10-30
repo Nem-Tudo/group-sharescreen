@@ -3719,6 +3719,8 @@
   "watch.watchRoom.participants": "Participantes",
   "watch.watchRoom.peercountOfRoommemberlimitPeopleTheRoom": "{peerCount} de {roomMemberLimit} personas — el límite de la sala",
   "watch.watchRoom.people": "Personas",
+  "watch.watchRoom.roomSettings": "Configuración de la sala",
+  "watch.watchRoom.roomSettingsTab": "Configuración",
   "watch.watchRoom.playing": "Sonando",
   "watch.watchRoom.preventDirectConnections": "Impedir conexiones directas",
   "watch.watchRoom.privateRoom": "Sala privada",

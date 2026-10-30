@@ -358,7 +358,11 @@ html[data-room-theme][data-theme="light"] :is(.tippy-box, .ntpopups-main, .goliv
    Popovers, modals and menus are portalled onto <body>, outside that element,
    so while the redesigned room is on screen WatchRoom also marks <html> with
    data-room-redesign-on, and each rule below that sets type, shape or colour
-   names the floating layers too — the same list the room themes use. */
+   names the floating layers too — the same list the room themes use.
+
+   In a group's room only the shapes, the type and the layout apply: the
+   colours are the group's (data-rr-group on the page, "group" as the value
+   of the mark on <html>), so the colour rules leave both out. */
 [data-room-redesign],
 html[data-room-redesign-on] :is(.tippy-box, .ntpopups-main, .golive-dialog-card, [role="dialog"], [role="menu"], [data-room-floating]) {
   font-family: var(--font-jakarta), "Twemoji", sans-serif;
@@ -378,8 +382,8 @@ html[data-room-redesign-on] :is(.tippy-box, .ntpopups-main, .golive-dialog-card,
    a theme, which owns these tokens itself. Each step is the original zinc
    with a fifth of a blue-grey of the same lightness mixed in: a full slate
    read as too blue. */
-html:not([data-room-theme]) [data-room-redesign],
-html[data-room-redesign-on]:not([data-room-theme]) :is(.tippy-box, .ntpopups-main, .golive-dialog-card, [role="dialog"], [role="menu"], [data-room-floating]) {
+html:not([data-room-theme]) [data-room-redesign]:not([data-rr-group]),
+html[data-room-redesign-on=""]:not([data-room-theme]) :is(.tippy-box, .ntpopups-main, .golive-dialog-card, [role="dialog"], [role="menu"], [data-room-floating]) {
   --color-zinc-50: color-mix(in oklab, #fafafa 80%, #f8fafc);
   --color-zinc-100: color-mix(in oklab, #f4f4f5 80%, #f1f5f9);
   --color-zinc-200: color-mix(in oklab, #e4e4e7 80%, #e2e8f0);
@@ -396,7 +400,7 @@ html[data-room-redesign-on]:not([data-room-theme]) :is(.tippy-box, .ntpopups-mai
 /* The page under the room: `bg-black` in the dark theme, which is not a zinc
    token (and is also every dialog backdrop and video letterbox, so it is set
    here rather than through the token). Below the cards' #161b22. */
-html:not([data-room-theme])[data-theme="dark"] [data-room-redesign][data-room-page] {
+html:not([data-room-theme])[data-theme="dark"] [data-room-redesign][data-room-page]:not([data-rr-group]) {
   background-color: #0d1117;
 }
 
@@ -405,8 +409,8 @@ html:not([data-room-theme])[data-theme="dark"] [data-room-redesign][data-room-pa
    grey in between read as brown. These are a dark blue-grey a step or two up
    (cards over the page, borders over the cards), with the same faint lean
    toward blue as the light end. */
-html:not([data-room-theme])[data-theme="dark"] [data-room-redesign],
-html[data-room-redesign-on]:not([data-room-theme])[data-theme="dark"] :is(.tippy-box, .ntpopups-main, .golive-dialog-card, [role="dialog"], [role="menu"], [data-room-floating]) {
+html:not([data-room-theme])[data-theme="dark"] [data-room-redesign]:not([data-rr-group]),
+html[data-room-redesign-on=""]:not([data-room-theme])[data-theme="dark"] :is(.tippy-box, .ntpopups-main, .golive-dialog-card, [role="dialog"], [role="menu"], [data-room-floating]) {
   --color-zinc-950: #161b22;
   --color-zinc-900: #1c222b;
   --color-zinc-800: #2a313c;
@@ -452,6 +456,114 @@ html[data-theme="dark"] [data-room-redesign] [data-rr-dock] {
 [data-room-redesign] [data-rr-dock] nav button.rounded-r-xl.w-6 {
   width: 2.25rem;
   padding-right: 0.375rem;
+}
+
+/* ─── Room redesign, desktop ──────────────────────────────────────────────
+   The call bar under the stage (WatchRoom's dockInStage). Its buttons are
+   the header's, which paint "something you can press" in emerald; in a call
+   bar the convention is the other way round — neutral when it is fine, red
+   only for what is off or ends the call — so emerald is read as neutral
+   here. Red, amber and the badges keep their meaning. Unlayered, so these
+   win over the utilities whatever their specificity.
+
+   Not inside the panels the bar's buttons open (the mic's, the camera's):
+   Tippy mounts them next to their button, so they are inside the bar in the
+   DOM, and a switch that is on has to stay green there. */
+[data-rr-calldock] .bg-emerald-600:not([data-tippy-root] *) {
+  background-color: var(--color-zinc-100);
+  color: var(--color-zinc-800);
+}
+
+[data-rr-calldock] .bg-emerald-600:hover:not(:disabled, [data-tippy-root] *) {
+  background-color: var(--color-zinc-200);
+}
+
+/* One height for everything in the bar (the header's buttons came in 32 to
+   40px), and no "BETA" pills: in a row of icons they read as three more
+   buttons. The tooltip still says what each one is. */
+[data-rr-calldock] button:not([data-tippy-root] *) {
+  min-height: 2.5rem;
+}
+
+[data-rr-calldock] [data-header-label] {
+  display: none !important;
+}
+
+html[data-theme="dark"] [data-rr-calldock] .bg-emerald-600:not([data-tippy-root] *) {
+  background-color: var(--color-zinc-800);
+  color: var(--color-zinc-100);
+}
+
+html[data-theme="dark"] [data-rr-calldock] .bg-emerald-600:hover:not(:disabled, [data-tippy-root] *) {
+  background-color: var(--color-zinc-700);
+}
+
+/* One way of answering a press, a hover and the keyboard, in the places the
+   redesign owns: the bar, the panel's tabs, the header. */
+:is([data-rr-calldock], [data-rr-tabs], [data-room-redesign] [data-rr-header]) button:not([data-tippy-root] *) {
+  transition-property: background-color, color, transform, box-shadow;
+  transition-duration: 150ms;
+}
+
+:is([data-rr-calldock], [data-rr-tabs], [data-room-redesign] [data-rr-header]) button:not(:disabled):active {
+  transform: scale(0.96);
+}
+
+:is([data-rr-calldock], [data-rr-tabs], [data-room-redesign] [data-rr-header]) button:focus-visible {
+  outline: 2px solid rgb(14 165 233 / 0.6);
+  outline-offset: 2px;
+}
+
+/* With the call controls out of the header there is room for its labels
+   again, from xl rather than only from 2xl. */
+@media (min-width: 80rem) {
+  [data-room-redesign] [data-rr-header] [data-header-label] {
+    display: inline;
+  }
+}
+
+/* The side panel folds by its width (WatchRoom sets it), with the same curve
+   as the phone's sheets; never while it is being dragged to a new width,
+   where an easing would make the edge trail the pointer. */
+[data-rr-panel] {
+  transition:
+    width 220ms cubic-bezier(0.16, 1, 0.3, 1),
+    margin-left 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+body[style*="ew-resize"] [data-rr-panel] {
+  transition: none;
+}
+
+/* A message that arrives while the chat is open eases in (ChatPanel's
+   animateNew); the log handed over on joining does not. */
+@keyframes rr-msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.rr-msg-in {
+  animation: rr-msg-in 180ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-rr-panel] {
+    transition: none;
+  }
+
+  .rr-msg-in {
+    animation: none;
+  }
+
+  :is([data-rr-calldock], [data-rr-tabs], [data-room-redesign] [data-rr-header]) button:not(:disabled):active {
+    transform: none;
+  }
 }
 
 /* The colour picker in the theme editor (react-colorful, see

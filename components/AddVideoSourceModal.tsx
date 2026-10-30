@@ -10,7 +10,6 @@ import {
   parseVideoSourceInput,
   type VideoSourceKind,
 } from "@/lib/videoSource";
-import { BetaMark } from "./BetaMark";
 import { LocalMediaPicker } from "./LocalMediaPicker";
 import type { LocalMediaSlot } from "@/lib/localMediaSource";
 import { useT } from "@/lib/useI18n";
@@ -148,7 +147,7 @@ export function AddVideoSourceModal({
     >
       <div className="flex items-start justify-between gap-2">
         <p className="text-sm font-semibold">
-          <BetaMark /> {t("addVideoSourceModal.addAVideoPlaylistOrLive")}
+          {t("addVideoSourceModal.addAVideoPlaylistOrLive")}
         </p>
         <button
           type="button"
