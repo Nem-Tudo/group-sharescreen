@@ -850,7 +850,14 @@ function contentHintFor(
 //   screen_share_start           a share started (value: 1)
 //   screen_share_error           a share failed to start (not a cancel)
 //   screen_share_lost            ended without the person pressing stop
-//   screen_share_restart         started within a minute of the last one ending
+//   screen_share_lost.<surface>  ...split by what was captured: monitor,
+//                                window, browser (a tab) or other (the
+//                                helper, anything without a displaySurface).
+//                                A whole screen cannot close, so "monitor"
+//                                is the browser's own "Stop sharing" bar (or
+//                                the OS); "window"/"browser" mix that bar
+//                                with the window or tab going away
+//   screen_share_restart        started within a minute of the last one ending
 //   screen_share_seconds         on stop; value = how long it ran
 //   screen_share_fps             on stop; value = average frames sent per second
 //   screen_share_low_fps         on stop, below 60% of the frame rate asked for
@@ -914,6 +921,8 @@ interface ShareStats {
   qualityChanges: number;
   peerFailures: number;
   lost: boolean;
+  /** What was captured, for screen_share_lost.<surface>. */
+  surface: ShareSurface;
   /** Frames sent, summed over samples, and the seconds they covered. */
   frames: number;
   seconds: number;
@@ -928,7 +937,15 @@ interface ShareStats {
   last: { framesSent: number; at: number } | null;
 }
 
-function startShareStats(quality: QualityPreset | null): ShareStats {
+type ShareSurface = "monitor" | "window" | "browser" | "other";
+
+function shareSurface(stream: MediaStream): ShareSurface {
+  const surface = (stream.getVideoTracks()[0]?.getSettings() as { displaySurface?: string } | undefined)
+    ?.displaySurface;
+  return surface === "monitor" || surface === "window" || surface === "browser" ? surface : "other";
+}
+
+function startShareStats(quality: QualityPreset | null, surface: ShareSurface): ShareStats {
   const now = Date.now();
   trackFeatureEvent(SCREEN_SHARE_STATS.start, { value: 1 });
   if (lastScreenShareEndedAt && now - lastScreenShareEndedAt < RESTART_WINDOW_MS) {
@@ -941,6 +958,7 @@ function startShareStats(quality: QualityPreset | null): ShareStats {
     qualityChanges: 0,
     peerFailures: 0,
     lost: false,
+    surface,
     frames: 0,
     seconds: 0,
     samples: 0,
@@ -1020,7 +1038,10 @@ function reportShareEnd(stats: ShareStats) {
   lastScreenShareEndedAt = Date.now();
   const seconds = Math.round((lastScreenShareEndedAt - stats.startedAt) / 1000);
   trackFeatureEvent(SCREEN_SHARE_STATS.seconds, { value: seconds });
-  if (stats.lost) trackFeatureEvent(SCREEN_SHARE_STATS.lost);
+  if (stats.lost) {
+    trackFeatureEvent(SCREEN_SHARE_STATS.lost);
+    trackFeatureEvent(`${SCREEN_SHARE_STATS.lost}.${stats.surface}`);
+  }
   if (stats.peerFailures > 0) trackFeatureEvent(SCREEN_SHARE_STATS.peerFailures, { value: stats.peerFailures });
   if (stats.qualityChanges > 0) {
     trackFeatureEvent(SCREEN_SHARE_STATS.qualityChange, { value: stats.qualityChanges });
@@ -2365,7 +2386,7 @@ function useBroadcastChannel(
       else signalingClient.setSharing({ [channel]: true });
       trackEvent(`${eventPrefix}_start`);
       if (channel === "screen" && requestedSource !== "camera") {
-        shareStatsRef.current = startShareStats(videoQualityRef.current ?? null);
+        shareStatsRef.current = startShareStats(videoQualityRef.current ?? null, shareSurface(stream));
       }
       if (channel !== "mic" && stream.getAudioTracks().length > 0) {
         trackFeatureEvent(STEREO_AUDIO_SHARE_EVENT, { feature: STEREO_AUDIO_FEATURE });
