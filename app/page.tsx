@@ -85,16 +85,19 @@ const linkButtonClass =
 const labelClass = "text-sm font-medium text-zinc-700 dark:text-zinc-300";
 
 // The same controls in the home-redesign experiment (lib/homeRedesign):
-// borderless filled fields, pill buttons, and a taller hit area.
+// borderless filled fields, pill buttons, and a taller hit area. The dark
+// surfaces are the room redesign's blue-grey (#0d1117 page, #161b22 cards),
+// so the two pages read as one product; translucent whites on top of them
+// rather than zinc greys, which went brown against that blue.
 const v2InputClass =
-  "h-12 rounded-2xl border border-transparent bg-zinc-100 px-4 text-base text-zinc-950 outline-none transition focus:border-zinc-950 focus:bg-white dark:bg-zinc-800 dark:text-zinc-50 dark:focus:border-zinc-50 dark:focus:bg-zinc-900";
+  "h-12 rounded-xl border border-transparent bg-zinc-100 px-4 text-base text-zinc-950 outline-none transition focus:border-zinc-950 focus:bg-white dark:bg-white/5 dark:text-zinc-50 dark:focus:border-white/40 dark:focus:bg-white/10";
 const v2PrimaryButtonClass =
   "h-12 rounded-full bg-zinc-950 px-6 text-base font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200";
 const v2SecondaryButtonClass =
-  "h-12 rounded-full bg-zinc-100 px-6 text-base font-semibold text-zinc-800 transition hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700";
+  "h-12 rounded-full bg-zinc-100 px-6 text-base font-semibold text-zinc-800 transition hover:bg-zinc-200 dark:bg-white/10 dark:text-zinc-100 dark:hover:bg-white/15";
 // Overrides for the two side panels, which own their own card styling.
 const v2PanelClass =
-  "rounded-[28px]! border-0! p-[22px]! shadow-none! dark:bg-zinc-900!";
+  "rounded-[20px]! border-0! p-5! shadow-none! dark:bg-[#161b22]!";
 
 // The room-type / create-vs-join choices below. Selected state is a filled
 // button rather than a subtle border, because which one is active decides
@@ -103,7 +106,7 @@ function roomTabClass(selected: boolean, v2 = false): string {
   if (v2) {
     return `flex h-11 items-center justify-center gap-1.5 rounded-full px-3 text-sm font-semibold transition ${selected
       ? "bg-zinc-950 text-white dark:bg-white dark:text-zinc-950"
-      : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+      : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-white/5 dark:text-zinc-300 dark:hover:bg-white/10"
       }`;
   }
   return `flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition ${selected
@@ -503,39 +506,56 @@ export default function Home() {
     router.push(`/watch/${fullHandle}`);
   }
 
+  // The redesign without an account: there are no groups or friends to put
+  // either side of the form, so the page is laid out as a landing page
+  // instead — the headline large on the left, the form on the right — rather
+  // than one narrow tower in the middle of a wide screen. Not while the
+  // account is still being resolved, or a signed-in visitor would watch the
+  // page rearrange itself.
+  const guestHero = v2 && !account && !resolvingAccount;
+  // The page's one h1, and it says what the page does rather than what it is
+  // called. "GoLive" is already the wordmark in the header above and the
+  // <title>'s tail, so spending the strongest heading on the brand name meant
+  // the document never stated, anywhere in its text, that this is a place to
+  // stream a screen to a group - which is the thing people search for.
+  // Drawn once: inside the card, or as the guest layout's left column.
+  const heroText = (
+    <>
+      <h1 className={guestHero
+        ? "text-[36px] font-extrabold leading-[1.04] tracking-tight text-zinc-950 sm:text-[48px] lg:text-[56px] dark:text-zinc-50"
+        : v2
+          ? "pr-14 text-[26px] font-extrabold leading-[1.12] tracking-tight text-zinc-950 sm:text-[30px] dark:text-zinc-50"
+          : "text-xl font-semibold tracking-tight text-zinc-950 sm:text-2xl dark:text-zinc-50"}>
+        {t("page.seoHeadline")}
+      </h1>
+      <p className={guestHero
+        ? "mt-4 max-w-lg text-lg leading-relaxed text-zinc-500 sm:text-xl dark:text-zinc-400"
+        : v2
+          ? "mt-2 text-base leading-snug text-zinc-500 dark:text-zinc-400"
+          : "mt-1 text-sm text-zinc-500 dark:text-zinc-400"}>
+        {t("page.shareYourScreenWithWhoeverIs")}
+      </p>
+    </>
+  );
+
   const formCard = (
     <main
       ref={v2 ? undefined : formRef}
       className={v2
-        ? "relative w-full rounded-[28px] bg-white p-[22px] dark:bg-zinc-900"
+        ? `relative w-full rounded-[20px] bg-white p-5 sm:p-6 dark:bg-[#161b22] ${guestHero ? "lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:self-center [&>*:first-child]:mt-0" : ""}`
         : "w-full max-w-md rounded-2xl border border-black/10 bg-white p-5 shadow-sm sm:p-8 dark:border-white/10 dark:bg-zinc-950"}
     >
-      {v2 && (
+      {v2 && !guestHero && (
         // The brand mark where the reference puts its mascot: the one
         // friendly face on an otherwise all-type card.
         <img
           src="/icon.png"
           alt=""
           aria-hidden="true"
-          className="absolute top-[22px] right-[22px] h-12 w-12 rounded-2xl"
+          className="absolute top-5 right-5 h-11 w-11 rounded-xl sm:top-6 sm:right-6"
         />
       )}
-      {/* The page's one h1, and it says what the page does rather than
-        what it is called. "GoLive" is already the wordmark in the header
-        above and the <title>'s tail, so spending the strongest heading
-        on the brand name meant the document never stated, anywhere in
-        its text, that this is a place to stream a screen to a group -
-        which is the thing people search for. */}
-      <h1 className={v2
-        ? "pr-16 text-[28px] font-extrabold leading-[1.15] tracking-tight text-zinc-950 sm:text-[36px] dark:text-zinc-50"
-        : "text-xl font-semibold tracking-tight text-zinc-950 sm:text-2xl dark:text-zinc-50"}>
-        {t("page.seoHeadline")}
-      </h1>
-      <p className={v2
-        ? "mt-2 text-lg leading-snug text-zinc-500 dark:text-zinc-400"
-        : "mt-1 text-sm text-zinc-500 dark:text-zinc-400"}>
-        {t("page.shareYourScreenWithWhoeverIs")}
-      </p>
+      {!guestHero && heroText}
       {/* Wrapped so the two sit side by side and wrap together on a
         narrow screen — the download button renders nothing at all in
         the app itself or on mobile, and the row collapses cleanly. */}
@@ -950,7 +970,7 @@ export default function Home() {
         below out of the rendered snapshot, leaving an empty grey block where
         the copy should be. */}
       <div className={`flex min-h-[calc(100dvh-3.5rem-var(--app-tabbar-h))] [html[data-crawler]_&]:min-h-0 shrink-0 flex-col items-center justify-start lg:justify-center lg:py-16 ${v2
-        ? "gap-6 bg-zinc-200/70 px-5 pt-5 pb-8 [font-family:var(--font-jakarta),sans-serif] dark:bg-[#050507]"
+        ? "gap-6 bg-zinc-100 px-5 pt-5 pb-8 [font-family:var(--font-jakarta),sans-serif] dark:bg-[#0d1117]"
         : "gap-3 bg-zinc-50 px-4 pt-4 pb-6 dark:bg-black"}`}>
         {peopleOnline !== null && (<div className="inline-flex gap-2">
           {/* In the redesign the count is a card of its own under the form. */}
@@ -1030,55 +1050,74 @@ export default function Home() {
             <HomeGroupsPanel className={`h-full lg:max-h-[var(--home-form-h)] ${v2 ? v2PanelClass : ""}`} />
           </div>
           {v2 ? (
-            // One column: the form, then the live count and the explore
-            // card. formRef measures the whole column, so the side panels
-            // cap themselves to it rather than to the form alone.
+            // Signed in: one column, the form and under it the live count and
+            // the explore card side by side (stacked they made the column
+            // twice the height of the panels beside it, which then stretched
+            // to match with nothing in them). Guest: see guestHero — on a
+            // phone the same three pieces stack in reading order (headline,
+            // form, extras), from lg the grid moves the form to the right.
+            // formRef measures the whole thing, so the side panels cap
+            // themselves to it.
             <div
               ref={formRef as React.Ref<HTMLDivElement>}
-              className="flex w-full max-w-md flex-col gap-6"
+              className={
+                guestHero
+                  ? "grid w-full max-w-md gap-6 lg:max-w-5xl lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:gap-x-14 lg:gap-y-8"
+                  : "flex w-full max-w-md flex-col gap-4 lg:max-w-[30rem]"
+              }
             >
-              {formCard}
-              {peopleOnline !== null && (
-                <section className="rounded-[28px] bg-[linear-gradient(120deg,#4f46e5_0%,#a21caf_55%,#f97316_100%)] p-[22px] text-white">
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide">
-                    <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-300" />
-                    {t("home.v2Live")}
-                  </span>
-                  <p className="mt-3 text-[40px] font-extrabold leading-none tabular-nums tracking-tight">
-                    {peopleOnline.toLocaleString()}
-                  </p>
-                  <p className="mt-1 text-lg font-medium text-white/80">
-                    {tc("home.v2PeopleOnline", peopleOnline)}
-                  </p>
-                </section>
-              )}
-              <section
-                className={`flex-col rounded-[28px] bg-amber-400 p-[22px] text-zinc-950 ${tabBar ? "hidden lg:flex" : "flex"}`}
-              >
-                <h2 className="text-[28px] font-extrabold leading-tight tracking-tight">
-                  {t("home.v2Explore")}
-                </h2>
-                <div className="mt-3 flex flex-col gap-2">
-                  <Link
-                    href="/rooms"
-                    onClick={() => trackHomeEvent(HOME_REDESIGN_EVENTS.exploreClick)}
-                    className="flex h-12 items-center gap-3 rounded-2xl bg-zinc-950/10 px-4 text-base font-semibold transition hover:bg-zinc-950/15"
-                  >
-                    <MdPublic className="h-5 w-5 shrink-0" aria-hidden="true" />
-                    <span className="flex-1">{t("page.seePublicRooms")}</span>
-                    <MdChevronRight className="h-5 w-5 shrink-0" aria-hidden="true" />
-                  </Link>
-                  <Link
-                    href="/worldmap"
-                    onClick={() => trackHomeEvent(HOME_REDESIGN_EVENTS.exploreClick)}
-                    className="flex h-12 items-center gap-3 rounded-2xl bg-zinc-950/10 px-4 text-base font-semibold transition hover:bg-zinc-950/15"
-                  >
-                    <MdOutlineMap className="h-5 w-5 shrink-0" aria-hidden="true" />
-                    <span className="flex-1">{t("page.seeTheRoomMap")}</span>
-                    <MdChevronRight className="h-5 w-5 shrink-0" aria-hidden="true" />
-                  </Link>
+              {guestHero && (
+                <div className="lg:col-start-1 lg:row-start-1 lg:self-end">
+                  <img src="/icon.png" alt="" aria-hidden="true" className="mb-5 h-14 w-14 rounded-2xl" />
+                  {heroText}
                 </div>
-              </section>
+              )}
+              {formCard}
+              <div className={`grid gap-4 sm:grid-cols-2 ${guestHero ? "lg:col-start-1 lg:row-start-2 lg:self-start" : ""}`}>
+                {peopleOnline !== null && (
+                  <section className="flex flex-col justify-between rounded-[20px] bg-[linear-gradient(135deg,#4f46e5_0%,#a21caf_60%,#f97316_100%)] p-5 text-white">
+                    <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide">
+                      <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-300" />
+                      {t("home.v2Live")}
+                    </span>
+                    <div className="mt-4">
+                      <p className="text-[34px] font-extrabold leading-none tabular-nums tracking-tight">
+                        {peopleOnline.toLocaleString()}
+                      </p>
+                      <p className="mt-1 text-sm font-medium text-white/80">
+                        {tc("home.v2PeopleOnline", peopleOnline)}
+                      </p>
+                    </div>
+                  </section>
+                )}
+                <section
+                  className={`flex-col rounded-[20px] bg-amber-400 p-5 text-zinc-950 ${tabBar ? "hidden lg:flex" : "flex"} ${peopleOnline === null ? "sm:col-span-2" : ""}`}
+                >
+                  <h2 className="text-lg font-extrabold leading-tight tracking-tight">
+                    {t("home.v2Explore")}
+                  </h2>
+                  <div className="mt-3 flex flex-col gap-1.5">
+                    <Link
+                      href="/rooms"
+                      onClick={() => trackHomeEvent(HOME_REDESIGN_EVENTS.exploreClick)}
+                      className="flex h-10 items-center gap-2.5 rounded-xl bg-zinc-950/10 px-3 text-sm font-semibold transition hover:bg-zinc-950/15"
+                    >
+                      <MdPublic className="h-4 w-4 shrink-0" aria-hidden="true" />
+                      <span className="min-w-0 flex-1 truncate">{t("page.seePublicRooms")}</span>
+                      <MdChevronRight className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    </Link>
+                    <Link
+                      href="/worldmap"
+                      onClick={() => trackHomeEvent(HOME_REDESIGN_EVENTS.exploreClick)}
+                      className="flex h-10 items-center gap-2.5 rounded-xl bg-zinc-950/10 px-3 text-sm font-semibold transition hover:bg-zinc-950/15"
+                    >
+                      <MdOutlineMap className="h-4 w-4 shrink-0" aria-hidden="true" />
+                      <span className="min-w-0 flex-1 truncate">{t("page.seeTheRoomMap")}</span>
+                      <MdChevronRight className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    </Link>
+                  </div>
+                </section>
+              </div>
             </div>
           ) : (
             formCard

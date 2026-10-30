@@ -4,6 +4,7 @@ import { useSyncExternalStore } from "react";
 import { trackTileExperiment, TILE_EXPERIMENT_EVENTS } from "./clipsMode";
 import { trackFeatureEvent } from "./features";
 import { accountTierOf, tierAtLeast } from "./entitlements";
+import { isMobileDevice } from "./announcement";
 
 // "Efeitos de câmera" (experiment "camera-effects"): background blur, colour
 // filters and face overlays (dog, cat, sunglasses, clown, crown, bunny, bear,
@@ -706,7 +707,7 @@ export async function createCameraEffectsTrack(source: MediaStreamTrack): Promis
     const generator = new streams.Generator({ kind: "video" });
     const id = nextId++;
     ensureWorker().postMessage(
-      { type: "start", id, readable: processor.readable, writable: generator.writable },
+      { type: "start", id, readable: processor.readable, writable: generator.writable, turns: isMobileDevice() },
       [processor.readable as unknown as Transferable, generator.writable as unknown as Transferable]
     );
     live.add(id);
@@ -742,7 +743,7 @@ async function createWorkerEffectsTrack(source: MediaStreamTrack): Promise<Media
           reject(err);
         },
       });
-      target.postMessage({ type: "start-track", id, track: clone }, [clone as unknown as Transferable]);
+      target.postMessage({ type: "start-track", id, track: clone, turns: isMobileDevice() }, [clone as unknown as Transferable]);
     });
   } catch (err) {
     pendingTracks.delete(id);

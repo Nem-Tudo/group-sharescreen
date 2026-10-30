@@ -71,7 +71,7 @@ self.onmessage = (event) => {
     settings = data.settings || null;
     ensureTasks();
   } else if (data.type === "start") {
-    startPipeline(data.id, data.readable, data.writable);
+    startPipeline(data.id, data.readable, data.writable, Boolean(data.turns));
   } else if (data.type === "prepare") {
     // Answered once what the settings need is loaded and warmed up (or has
     // failed), so the page can keep sending the plain camera until then
@@ -86,7 +86,7 @@ self.onmessage = (event) => {
     // probeWorkerTracks in lib/cameraEffects.ts).
     self.postMessage({ type: "probe", workerTracks: workerTracksSupported() });
   } else if (data.type === "start-track") {
-    startTrackPipeline(data.id, data.track);
+    startTrackPipeline(data.id, data.track, Boolean(data.turns));
   } else if (data.type === "constraints") {
     const held = heldTracks.get(data.id);
     if (held) held.applyConstraints(data.constraints).catch(() => {});
@@ -248,7 +248,7 @@ function workerTracksSupported() {
   );
 }
 
-function startTrackPipeline(id, track) {
+function startTrackPipeline(id, track, turns) {
   let generator;
   let processor;
   try {
@@ -262,7 +262,7 @@ function startTrackPipeline(id, track) {
     return;
   }
   heldTracks.set(id, track);
-  startPipeline(id, processor.readable, generator.writable);
+  startPipeline(id, processor.readable, generator.writable, turns);
   const pipeline = pipelines.get(id);
   if (pipeline) pipeline.track = track;
 }
@@ -270,9 +270,11 @@ function startTrackPipeline(id, track) {
 // ---------------------------------------------------------------------------
 // The frame loop
 
-function startPipeline(id, readable, writable) {
+function startPipeline(id, readable, writable, turns) {
   const pipeline = {
     id,
+    // A phone or tablet, whose camera can stand sideways (see uprightSource).
+    turns,
     stopped: false,
     canvas: null,
     ctx: null,
@@ -411,8 +413,12 @@ function ensureCanvases(p, width, height) {
 // the right way up once, so detection sees an upright face and what goes out
 // is upright too — drawImage of the frame itself ignores its rotation, and
 // the VideoFrame made from the canvas carries none. Null: already upright.
+//
+// Only on a phone or tablet: a computer's webcam never stands sideways, and
+// there the guess in rotationOf (settings vs frame shape, no facingMode) turned
+// the picture on its side.
 function uprightSource(p, frame) {
-  const rotation = ((rotationOf(p, frame) % 360) + 360) % 360;
+  const rotation = p.turns ? ((rotationOf(p, frame) % 360) + 360) % 360 : 0;
   const flip = Boolean(frame.flip);
   if (rotation === 0 && !flip) return null;
   const sideways = rotation === 90 || rotation === 270;
