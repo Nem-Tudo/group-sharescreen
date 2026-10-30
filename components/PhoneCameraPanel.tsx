@@ -33,6 +33,7 @@ import {
   takePhoneCameraUseRequest,
   usePhoneCamera,
 } from "@/lib/phoneCamera";
+import { useExtraPhoneCameras } from "@/lib/extraPhoneCameras";
 import { encodeQr } from "@/lib/qrCode";
 import { copyText } from "@/lib/clipboard";
 import { useT } from "@/lib/useI18n";
@@ -44,7 +45,7 @@ import { useT } from "@/lib/useI18n";
 // linked for one is there for the other) — plus the QR code that links a
 // new phone and the box where its code is typed. See lib/phoneCamera.
 
-function QrCode({ text }: { text: string }) {
+export function QrCode({ text }: { text: string }) {
   const path = useMemo(() => {
     const matrix = encodeQr(text);
     if (!matrix) return null;
@@ -152,6 +153,10 @@ function OptionRow({
 export function PhoneCameraPanel({ on, kind = "camera" }: { on: boolean; kind?: PhoneKind }) {
   const t = useT();
   const phone = usePhoneCamera();
+  // Phones an extra camera of "Várias câmeras" holds: one connection per
+  // phone, so they are not offered here while it does.
+  const extraPhones = useExtraPhoneCameras();
+  const busyPhones = new Set(Object.values(extraPhones).map((p) => p.deviceId));
   const isMic = kind === "mic";
   const source = isMic ? phone.micSource : phone.source;
   const setSource = isMic ? setPhoneMicSource : setPhoneCameraSource;
@@ -235,7 +240,7 @@ export function PhoneCameraPanel({ on, kind = "camera" }: { on: boolean; kind?: 
                   onClick={() => setSource(null)}
                   label={isMic ? t("watch.watchRoom.phoneMicComputer") : t("watch.watchRoom.phoneCameraWebcam")}
                 />
-                {phone.devices.map((device) => (
+                {phone.devices.filter((device) => !busyPhones.has(device.deviceId)).map((device) => (
                   <OptionRow
                     key={device.deviceId}
                     selected={source === device.deviceId}

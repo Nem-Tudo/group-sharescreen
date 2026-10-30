@@ -1281,7 +1281,17 @@ class SignalingClient {
     files: Omit<SharedFile, "updatedAt">[];
     cameraEffects: boolean;
     phoneCamera: boolean;
-  } = { screen: false, camera: false, files: [], cameraEffects: false, phoneCamera: false };
+    screens: number;
+    cameras: number;
+  } = {
+    screen: false,
+    camera: false,
+    files: [],
+    cameraEffects: false,
+    phoneCamera: false,
+    screens: 0,
+    cameras: 0,
+  };
   // Consecutive "captcha-required" rejections for the current join
   // attempt — see MAX_JOIN_RETRIES and performJoin.
   private joinRetryCount = 0;
@@ -3741,13 +3751,19 @@ class SignalingClient {
     // The camera is a phone's ("Celular como câmera", lib/phoneCamera).
     // Same: only the admin panel reads it.
     phoneCamera?: boolean;
+    // How many screens / cameras are going out at once (extra screens, the
+    // second camera). Same: only the admin panel reads them.
+    screens?: number;
+    cameras?: number;
   }) {
     if (sources.screen !== undefined) this.sharingSources.screen = sources.screen;
     if (sources.camera !== undefined) this.sharingSources.camera = sources.camera;
     if (sources.files !== undefined) this.sharingSources.files = sources.files;
     if (sources.cameraEffects !== undefined) this.sharingSources.cameraEffects = sources.cameraEffects;
     if (sources.phoneCamera !== undefined) this.sharingSources.phoneCamera = sources.phoneCamera;
-    const { screen, camera, files, cameraEffects, phoneCamera } = this.sharingSources;
+    if (sources.screens !== undefined) this.sharingSources.screens = sources.screens;
+    if (sources.cameras !== undefined) this.sharingSources.cameras = sources.cameras;
+    const { screen, camera, files, cameraEffects, phoneCamera, screens, cameras } = this.sharingSources;
     this.rawSend({
       type: "sharing",
       // The rolled-up "is this person transmitting anything" every older
@@ -3758,6 +3774,8 @@ class SignalingClient {
       files,
       cameraEffects: camera && cameraEffects,
       phoneCamera: camera && phoneCamera,
+      screens: screen ? screens : 0,
+      cameras: camera ? cameras : 0,
     });
   }
 

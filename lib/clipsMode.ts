@@ -30,7 +30,8 @@ export type TileExperiment =
   | "stereoMic"
   | "multiMic"
   | "cameraEffects"
-  | "phoneCamera";
+  | "phoneCamera"
+  | "multiCamera";
 
 // `defaultOn`: the switch starts on for whoever never touched it.
 const CONFIG: Record<
@@ -172,6 +173,15 @@ const CONFIG: Record<
     modeKey: "sharescreen:phoneCameraMode",
     tipKey: "sharescreen:phoneCameraTipSeen",
   },
+  // "Várias câmeras" (ver lib/multiCamera): mais de uma câmera saindo ao mesmo
+  // tempo — outras webcams, outros celulares, ou os dois. Desligado por padrão
+  // (cada câmera a mais é mais um encode). O interruptor fica no painel da
+  // câmera; ligado, aparece um "+" ao lado do botão da câmera.
+  multiCamera: {
+    feature: "multi-camera",
+    modeKey: "sharescreen:multiCameraMode",
+    tipKey: "sharescreen:multiCameraTipSeen",
+  },
   musicQueue: {
     feature: "room-music-queue",
     modeKey: "sharescreen:musicQueueMode",
@@ -269,6 +279,11 @@ export const TILE_EXPERIMENT_EVENTS = {
   phoneCamera: {
     modeOn: "phone_camera_on",
     modeOff: "phone_camera_off",
+  },
+  // O resto das estatísticas está em MULTI_CAMERA_EVENTS (lib/multiCamera).
+  multiCamera: {
+    modeOn: "multi_camera_on",
+    modeOff: "multi_camera_off",
   },
   musicQueue: {
     // Nomes de "modo" aqui são a aba, não a ordem aleatória: o interruptor

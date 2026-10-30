@@ -153,8 +153,12 @@ export interface PhoneCameraState {
   online: PhoneCameraOnline[];
   claims: PhoneCameraClaim[];
   link: { token: string; mode: "once" | "save" } | null;
-  /** Which list the QR was opened from: the phone confirmed becomes that. */
-  linkFor: PhoneKind;
+  /**
+   * Which list the QR was opened from: the phone confirmed becomes that.
+   * "extra": the "+" of "Várias câmeras" — the phone becomes one more camera
+   * (see lib/extraPhoneCameras) and the main camera and mic stay as they are.
+   */
+  linkFor: PhoneKind | "extra";
   /** The last code typed was wrong: tries left for that phone. */
   codeWrong: { conn: string; left: number } | null;
   /**
@@ -305,6 +309,24 @@ function sendRaw(msg: Record<string, unknown>) {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
 }
 
+/** The host socket, for the extra phones of "Várias câmeras" (lib/extraPhoneCameras). */
+export function sendPhoneCameraRelay(msg: Record<string, unknown>) {
+  sendRaw(msg);
+}
+
+// The phones of "Várias câmeras" share this socket (see lib/extraPhoneCameras).
+// `route` sees each message first and answers true for one about a phone an
+// extra camera holds, which the main session must then leave alone; `reset`
+// runs when the phones are let go of for good (switch off, another tab).
+export interface PhoneCameraRouter {
+  route: (msg: Record<string, unknown>) => boolean;
+  reset: () => void;
+}
+let router: PhoneCameraRouter | null = null;
+export function setPhoneCameraRouter(next: PhoneCameraRouter) {
+  router = next;
+}
+
 function open() {
   if (socket || users === 0 || typeof window === "undefined") return;
   ensureIceServers();
@@ -348,6 +370,7 @@ function close() {
   pingTimer = null;
   ws?.close();
   release();
+  router?.reset();
   set({ connected: false, replaced: false, online: [], claims: [], link: null });
 }
 
@@ -370,6 +393,9 @@ export function takePhoneCameraHere() {
 }
 
 function onMessage(msg: Record<string, unknown>) {
+  // The phones' comings and goings update the list below first; the router
+  // looks at those after (see "cam-online" / "cam-offline").
+  if (msg.t !== "cam-online" && msg.t !== "cam-offline" && router?.route(msg)) return;
   switch (msg.t) {
     case "host-ok":
       set({ connected: true, replaced: false, devices: (msg.devices as PhoneCameraDevice[]) ?? [] });
@@ -377,6 +403,7 @@ function onMessage(msg: Record<string, unknown>) {
     case "replaced":
       // Another tab is the camera's home now; this one lets go of the phone.
       release();
+      router?.reset();
       set({ replaced: true, connected: false, online: [], claims: [] });
       return;
     case "devices":
@@ -412,9 +439,10 @@ function onMessage(msg: Record<string, unknown>) {
       });
       // The phone that was just confirmed is, from now on, what the QR was
       // opened for: the camera, or the microphone.
+      // "extra": the router already started it as one more camera.
       const key = device ? device.deviceId : "once";
       if (state.linkFor === "mic") setPhoneMicSource(key);
-      else setPhoneCameraSource(key);
+      else if (state.linkFor === "camera") setPhoneCameraSource(key);
       return;
     }
     case "cam-online": {
@@ -424,6 +452,8 @@ function onMessage(msg: Record<string, unknown>) {
         name: String(msg.name ?? ""),
       };
       set({ online: [...state.online.filter((o) => o.conn !== online.conn), online] });
+      // One an extra camera holds: none of the main session's business.
+      if (router?.route(msg)) return;
       const session = state.session;
       // The phone in use reconnected its socket (the media, peer to peer,
       // never stopped): messages for it go to the new one.
@@ -440,6 +470,7 @@ function onMessage(msg: Record<string, unknown>) {
     }
     case "cam-offline": {
       set({ online: state.online.filter((o) => o.conn !== msg.conn) });
+      router?.route(msg);
       // A live phone can lose its socket and keep sending; the connection
       // itself (and its data channel) says when the media is really gone.
       const session = state.session;
@@ -471,7 +502,11 @@ function onMessage(msg: Record<string, unknown>) {
 
 // ── Pairing, from the panel ─────────────────────────────────────────────────
 
-export function requestPhoneCameraLink(mode: "once" | "save", fresh = false, linkFor: PhoneKind = "camera") {
+export function requestPhoneCameraLink(
+  mode: "once" | "save",
+  fresh = false,
+  linkFor: PhoneKind | "extra" = "camera"
+) {
   set({ link: null, linkFor });
   sendRaw({ t: "link", mode, fresh });
 }

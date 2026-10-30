@@ -295,6 +295,19 @@ import {
   multiScreenLimit,
   nextScreenUpgrade,
 } from "@/lib/multiScreen";
+import {
+  EXTRA_CAMERA_SLOTS,
+  extraCameraNumber,
+  isExtraCameraSlot,
+  MULTI_CAMERA_EVENTS,
+  MULTI_CAMERA_FEATURE,
+  multiCameraLimit,
+  nextCameraUpgrade,
+  useExtraCameraSources,
+  type ExtraCameraSource,
+} from "@/lib/multiCamera";
+import { useExtraPhoneCameras } from "@/lib/extraPhoneCameras";
+import { AddCameraPanel } from "@/components/AddCameraPanel";
 import { planIcon } from "@/components/planIcons";
 import { TIER_NAMES, tierIconId } from "@/lib/entitlements";
 import { useRecordingNotices } from "@/lib/recordingNotice";
@@ -893,7 +906,17 @@ function ShareControls({
   addScreen = null,
   cameraEffects = null,
   phoneCamera = null,
+  multiCamera = null,
 }: {
+  // "Várias câmeras" (see lib/multiCamera): its switch, in the camera's panel
+  // with its blue "novo" tip on the arrow (after the phone camera's), and the
+  // "+" right of the camera while one is going out with the switch on — its
+  // panel (AddCameraPanel) adds webcams and phones and closes each one.
+  multiCamera?: {
+    toggle: ReactNode;
+    tip: { show: boolean; dismiss: () => void; clicked: () => void };
+    add: { count: number; limit: number; panel: ReactNode } | null;
+  } | null;
   // "Celular como câmera" (see lib/phoneCamera): its switch, the saved
   // phones and the QR code, in the camera's panel, and its blue "novo" tip
   // on the same arrow (after the effects' one, if both are due).
@@ -1022,14 +1045,19 @@ function ShareControls({
   const effectsButton = cameraEffects && !onPhone && cameraSupported && cameraSharing ? cameraEffects : null;
   // The camera's panel exists when there is something in it: a camera to
   // pick, or the effects. The effects alone are reason enough on a phone too.
-  const hasCameraPanel = cameraSupported && (canPickCamera || effectsInPanel || Boolean(phoneCamera));
+  const hasCameraPanel =
+    cameraSupported && (canPickCamera || effectsInPanel || Boolean(phoneCamera) || Boolean(multiCamera));
+  const [addCameraOpen, setAddCameraOpen] = useState(false);
+  const addCamera = multiCamera?.add ?? null;
   // One blue tip on the arrow at a time: the effects' (on a phone), then the
   // phone camera's.
   const cameraTip = effectsInPanel && cameraEffects?.tip.show
     ? { ...cameraEffects.tip, text: t("watch.watchRoom.cameraEffectsTip") }
     : phoneCamera?.tip.show
       ? { ...phoneCamera.tip, text: t("watch.watchRoom.phoneCameraTip") }
-      : null;
+      : multiCamera?.tip.show
+        ? { ...multiCamera.tip, text: t("watch.watchRoom.multiCameraTip") }
+        : null;
   const screenBlocked = !screenSharing && Boolean(screenBlockedReason);
   const atScreenLimit = Boolean(addScreen && addScreen.count >= addScreen.limit);
   const upgradeMark = addScreen?.upgrade ? planIcon(tierIconId(addScreen.upgrade.tier)) : null;
@@ -1275,6 +1303,7 @@ function ShareControls({
               )}
               {effectsInPanel && cameraEffects?.panel}
               {phoneCamera?.panel}
+              {multiCamera?.toggle}
             </div>
           ) : undefined
         }
@@ -1348,6 +1377,32 @@ function ShareControls({
         ) : null)}
         </div>
       </ShortcutQuickPopover>
+      {extra(addCamera && (cameraSharing || addCamera.count > 0) ? (
+        <Popover
+          open={addCameraOpen}
+          onClose={() => setAddCameraOpen(false)}
+          placement="bottom"
+          tooltip={t("watch.watchRoom.addAnotherCamera", { count: addCamera.count, limit: addCamera.limit })}
+          content={
+            <div className="max-h-[80vh] overflow-y-auto rounded-xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-950">
+              {addCamera.panel}
+            </div>
+          }
+        >
+          <button
+            type="button"
+            onClick={() => setAddCameraOpen((o) => !o)}
+            aria-label={t("watch.watchRoom.addAnotherCamera", { count: addCamera.count, limit: addCamera.limit })}
+            aria-expanded={addCameraOpen}
+            className={`${segment} gap-0.5 border-l border-black/15 px-2.5 ${live}`}
+          >
+            <MdAdd className="h-4 w-4" />
+            <span className="text-xs font-semibold tabular-nums">
+              {addCamera.count}/{addCamera.limit}
+            </span>
+          </button>
+        </Popover>
+      ) : null)}
       {extra(effectsButton ? (
         <Tippy
           visible={effectsButton.tip.show && !effectsOpen}
@@ -1523,7 +1578,17 @@ function SwitchRoomFields({
 // "screen-extra" tiles are the extra screens of "Várias telas" (see
 // lib/multiScreen.ts), addressed by `${slot}:${ownerId}` like the files.
 // "camera2" is the phone's second lens (front and rear at once).
-type TileKind = "screen" | "camera" | "camera2" | "file" | "video-source" | "screen-extra" | "tool";
+// "camera-extra" tiles are the extra cameras of "Várias câmeras" (see
+// lib/multiCamera.ts), addressed by `${slot}:${ownerId}` like the screens.
+type TileKind =
+  | "screen"
+  | "camera"
+  | "camera2"
+  | "file"
+  | "video-source"
+  | "screen-extra"
+  | "camera-extra"
+  | "tool";
 const SELF_TILE_OWNER = "self";
 
 function tileId(kind: TileKind, ownerId: string): string {
@@ -1555,6 +1620,7 @@ function parseTileId(id: string): { kind: TileKind; ownerId: string } | null {
     kind !== "camera2" &&
     kind !== "video-source" &&
     kind !== "screen-extra" &&
+    kind !== "camera-extra" &&
     kind !== "tool"
   ) {
     return null;
@@ -1987,6 +2053,9 @@ function WatchRoomView({
     extraScreens,
     extraScreensActive,
     addExtraScreen,
+    extraCameras,
+    extraCamerasActive,
+    addExtraCamera,
     dualCamera,
     dualCameraSupported,
     startDualCamera,
@@ -2714,6 +2783,16 @@ function WatchRoomView({
   const phoneCameraMode = useTileExperiment("phoneCamera", { track: mounted && !onPhone });
   const phoneCameraAvailable = phoneCameraMode.available && mounted && !onPhone;
   const phoneCameraTip = useTileExperimentTip("phoneCamera", phoneCameraAvailable);
+  // "Várias câmeras" (see lib/multiCamera): its switch in the camera's panel,
+  // and with it on, the "+" beside the camera. A computer's thing — a phone
+  // has the dual camera instead.
+  const multiCameraMode = useTileExperiment("multiCamera", { track: mounted && !onPhone });
+  const multiCameraAvailable = multiCameraMode.available && mounted && !onPhone;
+  const multiCameraTip = useTileExperimentTip("multiCamera", multiCameraAvailable);
+  const cameraLimit = multiCameraLimit(account?.flags);
+  const cameraUpgrade = nextCameraUpgrade(account?.flags);
+  const extraCameraSources = useExtraCameraSources();
+  const extraPhoneCameras = useExtraPhoneCameras();
   useEffect(() => {
     const id = setTimeout(() => {
       setMounted(true);
@@ -2788,7 +2867,7 @@ function WatchRoomView({
   const partnerExperimentOn = usePartnerExperiment();
 
   const hasLocalScreen = Boolean(isSharing && localStream) || extraScreensActive > 0;
-  const hasLocalCamera = Boolean(localCameraStream);
+  const hasLocalCamera = Boolean(localCameraStream) || extraCamerasActive > 0;
   const hasLocalFiles = LOCAL_MEDIA_SLOTS.some((slot) => fileChannels[slot]?.localStream);
   const hasRemoteScreens =
     Object.keys(remoteStreams).length > 0 ||
@@ -2801,6 +2880,12 @@ function WatchRoomView({
         extraScreens[slot].resumingPeers.size > 0
     );
   const hasRemoteCameras =
+    EXTRA_CAMERA_SLOTS.some(
+      (slot) =>
+        Object.keys(extraCameras[slot].remoteStreams).length > 0 ||
+        extraCameras[slot].stoppedPeers.size > 0 ||
+        extraCameras[slot].resumingPeers.size > 0
+    ) ||
     Object.keys(dualCamera.remoteStreams).length > 0 ||
     dualCamera.stoppedPeers.size > 0 ||
     Object.keys(remoteCameraStreams).length > 0 ||
@@ -3437,6 +3522,15 @@ function WatchRoomView({
         ? !extraScreens[slot].localStream
         : !(owner in extraScreens[slot].remoteStreams);
     }
+    if (target.kind === "camera-extra") {
+      const separator = target.ownerId.indexOf(":");
+      const slot = target.ownerId.slice(0, separator);
+      const owner = target.ownerId.slice(separator + 1);
+      if (!isExtraCameraSlot(slot)) return true;
+      return owner === SELF_TILE_OWNER
+        ? !extraCameras[slot].localStream
+        : !(owner in extraCameras[slot].remoteStreams);
+    }
     if (target.ownerId === SELF_TILE_OWNER) {
       return target.kind === "screen" ? !(isSharing && localStream) : !localCameraStream;
     }
@@ -3468,6 +3562,7 @@ function WatchRoomView({
     remoteCameraStreams,
     state.videoSources,
     extraScreens,
+    extraCameras,
     dualCamera,
   ]);
 
@@ -3780,9 +3875,11 @@ function WatchRoomView({
   }, [localStream, isRoomManager, state.roomPermissions.screen, myPermissions?.screen]);
 
   useEffect(() => {
-    if (localCameraStream && !canUseRoomPermission("camera")) stopCameraShare();
+    if (canUseRoomPermission("camera")) return;
+    if (localCameraStream) stopCameraShare();
+    for (const slot of EXTRA_CAMERA_SLOTS) if (extraCameras[slot].active) extraCameras[slot].stop();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [localCameraStream, isRoomManager, state.roomPermissions.camera, myPermissions?.camera]);
+  }, [localCameraStream, extraCamerasActive, isRoomManager, state.roomPermissions.camera, myPermissions?.camera]);
 
   // The refusal banner is a one-shot notice, not a state — clear it on its
   // own after a few seconds so it doesn't sit there for the rest of the call.
@@ -3810,6 +3907,7 @@ function WatchRoomView({
     if (!state.guestBroadcastLimit) return;
     stopShare();
     stopCameraShare();
+    for (const slot of EXTRA_CAMERA_SLOTS) extraCameras[slot].stop();
     trackEvent("guest_broadcast_limit_reached");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.guestBroadcastLimitSeq]);
@@ -3830,6 +3928,7 @@ function WatchRoomView({
     localCameraStream,
     dualCamera.localStream,
     ...EXTRA_SCREEN_SLOTS.map((slot) => extraScreens[slot].localStream),
+    ...EXTRA_CAMERA_SLOTS.map((slot) => extraCameras[slot].localStream),
     ...LOCAL_MEDIA_SLOTS.map((slot) => fileChannels[slot]?.localStream ?? null),
   ];
   // Re-applied whenever the list changes, not only when the gate does: a
@@ -4076,8 +4175,10 @@ function WatchRoomView({
         void armSavedShareSource().then(() => startShare("display"));
       },
       toggleCamera: () => {
-        if (localCameraStream) stopCameraShare();
-        else if (screenShareMode !== "unsupported" && !cameraBlockedReason) startCameraShare();
+        if (localCameraStream || extraCamerasActive > 0) {
+          stopCameraShare();
+          for (const slot of EXTRA_CAMERA_SLOTS) extraCameras[slot].stop();
+        } else if (screenShareMode !== "unsupported" && !cameraBlockedReason) startCameraShare();
       },
       toggleMusicPlay: () => {
         const activeSlot = LOCAL_MEDIA_SLOTS.find((s) => fileChannels[s]?.localStream);
@@ -4321,6 +4422,10 @@ function WatchRoomView({
         add("screen", `screen-${slot}`, peerId, stream);
       }
     }
+    for (const slot of EXTRA_CAMERA_SLOTS) {
+      add("camera", slot, SELF_TILE_OWNER, extraCameras[slot].localStream);
+      for (const [peerId, stream] of Object.entries(extraCameras[slot].remoteStreams)) add("camera", slot, peerId, stream);
+    }
     for (const slot of LOCAL_MEDIA_SLOTS) {
       add("file", `file-${slot}`, SELF_TILE_OWNER, fileChannels[slot].localStream, localMediaSnapshots[slot].mode === "music");
       for (const [peerId, stream] of Object.entries(fileChannels[slot].remoteStreams)) {
@@ -4344,6 +4449,7 @@ function WatchRoomView({
     remoteStreams,
     remoteCameraStreams,
     extraScreens,
+    extraCameras,
     fileChannels,
     localMediaSnapshots,
   ]);
@@ -4982,6 +5088,10 @@ function WatchRoomView({
   const remoteExtraScreenEntries = EXTRA_SCREEN_SLOTS.flatMap((slot) =>
     Object.entries(extraScreens[slot].remoteStreams).map(([peerId, stream]) => ({ slot, peerId, stream }))
   );
+  // "Várias câmeras": everybody's extra cameras, one tile each.
+  const remoteExtraCameraEntries = EXTRA_CAMERA_SLOTS.flatMap((slot) =>
+    Object.entries(extraCameras[slot].remoteStreams).map(([peerId, stream]) => ({ slot, peerId, stream }))
+  );
   // Hyperfocus survives only as long as what it's focused on does. When that
   // transmission ends — the peer stops sharing, or leaves — its tile goes
   // with it, and that tile is the only way out of hyperfocus (see
@@ -5057,6 +5167,21 @@ function WatchRoomView({
       !ownPreviewHidden &&
       (!hyperfocusTarget ||
         (hyperfocusTarget.kind === "screen-extra" &&
+          hyperfocusTarget.ownerId === `${slot}:${SELF_TILE_OWNER}`))
+  );
+  const visibleExtraCameraEntries = hyperfocusTarget
+    ? hyperfocusTarget.kind === "camera-extra"
+      ? remoteExtraCameraEntries.filter(
+          ({ slot, peerId }) => `${slot}:${peerId}` === hyperfocusTarget.ownerId
+        )
+      : []
+    : remoteExtraCameraEntries;
+  const localExtraCameraSlots = EXTRA_CAMERA_SLOTS.filter(
+    (slot) =>
+      extraCameras[slot].localStream &&
+      !ownPreviewHidden &&
+      (!hyperfocusTarget ||
+        (hyperfocusTarget.kind === "camera-extra" &&
           hyperfocusTarget.ownerId === `${slot}:${SELF_TILE_OWNER}`))
   );
   // Ours, one per slot that is actually going out, split the same way.
@@ -5476,6 +5601,30 @@ function WatchRoomView({
   const visibleStoppedCamera2Entries = activeHyperfocusId ? [] : stoppedCamera2Entries;
   const visibleResumingCamera2Entries = activeHyperfocusId ? [] : resumingCamera2Entries;
   const visibleStoppedExtraScreenEntries = activeHyperfocusId ? [] : stoppedExtraScreenEntries;
+  // The same for the extra cameras, under the person announcing a camera.
+  const stoppedExtraCameraEntries = EXTRA_CAMERA_SLOTS.flatMap((slot) =>
+    visiblePeers
+      .filter(
+        (p) =>
+          extraCameras[slot].stoppedPeers.has(p.id) &&
+          announcesCamera(p) &&
+          !(p.id in extraCameras[slot].remoteStreams)
+      )
+      .map((p) => [slot, p] as const)
+  );
+  const resumingExtraCameraEntries = EXTRA_CAMERA_SLOTS.flatMap((slot) =>
+    visiblePeers
+      .filter(
+        (p) =>
+          extraCameras[slot].resumingPeers.has(p.id) &&
+          !extraCameras[slot].stoppedPeers.has(p.id) &&
+          announcesCamera(p) &&
+          !(p.id in extraCameras[slot].remoteStreams)
+      )
+      .map((p) => [slot, p] as const)
+  );
+  const visibleStoppedExtraCameraEntries = activeHyperfocusId ? [] : stoppedExtraCameraEntries;
+  const visibleResumingExtraCameraEntries = activeHyperfocusId ? [] : resumingExtraCameraEntries;
   const visibleResumingExtraScreenEntries = activeHyperfocusId ? [] : resumingExtraScreenEntries;
   const visibleStoppedFileEntries = activeHyperfocusId ? [] : stoppedFileEntries;
   const visibleResumingFileEntries = activeHyperfocusId ? [] : resumingFileEntries;
@@ -5602,6 +5751,50 @@ function WatchRoomView({
       ),
     });
   }
+
+  // Our extra cameras ("Várias câmeras"). Their tile's "stop" ends that one.
+  localExtraCameraSlots.forEach((slot) => {
+    const stream = extraCameras[slot].localStream;
+    if (!stream) return;
+    const id = tileId("camera-extra", `${slot}:${SELF_TILE_OWNER}`);
+    const label = `${translate("common.you")} (${translate("watch.watchRoom.cameraNumber", { n: extraCameraNumber(slot) })})`;
+    tiles.push({
+      id,
+      render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
+        <VideoTile
+          tileId={id}
+          mediaKey={state.selfId ? `camera-extra:${slot}:${state.selfId}` : undefined}
+          stream={stream}
+          ownStatsChannel={slot}
+          detachWhenHidden={false}
+          label={label}
+          accessibleLabel={label}
+          badge={translate("watch.watchRoom.camera")}
+          muted
+          allowUnmute={false}
+          fill={fill}
+          compact={compact}
+          onStopWatching={() => extraCameras[slot].stop()}
+          stopWatchingLabel={translate("watch.watchRoom.stopThisCamera")}
+          orientation={myOrientations[slot] ?? null}
+          onOrientationChange={(next) => setMyOrientation(slot, next)}
+          onDoubleClick={doubleClickFocus ? () => toggleSpotlight(id) : undefined}
+          onFocus={() => toggleSpotlight(id)}
+          isSpotlighted={spotlightId === id}
+          onHyperfocus={() => toggleHyperfocus(id)}
+          onNativePip={(ratio) => void enterNativePip(id, ratio)}
+          isHyperfocused={activeHyperfocusId === id}
+          hasAccount={Boolean(state.account)}
+          overlayRightOffset={overlayRightOffset}
+          overlayLeftOffset={overlayLeftOffset}
+          isMicOn={isMicOn}
+          onToggleMic={toggleMic}
+          micsMuted={micsMuted}
+          onToggleMicsMuted={toggleMicsMuted}
+        />
+      ),
+    });
+  });
 
   // Our extra screens ("Várias telas"). Their tile's "stop" button ends that
   // one screen — the only per-screen stop there is.
@@ -6082,6 +6275,60 @@ function WatchRoomView({
     });
   }
 
+  // Everybody else's extra cameras. Silent: the mic is its own channel.
+  for (const { slot, peerId, stream } of visibleExtraCameraEntries) {
+    const peer = state.peers.find((p) => p.id === peerId);
+    const id = tileId("camera-extra", `${slot}:${peerId}`);
+    const which = translate("watch.watchRoom.cameraNumber", { n: extraCameraNumber(slot) });
+    tiles.push({
+      id,
+      render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
+        <VideoTile
+          tileId={id}
+          mediaKey={`camera-extra:${slot}:${peerId}`}
+          stream={stream}
+          label={
+            <span className="inline-flex items-center gap-1">
+              <DisplayUserName
+                name={peer?.name ?? translate("common.someone")}
+                isGuest={peer?.isGuest}
+                verified={verifiedBadge(peer?.flags)}
+                bot={peer?.bot}
+                color={peer?.nameColor}
+              />
+              <span>({which})</span>
+            </span>
+          }
+          accessibleLabel={`${peer?.name ?? translate("common.someone")} (${which})`}
+          badge={translate("watch.watchRoom.liveCamera")}
+          adPaused={peer?.adPaused === true}
+          muted
+          allowUnmute={false}
+          fill={fill}
+          compact={compact}
+          onRenderedSizeChange={(w, h) => qualityNegotiator.report(slot, peerId, w, h)}
+          onVisibilityChange={(visible) => qualityNegotiator.setHidden(slot, peerId, !visible)}
+          onStopWatching={() => extraCameras[slot].stopWatchingPeer(peerId)}
+          connectionStats={{ channel: slot, originId: peerId }}
+          orientation={peerOrientation(peerId, slot)}
+          onDoubleClick={doubleClickFocus ? () => toggleSpotlight(id) : undefined}
+          onFocus={() => toggleSpotlight(id)}
+          isSpotlighted={spotlightId === id}
+          onHyperfocus={() => toggleHyperfocus(id)}
+          onNativePip={(ratio) => void enterNativePip(id, ratio)}
+          isHyperfocused={activeHyperfocusId === id}
+          hasAccount={Boolean(state.account)}
+          overlayRightOffset={overlayRightOffset}
+          overlayLeftOffset={overlayLeftOffset}
+          isMicOn={isMicOn}
+          onToggleMic={toggleMic}
+          micsMuted={micsMuted}
+          onToggleMicsMuted={toggleMicsMuted}
+        />
+      ),
+    });
+  }
+
   // Everybody else's extra screens. Silent: the first screen carries the
   // system audio (see useExtraScreenChannel).
   for (const { slot, peerId, stream } of visibleExtraScreenEntries) {
@@ -6247,6 +6494,26 @@ function WatchRoomView({
   for (const [slot, peer] of visibleResumingExtraScreenEntries) {
     tiles.push({
       id: tileId("screen-extra", `${slot}:${peer.id}`),
+      render: (fill) => <ResumingPeerTile fill={fill} />,
+    });
+  }
+
+  for (const [slot, peer] of visibleStoppedExtraCameraEntries) {
+    tiles.push({
+      id: tileId("camera-extra", `${slot}:${peer.id}`),
+      render: (fill) => (
+        <StoppedPeerTile
+          label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} bot={peer.bot} />}
+          fill={fill}
+          onResume={() => extraCameras[slot].resumeWatchingPeer(peer.id)}
+        />
+      ),
+    });
+  }
+
+  for (const [slot, peer] of visibleResumingExtraCameraEntries) {
+    tiles.push({
+      id: tileId("camera-extra", `${slot}:${peer.id}`),
       render: (fill) => <ResumingPeerTile fill={fill} />,
     });
   }
@@ -6496,6 +6763,18 @@ function WatchRoomView({
           annotationKey: `camera2:${p.id}`,
         });
       }
+      for (const { slot, peerId, stream } of remoteExtraCameraEntries) {
+        if (peerId !== p.id) continue;
+        dockedPipSources.push({
+          id: tileId("camera-extra", `${slot}:${p.id}`),
+          stream,
+          label: `${label} (${translate("watch.watchRoom.cameraNumber", { n: extraCameraNumber(slot) })})`,
+          peerId: p.id,
+          micStream,
+          channel: slot,
+          annotationKey: `camera-extra:${slot}:${p.id}`,
+        });
+      }
     }
     const you = translate("common.you");
     if (isSharing && localStream) {
@@ -6551,6 +6830,18 @@ function WatchRoomView({
         peerId: null,
         micStream: null,
         annotationKey: state.selfId ? `camera2:${state.selfId}` : undefined,
+      });
+    }
+    for (const slot of EXTRA_CAMERA_SLOTS) {
+      const stream = extraCameras[slot].localStream;
+      if (!stream) continue;
+      dockedPipSources.push({
+        id: tileId("camera-extra", `${slot}:${SELF_TILE_OWNER}`),
+        stream,
+        label: `${you} (${translate("watch.watchRoom.cameraNumber", { n: extraCameraNumber(slot) })})`,
+        peerId: null,
+        micStream: null,
+        annotationKey: state.selfId ? `camera-extra:${slot}:${state.selfId}` : undefined,
       });
     }
     // The room's whiteboard, notepad and code editor — last in the list, and
@@ -6715,6 +7006,11 @@ function WatchRoomView({
         extraScreens[slot].stopWatchingPeer(peerId);
       }
     }
+    for (const { slot, peerId } of remoteExtraCameraEntries) {
+      if (target?.kind !== "camera-extra" || target.ownerId !== `${slot}:${peerId}`) {
+        extraCameras[slot].stopWatchingPeer(peerId);
+      }
+    }
     trackEvent("hyperfocus_enter");
   }
 
@@ -6789,13 +7085,115 @@ function WatchRoomView({
   // The main screen button's "stop": every screen at once. Closing just one
   // is the "+" panel's job (and each tile's).
   const anyScreenSharing = Boolean(localStream) || extraScreensActive > 0;
+
+  // "Várias câmeras": the "+" beside the camera (see ShareControls and
+  // AddCameraPanel). The first camera counts as one of them.
+  const cameraCount = (localCameraStream ? 1 : 0) + extraCamerasActive;
+  const anyCameraSharing = cameraCount > 0;
+  function stopAllCameras() {
+    stopCameraShare();
+    for (const slot of EXTRA_CAMERA_SLOTS) extraCameras[slot].stop();
+  }
+  const addCameraSource = (source: ExtraCameraSource) => {
+    if (cameraCount >= cameraLimit) {
+      trackFeatureEvent(MULTI_CAMERA_EVENTS.limit, { value: cameraLimit });
+      return;
+    }
+    trackFeatureEvent(MULTI_CAMERA_EVENTS.add, { value: cameraCount + 1 });
+    if (source.kind === "phone") trackFeatureEvent(MULTI_CAMERA_EVENTS.addPhone);
+    markFeatureUsed(MULTI_CAMERA_FEATURE);
+    void addExtraCamera(source);
+  };
+  const activeExtraCameraSlots = EXTRA_CAMERA_SLOTS.filter((slot) => extraCameras[slot].active);
+  // What can still be added: the webcams nothing is sending yet (the first
+  // camera's own device, as the browser reports it, included), and the saved
+  // phones neither the first camera, the mic nor another slot holds.
+  // (An effects track has no device of its own: then the one picked.)
+  const mainCameraDeviceId =
+    localCameraStream && !cameraFromPhone
+      ? (localCameraStream.getVideoTracks()[0]?.getSettings().deviceId ?? cameraDeviceId)
+      : null;
+  const busyWebcams = new Set<string>(
+    activeExtraCameraSlots.flatMap((slot) => {
+      const source = extraCameraSources[slot];
+      return source?.kind === "webcam" ? [source.deviceId] : [];
+    })
+  );
+  if (mainCameraDeviceId) busyWebcams.add(mainCameraDeviceId);
+  const busyPhones = new Set<string>(Object.values(extraPhoneCameras).map((p) => p.deviceId));
+  if (phoneCameraMode.on && phoneCameraStore.source) busyPhones.add(phoneCameraStore.source);
+  if (phoneCameraMode.on && phoneCameraStore.micSource) busyPhones.add(phoneCameraStore.micSource);
+  const addCameraControl =
+    multiCameraAvailable && multiCameraMode.on
+      ? {
+          count: cameraCount,
+          limit: cameraLimit,
+          panel: (
+            <AddCameraPanel
+              count={cameraCount}
+              limit={cameraLimit}
+              upgrade={
+                cameraUpgrade
+                  ? {
+                      planName: TIER_NAMES[cameraUpgrade.tier],
+                      limit: cameraUpgrade.limit,
+                      onClick: () => {
+                        trackFeatureEvent(MULTI_CAMERA_EVENTS.upgradeClick);
+                        openProModal(cameraUpgrade.planId);
+                      },
+                    }
+                  : null
+              }
+              webcams={cameraDevices.filter((d) => !busyWebcams.has(d.deviceId))}
+              phones={
+                phoneCameraAvailable
+                  ? phoneCameraStore.devices
+                      .filter((d) => !busyPhones.has(d.deviceId))
+                      .map((d) => ({
+                        deviceId: d.deviceId,
+                        name: d.name,
+                        online: phoneCameraStore.online.some((o) => o.deviceId === d.deviceId),
+                      }))
+                  : null
+              }
+              onAdd={addCameraSource}
+              items={[
+                ...(localCameraStream
+                  ? [
+                      {
+                        id: "camera",
+                        label: translate("watch.watchRoom.cameraNumber", { n: 1 }),
+                        phone: cameraFromPhone,
+                        onStop: stopCameraShare,
+                      },
+                    ]
+                  : []),
+                ...activeExtraCameraSlots.map((slot) => {
+                  const source = extraCameraSources[slot];
+                  const which = translate("watch.watchRoom.cameraNumber", { n: extraCameraNumber(slot) });
+                  return {
+                    id: slot,
+                    label: source ? `${which} · ${source.kind === "webcam" ? source.label : source.name}` : which,
+                    phone: source?.kind === "phone",
+                    waiting: source?.kind === "phone" && extraPhoneCameras[slot]?.status !== "live",
+                    onStop: () => extraCameras[slot].stop(),
+                  };
+                }),
+              ]}
+            />
+          ),
+        }
+      : null;
   function stopAllScreens() {
     stopShare();
     for (const slot of EXTRA_SCREEN_SLOTS) extraScreens[slot].stop();
   }
   // The first extra screen that failed to start, shown like shareError.
   const extraScreenError =
-    EXTRA_SCREEN_SLOTS.map((slot) => extraScreens[slot].error).find(Boolean) ?? dualCameraError ?? null;
+    EXTRA_SCREEN_SLOTS.map((slot) => extraScreens[slot].error).find(Boolean) ??
+    EXTRA_CAMERA_SLOTS.map((slot) => extraCameras[slot].error).find(Boolean) ??
+    dualCameraError ??
+    null;
 
   // Shared prop bundle for every QualityControls instance on this page (the
   // desktop quick-access popover and the two share-button pickers below) —
@@ -7727,7 +8125,7 @@ function WatchRoomView({
       <div className="flex items-center">
         <ShareControls
           screenSharing={anyScreenSharing}
-          cameraSharing={Boolean(localCameraStream)}
+          cameraSharing={anyCameraSharing}
           screenSupported={screenShareMode === "display" || isMobileBrowser}
           cameraSupported={screenShareMode !== "unsupported"}
           screenBlockedReason={screenBlockedReason}
@@ -7752,7 +8150,7 @@ function WatchRoomView({
             }
             void startShare("display");
           }}
-          onToggleCamera={() => (localCameraStream ? stopCameraShare() : startCameraShare())}
+          onToggleCamera={() => (anyCameraSharing ? stopAllCameras() : startCameraShare())}
           cameraDevices={cameraDevices}
           cameraDeviceId={cameraDeviceId}
           cameraFacing={cameraFacing}
@@ -7774,6 +8172,25 @@ function WatchRoomView({
           compact={dockCompact}
           extraMotion={dockMotion}
           addScreen={addScreenControl}
+          multiCamera={
+            multiCameraAvailable
+              ? {
+                  toggle: (
+                    <MenuToggleRow
+                      label={translate("watch.watchRoom.multiCameraMode")}
+                      badge={<NewBadge id={MULTI_CAMERA_FEATURE} />}
+                      active={multiCameraMode.on}
+                      onToggle={() => setTileExperimentMode("multiCamera", !multiCameraMode.on)}
+                      hint={translate("watch.watchRoom.multiCameraModeHint", { count: cameraLimit })}
+                      activeIcon={<CameraIcon className="h-4 w-4" />}
+                      inactiveIcon={<CameraIcon className="h-4 w-4 opacity-50" />}
+                    />
+                  ),
+                  tip: multiCameraTip,
+                  add: addCameraControl,
+                }
+              : null
+          }
           cameraEffects={
             cameraEffectsAvailable
               ? {

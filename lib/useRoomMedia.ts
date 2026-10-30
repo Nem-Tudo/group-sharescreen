@@ -87,6 +87,21 @@ import {
   type ExtraScreenSlot,
 } from "./multiScreen";
 import {
+  EXTRA_CAMERA_SLOTS,
+  MULTI_CAMERA_EVENTS,
+  getExtraCameraSource,
+  setExtraCameraSource,
+  type ExtraCameraSlot,
+  type ExtraCameraSource,
+} from "./multiCamera";
+import {
+  acquireExtraPhoneCamera,
+  extraPhoneCameraTrack,
+  onExtraPhoneEnded,
+  onExtraPhonePaired,
+  releaseExtraPhoneCamera,
+} from "./extraPhoneCameras";
+import {
   PeerQualityRegistry,
   contentHintForDegradation,
   refreshRelayCaps,
@@ -136,6 +151,7 @@ import { TILE_EXPERIMENT_EVENTS, trackTileExperiment, useTileExperiment } from "
 import {
   acquirePhoneCamera,
   getPhoneCameraState,
+  PhoneCameraError,
   onPhoneCameraEvent,
   PHONE_CAMERA_EVENTS,
   phoneCameraLive,
@@ -205,7 +221,9 @@ import {
 // lib/multiScreen.ts) — siblings of "screen" for the same reason.
 // "camera2" is the phone's other lens, sent alongside "camera" (front and
 // rear at once) — see the dual camera below.
-type Channel = "screen" | "camera" | "camera2" | "mic" | LocalMediaSlot | ExtraScreenSlot;
+// "camera3".."camera10" are the extra cameras of "Várias câmeras" (see
+// lib/multiCamera.ts) — siblings of "camera" like the extra screens.
+type Channel = "screen" | "camera" | "camera2" | "mic" | LocalMediaSlot | ExtraScreenSlot | ExtraCameraSlot;
 // Where the screen channel's picture comes from. "display" is a real screen
 // capture; "camera" is the phone fallback (no getDisplayMedia there, so
 // "compartilhar tela" opens the camera). A local file is *not* one of these:
@@ -690,6 +708,97 @@ function useExtraScreenChannel(
     autoJoin,
     quality
   );
+}
+
+// One extra camera of "Várias câmeras" (see lib/multiCamera.ts), fed by what
+// was picked for the slot right before it started: another webcam on this
+// computer, or another phone (lib/extraPhoneCameras). No effects, no
+// fallback to the default camera — a webcam that is gone is an error rather
+// than a second copy of the first camera.
+//
+// A phone whose page is not open yet starts as the "phone not connected"
+// screen, like the main camera's, and its video is swapped in over it when it
+// arrives; a phone that never comes ends the slot with the reason.
+function useExtraCameraChannel(
+  slot: ExtraCameraSlot,
+  room: string,
+  forceRelayIce: boolean,
+  autoJoin: boolean,
+  quality: QualityPreset,
+  resolutionRef: { current: ShareResolution },
+  fpsRef: { current: number }
+) {
+  const t = useT();
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const channelRef = useRef<ReturnType<typeof useBroadcastChannel> | null>(null);
+  const channel = useBroadcastChannel(
+    slot,
+    room,
+    async () => {
+      const source = getExtraCameraSource(slot);
+      if (!source) throw new ShareStartError(t("useRoomMedia.couldNotStartTheCameraCheck"));
+      const video = captureConstraints(resolutionRef.current, fpsRef.current, false);
+      if (source.kind === "webcam") {
+        try {
+          return await navigator.mediaDevices.getUserMedia({
+            video: { ...video, deviceId: { exact: source.deviceId } },
+          });
+        } catch (err) {
+          trackFeatureEvent(MULTI_CAMERA_EVENTS.error);
+          throw err;
+        }
+      }
+      setPhoneError(null);
+      const live = extraPhoneCameraTrack(slot);
+      // A clone: the channel's teardown stops what it holds, and that must
+      // not end the connection to the phone.
+      if (live) return new MediaStream([live.clone()]);
+      acquireExtraPhoneCamera(slot, source.deviceId, source.name).then(
+        () => {
+          const current = channelRef.current;
+          if (!current?.active) return;
+          void current.swapCapture().then((swapped) => {
+            const now = channelRef.current;
+            if (swapped || !now?.active) return;
+            now.stop();
+            void now.start();
+          });
+        },
+        (err: unknown) => {
+          const code = err instanceof PhoneCameraError ? err.code : "failed";
+          if (code === "cancelled") return;
+          setPhoneError(`${source.name}: ${t(`useRoomMedia.phoneCamera_${code === "nomic" ? "failed" : code}`)}`);
+          channelRef.current?.stop();
+        }
+      );
+      return new MediaStream([
+        createPhoneCameraPlaceholder({
+          title: t("useRoomMedia.phoneCameraOfflineTitle"),
+          description: t("useRoomMedia.phoneCameraOfflineDescription"),
+          stepsTitle: t("useRoomMedia.phoneCameraOfflineStepsTitle"),
+          steps: [
+            t("useRoomMedia.phoneCameraOfflineStep1"),
+            t("useRoomMedia.phoneCameraOfflineStep2"),
+            t("useRoomMedia.phoneCameraOfflineStep3"),
+            t("useRoomMedia.phoneCameraOfflineStep4"),
+          ],
+        }),
+      ]);
+    },
+    () => hasCameraCapture(),
+    t("useRoomMedia.yourBrowserDoesNotSupportA"),
+    t("useRoomMedia.couldNotStartTheCameraCheck"),
+    forceRelayIce,
+    autoJoin,
+    quality,
+    // Its phone stops filming. What the slot is fed by is kept: a restart
+    // reads it again, and the next "+" overwrites it.
+    () => releaseExtraPhoneCamera(slot)
+  );
+  useEffect(() => {
+    channelRef.current = channel;
+  });
+  return { ...channel, error: channel.error ?? phoneError };
 }
 
 // The capture's own hint to the encoder about what it is looking at. Unlike
@@ -4542,6 +4651,84 @@ export function useRoomMedia(room: string) {
     return true;
   }, [extraScreens]);
 
+  // "Várias câmeras" (see lib/multiCamera.ts): the second to ninth camera.
+  // Spelled out like the screens above, and every client has all eight for
+  // the same reason: watching them needs the channel too.
+  const xc = [
+    useExtraCameraChannel("camera3", room, forceRelayIce, autoJoin, cameraQualityPreset, shareResolutionRef, shareFpsRef),
+    useExtraCameraChannel("camera4", room, forceRelayIce, autoJoin, cameraQualityPreset, shareResolutionRef, shareFpsRef),
+    useExtraCameraChannel("camera5", room, forceRelayIce, autoJoin, cameraQualityPreset, shareResolutionRef, shareFpsRef),
+    useExtraCameraChannel("camera6", room, forceRelayIce, autoJoin, cameraQualityPreset, shareResolutionRef, shareFpsRef),
+    useExtraCameraChannel("camera7", room, forceRelayIce, autoJoin, cameraQualityPreset, shareResolutionRef, shareFpsRef),
+    useExtraCameraChannel("camera8", room, forceRelayIce, autoJoin, cameraQualityPreset, shareResolutionRef, shareFpsRef),
+    useExtraCameraChannel("camera9", room, forceRelayIce, autoJoin, cameraQualityPreset, shareResolutionRef, shareFpsRef),
+    useExtraCameraChannel("camera10", room, forceRelayIce, autoJoin, cameraQualityPreset, shareResolutionRef, shareFpsRef),
+  ] as const;
+  const extraCameras = useMemo(
+    () =>
+      Object.fromEntries(EXTRA_CAMERA_SLOTS.map((slot, i) => [slot, xc[i]])) as Record<
+        ExtraCameraSlot,
+        ReturnType<typeof useExtraCameraChannel>
+      >,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [xc[0], xc[1], xc[2], xc[3], xc[4], xc[5], xc[6], xc[7]]
+  );
+  const extraCamerasActive = EXTRA_CAMERA_SLOTS.filter((slot) => extraCameras[slot].active).length;
+  const extraCamerasRef = useRef(extraCameras);
+  useEffect(() => {
+    extraCamerasRef.current = extraCameras;
+  }, [extraCameras]);
+
+  // Starts the next free extra camera on `source`. The limit is the caller's
+  // to check (see multiCameraLimit); this only refuses when all eight are
+  // taken. A phone is asked for right here, synchronously, before the slot
+  // starts: one just paired would otherwise offer first and be taken by the
+  // main session as *the* camera (see onExtraPhonePaired).
+  const addExtraCamera = useCallback(async (source: ExtraCameraSource): Promise<boolean> => {
+    const channels = extraCamerasRef.current;
+    const slot = EXTRA_CAMERA_SLOTS.find((candidate) => !channels[candidate].active);
+    if (!slot) return false;
+    setExtraCameraSource(slot, source);
+    if (source.kind === "phone") {
+      acquireExtraPhoneCamera(slot, source.deviceId, source.name).catch(() => {
+        // The slot's own capture asks again and reports why.
+      });
+    }
+    await channels[slot].start();
+    return true;
+  }, []);
+
+  // A phone linked from the "+" is added as soon as it is confirmed.
+  useEffect(
+    () =>
+      onExtraPhonePaired((deviceId, name) => {
+        const going =
+          (cameraRef.current.active ? 1 : 0) +
+          EXTRA_CAMERA_SLOTS.filter((slot) => extraCamerasRef.current[slot].active).length;
+        trackFeatureEvent(MULTI_CAMERA_EVENTS.add, { value: going + 1 });
+        trackFeatureEvent(MULTI_CAMERA_EVENTS.addPhone);
+        void addExtraCamera({ kind: "phone", deviceId, name });
+      }),
+    [addExtraCamera]
+  );
+  // A phone that went away takes its camera with it.
+  useEffect(
+    () =>
+      onExtraPhoneEnded((slot) => {
+        const channel = extraCamerasRef.current[slot as ExtraCameraSlot];
+        if (channel?.active) channel.stop();
+      }),
+    []
+  );
+  // The phone relay stays up while the switch is on, where phones are offered
+  // at all ("Celular como câmera" is the feature that owns pairing them).
+  const multiCameraMode = useTileExperiment("multiCamera").active;
+  const phoneCameraOffered = useTileExperiment("phoneCamera").available;
+  useEffect(() => {
+    if (!multiCameraMode || !phoneCameraOffered) return;
+    return retainPhoneCameraHost();
+  }, [multiCameraMode, phoneCameraOffered]);
+
   // Re-opens whichever live captures are running off the camera, so a change
   // to which lens that means actually reaches the room.
   //
@@ -4696,16 +4883,20 @@ export function useRoomMedia(room: string) {
       // The extra screens are not announced one by one (the server knows
       // nothing about them); they count as the person sharing a screen.
       screen: screen.active || extraScreensActive > 0,
-      camera: camera.active || camera2.active,
+      camera: camera.active || camera2.active || extraCamerasActive > 0,
       files: JSON.parse(announcedFilesKey) as typeof announcedFiles,
       cameraEffects: cameraEffectsLive,
       phoneCamera: camera.active && cameraFromPhone,
+      // Counted for the admin panel's "mais de uma tela/câmera" filters.
+      screens: (screen.active ? 1 : 0) + extraScreensActive,
+      cameras: (camera.active ? 1 : 0) + (camera2.active ? 1 : 0) + extraCamerasActive,
     });
   }, [
     screen.active,
     extraScreensActive,
     camera.active,
     camera2.active,
+    extraCamerasActive,
     announcedFilesKey,
     cameraEffectsLive,
     cameraFromPhone,
@@ -4765,7 +4956,12 @@ export function useRoomMedia(room: string) {
     };
   }, []);
   const sharingAnything =
-    screen.active || camera.active || camera2.active || anyFileActive || extraScreensActive > 0;
+    screen.active ||
+    camera.active ||
+    camera2.active ||
+    anyFileActive ||
+    extraScreensActive > 0 ||
+    extraCamerasActive > 0;
 
   const { capacity, self, reportLoad } = useMeshCapacity();
   const selfRef = useRef(self);
@@ -4834,6 +5030,10 @@ export function useRoomMedia(room: string) {
         ...(cameraActive ? getCameraTiers().values() : []),
         ...(fileActive ? getFileTiers() : []),
         ...getExtraScreenTiers(),
+        ...EXTRA_CAMERA_SLOTS.flatMap((slot) => {
+          const channel = extraCamerasRef.current[slot];
+          return channel.active ? [...channel.getRequestedTiers().values()] : [];
+        }),
         ...(camera2Ref.current.active ? camera2Ref.current.getRequestedTiers().values() : []),
       ];
       reportLoad(tiers);
@@ -5433,6 +5633,10 @@ export function useRoomMedia(room: string) {
     extraScreens,
     extraScreensActive,
     addExtraScreen,
+    // "Várias câmeras" — see lib/multiCamera.ts.
+    extraCameras,
+    extraCamerasActive,
+    addExtraCamera,
     // The other lens, at the same time (see camera2 above).
     dualCamera: camera2,
     dualCameraSupported,
