@@ -14,6 +14,13 @@ import {
   isCaptchaScriptUnavailable,
   resetCaptchaScriptCache,
 } from "./turnstile";
+import {
+  FAST_JOIN_CHECK_FEATURE,
+  clearCaptchaPass,
+  readCaptchaPass,
+  syncCaptchaPassOwner,
+  writeCaptchaPass,
+} from "./captchaPass";
 import { getBrowserFingerprint } from "./fingerprint";
 import { BUILD_VERSION } from "./buildVersion";
 import { currentAnnouncementDevice } from "./announcement";
@@ -1082,6 +1089,15 @@ const REGISTER_ACK_TIMEOUT_MS = 10_000;
 // "captcha-required" round trip, already handled by performJoin's retry).
 const CAPTCHA_REVERIFY_INTERVAL_MS = 30 * 60_000;
 
+// fast-join-check's stats. Loaded on first use rather than imported: features.ts
+// reaches AuthContext, which imports this file, and a static import would close
+// that loop.
+function trackFastJoinEvent(name: string, value?: number) {
+  void import("./features")
+    .then(({ trackFeatureEvent }) => trackFeatureEvent(name, { feature: FAST_JOIN_CHECK_FEATURE, value }))
+    .catch(() => {});
+}
+
 /**
  * How long a peer we already knew may stay in the list after a reconnect
  * without the server having mentioned them again.
@@ -1313,6 +1329,9 @@ class SignalingClient {
   // could be minted is not fixed by anything, and retrying just spends the
   // budget on a foregone conclusion.
   private lastJoinSentToken = false;
+  // When the join now pending was asked for — the start of fast-join-check's
+  // join_ms, which ends at the room-state. Null once reported.
+  private joinStartedAt: number | null = null;
   // Per-peer safety-net expiry timers backing typingPeerIds — see that
   // field's doc comment and TYPING_EXPIRE_MS.
   private typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -1687,6 +1706,10 @@ class SignalingClient {
           selfId: msg.id as string,
           account,
         });
+        // A pass held for another identity (a login or a logout since) would
+        // only be refused; then keep whatever this register handed out.
+        syncCaptchaPassOwner(this.captchaPassOwner());
+        this.takeCaptchaPass(msg);
         // A fresh connection may have missed any number of group nudges while
         // it was down — see onGroupEvent.
         if (!isReRegister) this.emitGroupEvent({ type: "group-resync" });
@@ -1736,6 +1759,7 @@ class SignalingClient {
         // duplicate work carrying a pure duplicate captcha.
         if (this.desiredRoom && !isReRegister) {
           this.joinRetryCount = 0;
+          this.joinStartedAt ??= Date.now();
           void this.performJoin(this.desiredRoom);
         }
         break;
@@ -1848,7 +1872,19 @@ class SignalingClient {
         // they arrived.
         const history = Array.isArray(msg.messages) ? (msg.messages as ChatMessage[]) : [];
         this.joinRetryCount = 0;
-        this.markCaptchaVerified();
+        // With a pass, the server says how long this lasts (see
+        // takeCaptchaPass); without one, the old self-kept window.
+        if (!this.takeCaptchaPass(msg)) this.markCaptchaVerified();
+        if (this.joinStartedAt !== null) {
+          const joinMs = Date.now() - this.joinStartedAt;
+          // Past two minutes it is not a join being slow but a start left
+          // over from one that failed (a join-error does not clear it), and
+          // one such number would swamp the average it is meant to move.
+          if (!this.isObsSourceJoin && !isObsClient() && joinMs < 120_000) {
+            trackFastJoinEvent("join_ms", Math.max(1, joinMs));
+          }
+          this.joinStartedAt = null;
+        }
         this.clearAllTyping();
         this.setState({
           room: msg.room as string,
@@ -1921,6 +1957,8 @@ class SignalingClient {
         // disagree, and this is how the client is told which one is right.
         const skippedToken = !this.lastJoinSentToken;
         this.markCaptchaVerified(null);
+        // Same for a pass: whatever it promised, the server has just said no.
+        clearCaptchaPass();
         const captchaReason = typeof msg.reason === "string" ? msg.reason : "";
         // In the person's language, by reason. The server's `message` is
         // English and is kept only as the fallback for a reason this build
@@ -1965,6 +2003,7 @@ class SignalingClient {
         }
         // A fresh token, and with it a fresh chance for Cloudflare to put a
         // challenge on screen if it now wants one — performJoin mints it.
+        trackFastJoinEvent("join_captcha_retry");
         void this.performJoin(this.desiredRoom);
         break;
       }
@@ -3173,6 +3212,7 @@ class SignalingClient {
     this.obsSourceToken = obsToken ?? null;
     this.obsTarget = obsTarget ?? null;
     this.joinRetryCount = 0;
+    this.joinStartedAt = Date.now();
     // Whoever is calling this is trying again on purpose, and the most likely
     // thing they changed since the last attempt is the extension that blocked
     // the script — so the cached "it is blocked" verdict must not survive
@@ -3257,6 +3297,27 @@ class SignalingClient {
     writeStoredCaptchaVerifiedAt(at);
   }
 
+  // Whose pass this client would be holding — see captchaPass.ts's owner.
+  private captchaPassOwner(): string {
+    return this.state.account?.username ?? "guest";
+  }
+
+  /**
+   * Keeps the pass a "registered" or "room-state" carried (fast-join-check),
+   * and reports whether this client is now living by passes. While it is, the
+   * old self-kept window stays empty: that clock restarted on every join while
+   * the server's did not, which is what sent joins out without a token the
+   * server had already stopped excusing.
+   */
+  private takeCaptchaPass(msg: Record<string, unknown>): boolean {
+    if (typeof msg.captchaPass === "string" && typeof msg.captchaPassTtl === "number") {
+      writeCaptchaPass(msg.captchaPass, msg.captchaPassTtl, this.captchaPassOwner());
+    }
+    if (readCaptchaPass() === null) return false;
+    this.markCaptchaVerified(null);
+    return true;
+  }
+
   // Fetches a fresh captcha token (single-use — see lib/turnstile.ts) and
   // sends the actual "join". Split out from joinRoom() so both the public
   // entry point and the "captcha-required" retry path (see handleMessage) go
@@ -3275,10 +3336,18 @@ class SignalingClient {
     // Cloudflare in front of a join, and on an unlucky one, a challenge.
     // OBS sources also bypass captcha completely so no challenge appears on stream.
     const isObs = Boolean(this.isObsSourceJoin || isObsClient());
+    // fast-join-check: a pass the server signed is its own word on this, so
+    // it wins over the self-kept window whenever there is one.
+    const captchaPass = isObs ? null : readCaptchaPass();
     const stillFresh =
-      this.captchaVerifiedAt !== null &&
-      Date.now() - this.captchaVerifiedAt < CAPTCHA_REVERIFY_INTERVAL_MS;
+      captchaPass !== null ||
+      (this.captchaVerifiedAt !== null &&
+        Date.now() - this.captchaVerifiedAt < CAPTCHA_REVERIFY_INTERVAL_MS);
     const turnstileToken = isObs || stillFresh ? null : await getCaptchaToken("join_room");
+    if (!isObs) {
+      if (captchaPass !== null) trackFastJoinEvent("join_captcha_pass");
+      else if (!stillFresh) trackFastJoinEvent("join_captcha_mint");
+    }
     // Bail if the desired room or our identity changed while the token
     // fetch was in flight (room switch, logout, disconnect) — sending a
     // stale join here would either land in the wrong room or get rejected
@@ -3298,6 +3367,7 @@ class SignalingClient {
       type: "join",
       room,
       turnstileToken,
+      ...(captchaPass !== null ? { captchaPass } : {}),
       confirmDevice: confirmed,
       streamerMode: this.streamerMode,
       ...(this.movePasses.has(room) ? { movePass: this.movePasses.get(room) } : {}),

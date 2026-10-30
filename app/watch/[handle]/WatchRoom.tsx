@@ -157,6 +157,7 @@ import { openAndroidAppSettings } from "@/lib/androidScreenCapture";
 import { UserProfileDialog } from "@/components/UserProfileDialog";
 import { InviteToRoomModal } from "@/components/InviteToRoomModal";
 import { prewarmCaptcha } from "@/lib/turnstile";
+import { FAST_JOIN_CHECK_FEATURE } from "@/lib/captchaPass";
 import { RoomAccountCard } from "@/components/RoomAccountCard";
 import { RoomSidePanel, type RoomSideTab } from "@/components/RoomSidePanel";
 import { ManageRoomModal } from "@/components/ManageRoomModal";
@@ -1961,6 +1962,10 @@ function WatchRoomView({
   useEffect(() => {
     prewarmCaptcha("join_room");
   }, []);
+  // Exposure only: the server decides fast-join-check and the join follows
+  // the pass it hands out (see lib/captchaPass.ts). Counted here because this
+  // page is where every join happens.
+  useFeature(FAST_JOIN_CHECK_FEATURE, { track: true });
 
   const {
     isSharing,
