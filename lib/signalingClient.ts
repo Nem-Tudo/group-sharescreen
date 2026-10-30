@@ -3971,8 +3971,13 @@ export const signalingClient = new SignalingClient();
 // Dead code in a production build: Next inlines `process.env.NODE_ENV`, so
 // the whole block folds away rather than shipping a way to fake server
 // messages to every visitor.
+//
+// Its own global, never `window.golive`: that name is the shell bridge, and
+// isDesktopApp() is nothing more than "it exists". Planting the door there
+// made every browser under `next dev` read as the desktop app, threw on the
+// Electron preload's read-only copy, and could replace the Android one.
 if (process.env.NODE_ENV === "development" && typeof window !== "undefined") {
-  (window as unknown as { golive: unknown }).golive = {
+  (window as unknown as { __goliveDev: unknown }).__goliveDev = {
     signaling: signalingClient,
     /**
      * Opens the ad gate's popup as if the server had just paused us.
