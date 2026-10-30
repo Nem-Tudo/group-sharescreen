@@ -37,6 +37,14 @@ export interface SenderSample {
   frameHeight: number;
   /** The encoder the browser picked ("libvpx", "OpenH264", …), or null where it does not say. */
   encoderImplementation?: string | null;
+  /**
+   * Frames the capture delivered per second (the track's media-source), or
+   * null where the browser does not say. Set against framesPerSecond, it
+   * tells a sender that cannot keep up from content that is simply still.
+   */
+  sourceFps?: number | null;
+  /** Milliseconds the encoder spent per frame since the last visit; null on the first. */
+  encodeMs?: number | null;
 }
 
 export interface CapacitySample {
@@ -67,7 +75,7 @@ type SenderEntry = {
   pc: RTCPeerConnection;
   sender: RTCRtpSender;
   tier: QualityTier;
-  prev?: { bytes: number; frames: number; at: number };
+  prev?: { bytes: number; frames: number; encodeTime: number; at: number };
   // What this sender was last measured producing, kbps. Held across passes
   // so the room total can be summed over every sender rather than only the
   // ones this tick happened to visit — see CapacitySample.usedOutgoingKbps.
@@ -210,6 +218,9 @@ class MediaStatsPump {
       let frameWidth = 0;
       let frameHeight = 0;
       let encoderImplementation: string | null = null;
+      let encodeTime = 0;
+      let mediaSourceId: string | null = null;
+      const sourceFpsById = new Map<string, number>();
 
       report.forEach((r) => {
         const rec = r as unknown as Record<string, unknown>;
@@ -227,6 +238,10 @@ class MediaStatsPump {
             typeof rec.encoderImplementation === "string" && rec.encoderImplementation
               ? rec.encoderImplementation
               : null;
+          encodeTime = (rec.totalEncodeTime as number) ?? 0;
+          mediaSourceId = typeof rec.mediaSourceId === "string" ? rec.mediaSourceId : null;
+        } else if (r.type === "media-source" && rec.kind === "video") {
+          if (typeof rec.framesPerSecond === "number") sourceFpsById.set(r.id, rec.framesPerSecond);
         } else if (r.type === "candidate-pair" && rec.state === "succeeded") {
           // In kbps before comparing: the report is in bps and bestAvailable
           // is not, so comparing the raw value let whichever pair came last
@@ -242,13 +257,18 @@ class MediaStatsPump {
       // previous byte count to difference against and zero means "not known
       // yet" rather than "not sending".
       let measured = false;
+      let encodeMs: number | null = null;
       if (entry.prev && now > entry.prev.at) {
         const dt = (now - entry.prev.at) / 1000;
         outgoingKbps = ((bytes - entry.prev.bytes) * 8) / 1000 / dt;
         if (fps === 0) fps = (frames - entry.prev.frames) / dt;
+        const encoded = frames - entry.prev.frames;
+        const spent = encodeTime - entry.prev.encodeTime;
+        if (encoded > 0 && spent > 0) encodeMs = (spent / encoded) * 1000;
         measured = true;
       }
-      entry.prev = { bytes, frames, at: now };
+      entry.prev = { bytes, frames, encodeTime, at: now };
+      const sourceFps = mediaSourceId !== null ? (sourceFpsById.get(mediaSourceId) ?? null) : null;
 
       // Zero included. A screen share of something still genuinely emits
       // almost nothing, and carrying the last busy reading forward would keep
@@ -275,6 +295,8 @@ class MediaStatsPump {
         frameWidth,
         frameHeight,
         encoderImplementation,
+        sourceFps,
+        encodeMs,
       };
       this.senderListeners.forEach((fn) => {
         try {

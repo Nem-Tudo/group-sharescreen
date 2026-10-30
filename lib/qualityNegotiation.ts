@@ -65,16 +65,31 @@ interface Entry {
   sizedTier: QualityTier | null;
   dropStrikes: number;
   cleanSince: number | null;
+  /** How long a clean stretch must last to step back up; doubles on every relapse. */
+  dropRecoverMs: number;
+  /** Whether this tile has stepped back up before, so a new step down is a relapse. */
+  dropRecovered: boolean;
 }
 
 // Experiment sq-recv-drops. Two telemetry samples in a row (~20 s) dropping a
-// tenth of the frames step a tile down; a clean minute steps it back. Two
-// steps at most: past that the decoder is not the only thing wrong, and the
-// picture would be too small to be worth the trade.
+// tenth of the frames, with the decoder busy at least DROP_DECODE_LOAD of the
+// time, step a tile down; a clean minute steps it back. Two steps at most:
+// past that the decoder is not the only thing wrong, and the picture would be
+// too small to be worth the trade.
+//
+// The load test is what keeps the network out of it: frames lost or late on
+// the way in are dropped too, by a decoder with nothing much to do, and a
+// smaller picture fixes none of that. A browser that does not report decode
+// time never steps — a cut nobody can show is needed is not made.
 const DROP_STEP_SHARE = 0.1;
+const DROP_DECODE_LOAD = 0.5;
 const DROP_CLEAN_SHARE = 0.03;
 const DROP_STRIKES = 2;
 const DROP_RECOVER_MS = 60_000;
+// A tile that steps back up only to drop again waits twice as long each time
+// before trying once more, up to this: otherwise a decoder that copes at one
+// size and not the next would trade sizes every minute and a half for good.
+const DROP_RECOVER_MAX_MS = 8 * 60_000;
 const MAX_DROP_STEPS = 2;
 
 // Coalescing window for resize storms. A dragged window or an animated grid
@@ -88,6 +103,10 @@ const REFRESH_MS = 20_000;
 
 class QualityNegotiator {
   private entries = new Map<string, Entry>();
+  // Whether we forward this stream onward as a relay (see useRoomMedia). A
+  // relay re-encodes what it receives and never above it, so a step down here
+  // would be a step down for every child under us; sq-recv-drops leaves it be.
+  private forwarding: (channel: string, peerId: string) => boolean = () => false;
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
 
   private key(channel: QualityChannel, peerId: string) {
@@ -119,6 +138,8 @@ class QualityNegotiator {
         sizedTier: null,
         dropStrikes: 0,
         cleanSince: null,
+        dropRecoverMs: DROP_RECOVER_MS,
+        dropRecovered: false,
       };
     entry.width = width;
     entry.height = height;
@@ -211,23 +232,41 @@ class QualityNegotiator {
     return !entry.hidden;
   }
 
+  /** See `forwarding`. */
+  setForwardingCheck(check: (channel: string, peerId: string) => boolean) {
+    this.forwarding = check;
+  }
+
   /**
    * One telemetry sample of this tile's decoder: the share of received frames
-   * it dropped. Experiment sq-recv-drops steps the tile's request down while
-   * that stays high, and back up once it has been clean for a while.
+   * it dropped, and how busy it was (see RecvVideoStats.decodeLoad).
+   * Experiment sq-recv-drops steps the tile's request down while both stay
+   * high, and back up once it has been clean for a while.
    */
-  noteDecoderDrops(channel: string, peerId: string, dropShare: number) {
+  noteDecoderDrops(channel: string, peerId: string, dropShare: number, decodeLoad: number | null) {
     if (!isSqRecvDropsEnabled()) return;
     const entry = this.entries.get(`${channel}:${peerId}`);
     if (!entry || entry.hidden) return;
+    if (this.forwarding(channel, peerId)) {
+      // Became a relay with steps already taken: give them back at once.
+      if (entry.dropSteps > 0 || entry.dropStrikes > 0) {
+        const stepped = entry.dropSteps > 0;
+        entry.dropSteps = 0;
+        entry.dropStrikes = 0;
+        entry.cleanSince = null;
+        if (stepped) this.flush(channel as QualityChannel, peerId, true);
+      }
+      return;
+    }
     const now = Date.now();
     let changed = false;
-    if (dropShare >= DROP_STEP_SHARE) {
+    if (dropShare >= DROP_STEP_SHARE && decodeLoad !== null && decodeLoad >= DROP_DECODE_LOAD) {
       entry.cleanSince = null;
       entry.dropStrikes += 1;
       if (entry.dropStrikes >= DROP_STRIKES && entry.dropSteps < MAX_DROP_STEPS) {
         entry.dropSteps += 1;
         entry.dropStrikes = 0;
+        if (entry.dropRecovered) entry.dropRecoverMs = Math.min(entry.dropRecoverMs * 2, DROP_RECOVER_MAX_MS);
         changed = true;
         sqTrack(SQ_EVENTS.dropStep, SQ_RECV_DROPS_FEATURE, entry.dropSteps);
       }
@@ -235,8 +274,9 @@ class QualityNegotiator {
       entry.dropStrikes = 0;
       if (dropShare <= DROP_CLEAN_SHARE && entry.dropSteps > 0) {
         entry.cleanSince ??= now;
-        if (now - entry.cleanSince >= DROP_RECOVER_MS) {
+        if (now - entry.cleanSince >= entry.dropRecoverMs) {
           entry.dropSteps -= 1;
+          entry.dropRecovered = true;
           entry.cleanSince = entry.dropSteps > 0 ? now : null;
           changed = true;
         }

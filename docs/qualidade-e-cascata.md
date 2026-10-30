@@ -203,16 +203,28 @@ espectadores. As perdas estão nas pontas, e cada uma virou um experiment
   não é seguido de quadros que dependem do que o espectador nunca recebeu.
 - `sq-weak-sender`: VP9 por software (libvpx) com até 8 núcleos — 45% abaixo
   de 10 fps com ≤4 núcleos. O libvpx em modo tela descarta quadros por conta
-  própria e não diz em `qualityLimitationReason`. Ligado: teto de 720p.
+  própria e não diz em `qualityLimitationReason`. Ligado: teto de 720p, mas
+  só para a conexão que fica para trás no encoder por 20 s (a captura entrega
+  ≥ 20 fps, sai < 15 e < 60% disso, com cada quadro levando ≥ metade do
+  intervalo ou motivo `cpu`; `SenderStruggle` em `lib/streamQuality.ts`).
+  Tela parada não dispara (a captura também desacelera), e máquina que
+  acompanha fica em 1080p. A exposição e as sessões contam só essas conexões,
+  vigiadas nos dois grupos.
 - `sq-motion-hold` (site) e `sq-h264-qp` (app): o quality scaler do H264
   corta a resolução com QP médio > 37 e só sobe com ≤ 24; esses envios
   ficavam em ~540p com QP ~25 e 3–4x a banda sobrando. O site manda 720p em
-  `maintain-resolution`; o app sobe os limites para 28/44 pelo field trial
+  `maintain-resolution`, e solta a conexão se o fps desabar mesmo assim
+  (mesmo critério, sem exigir o encoder como causa: uplink fraco também
+  conta); o app sobe os limites para 28/44 pelo field trial
   `WebRTC-Video-QualityScaling` (`electron/webrtcTrials.ts`, vale a partir do
   próximo início do app).
 - `sq-recv-drops`: o espectador cujo decodificador descarta ≥10% dos quadros
-  por ~20 s pede um tier abaixo para aquele tile (no máximo dois) e volta
-  depois de um minuto limpo.
+  por ~20 s, ocupado ≥ 50% do tempo (`decodeLoad`: tempo por quadro × quadros
+  chegando por segundo — descarte vindo da rede não passa nisso), pede um
+  tier abaixo para aquele tile (no máximo dois) e volta depois de um trecho
+  limpo: 1 minuto, dobrando a cada recaída até 8. Nunca enquanto é relay
+  daquela tela, porque o relay não recodifica acima do que recebe e os filhos
+  perderiam junto.
 
 A medição também mudou, sem experiment: envio traz `sourceFpsAvg` (quadros da
 captura) e `encodeMsAvg`; recebimento traz `visibleShare` e `firstFrameS`;

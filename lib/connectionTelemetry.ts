@@ -52,7 +52,7 @@ import {
   isReceiveCodecEnabled,
   RECEIVE_CODEC_FEATURE,
 } from "./receiveCodec";
-import { senderQualityState } from "./peerQualityController";
+import { senderQualityState, senderStruggleState } from "./peerQualityController";
 import { qualityNegotiator } from "./qualityNegotiation";
 import { nativeSinkStats } from "./nativeVideoCapture";
 import {
@@ -265,7 +265,12 @@ class ConnectionTelemetry {
       addSnapshot(session.acc, snapshot, control, visible);
       // Experiment sq-recv-drops reads our decoder from the same samples.
       if (snapshot.recv && snapshot.intervalSeconds > 0) {
-        qualityNegotiator.noteDecoderDrops(connection.channel, tilePeer, snapshot.recv.dropShare);
+        qualityNegotiator.noteDecoderDrops(
+          connection.channel,
+          tilePeer,
+          snapshot.recv.dropShare,
+          snapshot.recv.decodeLoad ?? null
+        );
       }
     }
   }
@@ -389,7 +394,10 @@ class ConnectionTelemetry {
       trackFeatureEvent(SQ_EVENTS.keySession, { feature: SQ_NATIVE_KEY_FEATURE });
       return;
     }
-    if (weakSenderEligible(profile, encoder)) {
+    // sq-weak-sender touches only a connection seen falling behind on its
+    // encoder (see lib/streamQuality's SenderStruggle) — watched in both
+    // groups, so its sessions here are the same population on each side.
+    if (weakSenderEligible(profile, encoder) && senderStruggleState(connection.pc).weakStruggled) {
       const feature = SQ_WEAK_SENDER_FEATURE;
       trackFeatureEvent(SQ_EVENTS.weakSession, { feature });
       if (slideshow) trackFeatureEvent(SQ_EVENTS.weakLowFps, { feature });

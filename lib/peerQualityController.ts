@@ -45,13 +45,20 @@ import { OWN_TURN_LEAN_KBPS, OWN_TURN_LEAN_TIER, ownTurnLeanCap } from "./ownTur
 import { degradationPreferenceFor, onScreenCodecChange } from "./screenCodec";
 import { isCongestionRecoverEnabled } from "./congestionRecover";
 import {
+  encoderBound,
+  fallingBehind,
   NO_SENDER_OVERRIDE,
+  NO_STRUGGLE,
+  noteWeakStruggle,
   onStreamQualityChange,
   senderOverride,
+  SenderStruggle,
   SQ_EVENTS,
   SQ_MOTION_HOLD_FEATURE,
   SQ_WEAK_SENDER_FEATURE,
   sqTrack,
+  weakSenderEligible,
+  type SenderStruggleState,
 } from "./streamQuality";
 
 // What the broadcaster says they are sharing, which decides how the encoder
@@ -176,6 +183,11 @@ export function senderQualityState(pc: RTCPeerConnection): SenderQualityState | 
   return controllerByPc.get(pc)?.qualityState() ?? null;
 }
 
+/** What the "sq" sender experiments saw on `pc` (see lib/streamQuality). */
+export function senderStruggleState(pc: RTCPeerConnection): SenderStruggleState {
+  return controllerByPc.get(pc)?.struggleState() ?? NO_STRUGGLE;
+}
+
 export class PeerQualityController {
   private congestion = initialCongestionState();
   private appliedKbps = 0;
@@ -215,6 +227,15 @@ export class PeerQualityController {
   // connection once rather than every apply().
   private reportedOverride: "weak" | "hold" | null = null;
   private readonly stopSqListener: () => void;
+  // What this connection has been through, for the "sq" sender experiments:
+  // sq-weak-sender's cap engages only once the encoder is seen falling behind
+  // (watched in both groups, the control's being what the cap would have
+  // answered), and sq-motion-hold lets go of a connection whose frame rate
+  // collapses under it. Both stick for the connection's life: undoing either
+  // would bring back the very thing that set it.
+  private struggle: SenderStruggleState = { ...NO_STRUGGLE };
+  private readonly weakWatch = new SenderStruggle(Date.now());
+  private readonly holdWatch = new SenderStruggle(Date.now());
 
   constructor(
     readonly peerId: string,
@@ -257,7 +278,42 @@ export class PeerQualityController {
 
   // Experiments sq-weak-sender and sq-motion-hold: only ever our own share.
   private sqOverride() {
-    return this.ownShare ? senderOverride(this.degradation, this.encoder) : NO_SENDER_OVERRIDE;
+    return this.ownShare ? senderOverride(this.degradation, this.encoder, this.struggle) : NO_SENDER_OVERRIDE;
+  }
+
+  /** See senderStruggleState. */
+  struggleState(): SenderStruggleState {
+    return this.struggle;
+  }
+
+  // One stats sample against the two sender experiments' triggers (see
+  // SenderStruggle). Re-applies when one of them fires.
+  private watchStruggle(sample: SenderSample) {
+    const send = {
+      fps: sample.framesPerSecond,
+      sourceFps: sample.sourceFps ?? null,
+      encodeMs: sample.encodeMs ?? null,
+      targetFps: tierSpec(this.sentTier()).frameRate,
+      qualityLimitationReason: sample.qualityLimitationReason,
+    };
+    const now = Date.now();
+    let changed = false;
+    if (!this.struggle.weakStruggled && weakSenderEligible(this.degradation, this.encoder)) {
+      if (this.weakWatch.update(encoderBound(send), now)) {
+        this.struggle = { ...this.struggle, weakStruggled: true };
+        sqTrack(SQ_EVENTS.weakStruggle, SQ_WEAK_SENDER_FEATURE);
+        noteWeakStruggle();
+        changed = true;
+      }
+    }
+    if (!this.struggle.holdReleased && this.sqOverride().experiment === "hold") {
+      if (this.holdWatch.update(fallingBehind(send), now)) {
+        this.struggle = { ...this.struggle, holdReleased: true };
+        sqTrack(SQ_EVENTS.holdRelease, SQ_MOTION_HOLD_FEATURE);
+        changed = true;
+      }
+    }
+    if (changed) this.refreshRouteCap();
   }
 
   // Counts a connection once per override that reached it — the "on" side's
@@ -379,6 +435,7 @@ export class PeerQualityController {
       this.encoder = encoder;
       if (this.ownShare) this.refreshRouteCap();
     }
+    if (this.ownShare) this.watchStruggle(sample);
     const next = congestionStep(this.congestion, sample, {
       recoverWhileLimited: isCongestionRecoverEnabled(),
     });

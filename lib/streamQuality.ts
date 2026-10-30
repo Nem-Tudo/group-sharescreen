@@ -12,7 +12,10 @@
 //                   ran under 10 fps, 22% on >12. libvpx in screenshare mode
 //                   drops frames from its own rate control and never says so
 //                   in qualityLimitationReason. On: capped at 720p, which is
-//                   ~2.25x fewer pixels to encode per frame.
+//                   ~2.25x fewer pixels to encode per frame — but only once
+//                   the share is seen falling behind its capture on the
+//                   encoder (see SenderStruggle), so a machine that keeps up
+//                   keeps its 1080p.
 //
 //   sq-motion-hold  A broadcaster on the "motion" profile with Chromium's
 //                   software H264 (OpenH264). Under maintain-framerate
@@ -21,7 +24,10 @@
 //                   and these shares sat at QP ~25, stuck at ~540p with 3-4x
 //                   their bitrate available. On: 720p sent as such, under
 //                   maintain-resolution, so the picture stops collapsing on
-//                   its own. Website only; the desktop app has sq-h264-qp.
+//                   its own. Where that leaves the frame rate collapsing
+//                   instead (a weak uplink, a slow CPU), the hold lets go for
+//                   the rest of the connection. Website only; the desktop app
+//                   has sq-h264-qp.
 //
 //   sq-h264-qp      The same scaler, attacked at its thresholds — which only
 //                   a field trial can move, and only the desktop app can set
@@ -32,8 +38,11 @@
 //   sq-recv-drops   A viewer whose decoder cannot keep up (Safari, phones,
 //                   4-core laptops dropped >=10% of frames in up to a fifth of
 //                   their sessions). On: the tile asks the broadcaster for one
-//                   tier lower while its decoder drops frames, and climbs back
-//                   after a clean minute (see qualityNegotiation).
+//                   tier lower while its decoder drops frames *and* is busy
+//                   (drops the network caused are not its to fix), and climbs
+//                   back after a clean minute (see qualityNegotiation). Never
+//                   while we relay that stream: our children would lose the
+//                   resolution with us.
 //
 //   sq-native-key   The desktop app's GPU capture (native-video-capture),
 //                   whose viewers spent 17% of their time frozen against
@@ -64,6 +73,8 @@ export const SQ_EVENTS = {
   weakLowFps: "sq_weak_lowfps",
   weakFps: "sq_weak_fps",
   weakHeight: "sq_weak_height",
+  /** A connection fell behind on its encoder — what engages the cap. */
+  weakStruggle: "sq_weak_struggle",
   /** "On" only: the cap actually engaged on a connection. */
   weakCap: "sq_weak_cap",
   // sq-motion-hold
@@ -73,6 +84,8 @@ export const SQ_EVENTS = {
   holdHeight: "sq_hold_height",
   /** "On" only: the hold actually engaged on a connection. */
   holdApplied: "sq_hold_applied",
+  /** "On" only: the hold let go of a connection whose frame rate collapsed under it. */
+  holdRelease: "sq_hold_release",
   // sq-h264-qp
   qpSession: "sq_qp_session",
   qpLowRes: "sq_qp_lowres",
@@ -101,6 +114,27 @@ export const SQ_SENDER_CAP_TIER: QualityTier = "720p60";
 // (<=4) and 32% (5-8) to ~22% at 9 and above, and flattened there.
 const WEAK_MAX_CORES = 8;
 
+// What "falling behind" means for the two sender experiments: a share that
+// has frames to send — the capture delivers at least STRUGGLE_MIN_FPS, and so
+// much was asked of the sender — and yet sends under STRUGGLE_FPS, and under
+// STRUGGLE_SHARE of that. A still screen fails the first test on its own (the
+// capture itself slows down), which keeps a quiet IDE from reading as a weak
+// machine.
+const STRUGGLE_MIN_FPS = 20;
+const STRUGGLE_FPS = 15;
+const STRUGGLE_SHARE = 0.6;
+// sq-weak-sender also wants the encoder to be the reason: each frame taking
+// at least half the time the frame rate allows, or WebRTC saying "cpu"
+// outright. libvpx's screenshare mode also sheds frames when the content
+// barely changes, and a 720p cap does nothing for that.
+const STRUGGLE_ENCODE_SHARE = 0.5;
+// For this long, over at least STRUGGLE_SAMPLES samples in a row, none in the
+// connection's first STRUGGLE_WARMUP_MS — whose low frame rate is the
+// bandwidth estimator ramping up, not the machine.
+const STRUGGLE_MS = 20_000;
+const STRUGGLE_SAMPLES = 3;
+const STRUGGLE_WARMUP_MS = 10_000;
+
 // How the modules deep in the media path count events. They cannot import
 // lib/features themselves — it brings React and the auth context along, which
 // their unit tests cannot load — so useRoomMedia hands trackFeatureEvent in.
@@ -116,12 +150,77 @@ export function sqTrack(name: string, feature: string, value?: number) {
   tracker(name, value === undefined ? { feature } : { feature, value });
 }
 
+/** One stats sample of our own share's sender, as the struggle checks need it. */
+export interface SendSample {
+  /** Frames sent per second. */
+  fps: number;
+  /** Frames the capture delivered per second; null where the browser does not say. */
+  sourceFps: number | null;
+  /** Milliseconds the encoder spent per frame; null where unknown. */
+  encodeMs: number | null;
+  /** The frame rate this sender was told to send at; 0 when unknown. */
+  targetFps: number;
+  qualityLimitationReason: string;
+}
+
+function expectedFps(sample: SendSample): number {
+  if (sample.sourceFps === null) return 0;
+  return sample.targetFps > 0 ? Math.min(sample.sourceFps, sample.targetFps) : sample.sourceFps;
+}
+
+/** The share has frames to send and sends far fewer (see STRUGGLE_FPS). */
+export function fallingBehind(sample: SendSample): boolean {
+  const expected = expectedFps(sample);
+  if (expected < STRUGGLE_MIN_FPS) return false;
+  return sample.fps < STRUGGLE_FPS && sample.fps < expected * STRUGGLE_SHARE;
+}
+
+/** Falling behind because of the encoder — what sq-weak-sender's cap can fix. */
+export function encoderBound(sample: SendSample): boolean {
+  if (!fallingBehind(sample)) return false;
+  if (sample.qualityLimitationReason === "cpu") return true;
+  if (sample.encodeMs === null) return false;
+  return sample.encodeMs >= (1000 / expectedFps(sample)) * STRUGGLE_ENCODE_SHARE;
+}
+
+/**
+ * A condition that has to hold for a while before it counts: STRUGGLE_MS over
+ * STRUGGLE_SAMPLES samples in a row, none of them in the connection's first
+ * STRUGGLE_WARMUP_MS. One sample without it starts the count over.
+ */
+export class SenderStruggle {
+  private since: number | null = null;
+  private samples = 0;
+  private readonly startedAt: number;
+
+  constructor(startedAt: number) {
+    this.startedAt = startedAt;
+  }
+
+  /** Feeds one sample; true once the condition has held long enough. */
+  update(holds: boolean, now: number): boolean {
+    if (!holds || now - this.startedAt < STRUGGLE_WARMUP_MS) {
+      this.since = null;
+      this.samples = 0;
+      return false;
+    }
+    this.since ??= now;
+    this.samples += 1;
+    return this.samples >= STRUGGLE_SAMPLES && now - this.since >= STRUGGLE_MS;
+  }
+}
+
 let weakSender = false;
 let motionHold = false;
 let h264QpApplied = false;
 let recvDrops = false;
 let nativeKey = false;
+// Whether one of our connections fell behind under sq-weak-sender's
+// conditions, in either group: the moment its exposure counts (see
+// useRoomMedia), since nobody else is touched by it.
+let weakStruggleSeen = false;
 const listeners = new Set<() => void>();
+const struggleListeners = new Set<() => void>();
 
 function notify() {
   for (const listener of listeners) listener();
@@ -131,6 +230,23 @@ function notify() {
 export function onStreamQualityChange(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
+}
+
+/** A connection fell behind under sq-weak-sender's conditions (see SenderStruggle). */
+export function noteWeakStruggle() {
+  if (weakStruggleSeen) return;
+  weakStruggleSeen = true;
+  for (const listener of struggleListeners) listener();
+}
+
+export function hasWeakStruggle(): boolean {
+  return weakStruggleSeen;
+}
+
+/** For useSyncExternalStore over hasWeakStruggle. */
+export function onWeakStruggle(listener: () => void): () => void {
+  struggleListeners.add(listener);
+  return () => struggleListeners.delete(listener);
 }
 
 export function setSqWeakSenderEnabled(value: boolean) {
@@ -156,6 +272,10 @@ export function setSqRecvDropsEnabled(value: boolean) {
 
 export function setSqNativeKeyEnabled(value: boolean) {
   nativeKey = value;
+}
+
+export function isSqMotionHoldEnabled(): boolean {
+  return motionHold;
 }
 
 export function isSqRecvDropsEnabled(): boolean {
@@ -201,15 +321,30 @@ export interface SenderOverride {
 
 export const NO_SENDER_OVERRIDE: SenderOverride = { cap: null, preference: null, experiment: null };
 
+/** What one connection has been through, which the overrides depend on. */
+export interface SenderStruggleState {
+  /** Fell behind on its encoder (sq-weak-sender's trigger). */
+  weakStruggled: boolean;
+  /** Fell behind under the hold, which then let go (sq-motion-hold). */
+  holdReleased: boolean;
+}
+
+export const NO_STRUGGLE: SenderStruggleState = { weakStruggled: false, holdReleased: false };
+
 /**
  * What the "on" side of the sender experiments does to our own share, given
- * its profile and the encoder the browser actually picked (null until known).
+ * its profile, the encoder the browser actually picked (null until known) and
+ * what this connection has been through.
  */
-export function senderOverride(mode: DegradationMode, encoder: string | null): SenderOverride {
-  if (weakSender && weakSenderEligible(mode, encoder)) {
+export function senderOverride(
+  mode: DegradationMode,
+  encoder: string | null,
+  state: SenderStruggleState
+): SenderOverride {
+  if (weakSender && state.weakStruggled && weakSenderEligible(mode, encoder)) {
     return { cap: SQ_SENDER_CAP_TIER, preference: null, experiment: "weak" };
   }
-  if (motionHold && motionHoldEligible(mode, encoder)) {
+  if (motionHold && !state.holdReleased && motionHoldEligible(mode, encoder)) {
     return { cap: SQ_SENDER_CAP_TIER, preference: "maintain-resolution", experiment: "hold" };
   }
   return NO_SENDER_OVERRIDE;

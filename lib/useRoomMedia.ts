@@ -134,7 +134,9 @@ import { trackFeatureEvent, useFeature } from "./features";
 import { GPU_SURVEY_FEATURE, noteGpuShareStarted } from "./gpuShareSurvey";
 import { setStreamPerfEnabled, STREAM_PERF_EVENTS, STREAM_PERF_FEATURE } from "./streamPerf";
 import {
+  hasWeakStruggle,
   isWeakMachine,
+  onWeakStruggle,
   setSqH264QpApplied,
   setSqMotionHoldEnabled,
   setSqNativeKeyEnabled,
@@ -1216,6 +1218,15 @@ function useBroadcastChannel(
   // stall can be detected) and the stream itself (so it can be forwarded).
   const relaySources = useRef<Map<string, { pc: RTCPeerConnection; stream: MediaStream }>>(new Map());
   const relays = useRef(new RelayManager());
+  // Experiment sq-recv-drops never shrinks a stream we forward (see
+  // qualityNegotiator's `forwarding`). Relays only ever carry "screen".
+  useEffect(() => {
+    if (channel !== "screen") return;
+    qualityNegotiator.setForwardingCheck(
+      (ch, peerId) => ch === "screen" && relays.current.get(peerId)?.hasChildren() === true
+    );
+    return () => qualityNegotiator.setForwardingCheck(() => false);
+  }, [channel]);
   // Peers that a relay is serving on our behalf. We must NOT also open a
   // direct sendPC to them: doing so would double-encode and double-send the
   // very stream the cascade exists to avoid sending twice.
@@ -5130,9 +5141,13 @@ export function useRoomMedia(room: string) {
   // The "sq" experiments (see lib/streamQuality). Each one is exposed only
   // where it can change something, and both sides send the same per-session
   // events (see connectionTelemetry), so the admin compares like with like.
-  // sq-weak-sender: our own screen, outside "motion", on a machine with few cores.
+  // sq-weak-sender: our own screen, outside "motion", on a machine with few
+  // cores — once one of its connections has fallen behind on the encoder,
+  // which is the only share the cap ever touches (see lib/streamQuality's
+  // SenderStruggle; watched in both groups).
+  const sqWeakStruggle = useSyncExternalStore(onWeakStruggle, hasWeakStruggle, () => false);
   const sqWeakSender = useFeature(SQ_WEAK_SENDER_FEATURE, {
-    track: screen.active && shareProfile !== "motion" && isWeakMachine(),
+    track: screen.active && shareProfile !== "motion" && isWeakMachine() && sqWeakStruggle,
   });
   useEffect(() => {
     setSqWeakSenderEnabled(sqWeakSender.enabled);

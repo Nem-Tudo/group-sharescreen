@@ -128,6 +128,13 @@ export interface RecvVideoStats {
   codec: string | null;
   /** Frames decoded since the connection began — whether a picture ever arrived. */
   framesDecodedTotal?: number;
+  /**
+   * How much of the wall clock the decoder needs to keep up with what
+   * arrives: its time per decoded frame times the frames arriving per second
+   * (1 = flat out). Null on a first sample, or where the browser does not say.
+   * What tells a decoder that cannot keep up from frames the network spoilt.
+   */
+  decodeLoad?: number | null;
 }
 
 export interface PcSnapshot {
@@ -157,6 +164,8 @@ export interface StatsCounters {
   packetsLost: number;
   framesReceived: number;
   framesDropped: number;
+  framesDecoded: number;
+  totalDecodeTime: number;
   freezeCount: number;
   totalFreezesDuration: number;
   jitterBufferDelay: number;
@@ -313,6 +322,8 @@ export function readPcStats(
     packetsLost: num(inbound?.packetsLost),
     framesReceived: num(inbound?.framesReceived),
     framesDropped: num(inbound?.framesDropped),
+    framesDecoded: num(inbound?.framesDecoded),
+    totalDecodeTime: num(inbound?.totalDecodeTime),
     freezeCount: num(inbound?.freezeCount),
     totalFreezesDuration: num(inbound?.totalFreezesDuration),
     jitterBufferDelay: num(inbound?.jitterBufferDelay),
@@ -379,6 +390,8 @@ export function readPcStats(
     const received = d("packetsReceived");
     const lost = d("packetsLost");
     const emitted = d("jitterBufferEmittedCount");
+    const decoded = d("framesDecoded");
+    const decodeTime = d("totalDecodeTime");
     recv = {
       width: num(inbound.frameWidth),
       height: num(inbound.frameHeight),
@@ -394,6 +407,10 @@ export function readPcStats(
       hardware: isHardwareImplementation(decoder, inbound.powerEfficientDecoder),
       codec: codecName(byId.get(str(inbound.codecId) ?? "")),
       framesDecodedTotal: num(inbound.framesDecoded),
+      decodeLoad:
+        decoded > 0 && decodeTime > 0 && seconds > 0
+          ? round2((decodeTime / decoded) * (d("framesReceived") / seconds))
+          : null,
     };
   }
 
