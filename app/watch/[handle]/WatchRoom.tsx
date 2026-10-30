@@ -1153,7 +1153,7 @@ function ShareControls({
               role="status"
               className="relative block w-60 rounded-lg bg-blue-600 px-3 py-2 text-left text-xs font-medium text-white shadow-lg"
             >
-              <span className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
+              <span className="tip-arrow absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
               <span className="flex items-start gap-2">
                 <span className="flex-1">{t("watch.watchRoom.multiScreenTip")}</span>
                 <button
@@ -1341,7 +1341,7 @@ function ShareControls({
                 role="status"
                 className="relative block w-60 rounded-lg bg-blue-600 px-3 py-2 text-left text-xs font-medium text-white shadow-lg"
               >
-                <span className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
+                <span className="tip-arrow absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
                 <span className="flex items-start gap-2">
                   <span className="flex-1">{cameraTip?.text}</span>
                   <button
@@ -1415,7 +1415,7 @@ function ShareControls({
               role="status"
               className="relative block w-60 rounded-lg bg-blue-600 px-3 py-2 text-left text-xs font-medium text-white shadow-lg"
             >
-              <span className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
+              <span className="tip-arrow absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
               <span className="flex items-start gap-2">
                 <span className="flex-1">{t("watch.watchRoom.cameraEffectsTip")}</span>
                 <button
@@ -7870,6 +7870,9 @@ function WatchRoomView({
   // header, the group's top bar — it hands the node back untouched.
   const inDock = !visible && !headerSlots?.center;
   const dockCompact = inDock && dockPhase === "compact";
+  // Where the call controls sit on screen: the bar under the stage and the
+  // floating bar are at the bottom, so a tip hung off them opens upwards.
+  const controlsAtBottom = dockInStage || inDock;
   const dockMotion = !inDock
     ? ""
     : dockPhase === "collapsing"
@@ -8016,9 +8019,11 @@ function WatchRoomView({
           {pushToTalkTip.show && quickShortcutAction !== "toggleMute" && (
             <span
               role="status"
-              className="absolute left-0 top-full z-50 mt-2 w-60 rounded-lg bg-blue-600 px-3 py-2 text-left text-xs font-medium text-white shadow-lg"
+              className={`absolute left-0 z-50 w-60 rounded-lg bg-blue-600 px-3 py-2 text-left text-xs font-medium text-white shadow-lg ${
+                controlsAtBottom ? "bottom-full mb-2" : "top-full mt-2"
+              }`}
             >
-              <span className="absolute -top-1 left-3 h-2 w-2 rotate-45 bg-blue-600" />
+              <span className={`absolute left-3 h-2 w-2 rotate-45 bg-blue-600 ${controlsAtBottom ? "-bottom-1" : "-top-1"}`} />
               <span className="flex items-start gap-2">
                 <span className="flex-1">{translate("watch.watchRoom.pushToTalkTip")}</span>
                 <button
@@ -9051,7 +9056,7 @@ function WatchRoomView({
             role="status"
             className="relative block w-60 rounded-lg bg-blue-600 px-3 py-2 text-left text-xs font-medium text-white shadow-lg"
           >
-            <span className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
+            <span className="tip-arrow absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
             <span className="flex items-start gap-2">
               <span className="flex-1">{translate("watch.watchRoom.roomToolsTip")}</span>
               <button
@@ -10816,7 +10821,7 @@ function WatchRoomView({
                               role="status"
                               className="relative block w-60 rounded-lg bg-blue-600 px-3 py-2 text-left text-xs font-medium text-white shadow-lg"
                             >
-                              <span className="absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
+                              <span className="tip-arrow absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
                               <span className="flex items-start gap-2">
                                 <span className="flex-1">{translate("watch.watchRoom.cameraEffectsTip")}</span>
                                 <button
@@ -10874,7 +10879,7 @@ function WatchRoomView({
                               role="status"
                               className="relative block w-60 rounded-lg bg-blue-600 px-3 py-2 text-left text-xs font-medium text-white shadow-lg"
                             >
-                              <span className="absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
+                              <span className="tip-arrow absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
                               <span className="flex items-start gap-2">
                                 <span className="flex-1">{translate("watch.watchRoom.dualCameraTip")}</span>
                                 <button

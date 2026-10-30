@@ -30,8 +30,17 @@ let selectedId: string | null = null;
 let selected: StreamBackgroundSource | null = null;
 const listeners = new Set<() => void>();
 
+function sameSource(a: StreamBackgroundSource, b: StreamBackgroundSource): boolean {
+  return a.id === b.id && a.kind === b.kind && a.name === b.name && a.self === b.self && a.track === b.track;
+}
+
+// Only tells anyone when something did change. The room republishes on every
+// render its call sources are rebuilt in — fresh objects for the same
+// transmissions — and handing those on as news made the room re-render,
+// rebuild, republish... (React's "maximum update depth", the page gone).
 function update() {
-  const next = (selectedId && sources.find((source) => source.id === selectedId)) || null;
+  const found = (selectedId && sources.find((source) => source.id === selectedId)) || null;
+  const next = found && selected && sameSource(found, selected) ? selected : found;
   if (next !== selected) {
     selected = next;
     setCameraBackgroundTrack(next ? next.track : null);
@@ -48,6 +57,7 @@ function subscribe(listener: () => void) {
 
 /** What the room has to offer right now (WatchRoom calls this whenever it changes). */
 export function publishStreamBackgroundSources(next: StreamBackgroundSource[]) {
+  if (next.length === sources.length && next.every((source, i) => sameSource(source, sources[i]))) return;
   sources = next;
   update();
 }

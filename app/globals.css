@@ -240,6 +240,20 @@ body {
   padding: 0;
 }
 
+/* The "novo" tips' hand-drawn arrow (.tip-arrow) follows the side Tippy
+   actually put the tip on, not the one asked for: a tip placed under its
+   button flips above it when the button is at the bottom of the screen (the
+   call bar under the stage), and its arrow has to point down then. */
+.tippy-box[data-placement^="top"] .tip-arrow {
+  top: auto;
+  bottom: -0.25rem;
+}
+
+.tippy-box[data-placement^="bottom"] .tip-arrow {
+  top: -0.25rem;
+  bottom: auto;
+}
+
 /* A room theme's background picture (see lib/roomThemes.ts).
    Two fixed layers on <html>, drawn only while a theme with an image is worn:
 
