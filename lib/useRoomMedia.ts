@@ -24,6 +24,7 @@ import {
   getStoredForceRelayIce,
   setForceRelayAllowed,
   getStoredMicOn,
+  getStoredMicsMuted,
   getStoredNoiseSuppressionOn,
   getStoredCameraDeviceId,
   getStoredCameraFacing,
@@ -5569,7 +5570,7 @@ export function useRoomMedia(room: string) {
   // Only ever reads the persisted value once per room; a manual toggle
   // afterwards is respected instead of being fought on the next render.
   useEffect(() => {
-    if (getStoredMicOn()) mic.start();
+    if (getStoredMicOn() && !getStoredMicsMuted()) mic.start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room]);
 
