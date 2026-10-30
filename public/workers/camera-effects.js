@@ -9,29 +9,21 @@
 // is what keeps the camera moving for the room while the tab is in the
 // background.
 //
-// MediaPipe (face landmarks, selfie segmentation) is loaded from the CDN the
-// first time an effect that needs it is picked, and only that model: blur
-// never downloads the face model, a dog nose never downloads the segmenter.
-// Three.js likewise, only for the 3D objects (see the end of the file). The
-// warps need the face model and a WebGL context of their own, nothing else.
-// Until it is ready, frames go through untouched instead of waiting.
-//
-// A classic worker, not a module one: MediaPipe loads its WASM glue with
-// importScripts, which module workers do not have. The library itself is its
-// ES module build, through import() (allowed in a classic worker too).
+// MediaPipe (face landmarks, selfie segmentation, hands) runs in a worker of
+// its own, camera-detect.js, started from here the first time an effect needs
+// a model: loading one held this thread for seconds, and the camera froze
+// with it. The frames never wait on it for more than half a frame's time —
+// they go out with its last answer, or with none until the model is in.
+// Three.js is loaded here, only for the 3D objects (see the end of the
+// file). The warps need the face model and a WebGL context of their own.
 //
 // One worker for every pipeline (a camera flip briefly runs two), so the
 // models are loaded once and shared.
 
 // Loaded as /workers/camera-effects.js?v=N (see WORKER_VERSION in
-// lib/cameraEffects.ts): bump it there whenever this file changes.
-const VISION_BASE = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
-const FACE_MODEL =
-  "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
-const SEGMENT_MODEL =
-  "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite";
-const HAND_MODEL =
-  "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
+// lib/cameraEffects.ts): bump it there whenever this file or
+// camera-detect.js changes. The detector gets the same ?v=N.
+const DETECT_URL = `camera-detect.js${self.location.search}`;
 
 // Detection runs on a copy this wide, not on the camera's own frame: both
 // models resize to 256px or less internally, so handing them 1080p only adds
@@ -54,16 +46,7 @@ const COLOR_FILTERS = {
 };
 
 let settings = null;
-let visionPromise = null;
-// `promise`: the load under way, settled either way.
-const tasks = {
-  face: { task: null, loading: false, failed: false, promise: null },
-  segment: { task: null, loading: false, failed: false, promise: null },
-  // Only for the reactions (claps, thumbs up).
-  hand: { task: null, loading: false, failed: false, promise: null },
-};
 const pipelines = new Map();
-let lastTimestamp = 0;
 
 self.onmessage = (event) => {
   const data = event.data || {};
@@ -99,82 +82,85 @@ self.onmessage = (event) => {
 };
 
 // ---------------------------------------------------------------------------
-// MediaPipe
+// The detector (camera-detect.js)
 
-function loadVision() {
-  if (!visionPromise) {
-    visionPromise = (async () => {
-      // The ES module build, through import(). The CommonJS one cannot be
-      // loaded at all: jsDelivr serves .cjs as "application/node", which
-      // importScripts refuses to execute (strict MIME checking).
-      const vision = await import(`${VISION_BASE}/vision_bundle.mjs`);
-      const fileset = await vision.FilesetResolver.forVisionTasks(`${VISION_BASE}/wasm`);
-      return { vision, fileset };
-    })();
-    visionPromise.catch(() => {
-      visionPromise = null;
-    });
+const DETECT_KINDS = ["face", "segment", "hand"];
+let detector = null;
+let detectorFailed = false;
+let detectorLoading = false;
+// Which models the detector has in, and can be asked to run.
+const loaded = { face: false, segment: false, hand: false };
+const readyWaits = new Map();
+let readyNonce = 0;
+// The looks under way, by sequence number: what to do with each answer.
+const detectWaits = new Map();
+let detectSeq = 0;
+
+function ensureDetector() {
+  if (detector || detectorFailed) return detector;
+  try {
+    detector = new Worker(DETECT_URL);
+  } catch (err) {
+    detectorGone(String((err && err.message) || err));
+    return null;
   }
-  return visionPromise;
+  detector.onmessage = (event) => {
+    const data = event.data || {};
+    if (data.type === "status") {
+      detectorLoading = Boolean(data.loading);
+      postStatus();
+    } else if (data.type === "loaded") {
+      loaded[data.kind] = true;
+    } else if (data.type === "error") {
+      self.postMessage(data);
+    } else if (data.type === "ready") {
+      const resolve = readyWaits.get(data.nonce);
+      readyWaits.delete(data.nonce);
+      if (resolve) resolve();
+    } else if (data.type === "result") {
+      const answer = detectWaits.get(data.seq);
+      detectWaits.delete(data.seq);
+      if (answer) answer(data);
+    }
+  };
+  detector.onerror = (event) => {
+    event.preventDefault();
+    detectorGone((event && event.message) || "detector failed");
+  };
+  return detector;
 }
 
-async function createTask(kind) {
-  const { vision, fileset } = await loadVision();
-  const make = (delegate) =>
-    kind === "face"
-      ? vision.FaceLandmarker.createFromOptions(fileset, {
-          baseOptions: { modelAssetPath: FACE_MODEL, delegate },
-          canvas: new OffscreenCanvas(1, 1),
-          runningMode: "VIDEO",
-          numFaces: 2,
-          // The expressions, for the reactions (a blink, a smile, raised brows).
-          outputFaceBlendshapes: true,
-          outputFacialTransformationMatrixes: false,
-        })
-      : kind === "hand"
-      ? vision.HandLandmarker.createFromOptions(fileset, {
-          baseOptions: { modelAssetPath: HAND_MODEL, delegate },
-          canvas: new OffscreenCanvas(1, 1),
-          runningMode: "VIDEO",
-          numHands: 2,
-        })
-      : vision.ImageSegmenter.createFromOptions(fileset, {
-          baseOptions: { modelAssetPath: SEGMENT_MODEL, delegate },
-          canvas: new OffscreenCanvas(1, 1),
-          runningMode: "VIDEO",
-          outputCategoryMask: false,
-          outputConfidenceMasks: true,
-        });
-  // The GPU first; a machine whose WebGL will not have it (blocklisted
-  // driver, software rendering) still gets the effect on the CPU, slower.
-  let task;
-  try {
-    task = await make("GPU");
-  } catch {
-    task = await make("CPU");
+// No detector (it would not start, or it crashed): the effects that need a
+// model are reported failed, like a model that would not load; the rest
+// (colour, the backgrounds' paint) keeps drawing.
+function detectorGone(reason) {
+  if (detector) detector.terminate();
+  detector = null;
+  detectorFailed = true;
+  detectorLoading = false;
+  for (const kind of DETECT_KINDS) loaded[kind] = false;
+  for (const resolve of readyWaits.values()) resolve();
+  readyWaits.clear();
+  // Answered empty: nothing to apply, and the pipeline goes on drawing.
+  for (const answer of detectWaits.values()) answer({});
+  detectWaits.clear();
+  for (const kind of DETECT_KINDS) {
+    if (wants(kind)) self.postMessage({ type: "error", kind, reason: String(reason).slice(0, 120) });
   }
-  warmUp(kind, task);
-  return task;
-}
-
-// The first run of a model compiles its shaders, which on a phone holds this
-// thread (and so every camera frame) for a second or more: paid here, on a
-// blank picture, before any pipeline gets to use it.
-function warmUp(kind, task) {
-  try {
-    const blank = new OffscreenCanvas(DETECT_WIDTH, Math.round((DETECT_WIDTH * 3) / 4));
-    blank.getContext("2d").fillRect(0, 0, blank.width, blank.height);
-    if (kind === "segment") task.segmentForVideo(blank, nextTimestamp(), () => {});
-    else task.detectForVideo(blank, nextTimestamp());
-  } catch {
-    // Only a head start; the real frames will find out if it is broken.
-  }
+  postStatus();
 }
 
 function readiness() {
-  const waits = ["face", "segment", "hand"]
-    .filter((kind) => wants(kind) && tasks[kind].promise)
-    .map((kind) => tasks[kind].promise);
+  const waits = [];
+  if (detector && DETECT_KINDS.some(wants)) {
+    waits.push(
+      new Promise((resolve) => {
+        const nonce = ++readyNonce;
+        readyWaits.set(nonce, resolve);
+        detector.postMessage({ type: "ready?", nonce });
+      })
+    );
+  }
   if (wants3d() && three.promise) waits.push(three.promise);
   return Promise.allSettled(waits);
 }
@@ -194,42 +180,21 @@ function wantsWarp() {
   return Boolean(settings && settings.warp && settings.warp !== "none");
 }
 
+// Tells the detector what the settings need (starting it the first time
+// anything does), and loads Three.js for a 3D face.
 function ensureTasks() {
   if (wants3d()) ensureThree();
-  for (const kind of ["face", "segment", "hand"]) {
-    const slot = tasks[kind];
-    if (!wants(kind) || slot.task || slot.loading || slot.failed) continue;
-    slot.loading = true;
-    slot.promise = createTask(kind)
-      .then(
-        (task) => {
-          slot.task = task;
-        },
-        (err) => {
-          slot.failed = true;
-          const reason = String((err && err.message) || err).slice(0, 120);
-          self.postMessage({ type: "error", kind, reason });
-        }
-      )
-      .finally(() => {
-        slot.loading = false;
-        postStatus();
-      });
+  const want = { face: wants("face"), segment: wants("segment"), hand: wants("hand") };
+  if (detector || DETECT_KINDS.some((kind) => want[kind])) {
+    const target = ensureDetector();
+    if (target) target.postMessage({ type: "want", ...want });
   }
   postStatus();
 }
 
 function postStatus() {
-  const loading =
-    ["face", "segment", "hand"].some((kind) => wants(kind) && tasks[kind].loading) || (wants3d() && three.loading);
+  const loading = (detectorLoading && DETECT_KINDS.some(wants)) || (wants3d() && three.loading);
   self.postMessage({ type: "status", loading });
-}
-
-// Both tasks want strictly increasing timestamps, across every pipeline
-// feeding them.
-function nextTimestamp() {
-  lastTimestamp = Math.max(lastTimestamp + 1, performance.now());
-  return lastTimestamp;
 }
 
 // ---------------------------------------------------------------------------
@@ -297,7 +262,8 @@ function startPipeline(id, readable, writable, turns) {
     warpFailed: false,
     missed: 0,
     frameIndex: 0,
-    detectEvery: 1,
+    // A look at a frame sent to the detector and not answered yet.
+    detecting: false,
     detectCost: 0,
     lastFrameTs: 0,
     frameInterval: 33,
@@ -347,7 +313,7 @@ async function run(pipeline, reader, writer) {
       if (needsDrawing() && !pipeline.renderFailed) {
         const started = performance.now();
         try {
-          out = render(pipeline, frame);
+          out = await render(pipeline, frame);
         } catch (err) {
           pipeline.renderFailed = true;
           self.postMessage({ type: "error", kind: "render", reason: String((err && err.message) || err).slice(0, 120) });
@@ -380,7 +346,6 @@ function reportStats(pipeline) {
       id: pipeline.id,
       frameMs: pipeline.statsMs / pipeline.statsFrames,
       detectMs: pipeline.detectCost,
-      detectEvery: pipeline.detectEvery,
       fx3d: Boolean(settings && (FACES_3D.has(settings.face) || settings.reactions === "on")),
       warp: wantsWarp(),
     });
@@ -412,24 +377,28 @@ function ensureCanvases(p, width, height) {
 // held upright sends the sensor's landscape frames with rotation 90) drawn
 // the right way up once, so detection sees an upright face and what goes out
 // is upright too — the VideoFrame made from the canvas carries no rotation.
-// Null: already upright.
+// Null: the frame itself already draws upright.
 //
-// On a computer only the frame's own rotation counts: its webcam never stands
-// sideways, and the guess in rotationOf (settings vs frame shape, no
-// facingMode) turned it on its side. A phone used as the camera ("câmera do
-// celular") does arrive turned, though — over WebRTC, as the sensor's
-// landscape frames plus the rotation the phone announced.
+// Chrome (computer and Android) turns a frame by its rotation in drawImage,
+// and counts the turn in displayWidth/displayHeight: nothing to do there.
+// Turning it again here is what laid a phone used as the camera ("câmera do
+// celular", whose frames arrive over WebRTC as the sensor's landscape ones
+// plus the phone's rotation) on its left side on a computer. Where drawImage
+// ignores the rotation (Safari), the canvas turns it. The guess in rotationOf
+// (no rotation on the frame at all) is for a phone's own camera only: on a
+// computer it laid an ordinary webcam on its side.
 function uprightSource(p, frame) {
   const own = typeof frame.rotation === "number";
-  if (!p.turns && !own) return null;
-  const rotation = (((p.turns ? rotationOf(p, frame) : frame.rotation) % 360) + 360) % 360;
+  const support = own ? frameOrientationSupport() : null;
+  if (support && support.draws && support.dims) return null;
+  if (!own && !p.turns) return null;
+  const rotation = ((rotationOf(p, frame) % 360) + 360) % 360;
   const flip = Boolean(frame.flip);
   if (rotation === 0 && !flip) return null;
   const sideways = rotation === 90 || rotation === 270;
-  const drawn = p.turns ? null : frameOrientationSupport();
   // The frame's size before it is turned.
-  const fw = drawn && drawn.dims && sideways ? frame.displayHeight : frame.displayWidth;
-  const fh = drawn && drawn.dims && sideways ? frame.displayWidth : frame.displayHeight;
+  const fw = support && support.dims && sideways ? frame.displayHeight : frame.displayWidth;
+  const fh = support && support.dims && sideways ? frame.displayWidth : frame.displayHeight;
   const w = sideways ? fh : fw;
   const h = sideways ? fw : fh;
   if (!p.upright || p.upright.width !== w || p.upright.height !== h) {
@@ -438,16 +407,15 @@ function uprightSource(p, frame) {
   }
   const ctx = p.uprightCtx;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  if (drawn && drawn.draws) {
-    // This browser's drawImage already turns (and mirrors) the frame.
+  if (support && support.draws) {
+    // Turned by drawImage, but not counted in the size.
     ctx.drawImage(frame, 0, 0, w, h);
     return p.upright;
   }
   ctx.translate(w / 2, h / 2);
   // On a phone, turned the other way from what the number says: rotating by
   // +rotation (clockwise, on a canvas) came out upside down on an iPhone. On
-  // a computer the number is the spec's clockwise turn — the other way laid
-  // the phone camera on its left side.
+  // a computer the number is the spec's clockwise turn.
   ctx.rotate(((p.turns ? -rotation : rotation) * Math.PI) / 180);
   if (flip) ctx.scale(-1, 1);
   ctx.drawImage(frame, -fw / 2, -fh / 2, fw, fh);
@@ -456,10 +424,10 @@ function uprightSource(p, frame) {
 }
 
 // Whether this browser's drawImage turns a VideoFrame by its rotation, and
-// whether displayWidth/displayHeight already count the turn — browsers have
-// differed while the rotation field was new. Found once, on a 2x1 frame
-// marked rotation 90: drawn turned it is 1x2, so its second column stays
-// empty.
+// whether displayWidth/displayHeight already count the turn (Chrome 156: both
+// yes) — browsers have differed while the rotation field was new. Found once,
+// on a 2x1 frame marked rotation 90: drawn turned it is 1x2, so its second
+// column stays empty.
 let orientationSupport = null;
 function frameOrientationSupport() {
   if (orientationSupport) return orientationSupport;
@@ -500,7 +468,7 @@ function rotationOf(p, frame) {
   return settings.facingMode === "user" ? 270 : 90;
 }
 
-function render(p, rawFrame) {
+async function render(p, rawFrame) {
   // `frame` from here on is what gets drawn: the camera's frame, or its
   // upright copy. Only the timestamp is read from the frame itself.
   const frame = uprightSource(p, rawFrame) || rawFrame;
@@ -520,29 +488,35 @@ function render(p, rawFrame) {
   }
   p.lastFrameTs = ts;
 
-  const segmenter = s.background !== "none" ? tasks.segment.task : null;
+  // Each only once the detector has its model in: until then the frame goes
+  // out without it, instead of waiting.
+  const segmenter = s.background !== "none" && loaded.segment;
   const reacting = s.reactions === "on";
   const warp = wantsWarp() ? s.warp : null;
-  const landmarker = s.face !== "none" || reacting || warp ? tasks.face.task : null;
-  // Hands every other detection: a clap or a thumb is slower than a blink.
-  const hander = reacting ? tasks.hand.task : null;
+  const landmarker = (s.face !== "none" || reacting || Boolean(warp)) && loaded.face;
+  const hander = reacting && loaded.hand;
   if (!segmenter) p.hasMask = false;
   if (!landmarker) p.faces = [];
   if (!hander) p.hands = [];
 
   p.frameIndex += 1;
-  if ((segmenter || landmarker) && p.frameIndex % p.detectEvery === 0) {
-    const started = performance.now();
-    p.smallCtx.drawImage(frame, 0, 0, p.small.width, p.small.height);
-    const timestamp = nextTimestamp();
-    if (segmenter) segment(p, segmenter, timestamp);
-    if (landmarker) detectFaces(p, landmarker, timestamp, width, height);
+  // A 60 fps camera is looked at every other frame at most: an overlay moving
+  // at 30 is indistinguishable, the cost is not.
+  const every = p.frameInterval < 25 ? 2 : 1;
+  if ((segmenter || landmarker) && !p.detecting && detector && p.frameIndex % every === 0) {
+    // Hands every other look: a clap or a thumb is slower than a blink.
+    let hands = false;
     if (hander) {
       p.handTick = (p.handTick + 1) % 2;
-      if (p.handTick === 0) detectHands(p, hander, nextTimestamp(), width, height);
+      hands = p.handTick === 0;
     }
-    p.detectCost = p.detectCost ? p.detectCost * 0.8 + (performance.now() - started) * 0.2 : performance.now() - started;
-    adaptDetection(p);
+    p.smallCtx.drawImage(frame, 0, 0, p.small.width, p.small.height);
+    const answered = detect(p, { face: landmarker, segment: segmenter, hand: hands }, width, height);
+    // Waited for while it fits in half a frame's time, so what is drawn sits
+    // on the very frame it was found in; past that (a slow phone, a model
+    // still compiling) this frame goes out with the last answer, and this
+    // one lands on a later frame.
+    await within(answered, p.frameInterval * 0.5);
   }
 
   const color = COLOR_FILTERS[s.color] || "none";
@@ -568,42 +542,66 @@ function render(p, rawFrame) {
   return new VideoFrame(p.canvas, { timestamp: rawFrame.timestamp, alpha: "discard" });
 }
 
-// Detection on every frame while it fits in half a frame's time; past that,
-// every other frame (or third, or fourth) with the last answer reused in
-// between. A 60 fps camera never detects more than 30 times a second — the
-// overlay moving at 30 is indistinguishable, the cost is not.
-function adaptDetection(p) {
-  const budget = p.frameInterval * 0.5;
-  const floor = p.frameInterval < 25 ? 2 : 1;
-  const needed = Math.ceil(p.detectCost / Math.max(budget, 1));
-  p.detectEvery = Math.min(4, Math.max(floor, needed));
+// One look at the frame just drawn into p.small, by the detector. Resolves
+// once its answer is in and applied (to the pipeline's faces, hands and
+// mask), whenever that is.
+function detect(p, want, width, height) {
+  const bitmap = p.small.transferToImageBitmap();
+  const seq = ++detectSeq;
+  const started = performance.now();
+  const small = p.small;
+  p.detecting = true;
+  return new Promise((resolve) => {
+    detectWaits.set(seq, (answer) => {
+      p.detecting = false;
+      const cost = performance.now() - started;
+      p.detectCost = p.detectCost ? p.detectCost * 0.8 + cost * 0.2 : cost;
+      if (answer.failed) {
+        if (!p.renderFailed) {
+          p.renderFailed = true;
+          self.postMessage({ type: "error", kind: "render", reason: String(answer.failed).slice(0, 120) });
+        }
+      } else if (pipelines.get(p.id) === p && p.small === small) {
+        // Dropped when the camera changed size meanwhile: the answer is for
+        // canvases that are gone.
+        if (answer.mask && wants("segment")) applyMask(p, answer.mask);
+        if (answer.faces && wants("face")) applyFaces(p, answer.faces, answer.blendshapes || [], width, height);
+        if (answer.hands && wants("hand")) {
+          p.hands = answer.hands.map((landmarks) => landmarks.map((q) => ({ x: q.x * width, y: q.y * height })));
+        }
+      }
+      resolve();
+    });
+    detector.postMessage({ type: "detect", seq, bitmap, ...want }, [bitmap]);
+  });
+}
+
+// `promise`, given at most `ms` to settle.
+function within(promise, ms) {
+  let timer;
+  return Promise.race([promise, new Promise((resolve) => (timer = setTimeout(resolve, ms)))]).finally(() =>
+    clearTimeout(timer)
+  );
+}
+
+function applyMask(p, values) {
+  const buffer = p.maskBuffer;
+  const pixels = p.maskData.data;
+  // A little of the previous mask kept, against flicker at the edges.
+  const keep = p.hasMask ? 0.45 : 0;
+  const count = Math.min(values.length, buffer.length);
+  for (let i = 0; i < count; i += 1) {
+    const v = buffer[i] * keep + values[i] * (1 - keep);
+    buffer[i] = v;
+    // Steepened, so a half-sure edge is not a ghost of the person.
+    pixels[i * 4 + 3] = (v - 0.25) * 510;
+  }
+  p.maskCtx.putImageData(p.maskData, 0, 0);
+  p.hasMask = true;
 }
 
 // ---------------------------------------------------------------------------
 // Background blur
-
-function segment(p, segmenter, timestamp) {
-  segmenter.segmentForVideo(p.small, timestamp, (result) => {
-    const masks = result.confidenceMasks;
-    if (!masks || masks.length === 0) return;
-    // Two masks: background, person. One: person.
-    const mask = masks.length > 1 ? masks[1] : masks[0];
-    const values = mask.getAsFloat32Array();
-    const buffer = p.maskBuffer;
-    const pixels = p.maskData.data;
-    // A little of the previous mask kept, against flicker at the edges.
-    const keep = p.hasMask ? 0.45 : 0;
-    const count = Math.min(values.length, buffer.length);
-    for (let i = 0; i < count; i += 1) {
-      const v = buffer[i] * keep + values[i] * (1 - keep);
-      buffer[i] = v;
-      // Steepened, so a half-sure edge is not a ghost of the person.
-      pixels[i * 4 + 3] = (v - 0.25) * 510;
-    }
-    p.maskCtx.putImageData(p.maskData, 0, 0);
-    p.hasMask = true;
-  });
-}
 
 function drawBlurredBackground(p, frame, color, width, height) {
   const bg = p.bg;
@@ -626,12 +624,8 @@ function drawBlurredBackground(p, frame, color, width, height) {
 // ---------------------------------------------------------------------------
 // Faces
 
-function detectFaces(p, landmarker, timestamp, width, height) {
-  const result = landmarker.detectForVideo(p.small, timestamp);
-  const shapes = result.faceBlendshapes || [];
-  const found = (result.faceLandmarks || []).map((landmarks, i) =>
-    anchorsOf(landmarks, width, height, shapes[i])
-  );
+function applyFaces(p, faceLandmarks, shapes, width, height) {
+  const found = faceLandmarks.map((landmarks, i) => anchorsOf(landmarks, width, height, shapes[i]));
   if (found.length === 0) {
     // A face lost for a frame or two (a hand passing, motion blur) keeps its
     // overlay instead of blinking.
@@ -1578,11 +1572,6 @@ function spawnReactions(p, face, index, now) {
 // landmarks: 0 the wrist, 2/4 the base and tip of the thumb, 5/9/13/17 the
 // knuckles, 6/10/14/18 the middle joints and 8/12/16/20 the fingertips.
 
-function detectHands(p, task, timestamp, width, height) {
-  const result = task.detectForVideo(p.small, timestamp);
-  p.hands = (result.landmarks || []).map((landmarks) => landmarks.map((q) => ({ x: q.x * width, y: q.y * height })));
-}
-
 function palmOf(hand) {
   let x = 0;
   let y = 0;
@@ -2224,6 +2213,25 @@ function draw3d(ctx, p, kind, width, height) {
       if (head.visible) headMatrix(three.lib, face, head.matrix);
       head.matrixWorldNeedsUpdate = true;
     });
+    // A model's first render compiles its shaders, which held this thread
+    // (and the camera) for a moment each time one was picked. Compiled off
+    // it where the browser can (KHR_parallel_shader_compile), with the frames
+    // going out without the object meanwhile.
+    if (g.compiledKind !== kind) {
+      if (g.compiling) return;
+      if (typeof g.renderer.compileAsync === "function") {
+        g.compiling = true;
+        g.renderer
+          .compileAsync(g.scene, g.camera)
+          .catch(() => {})
+          .finally(() => {
+            g.compiling = false;
+            g.compiledKind = kind;
+          });
+        return;
+      }
+      g.compiledKind = kind;
+    }
     g.renderer.render(g.scene, g.camera);
     ctx.drawImage(g.canvas, 0, 0, width, height);
   } catch (err) {

@@ -19,8 +19,10 @@ import { isMobileDevice } from "./announcement";
 // pushed around (sad, angry, fat, thin...), nothing drawn on it — see
 // CameraWarp.
 //
-// The work is in public/workers/camera-effects.js. This side only wires the
-// camera track to it:
+// The work is in public/workers/camera-effects.js (the frame loop), which
+// starts public/workers/camera-detect.js for the models (MediaPipe), so a
+// model loading never holds the frames up. This side only wires the camera
+// track to it:
 //
 //   camera track → MediaStreamTrackProcessor → (worker) → MediaStreamTrackGenerator
 //
@@ -308,8 +310,9 @@ export const CAMERA_EFFECTS_FEATURE = "camera-effects";
 
 // Versioned: public/ files are cached by Cloudflare for a month under their
 // plain URL, so a fixed worker kept being served as the old one. Bump this
-// whenever public/workers/camera-effects.js changes.
-const WORKER_VERSION = 10;
+// whenever public/workers/camera-effects.js or camera-detect.js changes (the
+// detector is loaded with the same ?v=).
+const WORKER_VERSION = 11;
 const WORKER_URL = `/workers/camera-effects.js?v=${WORKER_VERSION}`;
 const SETTINGS_KEY = "sharescreen:cameraEffects";
 // How long the worker (and the models it loaded) outlives the last camera
