@@ -1159,8 +1159,9 @@ function createWindow(initialUrl: string = APP_URL) {
   mainWindow.webContents.on("devtools-opened", () => {
     if (captureProtected) mainWindow?.webContents.closeDevTools();
   });
-  mainWindow.webContents.on("render-process-gone", () => {
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
     if (ringingCall) setCallRinging(null);
+    recoverFromRendererCrash(details);
   });
 
   // A site that does not load (offline, DNS, server down) used to leave a bare
@@ -1175,6 +1176,56 @@ function createWindow(initialUrl: string = APP_URL) {
   });
 
   void mainWindow.loadURL(initialUrl);
+}
+
+// A renderer that dies (out of memory, a crash in Chromium's media stack, the
+// OS killing it) takes the whole page with it: every call and socket drops,
+// the window paints nothing but its backgroundColor, and there is no page for
+// DevTools to inspect. Closing and reopening only hides and shows that same
+// dead window (see the "close" handler), so the one way back was Ctrl+R.
+// Reload on our own, and write down why it died — nothing else records it.
+//
+// Bounded, because a page that kills its renderer on load would otherwise
+// reload forever, at full CPU, possibly hidden in the tray. Past the limit the
+// window stays blank and Ctrl+R is still there.
+const CRASH_RELOAD_WINDOW_MS = 5 * 60_000;
+const CRASH_RELOAD_MAX = 3;
+const CRASH_LOG_FILE = "renderer-crash.log";
+const CRASH_LOG_MAX_BYTES = 256 * 1024;
+let crashReloads: number[] = [];
+
+function logProcessCrash(message: string) {
+  const file = path.join(app.getPath("userData"), CRASH_LOG_FILE);
+  try {
+    if (fs.statSync(file).size > CRASH_LOG_MAX_BYTES) fs.writeFileSync(file, "");
+  } catch {}
+  try {
+    fs.appendFileSync(file, `${new Date().toISOString()} v${app.getVersion()} ${message}\n`);
+  } catch {}
+  console.error(`[golive] ${message}`);
+}
+
+function recoverFromRendererCrash(details: Electron.RenderProcessGoneDetails) {
+  const url = mainWindow?.webContents.getURL() ?? "";
+  const mem = Math.round(process.getSystemMemoryInfo().free / 1024);
+  logProcessCrash(
+    `renderer gone: reason=${details.reason} exitCode=${details.exitCode} freeMemMB=${mem} url=${url}`
+  );
+  if (quitting || details.reason === "clean-exit") return;
+
+  const now = Date.now();
+  crashReloads = crashReloads.filter((at) => now - at < CRASH_RELOAD_WINDOW_MS);
+  if (crashReloads.length >= CRASH_RELOAD_MAX) {
+    logProcessCrash("renderer keeps dying; not reloading again");
+    return;
+  }
+  crashReloads.push(now);
+  // Next tick: reloading from inside the event that reports the death is not
+  // something Electron promises to handle.
+  setTimeout(() => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.webContents.isCrashed()) mainWindow.webContents.reload();
+  }, 0);
 }
 
 const REDIRECT_ONLY_PATHS = new Set(["/bot"]);
@@ -2212,6 +2263,16 @@ if (!gotLock) {
     // Keeps the shell current. The website updates itself by being loaded
     // fresh; this is for the code that ships inside the executable.
     initAutoUpdater(APP_URL, { onInstallRequested: saveResumeUrl });
+
+    // The other half of the crash log (see recoverFromRendererCrash). A GPU
+    // process that keeps dying can also leave the window blank, and Chromium
+    // restarts it on its own, so writing it down is all there is to do.
+    app.on("child-process-gone", (_event, details) => {
+      if (details.reason === "clean-exit") return;
+      logProcessCrash(
+        `${details.type} gone: reason=${details.reason} exitCode=${details.exitCode}${details.name ? ` name=${details.name}` : ""}`
+      );
+    });
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
