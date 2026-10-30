@@ -141,14 +141,30 @@ export function neighbourMusicTrack(music: MusicSource, direction: 1 | -1): Musi
   return order[(at + direction + order.length) % order.length] ?? null;
 }
 
+// Gêmeo do MAX_ROOM_MUSIC_QUEUE do servidor (roomStore.ts): quantas faixas a
+// fila da sala aceita. Lá é o limite de verdade; aqui é só para o aviso contar
+// o que de fato entrou.
+export const MAX_MUSIC_QUEUE = 100;
+
 // Client-side twin of the server's parse, used only to tell someone their
 // link is wrong before sending it — never as the gate.
-export function parseMusicUrl(raw: string): { videoId: string; playlistId: string | null } | null {
+//
+// `playlistOnly` é um link da playlist em si (/playlist?list=…), e não um
+// vídeo aberto dentro dela (watch?v=…&list=…). A diferença importa na fila: o
+// segundo é o que se copia do navegador ouvindo um mix ou uma playlist, e quem
+// cola ele quer aquela música, não as cinquenta do mix.
+export function parseMusicUrl(
+  raw: string
+): { videoId: string; playlistId: string | null; playlistOnly: boolean } | null {
   const parsed = parseYouTubeSource(raw);
   if (!parsed) return null;
   const videoId = parsed.videoId || parsed.playlistId;
   if (!videoId) return null;
-  return { videoId, playlistId: parsed.playlistId };
+  return {
+    videoId,
+    playlistId: parsed.playlistId,
+    playlistOnly: !parsed.videoId && Boolean(parsed.playlistId),
+  };
 }
 
 // mm:ss, or h:mm:ss past an hour — a DJ set or a long mix is a normal thing

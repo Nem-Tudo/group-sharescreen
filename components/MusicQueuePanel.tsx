@@ -14,8 +14,16 @@ import {
 import { useT } from "@/lib/useI18n";
 import { useYouTubeTitles, youtubeThumbnail } from "@/lib/youtubeTitles";
 import { signalingClient } from "@/lib/signalingClient";
-import { musicPlayOrder, parseMusicUrl, type MusicSource, type MusicTrack } from "@/lib/musicSource";
+import {
+  MAX_MUSIC_QUEUE,
+  musicPlayOrder,
+  parseMusicUrl,
+  type MusicSource,
+  type MusicTrack,
+} from "@/lib/musicSource";
 import { importSpotifyPlaylist, looksLikeSpotifyUrl } from "@/lib/musicImportApi";
+import { listYouTubePlaylist } from "@/lib/youtubePlayer";
+import { isYouTubeVideoId } from "@/lib/videoSource";
 import { TILE_EXPERIMENT_EVENTS, trackTileExperiment } from "@/lib/clipsMode";
 import { markFeatureUsed } from "@/components/NewBadge";
 
@@ -124,10 +132,41 @@ export function MusicQueuePanel({
       return;
     }
 
-    if (!parseMusicUrl(url)) {
+    const parsed = parseMusicUrl(url);
+    if (!parsed) {
       setNotice(t("musicBar.addInvalid"));
       return;
     }
+
+    // O link de uma playlist do YouTube: o servidor não tem como abri-la (só
+    // aceita vídeos), então ela é lida aqui, num player escondido (ver
+    // listYouTubePlaylist), e entra na fila já como faixas. Um vídeo aberto
+    // dentro de uma playlist (watch?v=…&list=…) continua sendo só aquele vídeo.
+    if (parsed.playlistOnly && parsed.playlistId) {
+      setBusy(true);
+      setNotice(t("musicBar.importing"));
+      const ids = await listYouTubePlaylist(parsed.playlistId).catch(() => [] as string[]);
+      setBusy(false);
+      const playlistTracks = ids.filter((id) => isYouTubeVideoId(id)).map((videoId) => ({ videoId }));
+      if (playlistTracks.length === 0) {
+        setNotice(t("musicBar.playlistUnreadable"));
+        return;
+      }
+      // O que não couber na fila o servidor corta; o aviso conta o que cabe.
+      // Sem fila ainda, a música no ar vira a primeira faixa dela.
+      const added = Math.min(playlistTracks.length, MAX_MUSIC_QUEUE - Math.max(1, tracks.length));
+      if (added <= 0) {
+        setNotice(t("musicBar.queueFull"));
+        return;
+      }
+      signalingClient.addMusicToQueue({ tracks: playlistTracks.slice(0, added) });
+      trackTileExperiment(TILE_EXPERIMENT_EVENTS.musicQueue.add);
+      markFeatureUsed("room-music-queue");
+      setAdding("");
+      setNotice(t("musicBar.imported", { count: added }));
+      return;
+    }
+
     signalingClient.addMusicToQueue({ url });
     trackTileExperiment(TILE_EXPERIMENT_EVENTS.musicQueue.add);
     markFeatureUsed("room-music-queue");
