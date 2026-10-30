@@ -89,8 +89,23 @@ export interface SendVideoStats {
    * within a codec. Null where not reported or on a first sample.
    */
   qp?: number | null;
-  /** Times the encoder changed resolution for quality reasons over the interval. */
+  /**
+   * Times the encoder changed resolution for quality reasons over the
+   * interval — or, on a first sample, since the connection began. The quality
+   * scaler does most of its cutting in the first seconds of a share, before
+   * any second sample exists, and counting only deltas reported 0 for every
+   * session in production.
+   */
   resolutionChanges?: number;
+  /**
+   * Frames the capture produced per second (the media-source's own rate).
+   * Beside `fps` (what was encoded) it tells a slideshow the capture made from
+   * one the encoder made: a still screen and a busy capture thread give few
+   * frames here; an encoder dropping them gives many here and few in `fps`.
+   */
+  sourceFps?: number | null;
+  /** Milliseconds the encoder spent per frame over the interval; null on a first sample. */
+  encodeMs?: number | null;
 }
 
 export interface RecvVideoStats {
@@ -111,6 +126,8 @@ export interface RecvVideoStats {
   decoder: string | null;
   hardware: boolean | null;
   codec: string | null;
+  /** Frames decoded since the connection began — whether a picture ever arrived. */
+  framesDecodedTotal?: number;
 }
 
 export interface PcSnapshot {
@@ -127,6 +144,7 @@ export interface StatsCounters {
   at: number;
   bytesSent: number;
   framesEncoded: number;
+  totalEncodeTime: number;
   qpSum: number;
   resolutionChanges: number;
   nackCount: number;
@@ -282,6 +300,7 @@ export function readPcStats(
     at: now,
     bytesSent: num(outbound?.bytesSent),
     framesEncoded: num(outbound?.framesEncoded),
+    totalEncodeTime: num(outbound?.totalEncodeTime),
     qpSum: num(outbound?.qpSum),
     resolutionChanges: num(outbound?.qualityLimitationResolutionChanges),
     nackCount: num(outbound?.nackCount),
@@ -321,6 +340,11 @@ export function readPcStats(
     const bwShare =
       limitDelta > 0 ? share(d("limitBandwidth"), limitDelta) : share(limitBandwidth, limitTotal);
     const fps = num(outbound.framesPerSecond) || perSecond(d("framesEncoded"), seconds);
+    // The capture's own rate, off the media-source the outbound points at.
+    // Chromium and Safari report it; Firefox has no media-source for video.
+    const source = byId.get(str(outbound.mediaSourceId) ?? "");
+    const sourceFps = source && typeof source.framesPerSecond === "number" ? Math.round(num(source.framesPerSecond)) : null;
+    const encoded = d("framesEncoded");
     send = {
       width: num(outbound.frameWidth),
       height: num(outbound.frameHeight),
@@ -337,7 +361,9 @@ export function readPcStats(
       pliPerSecond: round2(perSecond(d("pliCount"), seconds)),
       targetKbps: num(outbound.targetBitrate) > 0 ? Math.round(num(outbound.targetBitrate) / 1000) : null,
       qp: d("framesEncoded") > 0 && d("qpSum") > 0 ? Math.round(d("qpSum") / d("framesEncoded")) : null,
-      resolutionChanges: d("resolutionChanges"),
+      resolutionChanges: usable ? d("resolutionChanges") : counters.resolutionChanges,
+      sourceFps,
+      encodeMs: encoded > 0 && d("totalEncodeTime") > 0 ? round2((d("totalEncodeTime") / encoded) * 1000) : null,
     };
     // A sender-side pc usually has no selected-pair RTT in Firefox; the
     // receiver's own report of it is the next best thing.
@@ -367,6 +393,7 @@ export function readPcStats(
       decoder,
       hardware: isHardwareImplementation(decoder, inbound.powerEfficientDecoder),
       codec: codecName(byId.get(str(inbound.codecId) ?? "")),
+      framesDecodedTotal: num(inbound.framesDecoded),
     };
   }
 
@@ -407,6 +434,9 @@ export type CauseId =
   // a received picture that is a slideshow on a clean link, so the frames were
   // never sent — the broadcaster's encoder is where it went wrong.
   | "low-source-fps"
+  // Session-level only too: a received video connection that stayed up past
+  // a glance and never decoded a single frame — the tile that spins forever.
+  | "no-video"
   | "freezes";
 
 export type Severity = "high" | "medium";

@@ -35,6 +35,8 @@ export interface SenderSample {
   qualityLimitationReason: string;
   frameWidth: number;
   frameHeight: number;
+  /** The encoder the browser picked ("libvpx", "OpenH264", …), or null where it does not say. */
+  encoderImplementation?: string | null;
 }
 
 export interface CapacitySample {
@@ -207,6 +209,7 @@ class MediaStatsPump {
       let reason = "none";
       let frameWidth = 0;
       let frameHeight = 0;
+      let encoderImplementation: string | null = null;
 
       report.forEach((r) => {
         const rec = r as unknown as Record<string, unknown>;
@@ -220,6 +223,10 @@ class MediaStatsPump {
           reason = (rec.qualityLimitationReason as string) ?? "none";
           frameWidth = (rec.frameWidth as number) ?? 0;
           frameHeight = (rec.frameHeight as number) ?? 0;
+          encoderImplementation =
+            typeof rec.encoderImplementation === "string" && rec.encoderImplementation
+              ? rec.encoderImplementation
+              : null;
         } else if (r.type === "candidate-pair" && rec.state === "succeeded") {
           // In kbps before comparing: the report is in bps and bestAvailable
           // is not, so comparing the raw value let whichever pair came last
@@ -267,6 +274,7 @@ class MediaStatsPump {
         qualityLimitationReason: reason,
         frameWidth,
         frameHeight,
+        encoderImplementation,
       };
       this.senderListeners.forEach((fn) => {
         try {

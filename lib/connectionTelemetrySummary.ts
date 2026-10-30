@@ -89,6 +89,24 @@ export interface SessionAccumulator {
   ceilingKbpsCount: number;
   tier: string | null;
   degradationPreference: string | null;
+  /** Send only: the capture's frame rate and the encoder's time per frame, see SendVideoStats. */
+  sourceFpsSum: number;
+  sourceFpsCount: number;
+  encodeMsSum: number;
+  encodeMsCount: number;
+  /**
+   * Recv only: seconds of the measured ones during which the tile was on
+   * screen in a visible page. Null-counted (visibilityKnownSeconds 0) where
+   * nobody said — a relay's re-encode, an older caller.
+   */
+  visibleSeconds: number;
+  visibilityKnownSeconds: number;
+  /** Recv only: the most frames the decoder had produced, to tell "never a picture" apart. */
+  framesDecodedMax: number;
+  /** Recv only: when a sample first saw a decoded frame. */
+  firstFrameAt: number | null;
+  /** When the pc first reached "connected", or null if it never did. Set by connectionTelemetry. */
+  connectedAt: number | null;
 }
 
 /**
@@ -151,6 +169,15 @@ export function createAccumulator(startedAt: number): SessionAccumulator {
     ceilingKbpsCount: 0,
     tier: null,
     degradationPreference: null,
+    sourceFpsSum: 0,
+    sourceFpsCount: 0,
+    encodeMsSum: 0,
+    encodeMsCount: 0,
+    visibleSeconds: 0,
+    visibilityKnownSeconds: 0,
+    framesDecodedMax: 0,
+    firstFrameAt: null,
+    connectedAt: null,
   };
 }
 
@@ -158,9 +185,17 @@ export function createAccumulator(startedAt: number): SessionAccumulator {
 export function addSnapshot(
   acc: SessionAccumulator,
   snapshot: PcSnapshot,
-  control: SenderControlSample | null = null
+  control: SenderControlSample | null = null,
+  /** Recv only: whether the tile was on screen in a visible page; null when unknown. */
+  visible: boolean | null = null
 ): SessionAccumulator {
   const { route, send, recv, intervalSeconds } = snapshot;
+  // A picture arrived: frames decoded, or a frame rate where a browser does
+  // not report the counter.
+  if (recv && ((recv.framesDecodedTotal ?? 0) > 0 || recv.fps > 0)) {
+    acc.framesDecodedMax = Math.max(acc.framesDecodedMax, recv.framesDecodedTotal || 1);
+    acc.firstFrameAt ??= snapshot.at;
+  }
   if (control) {
     acc.tier = control.tier;
     acc.degradationPreference = control.degradationPreference;
@@ -214,6 +249,14 @@ export function addSnapshot(
         acc.qpCount += 1;
       }
       acc.resolutionChanges += send.resolutionChanges ?? 0;
+      if (send.sourceFps != null) {
+        acc.sourceFpsSum += send.sourceFps;
+        acc.sourceFpsCount += 1;
+      }
+      if (send.encodeMs != null) {
+        acc.encodeMsSum += send.encodeMs;
+        acc.encodeMsCount += 1;
+      }
       if (control) {
         acc.ratioSum += control.ratio;
         acc.ratioCount += 1;
@@ -227,6 +270,10 @@ export function addSnapshot(
       acc.freezeSeconds += recv.freezeSeconds;
       acc.dropWeighted += recv.dropShare * intervalSeconds;
       acc.maxLoss = Math.max(acc.maxLoss, recv.loss);
+      if (visible !== null) {
+        acc.visibilityKnownSeconds += intervalSeconds;
+        if (visible) acc.visibleSeconds += intervalSeconds;
+      }
     }
     for (const cause of diagnose({ route, send, recv })) {
       acc.causeCounts[cause.id] = (acc.causeCounts[cause.id] ?? 0) + 1;
@@ -276,6 +323,17 @@ export interface SessionSummary {
   congestionRatioMin: number | null;
   /** Send only: the degradation preference the encoder ran under, last seen. */
   degradationPreference: string | null;
+  /** Send only: the capture's average frame rate (see SendVideoStats.sourceFps). */
+  sourceFpsAvg: number | null;
+  /** Send only: the encoder's average milliseconds per frame. */
+  encodeMsAvg: number | null;
+  /** Recv only: share of the measured time the tile was on screen in a visible page, 0..1; null when unknown. */
+  visibleShare: number | null;
+  /**
+   * Recv only: seconds from the connection opening to its first decoded
+   * frame, at the sampler's 10 s grain; null when it never got one.
+   */
+  firstFrameS: number | null;
   /**
    * Causes present in at least CAUSE_PRESENCE of the measured samples, plus
    * the session-level "low-source-fps".
@@ -307,6 +365,7 @@ export function blameFor(direction: "send" | "recv", causes: readonly CauseId[],
     // An encoder held back with loss or a queue on the path is the link; held
     // back on a clean one, it is the encoder's own adaptation (its QP).
     if (causes.includes("sender-bandwidth")) return network ? "network" : "sender";
+    if (causes.includes("low-source-fps")) return network ? "network" : "sender";
     return network ? "network" : "unknown";
   }
   if (causes.includes("receiver-drops")) return "receiver";
@@ -337,9 +396,22 @@ const BAD_FREEZE_SHARE_SCREEN = 0.1;
 const BAD_DROP_SHARE = 0.1;
 const SLIDESHOW_FPS = 10;
 const SLIDESHOW_MIN_KBPS = 300;
+// A received picture only counts against the stream while somebody can see
+// it. A tile scrolled away or a page in the background asks the broadcaster
+// for the worst tier on purpose (576p15, see qualityNegotiation), and the
+// browser may stop rendering it — its slideshow and freezes are what was
+// asked for, not a fault.
+const MIN_VISIBLE_SHARE = 0.5;
+// Measured seconds a connected receiver needs before "never a frame" is a
+// verdict and not a sampler that has not looked yet.
+const NO_VIDEO_MIN_MEASURED_S = 15;
 
+// "turn-tcp" is not here although the live panel calls it high: on its own it
+// is a route, not a symptom. In the reports it flagged every TCP-relayed
+// session bad — ~95% of experiment own-turn's tcp group — while those same
+// viewers had the best frame rates of any group. A TCP relay that actually
+// hurts shows up as loss, freezes or a slideshow, which are judged below.
 const HIGH_CAUSES: ReadonlySet<CauseId> = new Set([
-  "turn-tcp",
   "sender-cpu",
   "sender-bandwidth",
   "receiver-drops",
@@ -373,23 +445,46 @@ export function summarize(
   const dropShare = seconds > 0 ? acc.dropWeighted / seconds : 0;
   const slideshow =
     fpsAvg !== null && kbpsAvg !== null && fpsAvg < SLIDESHOW_FPS && kbpsAvg >= SLIDESHOW_MIN_KBPS;
+  const visibleShare =
+    direction === "recv" && acc.visibilityKnownSeconds > 0 ? acc.visibleSeconds / acc.visibilityKnownSeconds : null;
+  // Unknown counts as seen, which is how every session was judged before.
+  const seen = visibleShare === null || visibleShare >= MIN_VISIBLE_SHARE;
   // A received slideshow on a link that lost almost nothing and a machine that
   // dropped almost nothing: the frames were never sent. The reports had 19% of
   // bad received screens in exactly this state with no cause at all, and their
   // broadcasters, matched up, were sending ~6 fps themselves.
-  if (direction === "recv" && slideshow && acc.maxLoss < SOURCE_FPS_MAX_LOSS && dropShare < BAD_DROP_SHARE) {
-    causes.push("low-source-fps");
-    causes.sort();
-  }
+  //
+  // The sending end names its own slideshow the same way. Its encoder rarely
+  // admits to it — libvpx's frame dropper and screenshare rate limiter never
+  // show in qualityLimitationReason — so the reports had VP9 senders at 4%
+  // "bad" while 26% of them sent under 10 fps.
+  const sourceSlideshow =
+    slideshow &&
+    (direction === "send" ||
+      (seen && acc.maxLoss < SOURCE_FPS_MAX_LOSS && dropShare < BAD_DROP_SHARE));
+  if (sourceSlideshow) causes.push("low-source-fps");
+  // The tile that spins forever: a received video connection, up for longer
+  // than a glance, that never decoded a single frame — or never connected.
+  const noVideo =
+    direction === "recv" &&
+    acc.framesDecodedMax === 0 &&
+    (acc.connectedAt === null || seconds >= NO_VIDEO_MIN_MEASURED_S);
+  if (noVideo) causes.push("no-video");
+  causes.sort();
   const bad =
+    noVideo ||
     causes.some((id) => HIGH_CAUSES.has(id)) ||
     (causes.includes("network-loss") && acc.maxLoss >= 0.08) ||
+    (direction === "send" && slideshow) ||
     (direction === "recv" &&
+      seen &&
       (freezeShare >= (channel?.startsWith("screen") ? BAD_FREEZE_SHARE_SCREEN : BAD_FREEZE_SHARE) ||
         dropShare >= BAD_DROP_SHARE ||
         slideshow));
 
   const routeKind: RouteKind = acc.routeKinds.length ? acc.routeKinds[acc.routeKinds.length - 1] : "unknown";
+  // Never connected is the path's failure; connected and silent is anybody's.
+  const blame = noVideo ? (acc.connectedAt === null ? "network" : "unknown") : blameFor(direction, causes, bad);
 
   return {
     durationS: Math.round((endedAt - acc.startedAt) / 1000),
@@ -429,8 +524,15 @@ export function summarize(
     congestionRatioAvg: direction === "send" && acc.ratioCount ? round(acc.ratioSum / acc.ratioCount, 2) : null,
     congestionRatioMin: direction === "send" && acc.ratioMin !== null ? round(acc.ratioMin, 2) : null,
     degradationPreference: direction === "send" ? acc.degradationPreference : null,
+    sourceFpsAvg: direction === "send" && acc.sourceFpsCount ? round(acc.sourceFpsSum / acc.sourceFpsCount, 1) : null,
+    encodeMsAvg: direction === "send" && acc.encodeMsCount ? round(acc.encodeMsSum / acc.encodeMsCount, 1) : null,
+    visibleShare: visibleShare === null ? null : round(visibleShare, 2),
+    firstFrameS:
+      direction === "recv" && acc.firstFrameAt !== null
+        ? Math.max(0, Math.round((acc.firstFrameAt - acc.startedAt) / 1000))
+        : null,
     causes,
     bad,
-    blame: blameFor(direction, causes, bad),
+    blame,
   };
 }

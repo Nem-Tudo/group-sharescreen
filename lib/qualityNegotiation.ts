@@ -18,7 +18,8 @@
 import type { ExtraCameraSlot } from "./multiCamera";
 import type { ExtraScreenSlot } from "./multiScreen";
 import { signalingClient } from "./signalingClient";
-import { tierForRenderedSize, MAX_TIER_FPS, WORST_TIER, type QualityTier } from "./videoQuality";
+import { tierForRenderedSize, MAX_TIER_FPS, WORST_TIER, stepDownUnder, type QualityTier } from "./videoQuality";
+import { isSqRecvDropsEnabled, SQ_EVENTS, SQ_RECV_DROPS_FEATURE, sqTrack } from "./streamQuality";
 
 // The video channels a viewer can ask for a size on. The "fileN" ones are
 // local files being played into the room (see lib/localMediaSource.ts) — a
@@ -55,7 +56,26 @@ interface Entry {
    * room stayed open.
    */
   hidden: boolean;
+  /**
+   * Experiment sq-recv-drops: tiers below the size-based one this tile asks
+   * for while our decoder cannot keep up, and the bookkeeping that moves it.
+   */
+  dropSteps: number;
+  /** The size-based tier last computed, before any decoder step. */
+  sizedTier: QualityTier | null;
+  dropStrikes: number;
+  cleanSince: number | null;
 }
+
+// Experiment sq-recv-drops. Two telemetry samples in a row (~20 s) dropping a
+// tenth of the frames step a tile down; a clean minute steps it back. Two
+// steps at most: past that the decoder is not the only thing wrong, and the
+// picture would be too small to be worth the trade.
+const DROP_STEP_SHARE = 0.1;
+const DROP_CLEAN_SHARE = 0.03;
+const DROP_STRIKES = 2;
+const DROP_RECOVER_MS = 60_000;
+const MAX_DROP_STEPS = 2;
 
 // Coalescing window for resize storms. A dragged window or an animated grid
 // transition fires ResizeObserver continuously; without this each frame of
@@ -88,7 +108,18 @@ class QualityNegotiator {
     const key = this.key(channel, peerId);
     const entry =
       this.entries.get(key) ??
-      { width: 0, height: 0, tier: null, lastSentAt: 0, timer: null, hidden: false };
+      {
+        width: 0,
+        height: 0,
+        tier: null,
+        lastSentAt: 0,
+        timer: null,
+        hidden: false,
+        dropSteps: 0,
+        sizedTier: null,
+        dropStrikes: 0,
+        cleanSince: null,
+      };
     entry.width = width;
     entry.height = height;
     this.entries.set(key, entry);
@@ -135,9 +166,13 @@ class QualityNegotiator {
     // frames, so the request asks for the fastest rung at that size and the
     // broadcaster's fps dial caps it (see capTier). Leaving the default here
     // capped every viewer at 60 and made the 120 fps dial capture-only.
-    const next = entry.hidden
-      ? WORST_TIER
-      : tierForRenderedSize(entry.width, entry.height, dpr, entry.tier ?? undefined, MAX_TIER_FPS);
+    // Under sq-recv-drops the hysteresis is seeded with the size-based tier
+    // from before any decoder step, so a step down is never read as "the tile
+    // is already on a small tier" when deciding the next size-based answer.
+    const seed = isSqRecvDropsEnabled() ? entry.sizedTier : entry.tier;
+    const sized = tierForRenderedSize(entry.width, entry.height, dpr, seed ?? undefined, MAX_TIER_FPS);
+    entry.sizedTier = sized;
+    const next = entry.hidden ? WORST_TIER : entry.dropSteps > 0 ? stepDownUnder(sized, entry.dropSteps) : sized;
     if (!force && next === entry.tier) return;
     entry.tier = next;
     entry.lastSentAt = Date.now();
@@ -161,6 +196,53 @@ class QualityNegotiator {
     // tier, which is exactly what a fresh sender needs to hear from a viewer
     // who is not looking.
     this.flush(channel, peerId, true);
+  }
+
+  /**
+   * Whether this peer's tile is on screen in a page somebody is looking at;
+   * null when the tile has never reported (a relay's re-encode, a channel
+   * without one). For the connection-quality reports — see
+   * connectionTelemetrySummary's MIN_VISIBLE_SHARE.
+   */
+  isVisible(channel: string, peerId: string): boolean | null {
+    const entry = this.entries.get(`${channel}:${peerId}`);
+    if (!entry) return null;
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return false;
+    return !entry.hidden;
+  }
+
+  /**
+   * One telemetry sample of this tile's decoder: the share of received frames
+   * it dropped. Experiment sq-recv-drops steps the tile's request down while
+   * that stays high, and back up once it has been clean for a while.
+   */
+  noteDecoderDrops(channel: string, peerId: string, dropShare: number) {
+    if (!isSqRecvDropsEnabled()) return;
+    const entry = this.entries.get(`${channel}:${peerId}`);
+    if (!entry || entry.hidden) return;
+    const now = Date.now();
+    let changed = false;
+    if (dropShare >= DROP_STEP_SHARE) {
+      entry.cleanSince = null;
+      entry.dropStrikes += 1;
+      if (entry.dropStrikes >= DROP_STRIKES && entry.dropSteps < MAX_DROP_STEPS) {
+        entry.dropSteps += 1;
+        entry.dropStrikes = 0;
+        changed = true;
+        sqTrack(SQ_EVENTS.dropStep, SQ_RECV_DROPS_FEATURE, entry.dropSteps);
+      }
+    } else {
+      entry.dropStrikes = 0;
+      if (dropShare <= DROP_CLEAN_SHARE && entry.dropSteps > 0) {
+        entry.cleanSince ??= now;
+        if (now - entry.cleanSince >= DROP_RECOVER_MS) {
+          entry.dropSteps -= 1;
+          entry.cleanSince = entry.dropSteps > 0 ? now : null;
+          changed = true;
+        }
+      }
+    }
+    if (changed) this.flush(channel as QualityChannel, peerId, true);
   }
 
   forget(channel: QualityChannel, peerId: string) {

@@ -1610,6 +1610,7 @@
   "connectionStats.cause.freezes": "The picture froze for a moment on this screen.",
   "connectionStats.cause.high-rtt": "High latency between you (distance or a slow network).",
   "connectionStats.cause.low-source-fps": "The broadcaster is sending few frames — the network and this computer are fine.",
+  "connectionStats.cause.no-video": "No frame has arrived since the connection opened.",
   "connectionStats.cause.network-loss": "Packets are being lost on the network between you.",
   "connectionStats.cause.receiver-drops": "This computer is dropping frames — it cannot keep up with decoding.",
   "connectionStats.cause.sender-bandwidth": "The broadcaster's upload is at its limit.",

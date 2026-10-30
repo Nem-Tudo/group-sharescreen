@@ -368,6 +368,17 @@ contextBridge.exposeInMainWorld("golive", {
       }
     : undefined,
 
+  // The WebRTC field trials this process started with, and the site's
+  // decision for the next start (see electron/webrtcTrials.ts).
+  webrtcTrials: {
+    state(): Promise<{ known: boolean; h264Qp: boolean }> {
+      return ipcRenderer.invoke(IPC.webrtcTrialsState);
+    },
+    setH264Qp(on: unknown): void {
+      if (typeof on === "boolean") ipcRenderer.send(IPC.webrtcTrialsSetH264Qp, on);
+    },
+  },
+
   // The GPU screen capture (see electron/nativeVideo.ts and
   // lib/nativeVideoCapture.ts). Absent unless the helper shipped with this
   // build; whether the machine can run it is what probe() answers.

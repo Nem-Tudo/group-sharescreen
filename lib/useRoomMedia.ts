@@ -129,17 +129,31 @@ import {
 } from "./androidScreenCapture";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
-import { getDesktopBridge } from "./desktop";
+import { getDesktopBridge, isDesktopApp } from "./desktop";
 import { trackFeatureEvent, useFeature } from "./features";
 import { GPU_SURVEY_FEATURE, noteGpuShareStarted } from "./gpuShareSurvey";
 import { setStreamPerfEnabled, STREAM_PERF_EVENTS, STREAM_PERF_FEATURE } from "./streamPerf";
+import {
+  isWeakMachine,
+  setSqH264QpApplied,
+  setSqMotionHoldEnabled,
+  setSqNativeKeyEnabled,
+  setSqRecvDropsEnabled,
+  setSqTracker,
+  setSqWeakSenderEnabled,
+  SQ_H264_QP_FEATURE,
+  SQ_MOTION_HOLD_FEATURE,
+  SQ_NATIVE_KEY_FEATURE,
+  SQ_RECV_DROPS_FEATURE,
+  SQ_WEAK_SENDER_FEATURE,
+} from "./streamQuality";
 import {
   MEMORY_GUARD_FEATURE,
   releasePeerConnection,
   sampleHeapMemory,
   setMemoryGuardEnabled,
 } from "./memoryGuard";
-import { SCREEN_CODEC_EVENTS, SCREEN_CODEC_FEATURE, setScreenCodecVariant } from "./screenCodec";
+import { isH264Hardware, SCREEN_CODEC_EVENTS, SCREEN_CODEC_FEATURE, setScreenCodecVariant } from "./screenCodec";
 import { CONGESTION_RECOVER_FEATURE, setCongestionRecoverEnabled } from "./congestionRecover";
 import {
   applyReceiveCodecPreferences,
@@ -619,6 +633,10 @@ const RECV_RECOVERY_TIMEOUT_MS = 9000;
 // same budget CONNECT_TIMEOUT_MS gives the direct path) so a connection that
 // is merely taking its time is never given up on.
 const RESUME_WATCHDOG_MS = 15_000;
+
+// The "sq" experiments' events from deep in the media path (see
+// lib/streamQuality's setSqTracker).
+setSqTracker(trackFeatureEvent);
 
 // How long a viewer stays pinned to a direct connection after the cascade
 // visibly failed them — see relayOptOut.
@@ -5108,6 +5126,64 @@ export function useRoomMedia(room: string) {
   useEffect(() => {
     setStreamPerfEnabled(streamPerf.enabled);
   }, [streamPerf.enabled]);
+
+  // The "sq" experiments (see lib/streamQuality). Each one is exposed only
+  // where it can change something, and both sides send the same per-session
+  // events (see connectionTelemetry), so the admin compares like with like.
+  // sq-weak-sender: our own screen, outside "motion", on a machine with few cores.
+  const sqWeakSender = useFeature(SQ_WEAK_SENDER_FEATURE, {
+    track: screen.active && shareProfile !== "motion" && isWeakMachine(),
+  });
+  useEffect(() => {
+    setSqWeakSenderEnabled(sqWeakSender.enabled);
+  }, [sqWeakSender.enabled]);
+  // sq-motion-hold: "motion" on the website, where H264 is not known to be hardware.
+  const sqMotionHold = useFeature(SQ_MOTION_HOLD_FEATURE, {
+    track: screen.active && shareProfile === "motion" && !isDesktopApp() && isH264Hardware() !== true,
+  });
+  useEffect(() => {
+    setSqMotionHoldEnabled(sqMotionHold.enabled);
+  }, [sqMotionHold.enabled]);
+  // sq-h264-qp: a field trial the desktop app applies at its next start (see
+  // electron/webrtcTrials.ts). Exposed only once the app runs with the side
+  // it was assigned — "assigned but not restarted yet" is neither group.
+  const trialsBridge = useMemo(() => getDesktopBridge()?.webrtcTrials ?? null, []);
+  const [trialState, setTrialState] = useState<{ known: boolean; h264Qp: boolean } | null>(null);
+  useEffect(() => {
+    if (!trialsBridge) return;
+    let live = true;
+    void trialsBridge.state().then(
+      (state) => {
+        if (!live) return;
+        setTrialState(state);
+        setSqH264QpApplied(state.h264Qp);
+      },
+      () => {}
+    );
+    return () => {
+      live = false;
+    };
+  }, [trialsBridge]);
+  const sqH264Qp = useFeature(SQ_H264_QP_FEATURE, { track: false });
+  useFeature(SQ_H264_QP_FEATURE, {
+    track: screen.active && trialState?.known === true && trialState.h264Qp === sqH264Qp.enabled,
+  });
+  useEffect(() => {
+    if (!trialsBridge || !sqH264Qp.ready) return;
+    trialsBridge.setH264Qp(sqH264Qp.enabled);
+  }, [trialsBridge, sqH264Qp.ready, sqH264Qp.enabled]);
+  // sq-recv-drops: anyone receiving video.
+  const sqRecvDrops = useFeature(SQ_RECV_DROPS_FEATURE, { track: receivingVideo });
+  useEffect(() => {
+    setSqRecvDropsEnabled(sqRecvDrops.enabled);
+  }, [sqRecvDrops.enabled]);
+  // sq-native-key: a screen share that goes through the GPU capture.
+  const sqNativeKey = useFeature(SQ_NATIVE_KEY_FEATURE, {
+    track: screen.active && nativeVideoBridge && nativeVideoWanted,
+  });
+  useEffect(() => {
+    setSqNativeKeyEnabled(sqNativeKey.enabled);
+  }, [sqNativeKey.enabled]);
   // One event per stretch of downgrading, not one per planning pass.
   const directDowngradeCounted = useRef(false);
 

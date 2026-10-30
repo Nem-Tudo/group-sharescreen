@@ -1610,6 +1610,7 @@
   "connectionStats.cause.freezes": "La imagen se congeló por unos instantes en esta pantalla.",
   "connectionStats.cause.high-rtt": "Latencia alta entre ustedes (distancia o red lenta).",
   "connectionStats.cause.low-source-fps": "Quien transmite está enviando pocos cuadros — la red y este equipo están bien.",
+  "connectionStats.cause.no-video": "No ha llegado ningún cuadro desde que se abrió la conexión.",
   "connectionStats.cause.network-loss": "Se están perdiendo paquetes en la red entre ustedes.",
   "connectionStats.cause.receiver-drops": "Este equipo está descartando cuadros — no da abasto para decodificar.",
   "connectionStats.cause.sender-bandwidth": "La subida de quien transmite está al límite.",

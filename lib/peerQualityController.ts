@@ -44,6 +44,15 @@ import type { TurnProvider } from "./iceConfig";
 import { OWN_TURN_LEAN_KBPS, OWN_TURN_LEAN_TIER, ownTurnLeanCap } from "./ownTurn";
 import { degradationPreferenceFor, onScreenCodecChange } from "./screenCodec";
 import { isCongestionRecoverEnabled } from "./congestionRecover";
+import {
+  NO_SENDER_OVERRIDE,
+  onStreamQualityChange,
+  senderOverride,
+  SQ_EVENTS,
+  SQ_MOTION_HOLD_FEATURE,
+  SQ_WEAK_SENDER_FEATURE,
+  sqTrack,
+} from "./streamQuality";
 
 // What the broadcaster says they are sharing, which decides how the encoder
 // spends a shortage — of bits, of CPU, or both.
@@ -197,6 +206,15 @@ export class PeerQualityController {
   // experiment "own-turn"'s lean cap, which is for the VPS alone.
   private providerLocal: TurnProvider | null = null;
   private providerRemote: TurnProvider | null = null;
+  // The encoder the browser actually picked for this connection, from the
+  // stats pump; null until the first sample. The "sq" sender experiments
+  // depend on it (see lib/streamQuality), since the codec order alone does
+  // not say whether a VP9 or an H264 is hardware.
+  private encoder: string | null = null;
+  // Which "sq" override last reached this sender, so its event counts a
+  // connection once rather than every apply().
+  private reportedOverride: "weak" | "hold" | null = null;
+  private readonly stopSqListener: () => void;
 
   constructor(
     readonly peerId: string,
@@ -217,6 +235,7 @@ export class PeerQualityController {
     private ownShare = false
   ) {
     liveControllers.add(this);
+    this.stopSqListener = onStreamQualityChange(() => this.refreshRouteCap());
   }
 
   /** See senderQualityState. */
@@ -232,7 +251,24 @@ export class PeerQualityController {
 
   private degradationPreference(): RTCDegradationPreference {
     const own = DEGRADATION_PREFERENCE[this.degradation];
-    return this.ownShare ? degradationPreferenceFor(this.degradation, own) : own;
+    if (!this.ownShare) return own;
+    return this.sqOverride().preference ?? degradationPreferenceFor(this.degradation, own);
+  }
+
+  // Experiments sq-weak-sender and sq-motion-hold: only ever our own share.
+  private sqOverride() {
+    return this.ownShare ? senderOverride(this.degradation, this.encoder) : NO_SENDER_OVERRIDE;
+  }
+
+  // Counts a connection once per override that reached it — the "on" side's
+  // proof that the experiment did something, beside the sessions both sides
+  // report (see connectionTelemetry).
+  private reportOverride() {
+    const { experiment } = this.sqOverride();
+    if (experiment === this.reportedOverride) return;
+    this.reportedOverride = experiment;
+    if (experiment === "weak") sqTrack(SQ_EVENTS.weakCap, SQ_WEAK_SENDER_FEATURE);
+    else if (experiment === "hold") sqTrack(SQ_EVENTS.holdApplied, SQ_MOTION_HOLD_FEATURE);
   }
 
   private ceilingKbps(tier: QualityTier): number {
@@ -303,10 +339,12 @@ export class PeerQualityController {
   // still answers the assigned tier, so the planner, the dials and everything
   // on screen carry on as if the connection were direct.
   private sentTier(): QualityTier {
-    if (this.leanCapped()) return capTier(this.tier, OWN_TURN_LEAN_TIER);
+    const cap = this.sqOverride().cap;
+    const tier = cap ? capTier(this.tier, cap) : this.tier;
+    if (this.leanCapped()) return capTier(tier, OWN_TURN_LEAN_TIER);
     return this.routeCapped()
-      ? capTier(this.tier, RELAY_ROUTE_CAP)
-      : this.tier;
+      ? capTier(tier, RELAY_ROUTE_CAP)
+      : tier;
   }
 
   setCaptureHeight(height: number) {
@@ -334,6 +372,13 @@ export class PeerQualityController {
   /** Feed one telemetry sample for this peer. */
   onSample(sample: SenderSample) {
     if (this.disposed) return;
+    const encoder = sample.encoderImplementation ?? null;
+    if (encoder && encoder !== this.encoder) {
+      // A renegotiation can move a share between encoders; the sq overrides
+      // follow, so re-apply when the answer changes.
+      this.encoder = encoder;
+      if (this.ownShare) this.refreshRouteCap();
+    }
     const next = congestionStep(this.congestion, sample, {
       recoverWhileLimited: isCongestionRecoverEnabled(),
     });
@@ -360,6 +405,7 @@ export class PeerQualityController {
     // is an observation that changes nothing about what is observed. Here it
     // is a control input, and a control input must never be the thing it
     // controls.
+    this.reportOverride();
     const tier = this.sentTier();
     const tierKbps = tierSpec(tier).baseKbps;
     const ceilingKbps = this.ceilingKbps(tier);
@@ -467,6 +513,7 @@ export class PeerQualityController {
   dispose() {
     this.disposed = true;
     liveControllers.delete(this);
+    this.stopSqListener();
     if (this.retryTimer) clearTimeout(this.retryTimer);
     this.retryTimer = null;
   }

@@ -114,6 +114,13 @@ export const IPC = {
   nativeVideoEnded: "golive:native-video:ended",
 
   /**
+   * renderer -> main: the WebRTC field trials this process started with (see
+   * electron/webrtcTrials.ts), and the site's decision for the next start.
+   */
+  webrtcTrialsState: "golive:webrtc-trials:state",
+  webrtcTrialsSetH264Qp: "golive:webrtc-trials:set-h264-qp",
+
+  /**
    * renderer -> main: this installation's id (see the site's
    * lib/installId.ts), so main can drop it somewhere the *uninstaller* can
    * read it — the renderer keeps it in localStorage, which NSIS has no way

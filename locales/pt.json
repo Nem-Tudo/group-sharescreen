@@ -1610,6 +1610,7 @@
   "connectionStats.cause.freezes": "A imagem travou por alguns instantes nesta tela.",
   "connectionStats.cause.high-rtt": "Latência alta entre vocês (distância ou rede lenta).",
   "connectionStats.cause.low-source-fps": "Quem transmite está enviando poucos quadros — a rede e este computador estão bem.",
+  "connectionStats.cause.no-video": "Nenhum quadro chegou desde que a conexão abriu.",
   "connectionStats.cause.network-loss": "Pacotes se perdendo na rede entre vocês.",
   "connectionStats.cause.receiver-drops": "Este computador está descartando quadros — não está dando conta de decodificar.",
   "connectionStats.cause.sender-bandwidth": "O upload de quem transmite está no limite.",

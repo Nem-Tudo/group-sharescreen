@@ -189,6 +189,39 @@ ganha a causa `low-source-fps`, porque os quadros nunca foram enviados. Os
 experiments abertos a partir dessa leitura são `screen-codec` (variante
 `fps`), `congestion-recover` e `recv-codec`.
 
+Leitura de 30/10/2026 (72 h, ~342 mil relatórios, pares espectador ↔ quem
+transmite cruzados por sala/canal/peers): o fps que o espectador recebe é o
+que quem transmite manda em todos os grupos — a rede responde por ~4% dos
+espectadores. As perdas estão nas pontas, e cada uma virou um experiment
+`sq-*` ("stream quality", ver `lib/streamQuality.ts`):
+
+- `sq-native-key`: a captura por GPU do app (`native-video-capture`) deixava
+  os espectadores 17% do tempo travados (3–5% nos outros encoders). Um encoder
+  serve todos, então cada pedido de quadro-chave vira IDR para todos, e
+  pedidos dentro do intervalo de 250 ms se perdiam. Ligado: pedidos agrupados
+  a 1 por segundo sem descarte, e um slot de quadro-chave que estoura o tempo
+  não é seguido de quadros que dependem do que o espectador nunca recebeu.
+- `sq-weak-sender`: VP9 por software (libvpx) com até 8 núcleos — 45% abaixo
+  de 10 fps com ≤4 núcleos. O libvpx em modo tela descarta quadros por conta
+  própria e não diz em `qualityLimitationReason`. Ligado: teto de 720p.
+- `sq-motion-hold` (site) e `sq-h264-qp` (app): o quality scaler do H264
+  corta a resolução com QP médio > 37 e só sobe com ≤ 24; esses envios
+  ficavam em ~540p com QP ~25 e 3–4x a banda sobrando. O site manda 720p em
+  `maintain-resolution`; o app sobe os limites para 28/44 pelo field trial
+  `WebRTC-Video-QualityScaling` (`electron/webrtcTrials.ts`, vale a partir do
+  próximo início do app).
+- `sq-recv-drops`: o espectador cujo decodificador descarta ≥10% dos quadros
+  por ~20 s pede um tier abaixo para aquele tile (no máximo dois) e volta
+  depois de um minuto limpo.
+
+A medição também mudou, sem experiment: envio traz `sourceFpsAvg` (quadros da
+captura) e `encodeMsAvg`; recebimento traz `visibleShare` e `firstFrameS`;
+slideshow do lado de quem transmite passa a ser ruim (`low-source-fps`);
+slideshow e travadas de um tile fora da tela não contam; `turn-tcp` sozinho
+não marca a sessão como ruim; uma conexão recebida que nunca decodificou um
+quadro (ou nunca conectou) gera relatório com a causa `no-video`; e
+`resolutionChanges` conta também os cortes feitos antes da primeira amostra.
+
 ## Verificar
 
 ```bash
