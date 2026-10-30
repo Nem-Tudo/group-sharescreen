@@ -29,6 +29,7 @@ import { ProModalHost } from "@/components/ProModalHost";
 import { NtPopups } from "@/components/NtPopups";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import { NEWCOMER_INIT_SCRIPT } from "@/lib/newcomer";
+import { LAST_SCREEN_INIT_SCRIPT } from "@/lib/lastScreenInit";
 import { IOS_VIEWPORT_SCRIPT } from "@/lib/iosViewport";
 import { LOCALE_INIT_SCRIPT, LOCALE_TAGS, SERVER_LOCALE } from "@/lib/i18n";
 import { I18nGate } from "@/components/I18nGate";
@@ -297,6 +298,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       suppressHydrationWarning
     >
       <body className="h-full flex flex-col">
+        {/* Before everything, even the theme: when the app is reopening the
+            screen it was closed on, nothing of this home page should be
+            painted or run — see lib/lastScreenInit.ts. */}
+        <script dangerouslySetInnerHTML={{ __html: LAST_SCREEN_INIT_SCRIPT }} />
         {/* First thing in the document, and a plain <script> rather than
             next/script: it has to run before the browser paints anything, and
             every next/script strategy is either later than that or moves it

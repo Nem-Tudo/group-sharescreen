@@ -2,6 +2,12 @@
 
 import { useSyncExternalStore } from "react";
 import { isAppShell } from "@/lib/desktop";
+import {
+  LAST_SCREEN_SESSION_KEY,
+  LAST_SCREEN_STORAGE_KEY,
+  NEVER_RESTORE,
+  REOPEN_LAST_SCREEN_KEY,
+} from "@/lib/lastScreenInit";
 
 // Reopening the app where it was closed — desktop and Android alike.
 //
@@ -16,10 +22,10 @@ import { isAppShell } from "@/lib/desktop";
 // rememberVoiceRoute), because the address alone does not say whether a room
 // is a text or a voice one.
 
-const STORAGE_KEY = "golive:lastScreen";
-const SESSION_KEY = "golive:lastScreenRestored";
+const STORAGE_KEY = LAST_SCREEN_STORAGE_KEY;
+const SESSION_KEY = LAST_SCREEN_SESSION_KEY;
 // This device's choice, set on /me. On unless turned off.
-const ENABLED_KEY = "golive:reopenLastScreen";
+const ENABLED_KEY = REOPEN_LAST_SCREEN_KEY;
 
 const enabledListeners = new Set<() => void>();
 
@@ -48,24 +54,6 @@ function subscribeEnabled(listener: () => void): () => void {
 export function useReopenLastScreen(): boolean {
   return useSyncExternalStore(subscribeEnabled, isReopenLastScreenEnabled, () => true);
 }
-
-// Addresses that join something, or only exist to hand a result over and move
-// on (a login callback, a claim link), and so must not be the first thing a
-// launch opens.
-const NEVER_RESTORE = [
-  "/watch/",
-  "/stream/",
-  "/obs/",
-  "/cam/",
-  "/oauth",
-  "/oauth2",
-  "/desktop/",
-  "/invite/",
-  "/gift/",
-  "/ads",
-  "/ad/",
-  "/download",
-];
 
 /** Voice room address → the group page remembered in its place. */
 const voiceFallbacks = new Map<string, string>();
@@ -108,7 +96,10 @@ export function rememberVoiceRoute(voicePath: string, groupPath: string): void {
 }
 
 /**
- * The screen to open on this launch, if any. Only on the first page load of
+ * The screen to open on this launch, if any. Normally already taken by
+ * LAST_SCREEN_INIT_SCRIPT before the home page painted, which marks the
+ * session; this is the fallback for a shell whose bridge was not there yet
+ * when that script ran. Only on the first page load of
  * the app's session and only when it opened on the home page — a deep link,
  * a notification or the post-update resume (electron/main.ts) opens a
  * specific address and wins; a reload of the home page stays there.
