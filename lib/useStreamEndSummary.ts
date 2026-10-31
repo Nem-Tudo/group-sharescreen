@@ -51,6 +51,8 @@ function minBroadcastMs(raw: unknown): number {
 export type StreamSummaryPopupData = {
   durationSeconds: number;
   people: number;
+  /** Everybody's time in the room during the broadcast, added up. */
+  watchSeconds: number;
 };
 
 /**
@@ -68,6 +70,11 @@ export function useStreamEndSummary(active: boolean, people: readonly string[]) 
 
   const startedAtRef = useRef<number | null>(null);
   const seenRef = useRef(new Set<string>());
+  // The watch time. Time in the room rather than time looking at the stream,
+  // which only each viewer could report: settled as people leave, so this does
+  // nothing between one person coming or going and the next.
+  const presentSinceRef = useRef(new Map<string, number>());
+  const watchedMsRef = useRef(0);
 
   // Read by the ending below, which also has to run from an unmount (leaving
   // the room mid-broadcast ends it too) and so cannot depend on any of these.
@@ -77,8 +84,11 @@ export function useStreamEndSummary(active: boolean, people: readonly string[]) 
       const startedAt = startedAtRef.current;
       startedAtRef.current = null;
       if (startedAt === null || !eligible || !enabled || summaryHidden()) return;
-      const elapsed = Date.now() - startedAt;
+      const now = Date.now();
+      const elapsed = now - startedAt;
       if (elapsed < minMs) return;
+      let watchedMs = watchedMsRef.current;
+      for (const since of presentSinceRef.current.values()) watchedMs += now - since;
       trackFeatureEvent(STREAM_SUMMARY_EVENTS.show, {
         feature: STREAM_SUMMARY_FEATURE,
         value: Math.round(elapsed / 60000),
@@ -86,6 +96,7 @@ export function useStreamEndSummary(active: boolean, people: readonly string[]) 
       const data: StreamSummaryPopupData = {
         durationSeconds: Math.floor(elapsed / 1000),
         people: seenRef.current.size,
+        watchSeconds: Math.floor(watchedMs / 1000),
       };
       openPopup("stream_summary", {
         width: "min(460px, calc(100vw - 30px))",
@@ -99,11 +110,24 @@ export function useStreamEndSummary(active: boolean, people: readonly string[]) 
     if (!active) return;
     startedAtRef.current = Date.now();
     seenRef.current = new Set();
+    presentSinceRef.current = new Map();
+    watchedMsRef.current = 0;
     return () => finishRef.current();
   }, [active]);
 
   useEffect(() => {
     if (!active) return;
-    for (const id of people) seenRef.current.add(id);
+    const now = Date.now();
+    const present = presentSinceRef.current;
+    const here = new Set(people);
+    for (const id of here) {
+      seenRef.current.add(id);
+      if (!present.has(id)) present.set(id, now);
+    }
+    for (const [id, since] of present) {
+      if (here.has(id)) continue;
+      watchedMsRef.current += now - since;
+      present.delete(id);
+    }
   }, [active, people]);
 }

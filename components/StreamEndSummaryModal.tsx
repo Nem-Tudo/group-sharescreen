@@ -1,8 +1,25 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { MdCheck, MdClose, MdGroups, MdHd, MdSchedule, MdScreenShare, MdSpeed, MdTune } from "react-icons/md";
+import {
+  MdBolt,
+  MdCheck,
+  MdClose,
+  MdFace,
+  MdGroups,
+  MdHd,
+  MdPalette,
+  MdSchedule,
+  MdScreenShare,
+  MdSpeed,
+  MdTune,
+  MdVerified,
+  MdVisibility,
+} from "react-icons/md";
+import { PLAN_TONE_BUTTON, type PlanTone } from "@/components/PlanBand";
+import { PLAN_ICONS, type PlanIconId } from "@/components/planIcons";
 import { trackFeatureEvent } from "@/lib/features";
+import { formatLocale } from "@/lib/i18n";
 import { fetchPremiumPlans } from "@/lib/premiumApi";
 import { openProModal } from "@/lib/proModal";
 import { useT } from "@/lib/useI18n";
@@ -14,7 +31,11 @@ import {
   type StreamSummaryPopupData,
 } from "@/lib/useStreamEndSummary";
 
-const PRO_PLAN_ID = "premium";
+// The two plans on offer, each in its own colour and with the badge it gives.
+const OFFERED_PLANS: { id: string; titleKey: string; tone: PlanTone; iconId: PlanIconId }[] = [
+  { id: "premium", titleKey: "streamSummary.seePro", tone: "blue", iconId: "blue_verified" },
+  { id: "premium_max", titleKey: "streamSummary.seeProMax", tone: "gold", iconId: "gold_verified" },
+];
 
 /** The head of the popup: a screen sending its signal out, drawn in CSS. */
 function SummaryArt() {
@@ -44,20 +65,21 @@ function SummaryArt() {
 /** The ntpopups popup type "stream_summary", registered in NtPopups.tsx. */
 export function StreamEndSummaryModal({
   closePopup,
-  data: { durationSeconds, people },
+  data: { durationSeconds, people, watchSeconds },
 }: {
   closePopup: (hasAction?: boolean) => void;
   data: StreamSummaryPopupData;
 }) {
   const t = useT();
-  // The price the API quotes today. Without an answer the button just has no price.
-  const [priceLabel, setPriceLabel] = useState<string | null>(null);
+  // The prices the API quotes today, by plan. Without an answer a button just
+  // has no price.
+  const [priceLabels, setPriceLabels] = useState<Record<string, string>>({});
   useEffect(() => {
     const controller = new AbortController();
     // Personal: this is their own purchase, so the price their account would pay.
     void fetchPremiumPlans(controller.signal, { personal: true }).then((plans) => {
-      const plan = plans.find((entry) => entry.id === PRO_PLAN_ID);
-      if (plan && !controller.signal.aborted) setPriceLabel(plan.priceLabel);
+      if (controller.signal.aborted) return;
+      setPriceLabels(Object.fromEntries(plans.map((entry) => [entry.id, entry.priceLabel])));
     });
     return () => controller.abort();
   }, []);
@@ -70,11 +92,23 @@ export function StreamEndSummaryModal({
   const stats = [
     { Icon: MdSchedule, value: formatDuration(durationSeconds), label: t("streamSummary.timeLive") },
     { Icon: MdGroups, value: String(people), label: t("streamSummary.people") },
+    {
+      Icon: MdVisibility,
+      value: t("streamSummary.watchHoursValue", {
+        hours: (watchSeconds / 3600).toLocaleString(formatLocale(), { maximumFractionDigits: 1 }),
+      }),
+      label: t("streamSummary.watchTime"),
+    },
   ];
+  // Only what both plans on offer include, since either button can buy them.
   const perks = [
     { Icon: MdHd, text: t("streamSummary.perkQuality") },
+    { Icon: MdBolt, text: t("streamSummary.perkBitrate") },
     { Icon: MdSpeed, text: t("streamSummary.perkConnection") },
+    { Icon: MdVerified, text: t("streamSummary.perkVerified") },
     { Icon: MdTune, text: t("streamSummary.perkAds") },
+    { Icon: MdPalette, text: t("streamSummary.perkThemes") },
+    { Icon: MdFace, text: t("streamSummary.perkAvatars") },
   ];
 
   return (
@@ -95,7 +129,7 @@ export function StreamEndSummaryModal({
           <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">{t("streamSummary.finished")}</p>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           {stats.map(({ Icon, value, label }) => (
             <div key={label} className="rounded-xl bg-zinc-100 p-3 dark:bg-zinc-900">
               <Icon className="mb-1 h-4 w-4 text-zinc-400" />
@@ -117,18 +151,37 @@ export function StreamEndSummaryModal({
           </ul>
         </div>
 
-        <button
-          type="button"
-          onClick={() => {
-            trackFeatureEvent(STREAM_SUMMARY_EVENTS.cta, { feature: STREAM_SUMMARY_FEATURE });
-            closePopup(true);
-            openProModal(PRO_PLAN_ID);
-          }}
-          className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-xl bg-emerald-600 px-4 py-3 text-left font-semibold text-white transition hover:bg-emerald-700"
-        >
-          <span>{t("streamSummary.seePro")}</span>
-          {priceLabel && <span className="shrink-0">{t("streamSummary.perMonth", { price: priceLabel })}</span>}
-        </button>
+        <div className="grid grid-cols-2 gap-2">
+          {OFFERED_PLANS.map(({ id, titleKey, tone, iconId }) => {
+            const { Icon, className } = PLAN_ICONS[iconId];
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => {
+                  trackFeatureEvent(STREAM_SUMMARY_EVENTS.cta, { feature: STREAM_SUMMARY_FEATURE });
+                  trackFeatureEvent(`${STREAM_SUMMARY_EVENTS.cta}.${id}`, { feature: STREAM_SUMMARY_FEATURE });
+                  closePopup(true);
+                  openProModal(id);
+                }}
+                className={`flex min-w-0 cursor-pointer items-center gap-2 rounded-xl px-3 py-3 text-left font-semibold text-white transition ${PLAN_TONE_BUTTON[tone]}`}
+              >
+                {/* On white: each badge is the same colour as its own button. */}
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white">
+                  <Icon className={`h-5 w-5 ${className}`} />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm leading-tight">{t(titleKey)}</span>
+                  {priceLabels[id] && (
+                    <span className="block text-xs font-medium opacity-90">
+                      {t("streamSummary.perMonth", { price: priceLabels[id] })}
+                    </span>
+                  )}
+                </span>
+              </button>
+            );
+          })}
+        </div>
         <button
           type="button"
           onClick={() => {
