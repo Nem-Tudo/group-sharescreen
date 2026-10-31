@@ -284,7 +284,8 @@ export function GiftPlanDialog({
 
   useEffect(() => {
     const controller = new AbortController();
-    void fetchPremiumPlans(controller.signal).then(setPlans);
+    // Personal: the buyer's own side of the Pro price experiment.
+    void fetchPremiumPlans(controller.signal, { personal: true }).then(setPlans);
     void fetchMyGifts(controller.signal).then(setMyGifts);
     return () => controller.abort();
   }, []);
@@ -630,7 +631,7 @@ export function GiftPlanDialog({
                               {entry.title.replace(/^Go\s*Live\s+/i, "")}
                             </span>
                             <span className="mt-0.5 block text-lg font-bold tracking-tight text-zinc-950 dark:text-zinc-50">
-                              {entry.cycles?.find((c) => c.cycle === cycle)?.pixPriceLabel ?? entry.pixPriceLabel}
+                              {entry.cycles?.find((c) => c.cycle === cycle)?.priceLabel ?? entry.priceLabel}
                             </span>
                           </span>
                           {chosen && (
@@ -709,7 +710,7 @@ export function GiftPlanDialog({
                     <PixIcon className="h-4 w-4 shrink-0" />
                     {busy
                       ? t("common.generating")
-                      : t("giftPlanDialog.giftItForValue", { value: pricing?.pixPriceLabel ?? plan.pixPriceLabel ?? "" })}
+                      : t("giftPlanDialog.giftItForValue", { value: pricing?.priceLabel ?? plan.priceLabel ?? "" })}
                   </button>
                 )}
                 {!plan.available && (
