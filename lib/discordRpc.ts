@@ -157,6 +157,9 @@ class BrowserDiscordRpcClient {
   private connecting: boolean = false;
   private lastActivity: DiscordActivityPayload | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  // Bumped by disconnect(), so a socket from before it can't revive the client
+  // (a port probe still in flight, or the close event of the one just closed).
+  private attempt: number = 0;
 
   constructor() {}
 
@@ -199,8 +202,13 @@ class BrowserDiscordRpcClient {
     }
 
     let resolved = false;
+    const attempt = this.attempt;
 
     socket.onopen = () => {
+      if (attempt !== this.attempt) {
+        socket.close();
+        return;
+      }
       resolved = true;
       this.ws = socket;
       this.connected = true;
@@ -211,6 +219,7 @@ class BrowserDiscordRpcClient {
     };
 
     socket.onmessage = (event) => {
+      if (attempt !== this.attempt) return;
       try {
         const msg = JSON.parse(event.data);
         if (msg.cmd === "DISPATCH" && msg.evt === "READY") {
@@ -224,6 +233,7 @@ class BrowserDiscordRpcClient {
     };
 
     socket.onerror = () => {
+      if (attempt !== this.attempt) return;
       if (!resolved) {
         resolved = true;
         try {
@@ -234,6 +244,7 @@ class BrowserDiscordRpcClient {
     };
 
     socket.onclose = () => {
+      if (attempt !== this.attempt) return;
       this.connected = false;
       this.connecting = false;
       this.ws = null;
@@ -282,7 +293,15 @@ class BrowserDiscordRpcClient {
     this.setActivity(null);
   }
 
+  // Turned off: closing the socket is also what makes Discord drop the activity,
+  // and nothing reconnects until the next setActivity.
+  public stop() {
+    this.lastActivity = null;
+    this.disconnect();
+  }
+
   public disconnect() {
+    this.attempt++;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -308,7 +327,14 @@ function getBrowserRpcClient(): BrowserDiscordRpcClient {
 
 const selectSelfScreen = (state: SignalingState) => state.selfScreen;
 const selectSelfCamera = (state: SignalingState) => state.selfCamera;
-const selectPeers = (state: SignalingState) => state.peers;
+// Moderator "ghost" peers ride the same list, and this count is shown publicly
+// on the Discord profile: including them would reveal that one is in the room.
+const selectVisiblePeerCount = (state: SignalingState) =>
+  state.peers.filter((peer) => peer.role !== "moderator").length;
+
+// What the last discord_rpc_update counted. Leaves out the peer count, so people
+// coming and going in a room don't each count as a use of the feature.
+let lastTrackedActivity: string | null = null;
 
 /**
  * Global component that reports app presence to Discord RPC:
@@ -321,7 +347,7 @@ export function DiscordRpcReporter() {
   const callSession = useCallSession();
   const isSharingScreen = useSignalingSelector(selectSelfScreen);
   const isSharingCamera = useSignalingSelector(selectSelfCamera);
-  const peers = useSignalingSelector(selectPeers);
+  const visiblePeerCount = useSignalingSelector(selectVisiblePeerCount);
   const { enabled: featureAllowed } = useFeature(DISCORD_RPC_FEATURE, { track: true });
 
   const clientId = getEffectiveDiscordClientId(settings);
@@ -333,7 +359,7 @@ export function DiscordRpcReporter() {
       if (isDesktopApp) {
         bridge?.discordRpcClear?.();
       } else {
-        getBrowserRpcClient().clearActivity();
+        getBrowserRpcClient().stop();
       }
       return;
     }
@@ -364,7 +390,7 @@ export function DiscordRpcReporter() {
     let buttons: Array<{ label: string; url: string }> | undefined = undefined;
 
     if (inCall) {
-      const peerCount = peers.length + 1; // peers + self
+      const peerCount = visiblePeerCount + 1; // peers + self
 
       if (isPrivate && settings.hidePrivateDetails) {
         // Privacy mode for private room / DM
@@ -440,7 +466,11 @@ export function DiscordRpcReporter() {
       getBrowserRpcClient().setActivity(payload);
     }
 
-    trackFeatureEvent(DISCORD_RPC_EVENTS.update);
+    const trackedActivity = JSON.stringify([callSession?.handle ?? null, isSharingScreen, isSharingCamera]);
+    if (trackedActivity !== lastTrackedActivity) {
+      lastTrackedActivity = trackedActivity;
+      trackFeatureEvent(DISCORD_RPC_EVENTS.update);
+    }
   }, [
     featureAllowed,
     settings,
@@ -448,7 +478,7 @@ export function DiscordRpcReporter() {
     callSession,
     isSharingScreen,
     isSharingCamera,
-    peers,
+    visiblePeerCount,
     clientId,
     bridge,
     isDesktopApp,
