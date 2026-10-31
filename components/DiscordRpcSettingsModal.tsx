@@ -10,6 +10,7 @@ import {
 import { useFeature } from "@/lib/features";
 import { DISCORD_RPC_FEATURE } from "@/lib/discordRpc";
 import { useT } from "@/lib/useI18n";
+import { useAuth } from "@/lib/AuthContext";
 
 export function DiscordRpcSettingsModal({
   open,
@@ -23,6 +24,10 @@ export function DiscordRpcSettingsModal({
   const { enabled: featureAllowed } = useFeature(DISCORD_RPC_FEATURE, { track: false });
   const [customIdInput, setCustomIdInput] = useState(settings.customClientId || "");
   const [idSaved, setIdSaved] = useState(false);
+  const { account } = useAuth();
+  const canManageClientId = Boolean(
+    account?.flags?.includes("DISCORD_RICH_PRESENCE_MANAGE") || account?.flags?.includes("ADMIN")
+  );
 
   if (!open) return null;
 
@@ -52,7 +57,7 @@ export function DiscordRpcSettingsModal({
             <div>
               <h2 className="text-lg font-bold">Discord Rich Presence</h2>
               <p className="text-xs text-neutral-400">
-                Mostre o status do GoLive no seu perfil do Discord
+                Mostre o status do Go Live no seu perfil do Discord
               </p>
             </div>
           </div>
@@ -107,6 +112,54 @@ export function DiscordRpcSettingsModal({
             </label>
           </div>
 
+          <div className="flex items-center justify-between rounded-xl bg-white/5 p-4 border border-white/5">
+            <div>
+              <div className="font-semibold text-white">Mostrar o nome em chamada pública</div>
+              <div className="text-xs text-neutral-400">Exibe o nome da sala pública em que você está.</div>
+            </div>
+            <label className="relative inline-flex cursor-pointer items-center shrink-0">
+              <input
+                type="checkbox"
+                className="peer sr-only"
+                checked={settings.showPublicRoomName}
+                onChange={(e) => updateSettings({ showPublicRoomName: e.target.checked })}
+              />
+              <div className="peer h-6 w-11 rounded-full bg-neutral-700 peer-checked:bg-[#5865F2] after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full"></div>
+            </label>
+          </div>
+
+          <div className="flex items-center justify-between rounded-xl bg-white/5 p-4 border border-white/5">
+            <div>
+              <div className="font-semibold text-white">Mostrar o nome em chamada em grupo</div>
+              <div className="text-xs text-neutral-400">Exibe o nome do grupo e da sala de voz em que você está.</div>
+            </div>
+            <label className="relative inline-flex cursor-pointer items-center shrink-0">
+              <input
+                type="checkbox"
+                className="peer sr-only"
+                checked={settings.showGroupName}
+                onChange={(e) => updateSettings({ showGroupName: e.target.checked })}
+              />
+              <div className="peer h-6 w-11 rounded-full bg-neutral-700 peer-checked:bg-[#5865F2] after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full"></div>
+            </label>
+          </div>
+
+          <div className="flex items-center justify-between rounded-xl bg-white/5 p-4 border border-white/5">
+            <div>
+              <div className="font-semibold text-white">Botão para entrar</div>
+              <div className="text-xs text-neutral-400">Adiciona um botão para a sala pública ou para o grupo, quando o nome dele estiver visível.</div>
+            </div>
+            <label className="relative inline-flex cursor-pointer items-center shrink-0">
+              <input
+                type="checkbox"
+                className="peer sr-only"
+                checked={settings.showJoinButton}
+                onChange={(e) => updateSettings({ showJoinButton: e.target.checked })}
+              />
+              <div className="peer h-6 w-11 rounded-full bg-neutral-700 peer-checked:bg-[#5865F2] after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full"></div>
+            </label>
+          </div>
+
           {/* Account info toggle */}
           <div className="flex items-center justify-between rounded-xl bg-white/5 p-4 border border-white/5">
             <div className="flex items-start gap-3">
@@ -114,7 +167,7 @@ export function DiscordRpcSettingsModal({
               <div>
                 <div className="font-semibold text-white">Mostrar nome de usuário e perfil</div>
                 <div className="text-xs text-neutral-400">
-                  Exibe seu nome de usuário do GoLive e adiciona botão com link para seu perfil público.
+                  Exibe seu nome de usuário do Go Live e adiciona botão com link para seu perfil público.
                 </div>
               </div>
             </div>
@@ -152,7 +205,7 @@ export function DiscordRpcSettingsModal({
           </div>
 
           {/* Configurable Client ID from .env or override */}
-          <div className="rounded-xl bg-white/5 p-4 border border-white/5 space-y-2">
+          {canManageClientId && <div className="rounded-xl bg-white/5 p-4 border border-white/5 space-y-2">
             <div className="flex items-center justify-between">
               <div className="text-xs font-semibold text-neutral-300">
                 Discord Client ID (.env ou customizado)
@@ -186,7 +239,7 @@ export function DiscordRpcSettingsModal({
             <p className="text-[11px] text-neutral-400 leading-relaxed">
               Por padrão, usa a variável de ambiente <code>NEXT_PUBLIC_DISCORD_CLIENT_ID</code> do <code>.env</code>.
             </p>
-          </div>
+          </div>}
         </div>
 
         <div className="mt-6 flex justify-end">

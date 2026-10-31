@@ -82,6 +82,11 @@ const FEATURE_FLAGS: KnownFlagItem[] = [
     description: "Concedida a usuários que presenteiam assinaturas na comunidade.",
   },
   {
+    flag: "DISCORD_RICH_PRESENCE_MANAGE",
+    label: "Gerenciar Discord Rich Presence",
+    description: "Pode ver e trocar o Discord Client ID nas configurações de Rich Presence.",
+  },
+  {
     flag: "THEME_BANNED",
     label: "Banido de Temas",
     description: "Bloqueado de criar, publicar ou utilizar temas personalizados de sala.",

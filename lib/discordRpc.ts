@@ -7,6 +7,10 @@ import type { SignalingState } from "./signalingClient";
 import { useSignalingSelector } from "./useSignalingSelector";
 import { useCallSession } from "./callSession";
 import { isPrivateRoomHandle } from "./roomsApi";
+import { groupPath } from "./groupLinks";
+import { recentRoomPresentation } from "./recentRooms";
+import { useRoomToolsSelector, type ToolKind } from "./roomTools";
+import { useGroupDetail } from "./useGroups";
 import { trackFeatureEvent, useFeature } from "./features";
 
 // Discord Rich Presence Integration for PC (Desktop/Electron), Web/Browser & Mobile.
@@ -26,6 +30,9 @@ export const DISCORD_RPC_EVENTS = {
   disabled: "discord_rpc_disabled",
   privacyToggled: "discord_rpc_privacy_toggle",
   update: "discord_rpc_update",
+  publicNameToggled: "discord_rpc_public_name",
+  groupNameToggled: "discord_rpc_group_name",
+  joinButtonToggled: "discord_rpc_join_button",
 } as const;
 
 const SETTINGS_KEY = "sharescreen:discordRpc:settings";
@@ -35,6 +42,9 @@ export interface DiscordRpcSettings {
   hidePrivateDetails: boolean;
   showAccountInfo: boolean;
   showActivityStats: boolean;
+  showPublicRoomName: boolean;
+  showGroupName: boolean;
+  showJoinButton: boolean;
   customClientId?: string;
 }
 
@@ -43,6 +53,9 @@ const DEFAULT_SETTINGS: DiscordRpcSettings = {
   hidePrivateDetails: true,
   showAccountInfo: true,
   showActivityStats: true,
+  showPublicRoomName: true,
+  showGroupName: false,
+  showJoinButton: true,
 };
 
 let memorySettings: DiscordRpcSettings = DEFAULT_SETTINGS;
@@ -84,6 +97,15 @@ export function updateDiscordRpcSettings(patch: Partial<DiscordRpcSettings>) {
   }
   if (patch.hidePrivateDetails !== undefined && patch.hidePrivateDetails !== current.hidePrivateDetails) {
     trackFeatureEvent(DISCORD_RPC_EVENTS.privacyToggled, { value: patch.hidePrivateDetails ? 1 : 0 });
+  }
+  if (patch.showPublicRoomName !== undefined && patch.showPublicRoomName !== current.showPublicRoomName) {
+    trackFeatureEvent(DISCORD_RPC_EVENTS.publicNameToggled, { value: patch.showPublicRoomName ? 1 : 0 });
+  }
+  if (patch.showGroupName !== undefined && patch.showGroupName !== current.showGroupName) {
+    trackFeatureEvent(DISCORD_RPC_EVENTS.groupNameToggled, { value: patch.showGroupName ? 1 : 0 });
+  }
+  if (patch.showJoinButton !== undefined && patch.showJoinButton !== current.showJoinButton) {
+    trackFeatureEvent(DISCORD_RPC_EVENTS.joinButtonToggled, { value: patch.showJoinButton ? 1 : 0 });
   }
   writeSettings(next);
 }
@@ -327,6 +349,25 @@ function getBrowserRpcClient(): BrowserDiscordRpcClient {
 
 const selectSelfScreen = (state: SignalingState) => state.selfScreen;
 const selectSelfCamera = (state: SignalingState) => state.selfCamera;
+const selectMusicPlaying = (state: SignalingState) => state.music?.playing ?? false;
+const selectHasVideoSource = (state: SignalingState) => state.videoSources.length > 0;
+
+const SITE_URL = "https://golive.nemtudo.me";
+// Discord draws two buttons at most and drops the activity's extras past that.
+const MAX_BUTTONS = 2;
+
+const TOOL_LABELS: Partial<Record<ToolKind, string>> = {
+  whiteboard: "quadro branco",
+  notepad: "bloco de notas",
+  annotate: "anotações",
+  poll: "enquete",
+  code: "editor de código",
+  tasks: "tarefas",
+  sheet: "planilha",
+  doc: "documento",
+  wheel: "roleta",
+  calc: "calculadora",
+};
 // Moderator "ghost" peers ride the same list, and this count is shown publicly
 // on the Discord profile: including them would reveal that one is in the room.
 const selectVisiblePeerCount = (state: SignalingState) =>
@@ -348,7 +389,19 @@ export function DiscordRpcReporter() {
   const isSharingScreen = useSignalingSelector(selectSelfScreen);
   const isSharingCamera = useSignalingSelector(selectSelfCamera);
   const visiblePeerCount = useSignalingSelector(selectVisiblePeerCount);
+  const musicPlaying = useSignalingSelector(selectMusicPlaying);
+  const hasVideoSource = useSignalingSelector(selectHasVideoSource);
+  const toolLabel = useRoomToolsSelector((s) => {
+    for (const tool of s.tools) {
+      const label = TOOL_LABELS[tool.kind];
+      if (label) return label;
+    }
+    return null;
+  });
   const { enabled: featureAllowed } = useFeature(DISCORD_RPC_FEATURE, { track: true });
+  const callGroupId = callSession?.group?.groupId ?? null;
+  const callGroup = useGroupDetail(featureAllowed && settings.enabled ? callGroupId : null).detail?.group ?? null;
+  const groupLinkAllowed = callGroup?.visibility === "public" && callGroup.richPresenceLink !== false;
 
   const clientId = getEffectiveDiscordClientId(settings);
   const bridge = getDesktopBridge();
@@ -374,76 +427,80 @@ export function DiscordRpcReporter() {
     }
 
     // Determine current user state
-    const username = account?.displayName || account?.username || "Usuário GoLive";
-    const avatarUrl = account?.avatarUrl || undefined;
+    const username = account?.displayName || account?.username || "Usuário Go Live";
 
     const inCall = Boolean(callSession?.handle);
     const isPrivate = inCall && (Boolean(callSession?.dm) || isPrivateRoomHandle(callSession!.handle));
 
-    let details = "Navegando no GoLive";
+    let details = "Navegando no Go Live";
     let state = settings.showAccountInfo ? `@${account?.username || username}` : "Online";
-    let largeImage = "golive_logo";
-    let largeText = "GoLive";
+    const largeImage = "golive_logo";
+    const largeText = "Go Live";
     let smallImage: string | undefined = undefined;
     let smallText: string | undefined = undefined;
     let party: { id?: string; size?: [number, number] } | undefined = undefined;
-    let buttons: Array<{ label: string; url: string }> | undefined = undefined;
+    const buttons: Array<{ label: string; url: string }> = [];
 
     if (inCall) {
       const peerCount = visiblePeerCount + 1; // peers + self
 
-      if (isPrivate && settings.hidePrivateDetails) {
-        // Privacy mode for private room / DM
-        details = callSession?.dm ? "Em chamada direta (DM)" : "Em uma sala privada";
-        state = isSharingScreen
-          ? "Transmitindo tela 🔴"
-          : isSharingCamera
-          ? "Em vídeo 📹"
-          : `${peerCount} ${peerCount === 1 ? "participante" : "participantes"}`;
-        smallImage = isSharingScreen ? "screen_share" : "voice_call";
-        smallText = isSharingScreen ? "Compartilhando tela" : "Em chamada";
-      } else {
-        // Public room or explicit details allowed
-        const roomName = callSession?.group
-          ? `${callSession.group.groupName} #${callSession.group.channelName}`
-          : callSession?.handle || "Sala GoLive";
+      const activity: string[] = [];
+      if (settings.showActivityStats) {
+        if (isSharingScreen) activity.push("Transmitindo tela");
+        if (isSharingCamera) activity.push("Câmera 📹");
+        if (musicPlaying) activity.push("Ouvindo música");
+        if (hasVideoSource) activity.push("Assistindo a um vídeo");
+        if (toolLabel) activity.push(`Usando ${toolLabel}`);
+      }
+      state = activity.length > 0
+        ? activity.join(" • ")
+        : `${peerCount} ${peerCount === 1 ? "pessoa" : "pessoas"}`;
+      smallImage = isSharingScreen ? "screen_share" : "voice_call";
+      smallText = activity[0] ?? "Em chamada";
 
-        details = `Em chamada: ${roomName}`;
-
-        const statusFlags: string[] = [];
-        if (isSharingScreen) statusFlags.push("Transmitindo tela 🔴");
-        if (isSharingCamera) statusFlags.push("Câmera 📹");
-        if (statusFlags.length === 0) {
-          statusFlags.push(`${peerCount} ${peerCount === 1 ? "pessoa" : "pessoas"}`);
+      // Which kind of call, and whether it may be named. A button leads to what
+      // it names, so a hidden name takes the button with it.
+      let named = false;
+      if (callSession?.group) {
+        named = settings.showGroupName;
+        details = named
+          ? `Em chamada em grupo: ${callSession.group.groupName} #${callSession.group.channelName}`
+          : "Em uma chamada em grupo";
+        if (named && settings.showJoinButton && groupLinkAllowed) {
+          buttons.push({ label: "Ir para o grupo", url: `${SITE_URL}${groupPath(callSession.group.groupId)}` });
         }
-
-        state = statusFlags.join(" • ");
-        smallImage = isSharingScreen ? "screen_share" : "voice_call";
-        smallText = isSharingScreen ? "Compartilhando tela" : "Em chamada";
-
-        if (callSession?.handle && !isPrivate) {
-          party = {
-            id: `golive-${callSession.handle}`,
-            size: [peerCount, 50],
-          };
-          buttons = [
-            {
-              label: "Entrar na Sala",
-              url: `https://golive.nemtudo.me/watch/${encodeURIComponent(callSession.handle)}`,
-            },
-          ];
+      } else if (isPrivate) {
+        named = !settings.hidePrivateDetails;
+        if (named) details = `Em chamada: ${callSession?.dm?.displayName ?? callSession!.handle}`;
+        else details = callSession?.dm ? "Em chamada direta (DM)" : "Em uma sala privada";
+      } else {
+        named = settings.showPublicRoomName;
+        details = named
+          ? `Em chamada pública: ${recentRoomPresentation(callSession!.handle).name}`
+          : "Em uma chamada pública";
+        if (named && settings.showJoinButton) {
+          buttons.push({
+            label: "Entrar na sala",
+            url: `${SITE_URL}/watch/${encodeURIComponent(callSession!.handle)}`,
+          });
         }
       }
-    } else {
-      if (account?.username && settings.showAccountInfo) {
-        buttons = [
-          {
-            label: "Ver Perfil no GoLive",
-            url: `https://golive.nemtudo.me/user/${encodeURIComponent(account.username)}`,
-          },
-        ];
+
+      if (named && !isPrivate) {
+        party = {
+          id: `golive-${callSession!.handle}`,
+          size: [peerCount, 50],
+        };
       }
     }
+
+    if (account?.username && settings.showAccountInfo) {
+      buttons.push({
+        label: "Ver perfil",
+        url: `${SITE_URL}/user/${encodeURIComponent(account.username)}`,
+      });
+    }
+    buttons.push({ label: "Abrir o Go Live", url: SITE_URL });
 
     const payload: DiscordActivityPayload = {
       details,
@@ -456,7 +513,7 @@ export function DiscordRpcReporter() {
         small_text: smallText,
       },
       party,
-      buttons,
+      buttons: buttons.slice(0, MAX_BUTTONS),
       instance: false,
     };
 
@@ -479,6 +536,10 @@ export function DiscordRpcReporter() {
     isSharingScreen,
     isSharingCamera,
     visiblePeerCount,
+    musicPlaying,
+    hasVideoSource,
+    toolLabel,
+    groupLinkAllowed,
     clientId,
     bridge,
     isDesktopApp,

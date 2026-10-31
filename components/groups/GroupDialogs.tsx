@@ -98,6 +98,7 @@ import { CUSTOM_EMOJI_BADGE, CUSTOM_EMOJI_FEATURE } from "@/lib/customEmoji";
 import { BASE_GROUP_EMOJI_SLOTS, DEFAULT_AURA_LEVELS } from "@/lib/groupAura";
 import { NewBadge } from "@/components/NewBadge";
 import { useFeature } from "@/lib/features";
+import { DISCORD_RPC_FEATURE } from "@/lib/discordRpc";
 import { GROUP_AURA_BADGE, GROUP_AURA_FEATURE } from "@/lib/groupAura";
 import {
   canManage,
@@ -942,6 +943,7 @@ function OverviewTab({ groupId, onGoToMap }: { groupId: string; onGoToMap: () =>
   const { openPopup } = useNtPopups();
   const { account } = useAuth();
   const hasThemePlan = hasFeature("room_theme_set", account?.features ?? []);
+  const richPresenceFeature = useFeature(DISCORD_RPC_FEATURE, { track: false }).enabled;
   const [name, setName] = useState(detail?.group.name ?? "");
   const [description, setDescription] = useState(detail?.group.description ?? "");
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -1019,6 +1021,27 @@ function OverviewTab({ groupId, onGoToMap }: { groupId: string; onGoToMap: () =>
         />
       </label>
       <VisibilitySection groupId={groupId} onGoToMap={onGoToMap} />
+      {richPresenceFeature && (
+        <label className="flex cursor-pointer items-start gap-3">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-4 w-4 shrink-0"
+            checked={detail.group.richPresenceLink !== false}
+            disabled={busy}
+            onChange={async (e) => {
+              setBusy(true);
+              const result = await updateGroup(groupId, { richPresenceLink: e.target.checked });
+              setBusy(false);
+              if (result.ok) void refreshGroup(groupId);
+              else setMessage({ ok: false, text: result.error });
+            }}
+          />
+          <span className="flex flex-col gap-0.5">
+            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("groups.groupDialogs.richPresenceLink")}</span>
+            <span className="text-sm text-zinc-500 dark:text-zinc-400">{t("groups.groupDialogs.richPresenceLinkHelp")}</span>
+          </span>
+        </label>
+      )}
       <div className="flex flex-col gap-1.5">
         <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("common.groupTheme")}</span>
         <div className="flex items-center gap-3">

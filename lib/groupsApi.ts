@@ -195,6 +195,8 @@ export interface GroupInfo {
   description: string;
   iconUrl: string | null;
   visibility: GroupVisibility;
+  /** Whether members' Discord Rich Presence may carry a button to this group. */
+  richPresenceLink?: boolean;
   /** The group's theme by id, or null for each person's own. See the API's groupModels. */
   theme: string | null;
   /** "VERIFIED" draws the badge beside the name — see components/groups/GroupName. */
@@ -437,7 +439,7 @@ export const fetchGroupVoice = (groupId: string, signal?: AbortSignal) =>
     signal
   );
 
-export const updateGroup = (groupId: string, patch: { name?: string; description?: string }) =>
+export const updateGroup = (groupId: string, patch: { name?: string; description?: string; richPresenceLink?: boolean }) =>
   request<{ group: GroupInfo }>("PATCH", `/groups/${enc(groupId)}`, patch);
 
 /** `image` is a data URL, already downscaled by lib/avatarImage's prepareAvatarImage. */

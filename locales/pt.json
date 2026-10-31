@@ -5378,5 +5378,7 @@
   "watch.watchRoom.taskbarUnmuteMic": "Ligar microfone",
   "watch.watchRoom.taskbarDeafen": "Silenciar",
   "watch.watchRoom.taskbarUndeafen": "Parar de silenciar",
-  "watch.watchRoom.taskbarLeaveCall": "Sair da chamada"
+  "watch.watchRoom.taskbarLeaveCall": "Sair da chamada",
+  "groups.groupDialogs.richPresenceLink": "Mostrar no Rich Presence do Discord",
+  "groups.groupDialogs.richPresenceLinkHelp": "Quem está em chamada aqui pode exibir um botão para o grupo no perfil do Discord."
 }
