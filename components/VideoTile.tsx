@@ -56,6 +56,7 @@ import { announceRecording } from "@/lib/recordingNotice";
 import { registerTileCommands } from "@/lib/tileCommands";
 import { ConnectionStatsOverlay } from "@/components/ConnectionStatsOverlay";
 import { OwnStreamStatsOverlay } from "@/components/OwnStreamStatsOverlay";
+import { TurnUpsellTileMessage } from "@/components/TurnUpsellNotice";
 import type { QualityChannel } from "@/lib/qualityNegotiation";
 import { VolumeSlider } from "@/components/VolumeSlider";
 import { Tooltip, Popover } from "@/components/Tooltip";
@@ -1062,8 +1063,10 @@ const VideoTileView = memo(function VideoTileView({
       {mediaKey && <AnnotationLayer annotationKey={mediaKey} videoRef={videoRef} focused={isSpotlighted || isHyperfocused || isFullscreen} />}
       {mediaKey && <ReactionFloats mediaKey={mediaKey} />}
       {isVideoLoading && (
-        <div className="absolute inset-0 flex items-center justify-center">
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
           <div className="h-10 w-10 animate-spin rounded-full border-4 border-white/20 border-t-white/80" />
+          {/* Only someone else's stream: connectionStats is what marks one. */}
+          {connectionStats && <TurnUpsellTileMessage compact={compact} />}
         </div>
       )}
       {/* Deliberately outside the overlay that hides itself: once the picture
