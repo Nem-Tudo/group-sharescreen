@@ -24,7 +24,7 @@ import type { BillingCycle } from "@/lib/premiumApi";
 import { useAuth } from "@/lib/AuthContext";
 import { AccountModal, type AccountModalMode } from "@/components/AccountModal";
 import { PixChargeModal } from "@/components/PixChargeModal";
-import { holdPaymentShake, useShake } from "@/lib/useShake";
+import { holdPaymentShake } from "@/lib/useShake";
 import { CardCheckoutModal } from "@/components/CardCheckoutModal";
 import { DeferredDowngradeModal } from "@/components/DeferredDowngradeModal";
 import useNtPopups from "ntpopups";
@@ -1135,7 +1135,8 @@ export function ProPanel({
       cycle,
       taxId.trim() || undefined
     );
-    await holdPaymentShake(startedAt);
+    // Only where something is shaking: a popup, not the page itself.
+    if (isModal || pix) await holdPaymentShake(startedAt);
     if (!result.ok) {
       setError(result.error);
       if (result.needsEmail) setNeedsEmail(true);
@@ -1157,7 +1158,7 @@ export function ProPanel({
     setBusy(false);
     setGenerating(false);
     // See handleSubscribe: plan?.id is what this buys.
-  }, [email, taxId, plan?.id, cycle, premium?.currentPeriodEnd]);
+  }, [email, taxId, plan?.id, cycle, premium?.currentPeriodEnd, isModal, pix]);
 
   // Pix is paid in a banking app, which tells this page nothing. Polling is
   // the only way it learns — the focus listener above does not fire, because
@@ -1209,7 +1210,7 @@ export function ProPanel({
       email.trim() || undefined,
       taxId.trim() || undefined
     );
-    await holdPaymentShake(startedAt);
+    if (isModal || upgradePix) await holdPaymentShake(startedAt);
     if (!result.ok) {
       setError(result.error);
       if (result.needsEmail) setNeedsEmail(true);
@@ -1222,19 +1223,17 @@ export function ProPanel({
     setBusy(false);
     setGenerating(false);
     return true;
-  }, [email, taxId, plan]);
+  }, [email, taxId, plan, isModal, upgradePix]);
 
   // The same top-up by card, in the form on this page. Starts the new plan's
   // subscription too, so it replaces the "Assinatura" option where it is offered.
   const handleUpgradeCard = useCallback(async () => {
     if (!plan) return;
     trackFeatureEvent("pro_upgrade_card_click");
-    const startedAt = Date.now();
     setBusy(true);
     setGenerating(true);
     setError(null);
     const result = await startUpgradeCard(plan.id, email.trim() || undefined);
-    await holdPaymentShake(startedAt);
     if (result.ok) {
       setInlineUpgradeDays(result.remainingDays);
       setInlineCheckout(result.inline);
@@ -1318,10 +1317,6 @@ export function ProPanel({
       dialogOpen: Boolean(pix || upgradePix || inlineCheckout || deferredOpen),
     });
   }, [generating, pix, upgradePix, inlineCheckout, deferredOpen, onCheckoutLockChange]);
-  // On the page there is no dialog around this panel to shake: the card with
-  // the pay buttons does it instead.
-  useShake(() => checkoutCardRef.current, !isModal && generating && !pix && !upgradePix);
-
   // What was bought, for all three payment dialogs below. Their own plan, so
   // their own face in the confetti.
   const purchaseConfirmation = plan

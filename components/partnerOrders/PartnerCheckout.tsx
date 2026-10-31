@@ -94,7 +94,8 @@ export function PartnerCheckout({
         return;
       }
       trackPartnerOrderEvent(SELF_SERVE_PARTNER_EVENTS.checkoutPix, target.amountCents);
-      await holdPaymentShake(startedAt);
+      // Only a new code from inside the dialog: the page itself does not shake.
+      if (pix) await holdPaymentShake(startedAt);
       setPix(result.pix);
     } catch (err) {
       if (err instanceof PartnerOrderError) {

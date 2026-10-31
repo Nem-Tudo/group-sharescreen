@@ -45,6 +45,8 @@ export type StripeClient = {
   createEmbeddedCheckoutPage(options: {
     fetchClientSecret: () => Promise<string>;
     onComplete?: () => void;
+    /** A private preview at Stripe: never fires on an account without access. */
+    onAnalyticsEvent?: (event: { eventType: string }) => void;
   }): Promise<StripeEmbeddedCheckout>;
 };
 

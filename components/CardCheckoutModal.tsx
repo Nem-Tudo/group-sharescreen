@@ -74,8 +74,9 @@ function CheckoutDialog({
   const [paid, setPaid] = useState(false);
   const paidRef = useRef(false);
   // From the press of "pagar" until the answer, and at least a second. Embedded
-  // is Stripe's own button in Stripe's iframe, whose press this page never
-  // hears: there it starts when the payment completes.
+  // is Stripe's own button in Stripe's iframe: only checkoutSubmitted says it
+  // was pressed (see EmbeddedForm), and without it this starts when the payment
+  // completes.
   const [shaking, setShaking] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const revealTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -152,7 +153,7 @@ function CheckoutDialog({
               onClose={onClose}
             />
           ) : checkout.ui === "embedded" ? (
-            <EmbeddedForm checkout={checkout} onPaid={handlePaid} />
+            <EmbeddedForm checkout={checkout} onConfirming={setShaking} onPaid={handlePaid} />
           ) : (
             <CardForm
               checkout={checkout}
@@ -186,7 +187,15 @@ function Loading() {
 }
 
 /** Stripe's Embedded Checkout, mounted into our dialog. */
-function EmbeddedForm({ checkout, onPaid }: { checkout: InlineCheckout; onPaid: () => void }) {
+function EmbeddedForm({
+  checkout,
+  onConfirming,
+  onPaid,
+}: {
+  checkout: InlineCheckout;
+  onConfirming: (confirming: boolean) => void;
+  onPaid: (shakingSince?: number) => void;
+}) {
   const { locale } = useI18n();
   const hostRef = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
@@ -194,16 +203,41 @@ function EmbeddedForm({ checkout, onPaid }: { checkout: InlineCheckout; onPaid: 
   useEffect(() => {
     onPaidRef.current = onPaid;
   }, [onPaid]);
+  const onConfirmingRef = useRef(onConfirming);
+  useEffect(() => {
+    onConfirmingRef.current = onConfirming;
+  }, [onConfirming]);
 
   useEffect(() => {
     let cancelled = false;
     let instance: StripeEmbeddedCheckout | null = null;
+    let submittedAt: number | undefined;
+    let giveUp: ReturnType<typeof setTimeout> | undefined;
+    const stopConfirming = () => {
+      clearTimeout(giveUp);
+      onConfirmingRef.current(false);
+    };
     (async () => {
       try {
         const stripe = await getStripe(checkout.publishableKey, stripeLocale(locale));
         const created = await stripe.createEmbeddedCheckoutPage({
           fetchClientSecret: async () => checkout.clientSecret,
-          onComplete: () => onPaidRef.current(),
+          onComplete: () => {
+            clearTimeout(giveUp);
+            onPaidRef.current(submittedAt);
+          },
+          onAnalyticsEvent: ({ eventType }) => {
+            if (eventType === "checkoutSubmitted") {
+              submittedAt = Date.now();
+              onConfirmingRef.current(true);
+              // These events are best effort at Stripe, and the × stays disabled
+              // while this shakes: a lost answer must not trap anybody.
+              clearTimeout(giveUp);
+              giveUp = setTimeout(stopConfirming, 90_000);
+            } else if (eventType === "checkoutSubmitFailed" && submittedAt) {
+              void holdPaymentShake(submittedAt).then(stopConfirming);
+            }
+          },
         });
         // Stripe allows one Embedded Checkout on a page at a time: one created
         // after this effect was already torn down must go straight away.
@@ -223,6 +257,7 @@ function EmbeddedForm({ checkout, onPaid }: { checkout: InlineCheckout; onPaid: 
     })();
     return () => {
       cancelled = true;
+      clearTimeout(giveUp);
       instance?.destroy();
     };
   }, [checkout, locale]);
