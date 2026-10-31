@@ -2847,6 +2847,9 @@ function WatchRoomView({
     }
   });
 
+  // A Pro subscriber's ad never takes a place among the screens (see the
+  // sponsored tile below), so with the column folded it has nowhere to be.
+  const partnerTileBlocked = Boolean(account?.features?.includes("no_ads"));
   const {
     ad: activePartnerAd,
     rawPartner: rawActivePartner,
@@ -2860,7 +2863,11 @@ function WatchRoomView({
     // rooms column does (see GroupPartnerSlot) — so this one must not count;
     // not until that column is folded away, when the ad is this room's to draw.
   } = usePartnerAd({
-    visible: visible && !callLayout && !(group && isWideLayout && !leftSidebarCollapsed),
+    visible:
+      visible &&
+      !callLayout &&
+      !(group && isWideLayout && !leftSidebarCollapsed) &&
+      !(partnerTileBlocked && isWideLayout && leftSidebarCollapsed),
   });
   // A Pro Max subscriber may close the group's ad (see GroupPartnerSlot); the
   // one this room draws in its place is the same ad, and stays closed with it.
@@ -6639,7 +6646,8 @@ function WatchRoomView({
     // it for an advertisement, and the conversation's page carries its own.
     !callLayout &&
     !(group && groupAdHidden) &&
-    !partnerAdHidden
+    !partnerAdHidden &&
+    !partnerTileBlocked
   ) {
     const adId = "sponsored-partner-tile";
     tiles.push({
