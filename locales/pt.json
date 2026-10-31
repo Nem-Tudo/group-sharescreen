@@ -2916,6 +2916,7 @@
   "pro.proPanel.upgradeSubscriptionHint": "Hoje você paga só o valor do upgrade acima. A partir de {date}, sua assinatura passa a cobrar {value}/mês automaticamente — sem precisar voltar aqui.",
   "pro.proPanel.upgradeViaPix": "Pix",
   "pro.proPanel.upgradeViaSubscription": "Assinatura",
+  "pro.proPanel.upgradeWithCard": "Pagar {value} no cartão",
   "pro.proPanel.upgradeRemainingDays": "Cobrança única — restam {days} dias no seu ciclo, e a data de renovação não muda.",
   "pro.proPanel.upgradeTo": "Upgrade para",
   "pro.proPanel.upgradeToValue": "Upgrade para {value}",

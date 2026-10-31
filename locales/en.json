@@ -2916,6 +2916,7 @@
   "pro.proPanel.upgradeSubscriptionHint": "Today you only pay the upgrade amount above. From {date} on, your subscription starts billing {value}/month automatically — no need to come back here.",
   "pro.proPanel.upgradeViaPix": "Pix",
   "pro.proPanel.upgradeViaSubscription": "Subscription",
+  "pro.proPanel.upgradeWithCard": "Pay {value} by card",
   "pro.proPanel.upgradeRemainingDays": "One-time charge — {days} days left in your cycle, and your renewal date does not change.",
   "pro.proPanel.upgradeTo": "Upgrade to",
   "pro.proPanel.upgradeToValue": "Upgrade to {value}",

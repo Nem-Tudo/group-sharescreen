@@ -34,6 +34,14 @@ import { useResolvedTheme } from "@/lib/useTheme";
 // Events (all counted in the admin's "site events" for checkout-inline):
 //   pro_checkout_inline_open / _complete / _close / _load_error
 //   pro_checkout_card_submit, pro_checkout_card_error(.<code>)  — custom only
+//
+// Also pays an upgrade's top-up (the `pro-upgrade-card` experiment), always as
+// "embedded". Counted apart, as pro_upgrade_card_open / _complete / _close /
+// _load_error, so it does not move the completion rate above.
+
+function inlineEvent(checkout: InlineCheckout, name: string): string {
+  return `${checkout.upgrade ? "pro_upgrade_card" : "pro_checkout_inline"}_${name}`;
+}
 
 type CardCheckoutModalProps = {
   checkout: InlineCheckout | null;
@@ -82,17 +90,17 @@ function CheckoutDialog({
   // One open per checkout, and one close for every open that did not pay —
   // the pair the experiment's completion rate is read from.
   useEffect(() => {
-    trackFeatureEvent("pro_checkout_inline_open");
-    trackFeatureEvent(`pro_checkout_inline_open.${checkout.ui}`);
+    trackFeatureEvent(inlineEvent(checkout, "open"));
+    if (!checkout.upgrade) trackFeatureEvent(`pro_checkout_inline_open.${checkout.ui}`);
     return () => {
-      if (!paidRef.current) trackFeatureEvent("pro_checkout_inline_close");
+      if (!paidRef.current) trackFeatureEvent(inlineEvent(checkout, "close"));
     };
   }, [checkout]);
 
   const handlePaid = (shakingSince = Date.now()) => {
     if (paidRef.current) return;
     paidRef.current = true;
-    trackFeatureEvent("pro_checkout_inline_complete");
+    trackFeatureEvent(inlineEvent(checkout, "complete"));
     onPaid();
     setShaking(true);
     revealTimer.current = setTimeout(() => {
@@ -209,7 +217,7 @@ function EmbeddedForm({ checkout, onPaid }: { checkout: InlineCheckout; onPaid: 
       } catch (err) {
         if (cancelled) return;
         console.error("[checkout] Embedded checkout failed to start:", (err as Error).message);
-        trackFeatureEvent("pro_checkout_inline_load_error");
+        trackFeatureEvent(inlineEvent(checkout, "load_error"));
         setState("error");
       }
     })();
@@ -293,7 +301,7 @@ function CardForm({
       } catch (err) {
         if (cancelled) return;
         console.error("[checkout] Card form failed to start:", (err as Error).message);
-        trackFeatureEvent("pro_checkout_inline_load_error");
+        trackFeatureEvent(inlineEvent(checkout, "load_error"));
         setState("error");
       }
     })();

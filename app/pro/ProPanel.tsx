@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import {
   MdArrowUpward,
   MdCardGiftcard,
+  MdCreditCard,
   MdCheck,
   MdClose,
   MdExpandMore,
@@ -42,6 +43,7 @@ import {
   isPremiumActive,
   startPixPayment,
   startPremiumCheckout,
+  startUpgradeCard,
   startUpgradePix,
   startUpgradeSchedule,
   type InlineCheckout,
@@ -369,6 +371,9 @@ export function ProPanel({
     stripeRollout.enabled &&
     stripeRollout.variant !== "pix";
   const [inlineCheckout, setInlineCheckout] = useState<InlineCheckout | null>(null);
+  // How many days an upgrade's form is paying for. Null for a subscription,
+  // which pays one cycle.
+  const [inlineUpgradeDays, setInlineUpgradeDays] = useState<number | null>(null);
   const compareLayout = compare.enabled && plans.length > 1;
   // The "buy-top" treatment: the price and checkout card above the table.
   const buyOnTop = compare.variant === PRO_COMPARE_BUY_TOP;
@@ -519,6 +524,9 @@ export function ProPanel({
   const canUpgrade = Boolean(
     active && !activeHere && effectivePlanId && plan && tierAbove(planTierOf(plan.id), planTierOf(effectivePlanId))
   );
+  // Paying that upgrade by card. Counted only where the upgrade is on offer.
+  const upgradeCard = useFeature("pro-upgrade-card", { track: canUpgrade }).enabled;
+  const upgradeCardOffered = upgradeCard && Boolean(upgradeQuote?.cardAvailable);
   // The plan on screen is *below* the one still running. Sold by card only,
   // and deferred: charged today, starting when the higher plan ends (see the
   // API's /premium/subscribe and DeferredDowngradeModal). Not while a carried
@@ -1216,6 +1224,28 @@ export function ProPanel({
     return true;
   }, [email, taxId, plan]);
 
+  // The same top-up by card, in the form on this page. Starts the new plan's
+  // subscription too, so it replaces the "Assinatura" option where it is offered.
+  const handleUpgradeCard = useCallback(async () => {
+    if (!plan) return;
+    trackFeatureEvent("pro_upgrade_card_click");
+    const startedAt = Date.now();
+    setBusy(true);
+    setGenerating(true);
+    setError(null);
+    const result = await startUpgradeCard(plan.id, email.trim() || undefined);
+    await holdPaymentShake(startedAt);
+    if (result.ok) {
+      setInlineUpgradeDays(result.remainingDays);
+      setInlineCheckout(result.inline);
+    } else {
+      setError(result.error);
+      if (result.needsEmail) setNeedsEmail(true);
+    }
+    setBusy(false);
+    setGenerating(false);
+  }, [email, plan]);
+
   // Schedules the mandate that takes over billing, at the new plan's full
   // price, the moment the current cycle runs out — see startUpgradeSchedule.
   // Opens the provider's checkout the same way handleSubscribe does: a blank
@@ -1856,7 +1886,7 @@ export function ProPanel({
                               just today: the plan changes now, and renewing
                               it again later is a manual purchase, same as any
                               other Pix plan. */}
-                          {premium?.scheduledUpgradeRef ? (
+                          {premium?.scheduledUpgradeRef && !upgradeCardOffered ? (
                             <p className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
                               {t("pro.proPanel.upgradeScheduled", {
                                 value: periodEndLabel(premium.currentPeriodEnd),
@@ -1871,7 +1901,20 @@ export function ProPanel({
                             </p>
                           )}
                           <div className="flex flex-wrap gap-2">
-                            {!premium?.scheduledUpgradeRef && (
+                            {upgradeCardOffered && (
+                              <button
+                                type="button"
+                                onClick={handleUpgradeCard}
+                                disabled={busy || (needsEmail && !email.trim())}
+                                className={`flex items-center gap-2 ${subscribeButtonClass}`}
+                              >
+                                <MdCreditCard className="h-4 w-4 shrink-0" />
+                                {busy
+                                  ? t("pro.proPanel.openingThePayment")
+                                  : t("pro.proPanel.upgradeWithCard", { value: upgradeQuote?.amountLabel ?? "—" })}
+                              </button>
+                            )}
+                            {!upgradeCardOffered && !premium?.scheduledUpgradeRef && (
                               <button
                                 type="button"
                                 onClick={handleUpgradeSubscription}
@@ -2095,9 +2138,10 @@ export function ProPanel({
             : ""
         }
         confirmation={purchaseConfirmation}
-        days={pricing?.periodDays ?? null}
+        days={inlineUpgradeDays ?? pricing?.periodDays ?? null}
         onClose={() => {
           setInlineCheckout(null);
+          setInlineUpgradeDays(null);
           void syncStatus(true);
         }}
         onPaid={() => {
