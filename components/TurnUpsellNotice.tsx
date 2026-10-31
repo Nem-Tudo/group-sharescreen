@@ -5,6 +5,7 @@ import { MdClose } from "react-icons/md";
 import { VerifiedBadgeIcon } from "./icons";
 import { useT } from "@/lib/useI18n";
 import { useOpenPro } from "@/lib/proModal";
+import { noteProSourceCta } from "@/lib/proSourceAttribution";
 import { trackFeatureEvent, useFeature } from "@/lib/features";
 import { dismissTurnUpsell, useTurnUpsell } from "@/lib/turnUpsell";
 
@@ -49,6 +50,7 @@ export function TurnUpsellTileMessage({ compact = false }: { compact?: boolean }
         onClick={(event) => {
           event.stopPropagation();
           trackFeatureEvent(TURN_UPSELL_EVENTS.click, { feature: TURN_UPSELL_FEATURE });
+          noteProSourceCta("turnUpsell");
           openPro();
         }}
         className="mt-1 flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700"
@@ -84,6 +86,7 @@ export default function TurnUpsellNotice() {
           type="button"
           onClick={() => {
             trackFeatureEvent(TURN_UPSELL_EVENTS.click, { feature: TURN_UPSELL_FEATURE });
+            noteProSourceCta("turnUpsell");
             openPro();
           }}
           className="mt-2 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50"

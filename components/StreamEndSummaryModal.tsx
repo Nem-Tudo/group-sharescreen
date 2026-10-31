@@ -22,13 +22,13 @@ import { trackFeatureEvent } from "@/lib/features";
 import { formatLocale } from "@/lib/i18n";
 import { fetchPremiumPlans } from "@/lib/premiumApi";
 import { openProModal } from "@/lib/proModal";
+import { noteProSourceCta } from "@/lib/proSourceAttribution";
 import { useT } from "@/lib/useI18n";
 import { formatDuration } from "@/lib/userProfile";
 import {
   STREAM_SUMMARY_EVENTS,
   STREAM_SUMMARY_FEATURE,
   hideStreamSummary,
-  noteStreamSummaryCta,
   type StreamSummaryPopupData,
 } from "@/lib/useStreamEndSummary";
 
@@ -162,7 +162,7 @@ export function StreamEndSummaryModal({
                 onClick={() => {
                   trackFeatureEvent(STREAM_SUMMARY_EVENTS.cta, { feature: STREAM_SUMMARY_FEATURE });
                   trackFeatureEvent(`${STREAM_SUMMARY_EVENTS.cta}.${id}`, { feature: STREAM_SUMMARY_FEATURE });
-                  noteStreamSummaryCta();
+                  noteProSourceCta("streamSummary");
                   closePopup(true);
                   openProModal(id);
                 }}

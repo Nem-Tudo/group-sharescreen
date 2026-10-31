@@ -16,36 +16,9 @@ export const STREAM_SUMMARY_FEATURE = "stream-end-summary";
 export const STREAM_SUMMARY_EVENTS = {
   show: "stream_summary_show", // value: minutes transmitted
   cta: "stream_summary_cta",
-  // Pressed pay after arriving from the summary. The API attributes the sale
-  // from this one: stream_summary_purchase, on the account (streamSummaryStats).
-  checkout: "stream_summary_checkout",
   close: "stream_summary_close",
   never: "stream_summary_never",
 };
-
-// When the summary's button was last pressed. Per browser because a guest has
-// no account yet: the plan page asks them to make one before they can pay.
-const CTA_AT_KEY = "sharescreen:streamSummaryCtaAt";
-const CHECKOUT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
-
-export function noteStreamSummaryCta() {
-  try {
-    window.localStorage.setItem(CTA_AT_KEY, String(Date.now()));
-  } catch {
-    // Storage refused: that sale just goes unattributed.
-  }
-}
-
-/** Called by the pay buttons: counts only for whoever came from the summary. */
-export function trackStreamSummaryCheckout() {
-  try {
-    const at = Number(window.localStorage.getItem(CTA_AT_KEY));
-    if (!at || Date.now() - at > CHECKOUT_WINDOW_MS) return;
-  } catch {
-    return;
-  }
-  trackFeatureEvent(STREAM_SUMMARY_EVENTS.checkout, { feature: STREAM_SUMMARY_FEATURE });
-}
 
 // "Não mostrar de novo". Per browser, like the room's other switches: a guest
 // has no account to keep it on.
