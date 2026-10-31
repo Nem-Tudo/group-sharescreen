@@ -16,7 +16,6 @@ import {
   MdVerified,
   MdVisibility,
 } from "react-icons/md";
-import { PLAN_TONE_BUTTON, type PlanTone } from "@/components/PlanBand";
 import { PLAN_ICONS, type PlanIconId } from "@/components/planIcons";
 import { trackFeatureEvent } from "@/lib/features";
 import { formatLocale } from "@/lib/i18n";
@@ -32,10 +31,20 @@ import {
   type StreamSummaryPopupData,
 } from "@/lib/useStreamEndSummary";
 
-// The two plans on offer, each in its own colour and with the badge it gives.
-const OFFERED_PLANS: { id: string; titleKey: string; tone: PlanTone; iconId: PlanIconId }[] = [
-  { id: "premium", titleKey: "streamSummary.seePro", tone: "blue", iconId: "blue_verified" },
-  { id: "premium_max", titleKey: "streamSummary.seeProMax", tone: "gold", iconId: "gold_verified" },
+// The two plans on offer, each with the badge it gives and an edge in its colour.
+const OFFERED_PLANS: { id: string; titleKey: string; toneClass: string; iconId: PlanIconId }[] = [
+  {
+    id: "premium",
+    titleKey: "streamSummary.seePro",
+    toneClass: "border-blue-500/40 hover:border-blue-500 hover:bg-blue-500/10 dark:hover:bg-blue-500/10",
+    iconId: "blue_verified",
+  },
+  {
+    id: "premium_max",
+    titleKey: "streamSummary.seeProMax",
+    toneClass: "border-amber-500/40 hover:border-amber-500 hover:bg-amber-500/10 dark:hover:bg-amber-500/10",
+    iconId: "gold_verified",
+  },
 ];
 
 /** The head of the popup: a screen sending its signal out, drawn in CSS. */
@@ -153,7 +162,7 @@ export function StreamEndSummaryModal({
         </div>
 
         <div className="grid grid-cols-2 gap-2">
-          {OFFERED_PLANS.map(({ id, titleKey, tone, iconId }) => {
+          {OFFERED_PLANS.map(({ id, titleKey, toneClass, iconId }) => {
             const { Icon, className } = PLAN_ICONS[iconId];
             return (
               <button
@@ -166,16 +175,13 @@ export function StreamEndSummaryModal({
                   closePopup(true);
                   openProModal(id);
                 }}
-                className={`flex min-w-0 cursor-pointer items-center gap-2 rounded-xl px-3 py-3 text-left font-semibold text-white transition ${PLAN_TONE_BUTTON[tone]}`}
+                className={`flex min-w-0 cursor-pointer items-center gap-2.5 rounded-xl border bg-zinc-100 px-3 py-2.5 text-left transition dark:bg-zinc-900 ${toneClass}`}
               >
-                {/* On white: each badge is the same colour as its own button. */}
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white">
-                  <Icon className={`h-5 w-5 ${className}`} />
-                </span>
+                <Icon className={`h-6 w-6 shrink-0 ${className}`} />
                 <span className="min-w-0">
-                  <span className="block text-sm leading-tight">{t(titleKey)}</span>
+                  <span className="block text-sm font-semibold leading-tight">{t(titleKey)}</span>
                   {priceLabels[id] && (
-                    <span className="block text-xs font-medium opacity-90">
+                    <span className="mt-0.5 block text-xs text-zinc-500 dark:text-zinc-400">
                       {t("streamSummary.perMonth", { price: priceLabels[id] })}
                     </span>
                   )}
