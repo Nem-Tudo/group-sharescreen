@@ -265,8 +265,14 @@ export function GiftPlanDialog({
   const ready = mode === "link" || Boolean(addressed);
   const unclaimed = myGifts.filter((gift) => gift.code && gift.status === "paid");
 
-  // While a charge is being created the popup cannot be closed — not by
-  // Escape, not by the backdrop, not by the ×. The request is creating a
+  // Only the × closes this popup: a stray click or Escape would take away the
+  // recipient being chosen or the code being paid. Set here rather than where
+  // it is opened, because it is opened from several places.
+  useEffect(() => {
+    if (id) updatePopup(id, { closeOnEscape: false, closeOnClickOutside: false });
+  }, [id, updatePopup]);
+
+  // While a charge is being created the × is refused too. The request is creating a
   // charge at the payment provider, and closing now would throw away the only screen
   // that could show its code. `requireAction` is the library's own lock: with
   // it on, only closePopup(true) gets through, and nothing here calls that

@@ -68,14 +68,6 @@ function CheckoutDialog({
     };
   }, [checkout]);
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   const handlePaid = () => {
     if (paidRef.current) return;
     paidRef.current = true;
@@ -84,13 +76,14 @@ function CheckoutDialog({
     onPaid();
   };
 
+  // Only the × closes it: a stray click or Escape would throw away a half-typed
+  // card.
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div
         role="dialog"
         aria-modal="true"
         aria-label={t("cardCheckoutModal.title")}
-        onClick={(e) => e.stopPropagation()}
         className={`flex max-h-[92vh] w-full flex-col overflow-hidden rounded-2xl border border-black/10 bg-white shadow-xl dark:border-white/10 dark:bg-zinc-950 ${
           checkout.ui === "embedded" && !paid ? "max-w-lg" : "max-w-sm"
         }`}

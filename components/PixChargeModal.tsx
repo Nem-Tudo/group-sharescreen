@@ -131,43 +131,21 @@ type PixChargeModalProps = {
  */
 export function PixChargeModal({ charge, ...rest }: PixChargeModalProps) {
   const { t, tc } = useI18n();
-  // Escape closes it. A dialog that can only be dismissed by hitting one small
-  // target is a dialog somebody feels trapped in, and this one opens from a
-  // payment button — the worst possible moment to feel that.
-  //
-  // On the shell rather than in the body: the other shell is inside a popup
-  // whose library already answers this key, and two handlers for one press
-  // would close the step and the popup behind it at once.
-  const { onClose, busy } = rest;
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      // Not while a charge is being created — see `busy`.
-      if (event.key === "Escape" && !busy) onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, busy]);
+  const { busy } = rest;
   const cardRef = useRef<HTMLDivElement>(null);
   useShake(() => cardRef.current, Boolean(charge && busy));
 
   if (!charge) return null;
+  // Only the × closes it: a stray click or Escape would take away the code
+  // somebody is in the middle of paying.
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-      onClick={() => {
-        if (!busy) onClose();
-      }}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div
         ref={cardRef}
         role="dialog"
         aria-modal="true"
         aria-busy={busy || undefined}
         aria-label={t("pixChargeModal.paymentViaPix")}
-        // Without this, a click anywhere inside the card bubbles to the
-        // backdrop and closes the dialog — including a click on the copy
-        // button, which is the one thing this screen exists for.
-        onClick={(e) => e.stopPropagation()}
         className="flex max-h-[90vh] w-full max-w-sm flex-col overflow-y-auto rounded-2xl border border-black/10 bg-white shadow-xl dark:border-white/10 dark:bg-zinc-950"
       >
         <PixChargeContent key={charge.paymentId} charge={charge} {...rest} />

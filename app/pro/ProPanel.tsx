@@ -252,9 +252,11 @@ export function ProPanel({
    * tremble. Two answers because they differ in one case — a new Pix code
    * requested from inside the Pix dialog, which shakes itself, and which sits
    * inside the dialog around this panel: shaking that one too would move the
-   * Pix dialog out from under the person (see ProModal).
+   * Pix dialog out from under the person (see ProModal). `dialogOpen`: one of
+   * the payment dialogs below is up, and those close only by their own ×, so
+   * Escape must not take the dialog around this panel away with them.
    */
-  onCheckoutLockChange?: (lock: { locked: boolean; shake: boolean }) => void;
+  onCheckoutLockChange?: (lock: { locked: boolean; shake: boolean; dialogOpen: boolean }) => void;
 } = {}) {
   const t = useT();
   const { account, loading: resolvingAccount, refresh } = useAuth();
@@ -1278,8 +1280,9 @@ export function ProPanel({
     onCheckoutLockChange?.({
       locked: generating,
       shake: generating && !pix && !upgradePix,
+      dialogOpen: Boolean(pix || upgradePix || inlineCheckout || deferredOpen),
     });
-  }, [generating, pix, upgradePix, onCheckoutLockChange]);
+  }, [generating, pix, upgradePix, inlineCheckout, deferredOpen, onCheckoutLockChange]);
 
 
 

@@ -23,7 +23,7 @@ export function ProModal({ open, planId, onClose }: ProModalProps) {
   // Held while the panel inside is creating a payment (see ProPanel's
   // onCheckoutLockChange): the dialog shakes and every way out — Escape, the
   // backdrop, the × — is refused until the API answers.
-  const [lock, setLock] = useState({ locked: false, shake: false });
+  const [lock, setLock] = useState({ locked: false, shake: false, dialogOpen: false });
   const cardRef = useRef<HTMLDivElement>(null);
   // Wider for the comparison table, which needs a column per plan. Not an
   // exposure — the panel inside reports that.
@@ -36,9 +36,11 @@ export function ProModal({ open, planId, onClose }: ProModalProps) {
   // children are placed against — would drag the Pix dialog along with it.
   useShake(() => cardRef.current, open && lock.shake);
 
-  const handleLockChange = useCallback((next: { locked: boolean; shake: boolean }) => {
+  const handleLockChange = useCallback((next: { locked: boolean; shake: boolean; dialogOpen: boolean }) => {
     setLock((current) =>
-      current.locked === next.locked && current.shake === next.shake ? current : next
+      current.locked === next.locked && current.shake === next.shake && current.dialogOpen === next.dialogOpen
+        ? current
+        : next
     );
   }, []);
   const guardedClose = useCallback(() => {
@@ -48,11 +50,11 @@ export function ProModal({ open, planId, onClose }: ProModalProps) {
   useEffect(() => {
     if (!open) return;
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") guardedClose();
+      if (e.key === "Escape" && !lock.dialogOpen) guardedClose();
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [open, guardedClose]);
+  }, [open, guardedClose, lock.dialogOpen]);
 
   useEffect(() => {
     if (!open) return;
