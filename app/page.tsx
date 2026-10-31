@@ -1141,6 +1141,12 @@ export default function Home() {
           style={{ alignItems: "center" }}
         >
           <Link
+            href="/transmitir-tela-online"
+            className="underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-300"
+          >
+            {t("screenGuide.h1")}
+          </Link>
+          <Link
             href="/terms"
             className="underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-300"
           >

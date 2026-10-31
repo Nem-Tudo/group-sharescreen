@@ -446,6 +446,13 @@ export function DiscordBotContent() {
         <SocialLinks className="mb-8" />
         <p>
           <Link
+            href="/transmitir-tela-online"
+            className="underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-300"
+          >
+            {translate("screenGuide.h1")}
+          </Link>
+          {" · "}
+          <Link
             href="/terms"
             className="underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-300"
           >
