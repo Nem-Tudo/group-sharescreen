@@ -1620,13 +1620,6 @@ export function ProPanel({
               </p>
             )}
 
-            {/* The table above already lists every benefit, per plan. */}
-            {!compareLayout && (
-              <ul className="mt-4 flex flex-col gap-2">
-                {featureRows(plan)}
-              </ul>
-            )}
-
             <div className="mt-6">
               {/* A refusal, said plainly and with a way forward. Mercado
                   Pago's reason codes are for us, not for the buyer — the one
@@ -2076,6 +2069,14 @@ export function ProPanel({
               <p className="mt-3 text-sm text-red-600 dark:text-red-400" role="alert">
                 {error}
               </p>
+            )}
+
+            {/* Under the buttons, so buying does not take a scroll past every
+                benefit. With the table, that already lists them per plan. */}
+            {!compareLayout && (
+              <ul className="mt-5 flex flex-col gap-2 border-t border-zinc-200 pt-5 dark:border-zinc-800">
+                {featureRows(plan)}
+              </ul>
             )}
           </>
         )}
