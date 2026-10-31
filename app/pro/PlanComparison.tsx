@@ -26,6 +26,8 @@ export const PRO_COMPARE_FEATURE = "pro-compare-table";
  * "buy-top" moves it above (see ProPanel).
  */
 export const PRO_COMPARE_BUY_TOP = "buy-top";
+/** The page rebuilt around a hero and one card per plan (see ProCardsLayout). */
+export const PRO_COMPARE_CARDS = "cards";
 /**
  * The popup with the checkout in a fixed column beside the table, from lg up,
  * and the title always in reach below that (see ProPanel and ProModal).
