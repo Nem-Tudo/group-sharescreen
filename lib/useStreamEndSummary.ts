@@ -19,7 +19,13 @@ export const STREAM_SUMMARY_EVENTS = {
   close: "stream_summary_close",
 };
 
-const MIN_BROADCAST_MS = 10 * 60 * 1000;
+/** Without a usable `minMinutes` in the feature's public data. */
+const DEFAULT_MIN_MINUTES = 10;
+
+function minBroadcastMs(raw: unknown): number {
+  const minutes = typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_MIN_MINUTES;
+  return minutes * 60 * 1000;
+}
 
 export type StreamSummaryPopupData = {
   durationSeconds: number;
@@ -36,7 +42,8 @@ export function useStreamEndSummary(active: boolean, people: readonly string[]) 
   // Selling the plan to somebody who has one, or to a guest with no account to
   // put it on, says nothing useful.
   const eligible = Boolean(account && !account.bot && accountTierOf(account.flags) === "account");
-  const { enabled } = useFeature(STREAM_SUMMARY_FEATURE, { track: eligible && active });
+  const { enabled, data: featureData } = useFeature(STREAM_SUMMARY_FEATURE, { track: eligible && active });
+  const minMs = minBroadcastMs(featureData.minMinutes);
 
   const startedAtRef = useRef<number | null>(null);
   const seenRef = useRef(new Set<string>());
@@ -50,7 +57,7 @@ export function useStreamEndSummary(active: boolean, people: readonly string[]) 
       startedAtRef.current = null;
       if (startedAt === null || !eligible || !enabled) return;
       const elapsed = Date.now() - startedAt;
-      if (elapsed < MIN_BROADCAST_MS) return;
+      if (elapsed < minMs) return;
       trackFeatureEvent(STREAM_SUMMARY_EVENTS.show, {
         feature: STREAM_SUMMARY_FEATURE,
         value: Math.round(elapsed / 60000),
@@ -65,7 +72,7 @@ export function useStreamEndSummary(active: boolean, people: readonly string[]) 
         data,
       });
     };
-  }, [eligible, enabled, openPopup]);
+  }, [eligible, enabled, minMs, openPopup]);
 
   useEffect(() => {
     if (!active) return;

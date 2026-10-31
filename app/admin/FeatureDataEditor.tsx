@@ -12,6 +12,7 @@ export interface FeatureDataDraft {
   general: string;
   variants: Record<string, string>;
   split: { name: string; weight: string; data: string }[];
+  public: string;
 }
 
 const pretty = (value: unknown) => (value ? JSON.stringify(value, null, 2) : "");
@@ -23,6 +24,7 @@ export function featureDataDraft(data: Record<string, unknown> | undefined): Fea
     general: pretty(data?.general),
     variants: Object.fromEntries(Object.entries(variants).map(([name, value]) => [name, pretty(value)])),
     split: split.map((option) => ({ name: option.name, weight: String(option.weight), data: pretty(option.data) })),
+    public: pretty(data?.public),
   };
 }
 
@@ -48,6 +50,8 @@ const parseWeight = (text: string) => {
  */
 export function buildFeatureData(draft: FeatureDataDraft, variants: string[]): Record<string, unknown> | null {
   const general = parseBox(draft.general);
+  const publicData = parseBox(draft.public);
+  if (!publicData) return null;
   const byVariant = variants.map((name) => [name, parseBox(draft.variants[name] ?? "")] as const);
   const split = draft.split.map((option) => ({
     name: option.name.trim(),
@@ -62,6 +66,7 @@ export function buildFeatureData(draft: FeatureDataDraft, variants: string[]): R
     ...(Object.keys(general).length > 0 ? { general } : {}),
     ...(filled.length > 0 ? { variants: Object.fromEntries(filled) } : {}),
     ...(split.length > 0 ? { split } : {}),
+    ...(Object.keys(publicData).length > 0 ? { public: publicData } : {}),
   };
 }
 
@@ -123,6 +128,12 @@ export function FeatureDataEditor({
           />
         </div>
       ))}
+
+      <div className="flex flex-col gap-1">
+        <p className={heading}>{t("admin.features.dataPublic")}</p>
+        <p className={hint}>{t("admin.features.dataPublicHint")}</p>
+        <JsonBox value={draft.public} placeholder='{ "minMinutes": 10 }' onChange={(text) => onChange({ ...draft, public: text })} />
+      </div>
 
       <div className="flex flex-col gap-2">
         <div>
