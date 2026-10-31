@@ -96,6 +96,18 @@
         border-radius: 6px;
         display: block;
       }
+      /* Stands in for the cards while main reads the sources. */
+      .skeleton { cursor: default; pointer-events: none; }
+      .skeleton:hover { border-color: var(--border); }
+      .skeleton i {
+        display: block;
+        border-radius: 6px;
+        background: var(--border);
+        animation: skeleton-pulse 1.2s ease-in-out infinite;
+      }
+      .skeleton i.thumb { aspect-ratio: 16 / 10; }
+      .skeleton i.line { height: 12px; width: 65%; margin: 3px 0; }
+      @keyframes skeleton-pulse { 50% { opacity: 0.45; } }
       .label { display: flex; align-items: center; gap: 6px; min-width: 0; }
       .label img { width: 16px; height: 16px; flex: none; }
       .label span {
@@ -298,7 +310,11 @@
       <button type="button" data-tab="screen" aria-selected="true">Telas</button>
       <button type="button" data-tab="window" aria-selected="false">Janelas</button>
     </nav>
-    <main id="grid"></main>
+    <main id="grid" aria-busy="true">
+      <div class="card skeleton"><i class="thumb"></i><i class="line"></i></div>
+      <div class="card skeleton"><i class="thumb"></i><i class="line"></i></div>
+      <div class="card skeleton"><i class="thumb"></i><i class="line"></i></div>
+    </main>
 
     <div id="backdrop" hidden></div>
     <div id="audio-panel" hidden role="dialog" aria-label="Configurações de som">
@@ -382,6 +398,7 @@
         var hideCount = document.getElementById("hide-count");
 
         var sources = [];
+        var sourcesLoaded = false;
         var tab = "screen";
         var selectedId = null;
 
@@ -436,6 +453,9 @@
         }
 
         function render() {
+          // A tab clicked before the list arrives keeps the placeholders; the
+          // tab itself is already marked, and the list renders onto it.
+          if (!sourcesLoaded) return;
           var visible = sources.filter(function (s) {
             return s.kind === tab;
           });
@@ -779,6 +799,8 @@
 
         window.picker.list().then(function (data) {
           sources = data.sources;
+          sourcesLoaded = true;
+          grid.removeAttribute("aria-busy");
           // The surface this machine shared last, when it is still open (main
           // resolves it against this very list, so anything that arrives here
           // is real — see PickerData.selectedId). Pre-selecting it makes the

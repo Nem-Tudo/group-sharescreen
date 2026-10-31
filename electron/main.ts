@@ -402,17 +402,6 @@ async function resolveSavedShareSource(): Promise<DesktopCapturerSource | null> 
 }
 
 async function pickSource(parent: BrowserWindow | null): Promise<PickResult> {
-  const sources = await desktopCapturer.getSources({
-    types: ["screen", "window"],
-    thumbnailSize: { width: 320, height: 200 },
-    fetchWindowIcons: true,
-  });
-  if (sources.length === 0) return { source: null, audio: null, hidden: null };
-  // Whether covering a window is on the table at all. Both halves matter and
-  // neither is guessable from the other: the machine has to be able to run
-  // the helper, and the page has to actually be going to use it.
-  const canHide = willUseNativeVideo() && (await probeNativeVideo()).supported;
-
   const picker = new BrowserWindow({
     parent: parent ?? undefined,
     modal: Boolean(parent),
@@ -433,38 +422,70 @@ async function pickSource(parent: BrowserWindow | null): Promise<PickResult> {
     },
   });
   picker.setMenuBarVisibility(false);
-
-  const payload: PickerSource[] = sources.map((source) => ({
-    id: source.id,
-    name: source.name,
-    thumbnail: source.thumbnail.toDataURL(),
-    kind: source.id.startsWith("screen:") ? "screen" : "window",
-    appIcon: source.appIcon && !source.appIcon.isEmpty() ? source.appIcon.toDataURL() : null,
-  }));
-
-  const data: PickerData = {
-    // Pre-selects the last shared surface when it is still on this list —
-    // see PickerData.selectedId. Matched here, where both the saved value
-    // and the live list are in hand.
-    selectedId: matchSavedSourceIn(sources)?.id ?? null,
-    sources: payload,
-    audio: {
-      // Windows, Linux, and macOS 13+ (see MAC_LOOPBACK_SUPPORTED). Elsewhere
-      // there is no system audio to offer at all, so the row is not drawn
-      // rather than drawn and inert.
-      supported: systemAudioSupported(),
-      // Leaving individual applications out needs the native helper. Without
-      // it the only honest choice is all of the sound or none of it.
-      perApp: isSystemAudioExclusionSupported(),
-      enabled: getSystemAudioSettings().enabled,
-    },
-    video: {
-      supported: canHide,
-      hiddenCount: canHide ? getHiddenWindowSettings().hiddenApps.length : 0,
-    },
-  };
+  // The window opens before the sources are read, so the click answers at once
+  // and picker.html draws placeholders in the meantime. Kept out of capture
+  // until then, or every screen thumbnail would be a picture of the picker.
+  picker.setContentProtection(true);
+  const pickerSourceId = picker.getMediaSourceId();
 
   return new Promise((resolve) => {
+    let sources: DesktopCapturerSource[] = [];
+    const shown = new Promise<void>((resolveShown) => {
+      picker.once("ready-to-show", () => {
+        picker.show();
+        resolveShown();
+      });
+    });
+    const data = shown.then(async (): Promise<PickerData> => {
+      const captured = await desktopCapturer.getSources({
+        types: ["screen", "window"],
+        thumbnailSize: { width: 320, height: 200 },
+        fetchWindowIcons: true,
+      });
+      if (!picker.isDestroyed()) picker.setContentProtection(false);
+      sources = captured.filter((source) => source.id !== pickerSourceId);
+      if (sources.length === 0) finish(null);
+      // Whether covering a window is on the table at all. Both halves matter and
+      // neither is guessable from the other: the machine has to be able to run
+      // the helper, and the page has to actually be going to use it.
+      const canHide = willUseNativeVideo() && (await probeNativeVideo()).supported;
+
+      const payload: PickerSource[] = sources.map((source) => ({
+        id: source.id,
+        name: source.name,
+        thumbnail: source.thumbnail.toDataURL(),
+        kind: source.id.startsWith("screen:") ? "screen" : "window",
+        appIcon: source.appIcon && !source.appIcon.isEmpty() ? source.appIcon.toDataURL() : null,
+      }));
+
+      return {
+        // Pre-selects the last shared surface when it is still on this list —
+        // see PickerData.selectedId. Matched here, where both the saved value
+        // and the live list are in hand.
+        selectedId: matchSavedSourceIn(sources)?.id ?? null,
+        sources: payload,
+        audio: {
+          // Windows, Linux, and macOS 13+ (see MAC_LOOPBACK_SUPPORTED). Elsewhere
+          // there is no system audio to offer at all, so the row is not drawn
+          // rather than drawn and inert.
+          supported: systemAudioSupported(),
+          // Leaving individual applications out needs the native helper. Without
+          // it the only honest choice is all of the sound or none of it.
+          perApp: isSystemAudioExclusionSupported(),
+          enabled: getSystemAudioSettings().enabled,
+        },
+        video: {
+          supported: canHide,
+          hiddenCount: canHide ? getHiddenWindowSettings().hiddenApps.length : 0,
+        },
+      };
+    });
+    // A failed read has nothing to offer, and the share is waiting on an answer.
+    data.catch((err) => {
+      console.error("[golive] Falha ao listar o que compartilhar:", err);
+      finish(null);
+    });
+
     let settled = false;
     const finish = (choice: ResolvedChoice | null) => {
       if (settled) return;
@@ -491,7 +512,6 @@ async function pickSource(parent: BrowserWindow | null): Promise<PickResult> {
     // Closing the window with the OS chrome is a cancellation like any other.
     picker.on("closed", () => finish(null));
 
-    picker.once("ready-to-show", () => picker.show());
     void picker.loadFile(path.join(__dirname, "..", "picker.html"));
   });
 }
