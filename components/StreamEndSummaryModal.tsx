@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import useNtPopups from "ntpopups";
 import {
   MdBolt,
   MdCheck,
@@ -74,13 +75,17 @@ function SummaryArt() {
 
 /** The ntpopups popup type "stream_summary", registered in NtPopups.tsx. */
 export function StreamEndSummaryModal({
+  id: popupId,
   closePopup,
   data: { durationSeconds, people, watchSeconds },
 }: {
+  /** This popup's id. The library spreads a popup's settings into its props. */
+  id?: string;
   closePopup: (hasAction?: boolean) => void;
   data: StreamSummaryPopupData;
 }) {
   const t = useT();
+  const { updatePopup } = useNtPopups();
   // The prices the API quotes today, by plan. Without an answer a button just
   // has no price.
   const [priceLabels, setPriceLabels] = useState<Record<string, string>>({});
@@ -172,7 +177,10 @@ export function StreamEndSummaryModal({
                   trackFeatureEvent(STREAM_SUMMARY_EVENTS.cta, { feature: STREAM_SUMMARY_FEATURE });
                   trackFeatureEvent(`${STREAM_SUMMARY_EVENTS.cta}.${id}`, { feature: STREAM_SUMMARY_FEATURE });
                   noteProSourceCta("streamSummary");
-                  closePopup(true);
+                  // Stays open behind the plans, to come back to. The library
+                  // would read a click or Escape in that dialog as one meant
+                  // for this popup, so from here on only its own buttons close it.
+                  if (popupId) updatePopup(popupId, { closeOnEscape: false, closeOnClickOutside: false });
                   openProModal(id);
                 }}
                 className={`flex min-w-0 cursor-pointer items-center gap-2.5 rounded-xl border bg-zinc-100 px-3 py-2.5 text-left transition dark:bg-zinc-900 ${toneClass}`}
