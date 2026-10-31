@@ -351,6 +351,18 @@ const selectSelfScreen = (state: SignalingState) => state.selfScreen;
 const selectSelfCamera = (state: SignalingState) => state.selfCamera;
 const selectMusicPlaying = (state: SignalingState) => state.music?.playing ?? false;
 const selectHasVideoSource = (state: SignalingState) => state.videoSources.length > 0;
+const selectMemberLimit = (state: SignalingState) => state.roomMemberLimit;
+const NO_LIMIT_PARTY_MAX = 100;
+
+// The party id of a call whose name is hidden: random rather than a hash of the
+// handle, which anyone could match against the public rooms' handles.
+let hiddenParty: { handle: string; id: string } | null = null;
+function hiddenPartyId(handle: string): string {
+  if (hiddenParty?.handle !== handle) {
+    hiddenParty = { handle, id: `golive-${Math.random().toString(36).slice(2)}` };
+  }
+  return hiddenParty.id;
+}
 
 const SITE_URL = "https://golive.nemtudo.me";
 // Discord draws two buttons at most and drops the activity's extras past that.
@@ -391,6 +403,7 @@ export function DiscordRpcReporter() {
   const visiblePeerCount = useSignalingSelector(selectVisiblePeerCount);
   const musicPlaying = useSignalingSelector(selectMusicPlaying);
   const hasVideoSource = useSignalingSelector(selectHasVideoSource);
+  const memberLimit = useSignalingSelector(selectMemberLimit);
   const toolLabel = useRoomToolsSelector((s) => {
     for (const tool of s.tools) {
       const label = TOOL_LABELS[tool.kind];
@@ -452,8 +465,14 @@ export function DiscordRpcReporter() {
         if (hasVideoSource) activity.push("Assistindo a um vídeo");
         if (toolLabel) activity.push(`Usando ${toolLabel}`);
       }
+      // Discord's own "(1 of 10)" needs a maximum, so a room without a limit
+      // shows NO_LIMIT_PARTY_MAX. It is drawn beside the state and only when
+      // there is one, which is why the state is never left empty.
+      const hasCounter = !isPrivate;
       state = activity.length > 0
         ? activity.join(" • ")
+        : hasCounter
+        ? "Em chamada"
         : `${peerCount} ${peerCount === 1 ? "pessoa" : "pessoas"}`;
       smallImage = isSharingScreen ? "screen_share" : "voice_call";
       smallText = activity[0] ?? "Em chamada";
@@ -486,10 +505,12 @@ export function DiscordRpcReporter() {
         }
       }
 
-      if (named && !isPrivate) {
+      if (hasCounter) {
         party = {
-          id: `golive-${callSession!.handle}`,
-          size: [peerCount, 50],
+          id: named ? `golive-${callSession!.handle}` : hiddenPartyId(callSession!.handle),
+          // Staff can be let in past the limit, and Discord refuses a party
+          // bigger than its maximum.
+          size: [peerCount, Math.max(memberLimit ?? NO_LIMIT_PARTY_MAX, peerCount)],
         };
       }
     }
@@ -539,6 +560,7 @@ export function DiscordRpcReporter() {
     musicPlaying,
     hasVideoSource,
     toolLabel,
+    memberLimit,
     groupLinkAllowed,
     clientId,
     bridge,
