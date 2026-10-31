@@ -517,7 +517,7 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
                   unmounted, not merely hidden, with the column folded away: a
                   hidden ad would go on counting impressions, and the call puts
                   it in its grid instead (see WatchRoom's sponsored tile). */}
-              {isWide && !columnsCollapsed && (
+              {isWide && !columnsCollapsed && !dmDocked && (
                 <GroupPartnerSlot reservedAbove={roomsMinHeight ? roomsMinHeight + ASIDE_GAP_PX : undefined} />
               )}
             </aside>

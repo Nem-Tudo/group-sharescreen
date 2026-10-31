@@ -163,6 +163,7 @@ import {
 } from "@/lib/messageFinder";
 import { createTypingAnnouncer, formatTypingLabel, type TypingAnnouncer } from "@/lib/typing";
 import { MD_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
+import { DmPartnerSlot } from "@/components/DmPartnerSlot";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
 import { formatLocale } from "@/lib/i18n";
@@ -3565,7 +3566,7 @@ export function DirectMessagesModal({
           <aside
             ref={setListColumn}
             style={listColumnStyle}
-            className={`relative shrink-0 flex-col ${listFolded ? "hidden" : "flex"}`}
+            className={`relative shrink-0 flex-col gap-3 ${listFolded ? "hidden" : "flex"}`}
           >
             <ColumnResizeHandle {...listColumnHandle} label={t("groups.groupAppShell.dragToResizeColumn")} />
             {/* The card, inside the column rather than being it: the grip sits
@@ -3582,6 +3583,9 @@ export function DirectMessagesModal({
               </div>
               {listPane}
             </div>
+            {/* Unmounted, not merely hidden, with the list folded away: a hidden
+                ad would go on counting impressions. */}
+            {!listFolded && <DmPartnerSlot />}
           </aside>
           <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
             <div className={headerRow}>
