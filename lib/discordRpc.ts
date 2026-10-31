@@ -35,6 +35,9 @@ export const DISCORD_RPC_EVENTS = {
   groupNameToggled: "discord_rpc_group_name",
   joinButtonToggled: "discord_rpc_join_button",
   privateCounterToggled: "discord_rpc_private_count",
+  /** Discord accepted the connection (READY); once per page load, per route. */
+  connectedApp: "discord_rpc_connected.app",
+  connectedBrowser: "discord_rpc_connected.browser",
   introShown: "discord_rpc_intro_shown",
   introOk: "discord_rpc_intro_ok",
   introConfigure: "discord_rpc_intro_configure",
@@ -234,6 +237,13 @@ export interface DiscordActivityPayload {
   instance?: boolean;
 }
 
+const reportedConnections = new Set<string>();
+function trackDiscordRpcConnected(event: string) {
+  if (reportedConnections.has(event)) return;
+  reportedConnections.add(event);
+  trackFeatureEvent(event, { feature: DISCORD_RPC_FEATURE });
+}
+
 /**
  * Browser WebSocket client for Discord Local RPC Server.
  * Discord desktop app runs a WebSocket server on 127.0.0.1 (ports 6463 - 6472)
@@ -315,6 +325,7 @@ class BrowserDiscordRpcClient {
         if (msg.cmd === "DISPATCH" && msg.evt === "READY") {
           this.connected = true;
           this.connecting = false;
+          trackDiscordRpcConnected(DISCORD_RPC_EVENTS.connectedBrowser);
           if (this.lastActivity) {
             this.setActivity(this.lastActivity);
           }
@@ -488,6 +499,12 @@ export function DiscordRpcReporter() {
   const clientId = getEffectiveDiscordClientId(settings);
   const bridge = getDesktopBridge();
   const isDesktopApp = Boolean(bridge?.discordRpcUpdate);
+
+  // Before the effect below: its first update is what starts the connection.
+  useEffect(
+    () => bridge?.onDiscordRpcReady?.(() => trackDiscordRpcConnected(DISCORD_RPC_EVENTS.connectedApp)),
+    [bridge]
+  );
 
   useEffect(() => {
     if (!featureAllowed || !settings.enabled) {

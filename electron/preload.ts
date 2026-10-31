@@ -492,6 +492,12 @@ contextBridge.exposeInMainWorld("golive", {
       ipcRenderer.send(IPC.discordRpcConfigure, config);
     }
   },
+
+  onDiscordRpcReady(callback: () => void): () => void {
+    const listener = () => callback();
+    ipcRenderer.on(IPC.discordRpcReady, listener);
+    return () => ipcRenderer.removeListener(IPC.discordRpcReady, listener);
+  },
 });
 
 // Whether main flagged this machine as capable, through the same argv

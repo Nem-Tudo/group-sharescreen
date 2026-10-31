@@ -2143,6 +2143,8 @@ if (!gotLock) {
     });
 
     // ─── Discord Rich Presence ──────────────────────────────────────────────
+    getDiscordRpc().onReady = () => mainWindow?.webContents.send(IPC.discordRpcReady);
+
     ipcMain.on(IPC.discordRpcUpdate, (event, activity: unknown) => {
       if (!event.sender.getURL().startsWith(APP_ORIGIN)) return;
       if (activity && typeof activity === "object") {

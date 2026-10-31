@@ -121,6 +121,8 @@ export interface DesktopBridge {
   readonly discordRpcClear?: () => void;
   /** Reconfigures Discord RPC (client ID or enabled status). */
   readonly discordRpcConfigure?: (config: { clientId?: string; enabled?: boolean }) => void;
+  /** Discord accepted the shell's connection. Missing on shells older than this. */
+  readonly onDiscordRpcReady?: (callback: () => void) => () => void;
 
   /**
    * The two settings that decide whether this machine is reachable with the

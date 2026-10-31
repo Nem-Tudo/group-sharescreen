@@ -64,6 +64,8 @@ export class DiscordRpcClient {
   private retryTimer: NodeJS.Timeout | null = null;
   private lastActivity: DiscordActivity | null = null;
   private currentPipeIndex = 0;
+  /** Discord accepted the handshake (READY), which a socket opening does not prove. */
+  public onReady: (() => void) | null = null;
 
   constructor(clientId: string) {
     this.clientId = clientId;
@@ -201,6 +203,7 @@ export class DiscordRpcClient {
       if (msg.cmd === "DISPATCH" && msg.evt === "READY") {
         this.connected = true;
         this.connecting = false;
+        this.onReady?.();
         if (this.lastActivity) {
           this.setActivity(this.lastActivity);
         }

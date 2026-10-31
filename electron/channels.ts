@@ -290,6 +290,8 @@ export const IPC = {
   discordRpcClear: "golive:discord-rpc:clear",
   /** renderer -> main: configure Discord RPC. */
   discordRpcConfigure: "golive:discord-rpc:configure",
+  /** main -> renderer: Discord accepted the connection. */
+  discordRpcReady: "golive:discord-rpc:ready",
 } as const;
 
 export type ScreenPenTool = "pen" | "highlighter" | "arrow" | "rect" | "ellipse" | "text" | "eraser";
