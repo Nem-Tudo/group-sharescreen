@@ -62,6 +62,14 @@ export function formatProductPrice(value: number, currency: string): string {
   }
 }
 
+/** A known store's brand colours for its chip; null draws it in neutral. The name is free text in the admin. */
+export function productStoreColors(store: string): { backgroundColor: string; color: string } | null {
+  if (/mercado\s*(livre|libre)/i.test(store)) return { backgroundColor: "#FFE600", color: "#2D3277" };
+  if (/amazon/i.test(store)) return { backgroundColor: "#FF9900", color: "#131A22" };
+  if (/shopee/i.test(store)) return { backgroundColor: "#EE4D2D", color: "#FFFFFF" };
+  return null;
+}
+
 /** Whole percent off, or null when the two prices do not make a discount. */
 export function productDiscountPercent(price: number | null, originalPrice: number | null): number | null {
   if (price === null || originalPrice === null || originalPrice <= price || originalPrice <= 0) return null;

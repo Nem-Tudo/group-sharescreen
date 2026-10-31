@@ -5370,6 +5370,5 @@
   "cam.usingAsMic": "This phone is the computer's microphone.",
   "cam.errorMic": "Couldn't open the microphone. Allow microphone access in the browser.",
   "affiliateProduct.seeOffer": "See offer",
-  "affiliateProduct.affiliateLink": "Affiliate link",
   "affiliateProduct.percentOff": "{percent}% OFF"
 }

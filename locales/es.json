@@ -5370,6 +5370,5 @@
   "cam.usingAsMic": "Este celular es el micrófono de la computadora.",
   "cam.errorMic": "No se pudo abrir el micrófono. Permite el acceso al micrófono en el navegador.",
   "affiliateProduct.seeOffer": "Ver oferta",
-  "affiliateProduct.affiliateLink": "Enlace de afiliado",
   "affiliateProduct.percentOff": "{percent}% OFF"
 }

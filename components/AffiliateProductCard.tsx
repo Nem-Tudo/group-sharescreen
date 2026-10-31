@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { useT } from "@/lib/useI18n";
-import { formatProductPrice, productDiscountPercent } from "@/lib/affiliateProducts";
+import { formatProductPrice, productDiscountPercent, productStoreColors } from "@/lib/affiliateProducts";
 import type { PartnerProductInfo } from "@/lib/partner";
 
 /**
@@ -43,6 +43,7 @@ export function AffiliateProductCard({
   const isStage = layout === "stage";
   const percent = productDiscountPercent(product.price, product.originalPrice);
   const badge = product.badge || (percent ? t("affiliateProduct.percentOff", { percent }) : "");
+  const storeColors = productStoreColors(product.store);
   const buttonClass =
     "mt-3 flex w-full items-center justify-center rounded-lg bg-emerald-600 px-3 py-2 text-center text-sm font-semibold text-white transition hover:bg-emerald-500";
   const label = <span className="truncate">{buttonLabel || t("affiliateProduct.seeOffer")}</span>;
@@ -72,17 +73,21 @@ export function AffiliateProductCard({
       )}
 
       <div className={isStage && imageUrl ? "min-w-0 sm:flex-1" : "min-w-0 flex-1"}>
-        <div className="mb-1 flex items-center justify-between gap-2">
-          <span className="min-w-0 truncate text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
-            {product.store}
-          </span>
-          <span className="flex shrink-0 items-center gap-1">
-            <span className="rounded-full bg-black/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide opacity-70 dark:bg-white/10">
-              {t("affiliateProduct.affiliateLink")}
-            </span>
+        {(product.store || headerExtra) && (
+          <div className="mb-1 flex items-center justify-end gap-1">
+            {product.store && (
+              <span
+                className={`min-w-0 truncate rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                  storeColors ? "" : "bg-black/10 dark:bg-white/10"
+                }`}
+                style={storeColors ?? undefined}
+              >
+                {product.store}
+              </span>
+            )}
             {headerExtra}
-          </span>
-        </div>
+          </div>
+        )}
 
         <p className={`line-clamp-2 font-semibold ${isStage ? "text-sm sm:text-base" : "text-sm"}`}>{title}</p>
 
