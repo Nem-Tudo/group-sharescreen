@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import { FaDiscord, FaShieldAlt, FaUser, FaTv, FaSlidersH, FaCheck } from "react-icons/fa";
+import { FaDiscord, FaShieldAlt, FaUser, FaTv, FaSlidersH, FaCheck, FaPowerOff, FaGlobe, FaUsers, FaSignInAlt, FaKey } from "react-icons/fa";
 import {
   useDiscordRpcSettings,
   getEffectiveDiscordClientId,
@@ -73,10 +73,13 @@ export function DiscordRpcSettingsModal({
         <div className="mt-5 space-y-4 text-sm">
           {/* Main switch */}
           <div className="flex items-center justify-between rounded-xl bg-white/5 p-4 border border-white/5">
-            <div>
-              <div className="font-semibold text-white">Ativar Rich Presence</div>
-              <div className="text-xs text-neutral-400">
-                Mostra automaticamente quando você está com o app aberto ou em chamada
+            <div className="flex items-start gap-3">
+              <FaPowerOff className="mt-1 h-4 w-4 text-[#5865F2] shrink-0" />
+              <div>
+                <div className="font-semibold text-white">Ativar Rich Presence</div>
+                <div className="text-xs text-neutral-400">
+                  Mostra automaticamente quando você está com o app aberto ou em chamada
+                </div>
               </div>
             </div>
             <label className="relative inline-flex cursor-pointer items-center">
@@ -113,9 +116,12 @@ export function DiscordRpcSettingsModal({
           </div>
 
           <div className="flex items-center justify-between rounded-xl bg-white/5 p-4 border border-white/5">
-            <div>
-              <div className="font-semibold text-white">Mostrar o nome em chamada pública</div>
-              <div className="text-xs text-neutral-400">Exibe o nome da sala pública em que você está.</div>
+            <div className="flex items-start gap-3">
+              <FaGlobe className="mt-1 h-4 w-4 text-[#5865F2] shrink-0" />
+              <div>
+                <div className="font-semibold text-white">Mostrar o nome em chamada pública</div>
+                <div className="text-xs text-neutral-400">Exibe o nome da sala pública em que você está.</div>
+              </div>
             </div>
             <label className="relative inline-flex cursor-pointer items-center shrink-0">
               <input
@@ -129,9 +135,12 @@ export function DiscordRpcSettingsModal({
           </div>
 
           <div className="flex items-center justify-between rounded-xl bg-white/5 p-4 border border-white/5">
-            <div>
-              <div className="font-semibold text-white">Mostrar o nome em chamada em grupo</div>
-              <div className="text-xs text-neutral-400">Exibe o nome do grupo e da sala de voz em que você está.</div>
+            <div className="flex items-start gap-3">
+              <FaUsers className="mt-1 h-4 w-4 text-[#5865F2] shrink-0" />
+              <div>
+                <div className="font-semibold text-white">Mostrar o nome em chamada em grupo</div>
+                <div className="text-xs text-neutral-400">Exibe o nome do grupo e da sala de voz em que você está.</div>
+              </div>
             </div>
             <label className="relative inline-flex cursor-pointer items-center shrink-0">
               <input
@@ -145,9 +154,12 @@ export function DiscordRpcSettingsModal({
           </div>
 
           <div className="flex items-center justify-between rounded-xl bg-white/5 p-4 border border-white/5">
-            <div>
-              <div className="font-semibold text-white">Botão para entrar</div>
-              <div className="text-xs text-neutral-400">Adiciona um botão para a sala pública ou para o grupo, quando o nome dele estiver visível.</div>
+            <div className="flex items-start gap-3">
+              <FaSignInAlt className="mt-1 h-4 w-4 text-[#5865F2] shrink-0" />
+              <div>
+                <div className="font-semibold text-white">Botão para entrar</div>
+                <div className="text-xs text-neutral-400">Adiciona um botão para a sala pública ou para o grupo, quando o nome dele estiver visível.</div>
+              </div>
             </div>
             <label className="relative inline-flex cursor-pointer items-center shrink-0">
               <input
@@ -207,7 +219,8 @@ export function DiscordRpcSettingsModal({
           {/* Configurable Client ID from .env or override */}
           {canManageClientId && <div className="rounded-xl bg-white/5 p-4 border border-white/5 space-y-2">
             <div className="flex items-center justify-between">
-              <div className="text-xs font-semibold text-neutral-300">
+              <div className="flex items-center gap-2 text-xs font-semibold text-neutral-300">
+                <FaKey className="h-3 w-3 text-[#5865F2] shrink-0" />
                 Discord Client ID (.env ou customizado)
               </div>
               <span className="text-[10px] text-neutral-500">
