@@ -33,6 +33,7 @@ export const DISCORD_RPC_EVENTS = {
   publicNameToggled: "discord_rpc_public_name",
   groupNameToggled: "discord_rpc_group_name",
   joinButtonToggled: "discord_rpc_join_button",
+  privateCounterToggled: "discord_rpc_private_count",
 } as const;
 
 const SETTINGS_KEY = "sharescreen:discordRpc:settings";
@@ -45,6 +46,7 @@ export interface DiscordRpcSettings {
   showPublicRoomName: boolean;
   showGroupName: boolean;
   showJoinButton: boolean;
+  showPrivateCounter: boolean;
   customClientId?: string;
 }
 
@@ -56,6 +58,7 @@ const DEFAULT_SETTINGS: DiscordRpcSettings = {
   showPublicRoomName: true,
   showGroupName: false,
   showJoinButton: true,
+  showPrivateCounter: true,
 };
 
 let memorySettings: DiscordRpcSettings = DEFAULT_SETTINGS;
@@ -106,6 +109,9 @@ export function updateDiscordRpcSettings(patch: Partial<DiscordRpcSettings>) {
   }
   if (patch.showJoinButton !== undefined && patch.showJoinButton !== current.showJoinButton) {
     trackFeatureEvent(DISCORD_RPC_EVENTS.joinButtonToggled, { value: patch.showJoinButton ? 1 : 0 });
+  }
+  if (patch.showPrivateCounter !== undefined && patch.showPrivateCounter !== current.showPrivateCounter) {
+    trackFeatureEvent(DISCORD_RPC_EVENTS.privateCounterToggled, { value: patch.showPrivateCounter ? 1 : 0 });
   }
   writeSettings(next);
 }
@@ -353,6 +359,7 @@ const selectMusicPlaying = (state: SignalingState) => state.music?.playing ?? fa
 const selectHasVideoSource = (state: SignalingState) => state.videoSources.length > 0;
 const selectMemberLimit = (state: SignalingState) => state.roomMemberLimit;
 const NO_LIMIT_PARTY_MAX = 100;
+const DM_PARTY_MAX = 2;
 
 // The party id of a call whose name is hidden: random rather than a hash of the
 // handle, which anyone could match against the public rooms' handles.
@@ -468,7 +475,7 @@ export function DiscordRpcReporter() {
       // Discord's own "(1 of 10)" needs a maximum, so a room without a limit
       // shows NO_LIMIT_PARTY_MAX. It is drawn beside the state and only when
       // there is one, which is why the state is never left empty.
-      const hasCounter = !isPrivate;
+      const hasCounter = !isPrivate || settings.showPrivateCounter;
       state = activity.length > 0
         ? activity.join(" • ")
         : hasCounter
@@ -507,10 +514,11 @@ export function DiscordRpcReporter() {
 
       if (hasCounter) {
         party = {
-          id: named ? `golive-${callSession!.handle}` : hiddenPartyId(callSession!.handle),
+          // A private handle is what lets someone in, so it never leaves here.
+          id: named && !isPrivate ? `golive-${callSession!.handle}` : hiddenPartyId(callSession!.handle),
           // Staff can be let in past the limit, and Discord refuses a party
           // bigger than its maximum.
-          size: [peerCount, Math.max(memberLimit ?? NO_LIMIT_PARTY_MAX, peerCount)],
+          size: [peerCount, Math.max(memberLimit ?? (callSession?.dm ? DM_PARTY_MAX : NO_LIMIT_PARTY_MAX), peerCount)],
         };
       }
     }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import { FaDiscord, FaShieldAlt, FaUser, FaTv, FaSlidersH, FaCheck, FaPowerOff, FaGlobe, FaUsers, FaSignInAlt, FaKey } from "react-icons/fa";
+import { FaDiscord, FaShieldAlt, FaUser, FaTv, FaSlidersH, FaCheck, FaPowerOff, FaGlobe, FaUsers, FaSignInAlt, FaKey, FaHashtag } from "react-icons/fa";
 import {
   useDiscordRpcSettings,
   getEffectiveDiscordClientId,
@@ -167,6 +167,25 @@ export function DiscordRpcSettingsModal({
                 className="peer sr-only"
                 checked={settings.showJoinButton}
                 onChange={(e) => updateSettings({ showJoinButton: e.target.checked })}
+              />
+              <div className="peer h-6 w-11 rounded-full bg-neutral-700 peer-checked:bg-[#5865F2] after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full"></div>
+            </label>
+          </div>
+
+          <div className="flex items-center justify-between rounded-xl bg-white/5 p-4 border border-white/5">
+            <div className="flex items-start gap-3">
+              <FaHashtag className="mt-1 h-4 w-4 text-[#5865F2] shrink-0" />
+              <div>
+                <div className="font-semibold text-white">Contador em salas privadas e chamadas diretas</div>
+                <div className="text-xs text-neutral-400">Exibe quantas pessoas estão na sala privada ou na chamada direta.</div>
+              </div>
+            </div>
+            <label className="relative inline-flex cursor-pointer items-center shrink-0">
+              <input
+                type="checkbox"
+                className="peer sr-only"
+                checked={settings.showPrivateCounter}
+                onChange={(e) => updateSettings({ showPrivateCounter: e.target.checked })}
               />
               <div className="peer h-6 w-11 rounded-full bg-neutral-700 peer-checked:bg-[#5865F2] after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full"></div>
             </label>
