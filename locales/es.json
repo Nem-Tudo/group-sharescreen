@@ -4142,6 +4142,7 @@
   "deferredDowngrade.confirm": "Suscribirse y pagar {price}",
   "watch.watchRoom.openAppSettings": "Abrir ajustes",
   "pro.compare.title": "Lo que obtienes",
+  "pro.compare.showAll": "Ver todos los beneficios (+{count})",
   "pro.compare.pricingAndFeatures": "Precios y funciones",
   "pro.compare.price": "Precio",
   "pro.compare.pointsOnPurchase": "Puntos en cada pago",

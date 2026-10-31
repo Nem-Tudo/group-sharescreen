@@ -6,7 +6,7 @@ import { ProPanel } from "@/app/pro/ProPanel";
 import { useT } from "@/lib/useI18n";
 import { useShake } from "@/lib/useShake";
 import { useFeature } from "@/lib/features";
-import { PRO_COMPARE_FEATURE } from "@/app/pro/PlanComparison";
+import { PRO_COMPARE_FEATURE, PRO_MODAL_LAYOUT_FEATURE } from "@/app/pro/PlanComparison";
 
 export interface ProModalProps {
   open: boolean;
@@ -28,6 +28,8 @@ export function ProModal({ open, planId, onClose }: ProModalProps) {
   // Wider for the comparison table, which needs a column per plan. Not an
   // exposure — the panel inside reports that.
   const wide = useFeature(PRO_COMPARE_FEATURE, { track: false }).enabled;
+  // Wider still with the checkout beside the table. Counted by the panel too.
+  const twoPane = useFeature(PRO_MODAL_LAYOUT_FEATURE, { track: false }).enabled && wide;
   // Only when the panel says so, which is not every time it is locked: a new
   // Pix code is requested from inside the Pix dialog, and that dialog lives in
   // this card. Moving the card — `translate` makes it the box its fixed
@@ -78,7 +80,7 @@ export function ProModal({ open, planId, onClose }: ProModalProps) {
     >
       <div
         ref={cardRef}
-        className={`relative flex max-h-[90vh] w-full ${wide ? "max-w-3xl" : "max-w-2xl"} flex-col overflow-y-auto rounded-2xl border border-zinc-200 bg-zinc-50 shadow-2xl dark:border-zinc-800 dark:bg-black`}
+        className={`relative flex max-h-[90dvh] w-full ${wide ? "max-w-3xl" : "max-w-2xl"} ${twoPane ? "lg:max-w-6xl" : ""} flex-col overflow-y-auto rounded-2xl border border-zinc-200 bg-zinc-50 shadow-2xl dark:border-zinc-800 dark:bg-black`}
         onClick={(e) => e.stopPropagation()}
       >
         <ProPanel

@@ -53,7 +53,13 @@ import { useT } from "@/lib/useI18n";
 import { trackFeatureEvent, useFeature } from "@/lib/features";
 import { CALL_TRANSCRIPT_FREE_FEATURE } from "@/lib/useCallTranscript";
 import { LIVE_TRANSLATION_FREE_FEATURE } from "@/lib/useLiveTranslation";
-import { PlanComparison, PRO_COMPARE_BUY_TOP, PRO_COMPARE_FEATURE, type ComparisonRow } from "./PlanComparison";
+import {
+  PlanComparison,
+  PRO_COMPARE_BUY_TOP,
+  PRO_COMPARE_FEATURE,
+  PRO_MODAL_LAYOUT_FEATURE,
+  type ComparisonRow,
+} from "./PlanComparison";
 import { translate } from "@/lib/i18n";
 import { formatLocale } from "@/lib/i18n";
 
@@ -352,6 +358,9 @@ export function ProPanel({
   const compareLayout = compare.enabled && plans.length > 1;
   // The "buy-top" treatment: the price and checkout card above the table.
   const buyOnTop = compare.variant === PRO_COMPARE_BUY_TOP;
+  // Only the popup with the table: counted there, the one place it changes anything.
+  const modalLayout = useFeature(PRO_MODAL_LAYOUT_FEATURE, { track: isModal && compareLayout }).enabled;
+  const twoPane = isModal && compareLayout && modalLayout;
   const selectPlan = useCallback((planId: string) => {
     setSelectedPlanId(planId);
     trackFeatureEvent("pro_plan_click");
@@ -1257,8 +1266,24 @@ export function ProPanel({
 
 
   return (
-    <div className={isModal ? "w-full p-5 sm:p-7" : `mx-auto w-full ${compareLayout ? "max-w-3xl" : "max-w-2xl"} px-4 py-10`}>
-      <div className="flex items-start justify-between gap-4">
+    <div
+      className={
+        isModal
+          ? `w-full p-5 sm:p-7 ${twoPane ? "lg:grid lg:grid-cols-[23rem_minmax(0,1fr)] lg:gap-7" : ""}`
+          : `mx-auto w-full ${compareLayout ? "max-w-3xl" : "max-w-2xl"} px-4 py-10`
+      }
+    >
+      {/* The column that stays put while the table scrolls beside it. Off the
+          layout entirely (contents) for everybody else. */}
+      <div className={twoPane ? "lg:sticky lg:top-7 lg:max-h-[calc(90dvh-3.5rem)] lg:self-start lg:overflow-y-auto" : "contents"}>
+      <div
+        className={`flex items-start justify-between gap-4 ${
+          // Below lg the popup scrolls as one: the title and the × stay on top.
+          twoPane
+            ? "sticky top-0 z-20 -mx-5 -mt-5 bg-zinc-50 px-5 py-3 sm:-mx-7 sm:-mt-7 sm:px-7 lg:static lg:m-0 lg:bg-transparent lg:p-0 dark:bg-black lg:dark:bg-transparent"
+            : ""
+        }`}
+      >
         <div>
           <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
             {plan?.title ?? t("common.golivePro")}
@@ -1268,9 +1293,12 @@ export function ProPanel({
                 product's identity is a row, not a literal in a page. */}
             <PlanMark className={`h-6 w-6 shrink-0 ${mark.className}`} />
           </h1>
-          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-            {plan?.description ?? t("pro.proPanel.moreQualityInYourBroadcast")}
-          </p>
+          {/* The popup's short layout goes straight to the price. */}
+          {!twoPane && (
+            <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+              {plan?.description ?? t("pro.proPanel.moreQualityInYourBroadcast")}
+            </p>
+          )}
         </div>
         {onClose && (
           <div className="flex shrink-0 items-center gap-1">
@@ -1378,7 +1406,7 @@ export function ProPanel({
         </div>
       )}
 
-      {compare.ready && compareLayout && !buyOnTop && (
+      {compare.ready && compareLayout && !buyOnTop && !twoPane && (
         <PlanComparison
           plans={plans}
           rows={comparisonRows()}
@@ -1446,7 +1474,12 @@ export function ProPanel({
                 card that holds the price and the buttons it drives. One line
                 of pills; the price is the big figure right below. */}
             {compareLayout && (
-              <div className="mb-4 flex flex-wrap gap-1.5" role="radiogroup" aria-label={t("pro.compare.choosePlan")}>
+              <div
+                // From lg the table beside it picks the plan with its own columns.
+                className={`mb-4 flex-wrap gap-1.5 ${twoPane ? "flex lg:hidden" : "flex"}`}
+                role="radiogroup"
+                aria-label={t("pro.compare.choosePlan")}
+              >
                 {plans.map((entry) => {
                   const entryMark = planIcon(entry.iconId);
                   const chosen = entry.id === plan.id;
@@ -1956,15 +1989,19 @@ export function ProPanel({
           </>
         )}
       </div>
-      {compare.ready && compareLayout && buyOnTop && (
-        <PlanComparison
-          plans={plans}
-          rows={comparisonRows()}
-          selectedId={plan?.id ?? null}
-          recommendedId={recommendedPlanId}
-          onSelect={selectPlan}
-          onBuy={buyPlan}
-        />
+      </div>
+      {compare.ready && compareLayout && (buyOnTop || twoPane) && (
+        <div className={twoPane ? "min-w-0 lg:[&>*:first-child]:mt-0" : "contents"}>
+          <PlanComparison
+            plans={plans}
+            rows={comparisonRows()}
+            selectedId={plan?.id ?? null}
+            recommendedId={recommendedPlanId}
+            onSelect={selectPlan}
+            onBuy={buyPlan}
+            roomyLabels={twoPane}
+          />
+        </div>
       )}
 
       {/* Rendered here rather than beside the button: it is fixed to the
