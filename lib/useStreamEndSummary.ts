@@ -39,9 +39,9 @@ export type StreamSummaryPopupData = {
 export function useStreamEndSummary(active: boolean, people: readonly string[]) {
   const { account } = useAuth();
   const { openPopup } = useNtPopups();
-  // Selling the plan to somebody who has one, or to a guest with no account to
-  // put it on, says nothing useful.
-  const eligible = Boolean(account && !account.bot && accountTierOf(account.flags) === "account");
+  // Selling the plan to somebody who has one says nothing useful. A guest counts:
+  // the Pro page asks them to create an account before buying.
+  const eligible = !account || (!account.bot && accountTierOf(account.flags) === "account");
   const { enabled, data: featureData } = useFeature(STREAM_SUMMARY_FEATURE, { track: eligible && active });
   const minMs = minBroadcastMs(featureData.minMinutes);
 
