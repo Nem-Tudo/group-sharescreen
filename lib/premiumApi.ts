@@ -618,6 +618,8 @@ export type UpgradeQuote = {
   remainingDays: number;
   amountLabel: string;
   amountCents: number;
+  /** Set when the upgrade's minimum set the price: the days it is priced as. */
+  minimumDays?: number | null;
   /** Whether /premium/upgrade/card would take this one (pro-upgrade-card). */
   cardAvailable?: boolean;
 };

@@ -2917,6 +2917,7 @@
   "pro.proPanel.upgradeViaPix": "Pix",
   "pro.proPanel.upgradeViaSubscription": "Subscription",
   "pro.proPanel.upgradeWithCard": "Pay {value} by card",
+  "pro.proPanel.upgradeMinimumApplied": "This is the minimum upgrade amount, equal to {days} days of difference.",
   "pro.proPanel.upgradeRemainingDays": "One-time charge — {days} days left in your cycle, and your renewal date does not change.",
   "pro.proPanel.upgradeTo": "Upgrade to",
   "pro.proPanel.upgradeToValue": "Upgrade to {value}",

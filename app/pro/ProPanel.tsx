@@ -1870,6 +1870,13 @@ export function ProPanel({
                                   ? t("pro.proPanel.upgradeRemainingDays", { days: upgradeQuote.remainingDays })
                                   : t("pro.proPanel.calculatingTheUpgrade")}
                               </p>
+                              {/* The text above says "proportional", which stops
+                                  being the whole story here. */}
+                              {upgradeQuote?.minimumDays && (
+                                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                                  {t("pro.proPanel.upgradeMinimumApplied", { days: upgradeQuote.minimumDays })}
+                                </p>
+                              )}
                             </div>
                           </div>
 
