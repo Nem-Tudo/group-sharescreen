@@ -359,6 +359,7 @@ import { UpdateAppButton } from "@/components/UpdateAppButton";
 import { AccountModal } from "@/components/AccountModal";
 import { GuestBroadcastLimitModal } from "@/components/GuestBroadcastLimitModal";
 import { BroadcastAdGateModal } from "@/components/BroadcastAdGateModal";
+import { useStreamEndSummary } from "@/lib/useStreamEndSummary";
 import { setOutgoingVideoPaused } from "@/lib/broadcastAdGate";
 import { GpuShareSurveyModal } from "@/components/GpuShareSurveyModal";
 import { MobileScreenShareModal } from "@/components/MobileScreenShareModal";
@@ -2878,6 +2879,12 @@ function WatchRoomView({
 
   const hasLocalScreen = Boolean(isSharing && localStream) || extraScreensActive > 0;
   const hasLocalCamera = Boolean(localCameraStream) || extraCamerasActive > 0;
+  // A screen shared in a conversation's call is not a broadcast to sum up.
+  const summaryPeople = useMemo(
+    () => state.peers.filter((p) => p.id !== state.selfId && !p.bot && !isObsPeer(p)).map((p) => p.userId ?? p.id),
+    [state.peers, state.selfId]
+  );
+  useStreamEndSummary(hasLocalScreen && !callLayout, summaryPeople);
   const hasLocalFiles = LOCAL_MEDIA_SLOTS.some((slot) => fileChannels[slot]?.localStream);
   const hasRemoteScreens =
     Object.keys(remoteStreams).length > 0 ||

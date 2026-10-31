@@ -7,6 +7,7 @@ import "ntpopups/dist/styles.css";
 import { PartnerRewardModal } from "@/components/PartnerRewardModal";
 import { PartnerPitchModal } from "@/components/PartnerPitchModal";
 import { PartnerAdsSettingsModal } from "@/components/PartnerAdsChoice";
+import { StreamEndSummaryModal } from "@/components/StreamEndSummaryModal";
 import { AddVideoSourceModal } from "@/components/AddVideoSourceModal";
 import { ManageRoomModal } from "@/components/ManageRoomModal";
 import { AddMusicSourceModal } from "@/components/AddMusicSourceModal";
@@ -44,6 +45,8 @@ const customPopups: Record<string, ComponentType> = {
   partner_pitch: PartnerPitchModal as ComponentType,
   // Which partner ads a Pro subscriber sees, from the ad card itself.
   partner_ads_settings: PartnerAdsSettingsModal as ComponentType,
+  // After a long broadcast ends — see lib/useStreamEndSummary.
+  stream_summary: StreamEndSummaryModal as ComponentType,
   add_video_source: AddVideoSourceModal as ComponentType,
   manage_room: ManageRoomModal as ComponentType,
   add_music_source: AddMusicSourceModal as ComponentType,
