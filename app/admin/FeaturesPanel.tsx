@@ -29,6 +29,7 @@ import { TIP_CLICK_EVENT } from "@/lib/clipsMode";
 import { PARTNER_EVENTS } from "@/lib/partnerExperiment";
 import { formatLocale } from "@/lib/i18n";
 import { ExperimentsDashboard } from "./ExperimentsDashboard";
+import { buildFeatureData, FeatureDataEditor, featureDataDraft } from "./FeatureDataEditor";
 
 // Feature rollouts, Discord-experiment style.
 //
@@ -780,9 +781,7 @@ function TargetingSection({ feature, busy, save }: { feature: AdminFeature; busy
   const [includeGuests, setIncludeGuests] = useState(feature.includeGuests);
   const [serverOnly, setServerOnly] = useState(feature.serverOnly);
   const [siteEvents, setSiteEvents] = useState((feature.clientEvents ?? []).join(", "));
-  const [dataText, setDataText] = useState(
-    Object.entries(feature.data ?? {}).map(([name, value]) => `${name}=${value}`).join("\n")
-  );
+  const [dataDraft, setDataDraft] = useState(() => featureDataDraft(feature.data));
   const [overrides, setOverrides] = useState<FeatureOverride[]>(feature.overrides);
   const [newId, setNewId] = useState("");
   const [newVariant, setNewVariant] = useState(feature.variants[0] ?? "on");
@@ -791,6 +790,8 @@ function TargetingSection({ feature, busy, save }: { feature: AdminFeature; busy
   const [missingIds, setMissingIds] = useState<string[]>([]);
 
   const variantList = splitList(variants.toLowerCase());
+  // Null while a box is invalid; the save waits until it is not.
+  const dataJson = buildFeatureData(dataDraft, variantList);
   const variantsChanged = variantList.join(",") !== feature.variants.join(",");
   // Typed shares per treatment name, so editing the list keeps what was typed
   // for the names that stayed.
@@ -1004,27 +1005,17 @@ function TargetingSection({ feature, busy, save }: { feature: AdminFeature; busy
         )}
       </div>
 
-      <label className="block">
-        <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">{t("admin.features.data")}</span>
-        <textarea
-          value={dataText}
-          onChange={(e) => setDataText(e.target.value)}
-          rows={3}
-          spellCheck={false}
-          placeholder="priceCents=699"
-          className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 font-mono text-xs dark:border-zinc-700 dark:bg-zinc-900"
-        />
-        <span className="text-xs text-zinc-500 dark:text-zinc-400">{t("admin.features.dataHint")}</span>
-      </label>
+      <FeatureDataEditor draft={dataDraft} onChange={setDataDraft} variants={variantList} />
 
       <div>
         <button
           type="button"
-          disabled={busy}
+          disabled={busy || !dataJson}
           onClick={() => {
             if (variantsChanged && !window.confirm(t("admin.features.variantsWarning"))) return;
             if (weightsChanged && !window.confirm(t("admin.features.weightsWarning"))) return;
             if (variantList.length > 1 && sharesTotal <= 0) return;
+            if (!dataJson) return;
             const nextSiteEvents = splitList(siteEvents.toLowerCase());
             const addedSiteEvents = nextSiteEvents.filter(
               (event) => !(feature.clientEvents ?? []).includes(event) && !(feature.pinnedEvents ?? []).includes(event)
@@ -1039,13 +1030,7 @@ function TargetingSection({ feature, busy, save }: { feature: AdminFeature; busy
               includeGuests,
               serverOnly,
               clientEvents: nextSiteEvents,
-              data: Object.fromEntries(
-                dataText
-                  .split("\n")
-                  .map((line) => line.trim())
-                  .filter((line) => line.includes("="))
-                  .map((line) => [line.slice(0, line.indexOf("=")).trim(), line.slice(line.indexOf("=") + 1).trim()])
-              ),
+              data: dataJson,
               // A site event added here is one this feature exists to measure,
               // so it starts pinned in its stats. Only the newly added ones:
               // an event somebody already unpinned stays unpinned.
