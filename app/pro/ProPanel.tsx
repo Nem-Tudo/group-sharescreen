@@ -25,6 +25,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { AccountModal, type AccountModalMode } from "@/components/AccountModal";
 import { PixChargeModal } from "@/components/PixChargeModal";
 import { holdPaymentShake } from "@/lib/useShake";
+import { trackStreamSummaryCheckout } from "@/lib/useStreamEndSummary";
 import { CardCheckoutModal } from "@/components/CardCheckoutModal";
 import { DeferredDowngradeModal } from "@/components/DeferredDowngradeModal";
 import useNtPopups from "ntpopups";
@@ -982,6 +983,7 @@ export function ProPanel({
     // be blamed for a checkout it never got to start.
     trackFeatureEvent("pro_checkout_click");
     trackFeatureEvent("pro_checkout_click_subscription");
+    trackStreamSummaryCheckout();
     setBusy(true);
     setGenerating(true);
     setError(null);
@@ -1125,6 +1127,7 @@ export function ProPanel({
     // See handleSubscribe: the click, before anything can go wrong with it.
     trackFeatureEvent("pro_checkout_click");
     trackFeatureEvent("pro_checkout_click_pix");
+    trackStreamSummaryCheckout();
     const startedAt = Date.now();
     setBusy(true);
     setGenerating(true);

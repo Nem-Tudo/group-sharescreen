@@ -28,6 +28,7 @@ import {
   STREAM_SUMMARY_EVENTS,
   STREAM_SUMMARY_FEATURE,
   hideStreamSummary,
+  noteStreamSummaryCta,
   type StreamSummaryPopupData,
 } from "@/lib/useStreamEndSummary";
 
@@ -161,6 +162,7 @@ export function StreamEndSummaryModal({
                 onClick={() => {
                   trackFeatureEvent(STREAM_SUMMARY_EVENTS.cta, { feature: STREAM_SUMMARY_FEATURE });
                   trackFeatureEvent(`${STREAM_SUMMARY_EVENTS.cta}.${id}`, { feature: STREAM_SUMMARY_FEATURE });
+                  noteStreamSummaryCta();
                   closePopup(true);
                   openProModal(id);
                 }}
