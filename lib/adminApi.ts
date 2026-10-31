@@ -771,6 +771,103 @@ export async function setPartnerEmptyPercent(emptyPercent: number): Promise<numb
   return data.emptyPercent;
 }
 
+// Affiliate products in the partner slot (see the API's
+// affiliateProductRoutes.ts). Every write answers the whole list.
+export type AffiliateProduct = {
+  id: string;
+  title: string;
+  description: string;
+  imageUrl: string | null;
+  url: string;
+  store: string;
+  price: number | null;
+  originalPrice: number | null;
+  currency: string;
+  badge: string;
+  note: string;
+  shipping: string;
+  buttonLabel: string;
+  weight: number;
+  enabled: boolean;
+  createdAt: number;
+  // Key to its public report page (/ad/[token]), same page as an ad's.
+  reportToken?: string | null;
+  // Watch-to-earn: points is non-null exactly when the video is.
+  rewardVideoUrl?: string | null;
+  rewardPoints?: number | null;
+  // Re-read the price from the link's page on a timer. When that last ran, and
+  // why it did not work if it did not: a failure keeps the old price.
+  autoUpdatePrice?: boolean;
+  priceCheckedAt?: number | null;
+  priceCheckError?: string | null;
+};
+
+export type AffiliateProductInput = Omit<
+  AffiliateProduct,
+  "id" | "createdAt" | "reportToken" | "priceCheckedAt" | "priceCheckError"
+>;
+export type ImportedAffiliateProduct = Pick<
+  AffiliateProduct,
+  "title" | "description" | "imageUrl" | "store" | "price" | "originalPrice" | "currency" | "badge" | "note" | "shipping"
+>;
+export type AffiliateProductList = {
+  products: AffiliateProduct[];
+  adsPercent: number;
+  // The same numbers as an ad's: the API counts both under the same stats.
+  stats: Record<string, PartnerStats>;
+};
+
+const JSON_HEADERS = { "Content-Type": "application/json" };
+
+export async function fetchAffiliateProducts(): Promise<AffiliateProductList> {
+  return adminFetch<AffiliateProductList>("/admin/affiliate-products");
+}
+
+export async function createAffiliateProduct(input: AffiliateProductInput): Promise<AffiliateProductList> {
+  return adminFetch("/admin/affiliate-products", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(input) });
+}
+
+export async function editAffiliateProduct(id: string, input: AffiliateProductInput): Promise<AffiliateProductList> {
+  return adminFetch(`/admin/affiliate-products/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(input),
+  });
+}
+
+export async function patchAffiliateProduct(
+  id: string,
+  patch: { enabled?: boolean; autoUpdatePrice?: boolean }
+): Promise<AffiliateProductList> {
+  return adminFetch(`/admin/affiliate-products/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function deleteAffiliateProduct(id: string): Promise<AffiliateProductList> {
+  return adminFetch(`/admin/affiliate-products/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export async function setAffiliateAdsPercent(adsPercent: number): Promise<number> {
+  const data = await adminFetch<{ adsPercent: number }>("/admin/affiliate-settings", {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ adsPercent }),
+  });
+  return data.adsPercent;
+}
+
+export async function importAffiliateProduct(url: string): Promise<ImportedAffiliateProduct> {
+  const data = await adminFetch<{ product: ImportedAffiliateProduct }>("/admin/affiliate-products/import", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ url }),
+  });
+  return data.product;
+}
+
 // ── Client eval ────────────────────────────────────────────────────────────
 //
 // The targeting model is shared with the server (see the API's adminEval.ts) —

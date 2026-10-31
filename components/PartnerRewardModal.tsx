@@ -19,6 +19,7 @@ import { Markdown } from "@/components/Markdown";
 import { trackEvent } from "@/lib/analytics";
 import { signalingClient } from "@/lib/signalingClient";
 import { trackPartnerClick, trackPartnerClickReward, usePartnerExperiment } from "@/lib/partnerExperiment";
+import { trackProductClick, trackProductReward, trackProductVideoComplete } from "@/lib/affiliateProducts";
 import { PartnerClickRewardPill } from "@/components/PartnerClickReward";
 import { CheckIcon } from "@/components/icons";
 import { BsCoin } from "react-icons/bs";
@@ -95,6 +96,9 @@ export type PartnerRewardPopupData = {
   // Lets the opener (PartnerCard) know a claim went through, so it can flip
   // its reward button to "Assistir de novo" without waiting for a remount.
   onClaimed?: () => void;
+  // An affiliate product rather than an ad: counted under its own experiment
+  // events (see lib/affiliateProducts), and an empty button label is "Ver oferta".
+  isProduct?: boolean;
   // The admin panel's preview: the same popup, but nothing it does counts —
   // no stats reported, no points claimed, nothing saved in this browser — and
   // the player starts unlocked so the admin can scrub through the video.
@@ -140,6 +144,7 @@ export function PartnerRewardModal({
     onClaimed,
     hasExtendedDescription,
     extendedDescription: givenExtendedDescription,
+    isProduct = false,
     preview = false,
   },
 }: {
@@ -380,6 +385,7 @@ export function PartnerRewardModal({
       if (!completedReportedRef.current) {
         completedReportedRef.current = true;
         signalingClient.reportPartnerRewardVideoCompleted(partnerId);
+        if (isProduct) trackProductVideoComplete();
       }
     }
   }
@@ -434,6 +440,7 @@ export function PartnerRewardModal({
       setClaimed(true);
       markPartnerRewardClaimed(partnerId, "video");
       trackEvent("partner_reward_claimed", { partnerId });
+      if (isProduct) trackProductReward(points);
       onClaimed?.();
       // Re-resolves whichever identity is here (see AuthContext's refresh) so
       // the new total shows up wherever it's displayed (e.g. WatchRoom's
@@ -685,7 +692,8 @@ export function PartnerRewardModal({
             onClick={() => {
               if (preview) return;
               signalingClient.reportPartnerClick(partnerId, "video");
-              trackPartnerClick("video");
+              if (isProduct) trackProductClick();
+              else trackPartnerClick("video");
               // Fire-and-forget next to the navigation — the link opens in a
               // new tab, so nothing is racing an unload here.
               if (clickRewardActive) claimClickReward();
@@ -725,7 +733,7 @@ export function PartnerRewardModal({
                   <span className="shrink-0 tabular-nums">{clickRewardPoints}</span>
                 </>
               )}
-              <span className="truncate">{buttonLabel}</span>
+              <span className="truncate">{buttonLabel || t("affiliateProduct.seeOffer")}</span>
               {earnLook && <PartnerClickRewardPill points={clickRewardPoints!} />}
             </span>
             {clickRewardJustClaimed && (

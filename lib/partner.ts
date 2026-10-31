@@ -75,8 +75,25 @@ export type PartnerSchedule = {
   buttonTextColor: string | null;
 };
 
+/**
+ * What makes a served item an affiliate product rather than an ad (see
+ * lib/affiliateProducts.ts). Present, the sidebar card draws
+ * AffiliateProductCard; every other surface reads the ordinary fields, which
+ * the API fills in for it. Mirrors the API's publicAffiliateProduct.
+ */
+export type PartnerProductInfo = {
+  store: string;
+  price: number | null;
+  originalPrice: number | null;
+  currency: string;
+  badge: string;
+  note: string;
+  shipping: string;
+};
+
 export type PartnerCardData = {
   id?: string;
+  product?: PartnerProductInfo;
   title: string;
   description: string;
   hasExtendedDescription?: boolean;
@@ -155,11 +172,14 @@ export async function fetchPartner(
   signal?: AbortSignal,
   currentId?: string | null,
   /** Only ads this identity can still collect points from (see lib/partnerAdsMode). */
-  rewardsOnly = false
+  rewardsOnly = false,
+  /** Let affiliate products into the roll (the experiment's side, see lib/affiliateProducts). */
+  withProducts = false
 ): Promise<PartnerCardData | null> {
   const params = new URLSearchParams();
   if (currentId) params.set("current", currentId);
   if (rewardsOnly) params.set("rewards", "unclaimed");
+  if (withProducts) params.set("products", "1");
   const search = params.toString();
   const query = search ? `?${search}` : "";
   // The token only when it matters: it is what tells the API whose claims to

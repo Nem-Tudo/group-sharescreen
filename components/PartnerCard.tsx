@@ -52,6 +52,8 @@ import {
   type PartnerPitchSource,
 } from "@/components/PartnerPitchModal";
 import { usePartnerCreative } from "@/lib/partnerSchedule";
+import { AffiliateProductCard } from "@/components/AffiliateProductCard";
+import { trackProductClick, trackProductVideoOpen } from "@/lib/affiliateProducts";
 
 const STATS_DASHBOARD_URL = process.env.NEXT_PUBLIC_STATS_DASHBOARD_URL;
 
@@ -444,7 +446,7 @@ export function PartnerCard({
 
   // Whether this identity already collected this ad's points — the server's
   // word, asked once per ad (see lib/partner's usePartnerRewardStatus).
-  usePartnerRewardStatus(partner?.id);
+  usePartnerRewardStatus(partner?.product && !partner.rewardVideoUrl ? null : partner?.id);
 
   useEffect(() => {
     if (!clickRewardJustClaimed) return;
@@ -534,7 +536,8 @@ export function PartnerCard({
     // swapped out for the house ad via showingHouseAd.
     if (showingRealAd && data.id) {
       signalingClient.reportPartnerClick(data.id);
-      trackPartnerClick(spot);
+      if (data.product) trackProductClick();
+      else trackPartnerClick(spot);
     }
     // Fire-and-forget alongside the navigation: the link opens in a new tab,
     // so this request isn't racing a page unload.
@@ -549,6 +552,92 @@ export function PartnerCard({
   const cardSpot: PartnerClickSpot = isStage ? "stage" : "sidebar";
   // Click points in the experiment's "earn" look (see PartnerClickReward).
   const earnLook = inExperiment && cardClickRewardActive && Boolean(data.clickRewardPoints);
+
+  // The watch-to-earn button, in whichever card is on screen: an ad's or a product's.
+  const rewardButton = showingRealAd && data.id && data.rewardVideoUrl && data.rewardPoints ? (
+    <button
+      type="button"
+      onClick={() => {
+        trackEvent("partner_reward_video_opened", { partnerId: data.id });
+        if (data.product) trackProductVideoOpen();
+        else trackPartnerVideoOpen();
+        openPopup("partner_reward", {
+          // Sized to give the video roughly the room it had back when
+          // this was a full-screen takeover, without becoming one: the
+          // backdrop stays translucent and the call keeps running
+          // behind it.
+          // Wider when the ad has a long description beside the video.
+          ...partnerRewardPopupSize(data.hasExtendedDescription),
+          // The popup's own × is deliberately the only way out —
+          // losing an almost-finished video to a stray backdrop click
+          // or Escape means watching the whole thing again.
+          closeOnEscape: false,
+          closeOnClickOutside: false,
+          requireAction: true,
+          onClose: bumpRewardStateSoon,
+          data: {
+            partnerId: data.id,
+            videoUrl: data.rewardVideoUrl,
+            points: data.rewardPoints,
+            title: data.title,
+            description: data.description,
+            hasExtendedDescription: data.hasExtendedDescription,
+            imageUrl: data.imageUrl,
+            buttonLabel: data.buttonLabel,
+            buttonUrl: data.buttonUrl,
+            buttonBackgroundColor: data.buttonBackgroundColor,
+            buttonTextColor: data.buttonTextColor,
+            isProduct: Boolean(data.product),
+            clickRewardPoints: clickRewardAppliesTo(data, "video")
+              ? data.clickRewardPoints
+              : null,
+            onClaimed: bumpRewardStateSoon,
+          },
+        });
+      }}
+      // Glows in the main CTA's own color (same trick, same reason as
+      // PartnerRewardModal's --partner-cta-glow-color): this button is
+      // an outline sitting under that solid one, and sharing its color
+      // is what makes the two read as one offer.
+      style={{
+        ["--partner-reward-glow-color" as string]: data.product
+          ? "#059669"
+          : (displayData.buttonBackgroundColor ?? "#18181b"),
+      }}
+      // The glow (see globals.css) runs only while there are still
+      // points on the table. Once this browser has collected them the
+      // button is a plain "assistir de novo" — animating it then would
+      // be advertising a reward it can no longer pay.
+      className={`mt-2 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-current px-3 py-1.5 text-xs font-semibold opacity-90 transition hover:opacity-100 ${
+        rewardClaimedLocally ? "" : "partner-reward-glow"
+      }`}
+    >
+      {/* The whole deal in one line: how long it takes and what it
+          pays. The length used to be a badge off at the far end,
+          which read as a detail about the button rather than as half
+          of what is being offered — and it is the half somebody
+          decides on. It is measured off the video itself (see the
+          hook), so a video that has not answered yet falls back to
+          the plain "Resgatar".
+
+          Rewatching is always allowed — only the reward itself is
+          one-time (see PartnerRewardModal, which knows not to let a
+          rewatch pay out again). */}
+      {rewardClaimedLocally ? (
+        <span className="truncate">{t("partnerCard.watchAgain")}</span>
+      ) : (
+        <>
+          <span className="truncate">
+            {rewardDurationLabel
+              ? t("partnerCard.watchAndRedeem", { duration: rewardDurationLabel })
+              : t("common.redeem")}
+          </span>
+          <BsCoin className="h-3.5 w-3.5 shrink-0" />
+          <span className="shrink-0 tabular-nums">{data.rewardPoints}</span>
+        </>
+      )}
+    </button>
+  ) : null;
 
   // One panel, two possible triggers (the counter inside the house ad, and
   // the one next to "Anuncie aqui também!" over a real ad) — only ever one of
@@ -630,7 +719,9 @@ export function PartnerCard({
               }}
             >
               <span className="truncate">
-                {selfServeHouseAd ? t("partnerOrders.createMyAd") : displayData.buttonLabel}
+                {selfServeHouseAd
+                  ? t("partnerOrders.createMyAd")
+                  : displayData.buttonLabel || t("affiliateProduct.seeOffer")}
               </span>
               {earnLook && <PartnerClickRewardPill points={data.clickRewardPoints!} size="sm" />}
             </a>
@@ -721,6 +812,32 @@ export function PartnerCard({
         </div>
       )}
 
+      {showingRealAd && data.product ? (
+        <AffiliateProductCard
+          title={data.title}
+          description={data.description}
+          imageUrl={data.imageUrl}
+          buttonLabel={data.buttonLabel}
+          href={data.buttonUrl}
+          product={data.product}
+          layout={layout}
+          onClick={() => handleCtaClick(cardSpot)}
+          footer={rewardButton}
+          headerExtra={
+            onDismiss && (
+              <button
+                type="button"
+                onClick={onDismiss}
+                aria-label={t("partnerCard.collapseAd")}
+                title={t("partnerCard.collapseAd")}
+                className="-mr-1 flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-full opacity-60 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
+              >
+                <ChevronUpIcon className="h-3.5 w-3.5 rotate-180" />
+              </button>
+            )
+          }
+        />
+      ) : (
       <div
         // On the stage, from sm up: its own horizontal layout — the banner on
         // the left, everything else in one box beside it — instead of the
@@ -896,87 +1013,7 @@ export function PartnerCard({
             </p>
           )}
 
-          {showingRealAd && data.id && data.rewardVideoUrl && data.rewardPoints && (
-            <button
-              type="button"
-              onClick={() => {
-                trackEvent("partner_reward_video_opened", { partnerId: data.id });
-                trackPartnerVideoOpen();
-                openPopup("partner_reward", {
-                  // Sized to give the video roughly the room it had back when
-                  // this was a full-screen takeover, without becoming one: the
-                  // backdrop stays translucent and the call keeps running
-                  // behind it.
-                  // Wider when the ad has a long description beside the video.
-                  ...partnerRewardPopupSize(data.hasExtendedDescription),
-                  // The popup's own × is deliberately the only way out —
-                  // losing an almost-finished video to a stray backdrop click
-                  // or Escape means watching the whole thing again.
-                  closeOnEscape: false,
-                  closeOnClickOutside: false,
-                  requireAction: true,
-                  onClose: bumpRewardStateSoon,
-                  data: {
-                    partnerId: data.id,
-                    videoUrl: data.rewardVideoUrl,
-                    points: data.rewardPoints,
-                    title: data.title,
-                    description: data.description,
-                    hasExtendedDescription: data.hasExtendedDescription,
-                    imageUrl: data.imageUrl,
-                    buttonLabel: data.buttonLabel,
-                    buttonUrl: data.buttonUrl,
-                    buttonBackgroundColor: data.buttonBackgroundColor,
-                    buttonTextColor: data.buttonTextColor,
-                    clickRewardPoints: clickRewardAppliesTo(data, "video")
-                      ? data.clickRewardPoints
-                      : null,
-                    onClaimed: bumpRewardStateSoon,
-                  },
-                });
-              }}
-              // Glows in the main CTA's own color (same trick, same reason as
-              // PartnerRewardModal's --partner-cta-glow-color): this button is
-              // an outline sitting under that solid one, and sharing its color
-              // is what makes the two read as one offer.
-              style={{
-                ["--partner-reward-glow-color" as string]:
-                  displayData.buttonBackgroundColor ?? "#18181b",
-              }}
-              // The glow (see globals.css) runs only while there are still
-              // points on the table. Once this browser has collected them the
-              // button is a plain "assistir de novo" — animating it then would
-              // be advertising a reward it can no longer pay.
-              className={`mt-2 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-current px-3 py-1.5 text-xs font-semibold opacity-90 transition hover:opacity-100 ${
-                rewardClaimedLocally ? "" : "partner-reward-glow"
-              }`}
-            >
-              {/* The whole deal in one line: how long it takes and what it
-                  pays. The length used to be a badge off at the far end,
-                  which read as a detail about the button rather than as half
-                  of what is being offered — and it is the half somebody
-                  decides on. It is measured off the video itself (see the
-                  hook), so a video that has not answered yet falls back to
-                  the plain "Resgatar".
-
-                  Rewatching is always allowed — only the reward itself is
-                  one-time (see PartnerRewardModal, which knows not to let a
-                  rewatch pay out again). */}
-              {rewardClaimedLocally ? (
-                <span className="truncate">{t("partnerCard.watchAgain")}</span>
-              ) : (
-                <>
-                  <span className="truncate">
-                    {rewardDurationLabel
-                      ? t("partnerCard.watchAndRedeem", { duration: rewardDurationLabel })
-                      : t("common.redeem")}
-                  </span>
-                  <BsCoin className="h-3.5 w-3.5 shrink-0" />
-                  <span className="shrink-0 tabular-nums">{data.rewardPoints}</span>
-                </>
-              )}
-            </button>
-          )}
+          {rewardButton}
 
           {showingHouseAdContent && (
             <button
@@ -993,6 +1030,7 @@ export function PartnerCard({
           )}
         </div>
       </div>
+      )}
       </div>
 
       {customizerOpen && (
@@ -1088,7 +1126,7 @@ export function PartnerCardMinimized({
   const peopleOnline = usePeopleOnline();
   const [statsOpen, setStatsOpen] = useState(false);
   const { openPopup } = useNtPopups();
-  usePartnerRewardStatus(partner?.id);
+  usePartnerRewardStatus(partner?.product && !partner.rewardVideoUrl ? null : partner?.id);
   // Points still on the table here. Said on the strip, glinting the way the
   // card's own "Resgatar" does, since folding the ad away is otherwise the
   // easiest way never to find out they were there. Read on every render, like
