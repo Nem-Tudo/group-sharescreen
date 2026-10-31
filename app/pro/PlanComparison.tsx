@@ -37,7 +37,7 @@ export const PRO_MODAL_LAYOUT_FEATURE = "pro-modal-layout";
 // only rows where Pro, Max and Ultra look the same, which gives nobody a reason
 // to look past the cheapest. A benefit no plan sells is simply left out.
 const SHORT_LIST_CORE_ROWS = 3;
-const SHORT_LIST_FEATURED = ["no_ads", "avatar_upload", "room_theme_set", "avatar_shape"];
+const SHORT_LIST_FEATURED = ["no_ads", "dedicated_turn", "avatar_upload", "room_theme_set", "avatar_shape"];
 
 /** A number worth comparing: `amount` orders it, `label` is what is shown. */
 export type ComparisonAmount = { label: string; amount: number; icon?: ReactNode };

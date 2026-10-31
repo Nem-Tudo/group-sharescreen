@@ -1305,7 +1305,7 @@ export function ProPanel({
         }`}
       >
         <div>
-          <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
+          <h1 className={`flex items-center gap-1.5 text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50 ${twoPane ? "whitespace-nowrap" : ""}`}>
             {plan?.title ?? t("common.golivePro")}
             {/* The plan's own mark, chosen by its `iconId` in the database (see
                 components/planIcons.tsx). Rendered from the plan rather than
@@ -1333,12 +1333,15 @@ export function ProPanel({
               target="_blank"
               rel="noopener"
               aria-disabled={generating || undefined}
+              aria-label={t("pro.proPanel.openFullPage")}
+              title={t("pro.proPanel.openFullPage")}
               className={`inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-zinc-500 transition hover:bg-zinc-200 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 ${
                 generating ? "pointer-events-none opacity-40" : ""
               }`}
             >
               <MdOpenInNew className="h-4 w-4" />
-              <span className="hidden sm:inline">{t("pro.proPanel.openFullPage")}</span>
+              {/* Beside the table the column has no room for the title and this label. */}
+              <span className={twoPane ? "hidden sm:inline lg:hidden" : "hidden sm:inline"}>{t("pro.proPanel.openFullPage")}</span>
             </Link>
           )}
           <button

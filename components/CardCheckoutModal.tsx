@@ -175,7 +175,7 @@ function EmbeddedForm({ checkout, onPaid }: { checkout: InlineCheckout; onPaid: 
     (async () => {
       try {
         const stripe = await getStripe(checkout.publishableKey, stripeLocale(locale));
-        const created = await stripe.initEmbeddedCheckout({
+        const created = await stripe.createEmbeddedCheckoutPage({
           fetchClientSecret: async () => checkout.clientSecret,
           onComplete: () => onPaidRef.current(),
         });
