@@ -5373,5 +5373,10 @@
   "watch.watchRoom.discordRpcHint": "Mostra automaticamente no seu status do Discord quando você estiver com o GoLive aberto ou em chamada.",
   "watch.watchRoom.discordRpcTip": "Novo: mostre que você está ao vivo no GoLive diretamente no seu perfil do Discord!",
   "affiliateProduct.seeOffer": "Ver oferta",
-  "affiliateProduct.percentOff": "{percent}% OFF"
+  "affiliateProduct.percentOff": "{percent}% OFF",
+  "watch.watchRoom.taskbarMuteMic": "Desligar microfone",
+  "watch.watchRoom.taskbarUnmuteMic": "Ligar microfone",
+  "watch.watchRoom.taskbarDeafen": "Silenciar",
+  "watch.watchRoom.taskbarUndeafen": "Parar de silenciar",
+  "watch.watchRoom.taskbarLeaveCall": "Sair da chamada"
 }

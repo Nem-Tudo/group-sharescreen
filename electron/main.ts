@@ -1180,6 +1180,11 @@ function createWindow(initialUrl: string = APP_URL) {
   mainWindow.webContents.on("did-start-navigation", (details) => {
     if (!details.isMainFrame || details.isSameDocument) return;
     if (ringingCall) setCallRinging(null);
+    // The same for the call's taskbar buttons: nothing is left to answer them.
+    if (callControls) {
+      callControls = null;
+      applyCallControls();
+    }
     // A page that reloads or leaves never says it is done being protected;
     // the one that loads next asks again for whatever it shows.
     if (captureProtected) setCaptureProtection(false);
@@ -1187,8 +1192,14 @@ function createWindow(initialUrl: string = APP_URL) {
   mainWindow.webContents.on("devtools-opened", () => {
     if (captureProtected) mainWindow?.webContents.closeDevTools();
   });
+  // Windows forgets a window's taskbar buttons when it is hidden to the tray.
+  mainWindow.on("show", applyCallControls);
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
     if (ringingCall) setCallRinging(null);
+    if (callControls) {
+      callControls = null;
+      applyCallControls();
+    }
     recoverFromRendererCrash(details);
   });
 
@@ -1534,6 +1545,46 @@ function openCallWindow(call: CallRingingInfo) {
     if (callWindow === window) callWindow = null;
   });
   void window.loadFile(path.join(__dirname, "..", "call-overlay.html"));
+}
+
+interface CallControls {
+  micOn: boolean;
+  deafened: boolean;
+  micLabel: string;
+  deafenLabel: string;
+  leaveLabel: string;
+}
+
+// The call's buttons in the taskbar preview, as lib/taskbarCallControls last
+// described them. Null without a call.
+let callControls: CallControls | null = null;
+
+function thumbarIcon(name: string) {
+  // createFromPath picks up the @1.5x and @2x files beside it.
+  return nativeImage.createFromPath(path.join(__dirname, "..", "build", "thumbar", `${name}.png`));
+}
+
+function applyCallControls() {
+  if (process.platform !== "win32" || !mainWindow) return;
+  const press = (action: string) => () =>
+    mainWindow?.webContents.send(IPC.callControlPressed, action);
+  mainWindow.setThumbarButtons(
+    callControls
+      ? [
+          {
+            icon: thumbarIcon(callControls.micOn ? "mic" : "mic-off"),
+            tooltip: callControls.micLabel,
+            click: press("mic"),
+          },
+          {
+            icon: thumbarIcon(callControls.deafened ? "headset-off" : "headset"),
+            tooltip: callControls.deafenLabel,
+            click: press("deafen"),
+          },
+          { icon: thumbarIcon("hangup"), tooltip: callControls.leaveLabel, click: press("leave") },
+        ]
+      : []
+  );
 }
 
 /**
@@ -2207,6 +2258,12 @@ if (!gotLock) {
     ipcMain.on(IPC.callRinging, (event, raw: unknown) => {
       if (!event.sender.getURL().startsWith(APP_ORIGIN)) return;
       setCallRinging(readCallInfo(raw));
+    });
+
+    ipcMain.on(IPC.callControlsSet, (event, raw: unknown) => {
+      if (!event.sender.getURL().startsWith(APP_ORIGIN)) return;
+      callControls = raw && typeof raw === "object" ? (raw as CallControls) : null;
+      applyCallControls();
     });
 
     // What the small window is showing. Asked for once, as it opens.

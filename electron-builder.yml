@@ -72,6 +72,9 @@ files:
   # would not need this, but shipping 13 KB everywhere beats a platform
   # conditional in the file list.
   - electron/build/icon.png
+  # The call's buttons in the taskbar preview — see applyCallControls in
+  # electron/main.ts.
+  - electron/build/thumbar/*
 
 # The desktop build's whole purpose is a real screen picker and a working
 # OAuth handoff, so the protocol registration below is load-bearing rather

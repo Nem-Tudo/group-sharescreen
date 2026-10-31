@@ -140,6 +140,39 @@ contextBridge.exposeInMainWorld("golive", {
   },
 
   /**
+   * The mic, deafen and leave buttons in the taskbar's window preview. Only on
+   * Windows, the one system that has them; null takes them away.
+   */
+  ...(process.platform === "win32"
+    ? {
+        setCallControls(controls: unknown): void {
+          if (!controls || typeof controls !== "object") {
+            ipcRenderer.send(IPC.callControlsSet, null);
+            return;
+          }
+          const value = controls as Record<string, unknown>;
+          ipcRenderer.send(IPC.callControlsSet, {
+            micOn: value.micOn === true,
+            deafened: value.deafened === true,
+            micLabel: String(value.micLabel ?? ""),
+            deafenLabel: String(value.deafenLabel ?? ""),
+            leaveLabel: String(value.leaveLabel ?? ""),
+          });
+        },
+        onCallControl(callback: unknown): () => void {
+          if (typeof callback !== "function") return () => {};
+          const listener = (_event: unknown, action: unknown) => {
+            if (typeof action === "string") (callback as (a: string) => void)(action);
+          };
+          ipcRenderer.on(IPC.callControlPressed, listener);
+          return () => {
+            ipcRenderer.off(IPC.callControlPressed, listener);
+          };
+        },
+      }
+    : {}),
+
+  /**
    * Subscribes to a button pressed in that small window. Returns an
    * unsubscribe function, like onUpdateReady.
    */

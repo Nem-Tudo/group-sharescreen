@@ -92,6 +92,7 @@ import type { CallDockPhase } from "@/lib/callSession";
 import { useRoomSoundEffects } from "@/lib/useRoomSoundEffects";
 import { useBackgroundKeepAlive } from "@/lib/useBackgroundKeepAlive";
 import { useAndroidCallService } from "@/lib/androidCallService";
+import { useTaskbarCallControls } from "@/lib/taskbarCallControls";
 import { recentRoomPresentation } from "@/lib/recentRooms";
 import {
   getSoundEffectsEnabled,
@@ -3327,6 +3328,14 @@ function WatchRoomView({
     title: group ? group.channelName : dm ? dm.displayName : recentRoomPresentation(handle).name,
     micOn: isMicOn,
     onToggleMic: stableToggleMic,
+    onLeave: hangUpFromNotification,
+  });
+  useTaskbarCallControls({
+    active: callHeld,
+    micOn: isMicOn,
+    deafened: micsMuted,
+    onToggleMic: stableToggleMic,
+    onToggleDeafen: toggleMicsMuted,
     onLeave: hangUpFromNotification,
   });
 

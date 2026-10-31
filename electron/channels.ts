@@ -160,6 +160,10 @@ export const IPC = {
    * already ended is worse than one that never opened.
    */
   callRinging: "golive:call:ringing",
+  /** renderer -> main: the call's taskbar buttons (Windows). Null without a call. */
+  callControlsSet: "golive:call:controls-set",
+  /** main -> renderer: one of those buttons was pressed. */
+  callControlPressed: "golive:call:control-pressed",
   /** overlay -> main: what to show. Asked for once, as the window opens. */
   callOverlayData: "golive:call:overlay-data",
   /**

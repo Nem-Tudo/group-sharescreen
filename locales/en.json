@@ -5373,5 +5373,10 @@
   "watch.watchRoom.discordRpcHint": "Automatically displays on your Discord status when GoLive is open or in a call.",
   "watch.watchRoom.discordRpcTip": "New: show that you are live on GoLive right in your Discord profile!",
   "affiliateProduct.seeOffer": "See offer",
-  "affiliateProduct.percentOff": "{percent}% OFF"
+  "affiliateProduct.percentOff": "{percent}% OFF",
+  "watch.watchRoom.taskbarMuteMic": "Mute microphone",
+  "watch.watchRoom.taskbarUnmuteMic": "Unmute microphone",
+  "watch.watchRoom.taskbarDeafen": "Deafen",
+  "watch.watchRoom.taskbarUndeafen": "Undeafen",
+  "watch.watchRoom.taskbarLeaveCall": "Leave call"
 }

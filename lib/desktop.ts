@@ -149,6 +149,19 @@ export interface DesktopBridge {
    */
   setCallRinging?(call: DesktopRingingCall | null): void;
 
+  /** The call's buttons in the taskbar preview. Windows shells only. See lib/taskbarCallControls. */
+  setCallControls?(
+    controls: {
+      micOn: boolean;
+      deafened: boolean;
+      micLabel: string;
+      deafenLabel: string;
+      leaveLabel: string;
+    } | null
+  ): void;
+  /** One of those buttons: "mic", "deafen" or "leave". Returns an unsubscribe function. */
+  onCallControl?(callback: (action: string) => void): () => void;
+
   /**
    * A button pressed in that small window. Returns an unsubscribe function.
    *
