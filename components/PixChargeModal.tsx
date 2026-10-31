@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   MdCardGiftcard,
-  MdCheck,
   MdCheckCircle,
   MdClose,
   MdContentCopy,
@@ -14,6 +13,7 @@ import { PixIcon } from "@/components/icons";
 import { PlanBand, planTone, PLAN_TONE_BUTTON } from "@/components/PlanBand";
 import { planIcon } from "@/components/planIcons";
 import { PurchaseCelebration, type CelebrationFace } from "@/components/PurchaseCelebration";
+import { PurchaseHappyArt } from "@/components/PurchaseHappyArt";
 import { UserAvatar } from "@/components/UserAvatar";
 import { planTierOf, verifiedBadge } from "@/lib/entitlements";
 import type { PixCharge } from "@/lib/premiumApi";
@@ -271,11 +271,11 @@ export function PurchasePaidScreen({
         <MdClose className="h-4 w-4" />
       </button>
 
-      <PlanBand tone={tone}>
+      <PlanBand tone={tone} bare={!gift}>
         {gift ? (
           <MdCardGiftcard className="h-8 w-8 text-white drop-shadow-sm" />
         ) : (
-          <MdCheck className="h-9 w-9 text-white drop-shadow-sm" />
+          <PurchaseHappyArt className="h-[7.5rem] w-[7.5rem] overflow-visible drop-shadow-md" />
         )}
       </PlanBand>
 

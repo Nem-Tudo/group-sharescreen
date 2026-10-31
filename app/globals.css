@@ -909,6 +909,65 @@ body:has([data-group-shell]) {
   }
 }
 
+/* The face on a payment's confirmation (PurchaseHappyArt): it pops in, jumps
+   for joy a few times and settles, while the paper around it keeps twinkling. */
+@keyframes golive-happy-pop {
+  0% {
+    transform: scale(0.2) rotate(-14deg);
+    opacity: 0;
+  }
+  65% {
+    transform: scale(1.14) rotate(5deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+}
+
+@keyframes golive-happy-hop {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  35% {
+    transform: translateY(-4px) rotate(-4deg);
+  }
+  70% {
+    transform: translateY(-2px) rotate(4deg);
+  }
+}
+
+@keyframes golive-happy-twinkle {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.golive-happy-art {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation:
+    golive-happy-pop 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.2) both,
+    golive-happy-hop 0.9s ease-in-out 0.55s 4;
+}
+
+.golive-happy-bit {
+  animation: golive-happy-twinkle 1.5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .golive-happy-art,
+  .golive-happy-bit {
+    animation: none;
+  }
+}
+
 /*
  * Picture-in-picture on the Android shell.
  *
