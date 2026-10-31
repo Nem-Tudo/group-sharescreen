@@ -828,7 +828,7 @@ export function PartnerCard({
           headerExtra={
             (adsSettings || onDismiss) && (
             <span className="flex items-center gap-1">
-              {adsSettings && <PartnerAdsSettingsButton />}
+              {adsSettings && <PartnerAdsSettingsButton folded={collapsed} />}
               {onDismiss && (
                 <button
                   type="button"
@@ -925,7 +925,7 @@ export function PartnerCard({
               <span className="shrink-0 rounded-full bg-black/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide opacity-70 dark:bg-white/10">
                 {t("common.sponsored")}
               </span>
-              {adsSettings && !showingExample && <PartnerAdsSettingsButton />}
+              {adsSettings && !showingExample && <PartnerAdsSettingsButton folded={collapsed} />}
               {onDismiss && (
                 <button
                   type="button"

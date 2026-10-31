@@ -32,7 +32,8 @@ export type TileExperiment =
   | "multiMic"
   | "cameraEffects"
   | "phoneCamera"
-  | "multiCamera";
+  | "multiCamera"
+  | "partnerAdsCard";
 
 // `defaultOn`: the switch starts on for whoever never touched it.
 const CONFIG: Record<
@@ -189,6 +190,14 @@ const CONFIG: Record<
     modeKey: "sharescreen:multiCameraMode",
     tipKey: "sharescreen:multiCameraTipSeen",
   },
+  // O ícone do card de anúncio (ver components/PartnerAdsChoice). Como o
+  // callRecording: aqui só pela dica azul, sem interruptor.
+  partnerAdsCard: {
+    feature: "partner-ads-card-settings",
+    modeKey: "sharescreen:partnerAdsCardMode",
+    tipKey: "sharescreen:partnerAdsCardTipSeen",
+    defaultOn: true,
+  },
   musicQueue: {
     feature: "room-music-queue",
     modeKey: "sharescreen:musicQueueMode",
@@ -295,6 +304,11 @@ export const TILE_EXPERIMENT_EVENTS = {
   multiCamera: {
     modeOn: "multi_camera_on",
     modeOff: "multi_camera_off",
+  },
+  // Sem interruptor (ver CONFIG): nunca enviados.
+  partnerAdsCard: {
+    modeOn: "partner_ads_card_on",
+    modeOff: "partner_ads_card_off",
   },
   musicQueue: {
     // Nomes de "modo" aqui são a aba, não a ordem aleatória: o interruptor

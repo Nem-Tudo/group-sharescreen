@@ -2,9 +2,12 @@
 
 import { useState } from "react";
 import { MdClose, MdTune } from "react-icons/md";
+import Tippy from "@tippyjs/react";
 import useNtPopups from "ntpopups";
 import { useAuth } from "@/lib/AuthContext";
+import { useTileExperimentTip } from "@/lib/clipsMode";
 import { trackFeatureEvent, useFeature } from "@/lib/features";
+import { LG_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 import { useT } from "@/lib/useI18n";
 import { markFeatureUsed } from "@/components/NewBadge";
 import {
@@ -137,14 +140,20 @@ export function usePartnerAdsSettingsAvailable(): boolean {
 /**
  * The indicator on an ad card. Drawn in the ad's own text colour, since the
  * advertiser picks the background.
+ *
+ * `folded`: the card is down to its slim bar below lg, which hides this button,
+ * so the blue tip waits for it to open rather than pointing at nothing.
  */
-export function PartnerAdsSettingsButton() {
+export function PartnerAdsSettingsButton({ folded = false }: { folded?: boolean }) {
   const t = useT();
   const { openPopup } = useNtPopups();
-  return (
+  const wide = useMediaQuery(LG_BREAKPOINT_QUERY);
+  const tip = useTileExperimentTip("partnerAdsCard", wide || !folded);
+  const button = (
     <button
       type="button"
       onClick={() => {
+        if (tip.show) tip.clicked();
         trackFeatureEvent(PARTNER_ADS_CARD_EVENTS.open, { feature: PARTNER_ADS_CARD_FEATURE });
         openPopup("partner_ads_settings", { width: "min(420px, calc(100vw - 30px))", maxWidth: "420px" });
       }}
@@ -154,5 +163,35 @@ export function PartnerAdsSettingsButton() {
     >
       <MdTune className="h-3.5 w-3.5" />
     </button>
+  );
+  return (
+    <Tippy
+      visible={tip.show}
+      placement="bottom"
+      interactive
+      theme="golive-panel"
+      appendTo={() => document.body}
+      content={
+        <span
+          role="status"
+          className="relative block w-60 rounded-lg bg-blue-600 px-3 py-2 text-left text-xs font-medium text-white shadow-lg"
+        >
+          <span className="tip-arrow absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
+          <span className="flex items-start gap-2">
+            <span className="flex-1">{t("partnerAds.cardTip")}</span>
+            <button
+              type="button"
+              onClick={tip.dismiss}
+              aria-label={t("watch.watchRoom.clipsModeTipDismiss")}
+              className="-m-1 rounded p-1 leading-none text-white/80 hover:text-white"
+            >
+              ✕
+            </button>
+          </span>
+        </span>
+      }
+    >
+      {button}
+    </Tippy>
   );
 }
