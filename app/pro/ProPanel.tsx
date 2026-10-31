@@ -81,6 +81,9 @@ import { formatLocale } from "@/lib/i18n";
 // surface that quotes a price follows.
 
 /** An upload limit in MiB, as people say it: "100 MB", or "1 GB" from 1024 up. */
+/** The feature's key in the admin panel. Target: user. */
+const PRO_SUB_HIGHLIGHT_FEATURE = "pro-sub-highlight";
+
 function formatUploadLimit(mb: number): string {
   if (mb >= 1024 && mb % 1024 === 0) return `${mb / 1024} GB`;
   return `${mb} MB`;
@@ -335,6 +338,14 @@ export function ProPanel({
   // The comparison-table experiment (see PlanComparison). Nothing plan-shaped
   // is drawn until it is decided, so nobody sees one layout flip to the other.
   const compare = useFeature(PRO_COMPARE_FEATURE);
+  // The subscription as the lead button, in green, and Pix as an outline.
+  const subHighlight = useFeature(PRO_SUB_HIGHLIGHT_FEATURE).enabled;
+  const subscribeButtonClass = subHighlight
+    ? "rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-emerald-600/25 transition hover:bg-emerald-700 disabled:opacity-60"
+    : "rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200";
+  const pixButtonClass = subHighlight
+    ? "flex items-center gap-2 rounded-lg border border-[#32BCAD] px-4 py-2.5 text-sm font-medium text-[#1f8f83] transition hover:bg-[#32BCAD]/10 disabled:opacity-60 dark:text-[#32BCAD]"
+    : "flex items-center gap-2 rounded-lg bg-[#32BCAD] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#2ba99b] disabled:opacity-60";
   // Perks that sit behind their own experiments: sold only to whoever can
   // see them (see lib/groupAura and lib/customEmoji).
   const auraPerk = useFeature(GROUP_AURA_FEATURE, { track: false }).enabled;
@@ -1833,7 +1844,7 @@ export function ProPanel({
                                 disabled={
                                   busy || scheduling || !upgradeQuote || (needsEmail && !email.trim()) || (needsTaxId && !taxId.trim())
                                 }
-                                className="rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+                                className={subscribeButtonClass}
                               >
                                 {scheduling || busy
                                   ? t("pro.proPanel.openingThePayment")
@@ -1846,7 +1857,7 @@ export function ProPanel({
                               type="button"
                               onClick={handleUpgrade}
                               disabled={busy || !upgradeQuote || (needsEmail && !email.trim()) || (needsTaxId && !taxId.trim())}
-                              className="flex items-center gap-2 rounded-lg bg-[#32BCAD] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#2ba99b] disabled:opacity-60"
+                              className={pixButtonClass}
                             >
                               <PixIcon className="h-4 w-4 shrink-0" />
                               {busy
@@ -1860,8 +1871,9 @@ export function ProPanel({
                       )}
                     </div>
                   )}
-                  {/* Both ways to pay, side by side and equal in weight —
-                      they are two products, not a default and an alternative:
+                  {/* Both ways to pay, side by side and equal in weight (unless
+                      the pro-sub-highlight experiment leads with the subscription)
+                      — they are two products, not a default and an alternative:
                       one starts a renewal, the other buys days. Wrapping
                       rather than a fixed row, because the two labels carry
                       prices and stop fitting one line on a phone.
@@ -1916,7 +1928,7 @@ export function ProPanel({
                         type="button"
                         onClick={lowerThanCurrent ? () => setDeferredOpen(true) : handleSubscribe}
                         disabled={busy || (needsEmail && !email.trim()) || (needsTaxId && !taxId.trim())}
-                        className="rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+                        className={subscribeButtonClass}
                       >
                         {busy
                           ? t("pro.proPanel.openingThePayment")
@@ -1940,7 +1952,7 @@ export function ProPanel({
                         type="button"
                         onClick={handlePix}
                         disabled={busy || (needsEmail && !email.trim()) || (needsTaxId && !taxId.trim())}
-                        className="flex items-center gap-2 rounded-lg bg-[#32BCAD] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#2ba99b] disabled:opacity-60"
+                        className={pixButtonClass}
                       >
                         <PixIcon className="h-4 w-4 shrink-0" />
                         {busy
