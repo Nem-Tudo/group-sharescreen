@@ -473,8 +473,10 @@ html[data-theme="dark"] [data-room-redesign] [data-rr-dock] {
 }
 
 /* ─── Room redesign, desktop ──────────────────────────────────────────────
-   The call bar under the stage (WatchRoom's dockInStage). Its buttons are
-   the header's, which paint "something you can press" in emerald; in a call
+   The call controls, wherever they are drawn: the bar under the stage
+   (WatchRoom's dockInStage), a group's top bar, the floating call bar, a
+   direct call and the phone's bottom bar. Their buttons are the header's,
+   which paint "something you can press" in emerald; in a call
    bar the convention is the other way round — neutral when it is fine, red
    only for what is off or ends the call — so emerald is read as neutral
    here. Red, amber and the badges keep their meaning. Unlayered, so these

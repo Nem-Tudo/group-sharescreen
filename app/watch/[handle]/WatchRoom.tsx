@@ -1976,8 +1976,10 @@ function WatchRoomView({
   // off data-room-redesign below. Not in a direct call, which is drawn inside
   // a conversation's card and is not this page's look to change. Exposure
   // only while the room is the page on screen.
-  const roomRedesign =
-    useFeature(ROOM_REDESIGN_FEATURE, { track: visible && !callLayout }).enabled && !callLayout;
+  // The call controls' look (data-rr-calldock) goes by the feature alone: they
+  // are the same controls wherever they end up, a direct call's included.
+  const roomRedesignOn = useFeature(ROOM_REDESIGN_FEATURE, { track: visible && !callLayout }).enabled;
+  const roomRedesign = roomRedesignOn && !callLayout;
   // The popovers and modals the room opens are portalled outside its page
   // element, so the redesign's layer in globals.css finds them through this
   // mark on <html> — only while the room is the page on screen, so a docked
@@ -8970,6 +8972,9 @@ function WatchRoomView({
 
   const callControls = (
     <div
+      // On the row itself and not only on the bar under the stage: the row is
+      // portalled out to the group's top bar and the floating call bar.
+      data-rr-calldock={roomRedesignOn ? "" : undefined}
       className={
         dockInStage
           ? "flex items-center justify-center gap-1.5"
@@ -10729,7 +10734,7 @@ function WatchRoomView({
               {/* Layout da barra de baixo: [mic] [escutar] [camera] [tela] [sair] | Chat Pessoas */}
               <nav className="flex shrink-0 items-center gap-1 px-1.5 py-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))]">
                 {/* 5 botões de chamada rigorosamente do mesmo tamanho: mic, mute, camera, tela, sair */}
-                <div className="flex flex-1 min-w-0 items-center gap-1">
+                <div data-rr-calldock={roomRedesignOn ? "" : undefined} className="flex flex-1 min-w-0 items-center gap-1">
                   {/* 1. [mic] */}
                   <MicUsageHint
                     open={micHintOpen}
