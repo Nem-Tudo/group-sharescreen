@@ -5368,5 +5368,8 @@
   "cam.micOff": "Silenciar micrófono",
   "cam.micMuted": "Micrófono silenciado. La computadora está recibiendo silencio.",
   "cam.usingAsMic": "Este celular es el micrófono de la computadora.",
-  "cam.errorMic": "No se pudo abrir el micrófono. Permite el acceso al micrófono en el navegador."
+  "cam.errorMic": "No se pudo abrir el micrófono. Permite el acceso al micrófono en el navegador.",
+  "watch.watchRoom.discordRpc": "Discord Rich Presence",
+  "watch.watchRoom.discordRpcHint": "Muestra automáticamente en tu estado de Discord cuando tengas GoLive abierto o estés en una llamada.",
+  "watch.watchRoom.discordRpcTip": "Nuevo: ¡muestra que estás en vivo en GoLive directamente en tu perfil de Discord!"
 }

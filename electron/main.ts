@@ -73,6 +73,7 @@ import {
   setInputHookEnabled,
 } from "./inputHook";
 import { createScreenPen } from "./screenPen";
+import { getDiscordRpc, type DiscordActivity } from "./discordRpc";
 import { createStoreDesktopShortcutOnce } from "./storeShortcut";
 import {
   applyFirstRunDefaults,
@@ -2064,6 +2065,32 @@ if (!gotLock) {
     ipcMain.on(IPC.oauthCancel, (_event, nonce: unknown) => {
       if (typeof nonce === "string") settleLogin(nonce, null);
     });
+
+    // ─── Discord Rich Presence ──────────────────────────────────────────────
+    ipcMain.on(IPC.discordRpcUpdate, (event, activity: unknown) => {
+      if (!event.sender.getURL().startsWith(APP_ORIGIN)) return;
+      if (activity && typeof activity === "object") {
+        getDiscordRpc().setActivity(activity as DiscordActivity);
+      }
+    });
+
+    ipcMain.on(IPC.discordRpcClear, (event) => {
+      if (!event.sender.getURL().startsWith(APP_ORIGIN)) return;
+      getDiscordRpc().clearActivity();
+    });
+
+    ipcMain.on(IPC.discordRpcConfigure, (event, config: unknown) => {
+      if (!event.sender.getURL().startsWith(APP_ORIGIN)) return;
+      if (config && typeof config === "object") {
+        const { clientId, enabled } = config as { clientId?: string; enabled?: boolean };
+        if (typeof clientId === "string" && clientId.trim()) {
+          getDiscordRpc().setClientId(clientId.trim());
+        }
+        if (enabled === false) {
+          getDiscordRpc().clearActivity();
+        }
+      }
+    });
     ipcMain.handle(IPC.openExternal, (_event, url: unknown) => {
       if (typeof url !== "string" || !/^https?:$/.test(safeProtocol(url))) return;
       return shell.openExternal(url);
@@ -2455,6 +2482,7 @@ if (!gotLock) {
     screenPen.destroy();
     inputHook.stop();
     globalShortcut.unregisterAll();
+    getDiscordRpc().disconnect();
   });
 
   // A real quit, from the tray menu or from the OS. Read by the window's

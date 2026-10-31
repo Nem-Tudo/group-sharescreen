@@ -21,6 +21,7 @@ export type TileExperiment =
   | "pushToTalk"
   | "musicQueue"
   | "orientation"
+  | "discordRpc"
   | "callRecording"
   | "callTranscript"
   | "roomTools"
@@ -82,6 +83,12 @@ const CONFIG: Record<
     feature: "tile-orientation",
     modeKey: "sharescreen:orientationMode",
     tipKey: "sharescreen:orientationTipSeen",
+    defaultOn: true,
+  },
+  discordRpc: {
+    feature: "discord-rich-presence",
+    modeKey: "sharescreen:discordRpcMode",
+    tipKey: "sharescreen:discordRpcTipSeen",
     defaultOn: true,
   },
   // "Gravar chamada" (ver lib/callRecording). Está aqui só pela dica azul de
@@ -225,6 +232,10 @@ export const TILE_EXPERIMENT_EVENTS = {
   orientation: {
     modeOn: "orientation_mode_on",
     modeOff: "orientation_mode_off",
+  },
+  discordRpc: {
+    modeOn: "discord_rpc_mode_on",
+    modeOff: "discord_rpc_mode_off",
   },
   // Sem interruptor (ver CONFIG): estes dois nunca são enviados. Os eventos
   // de verdade estão em CALL_RECORDING_EVENTS (lib/useCallRecording).
