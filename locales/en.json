@@ -584,6 +584,8 @@
   "admin.features.platform.mobile-app": "Android app",
   "admin.features.serverOnlyLabel": "Server only (not sent to the site)",
   "admin.features.siteEvents": "Site events",
+  "admin.features.data": "Experiment data",
+  "admin.features.dataHint": "One per line, name=value. Read only by the API, applied on save and never sent to the site.",
   "admin.features.siteEventsHint": "Names the site may send with trackFeatureEvent while this feature is live (a-z, 0-9, _ . -). Takes effect on save — no API change needed.",
   "admin.features.overrides": "Overrides",
   "admin.features.overridesHint.user": "Accounts (username or id) that get a treatment (or are kept out) regardless of the percentage. Usernames become ids when added. Not counted in the stats.",

@@ -1596,6 +1596,8 @@ export interface AdminFeature {
   serverOnly: boolean;
   /** Events the site may report while this feature is live. Absent on an older API. */
   clientEvents?: string[];
+  /** Values the experiment reads on the API. Absent on an older API. */
+  data?: Record<string, string>;
   /** Events shown first in the stats, shared by every admin. Absent on an older API. */
   pinnedEvents?: string[];
   enabled: boolean;
@@ -1622,6 +1624,7 @@ export interface FeatureWrite {
   includeGuests?: boolean;
   serverOnly?: boolean;
   clientEvents?: string[];
+  data?: Record<string, string>;
   pinnedEvents?: string[];
   enabled?: boolean;
   archived?: boolean;

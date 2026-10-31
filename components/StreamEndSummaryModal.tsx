@@ -53,7 +53,8 @@ export function StreamEndSummaryModal({
   const [priceLabel, setPriceLabel] = useState<string | null>(null);
   useEffect(() => {
     const controller = new AbortController();
-    void fetchPremiumPlans(controller.signal).then((plans) => {
+    // Personal: this is their own purchase, so the price their account would pay.
+    void fetchPremiumPlans(controller.signal, { personal: true }).then((plans) => {
       const plan = plans.find((entry) => entry.id === PRO_PLAN_ID);
       if (plan && !controller.signal.aborted) setPriceLabel(plan.priceLabel);
     });

@@ -780,6 +780,9 @@ function TargetingSection({ feature, busy, save }: { feature: AdminFeature; busy
   const [includeGuests, setIncludeGuests] = useState(feature.includeGuests);
   const [serverOnly, setServerOnly] = useState(feature.serverOnly);
   const [siteEvents, setSiteEvents] = useState((feature.clientEvents ?? []).join(", "));
+  const [dataText, setDataText] = useState(
+    Object.entries(feature.data ?? {}).map(([name, value]) => `${name}=${value}`).join("\n")
+  );
   const [overrides, setOverrides] = useState<FeatureOverride[]>(feature.overrides);
   const [newId, setNewId] = useState("");
   const [newVariant, setNewVariant] = useState(feature.variants[0] ?? "on");
@@ -1001,6 +1004,19 @@ function TargetingSection({ feature, busy, save }: { feature: AdminFeature; busy
         )}
       </div>
 
+      <label className="block">
+        <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">{t("admin.features.data")}</span>
+        <textarea
+          value={dataText}
+          onChange={(e) => setDataText(e.target.value)}
+          rows={3}
+          spellCheck={false}
+          placeholder="priceCents=699"
+          className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 font-mono text-xs dark:border-zinc-700 dark:bg-zinc-900"
+        />
+        <span className="text-xs text-zinc-500 dark:text-zinc-400">{t("admin.features.dataHint")}</span>
+      </label>
+
       <div>
         <button
           type="button"
@@ -1023,6 +1039,13 @@ function TargetingSection({ feature, busy, save }: { feature: AdminFeature; busy
               includeGuests,
               serverOnly,
               clientEvents: nextSiteEvents,
+              data: Object.fromEntries(
+                dataText
+                  .split("\n")
+                  .map((line) => line.trim())
+                  .filter((line) => line.includes("="))
+                  .map((line) => [line.slice(0, line.indexOf("=")).trim(), line.slice(line.indexOf("=") + 1).trim()])
+              ),
               // A site event added here is one this feature exists to measure,
               // so it starts pinned in its stats. Only the newly added ones:
               // an event somebody already unpinned stays unpinned.
