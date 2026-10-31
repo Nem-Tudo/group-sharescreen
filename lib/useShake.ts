@@ -31,6 +31,19 @@ const FRAMES: Keyframe[] = [
 ];
 
 /**
+ * The shortest a payment's shake lasts, however fast the answer comes. On
+ * purpose: an answer in 200ms reads as nothing having happened, and a moment
+ * of suspense is what makes the confirmation land.
+ */
+export const PAYMENT_SHAKE_MIN_MS = 1000;
+
+/** Waits out what is left of the minimum shake that began at `startedAt`. */
+export async function holdPaymentShake(startedAt: number): Promise<void> {
+  const left = startedAt + PAYMENT_SHAKE_MIN_MS - Date.now();
+  if (left > 0) await new Promise((resolve) => setTimeout(resolve, left));
+}
+
+/**
  * @param getTarget Resolves the element when the shake starts — a function
  *   rather than a ref, because one caller shakes an element it does not render
  *   (the popup library's <dialog> around its content).

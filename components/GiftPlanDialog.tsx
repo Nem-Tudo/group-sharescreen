@@ -25,7 +25,7 @@ import {
   RECOMMENDED_PLAN_ID,
 } from "@/lib/premiumApi";
 import { useI18n } from "@/lib/useI18n";
-import { useShake } from "@/lib/useShake";
+import { holdPaymentShake, useShake } from "@/lib/useShake";
 
 // "Presentear": buy a plan for somebody else.
 //
@@ -343,6 +343,7 @@ export function GiftPlanDialog({
 
   async function pay() {
     if (!plan || busy || !ready) return;
+    const startedAt = Date.now();
     setBusy(true);
     setError(null);
     const outcome = await startGiftPix({
@@ -352,6 +353,7 @@ export function GiftPlanDialog({
       email: needsEmail ? email.trim() : undefined,
       taxId: needsTaxId ? taxId.trim() : undefined,
     });
+    await holdPaymentShake(startedAt);
     if (outcome.ok) {
       setSettled(false);
       setCharge(outcome.charge);

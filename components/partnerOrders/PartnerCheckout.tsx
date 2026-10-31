@@ -7,6 +7,7 @@ import { PixChargeModal } from "@/components/PixChargeModal";
 import type { PixCharge } from "@/lib/premiumApi";
 import { useT } from "@/lib/useI18n";
 import { useAuth } from "@/lib/AuthContext";
+import { holdPaymentShake } from "@/lib/useShake";
 import {
   PartnerOrderError,
   SELF_SERVE_PARTNER_EVENTS,
@@ -76,6 +77,7 @@ export function PartnerCheckout({
   }, [pix, paid]);
 
   async function pay() {
+    const startedAt = Date.now();
     setError(null);
     setBusy(true);
     try {
@@ -92,6 +94,7 @@ export function PartnerCheckout({
         return;
       }
       trackPartnerOrderEvent(SELF_SERVE_PARTNER_EVENTS.checkoutPix, target.amountCents);
+      await holdPaymentShake(startedAt);
       setPix(result.pix);
     } catch (err) {
       if (err instanceof PartnerOrderError) {

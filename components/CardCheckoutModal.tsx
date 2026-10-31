@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { MdCheckCircle, MdClose, MdLock } from "react-icons/md";
+import { MdClose, MdLock } from "react-icons/md";
+import { PurchasePaidScreen, type PurchaseConfirmation } from "@/components/PixChargeModal";
 import { trackFeatureEvent } from "@/lib/features";
 import type { InlineCheckout } from "@/lib/premiumApi";
 import {
@@ -11,6 +12,7 @@ import {
   type StripeEmbeddedCheckout,
 } from "@/lib/stripeJs";
 import { useI18n } from "@/lib/useI18n";
+import { holdPaymentShake, PAYMENT_SHAKE_MIN_MS, useShake } from "@/lib/useShake";
 import { useResolvedTheme } from "@/lib/useTheme";
 
 // The subscription's card form, inside /pro instead of on checkout.stripe.com.
@@ -37,6 +39,10 @@ type CardCheckoutModalProps = {
   checkout: InlineCheckout | null;
   /** "Pro Max — R$ 14,99/mês", shown on our own form. */
   planLabel: string;
+  /** What is being bought, for the confirmation. See PurchaseConfirmation. */
+  confirmation: PurchaseConfirmation | null;
+  /** How long one cycle of it lasts, for the confirmation. */
+  days: number | null;
   onClose: () => void;
   onPaid: () => void;
 };
@@ -51,12 +57,27 @@ export function CardCheckoutModal({ checkout, ...rest }: CardCheckoutModalProps)
 function CheckoutDialog({
   checkout,
   planLabel,
+  confirmation,
+  days,
   onClose,
   onPaid,
 }: CardCheckoutModalProps & { checkout: InlineCheckout }) {
   const { t } = useI18n();
   const [paid, setPaid] = useState(false);
   const paidRef = useRef(false);
+  // From the press of "pagar" until the answer, and at least a second. Embedded
+  // is Stripe's own button in Stripe's iframe, whose press this page never
+  // hears: there it starts when the payment completes.
+  const [shaking, setShaking] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const revealTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useShake(() => dialogRef.current, shaking);
+  useEffect(
+    () => () => {
+      if (revealTimer.current) clearTimeout(revealTimer.current);
+    },
+    []
+  );
 
   // One open per checkout, and one close for every open that did not pay —
   // the pair the experiment's completion rate is read from.
@@ -68,12 +89,16 @@ function CheckoutDialog({
     };
   }, [checkout]);
 
-  const handlePaid = () => {
+  const handlePaid = (shakingSince = Date.now()) => {
     if (paidRef.current) return;
     paidRef.current = true;
     trackFeatureEvent("pro_checkout_inline_complete");
-    setPaid(true);
     onPaid();
+    setShaking(true);
+    revealTimer.current = setTimeout(() => {
+      setShaking(false);
+      setPaid(true);
+    }, Math.max(0, shakingSince + PAYMENT_SHAKE_MIN_MS - Date.now()));
   };
 
   // Only the × closes it: a stray click or Escape would throw away a half-typed
@@ -81,34 +106,52 @@ function CheckoutDialog({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
+        aria-busy={shaking || undefined}
         aria-label={t("cardCheckoutModal.title")}
         className={`flex max-h-[92vh] w-full flex-col overflow-hidden rounded-2xl border border-black/10 bg-white shadow-xl dark:border-white/10 dark:bg-zinc-950 ${
           checkout.ui === "embedded" && !paid ? "max-w-lg" : "max-w-sm"
         }`}
       >
-        <div className="flex items-center justify-between border-b border-black/5 px-4 py-3 dark:border-white/10">
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-            <MdLock className="h-4 w-4 text-emerald-600 dark:text-emerald-500" />
-            {t("cardCheckoutModal.title")}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={t("cardCheckoutModal.close")}
-            className="rounded-lg p-1 text-zinc-500 hover:bg-black/5 hover:text-zinc-800 dark:hover:bg-white/10 dark:hover:text-zinc-200"
-          >
-            <MdClose className="h-5 w-5" />
-          </button>
-        </div>
+        {/* The confirmation brings its own × over the plan's band. */}
+        {!paid && (
+          <div className="flex items-center justify-between border-b border-black/5 px-4 py-3 dark:border-white/10">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+              <MdLock className="h-4 w-4 text-emerald-600 dark:text-emerald-500" />
+              {t("cardCheckoutModal.title")}
+            </h2>
+            {/* Disabled while the payment is being confirmed: leaving now would
+                leave nothing on screen to say how it ended. */}
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={shaking}
+              aria-label={t("cardCheckoutModal.close")}
+              className="rounded-lg p-1 text-zinc-500 hover:bg-black/5 hover:text-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-white/10 dark:hover:text-zinc-200"
+            >
+              <MdClose className="h-5 w-5" />
+            </button>
+          </div>
+        )}
         <div className="overflow-y-auto">
           {paid ? (
-            <PaidScreen onClose={onClose} />
+            <PurchasePaidScreen
+              days={days}
+              confirmation={confirmation}
+              message={t("cardCheckoutModal.paidBody")}
+              onClose={onClose}
+            />
           ) : checkout.ui === "embedded" ? (
             <EmbeddedForm checkout={checkout} onPaid={handlePaid} />
           ) : (
-            <CardForm checkout={checkout} planLabel={planLabel} onPaid={handlePaid} />
+            <CardForm
+              checkout={checkout}
+              planLabel={planLabel}
+              onConfirming={setShaking}
+              onPaid={handlePaid}
+            />
           )}
         </div>
       </div>
@@ -120,24 +163,6 @@ function stripeLocale(locale: string): string {
   if (locale.startsWith("pt")) return "pt-BR";
   if (locale.startsWith("es")) return "es";
   return "en";
-}
-
-function PaidScreen({ onClose }: { onClose: () => void }) {
-  const { t } = useI18n();
-  return (
-    <div className="flex flex-col items-center gap-3 px-6 py-8 text-center">
-      <MdCheckCircle className="h-12 w-12 text-emerald-500" />
-      <p className="text-base font-semibold text-zinc-900 dark:text-zinc-100">{t("cardCheckoutModal.paidTitle")}</p>
-      <p className="text-sm text-zinc-600 dark:text-zinc-400">{t("cardCheckoutModal.paidBody")}</p>
-      <button
-        type="button"
-        onClick={onClose}
-        className="mt-2 rounded-xl bg-zinc-900 px-5 py-2 text-sm font-semibold text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
-      >
-        {t("cardCheckoutModal.done")}
-      </button>
-    </div>
-  );
 }
 
 function LoadError() {
@@ -207,11 +232,14 @@ function EmbeddedForm({ checkout, onPaid }: { checkout: InlineCheckout; onPaid: 
 function CardForm({
   checkout,
   planLabel,
+  onConfirming,
   onPaid,
 }: {
   checkout: InlineCheckout;
   planLabel: string;
-  onPaid: () => void;
+  onConfirming: (confirming: boolean) => void;
+  /** Handed the moment the press of "pagar" started the shake. */
+  onPaid: (shakingSince: number) => void;
 }) {
   const { t, locale } = useI18n();
   const theme = useResolvedTheme();
@@ -286,9 +314,17 @@ function CardForm({
     const stripe = stripeRef.current;
     const card = numberFieldRef.current;
     if (!stripe || !card || !ready) return;
+    const startedAt = Date.now();
     setSubmitting(true);
     setError(null);
+    onConfirming(true);
     trackFeatureEvent("pro_checkout_card_submit");
+    const fail = async (message: string) => {
+      await holdPaymentShake(startedAt);
+      onConfirming(false);
+      setError(message);
+      setSubmitting(false);
+    };
     try {
       // 3-D Secure, when the bank asks for it, is handled by this call in a
       // Stripe-owned frame over the page.
@@ -301,22 +337,19 @@ function CardForm({
         trackFeatureEvent(`pro_checkout_card_error.${code}`);
         // Stripe's own message, already in the locale the client was started
         // with — it is the one that knows what the bank said.
-        setError(result.error.message ?? t("cardCheckoutModal.genericError"));
-        setSubmitting(false);
+        await fail(result.error.message ?? t("cardCheckoutModal.genericError"));
         return;
       }
       if (result.paymentIntent?.status === "succeeded" || result.paymentIntent?.status === "processing") {
-        onPaid();
+        onPaid(startedAt);
         return;
       }
-      setError(t("cardCheckoutModal.genericError"));
-      setSubmitting(false);
+      await fail(t("cardCheckoutModal.genericError"));
     } catch (err) {
       console.error("[checkout] Card confirmation failed:", (err as Error).message);
       trackFeatureEvent("pro_checkout_card_error");
       trackFeatureEvent("pro_checkout_card_error.network");
-      setError(t("cardCheckoutModal.genericError"));
-      setSubmitting(false);
+      await fail(t("cardCheckoutModal.genericError"));
     }
   };
 

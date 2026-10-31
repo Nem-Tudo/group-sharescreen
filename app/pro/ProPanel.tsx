@@ -23,6 +23,7 @@ import type { BillingCycle } from "@/lib/premiumApi";
 import { useAuth } from "@/lib/AuthContext";
 import { AccountModal, type AccountModalMode } from "@/components/AccountModal";
 import { PixChargeModal } from "@/components/PixChargeModal";
+import { holdPaymentShake, useShake } from "@/lib/useShake";
 import { CardCheckoutModal } from "@/components/CardCheckoutModal";
 import { DeferredDowngradeModal } from "@/components/DeferredDowngradeModal";
 import useNtPopups from "ntpopups";
@@ -1116,6 +1117,7 @@ export function ProPanel({
     // See handleSubscribe: the click, before anything can go wrong with it.
     trackFeatureEvent("pro_checkout_click");
     trackFeatureEvent("pro_checkout_click_pix");
+    const startedAt = Date.now();
     setBusy(true);
     setGenerating(true);
     setError(null);
@@ -1125,6 +1127,7 @@ export function ProPanel({
       cycle,
       taxId.trim() || undefined
     );
+    await holdPaymentShake(startedAt);
     if (!result.ok) {
       setError(result.error);
       if (result.needsEmail) setNeedsEmail(true);
@@ -1189,6 +1192,7 @@ export function ProPanel({
   // handleUpgradeSubscription.
   const handleUpgrade = useCallback(async (): Promise<boolean> => {
     if (!plan) return false;
+    const startedAt = Date.now();
     setBusy(true);
     setGenerating(true);
     setError(null);
@@ -1197,6 +1201,7 @@ export function ProPanel({
       email.trim() || undefined,
       taxId.trim() || undefined
     );
+    await holdPaymentShake(startedAt);
     if (!result.ok) {
       setError(result.error);
       if (result.needsEmail) setNeedsEmail(true);
@@ -1283,6 +1288,20 @@ export function ProPanel({
       dialogOpen: Boolean(pix || upgradePix || inlineCheckout || deferredOpen),
     });
   }, [generating, pix, upgradePix, inlineCheckout, deferredOpen, onCheckoutLockChange]);
+  // On the page there is no dialog around this panel to shake: the card with
+  // the pay buttons does it instead.
+  useShake(() => checkoutCardRef.current, !isModal && generating && !pix && !upgradePix);
+
+  // What was bought, for all three payment dialogs below. Their own plan, so
+  // their own face in the confetti.
+  const purchaseConfirmation = plan
+    ? {
+        planId: plan.id,
+        planTitle: plan.title,
+        planIconId: plan.iconId,
+        face: account ? { name: account.displayName, avatarUrl: account.avatarUrl } : null,
+      }
+    : null;
 
 
 
@@ -2075,6 +2094,8 @@ export function ProPanel({
               }`
             : ""
         }
+        confirmation={purchaseConfirmation}
+        days={pricing?.periodDays ?? null}
         onClose={() => {
           setInlineCheckout(null);
           void syncStatus(true);
@@ -2089,19 +2110,7 @@ export function ProPanel({
         charge={pix}
         paid={pixPaid}
         paidUntilLabel={premium ? periodEndLabel(premium.currentPeriodEnd) : null}
-        confirmation={
-          plan
-            ? {
-                planId: plan.id,
-                planTitle: plan.title,
-                planIconId: plan.iconId,
-                // Their own plan, so their own face in the confetti.
-                face: account
-                  ? { name: account.displayName, avatarUrl: account.avatarUrl }
-                  : null,
-              }
-            : null
-        }
+        confirmation={purchaseConfirmation}
         busy={busy}
         onRegenerate={handlePix}
         onCheckNow={() => void syncStatus(true)}
@@ -2117,18 +2126,7 @@ export function ProPanel({
         charge={upgradePix}
         paid={upgradePaid}
         paidUntilLabel={premium ? periodEndLabel(premium.currentPeriodEnd) : null}
-        confirmation={
-          plan
-            ? {
-                planId: plan.id,
-                planTitle: plan.title,
-                planIconId: plan.iconId,
-                face: account
-                  ? { name: account.displayName, avatarUrl: account.avatarUrl }
-                  : null,
-              }
-            : null
-        }
+        confirmation={purchaseConfirmation}
         busy={busy}
         onRegenerate={handleUpgrade}
         onCheckNow={() => void syncStatus(true)}

@@ -18,7 +18,7 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { planTierOf, verifiedBadge } from "@/lib/entitlements";
 import type { PixCharge } from "@/lib/premiumApi";
 import { useI18n } from "@/lib/useI18n";
-import { useShake } from "@/lib/useShake";
+import { PAYMENT_SHAKE_MIN_MS, useShake } from "@/lib/useShake";
 
 // The Pix code, in a dialog of its own.
 //
@@ -158,7 +158,8 @@ export function PixChargeModal({ charge, ...rest }: PixChargeModalProps) {
  * The code screen itself: a header and one of three states.
  *
  * Brings its own padding and no box — the shell around it decides whether this
- * is a card floating over the page or a step inside a popup.
+ * is a card floating over the page or a step inside a popup. The shell is also
+ * what shakes: found from here, since this is used inside two different boxes.
  */
 export function PixChargeContent({
   charge,
@@ -173,30 +174,56 @@ export function PixChargeContent({
   onClose,
 }: PixChargeModalProps & { charge: PixCharge }) {
   const { t } = useI18n();
-  if (paid) {
-    return (
-      <PaidScreen
-        charge={charge}
-        confirmation={confirmation ?? null}
-        message={
-          paidMessage ??
-          (paidUntilLabel
-            ? t("pixChargeModal.allSetYourProAccessIs", { paidUntilLabel })
-            : t("pixChargeModal.allSetYourProAccessIs2"))
-        }
-        extra={paidExtra}
-        onClose={onClose}
-      />
-    );
-  }
+  const rootRef = useRef<HTMLDivElement>(null);
+  // The money landing shakes the dialog for a moment before the confirmation
+  // takes over. Already paid when this opened: nothing left to wait for.
+  const [revealed, setRevealed] = useState(paid);
+  const holding = paid && !revealed;
+  // "Já paguei": a shake of the same length, whatever the check comes back with.
+  const [checking, setChecking] = useState(false);
+
+  useEffect(() => {
+    if (!holding) return;
+    const timer = setTimeout(() => setRevealed(true), PAYMENT_SHAKE_MIN_MS);
+    return () => clearTimeout(timer);
+  }, [holding]);
+
+  useEffect(() => {
+    if (!checking) return;
+    const timer = setTimeout(() => setChecking(false), PAYMENT_SHAKE_MIN_MS);
+    return () => clearTimeout(timer);
+  }, [checking]);
+
+  useShake(() => rootRef.current?.closest("[role='dialog'], [data-popup-id]"), holding || checking);
+
   return (
-    <PendingScreen
-      charge={charge}
-      busy={busy}
-      onRegenerate={onRegenerate}
-      onCheckNow={onCheckNow}
-      onClose={onClose}
-    />
+    <div ref={rootRef}>
+      {paid && revealed ? (
+        <PurchasePaidScreen
+          days={charge.days}
+          confirmation={confirmation ?? null}
+          message={
+            paidMessage ??
+            (paidUntilLabel
+              ? t("pixChargeModal.allSetYourProAccessIs", { paidUntilLabel })
+              : t("pixChargeModal.allSetYourProAccessIs2"))
+          }
+          extra={paidExtra}
+          onClose={onClose}
+        />
+      ) : (
+        <PendingScreen
+          charge={charge}
+          busy={busy || holding || checking}
+          onRegenerate={onRegenerate}
+          onCheckNow={() => {
+            setChecking(true);
+            onCheckNow();
+          }}
+          onClose={onClose}
+        />
+      )}
+    </div>
   );
 }
 
@@ -206,16 +233,18 @@ export function PixChargeContent({
  * Drawn in the same shape as a present being opened (GiftClaimDialog) — the
  * plan's band, its name and mark, how long it lasts — because it is the same
  * event from the other side: a plan has just changed hands. And it arrives
- * with the confetti and the sound, once, on the way in.
+ * with the confetti and the sound, once, on the way in. The card form ends on
+ * this same screen (see CardCheckoutModal).
  */
-function PaidScreen({
-  charge,
+export function PurchasePaidScreen({
+  days,
   confirmation,
   message,
   extra,
   onClose,
 }: {
-  charge: PixCharge;
+  /** How long it lasts. Null leaves the line out. */
+  days: number | null;
   confirmation: PurchaseConfirmation | null;
   message: string;
   extra?: ReactNode;
@@ -262,11 +291,13 @@ function PaidScreen({
           </h2>
         )}
 
-        <p className="mt-2 text-center">
-          <span className="inline-flex items-center rounded-full bg-zinc-100 px-3 py-1 text-sm font-medium text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
-            {tc("common.dayCount", charge.days)}
-          </span>
-        </p>
+        {days !== null && (
+          <p className="mt-2 text-center">
+            <span className="inline-flex items-center rounded-full bg-zinc-100 px-3 py-1 text-sm font-medium text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+              {tc("common.dayCount", days)}
+            </span>
+          </p>
+        )}
 
         {/* Who it went to, drawn the way the present dialog draws who it is
             from — the mirror of the same card. */}
