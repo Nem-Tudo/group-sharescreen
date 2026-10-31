@@ -14,8 +14,12 @@ import { trackPartnerImpression, trackPartnerSessionView, usePartnerExperiment }
 import { hasUnclaimedPartnerReward, usePartnerAdsMode } from "./partnerAdsMode";
 import { usePartnerCreative } from "./partnerSchedule";
 import { isPageHidden, onPageHiddenChange } from "./pageHidden";
+import { trackProductImpression, useAffiliateProductsFeature } from "./affiliateProducts";
 
 const ROTATE_INTERVAL_MS = 3 * 60 * 1000;
+// The longest the first fetch waits to learn whether this person gets products
+// (see the gate below). Features that never load must not leave the slot empty.
+const FEATURE_WAIT_MS = 2500;
 
 /**
  * The room's partner ad: which one is on screen, and everything that decides
@@ -52,17 +56,36 @@ export function usePartnerAd({ visible = true }: { visible?: boolean } = {}) {
     fetchKindRef.current = fetchKind;
   }, [fetchKind]);
 
+  // Whether the roll may land on an affiliate product. Exposure is counted
+  // only once the slot is on screen (see slotOnScreen's effect further down).
+  const [slotOnScreen, setSlotOnScreen] = useState(false);
+  const productsFeature = useAffiliateProductsFeature({ track: slotOnScreen });
+  const withProductsRef = useRef(productsFeature.enabled);
+  useEffect(() => {
+    withProductsRef.current = productsFeature.enabled;
+  }, [productsFeature.enabled]);
+
+  // The first fetch waits for that answer. Auth is still resolving when this
+  // mounts, so asking straight away would never include products, and somebody
+  // on the experiment would get three minutes of plain ads before the first
+  // rotation. A latch, so an account refresh later on cannot refetch the slot.
+  const [featureGateOpen, setFeatureGateOpen] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setFeatureGateOpen(true), productsFeature.ready ? 0 : FEATURE_WAIT_MS);
+    return () => clearTimeout(timer);
+  }, [productsFeature.ready]);
+
   // Initial HTTP fetch
   useEffect(() => {
-    if (fetchKind === "none") return;
+    if (fetchKind === "none" || !featureGateOpen) return;
     const controller = new AbortController();
-    fetchPartner(controller.signal, null, fetchKind === "rewards")
+    fetchPartner(controller.signal, null, fetchKind === "rewards", withProductsRef.current)
       .then(applyServedPartner)
       .catch(() => {
         applyServedPartner(null);
       });
     return () => controller.abort();
-  }, [applyServedPartner, fetchKind]);
+  }, [applyServedPartner, fetchKind, featureGateOpen]);
 
   // Rotation timer
   const currentIdRef = useRef<string | null>(null);
@@ -73,7 +96,7 @@ export function usePartnerAd({ visible = true }: { visible?: boolean } = {}) {
   const rotate = useCallback(
     (signal: AbortSignal) => {
       if (fetchKindRef.current === "none") return;
-      fetchPartner(signal, currentIdRef.current, fetchKindRef.current === "rewards")
+      fetchPartner(signal, currentIdRef.current, fetchKindRef.current === "rewards", withProductsRef.current)
         .then(applyServedPartner)
         .catch(() => {
           // Keep whatever is currently on screen
@@ -95,6 +118,10 @@ export function usePartnerAd({ visible = true }: { visible?: boolean } = {}) {
   // The click-through experiment's exposure: counted here, where a slot is on
   // screen, for both sides — its events below are what it compares.
   usePartnerExperiment({ track: shown });
+  useEffect(() => {
+    const timer = setTimeout(() => setSlotOnScreen(shown), 0);
+    return () => clearTimeout(timer);
+  }, [shown]);
 
   const refetchedForRef = useRef<string | null>(null);
   const partnerId = partner?.id ?? null;
@@ -185,15 +212,19 @@ export function usePartnerAd({ visible = true }: { visible?: boolean } = {}) {
       // by the served object's identity, so the same serve is still counted
       // exactly once however many times this re-runs.
       if (!shown) return;
+      // A product's numbers are kept like an ad's, but its experiment events
+      // are its own: partner_* are real ads only, and partner-ctr divides by them.
+      const isProduct = Boolean(serve!.product);
       if (!reportedSessionIds.current.has(id!)) {
         reportedSessionIds.current.add(id!);
         signalingClient.reportPartnerSessionView(id!);
-        trackPartnerSessionView();
+        if (!isProduct) trackPartnerSessionView();
       }
       if (reportedServeRef.current === serve) return;
       reportedServeRef.current = serve;
       signalingClient.reportPartnerView(id!);
-      trackPartnerImpression();
+      if (isProduct) trackProductImpression();
+      else trackPartnerImpression();
     }
     maybeReport();
     return onPageHiddenChange(maybeReport);

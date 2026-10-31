@@ -5371,5 +5371,7 @@
   "cam.errorMic": "Couldn't open the microphone. Allow microphone access in the browser.",
   "watch.watchRoom.discordRpc": "Discord Rich Presence",
   "watch.watchRoom.discordRpcHint": "Automatically displays on your Discord status when GoLive is open or in a call.",
-  "watch.watchRoom.discordRpcTip": "New: show that you are live on GoLive right in your Discord profile!"
+  "watch.watchRoom.discordRpcTip": "New: show that you are live on GoLive right in your Discord profile!",
+  "affiliateProduct.seeOffer": "See offer",
+  "affiliateProduct.percentOff": "{percent}% OFF"
 }
