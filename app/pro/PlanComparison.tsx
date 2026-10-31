@@ -32,8 +32,12 @@ export const PRO_COMPARE_BUY_TOP = "buy-top";
  */
 export const PRO_MODAL_LAYOUT_FEATURE = "pro-modal-layout";
 
-/** How many benefits that popup opens with; the rest wait for "Ver todos". */
-const SHORT_LIST_ROWS = 6;
+// What that popup opens with; the rest waits for "Ver todos". A few benefits
+// every plan has, then these, chosen by hand: a list cut by order alone showed
+// only rows where Pro, Max and Ultra look the same, which gives nobody a reason
+// to look past the cheapest. A benefit no plan sells is simply left out.
+const SHORT_LIST_CORE_ROWS = 3;
+const SHORT_LIST_FEATURED = ["no_ads", "avatar_upload", "room_theme_set", "avatar_shape"];
 
 /** A number worth comparing: `amount` orders it, `label` is what is shown. */
 export type ComparisonAmount = { label: string; amount: number; icon?: ReactNode };
@@ -112,10 +116,13 @@ export function PlanComparison({
   // borders, the header the top and the footer the bottom. The border means
   // "recommended" and nothing else — the selection is shown by the plan
   // picker in the price card (ProPanel), so the two never read as one signal.
+  // The popup's layout has no picker: there the chosen column is tinted and its
+  // head says so (see the "Escolher" pill below).
   const column = (planId: string, position: "top" | "middle" | "bottom") => {
-    if (planId !== recommendedId) return "border-x-2 border-transparent";
+    const chosen = roomyLabels && planId === selectedId;
+    if (planId !== recommendedId) return `border-x-2 border-transparent ${chosen ? "bg-emerald-500/10" : ""}`;
     const edge = position === "top" ? "rounded-t-xl border-t-2" : position === "bottom" ? "rounded-b-xl border-b-2" : "";
-    return `border-x-2 border-amber-500 bg-amber-500/5 dark:border-amber-400 ${edge}`;
+    return `border-x-2 border-amber-500 ${chosen ? "bg-emerald-500/10" : "bg-amber-500/5"} dark:border-amber-400 ${edge}`;
   };
 
   // index -1 is the "Sem plano" column.
@@ -173,7 +180,14 @@ export function PlanComparison({
     </button>
   );
 
-  const shownRows = roomyLabels && !showAll ? differing.slice(0, SHORT_LIST_ROWS) : differing;
+  const shortList = () => {
+    const featured = (row: ComparisonRow) => SHORT_LIST_FEATURED.includes(row.key);
+    return [
+      ...differing.filter((row) => !featured(row) && has(row.cells[0])).slice(0, SHORT_LIST_CORE_ROWS),
+      ...SHORT_LIST_FEATURED.flatMap((key) => differing.filter((row) => row.key === key)),
+    ];
+  };
+  const shownRows = roomyLabels && !showAll ? shortList() : differing;
   const hiddenCount = differing.length - shownRows.length;
 
   return (
@@ -219,6 +233,20 @@ export function PlanComparison({
                       <span className="text-xs font-extrabold tracking-wide text-zinc-950 uppercase italic sm:text-sm dark:text-zinc-50">
                         {plan.title}
                       </span>
+                      {/* A span: the whole head is already the button. Says out
+                          loud what clicking a column does. */}
+                      {roomyLabels && (
+                        <span
+                          className={`mt-1.5 inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold normal-case ${
+                            selected
+                              ? "border-emerald-500 bg-emerald-500 text-white"
+                              : "border-zinc-300 text-zinc-700 dark:border-zinc-600 dark:text-zinc-200"
+                          }`}
+                        >
+                          {selected && <MdCheck className="h-3.5 w-3.5" />}
+                          {selected ? t("pro.compare.chosen") : t("pro.compare.choose")}
+                        </span>
+                      )}
                     </button>
                   </th>
                 );
@@ -230,18 +258,24 @@ export function PlanComparison({
             {shownRows.map(bodyRow)}
             {hiddenCount > 0 && (
               <tr>
-                <td colSpan={plans.length + 2} className="py-2 text-center">
+                <td className="py-2 pr-3">
                   <button
                     type="button"
                     onClick={() => {
                       trackFeatureEvent("pro_modal_show_all", { feature: PRO_MODAL_LAYOUT_FEATURE });
                       setShowAll(true);
                     }}
-                    className="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium text-zinc-600 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                    className="-ml-2 cursor-pointer rounded-lg px-2 py-1.5 text-left text-sm font-medium text-zinc-600 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900"
                   >
                     {t("pro.compare.showAll", { count: String(hiddenCount) })}
                   </button>
                 </td>
+                {/* Empty cells rather than one wide one, so the columns run on
+                    unbroken down to their buy buttons. */}
+                <td className="bg-zinc-100/60 dark:bg-zinc-900/40" />
+                {plans.map((plan) => (
+                  <td key={plan.id} className={column(plan.id, "middle")} />
+                ))}
               </tr>
             )}
             {/* The buy buttons, at the foot of each column — the table is

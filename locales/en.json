@@ -4152,6 +4152,8 @@
   "pro.compare.choose": "Choose",
   "pro.compare.inEveryPlan": "All of this in every plan ({count})",
   "pro.compare.getPlan": "Subscribe",
+  "pro.compare.choose": "Choose",
+  "pro.compare.chosen": "Chosen",
   "admin.features.weights": "Split between treatments",
   "admin.features.weightFor": "Share for {variant}",
   "admin.features.shareOfTotal": "= {value} of the target",

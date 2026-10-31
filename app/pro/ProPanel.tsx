@@ -382,11 +382,20 @@ export function ProPanel({
   const buyPlan = useCallback(
     (planId: string) => {
       selectPlan(planId);
-      requestAnimationFrame(() =>
-        checkoutCardRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
-      );
+      requestAnimationFrame(() => {
+        const card = checkoutCardRef.current;
+        card?.scrollIntoView({ behavior: "smooth", block: "center" });
+        // Beside the table it is already on screen and nothing would scroll, so
+        // the press has to show where the checkout is some other way.
+        if (twoPane && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+          card?.animate(
+            [{ boxShadow: "0 0 0 0 rgba(16, 185, 129, 0.7)" }, { boxShadow: "0 0 0 10px rgba(16, 185, 129, 0)" }],
+            { duration: 700, iterations: 2 }
+          );
+        }
+      });
     },
-    [selectPlan]
+    [selectPlan, twoPane]
   );
   // The plan to steer toward: Pro Max, unless the account already has it —
   // then the one above it, and nothing once they are at the top.

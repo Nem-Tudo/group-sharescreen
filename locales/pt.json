@@ -4152,6 +4152,8 @@
   "pro.compare.choose": "Escolher",
   "pro.compare.inEveryPlan": "Tudo isso em todos os planos ({count})",
   "pro.compare.getPlan": "Assinar",
+  "pro.compare.choose": "Escolher",
+  "pro.compare.chosen": "Escolhido",
   "admin.features.weights": "Divisão entre as variantes",
   "admin.features.weightFor": "Porcentagem de {variant}",
   "admin.features.shareOfTotal": "= {value} do alvo",
