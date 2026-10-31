@@ -44,6 +44,18 @@ export function AffiliateProductCard({
   const percent = productDiscountPercent(product.price, product.originalPrice);
   const badge = product.badge || (percent ? t("affiliateProduct.percentOff", { percent }) : "");
   const storeColors = productStoreColors(product.store);
+  // On the photo when there is one, opposite the discount: on a line of its own
+  // it floats between the photo and the title, belonging to neither.
+  const storeChip = product.store ? (
+    <span
+      className={`min-w-0 truncate rounded-full px-2 py-0.5 text-[10px] font-bold ${
+        storeColors ? "" : "bg-zinc-800 text-white"
+      }`}
+      style={storeColors ?? undefined}
+    >
+      {product.store}
+    </span>
+  ) : null;
   const buttonClass =
     "mt-3 flex w-full items-center justify-center rounded-lg bg-emerald-600 px-3 py-2 text-center text-sm font-semibold text-white transition hover:bg-emerald-500";
   const label = <span className="truncate">{buttonLabel || t("affiliateProduct.seeOffer")}</span>;
@@ -69,23 +81,15 @@ export function AffiliateProductCard({
               {badge}
             </span>
           )}
+          {storeChip && <span className="absolute bottom-1.5 left-1.5 flex max-w-[calc(100%-0.75rem)]">{storeChip}</span>}
         </div>
       )}
 
       <div className={isStage && imageUrl ? "min-w-0 sm:flex-1" : "min-w-0 flex-1"}>
-        {(product.store || headerExtra) && (
-          <div className="mb-1 flex items-center justify-end gap-1">
-            {product.store && (
-              <span
-                className={`min-w-0 truncate rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                  storeColors ? "" : "bg-black/10 dark:bg-white/10"
-                }`}
-                style={storeColors ?? undefined}
-              >
-                {product.store}
-              </span>
-            )}
-            {headerExtra}
+        {((!imageUrl && product.store) || headerExtra) && (
+          <div className="mb-1 flex items-center justify-between gap-1">
+            {!imageUrl && storeChip}
+            <span className="ml-auto shrink-0">{headerExtra}</span>
           </div>
         )}
 
