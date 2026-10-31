@@ -58,18 +58,15 @@ import { useT } from "@/lib/useI18n";
 import { avatarShapeClass } from "@/lib/avatarShape";
 import useNtPopups from "ntpopups";
 import { NewBadge } from "@/components/NewBadge";
+import { PartnerAdsChoice } from "@/components/PartnerAdsChoice";
 import { PlanLink, PlanRing, planRowClass } from "@/components/UserProfileCard";
 import { WIDE_POPUP_SIZE } from "@/components/groups/dialogKit";
 import { accountTierOf } from "@/lib/entitlements";
 import { ACCOUNT_EMOJI_LIMITS, CUSTOM_EMOJI_BADGE, CUSTOM_EMOJI_FEATURE } from "@/lib/customEmoji";
-import { trackFeatureEvent, useFeature } from "@/lib/features";
-import { markFeatureUsed } from "@/components/NewBadge";
+import { useFeature } from "@/lib/features";
 import {
   PARTNER_ADS_MODE_BADGE,
-  PARTNER_ADS_MODE_EVENTS,
   PARTNER_ADS_MODE_FEATURE,
-  PARTNER_ADS_MODES,
-  type PartnerAdsMode,
 } from "@/lib/partnerAdsMode";
 import { ACCOUNT_DELETE_FEATURE } from "@/lib/accountDelete";
 import {
@@ -499,36 +496,9 @@ function MyEmojisSetting({ flags }: { flags: readonly string[] }) {
  */
 function PartnerAdsSetting({ features }: { features: readonly string[] | undefined }) {
   const t = useT();
-  const { account, updateProfile } = useAuth();
   const { enabled } = useFeature(PARTNER_ADS_MODE_FEATURE, { track: true });
-  // The choice just made, until the account comes back with it.
-  const [pending, setPending] = useState<PartnerAdsMode | null>(null);
-  const [error, setError] = useState<string | null>(null);
   if (!enabled) return null;
   const locked = !features?.includes("no_ads");
-  const current = pending ?? account?.partnerAdsMode ?? "always";
-
-  async function choose(mode: PartnerAdsMode) {
-    if (locked || mode === current) return;
-    setPending(mode);
-    setError(null);
-    markFeatureUsed(PARTNER_ADS_MODE_BADGE);
-    trackFeatureEvent(PARTNER_ADS_MODE_EVENTS[mode], { feature: PARTNER_ADS_MODE_FEATURE });
-    try {
-      await updateProfile({ partnerAdsMode: mode });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t("partnerAds.couldNotSave"));
-    } finally {
-      setPending(null);
-    }
-  }
-
-  const labels: Record<PartnerAdsMode, { title: string; hint: string }> = {
-    never: { title: t("partnerAds.never"), hint: t("partnerAds.neverHint") },
-    rewards: { title: t("partnerAds.rewards"), hint: t("partnerAds.rewardsHint") },
-    always: { title: t("partnerAds.always"), hint: t("partnerAds.alwaysHint") },
-  };
-
   return (
     <section className={`${card} p-4`}>
       <div className={planRowClass(locked, "flex flex-col gap-3")}>
@@ -543,42 +513,7 @@ function PartnerAdsSetting({ features }: { features: readonly string[] | undefin
             <p className="text-xs text-zinc-500 dark:text-zinc-400">{t("partnerAds.hint")}</p>
           </div>
         </div>
-        <div role="radiogroup" aria-label={t("partnerAds.title")} className="flex flex-col gap-1.5">
-          {PARTNER_ADS_MODES.map((mode) => {
-            const selected = current === mode;
-            return (
-              <button
-                key={mode}
-                type="button"
-                role="radio"
-                aria-checked={selected}
-                disabled={locked || pending !== null}
-                onClick={() => void choose(mode)}
-                className={`flex w-full cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 text-left transition disabled:cursor-not-allowed ${
-                  selected
-                    ? "border-sky-500 bg-sky-50 dark:border-sky-500/70 dark:bg-sky-500/10"
-                    : "border-zinc-200 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900"
-                } ${locked ? "opacity-50" : ""}`}
-              >
-                <span
-                  aria-hidden
-                  className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 ${
-                    selected ? "border-sky-500" : "border-zinc-300 dark:border-zinc-600"
-                  }`}
-                >
-                  {selected && <span className="h-2 w-2 rounded-full bg-sky-500" />}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium text-zinc-900 dark:text-zinc-100">{labels[mode].title}</span>
-                  <span className="mt-0.5 block text-xs leading-snug text-zinc-500 dark:text-zinc-400">
-                    {labels[mode].hint}
-                  </span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-        {error && <p className="text-xs text-red-500">{error}</p>}
+        <PartnerAdsChoice locked={locked} />
         {locked && <PlanLink tier="pro" className="self-start text-xs text-zinc-500 dark:text-zinc-400" />}
       </div>
     </section>

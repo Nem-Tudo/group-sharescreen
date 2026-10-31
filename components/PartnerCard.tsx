@@ -36,6 +36,7 @@ import {
 } from "@/lib/partnerOrders";
 import { useVideoDurationLabel } from "@/lib/useVideoDuration";
 import { Popover } from "@/components/Tooltip";
+import { PartnerAdsSettingsButton, usePartnerAdsSettingsAvailable } from "@/components/PartnerAdsChoice";
 import { useT } from "@/lib/useI18n";
 import { formatLocale } from "@/lib/i18n";
 import {
@@ -150,6 +151,7 @@ export function PartnerCard({
   // opens the ad builder instead of the Discord ticket. Not counted as an
   // exposure here — the pitch popup and the builder itself count it.
   const selfServe = useFeature(SELF_SERVE_PARTNER_FEATURE, { track: false }).enabled;
+  const adsSettings = usePartnerAdsSettingsAvailable();
   const isControlled = externalLoaded !== undefined;
   const signalingState = useSignalingSelector(selectPartnerPush, shallow);
   const [internalPartner, setInternalPartner] = useState<PartnerCardData | null>(null);
@@ -824,16 +826,21 @@ export function PartnerCard({
           onClick={() => handleCtaClick(cardSpot)}
           footer={rewardButton}
           headerExtra={
-            onDismiss && (
-              <button
-                type="button"
-                onClick={onDismiss}
-                aria-label={t("partnerCard.collapseAd")}
-                title={t("partnerCard.collapseAd")}
-                className="-mr-1 flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-full opacity-60 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
-              >
-                <ChevronUpIcon className="h-3.5 w-3.5 rotate-180" />
-              </button>
+            (adsSettings || onDismiss) && (
+            <span className="flex items-center gap-1">
+              {adsSettings && <PartnerAdsSettingsButton />}
+              {onDismiss && (
+                <button
+                  type="button"
+                  onClick={onDismiss}
+                  aria-label={t("partnerCard.collapseAd")}
+                  title={t("partnerCard.collapseAd")}
+                  className="-mr-1 flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-full opacity-60 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
+                >
+                  <ChevronUpIcon className="h-3.5 w-3.5 rotate-180" />
+                </button>
+              )}
+            </span>
             )
           }
         />
@@ -918,6 +925,7 @@ export function PartnerCard({
               <span className="shrink-0 rounded-full bg-black/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide opacity-70 dark:bg-white/10">
                 {t("common.sponsored")}
               </span>
+              {adsSettings && !showingExample && <PartnerAdsSettingsButton />}
               {onDismiss && (
                 <button
                   type="button"
