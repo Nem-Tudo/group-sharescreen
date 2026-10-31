@@ -155,6 +155,37 @@ export function discordRpcIntroDue(): boolean {
   }
 }
 
+/**
+ * Whether Discord is running on this computer: something answers on one of its
+ * local RPC ports. Says nothing about a Discord that is installed but closed.
+ */
+export function isDiscordRunning(): Promise<boolean> {
+  return new Promise((resolve) => {
+    let pending = 10;
+    for (let port = 6463; port <= 6472; port++) {
+      let settled = false;
+      const settle = (found: boolean) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        socket?.close();
+        pending--;
+        if (found) resolve(true);
+        else if (pending === 0) resolve(false);
+      };
+      const timer = setTimeout(() => settle(false), 3000);
+      let socket: WebSocket | null = null;
+      try {
+        socket = new WebSocket(`ws://127.0.0.1:${port}/?v=1&client_id=${getEffectiveDiscordClientId()}`);
+        socket.onopen = () => settle(true);
+        socket.onerror = () => settle(false);
+      } catch {
+        settle(false);
+      }
+    }
+  });
+}
+
 export function markDiscordRpcIntroSeen() {
   try {
     window.localStorage.setItem(INTRO_SEEN_KEY, "1");
