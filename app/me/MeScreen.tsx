@@ -27,6 +27,9 @@ import {
   MdSmartToy,
 } from "react-icons/md";
 import { AccountConnections } from "@/components/AccountConnections";
+import { FaDiscord } from "react-icons/fa";
+import { DiscordRpcSettingsModal } from "@/components/DiscordRpcSettingsModal";
+import { useDiscordRpcSettings } from "@/lib/discordRpc";
 import { EmailVerification } from "@/components/EmailVerification";
 import { AuthorizedApps } from "@/components/oauth2/AuthorizedApps";
 import { DEVELOPERS_URL } from "@/lib/botsApi";
@@ -103,6 +106,8 @@ export function MeScreen() {
   const [mode, setMode] = useState<Mode>("home");
   const [nameInput, setNameInput] = useState("");
   const [oauthTicket, setOAuthTicket] = useState<Extract<OAuthResult, { kind: "ticket" }> | null>(null);
+  const [discordRpcOpen, setDiscordRpcOpen] = useState(false);
+  const [rpcSettings] = useDiscordRpcSettings();
   const appShell = useIsAppShell();
   // The exposure is counted here because this row is the only place the
   // screen is offered — see lib/notificationSettings.ts.
@@ -301,6 +306,22 @@ export function MeScreen() {
         <div className={`${card} py-1 empty:hidden`}>
           <EmailVerification />
           <AccountConnections />
+          <button
+            type="button"
+            onClick={() => setDiscordRpcOpen(true)}
+            className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-white/5 transition border-t border-white/5"
+          >
+            <div className="flex items-center gap-3">
+              <FaDiscord className="h-5 w-5 text-[#5865F2]" />
+              <div>
+                <div className="text-sm font-medium text-white">Discord Rich Presence</div>
+                <div className="text-xs text-neutral-400">
+                  {rpcSettings.enabled ? "Ativo (mostrando status no Discord)" : "Desativado"}
+                </div>
+              </div>
+            </div>
+            <span className="text-xs text-[#5865F2] font-semibold">Configurar</span>
+          </button>
           <AuthorizedApps />
         </div>
       )}
@@ -355,6 +376,7 @@ export function MeScreen() {
         <img src="https://cdn.squarecloud.app/assets/powered-by.svg" alt={t("siteHeader.squareCloud")} className="w-44" />
       </a>
       <AppVersion />
+      <DiscordRpcSettingsModal open={discordRpcOpen} onClose={() => setDiscordRpcOpen(false)} />
     </Screen>
   );
 }

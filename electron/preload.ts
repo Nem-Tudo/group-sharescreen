@@ -443,6 +443,22 @@ contextBridge.exposeInMainWorld("golive", {
         },
       }
     : undefined,
+
+  discordRpcUpdate(activity: unknown): void {
+    if (activity && typeof activity === "object") {
+      ipcRenderer.send(IPC.discordRpcUpdate, activity);
+    }
+  },
+
+  discordRpcClear(): void {
+    ipcRenderer.send(IPC.discordRpcClear);
+  },
+
+  discordRpcConfigure(config: unknown): void {
+    if (config && typeof config === "object") {
+      ipcRenderer.send(IPC.discordRpcConfigure, config);
+    }
+  },
 });
 
 // Whether main flagged this machine as capable, through the same argv

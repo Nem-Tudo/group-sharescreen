@@ -11,6 +11,7 @@ import { EventPromoWidget } from "@/components/EventPromoWidget";
 import { MobileTabBar } from "@/components/MobileTabBar";
 import { AuthProvider } from "@/lib/AuthContext";
 import { PresenceReporter } from "@/components/PresenceReporter";
+import { DiscordRpcReporter } from "@/lib/discordRpc";
 import { SiteBeacon } from "@/components/SiteBeacon";
 import { SocialNotifier } from "@/components/SocialNotifier";
 import { GiftNotifier } from "@/components/GiftNotifier";
@@ -350,6 +351,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                 <SiteBeacon isOriginal={IS_ORIGINAL_SITE} />
                 <LastScreenRestorer />
                 <PresenceReporter />
+                <DiscordRpcReporter />
                 {/* Renders nothing; it is the thing that fills the bell. At the
                     root because a friend request arrives whenever it arrives —
                     a bell that only filled up inside a room would be empty

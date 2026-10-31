@@ -278,6 +278,14 @@ export const IPC = {
   screenPenCanvasCommand: "golive:screen-pen:canvas-command",
   /** canvas -> main: how many marks it holds and whether undo/redo apply. */
   screenPenCanvasInfo: "golive:screen-pen:canvas-info",
+
+  // ─── Discord Rich Presence ──────────────────────────────────────────────────
+  /** renderer -> main: update Discord Rich Presence state. */
+  discordRpcUpdate: "golive:discord-rpc:update",
+  /** renderer -> main: clear Discord Rich Presence. */
+  discordRpcClear: "golive:discord-rpc:clear",
+  /** renderer -> main: configure Discord RPC. */
+  discordRpcConfigure: "golive:discord-rpc:configure",
 } as const;
 
 export type ScreenPenTool = "pen" | "highlighter" | "arrow" | "rect" | "ellipse" | "text" | "eraser";

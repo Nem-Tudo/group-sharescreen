@@ -114,6 +114,15 @@ export interface DesktopBridge {
   reportInstallId?(installId: string): void;
 
   /**
+   * Updates Discord Rich Presence state from the renderer.
+   */
+  readonly discordRpcUpdate?: (activity: unknown) => void;
+  /** Clears Discord Rich Presence. */
+  readonly discordRpcClear?: () => void;
+  /** Reconfigures Discord RPC (client ID or enabled status). */
+  readonly discordRpcConfigure?: (config: { clientId?: string; enabled?: boolean }) => void;
+
+  /**
    * The two settings that decide whether this machine is reachable with the
    * window closed: whether closing it leaves the app in the tray, and whether
    * the app starts with the system.
