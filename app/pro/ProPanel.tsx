@@ -304,8 +304,18 @@ export function ProPanel({
   // Derived, not stored. Keeping a second copy of the chosen plan in state
   // would need an effect to follow the list, and the whole page below reads
   // `plan` — one of the two would eventually be a render behind the other.
+  // The comparison-table experiment (see PlanComparison). Nothing plan-shaped
+  // is drawn until it is decided, so nobody sees one layout flip to the other.
+  const compare = useFeature(PRO_COMPARE_FEATURE);
+  // The "cards" treatment is the /pro page's own. The popup has no room for it
+  // and opens as "buy-top".
+  const cardsVariant = compare.variant === PRO_COMPARE_CARDS && !isModal;
   const plan =
-    plans.find((entry) => entry.id === selectedPlanId) ?? plans[0] ?? null;
+    plans.find((entry) => entry.id === selectedPlanId) ??
+    // Its checkout is on screen before anybody picks: Max is what it opens on.
+    (cardsVariant ? plans.find((entry) => entry.id === RECOMMENDED_PLAN_ID) : null) ??
+    plans[0] ??
+    null;
   /**
    * The prices for the cycle on screen, from the API.
    *
@@ -343,9 +353,6 @@ export function ProPanel({
    */
   const pixOffered = plan?.pixAvailable !== false;
   const [loadingPlan, setLoadingPlan] = useState(true);
-  // The comparison-table experiment (see PlanComparison). Nothing plan-shaped
-  // is drawn until it is decided, so nobody sees one layout flip to the other.
-  const compare = useFeature(PRO_COMPARE_FEATURE);
   // The subscription as the lead button, in green, and Pix as an outline.
   const subHighlight = useFeature(PRO_SUB_HIGHLIGHT_FEATURE).enabled;
   const subscribeButtonClass = subHighlight
@@ -378,10 +385,8 @@ export function ProPanel({
   // which pays one cycle.
   const [inlineUpgradeDays, setInlineUpgradeDays] = useState<number | null>(null);
   const compareLayout = compare.enabled && plans.length > 1;
-  // The "cards" treatment is the /pro page's own. The popup has no room for it
-  // and opens as "buy-top". While the plans load it already holds the page, so
-  // the old heading does not flash; with one plan or none it steps aside.
-  const cardsVariant = compare.variant === PRO_COMPARE_CARDS && !isModal;
+  // While the plans load it already holds the page, so the old heading does
+  // not flash; with one plan or none it steps aside.
   const cardsLayout = cardsVariant && (loadingPlan || plans.length > 1);
   // The "buy-top" treatment: the price and checkout card above the table.
   const buyOnTop = compare.variant === PRO_COMPARE_BUY_TOP || compare.variant === PRO_COMPARE_CARDS;
@@ -1369,29 +1374,6 @@ export function ProPanel({
           topScreens={plans.length ? Math.max(...plans.map(screensOf)) : MULTI_SCREEN_LIMITS.pro_ultra}
         />
       )}
-      {cardsLayout && plans.length > 1 && (
-        <ProPlanCards
-          plans={plans}
-          rows={comparisonRows()}
-          cycle={cycle}
-          selectedId={selectedPlanId}
-          recommendedId={recommendedPlanId}
-          currentId={active ? effectivePlanId ?? null : null}
-          signedIn={Boolean(account)}
-          stats={(entry) => [
-            ...(entry.features.includes("quality_2160p") ? [{ value: "4K", label: t("pro.cards.statImage") }] : []),
-            { value: String(screensOf(entry)), label: t("pro.cards.statScreens") },
-            ...(entry.uploadLimitMb
-              ? [{ value: formatUploadLimit(entry.uploadLimitMb), label: t("pro.cards.statUpload") }]
-              : []),
-          ]}
-          onBuy={(planId) => {
-            trackFeatureEvent("pro_cards_cta_click", { feature: PRO_COMPARE_FEATURE });
-            buyPlan(planId);
-            if (!account) setAccountModal("create");
-          }}
-        />
-      )}
       {/* The column that stays put while the table scrolls beside it. Off the
           layout entirely (contents) for everybody else. */}
       <div className={twoPane ? "lg:sticky lg:top-7 lg:max-h-[calc(90dvh-3.5rem)] lg:self-start lg:overflow-y-auto" : "contents"}>
@@ -1538,14 +1520,12 @@ export function ProPanel({
           onBuy={buyPlan}
         />
       )}
-      {/* In the cards layout it waits for a card's button: until then no plan
-          has been chosen, and the first one would look like the suggestion. */}
       <div
         ref={checkoutCardRef}
         className={
           cardsLayout
-            ? `mt-6 scroll-mt-20 rounded-[28px] bg-white p-6 dark:bg-[#161b22] ${selectedPlanId ? "" : "hidden"}`
-            : "mt-6 scroll-mt-20 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950"
+            ? "mt-6 scroll-mt-20 rounded-[28px] bg-white p-6 dark:bg-[#161b22]"
+            :"mt-6 scroll-mt-20 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950"
         }
       >
         {loadingPlan ? (
@@ -2060,8 +2040,9 @@ export function ProPanel({
                         type="button"
                         onClick={lowerThanCurrent ? () => setDeferredOpen(true) : handleSubscribe}
                         disabled={busy || (needsEmail && !email.trim()) || (needsTaxId && !taxId.trim())}
-                        className={subscribeButtonClass}
+                        className={cardsLayout ? `inline-flex items-center gap-2 ${subscribeButtonClass}` : subscribeButtonClass}
                       >
+                        {cardsLayout && <PlanMark className={`h-4 w-4 shrink-0 ${mark.className}`} />}
                         {busy
                           ? t("pro.proPanel.openingThePayment")
                           : `${activeHere ? t("pro.proPanel.renew") : active ? t("common.change") : t("pro.proPanel.subscribe")} por ${
@@ -2144,6 +2125,27 @@ export function ProPanel({
       </div>
       {cardsLayout && plans.length > 1 && (
         <>
+          <ProPlanCards
+            plans={plans}
+            rows={comparisonRows()}
+            cycle={cycle}
+            selectedId={plan?.id ?? null}
+            recommendedId={recommendedPlanId}
+            currentId={active ? effectivePlanId ?? null : null}
+            signedIn={Boolean(account)}
+            stats={(entry) => [
+              ...(entry.features.includes("quality_2160p") ? [{ value: "4K", label: t("pro.cards.statImage") }] : []),
+              { value: String(screensOf(entry)), label: t("pro.cards.statScreens") },
+              ...(entry.uploadLimitMb
+                ? [{ value: formatUploadLimit(entry.uploadLimitMb), label: t("pro.cards.statUpload") }]
+                : []),
+            ]}
+            onBuy={(planId) => {
+              trackFeatureEvent("pro_cards_cta_click", { feature: PRO_COMPARE_FEATURE });
+              buyPlan(planId);
+              if (!account) setAccountModal("create");
+            }}
+          />
           <ProEveryPlan rows={comparisonRows()} />
           <ProCardsTable plans={plans} rows={comparisonRows()} recommendedId={recommendedPlanId} />
         </>

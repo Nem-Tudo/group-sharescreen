@@ -163,7 +163,7 @@ export function ProPlanCards({
   plans: PremiumPlan[];
   rows: ComparisonRow[];
   cycle: BillingCycle;
-  /** Null until somebody picks: no card is chosen for them. */
+  /** The plan the checkout above is selling. */
   selectedId: string | null;
   recommendedId: string | null;
   currentId: string | null;
@@ -230,7 +230,25 @@ export function ProPlanCards({
               </p>
             )}
 
-            <div className="mt-5 mb-5 border-t border-zinc-200 pt-4 dark:border-zinc-800">
+            {/* Green on the recommended one: the gold mark disappears on amber. */}
+            <button
+              type="button"
+              onClick={() => onBuy(plan.id)}
+              className={`mt-4 flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold transition ${
+                recommended
+                  ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                  : "bg-zinc-900 text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+              }`}
+            >
+              <mark.Icon className={`h-4 w-4 shrink-0 ${mark.className}`} />
+              {plan.id === currentId
+                ? t("pro.cards.yourPlan")
+                : signedIn
+                  ? `${t("pro.compare.getPlan")} ${plan.title}`
+                  : t("pro.cards.signUpAndSubscribe", { plan: plan.title })}
+            </button>
+
+            <div className="mt-5 border-t border-zinc-200 pt-4 dark:border-zinc-800">
               {index > 0 && (
                 <p className="mb-3 text-xs font-bold tracking-wider text-zinc-500 uppercase">
                   {t("pro.cards.everythingFrom", { plan: plans[index - 1].title })}
@@ -243,21 +261,6 @@ export function ProPlanCards({
               </ul>
             </div>
 
-            <button
-              type="button"
-              onClick={() => onBuy(plan.id)}
-              className={`mt-auto w-full cursor-pointer rounded-2xl px-4 py-3 text-sm font-bold transition ${
-                recommended
-                  ? "bg-amber-500 text-white hover:bg-amber-600"
-                  : "bg-zinc-900 text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-              }`}
-            >
-              {plan.id === currentId
-                ? t("pro.cards.yourPlan")
-                : signedIn
-                  ? `${t("pro.compare.getPlan")} ${plan.title}`
-                  : t("pro.cards.signUpAndSubscribe", { plan: plan.title })}
-            </button>
           </article>
         );
       })}
