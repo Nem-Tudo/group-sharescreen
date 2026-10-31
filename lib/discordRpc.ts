@@ -3,8 +3,9 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { getDesktopBridge } from "./desktop";
 import { useAuth } from "./AuthContext";
+import type { SignalingState } from "./signalingClient";
 import { useSignalingSelector } from "./useSignalingSelector";
-import { useCallSession } from "./useCallSession";
+import { useCallSession } from "./callSession";
 import { isPrivateRoomHandle } from "./roomsApi";
 import { trackFeatureEvent, useFeature } from "./features";
 
@@ -305,6 +306,10 @@ function getBrowserRpcClient(): BrowserDiscordRpcClient {
   return browserClient;
 }
 
+const selectSelfScreen = (state: SignalingState) => state.selfScreen;
+const selectSelfCamera = (state: SignalingState) => state.selfCamera;
+const selectPeers = (state: SignalingState) => state.peers;
+
 /**
  * Global component that reports app presence to Discord RPC:
  * - Uses native bridge in PC / Electron app.
@@ -314,8 +319,9 @@ export function DiscordRpcReporter() {
   const [settings] = useDiscordRpcSettings();
   const { account } = useAuth();
   const callSession = useCallSession();
-  const sharing = useSignalingSelector((state) => state.sharing);
-  const peers = useSignalingSelector((state) => state.peers);
+  const isSharingScreen = useSignalingSelector(selectSelfScreen);
+  const isSharingCamera = useSignalingSelector(selectSelfCamera);
+  const peers = useSignalingSelector(selectPeers);
   const { enabled: featureAllowed } = useFeature(DISCORD_RPC_FEATURE, { track: true });
 
   const clientId = getEffectiveDiscordClientId(settings);
@@ -358,9 +364,7 @@ export function DiscordRpcReporter() {
     let buttons: Array<{ label: string; url: string }> | undefined = undefined;
 
     if (inCall) {
-      const peerCount = Object.keys(peers || {}).length + 1; // peers + self
-      const isSharingScreen = Boolean(sharing?.screen);
-      const isSharingCamera = Boolean(sharing?.camera);
+      const peerCount = peers.length + 1; // peers + self
 
       if (isPrivate && settings.hidePrivateDetails) {
         // Privacy mode for private room / DM
@@ -442,7 +446,8 @@ export function DiscordRpcReporter() {
     settings,
     account,
     callSession,
-    sharing,
+    isSharingScreen,
+    isSharingCamera,
     peers,
     clientId,
     bridge,

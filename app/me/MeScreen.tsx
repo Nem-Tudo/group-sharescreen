@@ -27,7 +27,6 @@ import {
   MdSmartToy,
 } from "react-icons/md";
 import { AccountConnections } from "@/components/AccountConnections";
-import { FaDiscord } from "react-icons/fa";
 import { DiscordRpcSettingsModal } from "@/components/DiscordRpcSettingsModal";
 import { useDiscordRpcSettings } from "@/lib/discordRpc";
 import { EmailVerification } from "@/components/EmailVerification";

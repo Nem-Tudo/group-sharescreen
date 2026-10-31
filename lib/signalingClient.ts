@@ -545,6 +545,11 @@ export type SignalingState = {
   // the peer list because this client is not in its own peer list, and the
   // participant row for "you" needs the same "(2)" everybody else sees.
   selfDevice: number | null;
+  // Whether this connection is sending its own screen / camera — the last
+  // thing setSharing reported. Separate from the peer list for the same reason
+  // as selfDevice: this client is not in it.
+  selfScreen: boolean;
+  selfCamera: boolean;
   // Set when the server refused a join *pending a decision*: this account is
   // already in the room on another device. Not an error — the join is
   // waiting, not failed, and answering yes does not disconnect anything —
@@ -940,6 +945,8 @@ const initialState: SignalingState = {
   selfId: null,
   selfUserId: null,
   selfDevice: null,
+  selfScreen: false,
+  selfCamera: false,
   deviceConflict: null,
   name: null,
   nameError: null,
@@ -3764,6 +3771,9 @@ class SignalingClient {
     if (sources.screens !== undefined) this.sharingSources.screens = sources.screens;
     if (sources.cameras !== undefined) this.sharingSources.cameras = sources.cameras;
     const { screen, camera, files, cameraEffects, phoneCamera, screens, cameras } = this.sharingSources;
+    if (screen !== this.state.selfScreen || camera !== this.state.selfCamera) {
+      this.setState({ selfScreen: screen, selfCamera: camera });
+    }
     this.rawSend({
       type: "sharing",
       // The rolled-up "is this person transmitting anything" every older
