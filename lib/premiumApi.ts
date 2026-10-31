@@ -686,7 +686,10 @@ export async function startUpgradePix(
         needsTaxId: data.needsTaxId,
       };
     }
-    return { ok: true, charge: { ...(data as PixCharge), remainingDays: data.remainingDays ?? 0 } };
+    // The API says how many days are left, not `days`: a top-up buys none of its
+    // own, and those are the ones the dialog is talking about.
+    const remainingDays = data.remainingDays ?? 0;
+    return { ok: true, charge: { ...(data as PixCharge), days: remainingDays, remainingDays } };
   } catch {
     return { ok: false, error: translate("common.noConnectionToTheServer") };
   }
