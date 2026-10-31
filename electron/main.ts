@@ -21,6 +21,8 @@
 //      renderer, no navigating away from our own origin, no in-app windows
 //      for third-party links.
 
+// Has to stay first: it may restart the process (see the file).
+import "./linuxEgl";
 import {
   app,
   BrowserWindow,
