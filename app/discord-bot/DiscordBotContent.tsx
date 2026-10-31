@@ -234,7 +234,7 @@ export function DiscordBotContent() {
                     <span className="ml-auto shrink-0 font-mono text-xs text-emerald-400">0:03</span>
                   </div>
                   <p className="mt-0.5 truncate text-sm text-zinc-400">
-                    [GoLive] g.nemtudo.me/priv-64318
+                    [Go Live] g.nemtudo.me/priv-64318
                   </p>
                 </div>
               </div>

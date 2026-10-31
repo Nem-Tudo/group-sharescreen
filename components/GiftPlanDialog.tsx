@@ -625,7 +625,7 @@ export function GiftPlanDialog({
                           <entryMark.Icon className={`h-7 w-7 shrink-0 ${entryMark.className}`} />
                           <span className="min-w-0 flex-1">
                             <span className="block truncate text-sm font-semibold text-zinc-950 dark:text-zinc-50">
-                              {entry.title.replace(/^GoLive\s+/i, "")}
+                              {entry.title.replace(/^Go\s*Live\s+/i, "")}
                             </span>
                             <span className="mt-0.5 block text-lg font-bold tracking-tight text-zinc-950 dark:text-zinc-50">
                               {entry.cycles?.find((c) => c.cycle === cycle)?.pixPriceLabel ?? entry.pixPriceLabel}

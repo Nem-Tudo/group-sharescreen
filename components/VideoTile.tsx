@@ -1297,7 +1297,7 @@ const VideoTileView = memo(function VideoTileView({
             blob={recording.blob}
             durationMs={recording.durationMs}
             kind={recording.kind}
-            name={accessibleLabel ?? "GoLive"}
+            name={accessibleLabel ?? "Go Live"}
             onClose={() => setRecording(null)}
           />
         )}

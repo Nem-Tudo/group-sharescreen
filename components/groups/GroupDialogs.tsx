@@ -1022,12 +1022,12 @@ function OverviewTab({ groupId, onGoToMap }: { groupId: string; onGoToMap: () =>
       </label>
       <VisibilitySection groupId={groupId} onGoToMap={onGoToMap} />
       {richPresenceFeature && (
-        <label className="flex cursor-pointer items-start gap-3">
+        <label className={`flex items-start gap-3 ${detail.group.visibility === "public" ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}>
           <input
             type="checkbox"
             className="mt-0.5 h-4 w-4 shrink-0"
-            checked={detail.group.richPresenceLink !== false}
-            disabled={busy}
+            checked={detail.group.visibility === "public" && detail.group.richPresenceLink !== false}
+            disabled={busy || detail.group.visibility !== "public"}
             onChange={async (e) => {
               setBusy(true);
               const result = await updateGroup(groupId, { richPresenceLink: e.target.checked });
@@ -1038,7 +1038,7 @@ function OverviewTab({ groupId, onGoToMap }: { groupId: string; onGoToMap: () =>
           />
           <span className="flex flex-col gap-0.5">
             <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("groups.groupDialogs.richPresenceLink")}</span>
-            <span className="text-sm text-zinc-500 dark:text-zinc-400">{t("groups.groupDialogs.richPresenceLinkHelp")}</span>
+            <span className="text-sm text-zinc-500 dark:text-zinc-400">{detail.group.visibility === "public" ? t("groups.groupDialogs.richPresenceLinkHelp") : t("groups.groupDialogs.richPresenceLinkPrivate")}</span>
           </span>
         </label>
       )}

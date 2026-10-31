@@ -23,7 +23,7 @@ export function ForkWatermark() {
     <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[9999] flex justify-center px-4 pb-2">
       <div className="pointer-events-auto flex items-center gap-3 rounded-xl bg-black/80 px-4 py-2.5 text-sm text-white shadow-lg backdrop-blur-sm sm:text-base">
         {/* eslint-disable-next-line @next/next/no-img-element -- hardcoded on purpose: a fork's own assets may change */}
-        <img src={ORIGINAL_LOGO_URL} alt="GoLive" width={32} height={32} className="h-8 w-8 shrink-0 rounded-md" />
+        <img src={ORIGINAL_LOGO_URL} alt="Go Live" width={32} height={32} className="h-8 w-8 shrink-0 rounded-md" />
         <p>
           {t("forkWatermark.text")}{" "}
           <a href={ORIGINAL_SITE_URL} rel="noopener" className="font-semibold underline">

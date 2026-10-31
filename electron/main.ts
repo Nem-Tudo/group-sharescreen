@@ -1043,7 +1043,7 @@ function createWindow(initialUrl: string = APP_URL) {
     minHeight: 600,
     show: false,
     backgroundColor: "#101014",
-    title: "GoLive",
+    title: "Go Live",
     ...(process.platform === "linux" ? { icon: WINDOW_ICON } : {}),
     autoHideMenuBar: true,
     webPreferences: {
@@ -1294,12 +1294,12 @@ function safeRetryUrl(url: string): string {
 function loadErrorPage(retryUrl: string, errorCode: number): string {
   const lang = app.getLocale().toLowerCase();
   const t = lang.startsWith("pt")
-    ? { title: "Não foi possível conectar", body: "Não conseguimos carregar o GoLive. Verifique sua conexão com a internet e tente de novo.", retry: "Recarregar", code: "Código do erro" }
+    ? { title: "Não foi possível conectar", body: "Não conseguimos carregar o Go Live. Verifique sua conexão com a internet e tente de novo.", retry: "Recarregar", code: "Código do erro" }
     : lang.startsWith("es")
-      ? { title: "No se pudo conectar", body: "No pudimos cargar GoLive. Revisa tu conexión a internet e inténtalo de nuevo.", retry: "Recargar", code: "Código de error" }
-      : { title: "Couldn't connect", body: "We couldn't load GoLive. Check your internet connection and try again.", retry: "Reload", code: "Error code" };
+      ? { title: "No se pudo conectar", body: "No pudimos cargar Go Live. Revisa tu conexión a internet e inténtalo de nuevo.", retry: "Recargar", code: "Código de error" }
+      : { title: "Couldn't connect", body: "We couldn't load Go Live. Check your internet connection and try again.", retry: "Reload", code: "Error code" };
   const logo = overlayLogo();
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>GoLive</title>
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Go Live</title>
 <style>
 html,body{height:100%;margin:0}
 body{background:#101014;color:#e8e8ee;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;align-items:center;justify-content:center;user-select:none}
@@ -1343,7 +1343,7 @@ function buildTrayMenu(): Menu {
   const settings = getBackgroundSettings();
   return Menu.buildFromTemplate([
     {
-      label: "Abrir GoLive",
+      label: "Abrir Go Live",
       click: () => {
         if (!mainWindow) createWindow();
         else focusMainWindow();
@@ -1389,7 +1389,7 @@ function buildTrayMenu(): Menu {
     },
     { type: "separator" },
     {
-      label: "Sair do GoLive",
+      label: "Sair do Go Live",
       click: () => {
         quitting = true;
         app.quit();
@@ -1409,7 +1409,7 @@ function createTray() {
   // scales it badly rather than refusing, and the result looks like a bug.
   const image = icon.isEmpty() ? icon : icon.resize({ width: 16, height: 16 });
   tray = new Tray(image);
-  tray.setToolTip("GoLive");
+  tray.setToolTip("Go Live");
   tray.setContextMenu(buildTrayMenu());
   // The gesture everybody tries first. Not wired on macOS, where clicking a
   // status item is what opens its menu and hijacking that would be wrong.
@@ -1758,7 +1758,7 @@ function showToast(toast: ToastInfo) {
     // and a click on it brings the *app* up (see the toastAction handler).
     focusable: false,
     backgroundColor: "#00000000",
-    title: "GoLive",
+    title: "Go Live",
     webPreferences: {
       preload: path.join(__dirname, "toast-preload.js"),
       contextIsolation: true,
@@ -1827,7 +1827,7 @@ function readToastAction(raw: unknown): ToastAction | null {
  */
 function setCallRinging(call: CallRingingInfo | null) {
   ringingCall = call;
-  tray?.setToolTip(call ? "GoLive — chamada recebida" : "GoLive");
+  tray?.setToolTip(call ? "Go Live — chamada recebida" : "Go Live");
 
   refreshTaskbarFlash();
 

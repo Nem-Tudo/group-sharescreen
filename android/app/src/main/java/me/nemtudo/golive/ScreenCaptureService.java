@@ -549,7 +549,7 @@ public class ScreenCaptureService extends Service {
             "Compartilhamento de tela",
             NotificationManager.IMPORTANCE_LOW
         );
-        channel.setDescription("Notificação contínua enquanto sua tela está sendo compartilhada em uma sala do GoLive.");
+        channel.setDescription("Notificação contínua enquanto sua tela está sendo compartilhada em uma sala do Go Live.");
         manager.createNotificationChannel(channel);
     }
 
@@ -564,7 +564,7 @@ public class ScreenCaptureService extends Service {
         );
 
         return new NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("GoLive")
+            .setContentTitle("Go Live")
             .setContentText("Sua tela está sendo compartilhada")
             // The app's own launcher icon. Not a proper monochrome
             // status-bar glyph — swap for one before shipping to Play, see

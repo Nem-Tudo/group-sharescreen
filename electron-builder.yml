@@ -203,12 +203,12 @@ mac:
   # declares why it wants them — and does so silently, which reads as "the
   # app is broken" rather than "a permission is missing".
   extendInfo:
-    NSCameraUsageDescription: O GoLive usa a câmera para você transmitir vídeo na sala.
-    NSMicrophoneUsageDescription: O GoLive usa o microfone para você falar na sala.
-    NSScreenCaptureUsageDescription: O GoLive captura sua tela para compartilhá-la com a sala.
+    NSCameraUsageDescription: O Go Live usa a câmera para você transmitir vídeo na sala.
+    NSMicrophoneUsageDescription: O Go Live usa o microfone para você falar na sala.
+    NSScreenCaptureUsageDescription: O Go Live captura sua tela para compartilhá-la com a sala.
     # The system audio that goes with a screen share (macOS 13+, see
     # MAC_LOOPBACK_SUPPORTED in electron/main.ts).
-    NSAudioCaptureUsageDescription: O GoLive capta o som do computador para transmiti-lo junto com a tela.
+    NSAudioCaptureUsageDescription: O Go Live capta o som do computador para transmiti-lo junto com a tela.
 
 linux:
   icon: electron/build/icon.png

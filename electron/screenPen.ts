@@ -127,7 +127,7 @@ export function createScreenPen(options: {
       fullscreenable: false,
       skipTaskbar: true,
       enableLargerThanScreen: true,
-      title: "GoLive",
+      title: "Go Live",
       webPreferences: {
         preload,
         contextIsolation: true,
@@ -169,7 +169,7 @@ export function createScreenPen(options: {
       maximizable: false,
       fullscreenable: false,
       skipTaskbar: true,
-      title: "GoLive",
+      title: "Go Live",
       webPreferences: {
         preload,
         contextIsolation: true,

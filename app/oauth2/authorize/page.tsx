@@ -16,7 +16,7 @@ import { AuthorizeClient } from "@/components/oauth2/AuthorizeClient";
 // result.
 
 export const metadata: Metadata = {
-  title: "Autorizar aplicativo — GoLive",
+  title: "Autorizar aplicativo — Go Live",
   robots: { index: false, follow: false },
 };
 

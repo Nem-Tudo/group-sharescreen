@@ -631,7 +631,7 @@ function AppVersion() {
   const shellVersion = shell ? getDesktopBridge()?.appVersion ?? null : null;
   return (
     <p className="select-text text-center font-mono text-xs text-zinc-400 dark:text-zinc-600">
-      GoLive {BUILD_VERSION}
+      Go Live {BUILD_VERSION}
       {shellVersion && <> · app {shellVersion}</>}
     </p>
   );

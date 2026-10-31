@@ -14,7 +14,7 @@ import { parsePermissionBits } from "@/lib/permissionBits";
 // it is worth a link preview beyond the title.
 
 export const metadata: Metadata = {
-  title: "Adicionar bot a um grupo — GoLive",
+  title: "Adicionar bot a um grupo — Go Live",
   robots: { index: false, follow: false },
 };
 
