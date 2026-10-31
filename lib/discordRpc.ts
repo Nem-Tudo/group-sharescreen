@@ -12,6 +12,7 @@ import { recentRoomPresentation } from "./recentRooms";
 import { useRoomToolsSelector, type ToolKind } from "./roomTools";
 import { useGroupDetail } from "./useGroups";
 import { trackFeatureEvent, useFeature } from "./features";
+import { arrivedBefore } from "./newcomer";
 
 // Discord Rich Presence Integration for PC (Desktop/Electron), Web/Browser & Mobile.
 //
@@ -34,6 +35,9 @@ export const DISCORD_RPC_EVENTS = {
   groupNameToggled: "discord_rpc_group_name",
   joinButtonToggled: "discord_rpc_join_button",
   privateCounterToggled: "discord_rpc_private_count",
+  introShown: "discord_rpc_intro_shown",
+  introOk: "discord_rpc_intro_ok",
+  introConfigure: "discord_rpc_intro_configure",
 } as const;
 
 const SETTINGS_KEY = "sharescreen:discordRpc:settings";
@@ -128,6 +132,33 @@ export function useDiscordRpcSettings(): [DiscordRpcSettings, (patch: Partial<Di
     () => DEFAULT_SETTINGS
   );
   return [settings, updateDiscordRpcSettings];
+}
+
+const INTRO_SEEN_KEY = "sharescreen:discordRpc:introSeen";
+// When Rich Presence went out to everybody (rollout 100%, 2026-10-31).
+const RELEASED_AT = 1793436498211;
+
+/**
+ * Whether the announcement is still owed: this browser was here before the
+ * release, has not seen it, and has not already been in the settings.
+ */
+export function discordRpcIntroDue(): boolean {
+  try {
+    const storage = window.localStorage;
+    return (
+      arrivedBefore(RELEASED_AT) &&
+      storage.getItem(INTRO_SEEN_KEY) === null &&
+      storage.getItem(SETTINGS_KEY) === null
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function markDiscordRpcIntroSeen() {
+  try {
+    window.localStorage.setItem(INTRO_SEEN_KEY, "1");
+  } catch {}
 }
 
 export function getEffectiveDiscordClientId(settings?: DiscordRpcSettings): string {

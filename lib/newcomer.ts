@@ -43,6 +43,12 @@ function firstVisit(): number {
   return value;
 }
 
+/** Whether this browser first opened GoLive before `time`. False on the server. */
+export function arrivedBefore(time: number): boolean {
+  if (typeof window === "undefined") return false;
+  return firstVisit() < time;
+}
+
 /** Whether this browser arrived within the last NEWCOMER_MS. False on the server. */
 export function isNewcomer(): boolean {
   if (typeof window === "undefined") return false;
