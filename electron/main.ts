@@ -519,7 +519,9 @@ async function audioAppRows(): Promise<PickerAudioApp[]> {
     // build, and a row nobody recognises would defeat the point of listing
     // ourselves at all.
     name: "Go Live",
-    icon: await fileIcon(process.execPath),
+    // The mark itself and not the executable's icon, which Windows answers
+    // with its generic program icon.
+    icon: overlayLogo(),
     muted: true,
     locked: true,
   });
@@ -566,7 +568,7 @@ async function hiddenAppRows(): Promise<PickerHiddenApp[]> {
     rows.set(entry.key, {
       key: entry.key,
       name: entry.self ? "Go Live" : entry.name,
-      icon: await fileIcon(entry.path),
+      icon: entry.self ? overlayLogo() : await fileIcon(entry.path),
       hidden: hidden.has(entry.key),
     });
   }
@@ -1515,7 +1517,8 @@ function openCallWindow(call: CallRingingInfo) {
 }
 
 /**
- * The GoLive mark, as a data URL for the ringing window's header.
+ * The GoLive mark, as a data URL for the ringing window's header and for
+ * GoLive's own rows in the picker's app lists.
  *
  * Read from the same file the tray icon comes from, and memoized: it cannot
  * change while the app is running, and re-reading a PNG off disk every time a
