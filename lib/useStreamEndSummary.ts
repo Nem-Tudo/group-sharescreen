@@ -17,7 +17,28 @@ export const STREAM_SUMMARY_EVENTS = {
   show: "stream_summary_show", // value: minutes transmitted
   cta: "stream_summary_cta",
   close: "stream_summary_close",
+  never: "stream_summary_never",
 };
+
+// "Não mostrar de novo". Per browser, like the room's other switches: a guest
+// has no account to keep it on.
+const HIDDEN_KEY = "sharescreen:streamSummaryHidden";
+
+function summaryHidden(): boolean {
+  try {
+    return window.localStorage.getItem(HIDDEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function hideStreamSummary() {
+  try {
+    window.localStorage.setItem(HIDDEN_KEY, "1");
+  } catch {
+    // Storage refused: it just comes back on the next long broadcast.
+  }
+}
 
 /** Without a usable `minMinutes` in the feature's public data. */
 const DEFAULT_MIN_MINUTES = 10;
@@ -55,7 +76,7 @@ export function useStreamEndSummary(active: boolean, people: readonly string[]) 
     finishRef.current = () => {
       const startedAt = startedAtRef.current;
       startedAtRef.current = null;
-      if (startedAt === null || !eligible || !enabled) return;
+      if (startedAt === null || !eligible || !enabled || summaryHidden()) return;
       const elapsed = Date.now() - startedAt;
       if (elapsed < minMs) return;
       trackFeatureEvent(STREAM_SUMMARY_EVENTS.show, {

@@ -10,6 +10,7 @@ import { formatDuration } from "@/lib/userProfile";
 import {
   STREAM_SUMMARY_EVENTS,
   STREAM_SUMMARY_FEATURE,
+  hideStreamSummary,
   type StreamSummaryPopupData,
 } from "@/lib/useStreamEndSummary";
 
@@ -127,6 +128,17 @@ export function StreamEndSummaryModal({
         >
           <span>{t("streamSummary.seePro")}</span>
           {priceLabel && <span className="shrink-0">{t("streamSummary.perMonth", { price: priceLabel })}</span>}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            trackFeatureEvent(STREAM_SUMMARY_EVENTS.never, { feature: STREAM_SUMMARY_FEATURE });
+            hideStreamSummary();
+            closePopup(true);
+          }}
+          className="-mt-1 cursor-pointer self-center text-xs text-zinc-500 underline-offset-2 transition hover:underline dark:text-zinc-400"
+        >
+          {t("streamSummary.neverShow")}
         </button>
       </div>
     </div>
