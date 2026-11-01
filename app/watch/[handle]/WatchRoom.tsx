@@ -229,7 +229,8 @@ import { MenuToggleRow } from "@/components/MenuToggleRow";
 import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
 import { CameraEffectsPanel } from "@/components/CameraEffectsPanel";
 import { CameraEffectsSheet } from "@/components/CameraEffectsSheet";
-import { CameraCustomEffectEditor } from "@/components/CameraCustomEffectEditor";
+import { CameraCustomEffectHost } from "@/components/CameraCustomEffectEditor";
+import { useCustomEffectEditing } from "@/lib/cameraCustomEffects";
 import {
   hasAnyCameraEffect,
   useCameraEffectSettings,
@@ -1032,6 +1033,13 @@ function ShareControls({
 }) {
   const t = useT();
   const [effectsOpen, setEffectsOpen] = useState(false);
+  // The editor is a popup, under any tippy panel: the panels make way for it.
+  const editingCustomEffect = useCustomEffectEditing();
+  useEffect(() => {
+    if (!editingCustomEffect) return;
+    setEffectsOpen(false);
+    onCloseShortcutQuick?.();
+  }, [editingCustomEffect, onCloseShortcutQuick]);
   const segment =
     "flex items-center px-3 py-2 text-white transition disabled:cursor-not-allowed disabled:opacity-50";
   const live = "bg-red-600 hover:bg-red-700";
@@ -11234,7 +11242,7 @@ function WatchRoomView({
       )}
 
       {cameraEffectsAvailable && (
-        <CameraCustomEffectEditor stream={localCameraStream} fallbackMirrored={onPhone && cameraFacing === "user"} />
+        <CameraCustomEffectHost stream={localCameraStream} fallbackMirrored={onPhone && cameraFacing === "user"} />
       )}
 
       {/* A protected room: covered until the window is confirmed out of

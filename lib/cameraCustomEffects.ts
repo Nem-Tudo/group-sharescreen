@@ -250,9 +250,10 @@ export function stickerImage(imageId: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// Which effect the editor is open on. Here and not in the panel's state: the
-// panel is a popover that goes away on the first click outside it, which would
-// take the editor with it. The room renders the editor.
+// Which effect the editor is open on, and the camera it shows. The panel only
+// says which; CameraCustomEffectHost, in the room, opens the popup. A popup's
+// data is fixed when it opens, so the camera, whose track the effects swap,
+// reaches it through here.
 
 let editingId: string | null = null;
 const editingListeners = new Set<() => void>();
@@ -260,6 +261,28 @@ const editingListeners = new Set<() => void>();
 export function openCustomEffectEditor(id: string | null) {
   editingId = id;
   editingListeners.forEach((listener) => listener());
+}
+
+export type CustomEffectPreview = { track: MediaStreamTrack | null; fallbackMirrored: boolean };
+const NO_PREVIEW: CustomEffectPreview = { track: null, fallbackMirrored: false };
+let preview = NO_PREVIEW;
+
+export function publishCustomEffectPreview(track: MediaStreamTrack | null, fallbackMirrored: boolean) {
+  preview = { track, fallbackMirrored };
+  editingListeners.forEach((listener) => listener());
+}
+
+export function useCustomEffectPreview(): CustomEffectPreview {
+  return useSyncExternalStore(
+    (listener) => {
+      editingListeners.add(listener);
+      return () => {
+        editingListeners.delete(listener);
+      };
+    },
+    () => preview,
+    () => NO_PREVIEW
+  );
 }
 
 export function useCustomEffectEditing(): string | null {

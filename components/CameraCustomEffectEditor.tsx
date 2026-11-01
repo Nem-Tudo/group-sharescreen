@@ -1,9 +1,9 @@
 "use client";
 
+import useNtPopups from "ntpopups";
 import { useEffect, useRef, useState } from "react";
 import { MdAdd, MdCreate, MdDelete, MdUpload } from "react-icons/md";
 import { CameraDrawingPad } from "@/components/CameraDrawingPad";
-import { MobileSheet } from "@/components/MobileSheet";
 import { setCameraEffect, useCameraEffectSettings } from "@/lib/cameraEffects";
 import {
   addEmojiSticker,
@@ -15,6 +15,7 @@ import {
   MAX_CUSTOM_NAME,
   MAX_CUSTOM_STICKERS,
   openCustomEffectEditor,
+  publishCustomEffectPreview,
   removeCustomSticker,
   STICKER_RANGES,
   stickerImage,
@@ -22,6 +23,7 @@ import {
   updateCustomSticker,
   useCustomCameraEffects,
   useCustomEffectEditing,
+  useCustomEffectPreview,
   type CustomAdjust,
   type CustomAnchor,
   type CustomSticker,
@@ -98,7 +100,9 @@ function StickerThumb({ sticker }: { sticker: CustomSticker }) {
   return image ? <img src={image} alt="" className="h-5 w-5 object-contain" /> : null;
 }
 
-export function CameraCustomEffectEditor({
+// In the room: opens the editor when the panel asks for it, and keeps it told
+// which camera to show.
+export function CameraCustomEffectHost({
   stream,
   fallbackMirrored,
 }: {
@@ -106,8 +110,39 @@ export function CameraCustomEffectEditor({
   stream: MediaStream | null;
   fallbackMirrored: boolean;
 }) {
-  const t = useT();
+  const { openPopup } = useNtPopups();
   const editingId = useCustomEffectEditing();
+  const track = stream?.getVideoTracks()[0] ?? null;
+  useEffect(() => {
+    publishCustomEffectPreview(track, fallbackMirrored);
+  }, [track, fallbackMirrored]);
+  useEffect(() => {
+    if (!editingId) return;
+    void openPopup("camera_custom_effect", {
+      maxWidth: "min(34rem, calc(100vw - 2rem))",
+      width: "min(34rem, calc(100vw - 2rem))",
+      maxHeight: "90dvh",
+      // A slider or a stroke let go past the edge must not close it.
+      closeOnClickOutside: false,
+      onClose: () => openCustomEffectEditor(null),
+      data: { effectId: editingId },
+    });
+  }, [editingId, openPopup]);
+  return null;
+}
+
+// The popup, registered as "camera_custom_effect" in NtPopups.tsx.
+export function CameraCustomEffectEditor({
+  closePopup,
+  popupstyles,
+  data: { effectId: editingId },
+}: {
+  closePopup: (hasAction?: boolean) => void;
+  popupstyles: Record<string, string>;
+  data: { effectId: string };
+}) {
+  const t = useT();
+  const { track, fallbackMirrored } = useCustomEffectPreview();
   const effects = useCustomCameraEffects();
   const settings = useCameraEffectSettings();
   const effect = effects.find((item) => item.id === editingId) ?? null;
@@ -121,7 +156,6 @@ export function CameraCustomEffectEditor({
 
   // As in CameraEffectsSheet: the effects swap the track inside the same
   // stream, which a <video> holding the stream does not always pick up.
-  const track = stream?.getVideoTracks()[0] ?? null;
   useEffect(() => {
     const el = video.current;
     if (!el) return;
@@ -151,15 +185,10 @@ export function CameraCustomEffectEditor({
     }
   };
 
-  const closeEditor = () => {
-    setDrawing(null);
-    openCustomEffectEditor(null);
-  };
-
   const remove = () => {
     if (settings.custom === effect.id) setCameraEffect("custom", "none");
     deleteCustomCameraEffect(effect.id);
-    closeEditor();
+    closePopup(true);
   };
 
   const adjusted = (Object.keys(DEFAULT_ADJUST) as (keyof CustomAdjust)[]).some(
@@ -167,22 +196,11 @@ export function CameraCustomEffectEditor({
   );
 
   return (
-    <MobileSheet
-      open
-      onClose={closeEditor}
-      maxHeight="90dvh"
-      title={t("watch.watchRoom.cameraCustomEdit")}
-      headerRight={
-        <button
-          type="button"
-          onClick={closeEditor}
-          className="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700"
-        >
-          {t("watch.watchRoom.cameraCustomDone")}
-        </button>
-      }
-    >
-      <div className="flex flex-col gap-3 pb-2">
+    <>
+      <div className={popupstyles.header}>
+        <span>{t("watch.watchRoom.cameraCustomEdit")}</span>
+      </div>
+      <div className={`${popupstyles.body} flex flex-col gap-3`}>
         <div className="relative overflow-hidden rounded-2xl bg-black">
           <video
             ref={video}
@@ -401,6 +419,11 @@ export function CameraCustomEffectEditor({
           {t("watch.watchRoom.cameraCustomDelete")}
         </button>
       </div>
-    </MobileSheet>
+      <div className={popupstyles.footer}>
+        <button type="button" className={popupstyles.baseButton} base-button-style="0" onClick={() => closePopup(true)}>
+          {t("watch.watchRoom.cameraCustomDone")}
+        </button>
+      </div>
+    </>
   );
 }
