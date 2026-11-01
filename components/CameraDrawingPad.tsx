@@ -1,8 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MdAutoFixNormal, MdBrush, MdCreate, MdDelete, MdEdit, MdGrain, MdUndo } from "react-icons/md";
 import {
+  MdAutoFixNormal,
+  MdBrush,
+  MdCheck,
+  MdClose,
+  MdContentPaste,
+  MdCreate,
+  MdDelete,
+  MdEdit,
+  MdFlip,
+  MdGrain,
+  MdImage,
+  MdRotateRight,
+  MdUndo,
+} from "react-icons/md";
+import {
+  addImageSticker,
   CAMERA_CUSTOM_EVENTS,
   removeCustomSticker,
   saveDrawingSticker,
@@ -20,11 +35,31 @@ import { useT } from "@/lib/useI18n";
 // The pad is seen as a mirror, like the camera in the editor. So the picture is
 // flipped when stored, which puts each line where it was drawn on the face, but
 // leaves writing backwards for whoever watches: "readable" stores it as is.
+//
+// An image (pasted, or from a file) floats over the drawing, to be moved, resized,
+// turned and flipped, until the next stroke or "apply" lays it down. It is stored
+// after each change, floating or not, so the camera shows it and closing loses
+// nothing. A GIF cannot go flat into the picture and keep moving, so it leaves
+// the pad as a sticker of its own, adjusted with the stickers' sliders.
 
 type Tool = "pencil" | "pen" | "marker" | "spray" | "eraser";
 type Stroke = { tool: Tool; color: string; width: number; points: { x: number; y: number }[] };
 
+type Placed = {
+  tool: "image";
+  image: HTMLCanvasElement;
+  x: number; // centre
+  y: number;
+  width: number;
+  height: number;
+  rotation: number; // degrees
+  flipped: boolean;
+};
+type Point = { x: number; y: number };
+
 const SIDE = 512;
+const MIN_PLACED = 24;
+const MAX_PLACED = SIDE * 2;
 const TOOLS: { tool: Tool; label: string; icon: typeof MdCreate }[] = [
   { tool: "pencil", label: "watch.watchRoom.cameraCustomToolPencil", icon: MdCreate },
   { tool: "pen", label: "watch.watchRoom.cameraCustomToolPen", icon: MdEdit },
@@ -40,6 +75,42 @@ function tracePath(ctx: CanvasRenderingContext2D, stroke: Stroke) {
   // A tap is a dot.
   if (stroke.points.length === 1) ctx.lineTo(stroke.points[0].x + 0.1, stroke.points[0].y);
   ctx.stroke();
+}
+
+function drawPlaced(ctx: CanvasRenderingContext2D, placed: Placed) {
+  ctx.save();
+  ctx.translate(placed.x, placed.y);
+  ctx.rotate((placed.rotation * Math.PI) / 180);
+  if (placed.flipped) ctx.scale(-1, 1);
+  ctx.drawImage(placed.image, -placed.width / 2, -placed.height / 2, placed.width, placed.height);
+  ctx.restore();
+}
+
+// A file or a pasted picture, down to a size worth keeping, transparency included.
+async function loadPlaced(blob: Blob): Promise<Placed> {
+  const bitmap = await createImageBitmap(blob);
+  const scale = Math.min(1, SIDE / Math.max(bitmap.width, bitmap.height));
+  const image = document.createElement("canvas");
+  image.width = Math.max(1, Math.round(bitmap.width * scale));
+  image.height = Math.max(1, Math.round(bitmap.height * scale));
+  image.getContext("2d")?.drawImage(bitmap, 0, 0, image.width, image.height);
+  bitmap.close();
+  const fit = (SIDE * 0.6) / Math.max(image.width, image.height);
+  return {
+    tool: "image",
+    image,
+    x: SIDE / 2,
+    y: SIDE / 2,
+    width: image.width * fit,
+    height: image.height * fit,
+    rotation: 0,
+    flipped: false,
+  };
+}
+
+function resized(from: Placed, width: number): Placed {
+  const clamped = Math.min(MAX_PLACED, Math.max(MIN_PLACED, width));
+  return { ...from, width: clamped, height: (from.height * clamped) / from.width };
 }
 
 function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
@@ -104,7 +175,11 @@ export function CameraDrawingPad({
   const t = useT();
   const canvas = useRef<HTMLCanvasElement>(null);
   const base = useRef<HTMLCanvasElement | null>(null);
-  const strokes = useRef<Stroke[]>([]);
+  const pad = useRef<HTMLDivElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const strokes = useRef<(Stroke | Placed)[]>([]);
+  const placedRef = useRef<Placed | null>(null);
+  const gesture = useRef<{ kind: "move" | "resize" | "rotate"; start: Point; from: Placed } | null>(null);
   const current = useRef<Stroke | null>(null);
   const stickerId = useRef(sticker?.id ?? null);
   const counted = useRef(false);
@@ -114,13 +189,19 @@ export function CameraDrawingPad({
   const [readable, setReadable] = useState(sticker?.drawing === "plain");
   const [strokeCount, setStrokeCount] = useState(0);
   const [failed, setFailed] = useState(false);
+  const [pasteFailed, setPasteFailed] = useState(false);
+  const [placed, setPlacedState] = useState<Placed | null>(null);
 
   const redraw = useCallback(() => {
     const ctx = canvas.current?.getContext("2d");
     if (!ctx) return;
     ctx.clearRect(0, 0, SIDE, SIDE);
     if (base.current) ctx.drawImage(base.current, 0, 0);
-    for (const stroke of strokes.current) drawStroke(ctx, stroke);
+    for (const item of strokes.current) {
+      if (item.tool === "image") drawPlaced(ctx, item);
+      else drawStroke(ctx, item);
+    }
+    if (placedRef.current) drawPlaced(ctx, placedRef.current);
     if (current.current) drawStroke(ctx, current.current);
   }, []);
 
@@ -181,9 +262,123 @@ export function CameraDrawingPad({
     [effectId, onSticker]
   );
 
-  const pointAt = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const box = e.currentTarget.getBoundingClientRect();
+  const setPlaced = useCallback(
+    (next: Placed | null) => {
+      placedRef.current = next;
+      setPlacedState(next);
+      redraw();
+    },
+    [redraw]
+  );
+
+  const readableRef = useRef(readable);
+  useEffect(() => {
+    readableRef.current = readable;
+  }, [readable]);
+
+  const place = useCallback(
+    async (blob: Blob) => {
+      try {
+        if (!blob.type.startsWith("image/")) throw new Error("not an image");
+        if (blob.type === "image/gif") {
+          onSticker(await addImageSticker(effectId, new File([blob], "sticker.gif", { type: blob.type })));
+          onClose();
+          return;
+        }
+        const next = await loadPlaced(blob);
+        // One floats at a time: whatever was floating stays where it was.
+        if (placedRef.current) strokes.current.push(placedRef.current);
+        setPlaced(next);
+        setStrokeCount(strokes.current.length);
+        store(readableRef.current);
+        trackCustomEffect(CAMERA_CUSTOM_EVENTS.drawImage);
+      } catch {
+        setFailed(true);
+        trackCustomEffect(CAMERA_CUSTOM_EVENTS.imageError);
+      }
+    },
+    [effectId, onClose, onSticker, setPlaced, store]
+  );
+
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const file = Array.from(e.clipboardData?.files ?? []).find((item) => item.type.startsWith("image/"));
+      if (!file) return;
+      e.preventDefault();
+      void place(file);
+    };
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+  }, [place]);
+
+  // For a phone, with no Ctrl+V. The browser may refuse, or have nothing to give.
+  const pasteFromClipboard = async () => {
+    try {
+      for (const item of await navigator.clipboard.read()) {
+        const type = item.types.find((name) => name.startsWith("image/"));
+        if (type) {
+          setPasteFailed(false);
+          await place(await item.getType(type));
+          return;
+        }
+      }
+      setPasteFailed(true);
+    } catch {
+      setPasteFailed(true);
+    }
+  };
+
+  const layDown = () => {
+    if (!placedRef.current) return;
+    strokes.current.push(placedRef.current);
+    setPlaced(null);
+    setStrokeCount(strokes.current.length);
+  };
+
+  const dropPlaced = () => {
+    setPlaced(null);
+    if (strokes.current.length > 0 || base.current || stickerId.current) store(readable);
+  };
+
+  const pointAt = (e: React.PointerEvent) => {
+    const box = pad.current?.getBoundingClientRect();
+    if (!box) return { x: 0, y: 0 };
     return { x: ((e.clientX - box.left) / box.width) * SIDE, y: ((e.clientY - box.top) / box.height) * SIDE };
+  };
+
+  const startGesture = (kind: "move" | "resize" | "rotate", e: React.PointerEvent) => {
+    if (!placedRef.current) return;
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    gesture.current = { kind, start: pointAt(e), from: placedRef.current };
+  };
+
+  const moveGesture = (e: React.PointerEvent) => {
+    const g = gesture.current;
+    if (!g) return;
+    e.stopPropagation();
+    const p = pointAt(e);
+    const { from } = g;
+    if (g.kind === "move") {
+      setPlaced({ ...from, x: from.x + p.x - g.start.x, y: from.y + p.y - g.start.y });
+    } else if (g.kind === "resize") {
+      const ratio = Math.hypot(p.x - from.x, p.y - from.y) / Math.max(1, Math.hypot(g.start.x - from.x, g.start.y - from.y));
+      setPlaced(resized(from, from.width * ratio));
+    } else {
+      setPlaced({ ...from, rotation: Math.round((Math.atan2(p.y - from.y, p.x - from.x) * 180) / Math.PI + 90) });
+    }
+  };
+
+  const endGesture = (e: React.PointerEvent) => {
+    if (!gesture.current) return;
+    e.stopPropagation();
+    gesture.current = null;
+    store(readable);
+  };
+
+  const changePlaced = (next: Placed) => {
+    setPlaced(next);
+    store(readable);
   };
 
   const finish = () => {
@@ -199,6 +394,10 @@ export function CameraDrawingPad({
   };
 
   const undo = () => {
+    if (placedRef.current) {
+      dropPlaced();
+      return;
+    }
     strokes.current.pop();
     setStrokeCount(strokes.current.length);
     redraw();
@@ -208,6 +407,8 @@ export function CameraDrawingPad({
   const clear = () => {
     strokes.current = [];
     base.current = null;
+    placedRef.current = null;
+    setPlacedState(null);
     setStrokeCount(0);
     redraw();
     if (stickerId.current) removeCustomSticker(effectId, stickerId.current);
@@ -217,7 +418,7 @@ export function CameraDrawingPad({
 
   return (
     <div className="flex flex-col gap-2 rounded-xl bg-zinc-50 p-2 dark:bg-zinc-900">
-      <div className="relative mx-auto aspect-square w-full max-w-[17rem] overflow-hidden rounded-lg border border-zinc-300 bg-zinc-200 dark:border-zinc-700 dark:bg-zinc-700">
+      <div ref={pad} className="relative mx-auto aspect-square w-full max-w-[17rem] overflow-hidden rounded-lg border border-zinc-300 bg-zinc-200 dark:border-zinc-700 dark:bg-zinc-700">
         <span className="pointer-events-none absolute top-[18%] left-1/4 h-[64%] w-1/2 rounded-[50%] border-2 border-dashed border-zinc-400" />
         <canvas
           ref={canvas}
@@ -226,6 +427,7 @@ export function CameraDrawingPad({
           aria-label={t("watch.watchRoom.cameraCustomDraw")}
           className="absolute inset-0 h-full w-full cursor-crosshair touch-none"
           onPointerDown={(e) => {
+            layDown();
             e.currentTarget.setPointerCapture(e.pointerId);
             current.current = { tool, color, width, points: [pointAt(e)] };
             redraw();
@@ -238,6 +440,39 @@ export function CameraDrawingPad({
           onPointerUp={finish}
           onPointerCancel={finish}
         />
+        {placed && (
+          <div
+            onPointerDown={(e) => startGesture("move", e)}
+            onPointerMove={moveGesture}
+            onPointerUp={endGesture}
+            onPointerCancel={endGesture}
+            style={{
+              left: `${((placed.x - placed.width / 2) / SIDE) * 100}%`,
+              top: `${((placed.y - placed.height / 2) / SIDE) * 100}%`,
+              width: `${(placed.width / SIDE) * 100}%`,
+              height: `${(placed.height / SIDE) * 100}%`,
+              transform: `rotate(${placed.rotation}deg)`,
+            }}
+            className="absolute cursor-move touch-none border-2 border-emerald-500"
+          >
+            <span
+              onPointerDown={(e) => startGesture("rotate", e)}
+              onPointerMove={moveGesture}
+            onPointerUp={endGesture}
+            onPointerCancel={endGesture}
+              className="absolute -top-6 left-1/2 flex h-5 w-5 -translate-x-1/2 cursor-grab touch-none items-center justify-center rounded-full bg-emerald-600 text-white"
+            >
+              <MdRotateRight className="h-3.5 w-3.5" />
+            </span>
+            <span
+              onPointerDown={(e) => startGesture("resize", e)}
+              onPointerMove={moveGesture}
+            onPointerUp={endGesture}
+            onPointerCancel={endGesture}
+              className="absolute -right-2 -bottom-2 h-4 w-4 cursor-nwse-resize touch-none rounded-full border-2 border-white bg-emerald-600"
+            />
+          </div>
+        )}
       </div>
       <div className="flex flex-wrap items-center gap-1">
         {TOOLS.map((item) => {
@@ -259,7 +494,7 @@ export function CameraDrawingPad({
         <span className="flex-1" />
         <button
           type="button"
-          disabled={strokeCount === 0}
+          disabled={strokeCount === 0 && !placed}
           aria-label={t("watch.watchRoom.cameraCustomUndo")}
           title={t("watch.watchRoom.cameraCustomUndo")}
           onClick={undo}
@@ -277,6 +512,81 @@ export function CameraDrawingPad({
           <MdDelete className="h-4 w-4" />
         </button>
       </div>
+      <div className="flex flex-wrap gap-1">
+        <input
+          ref={fileInput}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void place(file);
+            e.target.value = "";
+          }}
+        />
+        <button type="button" onClick={() => void pasteFromClipboard()} className="inline-flex items-center gap-1 rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+          <MdContentPaste className="h-3.5 w-3.5" />
+          {t("watch.watchRoom.cameraCustomPaste")}
+        </button>
+        <button type="button" onClick={() => fileInput.current?.click()} className="inline-flex items-center gap-1 rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+          <MdImage className="h-3.5 w-3.5" />
+          {t("watch.watchRoom.cameraCustomInsertImage")}
+        </button>
+      </div>
+      {pasteFailed && <span className="text-[11px] text-red-600 dark:text-red-400">{t("watch.watchRoom.cameraCustomPasteError")}</span>}
+      {placed && (
+        <div className="flex flex-col gap-1.5 rounded-lg border border-emerald-500/40 p-2">
+          <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
+            <span className="w-24 shrink-0 truncate">{t("watch.watchRoom.cameraCustomSize")}</span>
+            <input
+              type="range"
+              min={MIN_PLACED}
+              max={MAX_PLACED}
+              value={placed.width}
+              onChange={(e) => setPlaced(resized(placed, Number(e.target.value)))}
+              onPointerUp={() => store(readable)}
+              onKeyUp={() => store(readable)}
+              className="min-w-0 flex-1 accent-emerald-600"
+            />
+          </label>
+          <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
+            <span className="w-24 shrink-0 truncate">{t("watch.watchRoom.cameraCustomRotate")}</span>
+            <input
+              type="range"
+              min={-180}
+              max={180}
+              value={((((placed.rotation + 180) % 360) + 360) % 360) - 180}
+              onChange={(e) => setPlaced({ ...placed, rotation: Number(e.target.value) })}
+              onPointerUp={() => store(readable)}
+              onKeyUp={() => store(readable)}
+              className="min-w-0 flex-1 accent-emerald-600"
+            />
+          </label>
+          <div className="flex flex-wrap gap-1">
+            <button type="button" onClick={() => changePlaced({ ...placed, rotation: placed.rotation + 90 })} className="inline-flex items-center gap-1 rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+              <MdRotateRight className="h-3.5 w-3.5" />
+              90°
+            </button>
+            <button type="button" onClick={() => changePlaced({ ...placed, flipped: !placed.flipped })} className="inline-flex items-center gap-1 rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+              <MdFlip className="h-3.5 w-3.5" />
+              {t("watch.watchRoom.cameraCustomFlip")}
+            </button>
+            <span className="flex-1" />
+            <button type="button" onClick={dropPlaced} className="inline-flex items-center gap-1 rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+              <MdClose className="h-3.5 w-3.5" />
+              {t("watch.watchRoom.cameraCustomImageRemove")}
+            </button>
+            <button
+              type="button"
+              onClick={layDown}
+              className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2 py-1 text-xs font-medium text-white"
+            >
+              <MdCheck className="h-3.5 w-3.5" />
+              {t("watch.watchRoom.cameraCustomImageApply")}
+            </button>
+          </div>
+        </div>
+      )}
       <div className="flex flex-wrap gap-1.5">
         {COLORS.map((item) => (
           <button

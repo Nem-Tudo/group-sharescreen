@@ -32,6 +32,8 @@ export const CAMERA_CUSTOM_EVENTS = {
   sticker: "camera_custom_sticker", // pôs um emoji como adesivo
   image: "camera_custom_image", // pôs uma imagem própria como adesivo
   draw: "camera_custom_draw", // desenhou (uma vez por abertura da área de desenho)
+  drawImage: "camera_custom_draw_image", // colou ou inseriu uma imagem na área de desenho
+  gif: "camera_custom_gif", // pôs um GIF como adesivo
   imageError: "camera_custom_image_error", // a imagem não abriu, ou não coube no navegador
   slow: "camera_custom_slow", // value: ms por quadro com efeito criado (uma vez por sessão, acima de 30)
 };
@@ -45,6 +47,9 @@ export function trackCustomEffect(name: string, value?: number) {
 
 const MAX_IMAGE_SIDE = 384;
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+// A GIF is kept as it came, every frame: shrinking it would mean re-encoding it.
+// The browser's storage is about 5 MB in all.
+const MAX_GIF_BYTES = 2 * 1024 * 1024;
 
 const EFFECTS_KEY = "sharescreen:cameraCustomEffects";
 const IMAGE_KEY_PREFIX = "sharescreen:cameraCustomImage:";
@@ -174,6 +179,21 @@ export function addEmojiSticker(effectId: string, emoji: string): string {
 export async function addImageSticker(effectId: string, file: File): Promise<string> {
   try {
     if (!file.type.startsWith("image/") || file.size > MAX_IMAGE_BYTES) throw new Error("not an image");
+    if (file.type === "image/gif") {
+      if (file.size > MAX_GIF_BYTES) throw new Error("too big");
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error("unreadable"));
+        reader.readAsDataURL(file);
+      });
+      const imageId = newId();
+      window.localStorage.setItem(IMAGE_KEY_PREFIX + imageId, dataUrl);
+      const sticker = { ...newSticker(), imageId };
+      withSticker(effectId, sticker);
+      trackCustomEffect(CAMERA_CUSTOM_EVENTS.gif);
+      return sticker.id;
+    }
     const bitmap = await createImageBitmap(file);
     const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(bitmap.width, bitmap.height));
     const canvas = document.createElement("canvas");

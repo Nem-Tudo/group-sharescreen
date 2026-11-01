@@ -78,7 +78,7 @@ function clamp(value: unknown, range: { min: number; max: number }, fallback: nu
 function sanitizeSticker(raw: unknown): CustomSticker | null {
   if (!raw || typeof raw !== "object") return null;
   const s = raw as Partial<CustomSticker>;
-  const emoji = typeof s.emoji === "string" && s.emoji ? s.emoji.slice(0, 16) : undefined;
+  const emoji = typeof s.emoji === "string" && s.emoji ? s.emoji.slice(0, 32) : undefined;
   const imageId = typeof s.imageId === "string" && s.imageId ? s.imageId : undefined;
   if (typeof s.id !== "string" || !s.id || (!emoji && !imageId)) return null;
   return {

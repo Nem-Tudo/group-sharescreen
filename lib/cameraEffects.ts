@@ -332,7 +332,7 @@ export const CAMERA_EFFECTS_FEATURE = "camera-effects";
 // plain URL, so a fixed worker kept being served as the old one. Bump this
 // whenever public/workers/camera-effects.js or camera-detect.js changes (the
 // detector is loaded with the same ?v=).
-const WORKER_VERSION = 13;
+const WORKER_VERSION = 14;
 const WORKER_URL = `/workers/camera-effects.js?v=${WORKER_VERSION}`;
 const SETTINGS_KEY = "sharescreen:cameraEffects";
 // How long the worker (and the models it loaded) outlives the last camera
@@ -584,7 +584,9 @@ function ensureWorker(): Worker {
     else if (data.type === "error") {
       // The hands model only takes away the claps and the thumbs up; the
       // rest keeps working, so the panel does not say it failed.
-      if (data.kind !== "hand") {
+      if (data.kind === "custom-gif") {
+        trackCustomEffect(CAMERA_CUSTOM_EVENTS.imageError);
+      } else if (data.kind !== "hand") {
         setStatus({ failed: true });
         trackTileExperiment(TILE_EXPERIMENT_EVENTS.cameraEffects.error);
       }
@@ -751,6 +753,18 @@ function pushCustomEffect() {
 
 async function pushCustomImage(target: Worker, imageId: string) {
   const dataUrl = stickerImage(imageId);
+  // A GIF goes as its file: the worker takes the frames out of it.
+  if (dataUrl?.startsWith("data:image/gif")) {
+    try {
+      const buffer = await (await fetch(dataUrl)).arrayBuffer();
+      if (worker === target && customImagesSent.has(imageId)) {
+        target.postMessage({ type: "custom-gif", id: imageId, buffer }, [buffer]);
+      }
+    } catch {
+      trackCustomEffect(CAMERA_CUSTOM_EVENTS.imageError);
+    }
+    return;
+  }
   let bitmap: ImageBitmap | null = null;
   try {
     if (dataUrl) bitmap = await createImageBitmap(await (await fetch(dataUrl)).blob());

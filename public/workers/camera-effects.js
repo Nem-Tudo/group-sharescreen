@@ -85,6 +85,8 @@ self.onmessage = (event) => {
     ensureTasks();
   } else if (data.type === "custom-image") {
     setCustomImage(data.id, data.bitmap || null);
+  } else if (data.type === "custom-gif") {
+    void loadCustomGif(data.id, data.buffer);
   }
 };
 
@@ -654,11 +656,74 @@ const customImages = new Map();
 const emojiSprites = new Map();
 const EMOJI_SPRITE = 256;
 
-function setCustomImage(id, bitmap) {
+// Bumped per id on every change, so a GIF still decoding knows it was taken back.
+const customImageTurns = new Map();
+const GIF_MAX_FRAMES = 100;
+const GIF_MAX_SIDE = 256;
+
+function setCustomImage(id, image) {
+  customImageTurns.set(id, (customImageTurns.get(id) || 0) + 1);
   const old = customImages.get(id);
-  if (old) old.close();
-  if (bitmap) customImages.set(id, bitmap);
+  if (old) {
+    if (old.frames) old.frames.forEach((frame) => frame.bitmap.close());
+    else old.close();
+  }
+  if (image) customImages.set(id, image);
   else customImages.delete(id);
+}
+
+// A GIF's frames, shrunk and decoded up front: decoding on the way to each camera
+// frame would hold the camera up. Without ImageDecoder (or with a broken file),
+// its first frame, standing still.
+async function loadCustomGif(id, buffer) {
+  const turn = (customImageTurns.get(id) || 0) + 1;
+  customImageTurns.set(id, turn);
+  const frames = [];
+  const stale = () => customImageTurns.get(id) !== turn;
+  try {
+    if (typeof ImageDecoder !== "undefined") {
+      const decoder = new ImageDecoder({ data: buffer, type: "image/gif" });
+      await decoder.tracks.ready;
+      const count = Math.min(GIF_MAX_FRAMES, decoder.tracks.selectedTrack.frameCount);
+      for (let i = 0; i < count && !stale(); i += 1) {
+        const { image } = await decoder.decode({ frameIndex: i });
+        const scale = Math.min(1, GIF_MAX_SIDE / Math.max(image.displayWidth, image.displayHeight));
+        const bitmap = await createImageBitmap(image, {
+          resizeWidth: Math.max(1, Math.round(image.displayWidth * scale)),
+          resizeHeight: Math.max(1, Math.round(image.displayHeight * scale)),
+        });
+        // Many GIFs say 0 for "as fast as you can"; browsers treat those as 100 ms.
+        const ms = (image.duration || 0) / 1000;
+        frames.push({ bitmap, ms: ms >= 20 ? ms : 100 });
+        image.close();
+      }
+      decoder.close();
+    }
+    if (frames.length === 0 && !stale()) {
+      const bitmap = await createImageBitmap(new Blob([buffer], { type: "image/gif" }));
+      frames.push({ bitmap, ms: 100 });
+    }
+  } catch {
+    if (frames.length === 0) {
+      self.postMessage({ type: "error", kind: "custom-gif", reason: "gif" });
+      return;
+    }
+  }
+  if (stale()) {
+    frames.forEach((frame) => frame.bitmap.close());
+    return;
+  }
+  const total = frames.reduce((sum, frame) => sum + frame.ms, 0);
+  setCustomImage(id, { frames, total });
+}
+
+function gifFrame(gif) {
+  let at = performance.now() % gif.total;
+  for (const frame of gif.frames) {
+    if (at < frame.ms) return frame.bitmap;
+    at -= frame.ms;
+  }
+  return gif.frames[0].bitmap;
 }
 
 // An emoji is drawn once and kept: a glyph that size is slow to rasterize, and
@@ -695,8 +760,9 @@ function customAnchor(face, anchor) {
 
 function drawCustomStickers(ctx, effect, face) {
   for (const sticker of effect.stickers) {
-    const image = sticker.imageId ? customImages.get(sticker.imageId) : sticker.emoji ? emojiSprite(sticker.emoji) : null;
-    if (!image) continue;
+    const held = sticker.imageId ? customImages.get(sticker.imageId) : sticker.emoji ? emojiSprite(sticker.emoji) : null;
+    if (!held) continue;
+    const image = held.frames ? gifFrame(held) : held;
     const w = face.size * sticker.size;
     const h = (w * image.height) / image.width;
     inFaceFrame(ctx, customAnchor(face, sticker.anchor), face.angle, () => {

@@ -4,6 +4,7 @@ import useNtPopups from "ntpopups";
 import { useEffect, useRef, useState } from "react";
 import { MdAdd, MdCreate, MdDelete, MdUpload } from "react-icons/md";
 import { CameraDrawingPad } from "@/components/CameraDrawingPad";
+import { EmojiPickerButton } from "@/components/EmojiPicker";
 import { setCameraEffect, useCameraEffectSettings } from "@/lib/cameraEffects";
 import {
   addEmojiSticker,
@@ -349,6 +350,10 @@ export function CameraCustomEffectEditor({
                     {emoji}
                   </button>
                 ))}
+                <EmojiPickerButton
+                  onPick={(emoji) => setSelectedSticker(addEmojiSticker(effect.id, emoji))}
+                  className="flex h-8 w-full items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                />
               </div>
               <input
                 ref={input}
