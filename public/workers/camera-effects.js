@@ -177,7 +177,7 @@ function readiness() {
 function wants(kind) {
   if (!settings) return false;
   if (kind === "face") {
-    return settings.face !== "none" || settings.reactions === "on" || wantsWarp() || wantsCustomStickers();
+    return settings.face !== "none" || settings.reactions === "on" || wantsWarp() || wantsCustomFace();
   }
   if (kind === "hand") return settings.reactions === "on";
   return settings.background !== "none";
@@ -195,8 +195,8 @@ function wantsCustom() {
   return Boolean(settings && settings.custom && settings.custom !== "none" && customEffect);
 }
 
-function wantsCustomStickers() {
-  return wantsCustom() && customEffect.stickers.length > 0;
+function wantsCustomFace() {
+  return wantsCustom() && (customEffect.stickers.length > 0 || Boolean(customEffect.warp));
 }
 
 // Tells the detector what the settings need (starting it the first time
@@ -515,7 +515,7 @@ async function render(p, rawFrame) {
   const reacting = s.reactions === "on";
   const warp = wantsWarp() ? s.warp : null;
   const custom = wantsCustom() ? customEffect : null;
-  const landmarker = (s.face !== "none" || reacting || Boolean(warp) || wantsCustomStickers()) && loaded.face;
+  const landmarker = (s.face !== "none" || reacting || Boolean(warp) || wantsCustomFace()) && loaded.face;
   const hander = reacting && loaded.hand;
   if (!segmenter) p.hasMask = false;
   if (!landmarker) p.faces = [];
@@ -553,6 +553,7 @@ async function render(p, rawFrame) {
   // The face moved first, so whatever is drawn on it sits on top.
   if (custom && custom.vignette > 0) drawVignette(ctx, custom.vignette, width, height);
   if (landmarker && warp) drawWarp(ctx, p, warp, width, height);
+  if (landmarker && custom && custom.warp) drawWarp(ctx, p, custom.warp, width, height);
   if (landmarker) for (const face of p.faces) drawFace(ctx, s.face, face);
   if (landmarker && FACES_3D.has(s.face)) draw3d(ctx, p, s.face, width, height);
   if (landmarker && custom) for (const face of p.faces) drawCustomStickers(ctx, custom, face);
@@ -2009,6 +2010,7 @@ function ensureWarpGl(width, height) {
 // is -1 on the side of landmark 33 and 1 on the other, so "outwards" is
 // side * something.
 function warpOps(kind, f) {
+  if (typeof kind === "object") return customWarpOps(kind, f);
   const ops = [];
   const scale = (c, rx, ry, kx, ky) => ops.push({ c, rx, ry, kind: 0, p: 1 / kx, q: 1 / ky });
   const shift = (c, r, dx, dy) => ops.push({ c, rx: r, ry: r, kind: 1, p: dx, q: dy });
@@ -2057,6 +2059,53 @@ function warpOps(kind, f) {
     scale(mouth, 0.22, 0.14, 0.8, 0.8);
   } else if (kind === "bighead") {
     scale(mid(f.top, f.chin), 0.95, 1.15, 1.35, 1.35);
+  }
+  return ops;
+}
+
+// An effect the person made (lib/cameraCustomEffects.ts): each slider, -100 to
+// 100, pushes one part of the face, within the limits above. At most 15
+// operations, so two faces still fit in WARP_OPS_MAX.
+function customWarpOps(w, f) {
+  const ops = [];
+  // 1 at zero; at the ends of the slider, `down` and `up`.
+  const factor = (value, down, up) => (value < 0 ? 1 + (value / -100) * (down - 1) : 1 + (value / 100) * (up - 1));
+  const scale = (c, rx, ry, kx, ky) => ops.push({ c, rx, ry, kind: 0, p: 1 / kx, q: 1 / ky });
+  const shift = (c, r, dx, dy) => ops.push({ c, rx: r, ry: r, kind: 1, p: dx, q: dy });
+  const sides = [
+    { side: -1, eye: f.eyeLeft, mouth: f.mouthLeft, browIn: f.browInnerLeft, browOut: f.browOuterLeft, cheek: f.cheekLeft },
+    { side: 1, eye: f.eyeRight, mouth: f.mouthRight, browIn: f.browInnerRight, browOut: f.browOuterRight, cheek: f.cheekRight },
+  ];
+  const mouth = mid(f.lipTop, f.lipBottom);
+  if (w.head) {
+    const k = factor(w.head, 0.7, 1.45);
+    scale(mid(f.top, f.chin), 0.95, 1.15, k, k);
+  }
+  if (w.width) scale(f.nose, 0.9, 1, factor(w.width, 0.65, 1.55), 1);
+  if (w.chin) scale(f.chin, 0.45, 0.35, 1, factor(w.chin, 0.7, 1.5));
+  if (w.nose) {
+    const k = factor(w.nose, 0.7, 1.5);
+    scale(f.nose, 0.2, 0.2, k, k);
+  }
+  if (w.mouthSize) {
+    const k = factor(w.mouthSize, 0.7, 1.5);
+    scale(mouth, 0.3, 0.2, k, k);
+  }
+  for (const s of sides) {
+    if (w.cheeks) {
+      const k = factor(w.cheeks, 0.85, 1.25);
+      scale(s.cheek, 0.2, 0.2, k, k);
+    }
+    if (w.eyes) {
+      const k = factor(w.eyes, 0.7, 2);
+      scale(s.eye, 0.28, 0.24, k, k);
+    }
+    if (w.browsHeight) shift(mid(s.browIn, s.browOut), 0.22, 0, (-w.browsHeight / 100) * 0.09);
+    if (w.browsTilt) {
+      shift(s.browIn, 0.15, (-s.side * w.browsTilt * 0.04) / 100, (w.browsTilt * 0.08) / 100);
+      shift(s.browOut, 0.14, 0, (-w.browsTilt * 0.05) / 100);
+    }
+    if (w.mouthCurve) shift(s.mouth, 0.21, 0, (-w.mouthCurve / 100) * 0.1);
   }
   return ops;
 }

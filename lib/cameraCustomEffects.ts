@@ -4,6 +4,7 @@ import { useSyncExternalStore } from "react";
 import { trackFeatureEvent } from "./features";
 import {
   DEFAULT_ADJUST,
+  DEFAULT_WARP,
   MAX_CUSTOM_EFFECTS,
   MAX_CUSTOM_NAME,
   sanitizeCustomEffects,
@@ -33,6 +34,7 @@ export const CAMERA_CUSTOM_EVENTS = {
   image: "camera_custom_image", // pôs uma imagem própria como adesivo
   draw: "camera_custom_draw", // desenhou (uma vez por abertura da área de desenho)
   drawImage: "camera_custom_draw_image", // colou ou inseriu uma imagem na área de desenho
+  warp: "camera_custom_warp", // mexeu nas distorções (uma vez por abertura do editor)
   gif: "camera_custom_gif", // pôs um GIF como adesivo
   imageError: "camera_custom_image_error", // a imagem não abriu, ou não coube no navegador
   slow: "camera_custom_slow", // value: ms por quadro com efeito criado (uma vez por sessão, acima de 30)
@@ -124,6 +126,7 @@ export function createCustomCameraEffect(name: string): CustomCameraEffect | nul
     id: newId(),
     name: name.slice(0, MAX_CUSTOM_NAME),
     adjust: { ...DEFAULT_ADJUST },
+    warp: { ...DEFAULT_WARP },
     stickers: [],
   };
   write([...effects, effect]);

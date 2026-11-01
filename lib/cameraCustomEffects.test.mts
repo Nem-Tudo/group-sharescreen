@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { customEffectFilter, DEFAULT_ADJUST, MAX_CUSTOM_EFFECTS, MAX_CUSTOM_STICKERS, sanitizeCustomEffects } from "./cameraCustomEffectsModel";
+import { customEffectFilter, DEFAULT_ADJUST, DEFAULT_WARP, hasCustomWarp, MAX_CUSTOM_EFFECTS, MAX_CUSTOM_STICKERS, sanitizeCustomEffects } from "./cameraCustomEffectsModel";
 
 test("untouched adjustments draw no filter at all", () => {
   assert.equal(customEffectFilter(DEFAULT_ADJUST), "none");
@@ -38,6 +38,15 @@ test("values out of range are pulled back and missing ones filled in", () => {
 test("a sticker with nothing to draw is dropped", () => {
   const [effect] = sanitizeCustomEffects([{ id: "a", stickers: [{ id: "s" }, { emoji: "🐶" }] }]);
   assert.deepEqual(effect.stickers, []);
+});
+
+test("distortions default to none, come back in range, and say whether any is set", () => {
+  const [plain, pushed] = sanitizeCustomEffects([{ id: "a" }, { id: "b", warp: { eyes: 999, nose: "x" } }]);
+  assert.deepEqual(plain.warp, DEFAULT_WARP);
+  assert.equal(hasCustomWarp(plain.warp), false);
+  assert.equal(pushed.warp.eyes, 100);
+  assert.equal(pushed.warp.nose, 0);
+  assert.equal(hasCustomWarp(pushed.warp), true);
 });
 
 test("the limits hold for what was stored", () => {

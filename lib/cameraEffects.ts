@@ -8,6 +8,7 @@ import { isMobileDevice } from "./announcement";
 import {
   CAMERA_CUSTOM_EVENTS,
   customEffectFilter,
+  hasCustomWarp,
   readCustomCameraEffects,
   stickerImage,
   subscribeCustomCameraEffects,
@@ -332,7 +333,7 @@ export const CAMERA_EFFECTS_FEATURE = "camera-effects";
 // plain URL, so a fixed worker kept being served as the old one. Bump this
 // whenever public/workers/camera-effects.js or camera-detect.js changes (the
 // detector is loaded with the same ?v=).
-const WORKER_VERSION = 14;
+const WORKER_VERSION = 15;
 const WORKER_URL = `/workers/camera-effects.js?v=${WORKER_VERSION}`;
 const SETTINGS_KEY = "sharescreen:cameraEffects";
 // How long the worker (and the models it loaded) outlives the last camera
@@ -731,7 +732,7 @@ function pushCustomEffect() {
   target.postMessage({
     type: "custom-effect",
     effect: effect
-      ? { filter: customEffectFilter(effect.adjust), vignette: effect.adjust.vignette, stickers: effect.stickers }
+      ? { filter: customEffectFilter(effect.adjust), vignette: effect.adjust.vignette, warp: hasCustomWarp(effect.warp) ? effect.warp : null, stickers: effect.stickers }
       : null,
   });
   if (customImagesFor !== target) {
