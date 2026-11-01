@@ -214,6 +214,7 @@ if (typeof window !== "undefined") {
 }
 
 export interface DiscordActivityPayload {
+  type?: number;
   state?: string;
   details?: string;
   timestamps?: {
@@ -433,6 +434,10 @@ const selectHasVideoSource = (state: SignalingState) => state.videoSources.lengt
 const selectMemberLimit = (state: SignalingState) => state.roomMemberLimit;
 const NO_LIMIT_PARTY_MAX = 100;
 const DM_PARTY_MAX = 2;
+// Discord's "Assistindo"; without a type the profile says "Jogando".
+const ACTIVITY_TYPE_WATCHING = 3;
+// Jogando, Ouvindo, Assistindo, Competindo. Discord doesn't take its other types here.
+const ALLOWED_ACTIVITY_TYPES: readonly unknown[] = [0, 2, 3, 5];
 
 // The party id of a call whose name is hidden: random rather than a hash of the
 // handle, which anyone could match against the public rooms' handles.
@@ -491,7 +496,10 @@ export function DiscordRpcReporter() {
     }
     return null;
   });
-  const { enabled: featureAllowed } = useFeature(DISCORD_RPC_FEATURE, { track: true });
+  const { enabled: featureAllowed, data: featureData } = useFeature(DISCORD_RPC_FEATURE, { track: true });
+  const activityType = ALLOWED_ACTIVITY_TYPES.includes(featureData.activityType)
+    ? (featureData.activityType as number)
+    : ACTIVITY_TYPE_WATCHING;
   const callGroupId = callSession?.group?.groupId ?? null;
   const callGroup = useGroupDetail(featureAllowed && settings.enabled ? callGroupId : null).detail?.group ?? null;
   const groupLinkAllowed = callGroup?.visibility === "public" && callGroup.richPresenceLink !== false;
@@ -611,6 +619,7 @@ export function DiscordRpcReporter() {
     buttons.push({ label: "Abrir o Go Live", url: SITE_URL });
 
     const payload: DiscordActivityPayload = {
+      type: activityType,
       details,
       state,
       timestamps: sessionStartTime ? { start: sessionStartTime } : undefined,
@@ -638,6 +647,7 @@ export function DiscordRpcReporter() {
     }
   }, [
     featureAllowed,
+    activityType,
     settings,
     account,
     callSession,

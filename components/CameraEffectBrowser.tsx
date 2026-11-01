@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -23,8 +23,8 @@ import { UserProfileDialog } from "@/components/UserProfileDialog";
 import { verifiedBadge } from "@/lib/entitlements";
 import { markFeatureUsed } from "@/components/NewBadge";
 import { useAuth } from "@/lib/AuthContext";
-import { setCameraEffect, useCameraEffectSettings } from "@/lib/cameraEffects";
-import { CAMERA_CUSTOM_FEATURE, useCustomCameraEffects } from "@/lib/cameraCustomEffects";
+import { useCameraEffectSettings } from "@/lib/cameraEffects";
+import { CAMERA_CUSTOM_FEATURE, useCustomCameraEffects, useCustomEffectPreview } from "@/lib/cameraCustomEffects";
 import {
   CAMERA_WORKSHOP_EVENTS,
   CAMERA_WORKSHOP_FEATURE,
@@ -34,6 +34,9 @@ import {
   fetchWorkshopEffects,
   likeWorkshopEffect,
   reportWorkshopEffect,
+  startEffectTrial,
+  stopEffectTrial,
+  useEffectTrial,
   takeWorkshopEffect,
   trackWorkshop,
   unpublishWorkshopEffect,
@@ -42,7 +45,6 @@ import {
   type WorkshopEffect,
   type WorkshopEffectSort,
 } from "@/lib/cameraEffectWorkshop";
-import { setTileExperimentMode } from "@/lib/clipsMode";
 import { useFeature } from "@/lib/features";
 import { useT } from "@/lib/useI18n";
 
@@ -62,12 +64,10 @@ const CHIP_ON = "bg-emerald-600 text-white";
 const CHIP_OFF =
   "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700";
 
-/** Copies it in, wears it, and turns the effects on. Says whether that worked. */
-export async function takeAndWear(id: string): Promise<boolean> {
+/** Adds it to "Meus efeitos", to be picked there like any other. Says whether that worked. */
+export async function addToLibrary(id: string): Promise<boolean> {
   const localId = await takeWorkshopEffect(id);
   if (!localId) return false;
-  setCameraEffect("custom", localId);
-  setTileExperimentMode("cameraEffects", true);
   markFeatureUsed(CAMERA_CUSTOM_FEATURE);
   return true;
 }
@@ -153,6 +153,37 @@ export function ReportDialog({ effect, onClose, onSent }: { effect: WorkshopEffe
   );
 }
 
+// The camera with the effect being tried on, since the dialog covers the room's tile.
+function EffectTrialBar() {
+  const t = useT();
+  const trial = useEffectTrial();
+  const { track, fallbackMirrored } = useCustomEffectPreview();
+  const video = useRef<HTMLVideoElement>(null);
+  const showing = Boolean(trial);
+  useEffect(() => {
+    if (video.current) video.current.srcObject = track ? new MediaStream([track]) : null;
+  }, [track, showing]);
+  if (!trial) return null;
+  const facing = track?.getSettings().facingMode;
+  const mirrored = facing ? facing === "user" : fallbackMirrored;
+  return (
+    <div className="flex shrink-0 items-center gap-3 border-b border-zinc-200 bg-zinc-50 px-4 py-2 sm:px-5 dark:border-zinc-800 dark:bg-zinc-900">
+      <video ref={video} autoPlay muted playsInline className={`h-24 w-40 shrink-0 rounded-lg bg-black object-cover ${mirrored ? "-scale-x-100" : ""}`} />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t("cameraWorkshop.trying", { name: trial.name })}</p>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">{t(track ? "cameraWorkshop.tryingHint" : "cameraWorkshop.tryNoCamera")}</p>
+      </div>
+      <button
+        type="button"
+        onClick={stopEffectTrial}
+        className="shrink-0 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+      >
+        {t("cameraWorkshop.tryStop")}
+      </button>
+    </div>
+  );
+}
+
 export function CameraEffectBrowser({ inPopup = false }: { inPopup?: boolean }) {
   const t = useT();
   const { account } = useAuth();
@@ -170,6 +201,7 @@ export function CameraEffectBrowser({ inPopup = false }: { inPopup?: boolean }) 
   const [useFailed, setUseFailed] = useState(false);
   const [limit, setLimit] = useState<number | null | undefined>(undefined);
   const [reporting, setReporting] = useState<WorkshopEffect | null>(null);
+  const trial = useEffectTrial();
   const [reported, setReported] = useState<string[]>([]);
   const [profileUserId, setProfileUserId] = useState<string | null>(null);
   // In the room's popup, a link must not take the person out of their call.
@@ -219,7 +251,7 @@ export function CameraEffectBrowser({ inPopup = false }: { inPopup?: boolean }) 
   const take = async (effect: WorkshopEffect) => {
     setBusy(effect.id);
     setUseFailed(false);
-    const done = await takeAndWear(effect.id);
+    const done = await addToLibrary(effect.id);
     setBusy(null);
     setUseFailed(!done);
   };
@@ -246,6 +278,7 @@ export function CameraEffectBrowser({ inPopup = false }: { inPopup?: boolean }) 
 
   return (
     <div className={`relative flex flex-col ${inPopup ? "min-h-0 flex-1" : ""}`}>
+      {inPopup && <EffectTrialBar />}
       {/* The search and the filters, as in the themes' dialog (see ThemeBrowser). */}
       <div className="flex shrink-0 flex-col gap-2.5 border-b border-zinc-200 px-4 py-3 sm:px-5 dark:border-zinc-800">
         <div className="flex flex-wrap items-center gap-2">
@@ -417,19 +450,37 @@ export function CameraEffectBrowser({ inPopup = false }: { inPopup?: boolean }) 
                       </button>
                     </div>
                   ) : (
+                    <>
+                    {inPopup && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (trial?.id === effect.id) {
+                            stopEffectTrial();
+                            return;
+                          }
+                          setUseFailed(false);
+                          void startEffectTrial(effect.id).then((done) => setUseFailed(!done));
+                        }}
+                        className={`${action} ${outlined}`}
+                      >
+                        {t(trial?.id === effect.id ? "cameraWorkshop.tryStop" : "cameraWorkshop.try")}
+                      </button>
+                    )}
                     <button
                       type="button"
-                      disabled={busy === effect.id}
+                      disabled={busy === effect.id || copy !== undefined}
                       onClick={() => void take(effect)}
-                      className={`${action} ${inUse ? outlined : primary} inline-flex items-center justify-center gap-1`}
+                      className={`${action} ${copy ? outlined : primary} inline-flex items-center justify-center gap-1`}
                     >
-                      {inUse && <MdCheck className="h-3.5 w-3.5" />}
+                      {copy && <MdCheck className="h-3.5 w-3.5" />}
                       {busy === effect.id
                         ? t("cameraWorkshop.downloading")
-                        : inUse
-                          ? t("cameraWorkshop.inUse")
+                        : copy
+                          ? t("cameraWorkshop.added")
                           : t("cameraWorkshop.use")}
                     </button>
+                    </>
                   )}
                 </div>
               </li>
@@ -482,6 +533,8 @@ export function CameraEffectBrowser({ inPopup = false }: { inPopup?: boolean }) 
 // (see ThemeHubDialog): it also opens from inside a call, where leaving ends it.
 export function CameraEffectWorkshopPopup({ closePopup }: { closePopup: (hasAction?: boolean) => void }) {
   const t = useT();
+  // A try ends with the dialog: nothing stays on the camera without being added.
+  useEffect(() => stopEffectTrial, []);
   return (
     <div className="flex h-[min(52rem,calc(100dvh-2.5rem))] w-[min(62rem,calc(100vw-2rem))] flex-col bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">
       <div className="flex shrink-0 items-center gap-2 border-b border-zinc-200 px-4 py-3.5 sm:px-5 dark:border-zinc-800">

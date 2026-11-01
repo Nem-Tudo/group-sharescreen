@@ -12,6 +12,7 @@ import {
 } from "./cameraEffects";
 import { readCustomCameraEffects, readCustomWarp, stickerImage, type CustomAdjust, type CustomAnchor } from "./cameraCustomEffects";
 import { warpBytesFromBase64, warpBytesToBase64 } from "./cameraWarpBrush";
+import { useEffectTrial } from "./cameraEffectWorkshop";
 import { setReceivedStreamBackground } from "./cameraStreamBackground";
 import { signalingClient, type SentCameraEffect } from "./signalingClient";
 import { selectReceivedCameraEffect } from "./signalingSelectors";
@@ -134,8 +135,15 @@ export function useReceivedCameraEffect(blocked: boolean): CameraEffectSettings 
   const effect = blocked ? NO_EFFECT : received?.effect ?? NO_EFFECT;
   const giftId = blocked ? null : received?.giftId ?? null;
   const stream = effect?.background === "stream" ? effect.stream ?? null : null;
+  // Trying an effect from the workshop goes over anything else while it lasts.
+  const trial = useEffectTrial();
+  const trialContents = trial?.contents ?? null;
 
   useEffect(() => {
+    if (trialContents) {
+      setReceivedEffectContents(trialContents);
+      return;
+    }
     if (!giftId) {
       setReceivedEffectContents(null);
       return;
@@ -149,13 +157,16 @@ export function useReceivedCameraEffect(blocked: boolean): CameraEffectSettings 
       () => {}
     );
     return () => controller.abort();
-  }, [giftId]);
+  }, [giftId, trialContents]);
 
   useEffect(() => {
     setReceivedStreamBackground(stream ? streamIdHere(stream) : null);
   }, [stream]);
 
   return useMemo(() => {
+    if (trialContents) {
+      return { face: "none", warp: "none", color: "none", background: "none", reactions: "none", custom: RECEIVED_CUSTOM_EFFECT } as CameraEffectSettings;
+    }
     if (!effect) return null;
     return {
       face: effect.face,
@@ -165,5 +176,5 @@ export function useReceivedCameraEffect(blocked: boolean): CameraEffectSettings 
       reactions: effect.reactions,
       custom: effect.custom ? RECEIVED_CUSTOM_EFFECT : "none",
     } as CameraEffectSettings;
-  }, [effect]);
+  }, [effect, trialContents]);
 }

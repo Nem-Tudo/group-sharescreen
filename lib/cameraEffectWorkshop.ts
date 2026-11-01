@@ -16,6 +16,8 @@ import {
   type CustomSticker,
 } from "./cameraCustomEffects";
 import { customEffectFilter } from "./cameraCustomEffectsModel";
+import { useSyncExternalStore } from "react";
+import type { ReceivedEffectContents } from "./cameraEffects";
 import { decodeWarpGrid, warpBytesFromBase64, warpBytesToBase64, WARP_GRID } from "./cameraWarpBrush";
 
 // The effects workshop (experiment "camera-effects-workshop"): effects made by
@@ -37,6 +39,7 @@ export const CAMERA_WORKSHOP_EVENTS = {
   limit: "camera_workshop_limit", // tentou publicar acima do limite do plano
   locked: "camera_workshop_locked", // tocou em publicar sem o plano (abriu os planos)
   report: "camera_workshop_report", // denunciou um efeito
+  try: "camera_workshop_try", // testou um efeito sem adicionar
   sort: "camera_workshop_sort", // trocou a ordem (Em alta é a padrão)
 };
 
@@ -224,6 +227,72 @@ export async function takeWorkshopEffect(id: string): Promise<string | null> {
     trackWorkshop(CAMERA_WORKSHOP_EVENTS.useError);
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Trying one on without adding it: downloaded to memory only, and drawn on the
+// camera (see useReceivedCameraEffect) until it is stopped or the workshop closes.
+
+export type EffectTrial = { id: string; name: string; contents: ReceivedEffectContents };
+let trial: EffectTrial | null = null;
+let trialTurn = 0;
+const trialListeners = new Set<() => void>();
+
+function setTrial(next: EffectTrial | null) {
+  trial = next;
+  trialListeners.forEach((listener) => listener());
+}
+
+export function stopEffectTrial() {
+  trialTurn += 1;
+  if (trial) setTrial(null);
+}
+
+/** Says whether it could be downloaded. */
+export async function startEffectTrial(id: string): Promise<boolean> {
+  const turn = ++trialTurn;
+  try {
+    const res = await fetch(`${getSignalingHttpBase()}/camera-effects/${encodeURIComponent(id)}`, { headers: authHeaders() });
+    if (!res.ok) return false;
+    const { effect } = (await res.json()) as {
+      effect: {
+        name: string;
+        adjust: CustomAdjust;
+        warp: string | null;
+        stickers: (Omit<CustomSticker, "id" | "imageId"> & { image?: string })[];
+      };
+    };
+    if (turn !== trialTurn) return true;
+    const images = new Map<string, string>();
+    const stickers = effect.stickers.map(({ image, ...sticker }, index) => {
+      if (!image) return { ...sticker, id: `s${index}` };
+      const imageId = `trial-${id}-${index}`;
+      images.set(imageId, image);
+      return { ...sticker, id: `s${index}`, imageId };
+    });
+    setTrial({
+      id,
+      name: effect.name,
+      contents: { adjust: effect.adjust, warp: effect.warp ? warpBytesFromBase64(effect.warp) : null, stickers, images, background: null },
+    });
+    trackWorkshop(CAMERA_WORKSHOP_EVENTS.try);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function useEffectTrial(): EffectTrial | null {
+  return useSyncExternalStore(
+    (listener) => {
+      trialListeners.add(listener);
+      return () => {
+        trialListeners.delete(listener);
+      };
+    },
+    () => trial,
+    () => null
+  );
 }
 
 // ---------------------------------------------------------------------------

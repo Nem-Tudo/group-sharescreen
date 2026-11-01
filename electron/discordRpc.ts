@@ -10,6 +10,7 @@ import path from "node:path";
 import fs from "node:fs";
 
 export interface DiscordActivity {
+  type?: number;
   state?: string;
   details?: string;
   timestamps?: {

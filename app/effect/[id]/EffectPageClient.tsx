@@ -4,11 +4,10 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { MdCheck, MdFavorite, MdFavoriteBorder, MdFlag, MdOutlineShowChart, MdPeople } from "react-icons/md";
-import { EffectAuthor, ReportDialog, takeAndWear } from "@/components/CameraEffectBrowser";
+import { EffectAuthor, ReportDialog, addToLibrary } from "@/components/CameraEffectBrowser";
 import { CopyButton } from "@/components/CopyButton";
 import { UserProfileDialog } from "@/components/UserProfileDialog";
 import { useAuth } from "@/lib/AuthContext";
-import { useCameraEffectSettings } from "@/lib/cameraEffects";
 import { CAMERA_CUSTOM_FEATURE, useCustomCameraEffects } from "@/lib/cameraCustomEffects";
 import {
   CAMERA_WORKSHOP_FEATURE,
@@ -32,7 +31,6 @@ export function EffectPageClient({ id }: { id: string }) {
   const allowed = workshop.enabled && custom.enabled;
   const decided = workshop.ready && custom.ready;
   const local = useCustomCameraEffects();
-  const settings = useCameraEffectSettings();
   const [effect, setEffect] = useState<WorkshopEffect | null>(null);
   const [missing, setMissing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -81,12 +79,11 @@ export function EffectPageClient({ id }: { id: string }) {
 
   const mine = account?.id === effect.authorId;
   const copy = local.find((item) => item.sourceId === effect.id || item.publishedId === effect.id);
-  const inUse = copy !== undefined && settings.custom === copy.id;
 
   const take = async () => {
     setBusy(true);
     setUseFailed(false);
-    const done = await takeAndWear(effect.id);
+    const done = await addToLibrary(effect.id);
     setBusy(false);
     setUseFailed(!done);
   };
@@ -133,12 +130,12 @@ export function EffectPageClient({ id }: { id: string }) {
           {!mine && (
             <button
               type="button"
-              disabled={busy}
+              disabled={busy || copy !== undefined}
               onClick={() => void take()}
               className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-60"
             >
-              {inUse && <MdCheck className="h-4 w-4" />}
-              {busy ? t("cameraWorkshop.downloading") : inUse ? t("cameraWorkshop.inUse") : t("cameraWorkshop.use")}
+              {copy && <MdCheck className="h-4 w-4" />}
+              {busy ? t("cameraWorkshop.downloading") : copy ? t("cameraWorkshop.added") : t("cameraWorkshop.use")}
             </button>
           )}
           <CopyButton value={effectLink(effect.id)} label={t("common.copyLink")} />
@@ -155,7 +152,7 @@ export function EffectPageClient({ id }: { id: string }) {
             </button>
           )}
         </div>
-        {inUse && <p className="text-xs text-zinc-500 dark:text-zinc-400">{t("cameraWorkshop.inUseHint")}</p>}
+        {copy && <p className="text-xs text-zinc-500 dark:text-zinc-400">{t("cameraWorkshop.inUseHint")}</p>}
         {useFailed && <p className="text-xs text-red-600 dark:text-red-400">{t("cameraWorkshop.useError")}</p>}
       </div>
       {profileOpen && <UserProfileDialog userId={effect.authorId} onClose={() => setProfileOpen(false)} />}
