@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, type ReactNode } from "react";
-import { MdAutoAwesome, MdLock, MdMovie, MdScreenShare, MdUpload, MdVideocam } from "react-icons/md";
+import { MdAdd, MdAutoAwesome, MdEdit, MdLock, MdMovie, MdScreenShare, MdUpload, MdVideocam } from "react-icons/md";
 import { MenuToggleRow } from "@/components/MenuToggleRow";
 import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
 import {
@@ -35,6 +35,13 @@ import {
   useStreamBackgroundSources,
   type StreamBackgroundSource,
 } from "@/lib/cameraStreamBackground";
+import {
+  CAMERA_CUSTOM_FEATURE,
+  createCustomCameraEffect,
+  MAX_CUSTOM_EFFECTS,
+  openCustomEffectEditor,
+  useCustomCameraEffects,
+} from "@/lib/cameraCustomEffects";
 import { setTileExperimentMode, trackTileExperiment, TILE_EXPERIMENT_EVENTS } from "@/lib/clipsMode";
 import { useAuth } from "@/lib/AuthContext";
 import { TIER_NAMES } from "@/lib/entitlements";
@@ -103,6 +110,10 @@ export const CAMERA_EFFECT_LABELS: { [K in keyof CameraEffectSettings]: Record<C
     thin: "watch.watchRoom.cameraWarpThin",
     bigeyes: "watch.watchRoom.cameraWarpBigEyes",
     bighead: "watch.watchRoom.cameraWarpBigHead",
+  },
+  // Only "none": the rest are named by whoever made them.
+  custom: {
+    none: "watch.watchRoom.cameraEffectNone",
   },
 };
 
@@ -257,6 +268,67 @@ export function CustomBackgroundChips({ selected, turnOn }: { selected: boolean;
   );
 }
 
+// "Meus efeitos" (experiment "camera-custom-effects"): one chip per effect the
+// person made, the pencil on the one picked, and the way to make another. The
+// editor itself is rendered by the room (see openCustomEffectEditor).
+export function CustomEffectChips({ selected, turnOn }: { selected: string; turnOn?: () => void }) {
+  const t = useT();
+  const effects = useCustomCameraEffects();
+  const picked = effects.some((effect) => effect.id === selected) ? selected : "none";
+  const create = () => {
+    const effect = createCustomCameraEffect(t("watch.watchRoom.cameraCustomDefaultName", { count: effects.length + 1 }));
+    if (!effect) return;
+    setCameraEffect("custom", effect.id);
+    markFeatureUsed(CAMERA_CUSTOM_FEATURE);
+    turnOn?.();
+    openCustomEffectEditor(effect.id);
+  };
+  return (
+    <>
+      <button
+        type="button"
+        aria-pressed={picked === "none"}
+        onClick={() => setCameraEffect("custom", "none")}
+        className={`${CHIP} ${picked === "none" ? CHIP_ON : CHIP_OFF}`}
+      >
+        {t("watch.watchRoom.cameraEffectNone")}
+      </button>
+      {effects.map((effect) => (
+        <button
+          key={effect.id}
+          type="button"
+          aria-pressed={picked === effect.id}
+          onClick={() => {
+            setCameraEffect("custom", effect.id);
+            markFeatureUsed(CAMERA_EFFECTS_FEATURE);
+            turnOn?.();
+          }}
+          className={`${CHIP} ${picked === effect.id ? CHIP_ON : CHIP_OFF} max-w-[9rem] truncate`}
+        >
+          {effect.name || t("watch.watchRoom.cameraCustomUnnamed")}
+        </button>
+      ))}
+      {picked !== "none" && (
+        <button
+          type="button"
+          onClick={() => openCustomEffectEditor(picked)}
+          className={`${CHIP} ${CHIP_OFF} inline-flex items-center gap-1`}
+        >
+          <MdEdit className="h-3.5 w-3.5" />
+          {t("watch.watchRoom.cameraCustomEdit")}
+        </button>
+      )}
+      {effects.length < MAX_CUSTOM_EFFECTS && (
+        <button type="button" onClick={create} className={`${CHIP} ${CHIP_OFF} inline-flex items-center gap-1`}>
+          <MdAdd className="h-3.5 w-3.5" />
+          {t("watch.watchRoom.cameraCustomCreate")}
+          <NewBadge id={CAMERA_CUSTOM_FEATURE} />
+        </button>
+      )}
+    </>
+  );
+}
+
 const STREAM_ICONS: Record<StreamBackgroundSource["kind"], typeof MdVideocam> = {
   screen: MdScreenShare,
   camera: MdVideocam,
@@ -340,6 +412,8 @@ export function CameraEffectsPanel({ on, standalone = false }: { on: boolean; st
   const has3d = useFeature(CAMERA_EFFECTS_3D_FEATURE, { track: true }).enabled;
   // Experiment "camera-warp": the warps, after the faces. Exposure the same way.
   const hasWarp = useFeature(CAMERA_WARP_FEATURE, { track: true }).enabled;
+  // Experiment "camera-custom-effects": "Meus efeitos". Exposure the same way.
+  const hasCustom = useFeature(CAMERA_CUSTOM_FEATURE, { track: true }).enabled;
   const turnOn = standalone && !on ? () => setTileExperimentMode("cameraEffects", true) : undefined;
   return (
     <div className="flex flex-col">
@@ -356,6 +430,14 @@ export function CameraEffectsPanel({ on, standalone = false }: { on: boolean; st
         // Dimmed while the switch is off: what is highlighted is what will be
         // drawn once it is on, not what the room sees now.
         <div className={`flex flex-col gap-2 px-2 pb-2 ${on ? "" : "opacity-60"}`}>
+          {hasCustom && (
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">{t("watch.watchRoom.cameraCustomTitle")}</span>
+              <div className="flex flex-wrap gap-1">
+                <CustomEffectChips selected={settings.custom} turnOn={turnOn} />
+              </div>
+            </div>
+          )}
           <EffectGroup
             name="face"
             title={t("watch.watchRoom.cameraEffectFace")}

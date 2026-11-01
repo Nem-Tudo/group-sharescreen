@@ -4,7 +4,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { MdAutoAwesome, MdBlock } from "react-icons/md";
 import { MobileSheet } from "@/components/MobileSheet";
 import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
-import { CAMERA_EFFECT_LABELS, CustomBackgroundChips, StreamBackgroundPicker } from "@/components/CameraEffectsPanel";
+import { CAMERA_EFFECT_LABELS, CustomBackgroundChips, CustomEffectChips, StreamBackgroundPicker } from "@/components/CameraEffectsPanel";
+import { CAMERA_CUSTOM_FEATURE } from "@/lib/cameraCustomEffects";
 import {
   CAMERA_BACKGROUNDS,
   CAMERA_COLORS,
@@ -147,6 +148,8 @@ export function CameraEffectsSheet({
   const has3d = useFeature(CAMERA_EFFECTS_3D_FEATURE, { track: true }).enabled;
   // And for "camera-warp".
   const hasWarp = useFeature(CAMERA_WARP_FEATURE, { track: true }).enabled;
+  // And for "camera-custom-effects".
+  const hasCustom = useFeature(CAMERA_CUSTOM_FEATURE, { track: true }).enabled;
   const [tab, setTab] = useState<Tab>("face");
   const video = useRef<HTMLVideoElement>(null);
 
@@ -178,6 +181,7 @@ export function CameraEffectsSheet({
     { key: "background", label: t("watch.watchRoom.cameraEffectBackground") },
     { key: "color", label: t("watch.watchRoom.cameraEffectColor") },
     ...(has3d ? [{ key: "reactions" as const, label: t("watch.watchRoom.cameraEffectReactions") }] : []),
+    ...(hasCustom ? [{ key: "custom" as const, label: t("watch.watchRoom.cameraCustomTitle") }] : []),
   ];
 
   return (
@@ -303,6 +307,12 @@ export function CameraEffectsSheet({
                   {color === "none" ? NONE_ICON : <span className={`h-full w-full ${RAINBOW} ${COLOR_FILTERS[color]}`} />}
                 </Tile>
               ))}
+            </div>
+          )}
+
+          {tab === "custom" && hasCustom && (
+            <div className="flex flex-wrap gap-1">
+              <CustomEffectChips selected={settings.custom} turnOn={turnOn} />
             </div>
           )}
 

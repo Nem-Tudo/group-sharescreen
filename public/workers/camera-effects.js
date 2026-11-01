@@ -80,6 +80,11 @@ self.onmessage = (event) => {
     setCustomBackground(data.bitmap || null);
   } else if (data.type === "background-stream") {
     setBackgroundStream(data.readable || null, data.track || null);
+  } else if (data.type === "custom-effect") {
+    customEffect = data.effect || null;
+    ensureTasks();
+  } else if (data.type === "custom-image") {
+    setCustomImage(data.id, data.bitmap || null);
   }
 };
 
@@ -169,7 +174,9 @@ function readiness() {
 
 function wants(kind) {
   if (!settings) return false;
-  if (kind === "face") return settings.face !== "none" || settings.reactions === "on" || wantsWarp();
+  if (kind === "face") {
+    return settings.face !== "none" || settings.reactions === "on" || wantsWarp() || wantsCustomStickers();
+  }
   if (kind === "hand") return settings.reactions === "on";
   return settings.background !== "none";
 }
@@ -180,6 +187,14 @@ function wants3d() {
 
 function wantsWarp() {
   return Boolean(settings && settings.warp && settings.warp !== "none");
+}
+
+function wantsCustom() {
+  return Boolean(settings && settings.custom && settings.custom !== "none" && customEffect);
+}
+
+function wantsCustomStickers() {
+  return wantsCustom() && customEffect.stickers.length > 0;
 }
 
 // Tells the detector what the settings need (starting it the first time
@@ -295,7 +310,8 @@ function needsDrawing() {
         settings.background !== "none" ||
         settings.color !== "none" ||
         settings.reactions === "on" ||
-        wantsWarp())
+        wantsWarp() ||
+        wantsCustom())
   );
 }
 
@@ -350,6 +366,7 @@ function reportStats(pipeline) {
       detectMs: pipeline.detectCost,
       fx3d: Boolean(settings && (FACES_3D.has(settings.face) || settings.reactions === "on")),
       warp: wantsWarp(),
+      custom: wantsCustom(),
     });
   }
   pipeline.statsSince = now;
@@ -495,7 +512,8 @@ async function render(p, rawFrame) {
   const segmenter = s.background !== "none" && loaded.segment;
   const reacting = s.reactions === "on";
   const warp = wantsWarp() ? s.warp : null;
-  const landmarker = (s.face !== "none" || reacting || Boolean(warp)) && loaded.face;
+  const custom = wantsCustom() ? customEffect : null;
+  const landmarker = (s.face !== "none" || reacting || Boolean(warp) || wantsCustomStickers()) && loaded.face;
   const hander = reacting && loaded.hand;
   if (!segmenter) p.hasMask = false;
   if (!landmarker) p.faces = [];
@@ -521,7 +539,8 @@ async function render(p, rawFrame) {
     await within(answered, p.frameInterval * 0.5);
   }
 
-  const color = COLOR_FILTERS[s.color] || "none";
+  const named = COLOR_FILTERS[s.color] || "none";
+  const color = custom && custom.filter !== "none" ? (named === "none" ? custom.filter : `${named} ${custom.filter}`) : named;
   ctx.filter = color;
   ctx.drawImage(frame, 0, 0, width, height);
   ctx.filter = "none";
@@ -530,9 +549,11 @@ async function render(p, rawFrame) {
     else drawReplacedBackground(p, s.background, color, width, height);
   }
   // The face moved first, so whatever is drawn on it sits on top.
+  if (custom && custom.vignette > 0) drawVignette(ctx, custom.vignette, width, height);
   if (landmarker && warp) drawWarp(ctx, p, warp, width, height);
   if (landmarker) for (const face of p.faces) drawFace(ctx, s.face, face);
   if (landmarker && FACES_3D.has(s.face)) draw3d(ctx, p, s.face, width, height);
+  if (landmarker && custom) for (const face of p.faces) drawCustomStickers(ctx, custom, face);
   if (reacting) {
     if (landmarker) p.faces.forEach((face, i) => spawnReactions(p, face, i, ts));
     if (hander) handReactions(p, ts);
@@ -621,6 +642,81 @@ function drawBlurredBackground(p, frame, color, width, height) {
   ctx.drawImage(p.mask, 0, 0);
   ctx.globalCompositeOperation = "source-over";
   p.ctx.drawImage(bg, 0, 0, width, height);
+}
+
+// ---------------------------------------------------------------------------
+// The effects the person made (experiment "camera-custom-effects", see
+// lib/cameraCustomEffects.ts). The page sends the one picked, with its
+// adjustments already as a canvas filter, and the images it uses, decoded.
+
+let customEffect = null;
+const customImages = new Map();
+const emojiSprites = new Map();
+const EMOJI_SPRITE = 256;
+
+function setCustomImage(id, bitmap) {
+  const old = customImages.get(id);
+  if (old) old.close();
+  if (bitmap) customImages.set(id, bitmap);
+  else customImages.delete(id);
+}
+
+// An emoji is drawn once and kept: a glyph that size is slow to rasterize, and
+// this happens every frame.
+function emojiSprite(char) {
+  let sprite = emojiSprites.get(char);
+  if (sprite) return sprite;
+  // A pick of a few dozen at most, but nothing stops it growing over a long call.
+  if (emojiSprites.size >= 32) emojiSprites.clear();
+  sprite = new OffscreenCanvas(EMOJI_SPRITE, EMOJI_SPRITE);
+  const ctx = sprite.getContext("2d");
+  ctx.font = `${EMOJI_SPRITE * 0.8}px ${EMOJI_FONT}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(char, EMOJI_SPRITE / 2, EMOJI_SPRITE / 2);
+  emojiSprites.set(char, sprite);
+  return sprite;
+}
+
+// The names are from the person's side, as in a mirror: their right eye is the
+// one on the left of the frame, which is the anchors' eyeLeft (see anchorsOf).
+function customAnchor(face, anchor) {
+  if (anchor === "head") return { x: face.top.x + Math.sin(face.angle) * face.size * 0.3, y: face.top.y - Math.cos(face.angle) * face.size * 0.3 };
+  if (anchor === "forehead") return face.top;
+  if (anchor === "eyes") return face.eyeCenter;
+  if (anchor === "eyeRight") return face.eyeLeft;
+  if (anchor === "eyeLeft") return face.eyeRight;
+  if (anchor === "cheekRight") return face.cheekLeft;
+  if (anchor === "cheekLeft") return face.cheekRight;
+  if (anchor === "mouth") return mid(face.lipTop, face.lipBottom);
+  if (anchor === "chin") return face.chin;
+  return face.nose;
+}
+
+function drawCustomStickers(ctx, effect, face) {
+  for (const sticker of effect.stickers) {
+    const image = sticker.imageId ? customImages.get(sticker.imageId) : sticker.emoji ? emojiSprite(sticker.emoji) : null;
+    if (!image) continue;
+    const w = face.size * sticker.size;
+    const h = (w * image.height) / image.width;
+    inFaceFrame(ctx, customAnchor(face, sticker.anchor), face.angle, () => {
+      // The editor shows the mirror, the frame is not mirrored: x and the
+      // rotation are flipped so a slider moves things the way it looks.
+      ctx.translate(-sticker.x * face.size, sticker.y * face.size);
+      ctx.rotate((-sticker.rotation * Math.PI) / 180);
+      ctx.drawImage(image, -w / 2, -h / 2, w, h);
+    });
+  }
+}
+
+function drawVignette(ctx, amount, width, height) {
+  const cx = width / 2;
+  const cy = height / 2;
+  const gradient = ctx.createRadialGradient(cx, cy, Math.min(cx, cy) * 0.55, cx, cy, Math.hypot(cx, cy));
+  gradient.addColorStop(0, "rgba(0,0,0,0)");
+  gradient.addColorStop(1, `rgba(0,0,0,${(amount / 100) * 0.9})`);
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, width, height);
 }
 
 // ---------------------------------------------------------------------------

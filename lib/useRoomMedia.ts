@@ -202,6 +202,7 @@ import {
   useCustomCameraBackground,
   type CameraEffectSettings,
 } from "./cameraEffects";
+import { CAMERA_CUSTOM_FEATURE, useCustomCameraEffects } from "./cameraCustomEffects";
 import { useStreamBackgroundSelected } from "./cameraStreamBackground";
 import {
   answerMirroringStereo,
@@ -4443,6 +4444,11 @@ export function useRoomMedia(room: string) {
     cameraStreamBackgroundExperiment &&
     canUseCustomBackground(account?.flags, customBackgroundFree) &&
     cameraStreamBackground !== null;
+  // An effect the person made: "camera-custom-effects", and it still existing.
+  const cameraCustomEffectsExperiment = useFeature(CAMERA_CUSTOM_FEATURE, { track: false }).enabled;
+  const cameraCustomEffects = useCustomCameraEffects();
+  const allowCameraCustomEffect =
+    cameraCustomEffectsExperiment && cameraCustomEffects.some((effect) => effect.id === storedCameraEffects.custom);
   // Safari's answer comes in after the first render (see cameraEffectsSupported).
   const cameraEffectsCanRun = useCameraEffectsSupported();
   const cameraEffectSettings = useMemo(
@@ -4452,9 +4458,17 @@ export function useRoomMedia(room: string) {
         allowCameraEffects3d,
         allowCustomCameraBackground,
         allowCameraWarp,
-        allowCameraStreamBackground
+        allowCameraStreamBackground,
+        allowCameraCustomEffect
       ),
-    [storedCameraEffects, allowCameraEffects3d, allowCustomCameraBackground, allowCameraWarp, allowCameraStreamBackground]
+    [
+      storedCameraEffects,
+      allowCameraEffects3d,
+      allowCustomCameraBackground,
+      allowCameraWarp,
+      allowCameraStreamBackground,
+      allowCameraCustomEffect,
+    ]
   );
   const wantedCameraEffects = useMemo(
     () =>

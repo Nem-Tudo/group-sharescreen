@@ -5,6 +5,14 @@ import { trackTileExperiment, TILE_EXPERIMENT_EVENTS } from "./clipsMode";
 import { trackFeatureEvent } from "./features";
 import { accountTierOf, tierAtLeast } from "./entitlements";
 import { isMobileDevice } from "./announcement";
+import {
+  CAMERA_CUSTOM_EVENTS,
+  customEffectFilter,
+  readCustomCameraEffects,
+  stickerImage,
+  subscribeCustomCameraEffects,
+  trackCustomEffect,
+} from "./cameraCustomEffects";
 
 // "Efeitos de câmera" (experiment "camera-effects"): background blur, colour
 // filters and face overlays (dog, cat, sunglasses, clown, crown, bunny, bear,
@@ -17,7 +25,8 @@ import { isMobileDevice } from "./announcement";
 // smile hearts, a clap confetti...) — see CAMERA_FACES_3D and
 // CameraReactions. Experiment "camera-warp" adds the warps: the face itself
 // pushed around (sad, angry, fat, thin...), nothing drawn on it — see
-// CameraWarp.
+// CameraWarp. Experiment "camera-custom-effects" adds the ones the person makes
+// themselves, beside all of those — see lib/cameraCustomEffects.ts.
 //
 // The work is in public/workers/camera-effects.js (the frame loop), which
 // starts public/workers/camera-detect.js for the models (MediaPipe), so a
@@ -99,6 +108,8 @@ export interface CameraEffectSettings {
   face: CameraFace;
   reactions: CameraReactions;
   warp: CameraWarp;
+  // The id of an effect the person made (lib/cameraCustomEffects.ts), or "none".
+  custom: string;
 }
 
 export const CAMERA_REACTIONS: CameraReactions[] = ["none", "on"];
@@ -191,9 +202,11 @@ export function effectiveCameraEffects(
   allow3d: boolean,
   allowCustomBackground: boolean,
   allowWarp: boolean,
-  allowStreamBackground: boolean
+  allowStreamBackground: boolean,
+  allowCustomEffect: boolean
 ): CameraEffectSettings {
   let next = settings;
+  if (!allowCustomEffect && next.custom !== "none") next = { ...next, custom: "none" };
   if (!allowStreamBackground && next.background === "stream") next = { ...next, background: "none" };
   if (!allowWarp && next.warp !== "none") next = { ...next, warp: "none" };
   if (!allow3d && CAMERA_FACES_3D.includes(next.face)) next = { ...next, face: "none" };
@@ -319,7 +332,7 @@ export const CAMERA_EFFECTS_FEATURE = "camera-effects";
 // plain URL, so a fixed worker kept being served as the old one. Bump this
 // whenever public/workers/camera-effects.js or camera-detect.js changes (the
 // detector is loaded with the same ?v=).
-const WORKER_VERSION = 12;
+const WORKER_VERSION = 13;
 const WORKER_URL = `/workers/camera-effects.js?v=${WORKER_VERSION}`;
 const SETTINGS_KEY = "sharescreen:cameraEffects";
 // How long the worker (and the models it loaded) outlives the last camera
@@ -329,7 +342,7 @@ const WORKER_IDLE_MS = 30_000;
 // Average time per drawn frame past which the session is reported as slow.
 const SLOW_FRAME_MS = 30;
 
-const NONE: CameraEffectSettings = { background: "none", color: "none", face: "none", reactions: "none", warp: "none" };
+const NONE: CameraEffectSettings = { background: "none", color: "none", face: "none", reactions: "none", warp: "none", custom: "none" };
 
 export function hasAnyCameraEffect(settings: CameraEffectSettings): boolean {
   return (
@@ -337,7 +350,8 @@ export function hasAnyCameraEffect(settings: CameraEffectSettings): boolean {
     settings.color !== "none" ||
     settings.face !== "none" ||
     settings.reactions !== "none" ||
-    settings.warp !== "none"
+    settings.warp !== "none" ||
+    settings.custom !== "none"
   );
 }
 
@@ -384,6 +398,7 @@ function readSettings(): CameraEffectSettings {
     // The reactions were a face once: carried over to their own switch.
     reactions: parsed.face === "reactions" && parsed.reactions === undefined ? "on" : pick(parsed.reactions, CAMERA_REACTIONS),
     warp: pick(parsed.warp, CAMERA_WARPS),
+    custom: typeof parsed.custom === "string" && parsed.custom ? parsed.custom : "none",
   };
   return cached;
 }
@@ -411,6 +426,7 @@ export function setCameraEffect<K extends keyof CameraEffectSettings>(
     track3d(CAMERA_EFFECTS_3D_EVENTS.pick);
   }
   if (key === "warp" && value !== "none") trackWarp(CAMERA_WARP_EVENTS.pick);
+  if (key === "custom" && value !== "none") trackCustomEffect(CAMERA_CUSTOM_EVENTS.pick);
   emit();
 }
 
@@ -546,6 +562,7 @@ const effectTracks = new WeakMap<MediaStreamTrack, () => void>();
 let reportedSlow = false;
 let reportedSlow3d = false;
 let reportedSlowWarp = false;
+let reportedSlowCustom = false;
 
 function ensureWorker(): Worker {
   if (idleTimer) {
@@ -558,7 +575,7 @@ function ensureWorker(): Worker {
     const data = event.data as
       | { type: "status"; loading: boolean }
       | { type: "error"; kind: string; reason: string }
-      | { type: "stats"; frameMs: number; fx3d?: boolean; warp?: boolean }
+      | { type: "stats"; frameMs: number; fx3d?: boolean; warp?: boolean; custom?: boolean }
       | { type: "reaction"; name: string }
       | { type: "track"; id: number; track?: MediaStreamTrack; error?: string }
       | { type: "prepared"; nonce: number }
@@ -589,6 +606,10 @@ function ensureWorker(): Worker {
         reportedSlowWarp = true;
         trackWarp(CAMERA_WARP_EVENTS.slow, data.frameMs);
       }
+      if (data.custom && !reportedSlowCustom && data.frameMs > SLOW_FRAME_MS) {
+        reportedSlowCustom = true;
+        trackCustomEffect(CAMERA_CUSTOM_EVENTS.slow, data.frameMs);
+      }
     } else if (data.type === "reaction") {
       track3d(CAMERA_EFFECTS_3D_EVENTS.reaction);
     } else if (data.type === "prepared") {
@@ -613,8 +634,9 @@ function ensureWorker(): Worker {
     setStatus({ failed: true, loading: false });
     trackTileExperiment(TILE_EXPERIMENT_EVENTS.cameraEffects.error);
   };
-  created.postMessage({ type: "settings", settings: current });
   worker = created;
+  pushCustomEffect();
+  created.postMessage({ type: "settings", settings: current });
   void pushCustomBackground();
   syncBackgroundStream();
   return created;
@@ -684,9 +706,66 @@ export function setCameraEffectsTarget(settings: CameraEffectSettings | null) {
   if (next === current) return;
   current = next;
   if (next) setStatus({ failed: false });
+  pushCustomEffect();
   worker?.postMessage({ type: "settings", settings: next });
   syncBackgroundStream();
 }
+
+// ---------------------------------------------------------------------------
+// The effects the person made (experiment "camera-custom-effects")
+//
+// The worker only ever holds the picked one, and the images that one uses. Sent
+// before the settings, so that it knows from the start whether the face model
+// is needed; sent again on every change, which is what makes the editor live.
+
+let customImagesFor: Worker | null = null;
+const customImagesSent = new Set<string>();
+
+function pushCustomEffect() {
+  const target = worker;
+  if (!target) return;
+  const id = current?.custom;
+  const effect = id && id !== "none" ? readCustomCameraEffects().find((item) => item.id === id) : undefined;
+  target.postMessage({
+    type: "custom-effect",
+    effect: effect
+      ? { filter: customEffectFilter(effect.adjust), vignette: effect.adjust.vignette, stickers: effect.stickers }
+      : null,
+  });
+  if (customImagesFor !== target) {
+    customImagesFor = target;
+    customImagesSent.clear();
+  }
+  const wanted = new Set(effect?.stickers.flatMap((sticker) => (sticker.imageId ? [sticker.imageId] : [])));
+  for (const imageId of [...customImagesSent]) {
+    if (wanted.has(imageId)) continue;
+    customImagesSent.delete(imageId);
+    target.postMessage({ type: "custom-image", id: imageId, bitmap: null });
+  }
+  for (const imageId of wanted) {
+    if (customImagesSent.has(imageId)) continue;
+    customImagesSent.add(imageId);
+    void pushCustomImage(target, imageId);
+  }
+}
+
+async function pushCustomImage(target: Worker, imageId: string) {
+  const dataUrl = stickerImage(imageId);
+  let bitmap: ImageBitmap | null = null;
+  try {
+    if (dataUrl) bitmap = await createImageBitmap(await (await fetch(dataUrl)).blob());
+  } catch {
+    bitmap = null;
+  }
+  // Taken back while it decoded: the worker never hears of it.
+  if (!bitmap || worker !== target || !customImagesSent.has(imageId)) {
+    bitmap?.close();
+    return;
+  }
+  target.postMessage({ type: "custom-image", id: imageId, bitmap }, [bitmap]);
+}
+
+subscribeCustomCameraEffects(pushCustomEffect);
 
 // ---------------------------------------------------------------------------
 // A transmission as the background (Pro Max and up, experiment

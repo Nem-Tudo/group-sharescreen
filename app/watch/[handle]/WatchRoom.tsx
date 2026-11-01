@@ -229,6 +229,7 @@ import { MenuToggleRow } from "@/components/MenuToggleRow";
 import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
 import { CameraEffectsPanel } from "@/components/CameraEffectsPanel";
 import { CameraEffectsSheet } from "@/components/CameraEffectsSheet";
+import { CameraCustomEffectEditor } from "@/components/CameraCustomEffectEditor";
 import {
   hasAnyCameraEffect,
   useCameraEffectSettings,
@@ -11230,6 +11231,10 @@ function WatchRoomView({
           stream={localCameraStream}
           fallbackMirrored={onPhone && cameraFacing === "user"}
         />
+      )}
+
+      {cameraEffectsAvailable && (
+        <CameraCustomEffectEditor stream={localCameraStream} fallbackMirrored={onPhone && cameraFacing === "user"} />
       )}
 
       {/* A protected room: covered until the window is confirmed out of
