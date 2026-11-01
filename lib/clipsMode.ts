@@ -31,6 +31,7 @@ export type TileExperiment =
   | "stereoMic"
   | "multiMic"
   | "cameraEffects"
+  | "cameraWorkshop"
   | "phoneCamera"
   | "multiCamera"
   | "partnerAdsCard";
@@ -172,6 +173,13 @@ const CONFIG: Record<
     modeKey: "sharescreen:cameraEffectsMode",
     tipKey: "sharescreen:cameraEffectsTipSeen",
   },
+  // O workshop de efeitos (ver lib/cameraEffectWorkshop): não tem interruptor, só
+  // o aviso azul no botão dos efeitos, por isso o modeKey nunca é usado.
+  cameraWorkshop: {
+    feature: "camera-effects-workshop",
+    modeKey: "sharescreen:cameraWorkshopMode",
+    tipKey: "sharescreen:cameraWorkshopTipSeen",
+  },
   // "Celular como câmera" (ver lib/phoneCamera): um celular que abre o link
   // do QR code vira a câmera deste computador, sem entrar na sala. Desligado
   // por padrão — ligado, a sala mantém um socket a mais aberto, esperando o
@@ -294,6 +302,12 @@ export const TILE_EXPERIMENT_EVENTS = {
     bgUpload: "camera_effects_bg_upload", // enviou uma imagem de fundo própria
     bgLocked: "camera_effects_bg_locked", // tocou em "Seu fundo" sem o plano (abriu os planos)
     sheet: "camera_effects_sheet", // abriu a folha de efeitos pelo botão ✨ da barra de baixo (celular)
+  },
+  // Sem interruptor (ver CONFIG): nunca enviados. O resto está em
+  // CAMERA_WORKSHOP_EVENTS (lib/cameraEffectWorkshop).
+  cameraWorkshop: {
+    modeOn: "camera_workshop_on",
+    modeOff: "camera_workshop_off",
   },
   // O resto das estatísticas está em PHONE_CAMERA_EVENTS (lib/phoneCamera).
   phoneCamera: {

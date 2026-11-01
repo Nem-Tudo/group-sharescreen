@@ -230,6 +230,8 @@ import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
 import { CameraEffectsPanel } from "@/components/CameraEffectsPanel";
 import { CameraEffectsSheet } from "@/components/CameraEffectsSheet";
 import { CameraCustomEffectHost } from "@/components/CameraCustomEffectEditor";
+import { CAMERA_CUSTOM_FEATURE } from "@/lib/cameraCustomEffects";
+import { CAMERA_WORKSHOP_FEATURE } from "@/lib/cameraEffectWorkshop";
 import { ReceivedCameraEffectNotice } from "@/components/CameraEffectForOthers";
 import { useCustomEffectEditing } from "@/lib/cameraCustomEffects";
 import {
@@ -947,7 +949,7 @@ function ShareControls({
     buttonPanel: ReactNode;
     // An effect is actually being drawn on the camera.
     active: boolean;
-    tip: { show: boolean; dismiss: () => void; clicked: () => void };
+    tip: { show: boolean; dismiss: () => void; clicked: () => void; text: string };
   } | null;
   // "Várias telas" (see lib/multiScreen): the "+" beside the screen button
   // while a screen is going out. Null where the person does not have it.
@@ -1064,7 +1066,7 @@ function ShareControls({
   // One blue tip on the arrow at a time: the effects' (on a phone), then the
   // phone camera's.
   const cameraTip = effectsInPanel && cameraEffects?.tip.show
-    ? { ...cameraEffects.tip, text: t("watch.watchRoom.cameraEffectsTip") }
+    ? cameraEffects.tip
     : phoneCamera?.tip.show
       ? { ...phoneCamera.tip, text: t("watch.watchRoom.phoneCameraTip") }
       : multiCamera?.tip.show
@@ -1429,7 +1431,7 @@ function ShareControls({
             >
               <span className="tip-arrow absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
               <span className="flex items-start gap-2">
-                <span className="flex-1">{t("watch.watchRoom.cameraEffectsTip")}</span>
+                <span className="flex-1">{effectsButton.tip.text}</span>
                 <button
                   type="button"
                   onClick={effectsButton.tip.dismiss}
@@ -2416,7 +2418,18 @@ function WatchRoomView({
   const cameraEffectsSupported = useCameraEffectsSupported();
   const cameraEffectsMode = useTileExperiment("cameraEffects", { track: cameraEffectsSupported });
   const cameraEffectsAvailable = cameraEffectsMode.available && cameraEffectsSupported;
-  const cameraEffectsTip = useTileExperimentTip("cameraEffects", cameraEffectsAvailable);
+  const cameraEffectsOwnTip = useTileExperimentTip("cameraEffects", cameraEffectsAvailable);
+  // The community's effects (see lib/cameraEffectWorkshop), on the same button: once
+  // the effects' own tip is out of the way, so one at a time and this on a later visit.
+  const cameraWorkshopFeature = useFeature(CAMERA_WORKSHOP_FEATURE, { track: false }).enabled;
+  const cameraCustomFeature = useFeature(CAMERA_CUSTOM_FEATURE, { track: false }).enabled;
+  const cameraWorkshopTip = useTileExperimentTip(
+    "cameraWorkshop",
+    cameraEffectsAvailable && cameraWorkshopFeature && cameraCustomFeature && !cameraEffectsOwnTip.show
+  );
+  const cameraEffectsTip = cameraEffectsOwnTip.show
+    ? { ...cameraEffectsOwnTip, text: translate("watch.watchRoom.cameraEffectsTip") }
+    : { ...cameraWorkshopTip, text: translate("watch.watchRoom.cameraWorkshopTip") };
   const cameraEffectSettings = useCameraEffectSettings();
   // The bottom bar's sheet (see showDockEffectsButton).
   const [cameraEffectsSheetOpen, setCameraEffectsSheetOpen] = useState(false);
@@ -10862,7 +10875,7 @@ function WatchRoomView({
                             >
                               <span className="tip-arrow absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
                               <span className="flex items-start gap-2">
-                                <span className="flex-1">{translate("watch.watchRoom.cameraEffectsTip")}</span>
+                                <span className="flex-1">{cameraEffectsTip.text}</span>
                                 <button
                                   type="button"
                                   onClick={cameraEffectsTip.dismiss}
