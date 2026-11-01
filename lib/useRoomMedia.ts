@@ -203,6 +203,7 @@ import {
   type CameraEffectSettings,
 } from "./cameraEffects";
 import { CAMERA_CUSTOM_FEATURE, useCustomCameraEffects } from "./cameraCustomEffects";
+import { useReceivedCameraEffect } from "./cameraEffectGift";
 import { useStreamBackgroundSelected } from "./cameraStreamBackground";
 import {
   answerMirroringStereo,
@@ -4470,13 +4471,15 @@ export function useRoomMedia(room: string) {
       allowCameraCustomEffect,
     ]
   );
-  const wantedCameraEffects = useMemo(
-    () =>
-      cameraEffectsMode && cameraEffectsCanRun && hasAnyCameraEffect(cameraEffectSettings)
-        ? cameraEffectSettings
-        : null,
-    [cameraEffectsMode, cameraEffectsCanRun, cameraEffectSettings]
-  );
+  // An effect somebody put on this camera ("camera-effect-others", see
+  // components/CameraEffectForOthers) goes instead of the person's own until they
+  // take it off, whatever their own switch says: they were told, and it is one click.
+  const receivedCameraEffectSettings = useReceivedCameraEffect(account?.blockCameraEffects === true);
+  const wantedCameraEffects = useMemo(() => {
+    if (!cameraEffectsCanRun) return null;
+    if (receivedCameraEffectSettings) return receivedCameraEffectSettings;
+    return cameraEffectsMode && hasAnyCameraEffect(cameraEffectSettings) ? cameraEffectSettings : null;
+  }, [cameraEffectsMode, cameraEffectsCanRun, cameraEffectSettings, receivedCameraEffectSettings]);
   const cameraLocalStream = camera.localStream;
   // Bumped when the effects track is swapped into the running camera: the
   // swap keeps the same MediaStream, so nothing else re-renders to notice

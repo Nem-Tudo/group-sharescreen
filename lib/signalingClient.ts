@@ -231,6 +231,25 @@ export type PremiumGiftRedeemedEvent = {
  * Only ever an announcement: the count itself lives on the theme, and nothing
  * here is evidence of it. See ThemeLikeNotifier.
  */
+/** "Colocar efeito": names from the API's lists (see its cameraEffectGift.ts). */
+export type SentCameraEffect = {
+  face: string;
+  warp: string;
+  color: string;
+  background: string;
+  reactions: string;
+  custom: boolean;
+  stream?: string;
+};
+export type ReceivedCameraEffect = {
+  fromId: string;
+  fromName: string;
+  effect: SentCameraEffect;
+  giftId: string | null;
+  seq: number;
+};
+export type CameraEffectSendResult = { userId: string; ok: boolean; reason: string | null; seq: number };
+
 export type ThemeLikedEvent = {
   themeId: string;
   themeName: string;
@@ -644,6 +663,9 @@ export type SignalingState = {
   lastGiftRedeemed: PremiumGiftRedeemedEvent | null;
   /** The last like somebody put on one of this account's themes. */
   lastThemeLike: ThemeLikedEvent | null;
+  // The effect somebody put on this person's camera, for this visit to the room.
+  receivedCameraEffect: ReceivedCameraEffect | null;
+  cameraEffectSendResult: CameraEffectSendResult | null;
   /**
    * Whether this connection is the one of this account that makes the noise:
    * the sounds, the notifications, the ring (see the API's electAlertTarget —
@@ -974,6 +996,8 @@ const initialState: SignalingState = {
   giftSeq: 0,
   lastGiftRedeemed: null,
   lastThemeLike: null,
+  receivedCameraEffect: null,
+  cameraEffectSendResult: null,
   alertTarget: true,
   lastGroupNotify: null,
   groupNotifySeq: 0,
@@ -1940,6 +1964,7 @@ class SignalingClient {
           roomTheme: typeof msg.theme === "string" && msg.theme ? msg.theme : null,
           // A refusal from the room we just left says nothing about this one.
           permissionDenied: null,
+          receivedCameraEffect: null,
           roomConverted: null,
         });
         trackEvent("room_joined");
@@ -2647,6 +2672,44 @@ class SignalingClient {
             themeName: typeof msg.themeName === "string" ? msg.themeName : "seu tema",
             byId: typeof msg.byId === "string" ? msg.byId : null,
             byName: typeof msg.byName === "string" ? msg.byName : translate("common.someone"),
+          },
+        });
+        break;
+      case "camera-effect-received": {
+        const fromId = String(msg.fromId ?? "");
+        const previous = this.state.receivedCameraEffect;
+        if (msg.effect === null) {
+          // Only who put it may take it off from their side.
+          if (previous?.fromId === fromId) this.setState({ receivedCameraEffect: null });
+          break;
+        }
+        const sent = msg.effect as Partial<SentCameraEffect> | undefined;
+        this.setState({
+          receivedCameraEffect: {
+            fromId,
+            fromName: typeof msg.fromName === "string" ? msg.fromName : translate("common.someone"),
+            effect: {
+              face: String(sent?.face ?? "none"),
+              warp: String(sent?.warp ?? "none"),
+              color: String(sent?.color ?? "none"),
+              background: String(sent?.background ?? "none"),
+              reactions: String(sent?.reactions ?? "none"),
+              custom: sent?.custom === true,
+              ...(typeof sent?.stream === "string" ? { stream: sent.stream } : {}),
+            },
+            giftId: typeof msg.giftId === "string" ? msg.giftId : null,
+            seq: (previous?.seq ?? 0) + 1,
+          },
+        });
+        break;
+      }
+      case "camera-effect-result":
+        this.setState({
+          cameraEffectSendResult: {
+            userId: String(msg.userId ?? ""),
+            ok: msg.ok === true,
+            reason: typeof msg.reason === "string" ? msg.reason : null,
+            seq: (this.state.cameraEffectSendResult?.seq ?? 0) + 1,
           },
         });
         break;
@@ -3521,6 +3584,7 @@ class SignalingClient {
       roomCategory: null,
       roomTheme: undefined,
       permissionDenied: null,
+      receivedCameraEffect: null,
       roomConverted: null,
     });
   }
@@ -3626,6 +3690,16 @@ class SignalingClient {
   // Turns somebody's mic off until a manager lets them turn it back on — the
   // room's managers, and in a group whoever has "muteMembers". Enforced
   // server-side; answered with "room-settings" like the rest.
+  // Puts an effect on somebody's camera, or takes off the one this person put.
+  // The plan and whether they accept it are the server's to say ("camera-effect-result").
+  sendCameraEffect(userId: string, effect: SentCameraEffect | null, giftId: string | null = null) {
+    this.rawSend({ type: "camera-effect-send", userId, effect, ...(giftId ? { giftId } : {}) });
+  }
+
+  clearReceivedCameraEffect() {
+    this.setState({ receivedCameraEffect: null });
+  }
+
   setMemberSilenced(userId: string, silenced: boolean) {
     this.rawSend({ type: "room-silence", userId, silenced });
   }

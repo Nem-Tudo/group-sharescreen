@@ -27,6 +27,9 @@ export interface StreamBackgroundSource {
 
 let sources: StreamBackgroundSource[] = [];
 let selectedId: string | null = null;
+// Which one somebody else chose for this camera ("camera-effect-others"), over
+// this person's own choice while it is on.
+let receivedId: string | null = null;
 let selected: StreamBackgroundSource | null = null;
 const listeners = new Set<() => void>();
 
@@ -39,7 +42,8 @@ function sameSource(a: StreamBackgroundSource, b: StreamBackgroundSource): boole
 // transmissions — and handing those on as news made the room re-render,
 // rebuild, republish... (React's "maximum update depth", the page gone).
 function update() {
-  const found = (selectedId && sources.find((source) => source.id === selectedId)) || null;
+  const wanted = receivedId ?? selectedId;
+  const found = (wanted && sources.find((source) => source.id === wanted)) || null;
   const next = found && selected && sameSource(found, selected) ? selected : found;
   if (next !== selected) {
     selected = next;
@@ -67,6 +71,12 @@ export function pickStreamBackground(id: string) {
   selectedId = id;
   setCameraEffect("background", "stream");
   trackStreamBackground(CAMERA_STREAM_BG_EVENTS.pick);
+  update();
+}
+
+export function setReceivedStreamBackground(id: string | null) {
+  if (id === receivedId) return;
+  receivedId = id;
   update();
 }
 

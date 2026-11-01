@@ -9,6 +9,7 @@ import { selectRoom } from "@/lib/signalingSelectors";
 import { isActiveGroupVoiceRoom, useGroupVoiceSession } from "@/lib/groupVoiceSession";
 import { trackFeatureEvent, useFeature } from "@/lib/features";
 import { NewBadge, markFeatureUsed } from "./NewBadge";
+import { CameraEffectForOthersRow } from "./CameraEffectForOthers";
 import { DisplayUserName } from "./DisplayUserName";
 import { UserAvatar } from "./UserAvatar";
 import { VolumeSlider } from "./VolumeSlider";
@@ -244,6 +245,9 @@ export function MemberActionsMenu({
           </>
         )}
 
+        {!isGuest && !bot && (
+          <CameraEffectForOthersRow userId={userId} name={name} className={menuItem} iconClassName={menuIcon} />
+        )}
         {(canPromote || canSilence || canKick || canBan) && (
           <>
             <MenuDivider />

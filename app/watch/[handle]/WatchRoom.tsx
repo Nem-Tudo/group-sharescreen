@@ -230,6 +230,7 @@ import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
 import { CameraEffectsPanel } from "@/components/CameraEffectsPanel";
 import { CameraEffectsSheet } from "@/components/CameraEffectsSheet";
 import { CameraCustomEffectHost } from "@/components/CameraCustomEffectEditor";
+import { ReceivedCameraEffectNotice } from "@/components/CameraEffectForOthers";
 import { useCustomEffectEditing } from "@/lib/cameraCustomEffects";
 import {
   hasAnyCameraEffect,
@@ -11240,6 +11241,8 @@ function WatchRoomView({
           fallbackMirrored={onPhone && cameraFacing === "user"}
         />
       )}
+
+      <ReceivedCameraEffectNotice />
 
       {cameraEffectsAvailable && (
         <CameraCustomEffectHost stream={localCameraStream} fallbackMirrored={onPhone && cameraFacing === "user"} />

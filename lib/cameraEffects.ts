@@ -8,11 +8,14 @@ import { isMobileDevice } from "./announcement";
 import {
   CAMERA_CUSTOM_EVENTS,
   customEffectFilter,
+  DEFAULT_ADJUST,
   readCustomWarp,
   readCustomCameraEffects,
   stickerImage,
   subscribeCustomCameraEffects,
   trackCustomEffect,
+  type CustomAdjust,
+  type CustomSticker,
 } from "./cameraCustomEffects";
 
 // "Efeitos de câmera" (experiment "camera-effects"): background blur, colour
@@ -310,7 +313,7 @@ async function pushCustomBackground() {
   const target = worker;
   if (!target) return;
   const push = ++customPushed;
-  const dataUrl = readCustomBackground();
+  const dataUrl = backgroundToDraw();
   let bitmap: ImageBitmap | null = null;
   if (dataUrl) {
     try {
@@ -325,6 +328,16 @@ async function pushCustomBackground() {
     return;
   }
   target.postMessage({ type: "background-image", bitmap }, bitmap ? [bitmap] : []);
+}
+
+/** The image as the worker should have it: what was received wins, while it is on. */
+function backgroundToDraw(): string | null {
+  return receivedContents?.background ?? readCustomBackground();
+}
+
+/** This person's own image for the background, to hand to somebody else ("camera-effect-others"). */
+export function customCameraBackgroundImage(): string | null {
+  return readCustomBackground();
 }
 
 export const CAMERA_EFFECTS_FEATURE = "camera-effects";
@@ -724,6 +737,25 @@ export function setCameraEffectsTarget(settings: CameraEffectSettings | null) {
 // before the settings, so that it knows from the start whether the face model
 // is needed; sent again on every change, which is what makes the editor live.
 
+// What somebody put on this camera ("camera-effect-others", lib/cameraEffectGift.ts):
+// picked as `custom: RECEIVED_CUSTOM_EFFECT`, and kept only here, never in storage.
+export const RECEIVED_CUSTOM_EFFECT = "received";
+export type ReceivedEffectContents = {
+  adjust: CustomAdjust | null;
+  warp: Uint8Array | null;
+  stickers: CustomSticker[];
+  images: Map<string, string>;
+  background: string | null;
+};
+let receivedContents: ReceivedEffectContents | null = null;
+
+export function setReceivedEffectContents(contents: ReceivedEffectContents | null) {
+  if (contents === receivedContents) return;
+  receivedContents = contents;
+  pushCustomEffect();
+  void pushCustomBackground();
+}
+
 let customImagesFor: Worker | null = null;
 const customImagesSent = new Set<string>();
 
@@ -731,11 +763,16 @@ function pushCustomEffect() {
   const target = worker;
   if (!target) return;
   const id = current?.custom;
-  const effect = id && id !== "none" ? readCustomCameraEffects().find((item) => item.id === id) : undefined;
+  const mine = id && id !== "none" && id !== RECEIVED_CUSTOM_EFFECT ? readCustomCameraEffects().find((item) => item.id === id) : undefined;
+  const effect = mine
+    ? { adjust: mine.adjust, warpMap: mine.hasWarp ? readCustomWarp(mine.id) : null, stickers: mine.stickers }
+    : id === RECEIVED_CUSTOM_EFFECT && receivedContents
+      ? { adjust: receivedContents.adjust ?? DEFAULT_ADJUST, warpMap: receivedContents.warp, stickers: receivedContents.stickers }
+      : undefined;
   target.postMessage({
     type: "custom-effect",
     effect: effect
-      ? { filter: customEffectFilter(effect.adjust), vignette: effect.adjust.vignette, warpMap: effect.hasWarp ? readCustomWarp(effect.id) : null, stickers: effect.stickers }
+      ? { filter: customEffectFilter(effect.adjust), vignette: effect.adjust.vignette, warpMap: effect.warpMap, stickers: effect.stickers }
       : null,
   });
   if (customImagesFor !== target) {
@@ -756,7 +793,7 @@ function pushCustomEffect() {
 }
 
 async function pushCustomImage(target: Worker, imageId: string) {
-  const dataUrl = stickerImage(imageId);
+  const dataUrl = receivedContents?.images.get(imageId) ?? stickerImage(imageId);
   // A GIF goes as its file: the worker takes the frames out of it.
   if (dataUrl?.startsWith("data:image/gif")) {
     try {

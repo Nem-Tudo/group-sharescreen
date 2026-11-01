@@ -38,6 +38,7 @@ import { FEATURE_TIERS, accountTierOf, planTierOf, tierAbove, tierAtLeast, type 
 import { PUBLISHED_THEME_LIMITS } from "@/lib/roomThemes";
 import { CAMERA_WORKSHOP_FEATURE, PUBLISHED_EFFECT_LIMITS } from "@/lib/cameraEffectWorkshop";
 import { CAMERA_CUSTOM_FEATURE } from "@/lib/cameraCustomEffects";
+import { CAMERA_OTHERS_FEATURE } from "@/lib/cameraEffectGift";
 import {
   fetchPremiumPlans,
   fetchPremiumStatus,
@@ -124,6 +125,7 @@ const FEATURE_LABELS: Partial<Record<Feature, string>> = {
   get room_theme() { return translate("pro.proPanel.createThemesAndGiveRoomsYour"); },
   get room_theme_publish() { return translate("pro.proPanel.publishYourThemesOnDiscoverFor"); },
   get camera_effect_publish() { return translate("pro.proPanel.publishCameraEffects"); },
+  get camera_effect_others() { return translate("pro.proPanel.putEffectsOnOthers"); },
   get room_theme_set() { return translate("pro.proPanel.changeTheThemeOfAnyRoom"); },
   get uncapped_relay() { return translate("pro.proPanel.noQualityLimitOnRelayedConnections"); },
   get force_relay() { return translate("pro.proPanel.hideYourIpFromEveryoneInA"); },
@@ -374,6 +376,7 @@ export function ProPanel({
   // it would find nowhere to publish.
   const effectsWorkshop = useFeature(CAMERA_WORKSHOP_FEATURE, { track: false }).enabled;
   const customEffects = useFeature(CAMERA_CUSTOM_FEATURE, { track: false }).enabled;
+  const effectsOnOthers = useFeature(CAMERA_OTHERS_FEATURE, { track: false }).enabled;
   const translationFree = useFeature(LIVE_TRANSLATION_FREE_FEATURE, { track: false }).enabled;
   // Where the subscription's card form opens (the checkout-inline experiment).
   // The API decides and counts the exposure (premiumRoutes' checkoutUiFor);
@@ -589,6 +592,7 @@ export function ProPanel({
       plans.some((entry) => entry.features.includes(feature)) &&
       !(feature === "call_transcript" && transcriptFree) &&
       !(feature === "camera_effect_publish" && !(effectsWorkshop && customEffects)) &&
+      !(feature === "camera_effect_others" && !effectsOnOthers) &&
       !(feature === "live_translation" && translationFree)
   );
 

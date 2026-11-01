@@ -37,6 +37,8 @@ export const selectDesktopUpdateSeq = (s: SignalingState) => s.desktopUpdateSeq;
 export const selectRecentDms = (s: SignalingState) => s.recentDms;
 export const selectDmSeq = (s: SignalingState) => s.dmSeq;
 export const selectDmReadSeq = (s: SignalingState) => s.dmReadSeq;
+export const selectReceivedCameraEffect = (s: SignalingState) => s.receivedCameraEffect;
+export const selectCameraEffectSendResult = (s: SignalingState) => s.cameraEffectSendResult;
 export const selectLastThemeLike = (s: SignalingState) => s.lastThemeLike;
 export const selectPresence = (s: SignalingState) => s.presence;
 export const selectRoomRemoval = (s: SignalingState) => s.roomRemoval;

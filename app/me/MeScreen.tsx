@@ -59,6 +59,7 @@ import { avatarShapeClass } from "@/lib/avatarShape";
 import useNtPopups from "ntpopups";
 import { NewBadge } from "@/components/NewBadge";
 import { PartnerAdsChoice } from "@/components/PartnerAdsChoice";
+import { ReceiveCameraEffectsSetting } from "@/components/CameraEffectForOthers";
 import { PlanLink, PlanRing, planRowClass } from "@/components/UserProfileCard";
 import { WIDE_POPUP_SIZE } from "@/components/groups/dialogKit";
 import { accountTierOf } from "@/lib/entitlements";
@@ -293,6 +294,7 @@ export function MeScreen() {
       {account && !account.bot && <MyEmojisSetting flags={account.flags} />}
 
       {account && !account.bot && <PartnerAdsSetting features={account.features} />}
+      {account && !account.bot && <ReceiveCameraEffectsSetting cardClassName={card} />}
 
       {account && (
         // Its own collapsible block, padding included — see AccountConnections.
