@@ -2,9 +2,9 @@
 
 import { useSyncExternalStore } from "react";
 import { trackFeatureEvent } from "./features";
+import { warpBytesFromBase64, warpBytesToBase64 } from "./cameraWarpBrush";
 import {
   DEFAULT_ADJUST,
-  DEFAULT_WARP,
   MAX_CUSTOM_EFFECTS,
   MAX_CUSTOM_NAME,
   sanitizeCustomEffects,
@@ -34,7 +34,8 @@ export const CAMERA_CUSTOM_EVENTS = {
   image: "camera_custom_image", // pôs uma imagem própria como adesivo
   draw: "camera_custom_draw", // desenhou (uma vez por abertura da área de desenho)
   drawImage: "camera_custom_draw_image", // colou ou inseriu uma imagem na área de desenho
-  warp: "camera_custom_warp", // mexeu nas distorções (uma vez por abertura do editor)
+  warp: "camera_custom_warp", // pintou com o pincel de distorção (uma vez por abertura)
+  warpError: "camera_custom_warp_error", // o WebGL do pincel não abriu, ou o desenho falhou
   gif: "camera_custom_gif", // pôs um GIF como adesivo
   imageError: "camera_custom_image_error", // a imagem não abriu, ou não coube no navegador
   slow: "camera_custom_slow", // value: ms por quadro com efeito criado (uma vez por sessão, acima de 30)
@@ -55,6 +56,7 @@ const MAX_GIF_BYTES = 2 * 1024 * 1024;
 
 const EFFECTS_KEY = "sharescreen:cameraCustomEffects";
 const IMAGE_KEY_PREFIX = "sharescreen:cameraCustomImage:";
+const WARP_KEY_PREFIX = "sharescreen:cameraCustomWarp:";
 
 // ---------------------------------------------------------------------------
 // The store
@@ -126,7 +128,7 @@ export function createCustomCameraEffect(name: string): CustomCameraEffect | nul
     id: newId(),
     name: name.slice(0, MAX_CUSTOM_NAME),
     adjust: { ...DEFAULT_ADJUST },
-    warp: { ...DEFAULT_WARP },
+    hasWarp: false,
     stickers: [],
   };
   write([...effects, effect]);
@@ -154,8 +156,48 @@ export function deleteCustomCameraEffect(id: string) {
   const effect = effects.find((item) => item.id === id);
   if (!effect) return;
   removeImages(effect.stickers);
+  warpCache.delete(id);
+  try {
+    window.localStorage.removeItem(WARP_KEY_PREFIX + id);
+  } catch {
+    // Nothing to do about it.
+  }
   write(effects.filter((item) => item.id !== id));
   trackCustomEffect(CAMERA_CUSTOM_EVENTS.delete);
+}
+
+// The painted distortions, decoded once. Mid-stroke they change here only, and
+// reach the camera without touching the storage; `persist` is the end of a stroke.
+const warpCache = new Map<string, Uint8Array | null>();
+
+export function readCustomWarp(effectId: string): Uint8Array | null {
+  const cachedWarp = warpCache.get(effectId);
+  if (cachedWarp !== undefined) return cachedWarp;
+  let bytes: Uint8Array | null = null;
+  try {
+    const stored = window.localStorage.getItem(WARP_KEY_PREFIX + effectId);
+    bytes = stored ? warpBytesFromBase64(stored) : null;
+  } catch {
+    bytes = null;
+  }
+  warpCache.set(effectId, bytes);
+  return bytes;
+}
+
+export function setCustomWarp(effectId: string, bytes: Uint8Array | null, persist: boolean) {
+  warpCache.set(effectId, bytes);
+  if (persist) {
+    try {
+      if (bytes) window.localStorage.setItem(WARP_KEY_PREFIX + effectId, warpBytesToBase64(bytes));
+      else window.localStorage.removeItem(WARP_KEY_PREFIX + effectId);
+    } catch {
+      // Storage refused: it keeps working until the page reloads.
+    }
+  }
+  const hasWarp = bytes !== null;
+  const effect = readCustomCameraEffects().find((item) => item.id === effectId);
+  if (effect && effect.hasWarp !== hasWarp) updateCustomCameraEffect(effectId, (current) => ({ ...current, hasWarp }));
+  else emit();
 }
 
 function withSticker(effectId: string, sticker: CustomSticker) {

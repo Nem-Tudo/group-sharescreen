@@ -2,8 +2,9 @@
 
 import useNtPopups from "ntpopups";
 import { useEffect, useRef, useState } from "react";
-import { MdAdd, MdCreate, MdDelete, MdUpload } from "react-icons/md";
+import { MdAdd, MdBrush, MdCreate, MdDelete, MdUpload } from "react-icons/md";
 import { CameraDrawingPad } from "@/components/CameraDrawingPad";
+import { CameraWarpBrushPad } from "@/components/CameraWarpBrushPad";
 import { EmojiPickerButton } from "@/components/EmojiPicker";
 import { setCameraEffect, useCameraEffectSettings } from "@/lib/cameraEffects";
 import {
@@ -11,11 +12,7 @@ import {
   addImageSticker,
   ADJUST_RANGES,
   CUSTOM_ANCHORS,
-  CAMERA_CUSTOM_EVENTS,
   DEFAULT_ADJUST,
-  DEFAULT_WARP,
-  hasCustomWarp,
-  trackCustomEffect,
   deleteCustomCameraEffect,
   MAX_CUSTOM_NAME,
   MAX_CUSTOM_STICKERS,
@@ -31,7 +28,6 @@ import {
   useCustomEffectPreview,
   type CustomAdjust,
   type CustomAnchor,
-  type CustomWarp,
   type CustomSticker,
 } from "@/lib/cameraCustomEffects";
 import { useT } from "@/lib/useI18n";
@@ -61,19 +57,6 @@ const ADJUST_LABELS: Record<keyof CustomAdjust, string> = {
   saturation: "watch.watchRoom.cameraCustomSaturation",
   hue: "watch.watchRoom.cameraCustomHue",
   vignette: "watch.watchRoom.cameraCustomVignette",
-};
-
-const WARP_LABELS: Record<keyof CustomWarp, string> = {
-  head: "watch.watchRoom.cameraCustomWarpHead",
-  width: "watch.watchRoom.cameraCustomWarpWidth",
-  cheeks: "watch.watchRoom.cameraCustomWarpCheeks",
-  eyes: "watch.watchRoom.cameraCustomWarpEyes",
-  browsHeight: "watch.watchRoom.cameraCustomWarpBrowsHeight",
-  browsTilt: "watch.watchRoom.cameraCustomWarpBrowsTilt",
-  nose: "watch.watchRoom.cameraCustomWarpNose",
-  mouthSize: "watch.watchRoom.cameraCustomWarpMouthSize",
-  mouthCurve: "watch.watchRoom.cameraCustomWarpMouthCurve",
-  chin: "watch.watchRoom.cameraCustomWarpChin",
 };
 
 const CHIP = "rounded-md px-2 py-1 text-xs font-medium transition";
@@ -177,7 +160,7 @@ export function CameraCustomEffectEditor({
   const [drawing, setDrawing] = useState<{ stickerId: string | null } | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const video = useRef<HTMLVideoElement>(null);
-  const warpCounted = useRef(false);
+  const [warpOpen, setWarpOpen] = useState(false);
 
   // As in CameraEffectsSheet: the effects swap the track inside the same
   // stream, which a <video> holding the stream does not always pick up.
@@ -193,14 +176,6 @@ export function CameraCustomEffectEditor({
   const mirrored = facing ? facing === "user" : fallbackMirrored;
   const sticker = effect.stickers.find((item) => item.id === selectedSticker) ?? null;
   const full = effect.stickers.length >= MAX_CUSTOM_STICKERS;
-
-  const setWarp = (key: keyof CustomWarp, value: number) => {
-    if (!warpCounted.current) {
-      warpCounted.current = true;
-      trackCustomEffect(CAMERA_CUSTOM_EVENTS.warp);
-    }
-    updateCustomCameraEffect(effect.id, (current) => ({ ...current, warp: { ...current.warp, [key]: value } }));
-  };
 
   const setAdjust = (key: keyof CustomAdjust, value: number) =>
     updateCustomCameraEffect(effect.id, (current) => ({ ...current, adjust: { ...current.adjust, [key]: value } }));
@@ -428,28 +403,19 @@ export function CameraCustomEffectEditor({
         </section>
 
         <section className="flex flex-col gap-1.5">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">{t("watch.watchRoom.cameraCustomWarp")}</h3>
-            {hasCustomWarp(effect.warp) && (
-              <button
-                type="button"
-                onClick={() => updateCustomCameraEffect(effect.id, (current) => ({ ...current, warp: { ...DEFAULT_WARP } }))}
-                className="text-[11px] font-medium text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100"
-              >
-                {t("watch.watchRoom.cameraCustomReset")}
-              </button>
-            )}
-          </div>
-          {(Object.keys(WARP_LABELS) as (keyof CustomWarp)[]).map((key) => (
-            <Slider
-              key={key}
-              label={t(WARP_LABELS[key])}
-              value={effect.warp[key]}
-              min={-100}
-              max={100}
-              onChange={(value) => setWarp(key, value)}
-            />
-          ))}
+          <h3 className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">{t("watch.watchRoom.cameraCustomWarp")}</h3>
+          {warpOpen ? (
+            <CameraWarpBrushPad effectId={effect.id} mirrored={mirrored} onClose={() => setWarpOpen(false)} />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setWarpOpen(true)}
+              className={`${CHIP} ${CHIP_OFF} inline-flex items-center gap-1 self-start`}
+            >
+              <MdBrush className="h-3.5 w-3.5" />
+              {t(effect.hasWarp ? "watch.watchRoom.cameraCustomWarpEdit" : "watch.watchRoom.cameraCustomWarpPaint")}
+            </button>
+          )}
         </section>
 
         <section className="flex flex-col gap-1.5">

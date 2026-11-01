@@ -8,7 +8,7 @@ import { isMobileDevice } from "./announcement";
 import {
   CAMERA_CUSTOM_EVENTS,
   customEffectFilter,
-  hasCustomWarp,
+  readCustomWarp,
   readCustomCameraEffects,
   stickerImage,
   subscribeCustomCameraEffects,
@@ -333,7 +333,7 @@ export const CAMERA_EFFECTS_FEATURE = "camera-effects";
 // plain URL, so a fixed worker kept being served as the old one. Bump this
 // whenever public/workers/camera-effects.js or camera-detect.js changes (the
 // detector is loaded with the same ?v=).
-const WORKER_VERSION = 16;
+const WORKER_VERSION = 17;
 const WORKER_URL = `/workers/camera-effects.js?v=${WORKER_VERSION}`;
 const SETTINGS_KEY = "sharescreen:cameraEffects";
 // How long the worker (and the models it loaded) outlives the last camera
@@ -585,7 +585,10 @@ function ensureWorker(): Worker {
     else if (data.type === "error") {
       // The hands model only takes away the claps and the thumbs up; the
       // rest keeps working, so the panel does not say it failed.
-      if (data.kind === "custom-gif") {
+      if (data.kind === "custom-warp") {
+        setStatus({ failed: true });
+        trackCustomEffect(CAMERA_CUSTOM_EVENTS.warpError);
+      } else if (data.kind === "custom-gif") {
         trackCustomEffect(CAMERA_CUSTOM_EVENTS.imageError);
       } else if (data.kind !== "hand") {
         setStatus({ failed: true });
@@ -732,7 +735,7 @@ function pushCustomEffect() {
   target.postMessage({
     type: "custom-effect",
     effect: effect
-      ? { filter: customEffectFilter(effect.adjust), vignette: effect.adjust.vignette, warp: hasCustomWarp(effect.warp) ? effect.warp : null, stickers: effect.stickers }
+      ? { filter: customEffectFilter(effect.adjust), vignette: effect.adjust.vignette, warpMap: effect.hasWarp ? readCustomWarp(effect.id) : null, stickers: effect.stickers }
       : null,
   });
   if (customImagesFor !== target) {

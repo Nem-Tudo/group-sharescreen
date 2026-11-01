@@ -82,6 +82,7 @@ self.onmessage = (event) => {
     setBackgroundStream(data.readable || null, data.track || null);
   } else if (data.type === "custom-effect") {
     customEffect = data.effect || null;
+    brushWarpDirty = true;
     ensureTasks();
   } else if (data.type === "custom-image") {
     setCustomImage(data.id, data.bitmap || null);
@@ -196,7 +197,7 @@ function wantsCustom() {
 }
 
 function wantsCustomFace() {
-  return wantsCustom() && (customEffect.stickers.length > 0 || Boolean(customEffect.warp));
+  return wantsCustom() && (customEffect.stickers.length > 0 || Boolean(customEffect.warpMap));
 }
 
 // Tells the detector what the settings need (starting it the first time
@@ -553,7 +554,7 @@ async function render(p, rawFrame) {
   // The face moved first, so whatever is drawn on it sits on top.
   if (custom && custom.vignette > 0) drawVignette(ctx, custom.vignette, width, height);
   if (landmarker && warp) drawWarp(ctx, p, warp, width, height);
-  if (landmarker && custom && custom.warp) drawWarp(ctx, p, custom.warp, width, height);
+  if (landmarker && custom && custom.warpMap) drawBrushWarp(ctx, p, custom.warpMap, width, height);
   if (landmarker) for (const face of p.faces) drawFace(ctx, s.face, face);
   if (landmarker && FACES_3D.has(s.face)) draw3d(ctx, p, s.face, width, height);
   if (landmarker && custom) for (const face of p.faces) drawCustomStickers(ctx, custom, face);
@@ -2008,7 +2009,6 @@ function ensureWarpGl(width, height) {
 // is -1 on the side of landmark 33 and 1 on the other, so "outwards" is
 // side * something.
 function warpOps(kind, f) {
-  if (typeof kind === "object") return customWarpOps(kind, f);
   const ops = [];
   const scale = (c, rx, ry, kx, ky) => ops.push({ c, rx, ry, kind: 0, p: 1 / kx, q: 1 / ky });
   const shift = (c, r, dx, dy) => ops.push({ c, rx: r, ry: r, kind: 1, p: dx, q: dy });
@@ -2057,53 +2057,6 @@ function warpOps(kind, f) {
     scale(mouth, 0.22, 0.14, 0.8, 0.8);
   } else if (kind === "bighead") {
     scale(mid(f.top, f.chin), 0.95, 1.15, 1.35, 1.35);
-  }
-  return ops;
-}
-
-// An effect the person made (lib/cameraCustomEffects.ts): each slider, -100 to
-// 100, pushes one part of the face, within the limits above. At most 15
-// operations, so two faces still fit in WARP_OPS_MAX.
-function customWarpOps(w, f) {
-  const ops = [];
-  // 1 at zero; at the ends of the slider, `down` and `up`.
-  const factor = (value, down, up) => (value < 0 ? 1 + (value / -100) * (down - 1) : 1 + (value / 100) * (up - 1));
-  const scale = (c, rx, ry, kx, ky) => ops.push({ c, rx, ry, kind: 0, p: 1 / kx, q: 1 / ky });
-  const shift = (c, r, dx, dy) => ops.push({ c, rx: r, ry: r, kind: 1, p: dx, q: dy });
-  const sides = [
-    { side: -1, eye: f.eyeLeft, mouth: f.mouthLeft, browIn: f.browInnerLeft, browOut: f.browOuterLeft, cheek: f.cheekLeft },
-    { side: 1, eye: f.eyeRight, mouth: f.mouthRight, browIn: f.browInnerRight, browOut: f.browOuterRight, cheek: f.cheekRight },
-  ];
-  const mouth = mid(f.lipTop, f.lipBottom);
-  if (w.head) {
-    const k = factor(w.head, 0.7, 1.45);
-    scale(mid(f.top, f.chin), 0.95, 1.15, k, k);
-  }
-  if (w.width) scale(f.nose, 0.9, 1, factor(w.width, 0.65, 1.55), 1);
-  if (w.chin) scale(f.chin, 0.45, 0.35, 1, factor(w.chin, 0.7, 1.5));
-  if (w.nose) {
-    const k = factor(w.nose, 0.7, 1.5);
-    scale(f.nose, 0.2, 0.2, k, k);
-  }
-  if (w.mouthSize) {
-    const k = factor(w.mouthSize, 0.7, 1.5);
-    scale(mouth, 0.3, 0.2, k, k);
-  }
-  for (const s of sides) {
-    if (w.cheeks) {
-      const k = factor(w.cheeks, 0.85, 1.25);
-      scale(s.cheek, 0.2, 0.2, k, k);
-    }
-    if (w.eyes) {
-      const k = factor(w.eyes, 0.7, 2);
-      scale(s.eye, 0.28, 0.24, k, k);
-    }
-    if (w.browsHeight) shift(mid(s.browIn, s.browOut), 0.22, 0, (-w.browsHeight / 100) * 0.09);
-    if (w.browsTilt) {
-      shift(s.browIn, 0.15, (-s.side * w.browsTilt * 0.04) / 100, (w.browsTilt * 0.08) / 100);
-      shift(s.browOut, 0.14, 0, (-w.browsTilt * 0.05) / 100);
-    }
-    if (w.mouthCurve) shift(s.mouth, 0.21, 0, (-w.mouthCurve / 100) * 0.1);
   }
   return ops;
 }
@@ -2158,6 +2111,154 @@ function drawWarp(ctx, p, kind, width, height) {
   } catch (err) {
     p.warpFailed = true;
     self.postMessage({ type: "error", kind: "warp", reason: String((err && err.message) || err).slice(0, 120) });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The distortion brush (experiment "camera-custom-effects", see
+// lib/cameraWarpBrush.ts)
+//
+// What was painted is a texture over a square two face widths across, the nose
+// in the middle, turned with the face. Each pixel inside it is read from where
+// the texture says, fading out at the square's edge. Red and green are the
+// shifts, 128 being none, a quarter of the square at 1 and 255.
+
+const BRUSH_GRID = 128;
+const BRUSH_MAX_SHIFT = 0.25;
+const BRUSH_FACES = 2;
+
+const BRUSH_FRAGMENT = `
+precision highp float;
+uniform sampler2D uFrame;
+uniform sampler2D uMap;
+uniform vec2 uSize;
+uniform int uCount;
+uniform vec4 uFace[${BRUSH_FACES}];
+void main() {
+  vec2 p = vec2(gl_FragCoord.x, uSize.y - gl_FragCoord.y);
+  for (int i = 0; i < ${BRUSH_FACES}; i++) {
+    if (i >= uCount) break;
+    vec4 f = uFace[i];
+    float side = f.z * 2.0;
+    float c = cos(f.w);
+    float s = sin(f.w);
+    vec2 d = p - f.xy;
+    vec2 uv = vec2(c * d.x + s * d.y, -s * d.x + c * d.y) / side + 0.5;
+    if (uv.x <= 0.0 || uv.x >= 1.0 || uv.y <= 0.0 || uv.y >= 1.0) continue;
+    vec2 edge = min(uv, 1.0 - uv);
+    float fade = smoothstep(0.0, 0.06, min(edge.x, edge.y));
+    vec2 shift = (texture2D(uMap, uv).rg * 255.0 - 128.0) / 127.0 * ${BRUSH_MAX_SHIFT.toFixed(2)} * side * fade;
+    p += vec2(c * shift.x - s * shift.y, s * shift.x + c * shift.y);
+  }
+  gl_FragColor = texture2D(uFrame, clamp(p / uSize, vec2(0.0), vec2(1.0)));
+}
+`;
+
+let brushGl = null;
+let brushWarpDirty = true;
+
+function ensureBrushGl(width, height) {
+  if (!brushGl) {
+    const canvas = new OffscreenCanvas(width, height);
+    const g = canvas.getContext("webgl", {
+      alpha: false,
+      antialias: false,
+      depth: false,
+      premultipliedAlpha: false,
+      preserveDrawingBuffer: true,
+    });
+    if (!g) throw new Error("no webgl");
+    const program = g.createProgram();
+    g.attachShader(program, compileWarp(g, g.VERTEX_SHADER, WARP_VERTEX));
+    g.attachShader(program, compileWarp(g, g.FRAGMENT_SHADER, BRUSH_FRAGMENT));
+    g.linkProgram(program);
+    if (!g.getProgramParameter(program, g.LINK_STATUS)) throw new Error(g.getProgramInfoLog(program) || "link");
+    g.useProgram(program);
+    const quad = g.createBuffer();
+    g.bindBuffer(g.ARRAY_BUFFER, quad);
+    g.bufferData(g.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), g.STATIC_DRAW);
+    const aPos = g.getAttribLocation(program, "aPos");
+    g.enableVertexAttribArray(aPos);
+    g.vertexAttribPointer(aPos, 2, g.FLOAT, false, 0, 0);
+    const texture = (unit) => {
+      g.activeTexture(g.TEXTURE0 + unit);
+      g.bindTexture(g.TEXTURE_2D, g.createTexture());
+      g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_S, g.CLAMP_TO_EDGE);
+      g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_T, g.CLAMP_TO_EDGE);
+      g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MIN_FILTER, g.LINEAR);
+      g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MAG_FILTER, g.LINEAR);
+    };
+    texture(1);
+    texture(0);
+    g.uniform1i(g.getUniformLocation(program, "uFrame"), 0);
+    g.uniform1i(g.getUniformLocation(program, "uMap"), 1);
+    g.enable(g.SCISSOR_TEST);
+    brushGl = {
+      canvas,
+      g,
+      uSize: g.getUniformLocation(program, "uSize"),
+      uCount: g.getUniformLocation(program, "uCount"),
+      uFace: g.getUniformLocation(program, "uFace"),
+      faces: new Float32Array(BRUSH_FACES * 4),
+      rgba: new Uint8Array(BRUSH_GRID * BRUSH_GRID * 4),
+    };
+    brushWarpDirty = true;
+  }
+  if (brushGl.canvas.width !== width || brushGl.canvas.height !== height) {
+    brushGl.canvas.width = width;
+    brushGl.canvas.height = height;
+  }
+  return brushGl;
+}
+
+function drawBrushWarp(ctx, p, map, width, height) {
+  if (p.warpFailed || p.faces.length === 0) return;
+  try {
+    const w = ensureBrushGl(width, height);
+    const g = w.g;
+    if (brushWarpDirty) {
+      brushWarpDirty = false;
+      for (let i = 0; i < BRUSH_GRID * BRUSH_GRID; i += 1) {
+        w.rgba[i * 4] = map[i * 2];
+        w.rgba[i * 4 + 1] = map[i * 2 + 1];
+        w.rgba[i * 4 + 3] = 255;
+      }
+      g.activeTexture(g.TEXTURE1);
+      g.texImage2D(g.TEXTURE_2D, 0, g.RGBA, BRUSH_GRID, BRUSH_GRID, 0, g.RGBA, g.UNSIGNED_BYTE, w.rgba);
+      g.activeTexture(g.TEXTURE0);
+    }
+    let count = 0;
+    let x0 = width;
+    let y0 = height;
+    let x1 = 0;
+    let y1 = 0;
+    for (const face of p.faces) {
+      if (count >= BRUSH_FACES) break;
+      w.faces.set([face.nose.x, face.nose.y, face.size, face.angle], count * 4);
+      count += 1;
+      // The square's corners, whatever the angle.
+      const reach = face.size * Math.SQRT2;
+      x0 = Math.min(x0, face.nose.x - reach);
+      y0 = Math.min(y0, face.nose.y - reach);
+      x1 = Math.max(x1, face.nose.x + reach);
+      y1 = Math.max(y1, face.nose.y + reach);
+    }
+    x0 = Math.max(0, Math.floor(x0));
+    y0 = Math.max(0, Math.floor(y0));
+    x1 = Math.min(width, Math.ceil(x1));
+    y1 = Math.min(height, Math.ceil(y1));
+    if (x1 <= x0 || y1 <= y0) return;
+    g.viewport(0, 0, width, height);
+    g.scissor(x0, height - y1, x1 - x0, y1 - y0);
+    g.texImage2D(g.TEXTURE_2D, 0, g.RGBA, g.RGBA, g.UNSIGNED_BYTE, p.canvas);
+    g.uniform2f(w.uSize, width, height);
+    g.uniform1i(w.uCount, count);
+    g.uniform4fv(w.uFace, w.faces);
+    g.drawArrays(g.TRIANGLE_STRIP, 0, 4);
+    ctx.drawImage(w.canvas, x0, y0, x1 - x0, y1 - y0, x0, y0, x1 - x0, y1 - y0);
+  } catch (err) {
+    p.warpFailed = true;
+    self.postMessage({ type: "error", kind: "custom-warp", reason: String((err && err.message) || err).slice(0, 120) });
   }
 }
 

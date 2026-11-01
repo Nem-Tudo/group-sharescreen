@@ -42,45 +42,12 @@ export interface CustomAdjust {
   vignette: number; // %, 0 = none
 }
 
-// How each part of the face is pushed around, -100 to 100, 0 = untouched. The
-// worker turns these into warp operations (customWarpOps).
-export interface CustomWarp {
-  head: number; // smaller / bigger
-  width: number; // thinner / fatter
-  cheeks: number; // hollow / full
-  eyes: number; // smaller / bigger
-  browsHeight: number; // lowered / raised
-  browsTilt: number; // sad / angry
-  nose: number; // smaller / bigger
-  mouthSize: number; // smaller / bigger
-  mouthCurve: number; // corners down / up
-  chin: number; // shorter / longer
-}
-
-export const DEFAULT_WARP: CustomWarp = {
-  head: 0,
-  width: 0,
-  cheeks: 0,
-  eyes: 0,
-  browsHeight: 0,
-  browsTilt: 0,
-  nose: 0,
-  mouthSize: 0,
-  mouthCurve: 0,
-  chin: 0,
-};
-
-const WARP_RANGE = { min: -100, max: 100 };
-
-export function hasCustomWarp(warp: CustomWarp): boolean {
-  return (Object.keys(DEFAULT_WARP) as (keyof CustomWarp)[]).some((key) => warp[key] !== 0);
-}
-
 export interface CustomCameraEffect {
   id: string;
   name: string;
   adjust: CustomAdjust;
-  warp: CustomWarp;
+  // Whether it has a painted distortion (see lib/cameraWarpBrush), stored apart.
+  hasWarp: boolean;
   stickers: CustomSticker[];
 }
 
@@ -137,9 +104,6 @@ export function sanitizeCustomEffects(raw: unknown): CustomCameraEffect[] {
     const e = item as Partial<CustomCameraEffect>;
     if (typeof e.id !== "string" || !e.id || e.id === "none") continue;
     const adjust = (e.adjust ?? {}) as Partial<CustomAdjust>;
-    const rawWarp = (e.warp ?? {}) as Partial<CustomWarp>;
-    const warp = { ...DEFAULT_WARP };
-    for (const key of Object.keys(DEFAULT_WARP) as (keyof CustomWarp)[]) warp[key] = clamp(rawWarp[key], WARP_RANGE, 0);
     effects.push({
       id: e.id,
       name: typeof e.name === "string" ? e.name.slice(0, MAX_CUSTOM_NAME) : "",
@@ -150,7 +114,7 @@ export function sanitizeCustomEffects(raw: unknown): CustomCameraEffect[] {
         hue: clamp(adjust.hue, ADJUST_RANGES.hue, DEFAULT_ADJUST.hue),
         vignette: clamp(adjust.vignette, ADJUST_RANGES.vignette, DEFAULT_ADJUST.vignette),
       },
-      warp,
+      hasWarp: e.hasWarp === true,
       stickers: (Array.isArray(e.stickers) ? e.stickers : [])
         .map(sanitizeSticker)
         .filter((sticker): sticker is CustomSticker => sticker !== null)

@@ -161,6 +161,25 @@ function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
   ctx.restore();
 }
 
+// The guide, to scale: the pad is two face widths with the nose's tip at its centre.
+export function FaceGuide() {
+  return (
+    <svg
+      viewBox="0 0 100 100"
+      aria-hidden="true"
+      fill="none"
+      strokeLinecap="round"
+      className="pointer-events-none absolute inset-0 h-full w-full stroke-zinc-400"
+    >
+      <ellipse cx="50" cy="50" rx="25" ry="32" strokeWidth="0.8" strokeDasharray="2.5 2" />
+      <ellipse cx="39" cy="41" rx="4.5" ry="2.2" strokeWidth="0.8" />
+      <ellipse cx="61" cy="41" rx="4.5" ry="2.2" strokeWidth="0.8" />
+      <path d="M50 42 L47.5 50 Q50 52 52.5 50" strokeWidth="0.8" />
+      <path d="M41 61 Q50 67 59 61" strokeWidth="0.8" />
+    </svg>
+  );
+}
+
 export function CameraDrawingPad({
   effectId,
   sticker,
@@ -424,20 +443,7 @@ export function CameraDrawingPad({
   return (
     <div className="flex flex-col gap-2 rounded-xl bg-zinc-50 p-2 dark:bg-zinc-900">
       <div ref={pad} className="relative mx-auto aspect-square w-full max-w-[17rem] overflow-hidden rounded-lg border border-zinc-300 bg-zinc-200 dark:border-zinc-700 dark:bg-zinc-700">
-        {/* The guide, to scale: the pad is two face widths with the nose's tip at its centre. */}
-        <svg
-          viewBox="0 0 100 100"
-          aria-hidden="true"
-          fill="none"
-          strokeLinecap="round"
-          className="pointer-events-none absolute inset-0 h-full w-full stroke-zinc-400"
-        >
-          <ellipse cx="50" cy="50" rx="25" ry="32" strokeWidth="0.8" strokeDasharray="2.5 2" />
-          <ellipse cx="39" cy="41" rx="4.5" ry="2.2" strokeWidth="0.8" />
-          <ellipse cx="61" cy="41" rx="4.5" ry="2.2" strokeWidth="0.8" />
-          <path d="M50 42 L47.5 50 Q50 52 52.5 50" strokeWidth="0.8" />
-          <path d="M41 61 Q50 67 59 61" strokeWidth="0.8" />
-        </svg>
+        <FaceGuide />
         <canvas
           ref={canvas}
           width={SIDE}
