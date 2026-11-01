@@ -32,9 +32,10 @@ import { useT } from "@/lib/useI18n";
 // does not go out). After each stroke it is stored as a sticker on the nose, so
 // it reaches the camera the same way an image does, and follows the face.
 //
-// The pad is seen as a mirror, like the camera in the editor. So the picture is
-// flipped when stored, which puts each line where it was drawn on the face, but
-// leaves writing backwards for whoever watches: "readable" stores it as is.
+// The pad is seen the way the editor's camera is. Where that is a mirror (a
+// phone's front camera; a computer's webcam is not) the picture is flipped when
+// stored, which puts each line where it was drawn on the face, but leaves writing
+// backwards for whoever watches: "readable" stores it as is.
 //
 // An image (pasted, or from a file) floats over the drawing, to be moved, resized,
 // turned and flipped, until the next stroke or "apply" lays it down. It is stored
@@ -163,12 +164,15 @@ function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
 export function CameraDrawingPad({
   effectId,
   sticker,
+  mirrored,
   onSticker,
   onClose,
 }: {
   effectId: string;
   // The drawing being continued, or null for a new one.
   sticker: CustomSticker | null;
+  // Whether the editor's camera is shown mirrored.
+  mirrored: boolean;
   onSticker: (id: string | null) => void;
   onClose: () => void;
 }) {
@@ -244,13 +248,14 @@ export function CameraDrawingPad({
       out.height = SIDE;
       const ctx = out.getContext("2d");
       if (!ctx) return;
-      if (!plain) {
+      const flip = mirrored && !plain;
+      if (flip) {
         ctx.translate(SIDE, 0);
         ctx.scale(-1, 1);
       }
       ctx.drawImage(source, 0, 0);
       try {
-        stickerId.current = saveDrawingSticker(effectId, stickerId.current, out.toDataURL("image/png"), plain ? "plain" : "mirror");
+        stickerId.current = saveDrawingSticker(effectId, stickerId.current, out.toDataURL("image/png"), flip ? "mirror" : "plain");
         onSticker(stickerId.current);
         setFailed(false);
       } catch {
@@ -259,7 +264,7 @@ export function CameraDrawingPad({
         trackCustomEffect(CAMERA_CUSTOM_EVENTS.imageError);
       }
     },
-    [effectId, onSticker]
+    [effectId, mirrored, onSticker]
   );
 
   const setPlaced = useCallback(
@@ -624,6 +629,7 @@ export function CameraDrawingPad({
           className="min-w-0 flex-1 accent-emerald-600"
         />
       </label>
+      {mirrored && (
       <label className="flex items-start gap-2 text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">
         <input
           type="checkbox"
@@ -636,6 +642,7 @@ export function CameraDrawingPad({
         />
         {t("watch.watchRoom.cameraCustomReadable")}
       </label>
+      )}
       {failed && <span className="text-[11px] text-red-600 dark:text-red-400">{t("watch.watchRoom.cameraCustomImageError")}</span>}
       <button type="button" onClick={onClose} className="self-end text-xs font-semibold text-emerald-700 dark:text-emerald-400">
         {t("watch.watchRoom.cameraCustomDrawDone")}

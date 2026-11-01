@@ -25,12 +25,12 @@ export interface CustomSticker {
   // Set on an image drawn in the editor: how it was stored (see CameraDrawingPad).
   drawing?: "mirror" | "plain";
   anchor: CustomAnchor;
-  // Moved from the anchor, in face widths: + is right and down, as seen in the mirror.
+  // Moved from the anchor, in face widths: + is right and down, in the frame.
   x: number;
   y: number;
   // How wide, in face widths.
   size: number;
-  // Degrees, clockwise as seen in the mirror.
+  // Degrees, clockwise in the frame.
   rotation: number;
 }
 

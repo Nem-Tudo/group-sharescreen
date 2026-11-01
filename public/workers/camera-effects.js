@@ -767,10 +767,8 @@ function drawCustomStickers(ctx, effect, face) {
     const w = face.size * sticker.size;
     const h = (w * image.height) / image.width;
     inFaceFrame(ctx, customAnchor(face, sticker.anchor), face.angle, () => {
-      // The editor shows the mirror, the frame is not mirrored: x and the
-      // rotation are flipped so a slider moves things the way it looks.
-      ctx.translate(-sticker.x * face.size, sticker.y * face.size);
-      ctx.rotate((-sticker.rotation * Math.PI) / 180);
+      ctx.translate(sticker.x * face.size, sticker.y * face.size);
+      ctx.rotate((sticker.rotation * Math.PI) / 180);
       ctx.drawImage(image, -w / 2, -h / 2, w, h);
     });
   }

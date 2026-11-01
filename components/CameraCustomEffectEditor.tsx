@@ -292,6 +292,7 @@ export function CameraCustomEffectEditor({
               key={drawing.stickerId ?? "new"}
               effectId={effect.id}
               sticker={effect.stickers.find((item) => item.id === drawing.stickerId) ?? null}
+              mirrored={mirrored}
               onSticker={setSelectedSticker}
               onClose={() => setDrawing(null)}
             />
@@ -331,10 +332,11 @@ export function CameraCustomEffectEditor({
               />
               <Slider
                 label={t("watch.watchRoom.cameraCustomMoveX")}
-                value={sticker.x}
+                // Stored as the frame has it; moved the way the preview shows it.
+                value={mirrored ? -sticker.x : sticker.x}
                 {...STICKER_RANGES.x}
                 step={0.02}
-                onChange={(x) => updateCustomSticker(effect.id, sticker.id, { x })}
+                onChange={(x) => updateCustomSticker(effect.id, sticker.id, { x: mirrored ? -x : x })}
               />
               <Slider
                 label={t("watch.watchRoom.cameraCustomMoveY")}
@@ -345,9 +347,9 @@ export function CameraCustomEffectEditor({
               />
               <Slider
                 label={t("watch.watchRoom.cameraCustomRotate")}
-                value={sticker.rotation}
+                value={mirrored ? -sticker.rotation : sticker.rotation}
                 {...STICKER_RANGES.rotation}
-                onChange={(rotation) => updateCustomSticker(effect.id, sticker.id, { rotation })}
+                onChange={(rotation) => updateCustomSticker(effect.id, sticker.id, { rotation: mirrored ? -rotation : rotation })}
               />
               <button
                 type="button"
