@@ -407,16 +407,24 @@ export function ProPanel({
         const card = checkoutCardRef.current;
         card?.scrollIntoView({ behavior: "smooth", block: "center" });
         // Beside the table it is already on screen and nothing would scroll, so
-        // the press has to show where the checkout is some other way.
-        if (twoPane && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        // the press has to show where the checkout is some other way. The cards
+        // layout too: the card keeps its place and only its contents change,
+        // which is easy to miss.
+        if ((twoPane || cardsVariant) && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
           card?.animate(
-            [{ boxShadow: "0 0 0 0 rgba(16, 185, 129, 0.7)" }, { boxShadow: "0 0 0 10px rgba(16, 185, 129, 0)" }],
-            { duration: 700, iterations: 2 }
+            cardsVariant
+              ? [
+                  { boxShadow: "0 0 0 0 rgba(59, 130, 246, 0)" },
+                  { boxShadow: "0 0 0 3px rgba(59, 130, 246, 0.9), 0 0 36px 8px rgba(59, 130, 246, 0.45)" },
+                  { boxShadow: "0 0 0 0 rgba(59, 130, 246, 0)" },
+                ]
+              : [{ boxShadow: "0 0 0 0 rgba(16, 185, 129, 0.7)" }, { boxShadow: "0 0 0 10px rgba(16, 185, 129, 0)" }],
+            cardsVariant ? { duration: 1100, easing: "ease-out" } : { duration: 700, iterations: 2 }
           );
         }
       });
     },
-    [selectPlan, twoPane]
+    [selectPlan, twoPane, cardsVariant]
   );
   const pickCycle = (next: BillingCycle) => {
     setCycle(next);

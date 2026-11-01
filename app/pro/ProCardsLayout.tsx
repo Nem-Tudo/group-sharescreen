@@ -230,15 +230,10 @@ export function ProPlanCards({
               </p>
             )}
 
-            {/* Green on the recommended one: the gold mark disappears on amber. */}
             <button
               type="button"
               onClick={() => onBuy(plan.id)}
-              className={`mt-4 flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold transition ${
-                recommended
-                  ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                  : "bg-zinc-900 text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-              }`}
+              className="mt-4 flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-bold text-white transition hover:bg-zinc-700 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
             >
               <mark.Icon className={`h-4 w-4 shrink-0 ${mark.className}`} />
               {plan.id === currentId
