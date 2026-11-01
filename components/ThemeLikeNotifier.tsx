@@ -43,7 +43,7 @@ export function ThemeLikeNotifier() {
       kind,
       title,
       body: lastThemeLike.themeName,
-      href: effect ? "/workshop/effects" : `/theme/${encodeURIComponent(lastThemeLike.themeId)}`,
+      href: effect ? `/effect/${encodeURIComponent(lastThemeLike.themeId)}` : `/theme/${encodeURIComponent(lastThemeLike.themeId)}`,
       userId: lastThemeLike.byId ?? undefined,
     });
     if (!isNew || !alertTarget) return;

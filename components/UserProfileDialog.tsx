@@ -29,7 +29,10 @@ export function UserProfileDialog({
   guest,
   onClose,
   extra,
+  abovePopups = false,
 }: {
+  // Opened from inside an ntpopups popup (z-60), which it would otherwise be under.
+  abovePopups?: boolean;
   userId: string;
   /**
    * Set when this id belongs to somebody with no account, in which case there
@@ -73,7 +76,7 @@ export function UserProfileDialog({
     // and the centring on an inner box with `min-h-full`, so a short card is
     // centred and a tall one simply scrolls from its top.
     <div
-      className="golive-dialog-backdrop fixed inset-0 z-50 overflow-y-auto bg-black/60 p-4"
+      className={`golive-dialog-backdrop fixed inset-0 ${abovePopups ? "z-[80]" : "z-50"} overflow-y-auto bg-black/60 p-4`}
       onClick={onClose}
       role="dialog"
       aria-modal="true"

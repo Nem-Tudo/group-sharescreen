@@ -54,8 +54,15 @@ export interface WorkshopEffect {
   name: string;
   description: string;
   authorId: string;
-  authorName: string | null;
-  authorUsername: string | null;
+  author: {
+    id: string;
+    username: string;
+    displayName: string;
+    avatarUrl: string | null;
+    flags: string[];
+    bot?: boolean;
+    nameColor: string | null;
+  } | null;
   likes: number;
   liked: boolean;
   uses: number;
@@ -70,6 +77,47 @@ function authHeaders(): Record<string, string> {
 
 export function workshopPreviewUrl(effect: Pick<WorkshopEffect, "id" | "updatedAt">): string {
   return `${getSignalingHttpBase()}/camera-effects/${encodeURIComponent(effect.id)}/preview?v=${effect.updatedAt}`;
+}
+
+export function effectLink(id: string): string {
+  const path = `/effect/${encodeURIComponent(id)}`;
+  if (typeof window === "undefined") return path;
+  return `${window.location.origin}${path}`;
+}
+
+/** One effect, without its images. Null when it is not there, or could not be read. */
+export async function fetchWorkshopEffectInfo(id: string, signal?: AbortSignal): Promise<WorkshopEffect | null> {
+  try {
+    const res = await fetch(`${getSignalingHttpBase()}/camera-effects/${encodeURIComponent(id)}/info`, {
+      headers: authHeaders(),
+      signal,
+    });
+    if (!res.ok) return null;
+    return ((await res.json()) as { effect?: WorkshopEffect }).effect ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export type EffectReportBucket = { t: number; uses: number; likes: number; unlikes: number };
+export type EffectReportRange = "24h" | "7d" | "30d";
+export type EffectReport = {
+  effect: { id: string; name: string; createdAt: number; updatedAt: number };
+  totals: { uses: number; likes: number };
+  window: { range: EffectReportRange; step: "hour" | "day"; people: number; buckets: EffectReportBucket[] };
+};
+
+export class EffectReportDeniedError extends Error {}
+
+/** Its author's panel. Denied, not failed, for anybody else: see the page. */
+export async function fetchEffectReport(id: string, range: EffectReportRange, signal?: AbortSignal): Promise<EffectReport> {
+  const res = await fetch(`${getSignalingHttpBase()}/camera-effects/${encodeURIComponent(id)}/report?range=${range}`, {
+    headers: authHeaders(),
+    signal,
+  });
+  if (res.status === 401 || res.status === 403 || res.status === 404) throw new EffectReportDeniedError("denied");
+  if (!res.ok) throw new Error("failed");
+  return (await res.json()) as EffectReport;
 }
 
 export async function fetchWorkshopEffects(

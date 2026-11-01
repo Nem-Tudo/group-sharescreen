@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { MdLock, MdPublish } from "react-icons/md";
+import Link from "next/link";
+import { MdLock, MdOpenInNew, MdOutlineShowChart, MdPublish } from "react-icons/md";
 import { useAuth } from "@/lib/AuthContext";
 import { updateCustomCameraEffect, type CustomCameraEffect } from "@/lib/cameraCustomEffects";
 import {
@@ -122,6 +123,19 @@ export function CameraEffectPublish({ effect }: { effect: CustomCameraEffect }) 
           </button>
         )}
       </div>
+      {effect.publishedId && (
+        // In a new tab: the editor is open over the call.
+        <div className="flex flex-wrap gap-1">
+          <Link href={`/effect/${encodeURIComponent(effect.publishedId)}`} target="_blank" className={`${CHIP} ${CHIP_OFF} inline-flex items-center gap-1`}>
+            <MdOpenInNew className="h-3.5 w-3.5" />
+            {t("cameraWorkshop.viewPage")}
+          </Link>
+          <Link href={`/effect/${encodeURIComponent(effect.publishedId)}/panel`} target="_blank" className={`${CHIP} ${CHIP_OFF} inline-flex items-center gap-1`}>
+            <MdOutlineShowChart className="h-3.5 w-3.5" />
+            {t("cameraWorkshop.panel")}
+          </Link>
+        </div>
+      )}
       {effect.publishedId && <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{t("cameraWorkshop.publishedHint")}</p>}
       {message && (
         <p className={`text-[11px] ${message.error ? "text-red-600 dark:text-red-400" : "text-emerald-700 dark:text-emerald-400"}`}>

@@ -2,8 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { MdAutoAwesome, MdCheck, MdFavorite, MdFavoriteBorder, MdFlag, MdPeople } from "react-icons/md";
+import { MdAutoAwesome, MdCheck, MdFavorite, MdFavoriteBorder, MdFlag, MdOutlineShowChart, MdPeople } from "react-icons/md";
+import { DisplayUserName } from "@/components/DisplayUserName";
+import { UserAvatar } from "@/components/UserAvatar";
+import { UserProfileDialog } from "@/components/UserProfileDialog";
+import { verifiedBadge } from "@/lib/entitlements";
 import { markFeatureUsed } from "@/components/NewBadge";
 import { useAuth } from "@/lib/AuthContext";
 import { setCameraEffect, useCameraEffectSettings } from "@/lib/cameraEffects";
@@ -44,8 +49,42 @@ const CHIP_ON = "bg-emerald-600 text-white";
 const CHIP_OFF =
   "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700";
 
+/** Copies it in, wears it, and turns the effects on. Says whether that worked. */
+export async function takeAndWear(id: string): Promise<boolean> {
+  const localId = await takeWorkshopEffect(id);
+  if (!localId) return false;
+  setCameraEffect("custom", localId);
+  setTileExperimentMode("cameraEffects", true);
+  markFeatureUsed(CAMERA_CUSTOM_FEATURE);
+  return true;
+}
+
+/** Who made it, drawn as they are everywhere else. Opens their profile in place. */
+export function EffectAuthor({ effect, onOpen }: { effect: WorkshopEffect; onOpen: () => void }) {
+  const t = useT();
+  const { author } = effect;
+  if (!author) return null;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={t("common.seeDisplaynameSProfile", { displayName: author.displayName })}
+      className="flex min-w-0 cursor-pointer items-center gap-1.5 text-left text-xs text-zinc-500 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+    >
+      <UserAvatar src={author.avatarUrl} name={author.displayName} size={20} className="shrink-0" userId={author.id} />
+      <DisplayUserName
+        name={author.displayName}
+        verified={verifiedBadge(author.flags)}
+        bot={author.bot}
+        color={author.nameColor}
+        className="truncate"
+      />
+    </button>
+  );
+}
+
 // Above the room's popup (z-60), and in a portal: a card is too small to hold it.
-function ReportDialog({ effect, onClose, onSent }: { effect: WorkshopEffect; onClose: () => void; onSent: () => void }) {
+export function ReportDialog({ effect, onClose, onSent }: { effect: WorkshopEffect; onClose: () => void; onSent: () => void }) {
   const t = useT();
   const [reason, setReason] = useState<EffectReportReason | null>(null);
   const [note, setNote] = useState("");
@@ -101,7 +140,7 @@ function ReportDialog({ effect, onClose, onSent }: { effect: WorkshopEffect; onC
   );
 }
 
-export function CameraEffectBrowser() {
+export function CameraEffectBrowser({ inPopup = false }: { inPopup?: boolean }) {
   const t = useT();
   const { account } = useAuth();
   const local = useCustomCameraEffects();
@@ -119,6 +158,9 @@ export function CameraEffectBrowser() {
   const [limit, setLimit] = useState<number | null | undefined>(undefined);
   const [reporting, setReporting] = useState<WorkshopEffect | null>(null);
   const [reported, setReported] = useState<string[]>([]);
+  const [profileUserId, setProfileUserId] = useState<string | null>(null);
+  // In the room's popup, a link must not take the person out of their call.
+  const linkTarget = inPopup ? "_blank" : undefined;
 
   useEffect(() => {
     trackWorkshop(CAMERA_WORKSHOP_EVENTS.open);
@@ -164,15 +206,9 @@ export function CameraEffectBrowser() {
   const take = async (effect: WorkshopEffect) => {
     setBusy(effect.id);
     setUseFailed(false);
-    const localId = await takeWorkshopEffect(effect.id);
+    const done = await takeAndWear(effect.id);
     setBusy(null);
-    if (!localId) {
-      setUseFailed(true);
-      return;
-    }
-    setCameraEffect("custom", localId);
-    setTileExperimentMode("cameraEffects", true);
-    markFeatureUsed(CAMERA_CUSTOM_FEATURE);
+    setUseFailed(!done);
   };
 
   const like = async (effect: WorkshopEffect) => {
@@ -254,12 +290,12 @@ export function CameraEffectBrowser() {
           const inUse = copy !== undefined && settings.custom === copy.id;
           return (
             <article key={effect.id} className="flex min-w-0 flex-col gap-1.5 rounded-xl border border-zinc-200 bg-white p-2 dark:border-zinc-800 dark:bg-zinc-900">
-              {/* eslint-disable-next-line @next/next/no-img-element -- served by the API, with its own cache */}
-              <img src={workshopPreviewUrl(effect)} alt="" loading="lazy" className="aspect-square w-full rounded-lg bg-zinc-800 object-cover" />
-              <h3 className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">{effect.name}</h3>
-              {effect.authorUsername && (
-                <p className="truncate text-xs text-zinc-500 dark:text-zinc-400">@{effect.authorUsername}</p>
-              )}
+              <Link href={`/effect/${encodeURIComponent(effect.id)}`} target={linkTarget} className="flex min-w-0 flex-col gap-1.5">
+                {/* eslint-disable-next-line @next/next/no-img-element -- served by the API, with its own cache */}
+                <img src={workshopPreviewUrl(effect)} alt="" loading="lazy" className="aspect-square w-full rounded-lg bg-zinc-800 object-cover" />
+                <h3 className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">{effect.name}</h3>
+              </Link>
+              <EffectAuthor effect={effect} onOpen={() => setProfileUserId(effect.authorId)} />
               {effect.description && (
                 <p className="line-clamp-2 text-xs text-zinc-500 dark:text-zinc-400">{effect.description}</p>
               )}
@@ -294,9 +330,19 @@ export function CameraEffectBrowser() {
                 )}
               </div>
               {tab === "mine" ? (
-                <button type="button" disabled={busy === effect.id} onClick={() => void unpublish(effect)} className={`${CHIP} ${CHIP_OFF} text-red-600 disabled:opacity-50 dark:text-red-400`}>
-                  {t("cameraWorkshop.unpublish")}
-                </button>
+                <>
+                  <Link
+                    href={`/effect/${encodeURIComponent(effect.id)}/panel`}
+                    target={linkTarget}
+                    className={`${CHIP} ${CHIP_OFF} inline-flex items-center justify-center gap-1`}
+                  >
+                    <MdOutlineShowChart className="h-3.5 w-3.5" />
+                    {t("cameraWorkshop.panel")}
+                  </Link>
+                  <button type="button" disabled={busy === effect.id} onClick={() => void unpublish(effect)} className={`${CHIP} ${CHIP_OFF} text-red-600 disabled:opacity-50 dark:text-red-400`}>
+                    {t("cameraWorkshop.unpublish")}
+                  </button>
+                </>
               ) : (
                 <button
                   type="button"
@@ -316,6 +362,8 @@ export function CameraEffectBrowser() {
           );
         })}
       </div>
+
+      {profileUserId && <UserProfileDialog userId={profileUserId} abovePopups={inPopup} onClose={() => setProfileUserId(null)} />}
 
       {reporting && (
         <ReportDialog
@@ -352,7 +400,7 @@ export function CameraEffectWorkshopPopup({
         <span>{t("cameraWorkshop.title")}</span>
       </div>
       <div className={`${popupstyles.body} min-h-0 overflow-y-auto`}>
-        <CameraEffectBrowser />
+        <CameraEffectBrowser inPopup />
       </div>
       <div className={popupstyles.footer}>
         <button type="button" className={popupstyles.baseButton} base-button-style="0" onClick={() => closePopup(true)}>
