@@ -4482,37 +4482,54 @@ export function useRoomMedia(room: string) {
   // swap keeps the same MediaStream, so nothing else re-renders to notice
   // (see cameraEffectsLive).
   const [cameraEffectsSwaps, setCameraEffectsSwaps] = useState(0);
-  // A swap can be turned down for passing reasons: another one under way, or a
-  // connection closing among the senders (replaceTrack rejects for all of them
-  // then). Nothing else would ask again until the picked effect changed, which
-  // left a camera started with an effect plain, so it asks again by itself.
-  const [cameraEffectsRetry, setCameraEffectsRetry] = useState(0);
-  const cameraEffectsRetries = useRef(0);
-  useEffect(() => {
-    cameraEffectsRetries.current = 0;
-  }, [wantedCameraEffects, cameraLocalStream]);
   useEffect(() => {
     cameraEffectsRef.current = wantedCameraEffects;
     setCameraEffectsTarget(wantedCameraEffects);
-    if (!wantedCameraEffects || !cameraRef.current.active || nativeDualRef.current) return;
-    const initial = cameraLocalStream?.getVideoTracks()[0];
-    if (!initial || isCameraEffectsTrack(initial) || isPhoneCameraPlaceholder(initial)) return;
-    // The plain camera keeps going out while the models load (see
-    // prepareCameraEffects); the swap is only made once they are in.
-    let cancelled = false;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
-    void prepareCameraEffects().then(() => {
-      if (cancelled || !cameraRef.current.active || nativeDualRef.current) return;
-      const track = cameraLocalStream?.getVideoTracks()[0];
-      if (!track || isCameraEffectsTrack(track) || isPhoneCameraPlaceholder(track)) return;
-      let created: MediaStreamTrack | null = null;
-      void cameraRef.current
-        .swapCapture(undefined, async (current) => {
-          created = await createCameraEffectsTrack(current);
-          return new MediaStream([created]);
-        })
-        .then((swapped) => {
-          if (!swapped && created) discardCameraEffectsTrack(created);
+    if (!wantedCameraEffects || !cameraLocalStream) return;
+    // Looked at again and again rather than once per change of these deps: a
+    // swap can be turned down or put off for passing reasons (another under way,
+    // a connection closing among the senders, the camera mid-start), and with a
+    // single look nothing asked again until the picked effect changed, leaving a
+    // camera started with an effect plain. Once the effects are in, each look is
+    // one comparison; it also catches a later swap that brought the plain camera
+    // back while the effects were not ready.
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let delay = 1000;
+    let lastReason = "";
+    const note = (reason: string) => {
+      if (reason === lastReason) return;
+      lastReason = reason;
+      console.info(`[camera-effects] ${reason}`);
+    };
+    // Why the camera cannot take the effects now, or null if it can.
+    const blocked = () => {
+      const cam = cameraRef.current;
+      if (!cam.active) return "waiting: camera not active";
+      if (nativeDualRef.current) return "waiting: native dual camera";
+      const track = cameraLocalStream.getVideoTracks()[0];
+      if (!track) return "waiting: no video track";
+      if (isCameraEffectsTrack(track)) return "effects in the camera";
+      if (isPhoneCameraPlaceholder(track)) return "waiting: phone placeholder";
+      return null;
+    };
+    const look = async () => {
+      const reason = blocked();
+      if (reason) {
+        note(reason);
+        delay = 1000;
+      } else {
+        // The plain camera keeps going out while the models load (see
+        // prepareCameraEffects); the swap is only made once they are in.
+        note("preparing");
+        await prepareCameraEffects();
+        if (stopped) return;
+        if (!blocked()) {
+          let created: MediaStreamTrack | null = null;
+          const swapped = await cameraRef.current.swapCapture(undefined, async (current) => {
+            created = await createCameraEffectsTrack(current);
+            return new MediaStream([created]);
+          });
           if (swapped) {
             setCameraEffectsSwaps((n) => n + 1);
             // The same stream with another track in it, which a <video> already
@@ -4523,17 +4540,22 @@ export function useRoomMedia(room: string) {
               video.srcObject = cameraLocalStream;
               void video.play().catch(() => {});
             });
-          } else if (!cancelled && cameraEffectsRetries.current < 10) {
-            cameraEffectsRetries.current += 1;
-            retryTimer = setTimeout(() => setCameraEffectsRetry((n) => n + 1), 1000);
+            delay = 1000;
+          } else {
+            if (created) discardCameraEffectsTrack(created);
+            note("swap turned down, will try again");
+            delay = Math.min(delay * 2, 10_000);
           }
-        });
-    });
-    return () => {
-      cancelled = true;
-      if (retryTimer) clearTimeout(retryTimer);
+        }
+      }
+      if (!stopped) timer = setTimeout(() => void look(), delay);
     };
-  }, [wantedCameraEffects, cameraLocalStream, cameraEffectsRetry]);
+    void look();
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [wantedCameraEffects, cameraLocalStream]);
 
   // "Celular como câmera": the relay socket while the switch is on, and the
   // room's camera following the phone — on when the phone starts by itself
