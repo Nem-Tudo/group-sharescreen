@@ -3782,6 +3782,7 @@
   "watch.watchRoom.cameraCustomAnchorCheekLeft": "Mejilla izquierda",
   "watch.watchRoom.cameraCustomAnchorMouth": "Boca",
   "watch.watchRoom.cameraCustomAnchorChin": "Barbilla",
+  "cameraWorkshop.openPage": "Abrir página de efectos",
   "pro.proPanel.putEffectsOnOthers": "Pon efectos en la cámara de otras personas de la sala",
   "cameraOthers.put": "Poner un efecto en su cámara",
   "cameraOthers.putHint": "{name} verá que fuiste tú y podrá quitarlo cuando quiera. Solo funciona con su cámara encendida.",

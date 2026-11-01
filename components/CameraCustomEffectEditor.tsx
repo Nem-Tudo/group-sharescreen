@@ -129,9 +129,6 @@ export function CameraCustomEffectHost({
     if (!editingId) return;
     if (editingId === CUSTOM_EFFECT_WORKSHOP) {
       void openPopup("camera_effect_workshop", {
-        maxWidth: "min(52rem, calc(100vw - 2rem))",
-        width: "min(52rem, calc(100vw - 2rem))",
-        maxHeight: "90dvh",
         onClose: () => openCustomEffectEditor(null),
         data: {},
       });

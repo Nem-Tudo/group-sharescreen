@@ -3782,6 +3782,7 @@
   "watch.watchRoom.cameraCustomAnchorCheekLeft": "Left cheek",
   "watch.watchRoom.cameraCustomAnchorMouth": "Mouth",
   "watch.watchRoom.cameraCustomAnchorChin": "Chin",
+  "cameraWorkshop.openPage": "Open effects page",
   "pro.proPanel.putEffectsOnOthers": "Put effects on other people's cameras in a room",
   "cameraOthers.put": "Put an effect on their camera",
   "cameraOthers.putHint": "{name} will see it was you and can take it off anytime. Only works with their camera on.",
