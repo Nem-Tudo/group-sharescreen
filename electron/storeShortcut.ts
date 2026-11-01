@@ -23,6 +23,13 @@ import fs from "node:fs";
 // Must match appx.applicationId in electron-builder.yml.
 const APPLICATION_ID = "GoLive";
 
+// Spelled out rather than app.getName(), which answers "sharescreen": there is
+// no productName in package.json, and adding one would move userData and log
+// everyone out.
+const SHORTCUT_FILE = "Go Live.lnk";
+// What the builds up to 1.0.28 called it, by way of app.getName().
+const LEGACY_SHORTCUT_FILE = "sharescreen.lnk";
+
 /**
  * <name>_<publisherId>, read off the install folder's name
  * (<name>_<version>_<arch>_<resourceId>_<publisherId>). Null when the
@@ -40,17 +47,45 @@ function packageFamilyName(): string | null {
   return name && publisherId ? `${name}_${publisherId}` : null;
 }
 
+/**
+ * Corrects the name on a shortcut an older build already made. Only one that
+ * opens this package: a "sharescreen.lnk" pointing anywhere else is not ours.
+ * Runs past the marker on purpose, since those installs have one already; a
+ * shortcut they deleted or renamed is simply not found.
+ */
+function renameLegacyShortcut(shortcut: string, family: string): void {
+  const legacy = path.join(path.dirname(shortcut), LEGACY_SHORTCUT_FILE);
+  try {
+    if (!fs.existsSync(legacy) || fs.existsSync(shortcut)) return;
+    if (!shell.readShortcutLink(legacy).args?.includes(family)) return;
+    fs.renameSync(legacy, shortcut);
+  } catch {
+    // Keeps its old name and is retried next launch.
+  }
+}
+
 export function createStoreDesktopShortcutOnce(): void {
   if (process.platform !== "win32" || !process.windowsStore) return;
+
+  const family = packageFamilyName();
+  if (!family) return;
+  const shortcut = path.join(app.getPath("desktop"), SHORTCUT_FILE);
+  renameLegacyShortcut(shortcut, family);
 
   const marker = path.join(app.getPath("userData"), "store-shortcut-initialized");
   if (fs.existsSync(marker)) return;
 
-  const family = packageFamilyName();
   const localAppData = process.env.LOCALAPPDATA;
-  if (!family || !localAppData) return;
+  if (!localAppData) return;
 
   try {
+    // The NSIS installer's shortcut has this same name, and "create" would
+    // overwrite it with one that opens a different copy of the app.
+    if (fs.existsSync(shortcut)) {
+      fs.writeFileSync(marker, String(Date.now()));
+      return;
+    }
+
     let icon: string | undefined;
     try {
       const dir = path.join(localAppData, "Packages", family, "LocalState");
@@ -64,7 +99,7 @@ export function createStoreDesktopShortcutOnce(): void {
     }
 
     const windir = process.env.SystemRoot || "C:\\Windows";
-    const created = shell.writeShortcutLink(path.join(app.getPath("desktop"), `${app.getName()}.lnk`), "create", {
+    const created = shell.writeShortcutLink(shortcut, "create", {
       target: path.join(windir, "explorer.exe"),
       args: `shell:AppsFolder\\${family}!${APPLICATION_ID}`,
       ...(icon ? { icon, iconIndex: 0 } : {}),
