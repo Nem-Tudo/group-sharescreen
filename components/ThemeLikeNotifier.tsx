@@ -6,9 +6,10 @@ import { showNotification } from "@/lib/notifications";
 import { playFriendRequestSound } from "@/lib/soundEffects";
 import { useAuth } from "@/lib/AuthContext";
 import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
+import { translate } from "@/lib/i18n";
 import { selectThemeLikeNudge } from "@/lib/signalingSelectors";
 
-// Tells an author somebody liked one of their themes.
+// Tells an author somebody liked one of their themes, or of their camera effects.
 //
 // Mounted once at the layout root, beside GiftNotifier, for the same reason:
 // a like arrives whenever it arrives, and a bell that only filled up on the
@@ -28,17 +29,21 @@ export function ThemeLikeNotifier() {
   useEffect(() => {
     if (!account || !lastThemeLike) return;
 
-    const title = `${lastThemeLike.byName} curtiu seu tema`;
+    const effect = lastThemeLike.effect === true;
+    const title = effect
+      ? translate("cameraWorkshop.likedTitle", { name: lastThemeLike.byName })
+      : `${lastThemeLike.byName} curtiu seu tema`;
     // Named after the person and the theme rather than the moment, so the same
     // like arriving twice — two tabs, a reconnect, an unlike and a like again —
     // is one line in the bell.
-    const tag = `theme-like:${lastThemeLike.themeId}:${lastThemeLike.byId ?? "?"}`;
+    const kind = effect ? "camera-effect-like" : "theme-like";
+    const tag = `${kind}:${lastThemeLike.themeId}:${lastThemeLike.byId ?? "?"}`;
     const isNew = pushNotification({
       id: tag,
-      kind: "theme-like",
+      kind,
       title,
       body: lastThemeLike.themeName,
-      href: `/theme/${encodeURIComponent(lastThemeLike.themeId)}`,
+      href: effect ? "/workshop/effects" : `/theme/${encodeURIComponent(lastThemeLike.themeId)}`,
       userId: lastThemeLike.byId ?? undefined,
     });
     if (!isNew || !alertTarget) return;

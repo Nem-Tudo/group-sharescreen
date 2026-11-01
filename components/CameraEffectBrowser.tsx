@@ -32,6 +32,7 @@ import { useT } from "@/lib/useI18n";
 // and in the room's popup, where the camera is right behind it to try one on.
 
 const SORTS: { sort: WorkshopEffectSort; label: string }[] = [
+  { sort: "trending", label: "cameraWorkshop.sortTrending" },
   { sort: "popular", label: "cameraWorkshop.sortPopular" },
   { sort: "recent", label: "cameraWorkshop.sortRecent" },
   { sort: "liked", label: "cameraWorkshop.sortLiked" },
@@ -106,7 +107,7 @@ export function CameraEffectBrowser() {
   const local = useCustomCameraEffects();
   const settings = useCameraEffectSettings();
   const [tab, setTab] = useState<"all" | "mine">("all");
-  const [sort, setSort] = useState<WorkshopEffectSort>("popular");
+  const [sort, setSort] = useState<WorkshopEffectSort>("trending");
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [effects, setEffects] = useState<WorkshopEffect[]>([]);
@@ -217,7 +218,10 @@ export function CameraEffectBrowser() {
                   key={item.sort}
                   type="button"
                   aria-pressed={sort === item.sort}
-                  onClick={() => setSort(item.sort)}
+                  onClick={() => {
+                    if (item.sort !== sort) trackWorkshop(CAMERA_WORKSHOP_EVENTS.sort);
+                    setSort(item.sort);
+                  }}
                   className={`${CHIP} ${sort === item.sort ? CHIP_ON : CHIP_OFF}`}
                 >
                   {t(item.label)}

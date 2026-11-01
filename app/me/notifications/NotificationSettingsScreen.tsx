@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   MdArrowBack,
   MdBedtime,
+  MdAutoAwesome,
   MdCall,
   MdCardGiftcard,
   MdChatBubbleOutline,
@@ -29,7 +30,8 @@ import {
   type NotifyKind,
   type PushDevice,
 } from "@/lib/pushApi";
-import { trackFeatureEvent } from "@/lib/features";
+import { trackFeatureEvent, useFeature } from "@/lib/features";
+import { CAMERA_WORKSHOP_FEATURE } from "@/lib/cameraEffectWorkshop";
 import { markFeatureUsed } from "@/components/NewBadge";
 import { NOTIFICATION_SETTINGS_BADGE, NOTIFICATION_SETTINGS_EVENTS } from "@/lib/notificationSettings";
 import { useT } from "@/lib/useI18n";
@@ -64,12 +66,15 @@ const KINDS: { kind: NotifyKind; icon: typeof MdChatBubbleOutline; labelKey: str
   { kind: "group-message", icon: MdGroups, labelKey: "notificationSettings.kindGroup" },
   { kind: "friend-request", icon: MdPersonAdd, labelKey: "notificationSettings.kindFriend" },
   { kind: "theme-like", icon: MdPalette, labelKey: "notificationSettings.kindThemeLike" },
+  { kind: "camera-effect-like", icon: MdAutoAwesome, labelKey: "notificationSettings.kindCameraEffectLike" },
   { kind: "gift", icon: MdCardGiftcard, labelKey: "notificationSettings.kindGift" },
 ];
 
 export function NotificationSettingsScreen() {
   const t = useT();
   const { account } = useAuth();
+  // Only who is in the effects workshop has any effect to be liked.
+  const effectsWorkshop = useFeature(CAMERA_WORKSHOP_FEATURE, { track: false }).enabled;
   const { supported, permission, muted, enable, setMuted } = useNotifications();
   const { prefs, ready, setKindMuted, setQuietHours, setQuietAllowCalls } = useNotifyPrefs();
   const [devices, setDevices] = useState<PushDevice[] | null>(null);
@@ -206,7 +211,7 @@ export function NotificationSettingsScreen() {
           {t("notificationSettings.whatAboutHint")}
         </p>
         <div className="flex flex-col gap-1">
-          {KINDS.map(({ kind, icon: Icon, labelKey }) => (
+          {KINDS.filter(({ kind }) => kind !== "camera-effect-like" || effectsWorkshop).map(({ kind, icon: Icon, labelKey }) => (
             <Toggle
               key={kind}
               icon={Icon}

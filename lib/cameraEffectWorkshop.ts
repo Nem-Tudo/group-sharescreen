@@ -37,6 +37,7 @@ export const CAMERA_WORKSHOP_EVENTS = {
   limit: "camera_workshop_limit", // tentou publicar acima do limite do plano
   locked: "camera_workshop_locked", // tocou em publicar sem o plano (abriu os planos)
   report: "camera_workshop_report", // denunciou um efeito
+  sort: "camera_workshop_sort", // trocou a ordem (Em alta é a padrão)
 };
 
 /** How many effects each plan may have published. The API's cameraEffect.ts decides; this is for /pro. */
@@ -46,7 +47,7 @@ export function trackWorkshop(name: string) {
   trackFeatureEvent(name, { feature: CAMERA_WORKSHOP_FEATURE });
 }
 
-export type WorkshopEffectSort = "popular" | "recent" | "liked";
+export type WorkshopEffectSort = "trending" | "popular" | "recent" | "liked";
 
 export interface WorkshopEffect {
   id: string;

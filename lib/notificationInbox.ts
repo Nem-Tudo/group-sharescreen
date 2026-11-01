@@ -27,7 +27,8 @@ export type NotificationKind =
   | "dm"
   | "call-missed"
   | "gift"
-  | "theme-like";
+  | "theme-like"
+  | "camera-effect-like";
 
 export interface InboxNotification {
   /** Names the thing, not the moment — see the header on dedup. */

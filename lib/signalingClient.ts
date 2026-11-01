@@ -236,6 +236,8 @@ export type ThemeLikedEvent = {
   themeName: string;
   byId: string | null;
   byName: string;
+  // The liked thing was a camera effect (themeId and themeName are the effect's).
+  effect?: boolean;
 };
 
 /** The colour of the indicator beside a person's name (see lib/presence.ts and
@@ -2645,6 +2647,17 @@ class SignalingClient {
             themeName: typeof msg.themeName === "string" ? msg.themeName : "seu tema",
             byId: typeof msg.byId === "string" ? msg.byId : null,
             byName: typeof msg.byName === "string" ? msg.byName : translate("common.someone"),
+          },
+        });
+        break;
+      case "camera-effect-liked":
+        this.setState({
+          lastThemeLike: {
+            themeId: String(msg.effectId ?? ""),
+            themeName: typeof msg.effectName === "string" ? msg.effectName : "",
+            byId: typeof msg.byId === "string" ? msg.byId : null,
+            byName: typeof msg.byName === "string" ? msg.byName : translate("common.someone"),
+            effect: true,
           },
         });
         break;
