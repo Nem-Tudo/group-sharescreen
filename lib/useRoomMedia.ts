@@ -4482,6 +4482,15 @@ export function useRoomMedia(room: string) {
   // swap keeps the same MediaStream, so nothing else re-renders to notice
   // (see cameraEffectsLive).
   const [cameraEffectsSwaps, setCameraEffectsSwaps] = useState(0);
+  // A swap can be turned down for passing reasons: another one under way, or a
+  // connection closing among the senders (replaceTrack rejects for all of them
+  // then). Nothing else would ask again until the picked effect changed, which
+  // left a camera started with an effect plain, so it asks again by itself.
+  const [cameraEffectsRetry, setCameraEffectsRetry] = useState(0);
+  const cameraEffectsRetries = useRef(0);
+  useEffect(() => {
+    cameraEffectsRetries.current = 0;
+  }, [wantedCameraEffects, cameraLocalStream]);
   useEffect(() => {
     cameraEffectsRef.current = wantedCameraEffects;
     setCameraEffectsTarget(wantedCameraEffects);
@@ -4491,6 +4500,7 @@ export function useRoomMedia(room: string) {
     // The plain camera keeps going out while the models load (see
     // prepareCameraEffects); the swap is only made once they are in.
     let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     void prepareCameraEffects().then(() => {
       if (cancelled || !cameraRef.current.active || nativeDualRef.current) return;
       const track = cameraLocalStream?.getVideoTracks()[0];
@@ -4503,13 +4513,27 @@ export function useRoomMedia(room: string) {
         })
         .then((swapped) => {
           if (!swapped && created) discardCameraEffectsTrack(created);
-          if (swapped) setCameraEffectsSwaps((n) => n + 1);
+          if (swapped) {
+            setCameraEffectsSwaps((n) => n + 1);
+            // The same stream with another track in it, which a <video> already
+            // holding it does not always pick up: the person would go on seeing
+            // the plain camera in their own tile. Given the stream again.
+            document.querySelectorAll("video").forEach((video) => {
+              if (video.srcObject !== cameraLocalStream) return;
+              video.srcObject = cameraLocalStream;
+              void video.play().catch(() => {});
+            });
+          } else if (!cancelled && cameraEffectsRetries.current < 10) {
+            cameraEffectsRetries.current += 1;
+            retryTimer = setTimeout(() => setCameraEffectsRetry((n) => n + 1), 1000);
+          }
         });
     });
     return () => {
       cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [wantedCameraEffects, cameraLocalStream]);
+  }, [wantedCameraEffects, cameraLocalStream, cameraEffectsRetry]);
 
   // "Celular como câmera": the relay socket while the switch is on, and the
   // room's camera following the phone — on when the phone starts by itself

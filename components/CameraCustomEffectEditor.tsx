@@ -117,7 +117,12 @@ export function CameraCustomEffectHost({
   useEffect(() => {
     publishCustomEffectPreview(track, fallbackMirrored);
   }, [track, fallbackMirrored]);
+  // Once per opening: openPopup is a new function whenever the popups change, so
+  // opening one would otherwise run this again, and open another, without end.
+  const openedFor = useRef<string | null>(null);
   useEffect(() => {
+    if (editingId === openedFor.current) return;
+    openedFor.current = editingId;
     if (!editingId) return;
     void openPopup("camera_custom_effect", {
       maxWidth: "min(34rem, calc(100vw - 2rem))",
