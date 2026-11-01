@@ -22,6 +22,23 @@ import { openDirectMessages } from "@/lib/dmWindow";
 import type { OAuthResult } from "@/lib/oauthApi";
 import { useT } from "@/lib/useI18n";
 import { avatarShapeClass } from "@/lib/avatarShape";
+import dynamic from "next/dynamic";
+import Tippy from "@tippyjs/react";
+import {
+  AVATAR_BUILDER_FEATURE,
+  TILE_EXPERIMENT_EVENTS,
+  useTileExperimentTip,
+} from "@/lib/clipsMode";
+import { accountTierOf, tierAtLeast } from "@/lib/entitlements";
+import { trackFeatureEvent, useFeature } from "@/lib/features";
+import { LG_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
+
+// Loaded on demand: this header is on every page, and the drawings are only
+// needed by somebody who took up the tip's offer.
+const AvatarBuilderQuickDialog = dynamic(
+  () => import("@/components/AvatarBuilderDialog").then((m) => m.AvatarBuilderQuickDialog),
+  { ssr: false }
+);
 
 // Who you are, and everything you can do about it, in the header.
 //
@@ -62,6 +79,16 @@ export function AccountMenu() {
   const [oauthTicket, setOAuthTicket] = useState<
     Extract<OAuthResult, { kind: "ticket" }> | null
   >(null);
+
+  // The blue "novo" tip for the free avatars, for accounts without a plan:
+  // anybody on Pro already has the curated gallery. Only where this card is on
+  // screen, since below lg the tab bar replaces it on most pages.
+  const wide = useMediaQuery(LG_BREAKPOINT_QUERY);
+  const avatarTipEligible =
+    wide && Boolean(authAccount) && !tierAtLeast(accountTierOf(authAccount?.flags), "premium");
+  const avatarBuilder = useFeature(AVATAR_BUILDER_FEATURE, { track: avatarTipEligible });
+  const avatarTip = useTileExperimentTip("avatarBuilder", avatarTipEligible && avatarBuilder.enabled);
+  const [avatarBuilderOpen, setAvatarBuilderOpen] = useState(false);
 
   const name = state.name;
   const isAccount = Boolean(authAccount || state.account);
@@ -281,10 +308,57 @@ export function AccountMenu() {
   );
 
   return (
+    <>
+    <Tippy
+      visible={avatarTip.show}
+      placement="bottom-end"
+      interactive
+      theme="golive-panel"
+      appendTo={() => document.body}
+      content={
+        <span
+          role="status"
+          className="relative block w-60 rounded-lg bg-blue-600 px-3 py-2 text-left text-xs font-medium text-white shadow-lg"
+        >
+          <span className="tip-arrow absolute -top-1 right-6 h-2 w-2 rotate-45 bg-blue-600" />
+          <span className="flex items-start gap-2">
+            <span className="flex-1">{t("avatarBuilder.tip")}</span>
+            <button
+              type="button"
+              onClick={avatarTip.dismiss}
+              aria-label={t("watch.watchRoom.clipsModeTipDismiss")}
+              className="-m-1 rounded p-1 leading-none text-white/80 hover:text-white"
+            >
+              ✕
+            </button>
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              avatarTip.clicked();
+              const events = TILE_EXPERIMENT_EVENTS.avatarBuilder;
+              trackFeatureEvent(events.tipOpen, { feature: AVATAR_BUILDER_FEATURE });
+              trackFeatureEvent(events.open, { feature: AVATAR_BUILDER_FEATURE });
+              setAvatarBuilderOpen(true);
+            }}
+            className="mt-2 cursor-pointer rounded-md bg-white px-2.5 py-1 text-xs font-semibold text-blue-700 transition hover:bg-blue-50"
+          >
+            {t("avatarBuilder.tipAction")}
+          </button>
+        </span>
+      }
+    >
+    {/* A wrapper for the tip to hold on to: Popover already owns the button's
+        ref, and it stays mounted so the menu survives the tip going away. */}
+    <span className="flex shrink-0">
     <Popover content={panel} open={open} onClose={close} placement="bottom-end">
       <button
         type="button"
-        onClick={() => (open ? close() : setOpen(true))}
+        onClick={() => {
+          if (avatarTip.show) avatarTip.clicked();
+          if (open) close();
+          else setOpen(true);
+        }}
         aria-haspopup="dialog"
         aria-expanded={open}
         className="ml-1 flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-300 py-1 pr-1.5 pl-1 text-sm font-medium text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900"
@@ -317,5 +391,9 @@ export function AccountMenu() {
         <MdExpandMore className="h-4 w-4 shrink-0 text-zinc-400" />
       </button>
     </Popover>
+    </span>
+    </Tippy>
+    {avatarBuilderOpen && <AvatarBuilderQuickDialog onClose={() => setAvatarBuilderOpen(false)} />}
+    </>
   );
 }

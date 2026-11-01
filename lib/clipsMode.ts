@@ -34,7 +34,8 @@ export type TileExperiment =
   | "cameraWorkshop"
   | "phoneCamera"
   | "multiCamera"
-  | "partnerAdsCard";
+  | "partnerAdsCard"
+  | "avatarBuilder";
 
 // `defaultOn`: the switch starts on for whoever never touched it.
 const CONFIG: Record<
@@ -206,6 +207,15 @@ const CONFIG: Record<
     tipKey: "sharescreen:partnerAdsCardTipSeen",
     defaultOn: true,
   },
+  // "Criar meu avatar" (ver components/AvatarBuilderDialog). Como o
+  // callRecording: aqui só pela dica azul, que fica no card da conta do
+  // cabeçalho (components/AccountMenu), sem interruptor.
+  avatarBuilder: {
+    feature: "avatar-builder",
+    modeKey: "sharescreen:avatarBuilderMode",
+    tipKey: "sharescreen:avatarBuilderTipSeen",
+    defaultOn: true,
+  },
   musicQueue: {
     feature: "room-music-queue",
     modeKey: "sharescreen:musicQueueMode",
@@ -324,6 +334,13 @@ export const TILE_EXPERIMENT_EVENTS = {
     modeOn: "partner_ads_card_on",
     modeOff: "partner_ads_card_off",
   },
+  // Sem interruptor (ver CONFIG): os dois de modo nunca são enviados.
+  avatarBuilder: {
+    modeOn: "avatar_builder_on",
+    modeOff: "avatar_builder_off",
+    open: "avatar_builder_open",
+    tipOpen: "avatar_builder_tip_open", // abriu o editor pelo botão da dica
+  },
   musicQueue: {
     // Nomes de "modo" aqui são a aba, não a ordem aleatória: o interruptor
     // desse experimento é o botão que abre a lista.
@@ -347,6 +364,7 @@ export const TILE_EXPERIMENT_EVENTS = {
 // shows it as the blue count beside "Exposições".
 export const VSCODE_EDITOR_FEATURE = "room-code-vscode";
 export const UNIVER_SHEET_FEATURE = "room-sheet-univer";
+export const AVATAR_BUILDER_FEATURE = "avatar-builder";
 
 export const TIP_CLICK_EVENT = "new_feature_tip_click";
 

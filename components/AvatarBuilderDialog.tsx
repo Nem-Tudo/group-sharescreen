@@ -15,8 +15,10 @@ import {
   type AvatarConfig,
   type AvatarSlotKey,
 } from "@/lib/avatarBuilder";
-import { shapeRoundingClass, stripAvatarShape, type AvatarShape } from "@/lib/avatarShape";
+import { avatarShapeOf, shapeRoundingClass, stripAvatarShape, type AvatarShape } from "@/lib/avatarShape";
+import { AVATAR_BUILDER_FEATURE } from "@/lib/clipsMode";
 import { trackFeatureEvent, useFeature } from "@/lib/features";
+import { useAuth } from "@/lib/AuthContext";
 import { useI18n } from "@/lib/useI18n";
 
 // Putting together a free avatar: every choice is a row of options, each one
@@ -28,8 +30,6 @@ import { useI18n } from "@/lib/useI18n";
 //
 // Portalled to the body for the same reason as ImageCropDialog: it opens from
 // inside the profile card, which is overflow-hidden and sits in a popup.
-
-export const AVATAR_BUILDER_FEATURE = "avatar-builder";
 
 export const AVATAR_BUILDER_EVENTS = {
   open: "avatar_builder_open",
@@ -139,15 +139,56 @@ function OptionRow({
   );
 }
 
+/**
+ * The editor on its own, away from the profile form (the blue tip on the
+ * header's account card): nothing else is waiting to be saved there, so
+ * confirming stores the avatar right away.
+ */
+export function AvatarBuilderQuickDialog({ onClose }: { onClose: () => void }) {
+  const { t } = useI18n();
+  const { account, updateProfile } = useAuth();
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const current = account?.avatarUrl ?? null;
+
+  async function save(path: string) {
+    setSaving(true);
+    setError(null);
+    try {
+      await updateProfile({ avatar: path });
+      trackAvatarBuilderSave(path);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("userProfileCard.couldNotSaveTheChanges"));
+      setSaving(false);
+    }
+  }
+
+  return (
+    <AvatarBuilderDialog
+      current={current}
+      shape={avatarShapeOf(current)}
+      saving={saving}
+      error={error}
+      onCancel={onClose}
+      onConfirm={save}
+    />
+  );
+}
+
 export function AvatarBuilderDialog({
   current,
   shape,
+  saving = false,
+  error = null,
   onCancel,
   onConfirm,
 }: {
   /** The avatar being edited. A built one opens as it is, to be tweaked. */
   current: string | null;
   shape: AvatarShape;
+  saving?: boolean;
+  error?: string | null;
   onCancel: () => void;
   onConfirm: (path: string) => void;
 }) {
@@ -232,6 +273,8 @@ export function AvatarBuilderDialog({
           </div>
         </div>
 
+        {error && <p className="shrink-0 text-right text-xs text-red-500">{error}</p>}
+
         <div className="flex shrink-0 justify-end gap-2">
           <button
             type="button"
@@ -242,12 +285,13 @@ export function AvatarBuilderDialog({
           </button>
           <button
             type="button"
+            disabled={saving}
             onClick={() => {
               track(AVATAR_BUILDER_EVENTS.apply);
               markFeatureUsed(AVATAR_BUILDER_FEATURE);
               onConfirm(avatarPathFor(config));
             }}
-            className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-emerald-700"
+            className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <MdCheck className="h-4 w-4" />
             {t("avatarBuilder.apply")}

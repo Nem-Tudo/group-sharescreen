@@ -5666,5 +5666,7 @@
   "avatarBuilder.slot.eyewear": "Gafas",
   "avatarBuilder.slot.headwear": "En la cabeza",
   "avatarBuilder.slot.earrings": "Aretes",
-  "avatarBuilder.slot.background": "Color de fondo"
+  "avatarBuilder.slot.background": "Color de fondo",
+  "avatarBuilder.tip": "Nuevo: ¡crea tu avatar gratis! Elige piel, cabello, ropa, accesorios y fondo.",
+  "avatarBuilder.tipAction": "Crear ahora"
 }
