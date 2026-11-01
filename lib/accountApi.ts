@@ -135,6 +135,12 @@ export type PremiumState = {
   lastPaymentId: string | null;
   cancelledAt: number | null;
   /**
+   * When the current unbroken run of paid time began, which is what the Pro
+   * badge evolves on (see lib/proBadge). Stays on the row after a lapse, so it
+   * only means something while the plan is live. Absent on an older API.
+   */
+  streakStartedAt?: number | null;
+  /**
    * The last charge Mercado Pago refused, with their own reason code.
    *
    * Present so the page can say it. A declined card moves no money and
